@@ -451,10 +451,16 @@ Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
 button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the
-menu-bar bookworm. **The Feed keeps its Upload button**, and that is the one exception: "a one-shot
-import lives behind the `+`" (the G126 rule above) covers a chat export, but importing an export
-*into a chosen or newly created memory bank* has no tile, and the upload overlay is also the only
-writer of `Store.intakeInFlight` — the flag that makes the bookworm read while an import lands.
+menu-bar bookworm.
+**One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
+window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
+each `+` chat tile — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
+preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
+import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
+card that never closes on its own. `UploadOverlay` and the Feed's Upload button are gone; the router
+owns `Store.intakeInFlight` through a counter of requests in flight. The card's *Read now* is G125
+R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
+shown only when an engine can run and the import landed in the active bank.
 
 **Settings → Sleep: the engine picker (G122).** A segmented picker over the connections registry's
 candidates (Claude plan, Ollama, a BYOK key; Codex stays permanently `available: false` — G49's
@@ -508,7 +514,7 @@ hover reason, never a guess. **Refused: no clusters, no insights, no estimate, n
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
-the upload overlay runs) forces `reading` ahead of `happy`/`hungry` but never ahead of
+the intake router has a request in flight) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
 only a measured, telemetry-joined duration is ever shown.
 

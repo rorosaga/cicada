@@ -45,6 +45,14 @@ struct CicadaApp: App {
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
     @State private var browserWatcher = BrowserWatcher()
+    /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
+    /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
+    /// go through it, and its request counter owns `Store.intakeInFlight`.
+    @State private var intakeRouter = IntakeRouter()
+    /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
+    /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
+    /// `.onAppear` attaches the router.
+    @NSApplicationDelegateAdaptor(CicadaAppDelegate.self) private var appDelegate
     /// G130: the local key monitor that routes ⌘⇧= to `CicadaTheme.zoomIn()`
     /// (see `ZoomKeyRouter`). Held so `.onAppear` (which can fire again —
     /// see `enableFirstMouseAcceptance`'s own idempotence note below) never
@@ -104,6 +112,10 @@ struct CicadaApp: App {
                 .environment(usageVM)
                 .environment(store)
                 .environment(browserWatcher)
+                .environment(intakeRouter)
+                // R-IA24 — a Dock open reuses this window instead of opening a
+                // second one (the router, and its overlay, live in this one).
+                .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, newValue in
                     let mode = AppColorScheme(rawValue: newValue) ?? .dark
@@ -139,6 +151,14 @@ struct CicadaApp: App {
                     // Arms the per-browser watches and catches up on anything
                     // saved while the app was closed.
                     browserWatcher.start(store: store)
+                    // Track I T5 — the one intake owns `store.intakeInFlight`
+                    // through its request counter, and the Dock's opens wait in
+                    // `DockOpenQueue` until this line attaches it (R-IA25).
+                    intakeRouter.attach(store: store)
+                    appDelegate.opens.attach { [intakeRouter] urls in
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        intakeRouter.accept(urls: urls, from: .dock)
+                    }
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -172,6 +192,13 @@ struct CicadaApp: App {
                         },
                         onSaveClipboardURL: {
                             await menuBarManager.saveClipboardURL()
+                        },
+                        // R-IA26 — "Import a file…": bring the window forward and
+                        // open the intake idle, like File → Import….
+                        onImportFile: { [intakeRouter] in
+                            NSApplication.shared.activate(ignoringOtherApps: true)
+                            NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                            intakeRouter.present(from: .menuBar)
                         }
                     )
 
@@ -217,6 +244,12 @@ struct CicadaApp: App {
                     .keyboardShortcut("-", modifiers: .command)
                 Button("Actual Size") { CicadaTheme.resetZoom() }
                     .keyboardShortcut("0", modifiers: .command)
+            }
+            // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
+            // of every drop (design §5.1).
+            CommandGroup(after: .newItem) {
+                Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
             }
         }
 

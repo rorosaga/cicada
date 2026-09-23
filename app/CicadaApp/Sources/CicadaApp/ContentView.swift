@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var selectedTab: AppTab = .graph
@@ -30,7 +31,11 @@ struct ContentView: View {
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
     /// hand-off by switching the sidebar's own selection.
     @Environment(AppRouter.self) private var router
+    /// Track I T5 — the one intake: every file dropped on this window lands here.
+    @Environment(IntakeRouter.self) private var intake
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// True while a file is dragged over the window — shows the drop veil (I1).
+    @State private var dropTargeted = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -58,6 +63,13 @@ struct ContentView: View {
         // backed by an `@Observable` store, so each view that reads a token
         // subscribes to the mode itself and repaints on its own.
         .navigationSplitViewStyle(.prominentDetail)
+        // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
+        // while a file hovers, the overlay while the router shows it.
+        .overlay { IntakeLayer(dropTargeted: dropTargeted) }
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            IntakeDrop.load(providers) { intake.accept(urls: $0, from: .windowDrop) }
+            return true
+        }
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
         // hydrates both from disk and refreshes them itself
@@ -241,6 +253,8 @@ struct GraphContainerView: View {
     @Binding var showAskPanel: Bool
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(BanksViewModel.self) private var banksVM
+    /// Track I T5 (R-IA27) — the empty graph takes a dropped export itself.
+    @Environment(IntakeRouter.self) private var intake
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -259,7 +273,8 @@ struct GraphContainerView: View {
                     title: "Nothing here yet",
                     message: Copy.emptyGraphMessage,
                     actionLabel: "Open Integrations",
-                    settingsSection: .integrations
+                    settingsSection: .integrations,
+                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.graph)) }
                 )
             }
 

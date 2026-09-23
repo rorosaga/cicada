@@ -37,6 +37,9 @@ extension Copy {
     static let intakeFilterPlaceholder = "Filter titles"
     static let intakeFilterLabel = "Filter conversation titles"
     static let emptyStateDropHint = "Or drop a chat export here"
+    /// Gemini's walkthrough breadcrumb (Task 7), beside `claudeStepPath` and
+    /// `chatgptStepPath` in `Copy.swift` — here so this track never edits those lines.
+    static let geminiStepPath = "Takeout > Deselect all > My Activity > Gemini Apps > Export > download the .zip"
 
     static func intakeReading(_ names: [String]) -> String {
         names.count == 1 ? "Reading \(names[0])…" : "Reading \(UsageFormat.count(names.count)) files…"

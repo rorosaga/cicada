@@ -36,6 +36,8 @@ struct SourceCardGrid: View {
     /// 0 until the first layout pass; `SourceGridColumns.count` floors at 2, so
     /// the first frame draws a valid grid rather than a crash or a blank.
     @State private var containerWidth: CGFloat = 0
+    /// Track I T5 (R-IA27) — the empty grid takes a dropped export itself.
+    @Environment(IntakeRouter.self) private var intake
 
     private var columnCount: Int {
         SourceGridColumns.count(width: containerWidth, scale: CicadaTheme.uiScale)
@@ -54,7 +56,8 @@ struct SourceCardGrid: View {
                     title: "Nothing here yet",
                     message: Copy.emptySourcesMessage,
                     actionLabel: "Add a source",
-                    settingsSection: .integrations
+                    settingsSection: .integrations,
+                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sources)) }
                 )
             } else {
                 // ONE `today` per body evaluation, handed down to every tile,

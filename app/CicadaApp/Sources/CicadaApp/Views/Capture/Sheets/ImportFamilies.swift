@@ -29,7 +29,7 @@ enum ImportFamily: String, CaseIterable, Identifiable {
         switch self {
         case .browsers: "Bookmarks, Reading List, and the tabs open on your iPhone."
         case .websites: "Everything you saved on TikTok, Instagram, YouTube, LinkedIn, Reddit, Pinterest and X."
-        case .chatExports: "Your Claude and ChatGPT conversations, backdated."
+        case .chatExports: "Claude, ChatGPT and Gemini, each chat with its date."
         case .feedsAndCalendars: "Blogs, newsletters, calendars — and a Telegram bot for the road."
         case .files: "A bookmarks file, a pasted link, or Apple Notes."
         }
@@ -52,7 +52,7 @@ enum ImportFamily: String, CaseIterable, Identifiable {
         switch self {
         case .browsers: [.safari, .chrome]
         case .websites: [.tiktok, .instagram, .youtube, .linkedin, .reddit, .pinterest, .x]
-        case .chatExports: [.chatExport]
+        case .chatExports: [.claudeExport, .chatgptExport, .geminiExport]
         case .feedsAndCalendars: [.rssFeed, .calendar, .telegram]
         case .files: [.bookmarksFile, .pasteLink, .appleNotes]
         }
@@ -70,8 +70,8 @@ enum ImportFamily: String, CaseIterable, Identifiable {
     /// preferring ones with a bundled PNG or an installed app's icon (R-L1 —
     /// Apple Notes has no PNG and never will, but it does have a bundle id,
     /// so it is the Files family's one branded member). A family whose
-    /// members have neither (chat exports) still shows their SF Symbols —
-    /// never an empty cluster.
+    /// members had neither would still show their SF Symbols — never an empty
+    /// cluster; since Track I T5 gave each chat tile its vendor's mark, none does.
     var previewMarks: [AddSourceTile] {
         let branded = members.filter { $0.logoName != nil || $0.appBundleId != nil }
         return Array((branded.isEmpty ? members : branded).prefix(4))
@@ -94,7 +94,9 @@ extension AddSourceTile {
         case .linkedin: ["Saved items export"]
         case .reddit: ["Connect account", "GDPR export"]
         case .pinterest, .x: ["Connect account"]
-        case .chatExport: ["Claude export", "ChatGPT export"]
+        // Track I T5 — the one intake reads the .zip as it arrived.
+        case .claudeExport, .chatgptExport: ["The .zip, a folder, or conversations.json"]
+        case .geminiExport: ["The Takeout .zip or MyActivity.html"]
         case .rssFeed: ["Subscribe to a feed URL"]
         case .calendar: ["Subscribe to a webcal/ICS URL"]
         case .telegram: ["Your own bot"]
