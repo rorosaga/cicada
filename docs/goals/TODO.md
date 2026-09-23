@@ -273,6 +273,13 @@ subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, wi
 (PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
 generated demo bank only.
 
+**Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
+(`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Three backend-only slices can
+start now, in parallel with anything app-side: **S0** (Stage 5.57's ungated `default_summarize`, the
+duplicate `source_episode` key, the hint's voice), **S1** (checkable sources, `cicada_add_source`) and
+**S2** (a read-only checkability census that decides whether S3–S8 are built). Its five owner decisions
+are listed under Research / decisions.
+
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
 
@@ -494,6 +501,20 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
     + research-resolvable conflicts: the same judge may grep a linked repo / read a declared source and must
     cite what it checked; multi-valued predicates (`uses`) never open a conflict at all (G98)
+4e. **G61 phase 2 — check the source before asking the person** *(owner 2026-09-23: "some things can be
+    clarified by checking a link to a website or an app using browser harness or computer use … before
+    scaling it to the user itself")* — spec `docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`.
+    An escalation ladder: Cicada's own public fetch → an agent the person runs (`cicada_record_check`,
+    the G140 watch-record shape, a seventh evidence kind `source`) → the person, with the check on the card.
+    Two-witness settle (a local agent's reading + Cicada's own re-read of the same site); never a human
+    claim, never the owner's page, never a remote report; `cicada`-authored, reviewable in `inbox/settled/`,
+    one-tap "Ask me instead". Ships in **shadow** first — the owner flips auto with the numbers in view.
+    **S0–S2 are backend-only and can start now:** S0 truth + fetch hygiene (Stage 5.57's ungated
+    `default_summarize`, `add_source` on `(ref, predicate)`, the hint voiced by `added_by` and derived at
+    read, the duplicate `source_episode` key, organic resolution on `is_human`), S1 checkable sources
+    (`access`, `kind: app|repo`, predicate `locus`, `cicada_add_source`), S2 a read-only checkability
+    census that decides whether S3–S8 are worth it. S3 waits on D-AC3 and D-AC5; S7 on D-AC1 and G116(a).
+    S0–S7 $0; S8 💸 — M each
 4d′. ~~**G115 Phase 1**~~ — **shipped 2026-09-03 (`feat/inbox-phase1`)** — inbox redesign, first
    slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
@@ -625,6 +646,15 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   rule-executed Stage-5 write (recommended `cicada`, rule string in the manifest line — not yet
   ruled); (b) whether an in-conversation resolve carries `Cicada-Session:` on its `user` commit
   (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
+  — G61 phase 2 (2026-09-23) adds a second caller (a source-settled item); rule (a) once for both.
+- **G61 phase 2 owner decisions** (spec §16, $0): D-AC1 settle default (recommended: shadow first, the
+  owner flips at ≥ 20 shadow settles and ≥ 95 % agreement — never automatic); D-AC2 hosts Cicada refuses
+  to fetch (LinkedIn-class) — recommended no `Check first:` line, the person clicks through; D-AC3 a
+  seventh evidence kind `source` (a CLAUDE.md contract change; G100's derived class is read-only under
+  R-PB9, so nothing is taken from it) — recommended yes; D-AC4 = **G116(a)**
+  with a second caller — recommended `cicada` + rule in the manifest; D-AC5 contract step 2 lets an agent
+  check before asking — recommended yes. D-AC3 and D-AC5 gate S3. Choosing `auto` in D-AC1 amends
+  working-method §4's "never auto-applied" inbox ruling (G115); record the amendment there.
 - **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
   gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
 - **G141 DECIDEs** — (a) a Projects rail cell (spends a rail slot and a ⌘ number; default the seventh cell,
