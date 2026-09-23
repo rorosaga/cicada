@@ -177,7 +177,16 @@ async def rename_bank(
 async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> BankTrashResponse:
     """Move a bank to `<root>/.trash/` (G139, R-O18/R-O19) — reversible by
     hand, nothing erased. The active bank and the in-place legacy bank are
-    refused in plain words the app shows as they are."""
+    refused in plain words the app shows as they are.
+
+    409 while a Sleep cycle runs, the same guard export uses (final review):
+    a cycle resolves its bank path once at start and `/activate` is not
+    guarded, so switching away and trashing the cycle's bank would rename the
+    folder out from under its writes and strand half-written pages there."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        raise HTTPException(409, "A Sleep cycle is running — delete when it finishes.")
     root = settings.memory_root
     try:
         dst = await run_in_threadpool(bank_registry.trash_bank, root, name)

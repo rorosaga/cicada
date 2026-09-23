@@ -204,22 +204,58 @@ enum SkillInstaller {
     }
 
     private static func hashes(_ bundle: CicadaSkillBundle, _ target: Target, home: URL, installRoot: URL)
-        -> (installed: String?, marker: String?, bundled: String?, source: Data?) {
+        -> (installed: String?, marker: String?, bundled: String?, source: Data?, linked: Bool) {
         let folder = target.folder(home: home, bundle: bundle)
         let source = try? Data(contentsOf: installRoot.appendingPathComponent(bundle.sourcePath))
         let installed = (try? Data(contentsOf: folder.appendingPathComponent("SKILL.md"))).map(sha256)
         let marker = (try? Data(contentsOf: folder.appendingPathComponent(markerFile)))
             .flatMap { try? JSONDecoder().decode(Marker.self, from: $0) }?.sha256
-        return (installed, marker, source.map(sha256), source)
+        return (installed, marker, source.map(sha256), source, linkedElsewhere(folder, installRoot: installRoot))
+    }
+
+    /// True when the skill folder is not a plain folder of the agent's own —
+    /// the folder, its SKILL.md or its marker is a symlink, or the folder
+    /// resolves into the checkout (final review, first raised in Task 8 round 1).
+    /// A developer who linked `~/.claude/skills/cicada-librarian` to the repo
+    /// would otherwise be offered Install, which writes the marker into the
+    /// checkout, and then Remove, which deletes the tracked SKILL.md: R-O26's
+    /// "writes only into the agent's skill folder, removes only what it wrote"
+    /// broken twice. Such a copy is never Cicada's to touch.
+    static func linkedElsewhere(_ folder: URL, installRoot: URL) -> Bool {
+        let fm = FileManager.default
+        for url in [folder, folder.appendingPathComponent("SKILL.md"), folder.appendingPathComponent(markerFile)]
+            where (try? fm.destinationOfSymbolicLink(atPath: url.path)) != nil {
+            return true
+        }
+        let inside = resolvedPath(folder), repo = resolvedPath(installRoot)
+        return inside == repo || inside.hasPrefix(repo.hasSuffix("/") ? repo : repo + "/")
+    }
+
+    /// `resolvingSymlinksInPath()` leaves a path that does not exist yet
+    /// unresolved, so resolve the deepest existing ancestor and re-append the
+    /// rest — a not-yet-created skill folder under a linked `skills/` still
+    /// resolves to where Install would actually write.
+    private static func resolvedPath(_ url: URL) -> String {
+        var existing = url.standardizedFileURL
+        var tail: [String] = []
+        while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
+            tail.insert(existing.lastPathComponent, at: 0)
+            existing = existing.deletingLastPathComponent()
+        }
+        var resolved = existing.resolvingSymlinksInPath()
+        for component in tail { resolved.appendPathComponent(component) }
+        return resolved.standardizedFileURL.path
     }
 
     static func ownState(_ bundle: CicadaSkillBundle, _ target: Target, home: URL, installRoot: URL) -> OwnState {
         let h = hashes(bundle, target, home: home, installRoot: installRoot)
+        if h.linked { return .installedByHand(sameAsCicada: false) }
         return state(installedHash: h.installed, markerHash: h.marker, bundledHash: h.bundled)
     }
 
     static func install(_ bundle: CicadaSkillBundle, _ target: Target, home: URL, installRoot: URL) throws {
         let h = hashes(bundle, target, home: home, installRoot: installRoot)
+        guard !h.linked else { throw OwnError.notCicadasCopy }
         guard let source = h.source, let bundled = h.bundled else { throw OwnError.sourceMissing }
         switch state(installedHash: h.installed, markerHash: h.marker, bundledHash: bundled) {
         case .notInstalled, .updateAvailable, .current, .installedByHand(sameAsCicada: true): break
@@ -234,7 +270,7 @@ enum SkillInstaller {
 
     static func remove(_ bundle: CicadaSkillBundle, _ target: Target, home: URL, installRoot: URL) throws {
         let h = hashes(bundle, target, home: home, installRoot: installRoot)
-        guard let installed = h.installed, installed == h.marker else { throw OwnError.notCicadasCopy }
+        guard !h.linked, let installed = h.installed, installed == h.marker else { throw OwnError.notCicadasCopy }
         let folder = target.folder(home: home, bundle: bundle)
         try FileManager.default.removeItem(at: folder.appendingPathComponent("SKILL.md"))
         try? FileManager.default.removeItem(at: folder.appendingPathComponent(markerFile))

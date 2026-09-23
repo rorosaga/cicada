@@ -111,7 +111,10 @@ extension Copy {
     static let telemetryTitle = "Usage ledger"
     static let telemetryOn = "On — ids and counts only, never your words."
     static let telemetryOff = "Off."
-    static let telemetryHow = "Turn it off with CICADA_TELEMETRY=off in api/.env."
+    /// Not "in api/.env" (final review): `telemetry.enabled()` reads only the
+    /// process environment, pydantic's env_file never reaches `os.environ`, and
+    /// the LaunchAgent does not load api/.env — that instruction kept recording.
+    static let telemetryHow = "To turn it off, set CICADA_TELEMETRY=off in the backend's environment (its LaunchAgent) and restart it."
     static let reachingTheInternet = "Reaching the internet"
     static let outboundConnectorsTitle = "Nightly connector check"
     static let outboundConnectorsDetail = "Checks your connected apps for new saves while Sleep runs."
@@ -124,7 +127,10 @@ extension Copy {
     static let removeAllKeys = "Remove all keys…"
     static let remoteAccessTitle = "Access from other apps"
     static let transcriptsTitle = "Agent conversations"
-    static let transcriptsFact = "Cicada reads a finished turn once to capture it, and never again."
+    /// A privacy promise, and a search result's detail, so it must be true
+    /// (final review): each Stop re-reads the whole transcript
+    /// (`transcript_capture.capture_transcript`), so "once, never again" was false.
+    static let transcriptsFact = "When an agent finishes a reply, Cicada reads that conversation to keep your words and the agent's final answer. It never opens those files for anything else."
     static let bankActive = "Active"
     static func bankCounts(entities: Int, episodes: Int) -> String {
         "\(UsageFormat.count(entities)) \(entities == 1 ? "entity" : "entities") · \(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")"

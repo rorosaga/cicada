@@ -130,6 +130,48 @@ final class SkillInstallerTests: XCTestCase {
                       "a file Cicada didn't write stays")
     }
 
+    /// R-O26, final review — a skill folder linked to the checkout is never
+    /// Cicada's copy: Install would write the marker into the repo and Remove
+    /// would delete the tracked SKILL.md. Both refuse, even with a marker a
+    /// pre-fix Install already left behind in the linked folder.
+    func testASkillFolderLinkedToTheCheckoutIsNeverTouched() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("skills-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: tmp) }
+        let home = tmp.appendingPathComponent("home"), root = tmp.appendingPathComponent("repo")
+        let source = root.appendingPathComponent("skills/cicada-librarian")
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        try "lib".write(to: source.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        let folder = SkillInstaller.Target.claudeCode.folder(home: home, bundle: .cicadaLibrarian)
+        try fm.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: folder, withDestinationURL: source)
+
+        XCTAssertEqual(SkillInstaller.ownState(.cicadaLibrarian, .claudeCode, home: home, installRoot: root),
+                       .installedByHand(sameAsCicada: false))
+        XCTAssertThrowsError(try SkillInstaller.install(.cicadaLibrarian, .claudeCode, home: home, installRoot: root))
+        XCTAssertFalse(fm.fileExists(atPath: source.appendingPathComponent(SkillInstaller.markerFile).path),
+                       "no marker written into the checkout")
+
+        let hash = SkillInstaller.sha256(Data("lib".utf8))
+        let stale = try JSONEncoder().encode(SkillInstaller.Marker(sha256: hash, source: "skills/cicada-librarian/SKILL.md"))
+        try stale.write(to: source.appendingPathComponent(SkillInstaller.markerFile))
+        XCTAssertThrowsError(try SkillInstaller.remove(.cicadaLibrarian, .claudeCode, home: home, installRoot: root))
+        XCTAssertEqual(try String(contentsOf: source.appendingPathComponent("SKILL.md"), encoding: .utf8), "lib",
+                       "the tracked SKILL.md stays")
+
+        // A plain folder whose SKILL.md alone links into the checkout.
+        let cicadaFolder = SkillInstaller.Target.agents.folder(home: home, bundle: .cicada)
+        try "own".write(to: root.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        try fm.createDirectory(at: cicadaFolder, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: cicadaFolder.appendingPathComponent("SKILL.md"),
+                                  withDestinationURL: root.appendingPathComponent("SKILL.md"))
+        XCTAssertEqual(SkillInstaller.ownState(.cicada, .agents, home: home, installRoot: root),
+                       .installedByHand(sameAsCicada: false))
+        XCTAssertThrowsError(try SkillInstaller.install(.cicada, .agents, home: home, installRoot: root))
+        XCTAssertThrowsError(try SkillInstaller.remove(.cicada, .agents, home: home, installRoot: root))
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("SKILL.md"), encoding: .utf8), "own")
+    }
+
     /// R-O26 — the app names an agent's skill folders in exactly one file.
     func testOnlyTheInstallerNamesAgentSkillFolders() throws {
         let writers = try ThemeTokenTests.swiftSources().filter { file in

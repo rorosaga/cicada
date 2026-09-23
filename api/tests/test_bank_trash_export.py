@@ -101,6 +101,19 @@ def test_delete_route_and_its_refusals(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
 
 
+def test_delete_route_refuses_while_a_sleep_cycle_runs(tmp_path, monkeypatch):
+    """Final review — a cycle holds its bank path from start, and `/activate`
+    is unguarded, so trashing mid-cycle would rename the folder under its
+    writes. Refused like export; the bank stays exactly where it was."""
+    client, root = _client(tmp_path, monkeypatch)
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state", lambda: SimpleNamespace(status="running"))
+    resp = client.delete("/banks/scratch")
+    assert resp.status_code == 409 and "Sleep" in resp.json()["detail"]
+    assert (root / "banks" / "scratch" / "entities" / "alpha-project.md").exists()
+    assert not (root / ".trash").exists()
+    config.get_settings.cache_clear()
+
+
 def test_export_route_streams_and_cleans_up(tmp_path, monkeypatch):
     client, _ = _client(tmp_path, monkeypatch)
     resp = client.get("/banks/scratch/export")
