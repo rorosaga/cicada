@@ -34,14 +34,13 @@ from api.models.schemas import (
     TransclusionPayload,
 )
 from api.services import (
-    agentic_write,
     git_service,
     markdown_parser,
     provenance,
     sync_service,
     transclusion_resolver,
 )
-from api.services.claims import Claim, parse_claims
+from api.services.claims import Claim, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 router = APIRouter()
@@ -62,8 +61,8 @@ def _load_subject_claims(memory_path: Path, entity_id: str) -> list[Claim]:
     """Parse a subject's in-page BELIEFS, or raise 404 if the page is missing.
 
     A withdrawal record (``predicate: retracts``, G140 Q-R5) is bookkeeping
-    about another claim, never a belief, so it is dropped here as MCP's
-    ``_is_record`` drops it. Served, two withdrawals in one context grouped
+    about another claim, never a belief, so it is dropped here through the one
+    ``claims.is_record`` test every claim-listing surface shares. Served, two withdrawals in one context grouped
     into a "Contested beliefs" row named ``retracts`` whose values were raw
     claim ids (final review) — jargon the app's plain voice never shows.
     """
@@ -74,7 +73,7 @@ def _load_subject_claims(memory_path: Path, entity_id: str) -> list[Claim]:
         parsed = markdown_parser.parse(page)
     except Exception:
         return []
-    return [c for c in parse_claims(parsed.body) if c.predicate != agentic_write.RETRACT_PREDICATE]
+    return [c for c in parse_claims(parsed.body) if not is_record(c)]
 
 
 @router.get("/entities/{entity_id}/claims", response_model=ClaimListResponse)

@@ -47,7 +47,7 @@ from api.models.schemas import (
     ProvenanceTotals,
 )
 from api.services import bank_index, episode_ids, evidence, git_service, inbox_context, markdown_parser
-from api.services.claims import Claim, Evidence, parse_claims
+from api.services.claims import Claim, Evidence, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -428,6 +428,12 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
         if doc_id in [str(e) for e in (pfm.get("source_episodes") or [])]:
             entities.append(EpisodeCitationEntity(entity_id=subject_id, name=subject_name, type=subject_type))
         for claim in parse_claims(parsed.body):
+            # A withdrawal record (G140 Q-R5) cites the conversation it was
+            # written in, but it is bookkeeping, not a belief: listed, the
+            # reader showed the agent's reason struck through as a "No longer
+            # current" belief (final review).
+            if is_record(claim):
+                continue
             base = {
                 "claim_id": claim.id, "subject_id": subject_id, "subject_name": subject_name,
                 "subject_type": subject_type, "text": claim.text, "current": _current(claim),

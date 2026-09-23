@@ -41,7 +41,7 @@ from api.services import decay_policy, entity_body, markdown_parser, telemetry
 # `from api.services import evidence` would be shadowed inside the function.
 from api.services import evidence as evidence_mod
 from api.services.claim_reconciler import is_human, reconcile_stage3
-from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+from api.services.claims import RETRACT_PREDICATE, Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 _EP_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -500,7 +500,6 @@ def write_claim(
         }
 
 
-RETRACT_PREDICATE = "retracts"
 MAX_REASON_CHARS = 240
 # Every stdio MCP claim written before G135 R-R11 carried this author: the
 # reconcile shim's model name, stamped by `_stamp_new`. Any local agent could

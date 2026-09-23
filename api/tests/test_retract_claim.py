@@ -13,7 +13,7 @@ from _synthetic_bank import _bank
 from api import config
 from api.remote import catalog
 from api.remote.runtime import RemoteRuntime
-from api.services import agentic_write, change_timeline, markdown_parser, mcp_tools
+from api.services import agentic_write, change_timeline, markdown_parser, mcp_tools, search_index
 from api.services.claims import Claim, parse_claims, write_claims
 
 TODAY = date.today().isoformat()
@@ -221,3 +221,62 @@ def test_the_apps_claim_endpoints_never_serve_a_withdrawal_record(srv):
     timeline = asyncio.run(claims_router.get_entity_timeline(
         "alpha-project", predicate="retracts", context="general", settings=_Settings()))
     assert timeline.claims == []
+
+
+@pytest.fixture
+def app_client(srv, monkeypatch):
+    """The app's own routes over the same synthetic bank the MCP server wrote."""
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+    from api.services import bank_index
+
+    _server, memory = srv
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    bank_index.invalidate()
+    search_index.reset()
+    yield TestClient(main.app)
+    search_index.reset()
+    bank_index.invalidate()
+    config.get_settings.cache_clear()
+
+
+def _withdraw_with_the_persons_words(server) -> str:
+    claim_id = server.handle_tool("cicada_write_claim", {
+        "subject": "alpha-project", "predicate": "uses", "object": "sqlite-vec",
+        "evidence": [{"episode": "ep_2026-09-02_001", "quote": "ship alpha"}]})
+    claim_id = re.search(r"claim `([^`]+)`", claim_id).group(1)
+    _retract(server, claim_id, evidence=[{"episode": "ep_2026-09-02_001", "quote": "ship alpha"}])
+    return claim_id
+
+
+def test_search_never_serves_a_withdrawal_record_as_a_belief(srv, app_client):
+    """A record indexed as a claim came back from `/search` named with the
+    agent's reason, and the find palette listed it under "Beliefs" (final
+    review). The withdrawn claim itself stays searchable: that is history."""
+    server, memory = srv
+    claim_id = _withdraw_with_the_persons_words(server)
+    record_id = _claims(memory)[claim_id].superseded_by
+    search_index.ensure_fresh(memory, wait=True)  # else "building" and every leg is vacuously empty
+    reason = app_client.get("/search", params={"q": "engine", "kinds": "claim", "mode": "prefix"})
+    assert reason.status_code == 200, reason.text
+    assert reason.json()["indexState"] == "ready"
+    assert [h for h in reason.json()["results"] if h["kind"] == "claim"] == []
+    history = app_client.get("/search", params={"q": "sqlite", "kinds": "claim", "mode": "prefix"}).json()
+    ids = {h.get("claimId") or h.get("id") for h in history["results"] if h["kind"] == "claim"}
+    assert claim_id in ids and record_id not in ids
+
+
+def test_episode_citations_never_list_a_withdrawal_record(srv, app_client):
+    """Listed, the reader showed the agent's reason struck through under
+    "Noted from this conversation" as a "No longer current" belief (final
+    review). The withdrawn claim is still cited — closed, not hidden."""
+    server, memory = srv
+    claim_id = _withdraw_with_the_persons_words(server)
+    record_id = _claims(memory)[claim_id].superseded_by
+    got = app_client.get("/episodes/ep_2026-09-02_001/citations")
+    assert got.status_code == 200, got.text
+    rows = {c["claimId"]: c for c in got.json()["citations"]}
+    assert record_id not in rows
+    assert rows[claim_id]["current"] is False

@@ -225,6 +225,27 @@ class Claim:
         )
 
 
+# G140 Q-R5 — the predicate of a withdrawal record. `cicada_retract_claim`
+# closes the withdrawn claim and appends one of these beside it: the agent's
+# reason as `text`, the withdrawn claim's id as `object`. It lives here, not in
+# `agentic_write`, because every READER of a claims fence must drop it — and a
+# reader should not import the write path to learn what to skip.
+RETRACT_PREDICATE = "retracts"
+
+
+def is_record(claim: Claim) -> bool:
+    """Is ``claim`` a withdrawal record rather than a belief? (G140 Q-R5)
+
+    A record is bookkeeping ABOUT a claim, never a belief of its own. Served
+    as one, it read as a belief named with the agent's reason: a ``/search``
+    claim hit under "Beliefs", and a struck-through "No longer current" row in
+    an episode's citations (final review). Every surface that lists claims —
+    MCP history, the claim endpoints, the search index, episode citations —
+    filters through this one test, so a new surface has one thing to call.
+    """
+    return claim.predicate == RETRACT_PREDICATE
+
+
 def _opt_str(value: Any) -> str | None:
     """Normalize an optional scalar to ``str`` or ``None`` (YAML may parse dates)."""
     if value is None:

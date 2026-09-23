@@ -1201,8 +1201,11 @@ def _page_claims(path: Path) -> list:
 
 def _is_record(claim) -> bool:
     """A withdrawal record (``cicada_retract_claim``) is bookkeeping about a
-    claim, never a belief of its own, so no history list shows it."""
-    return claim.predicate == agentic_write.RETRACT_PREDICATE
+    claim, never a belief of its own, so no history list shows it. The test
+    itself is ``claims.is_record``, shared with every other claim surface."""
+    from api.services.claims import is_record
+
+    return is_record(claim)
 
 
 def _how_closed(old, page: list) -> str:
