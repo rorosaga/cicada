@@ -28,6 +28,21 @@ from api.services.transcript_capture import capture_transcript
 
 router = APIRouter()
 
+
+def refuse_capture_into_demo(settings: Settings = Depends(get_settings)) -> None:
+    """G141 capture-side track (R-CS15): a route dependency that answers ``409``
+    with :data:`demo_guard.REFUSAL` while the ACTIVE bank is a demo bank.
+
+    Route-level, so FastAPI solves it before the body is validated and before
+    the handler runs (checked on 0.135.3): FastAPI has already read the body,
+    but a folder batch or an upload is refused before any of it is staged.
+    Every POST/PUT under ``/capture/`` and ``/sources/`` carries it unless
+    ``test_demo_capture_routes.HANDLED_ELSEWHERE`` names why not — the Stop
+    hook redirects, Telegram replies, the intake checks its target bank."""
+    if demo_guard.is_demo(settings.memory_path):
+        raise HTTPException(status_code=409, detail=demo_guard.REFUSAL)
+
+
 # "attempt once" — this endpoint is hit on every message forwarded to the
 # bot; an unconfigured secret must not retry auto-provisioning (or spam a
 # fallback warning) on every single request.

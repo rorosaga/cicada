@@ -877,6 +877,10 @@ async def _run_engine_independent_tail(
     G140: expiry (_expire_claims_safely) shares this branch — its commit is
     scoped, but on a half-written cycle it would stage Sleep's hunks on the
     same page.
+
+    G141 capture-side track (R-CS16): on a demo bank the outside-world steps
+    are skipped; expiry, the state refresh, logos and the question refresh
+    still run.
     """
     await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
@@ -888,11 +892,20 @@ async def _run_engine_independent_tail(
         # swept into a media/feed/calendar commit with no session provenance.
         # G140 Q-R7: expiry commits itself via commit_paths; first, so no poll's git add -A can sweep it.
         await _expire_claims_safely(memory_path)
-        await _poll_connectors_safely(memory_path)
-        await _poll_feeds_and_calendars_safely(memory_path)
-        await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
-        await _resolve_papers_safely(memory_path)
-        await _replay_wispr_todos_safely(memory_path)
+        from api.services import demo_guard
+
+        if demo_guard.is_demo(memory_path):
+            # G141 capture-side track (R-CS16): a demo bank's Sleep consolidates
+            # its own made-up episodes but never takes in the outside world —
+            # the connector credentials are machine-global, so a poll here would
+            # pull the person's real saves into the demo.
+            logger.info("demo bank: connector, feed/calendar, link-backfill, paper and Wispr to-do steps skipped")
+        else:
+            await _poll_connectors_safely(memory_path)
+            await _poll_feeds_and_calendars_safely(memory_path)
+            await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+            await _resolve_papers_safely(memory_path)
+            await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
             "claim expiry, connector, feed/calendar, link-backfill, paper details and Wispr "

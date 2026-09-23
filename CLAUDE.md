@@ -144,7 +144,7 @@ Sources are many and the pipeline is **source-agnostic**: MCP-native clients, ho
 capture, chat exports, browsers (bookmarks and Safari tabs), Telegram, direct saved-content
 connectors (Pinterest/Reddit/X), RSS, calendars, files. The per-channel detail lives in
 `api/services/` and in the backlog rows that introduced each one — read the code, not a list here.
-Six rails hold across all of them:
+Seven rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
@@ -192,6 +192,20 @@ Six rails hold across all of them:
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
   names.
+- **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
+  is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
+  committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
+  generator's identity; never by its name (`api/services/demo_guard.py`). While it is active: every
+  POST/PUT under `/capture/` and `/sources/` answers **409** (one route dependency,
+  `refuse_capture_into_demo`, and a test that fails for a new route that is neither gated nor named);
+  the intake checks the bank it writes into, so `?bank=` into your own memory still works; the MCP
+  write tools refuse with a sentence the agent relays; Telegram answers 200 with a reply saying
+  nothing was saved; and the Stop hook saves the session into the real bank left most recently
+  (`last_active_at`, stamped by `activate_bank`; the response says `bank` and `redirectedFrom`), or
+  answers 409 when it cannot tell which — the next reply after switching back saves the whole
+  session. A demo bank's Sleep consolidates its own made-up episodes, but its tail skips the
+  connector, feed/calendar, link-backfill, paper and Wispr to-do steps (connector credentials are
+  machine-global). The generator itself is never gated.
 
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
