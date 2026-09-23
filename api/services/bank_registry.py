@@ -25,9 +25,12 @@ behaves *exactly* as before banks existed.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
-from datetime import date
+import time
+import zipfile
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +43,9 @@ from api.services.id_utils import sanitize_id
 REGISTRY_FILENAME = "banks.yaml"
 BANKS_SUBDIR = "banks"
 DEFAULT_BANK = "default"
+#: Deleted banks wait here, under the root, until someone empties it by hand
+#: (G139 R-O19). Never versioned, never exported, never copied.
+TRASH_DIRNAME = ".trash"
 
 # Standard memory subdirectories scaffolded for every bank. Mirrors the set
 # created by ``main.py`` lifespan so a fresh bank is immediately usable.
@@ -118,6 +124,33 @@ def _git_dir(path: Path) -> Path | None:
     return git_dir if git_dir.is_dir() else None
 
 
+def _append_exclude(path: Path, names: tuple[str, ...], header: str) -> bool:
+    """Append the missing ``names`` to the repo's ``.git/info/exclude`` under
+    ``header`` — never ``.gitignore`` (G136 R2: a tracked file dirtied here is
+    swept into the next ``git add -A`` commit under the wrong author).
+    Idempotent, never raises; a path with no git directory has nothing to
+    protect. Read with ``surrogateescape`` and appended in binary, so an odd
+    byte someone typed into the file can never block the exclusion."""
+    git_dir = _git_dir(path)
+    if git_dir is None:
+        return False
+    exclude = git_dir / "info" / "exclude"
+    try:
+        raw = exclude.read_bytes() if exclude.exists() else b""
+        have = {line.strip() for line in raw.decode("utf-8", errors="surrogateescape").splitlines()}
+        missing = [name for name in names if name not in have]
+        if not missing:
+            return False
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        lead = b"" if not raw or raw.endswith(b"\n") else b"\n"
+        with exclude.open("ab") as fh:
+            fh.write(lead + "\n".join([header, *missing]).encode("utf-8") + b"\n")
+        return True
+    except (OSError, UnicodeError, ValueError) as exc:
+        logger.warning(f"bank_registry: could not update .git/info/exclude ({exc})")
+        return False
+
+
 def ensure_derived_excluded(path: Path) -> bool:
     """Make git ignore every derived artifact in this bank, via
     ``.git/info/exclude``. Returns True when it had to add a line.
@@ -143,24 +176,7 @@ def ensure_derived_excluded(path: Path) -> bool:
     and every index build on that bank (S-back final review). Now an odd byte
     can never block the exclusion, and the bytes already there are untouched.
     """
-    git_dir = _git_dir(path)
-    if git_dir is None:
-        return False
-    exclude = git_dir / "info" / "exclude"
-    try:
-        raw = exclude.read_bytes() if exclude.exists() else b""
-        have = {line.strip() for line in raw.decode("utf-8", errors="surrogateescape").splitlines()}
-        missing = [name for name in DERIVED_ARTIFACTS if name not in have]
-        if not missing:
-            return False
-        exclude.parent.mkdir(parents=True, exist_ok=True)
-        lead = b"" if not raw or raw.endswith(b"\n") else b"\n"
-        with exclude.open("ab") as fh:
-            fh.write(lead + "\n".join([_EXCLUDE_HEADER, *missing]).encode("utf-8") + b"\n")
-        return True
-    except (OSError, UnicodeError, ValueError) as exc:
-        logger.warning(f"bank_registry: could not update .git/info/exclude ({exc})")
-        return False
+    return _append_exclude(path, DERIVED_ARTIFACTS, _EXCLUDE_HEADER)
 
 
 # --- Resolution (the load-bearing path) ------------------------------------
@@ -366,6 +382,9 @@ def list_banks(root: Path) -> dict[str, Any]:
                 "episode_count": _count(path, "episodes"),
                 "created_at": str(record.get("created", "")),
                 "description": record.get("description", "") or "",
+                # G139 R-O18: the bank that IS the memory folder — never
+                # offered for deletion (trash_bank refuses it too).
+                "legacy": bool(record.get("legacy")),
             }
         )
     return {"banks": banks, "active": active}
@@ -434,11 +453,12 @@ def duplicate_bank(root: Path, name: str, new_name: str) -> str:
 
     # Copy only memory content. When the source is the legacy default (== root),
     # we must NOT recurse into banks/ or copy banks.yaml.
+    # G139 R-O19: nor the trash of deleted banks, which sits in the root too.
     _ignore = shutil.ignore_patterns(
-        ".git", BANKS_SUBDIR, REGISTRY_FILENAME, *DERIVED_ARTIFACTS
+        ".git", BANKS_SUBDIR, REGISTRY_FILENAME, TRASH_DIRNAME, *DERIVED_ARTIFACTS
     )
     for child in src.iterdir():
-        if child.name in (".git", BANKS_SUBDIR, REGISTRY_FILENAME):
+        if child.name in (".git", BANKS_SUBDIR, REGISTRY_FILENAME, TRASH_DIRNAME):
             continue
         if child.name in DERIVED_ARTIFACTS:
             # Rebuilt on first use; copying it would put a ~30 MB blob in the
@@ -508,3 +528,114 @@ def rename_bank(root: Path, name: str, new_name: str) -> str:
         registry["active"] = new_slug
     save_registry(root, registry)
     return new_slug
+
+
+# --- Trash + export (G139, R-O18…R-O20) -------------------------------------
+
+#: An export older than this in `$CICADA_HOME/exports` was abandoned mid-download.
+_EXPORT_MAX_AGE_S = 3600
+_TRASH_EXCLUDE_HEADER = "# Cicada: deleted banks wait here, never versioned (G139)"
+#: Never exported from, or copied out of, a legacy root: other banks, the
+#: registry, and the trash.
+_ROOT_ONLY = frozenset({BANKS_SUBDIR, REGISTRY_FILENAME, TRASH_DIRNAME})
+
+
+class UnknownBank(ValueError):
+    pass
+
+
+class BankInUse(ValueError):
+    pass
+
+
+class LegacyBankInPlace(ValueError):
+    pass
+
+
+def ensure_trash_excluded(root: Path) -> bool:
+    """A legacy root IS a git repo (its bank lives in place), and a trashed
+    bank carries its own `.git` — untracked, the next `git add -A` would sweep
+    it in as a gitlink. So `.trash/` is excluded before anything moves."""
+    return _append_exclude(root, (f"{TRASH_DIRNAME}/",), _TRASH_EXCLUDE_HEADER)
+
+
+def trash_bank(root: Path, name: str, *, now: datetime | None = None) -> Path:
+    """Move a bank to `<root>/.trash/<name>-<UTC>` and drop it from the registry.
+
+    Reversible by hand — nothing is erased (spec decision 17). Refuses the
+    active bank (the backend is reading it) and a legacy bank (it IS the
+    memory folder; moving it would move every other bank with it)."""
+    root = Path(root)
+    registry = _ensure_registry(root)
+    banks = registry.setdefault("banks", {})
+    if name not in banks:
+        raise UnknownBank(f"Unknown bank '{name}'")
+    # Legacy first: the default bank is usually also the active one, and "it IS
+    # the memory folder" is the reason that stays true after a switch.
+    if (banks[name] or {}).get("legacy"):
+        raise LegacyBankInPlace(name)
+    if registry.get("active") == name:
+        raise BankInUse(name)
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    dst = root / TRASH_DIRNAME / f"{name}-{stamp}"
+    src = root / BANKS_SUBDIR / name
+    ensure_trash_excluded(root)
+    if src.exists():
+        if dst.exists():
+            raise ValueError(f"{dst.name} is already in the trash")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        src.rename(dst)   # same filesystem: both live under the root
+    del banks[name]
+    save_registry(root, registry)
+    return dst
+
+
+def export_zip(root: Path, name: str, dest_dir: Path, *, now: datetime | None = None) -> Path:
+    """Zip one bank's pages and full history into `dest_dir` (inside
+    `$CICADA_HOME`; the caller streams and deletes it, R-O20).
+
+    The archive's top folder is the bank's name. Derived files are rebuilt on
+    first use and never travel (G99); a legacy root's other banks, registry and
+    trash are not this bank; symlinks are never followed, so nothing outside
+    the bank can ride along."""
+    root = Path(root)
+    if name not in (load_registry(root).get("banks") or {}):
+        raise UnknownBank(f"Unknown bank '{name}'")
+    src = bank_dir(root, name)
+    in_place = src.resolve() == root.resolve()
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    # A download the app abandoned mid-stream never reached the response's
+    # cleanup, and every archive is a full copy of a bank: sweep any left over
+    # from more than an hour ago before writing a new one.
+    cutoff = time.time() - _EXPORT_MAX_AGE_S
+    for stale in dest_dir.glob("cicada-*.zip"):
+        try:
+            if stale.stat().st_mtime < cutoff:
+                stale.unlink()
+        except OSError:
+            pass
+    dest = dest_dir / f"cicada-{name}-{stamp}.zip"
+    # Two exports of one bank in the same second: the second must not
+    # truncate the archive the first is still streaming.
+    n = 2
+    while dest.exists():
+        dest = dest_dir / f"cicada-{name}-{stamp}-{n}.zip"
+        n += 1
+    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for dirpath, dirnames, filenames in os.walk(src, followlinks=False):
+            here = Path(dirpath)
+            rel = here.relative_to(src)
+            at_top = rel == Path(".")
+            dirnames[:] = [
+                d for d in dirnames
+                if not (here / d).is_symlink() and not (at_top and (d == TRASH_DIRNAME or (in_place and d in _ROOT_ONLY)))
+            ]
+            for fn in filenames:
+                full = here / fn
+                if full.is_symlink():
+                    continue
+                if at_top and (fn in DERIVED_ARTIFACTS or (in_place and fn in _ROOT_ONLY)):
+                    continue
+                zf.write(full, arcname=str(Path(name) / rel / fn))
+    return dest

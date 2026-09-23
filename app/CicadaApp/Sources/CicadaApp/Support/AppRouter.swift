@@ -141,6 +141,23 @@ final class AppRouter {
         return pendingAddSource
     }
 
+    /// G139 — Settings → You → "Show on graph". Stages the entity with the
+    /// tab switch, like the Feed hand-off; `ContentView` reveals it (G123).
+    var pendingRevealEntity: String?
+
+    func routeToEntity(_ id: String) {
+        pendingTab = .graph
+        pendingRevealEntity = id
+        activateMainWindow()
+    }
+
+    /// Read-then-clear, for the reason `consumeAddSource` is.
+    @discardableResult
+    func consumeRevealEntity() -> String? {
+        defer { pendingRevealEntity = nil }
+        return pendingRevealEntity
+    }
+
     /// Read-then-clear, for the same double-firing reason as `consumeAddSource`
     /// (`SourcesPageView.onAppear` and its `onChange` can both see one hand-off).
     @discardableResult

@@ -106,25 +106,13 @@ private struct TopicsListView: View {
                 !selectedLabels.isDisjoint(with: Set(entity.tags))
             }
         }
-        if searchText.isEmpty {
+        if !isSearching {
             return list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         }
-        let query = searchText.lowercased()
-        // Rank by match quality: exact > starts-with > contains > tag match
-        return list
-            .compactMap { entity -> (Entity, Int)? in
-                let name = entity.name.lowercased()
-                let tags = entity.tags.map { $0.lowercased() }
-                var score = 0
-                if name == query { score = 100 }
-                else if name.hasPrefix(query) { score = 80 }
-                else if name.contains(query) { score = 60 }
-                else if tags.contains(where: { $0.contains(query) }) { score = 40 }
-                else if entity.markdownContent.lowercased().contains(query) { score = 20 }
-                return score > 0 ? (entity, score) : nil
-            }
-            .sorted { $0.1 > $1.1 }
-            .map { $0.0 }
+        // G136 S5 — ranked by `QuickMatch` over an index folded once per graph
+        // snapshot (the old path lowercased every summary on every keystroke).
+        let allowed = Set(list.map(\.id))
+        return graphVM.clusterSearchIndex().rank(searchText).filter { allowed.contains($0.id) }
     }
 
     private var allLabels: [(String, Int)] {
@@ -156,8 +144,10 @@ private struct TopicsListView: View {
         groupedEntities.map(\.type)
     }
 
+    /// Searching once the words hold a token (`QuickMatch.tokens`) — a field
+    /// of spaces lists the clusters, not an empty "no match".
     private var isSearching: Bool {
-        !searchText.isEmpty
+        !QuickMatch.tokens(searchText).isEmpty
     }
 
     private func toggle(_ type: EntityType) {
@@ -195,30 +185,8 @@ private struct TopicsListView: View {
 
             // Search + filter row
             HStack(spacing: CicadaTheme.spacingMD) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: "magnifyingglass")
-                        .font(CicadaTheme.font(size: 12))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-
-                    TextField("Search clusters...", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-
-                    if !searchText.isEmpty {
-                        Button {
-                            searchText = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(CicadaTheme.font(size: 11))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        .buttonStyle(.cicadaPlain)
-                    }
-                }
-                .padding(.horizontal, CicadaTheme.spacingMD)
-                .padding(.vertical, CicadaTheme.spacingSM)
-                .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                CicadaSearchField(text: $searchText, prompt: "Search clusters…")
+                    .frame(maxWidth: CicadaTheme.scaled(360))
 
                 Button {
                     showFilterPopover.toggle()
@@ -319,8 +287,19 @@ private struct TopicsListView: View {
                     ScrollView {
                         LazyVStack(spacing: 2) {
                             if isSearching {
+                                if filteredEntities.isEmpty {
+                                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                                        Text("No entity matches “\(SearchAllMemoryRow.trimmed(searchText))”.")
+                                            .font(CicadaTheme.bodyFont)
+                                            .foregroundStyle(CicadaTheme.textSecondary)
+                                        SearchAllMemoryRow(query: searchText)
+                                    }
+                                    .padding(.vertical, CicadaTheme.spacingMD)
+                                }
                                 ForEach(filteredEntities) { entity in
-                                    TopicRowListItem(entity: entity, onTap: { onSelect(entity) })
+                                    TopicRowListItem(entity: entity,
+                                                     highlight: ClusterSearchIndex.titleRanges(entity.name, query: searchText),
+                                                     onTap: { onSelect(entity) })
                                 }
                             } else {
                                 ForEach(groupedEntities, id: \.type) { group in
@@ -652,6 +631,8 @@ private struct TopicsLabelPopover: View {
 
 private struct TopicRowListItem: View {
     let entity: Entity
+    /// G136 S5 — the scalar runs a search matched in the name, drawn bold.
+    var highlight: [[Int]] = []
     let onTap: () -> Void
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -661,7 +642,7 @@ private struct TopicRowListItem: View {
             HStack(spacing: CicadaTheme.spacingMD) {
                 LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 20)
 
-                Text(entity.name)
+                Text(ExcerptText.attributed(entity.name, bold: highlight))
                     .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)

@@ -31,12 +31,30 @@ final class FindPaletteModel {
     /// would clobber each other's list.
     @ObservationIgnored private let keepsRecents: Bool
 
+    /// The server tier (G136 S4): where the last pass stands, for the
+    /// hairline and the footer's second clause (design §3.6).
+    private(set) var serverPhase: FindServerPhase = .idle
+    /// The server's `indexState` for the last pass (G136 R11).
+    private(set) var indexState: String?
+    @ObservationIgnored private let api: any FindSearchAPI
+    @ObservationIgnored private let sleeper: FindSleeper
+    /// The current text's passes, and a "Show all" re-ask — tests await them.
+    @ObservationIgnored private(set) var serverTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var expandTask: Task<Void, Never>?
+
+    /// `api` and `sleeper` are injected so every test runs the passes against
+    /// a fake with a clock that never waits — no test may reach
+    /// `APIClient.shared`, which on a dev machine is the owner's live backend.
+    ///
     /// Track I part b (R-IB4) — Home hosts a second instance so a ⌘K on another
     /// page (`present` resets the query) never wipes what was left typed on
     /// Home. It passes the palette's `ask`, so the app keeps one Ask history and
     /// one `.askHistory` writer (R-SU7); `nil` builds the app's one Ask.
-    init(store: Store, ask: AskViewModel? = nil, keepsRecents: Bool = true) {
+    init(store: Store, ask: AskViewModel? = nil, keepsRecents: Bool = true,
+         api: any FindSearchAPI = APIClient.shared, sleeper: @escaping FindSleeper = FindSleepers.real) {
         self.store = store
+        self.api = api
+        self.sleeper = sleeper
         self.ask = ask ?? AskViewModel(store: store)
         self.keepsRecents = keepsRecents
     }
@@ -60,6 +78,7 @@ final class FindPaletteModel {
         results = trimmed.isEmpty ? index.emptyState(recents: recents)
                                   : FindMerge.fresh(query: text, local: index.query(trimmed))
         selection = FindSelection.initial(sections)
+        scheduleServer(trimmed)
     }
 
     /// Find ↔ Ask keeps the text (design §3.1).
@@ -68,6 +87,11 @@ final class FindPaletteModel {
         if newMode == .ask {
             ask.question = query
             mode = .ask
+            // Ask shows no rows: a search still out would only be dropped by
+            // `isCurrent` after it had already asked the backend.
+            serverTask?.cancel()
+            expandTask?.cancel()
+            serverPhase = .idle
         } else {
             mode = .find
             setQuery(ask.question)
@@ -173,8 +197,93 @@ final class FindPaletteModel {
         }
     }
 
+    /// "Show all" / "More…". A server-fed group re-asks that one kind at the
+    /// server's cap (R-SU14); the answer appends like any other pass.
     func toggleExpanded(_ group: FindGroupID) {
-        if expanded.contains(group) { expanded.remove(group) } else { expanded.insert(group) }
+        if expanded.contains(group) { expanded.remove(group); return }
+        expanded.insert(group)
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let kind = FindServerRows.kind(for: group), SearchTiming.wantsServer(q) else { return }
+        expandTask?.cancel()
+        expandTask = Task { [weak self] in
+            await self?.runPass(q, mode: "prefix", kinds: [kind], perKind: SearchTiming.expandedPerKind)
+        }
+    }
+
+    // MARK: The server tier (design §3.2 "Tier 2")
+
+    /// Debounced and cancellable: each keystroke cancels the passes in flight;
+    /// under two characters nothing is asked (R-SU2); Pass A (prefix, FTS
+    /// only) after the debounce, Pass B (hybrid) once the typing has settled.
+    private func scheduleServer(_ q: String) {
+        serverTask?.cancel()
+        expandTask?.cancel()
+        indexState = nil
+        guard SearchTiming.wantsServer(q) else {
+            serverTask = nil
+            serverPhase = .idle
+            return
+        }
+        serverPhase = .searching
+        let sleeper = self.sleeper
+        serverTask = Task { [weak self] in
+            do { try await sleeper(SearchTiming.serverDebounce) } catch { return }
+            await self?.runPass(q, mode: "prefix")
+            do { try await sleeper(SearchTiming.semanticIdle - SearchTiming.serverDebounce) } catch { return }
+            await self?.runPass(q, mode: "hybrid")
+        }
+    }
+
+    /// One pass, merged by the rule that never moves a shown row (design
+    /// §3.2). A stale answer — cancelled, or for text that has changed — is dropped.
+    func runPass(_ q: String, mode passMode: String, kinds: [String] = FindServerRows.kinds,
+                 perKind: Int = SearchTiming.perKind) async {
+        do {
+            let response = try await api.searchMemory(q, kinds: kinds, mode: passMode, perKind: perKind)
+            guard !Task.isCancelled, isCurrent(q) else { return }
+            let feed = store.sources.value ?? []
+            var context = FindServerRows.Context()
+            context.mediaURL = { id in feed.first { $0.mediaEntityId == id }?.url }
+            let rows = FindServerRows.rows(response, query: q, context: context)
+            let totals = FindServerRows.totals(response, rows: rows, kinds: kinds, perKind: perKind)
+            results = FindMerge.append(rows, totals: totals, to: results)
+            if selection.flatMap({ results.row(for: $0) }) == nil { selection = FindSelection.initial(sections) }
+            indexState = response.indexState
+            serverPhase = .done
+        } catch {
+            guard !Task.isCancelled, isCurrent(q) else { return }
+            serverPhase = FindServerPhase.isUnreachable(error) ? .unreachable : .done
+        }
+    }
+
+    private func isCurrent(_ q: String) -> Bool {
+        mode == .find && query.trimmingCharacters(in: .whitespacesAndNewlines) == q
+    }
+
+    /// "Search deeper" (design §3.6): the hybrid pass, now.
+    func searchDeeper() {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard SearchTiming.wantsServer(q) else { return }
+        serverTask?.cancel()
+        serverPhase = .searching
+        serverTask = Task { [weak self] in await self?.runPass(q, mode: "hybrid") }
+    }
+
+    /// Offered once a pass has answered and fewer than three rows stand.
+    var offersSearchDeeper: Bool {
+        mode == .find && serverPhase == .done && results.rowCount < 3
+            && SearchTiming.wantsServer(query.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Design §3.6's states, as the footer's second clause (the live region).
+    var serverNote: String? {
+        switch serverPhase {
+        case .searching: return "Searching conversations…"
+        case .unreachable: return "Conversations and beliefs need the Cicada backend. It isn't answering."
+        case .done where indexState == "building" || indexState == "unavailable":
+            return "Cicada is still reading your conversations — try again in a moment."
+        default: return nil
+        }
     }
 
     private func remember(_ key: FindRowKey) {
@@ -191,8 +300,9 @@ final class FindPaletteModel {
 
     var footerText: String {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard mode == .find else { return "" }
-        return FindRowText.footer(query: trimmed, results: results)
+        guard mode == .find, !trimmed.isEmpty else { return "" }
+        return [FindRowText.footer(query: trimmed, results: results), serverNote]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     var selectionAnnouncement: String? {

@@ -133,6 +133,7 @@ extension QuickIndex {
         nodes.compactMap { node in
             guard !node.isFacet, !node.isHub, node.type != .hub, node.type != .media else { return nil }
             var fields = [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            fields += node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
             fields += node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
             if let summary = node.summary, !summary.isEmpty {
                 fields.append(QuickMatch.Field(summary, weight: QuickMatch.Weight.body))

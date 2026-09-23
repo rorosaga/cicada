@@ -30,6 +30,7 @@ from api.models.schemas import (
     RepoContextList,
     RepoInput,
     RepoUpdateRequest,
+    VideoChapter,
 )
 from api.services import (
     decay_policy,
@@ -40,6 +41,7 @@ from api.services import (
     repo_context,
     telemetry,
 )
+from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -161,6 +163,17 @@ _SUMMARY_RE = re.compile(
 )
 
 
+def _chapters(raw) -> list[VideoChapter] | None:
+    """G140 Q-R12 — keep only well-formed rows: a hand-edited page could carry
+    anything, and absent beats a guess (R17)."""
+    if not isinstance(raw, list):
+        return None
+    out = [VideoChapter(t=c["t"], title=str(c["title"]).strip()[:120]) for c in raw
+           if isinstance(c, dict) and isinstance(c.get("t"), int) and not isinstance(c.get("t"), bool)
+           and c["t"] >= 0 and str(c.get("title") or "").strip()]
+    return out or None
+
+
 def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
     """Build the structured ``media`` block for a ``type: media`` entity.
 
@@ -180,7 +193,9 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         return None
 
     description = None
-    match = _SUMMARY_RE.search(body or "")
+    # F1 R-FX8 — the claims fence follows the last section, so on a
+    # Summary-only page (a paper's) it would ride into the description.
+    match = _SUMMARY_RE.search(strip_claims_block(body or ""))
     if match:
         text = match.group(1).strip()
         if text:
@@ -202,6 +217,7 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
             media.get("duration_s") if isinstance(media.get("duration_s"), int)
             and not isinstance(media.get("duration_s"), bool) else None
         ),
+        chapters=_chapters(media.get("chapters")),
         # G133 — `paper` on a paper page (R-LS14); absent on every other. Type-checked like
         # `duration_s`: a hand-edited `kind: [paper]` must not 500 the whole page (T4 review r1).
         kind=media.get("kind") if isinstance(media.get("kind"), str) and media.get("kind") else None,

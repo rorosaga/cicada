@@ -13,7 +13,7 @@ import yaml
 
 from api.services import markdown_parser, sleep_cycle
 from api.services.claims import Claim, write_claims
-from api.services.graph_builder import regenerate_edges_from_claims
+from api.services.graph_builder import regenerate_edges_from_claims, upsert_claim_edges
 
 
 def _write_subject(memory_path, stem, name, claims):
@@ -179,3 +179,74 @@ def test_derive_origin_table():
     assert sleep_cycle._derive_origin(None) == "unknown"
     # an already origin-shaped value passes through
     assert sleep_cycle._derive_origin("codex") == "codex"
+
+
+def _edges(tmp_path):
+    return yaml.safe_load((tmp_path / "graph_edges.yaml").read_text(encoding="utf-8"))["edges"]
+
+
+def _paper(tmp_path, *, closed=False):
+    _write_subject(tmp_path, "media-arxiv-2401-00001", "Paper Alpha", [
+        Claim(id="clm_cited", text="Cited in Alpha Project.", subject="media-arxiv-2401-00001",
+              predicate="cited-in", object="alpha-project", observer="owner",
+              valid_to="2026-09-23" if closed else None),
+        Claim(id="clm_why", text="why", subject="media-arxiv-2401-00001", predicate="saved-because",
+              object="why", object_kind="literal", observer="owner"),
+    ])
+
+
+def test_upsert_projects_only_the_named_pages_and_keeps_every_other_row(tmp_path):
+    _paper(tmp_path)
+    kept = [
+        {"source": "bob-example", "target": "alpha-project", "label": "mentions"},
+        {"source": "bob-example", "target": "sqlite-vec", "label": "uses", "observer": "agent",
+         "context": "general", "claim_id": "clm_bob", "valid_from": None},
+    ]
+    (tmp_path / "graph_edges.yaml").write_text(yaml.dump({"edges": kept}), encoding="utf-8")
+    assert upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001"]) is True
+    assert _edges(tmp_path) == kept + [{
+        "source": "media-arxiv-2401-00001", "target": "alpha-project", "label": "cited-in",
+        "observer": "owner", "context": "general", "claim_id": "clm_cited", "valid_from": None,
+    }]  # the literal `saved-because` is not an edge
+
+
+def test_upsert_is_idempotent_and_drops_a_closed_claims_row(tmp_path):
+    _paper(tmp_path)
+    assert upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001"]) is True
+    before = (tmp_path / "graph_edges.yaml").read_bytes()
+    assert upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001"]) is False
+    assert (tmp_path / "graph_edges.yaml").read_bytes() == before
+    _paper(tmp_path, closed=True)
+    assert upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001"]) is True
+    assert _edges(tmp_path) == []
+
+
+def test_upsert_writes_the_rows_the_full_regeneration_writes(tmp_path):
+    """R-FX7 — Sleep's Stage 5.7 later rewrites the same rows, not different ones."""
+    _paper(tmp_path)
+    _write_subject(tmp_path, "cicada", "Cicada", [
+        Claim(id="clm_1", text="uses sqlite-vec", subject="cicada", predicate="uses",
+              object="sqlite-vec", observer="agent", context="engineering", valid_from="2026-01-01")])
+    upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001", "cicada"])
+    ours = sorted(map(str, _edges(tmp_path)))
+    (tmp_path / "graph_edges.yaml").unlink()
+    regenerate_edges_from_claims(tmp_path)
+    assert sorted(map(str, _edges(tmp_path))) == ours
+
+
+def test_upsert_never_rewrites_a_file_it_could_not_read(tmp_path):
+    _paper(tmp_path)
+    (tmp_path / "graph_edges.yaml").write_text("edges: [unclosed", encoding="utf-8")
+    assert upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001"]) is False
+    assert (tmp_path / "graph_edges.yaml").read_text(encoding="utf-8") == "edges: [unclosed"
+
+
+def test_upsert_owns_rows_by_claim_not_by_source(tmp_path):
+    """R-FX7 — a row another page's claim projected keeps its place even when
+    its source is one of the named pages; Stage 5.7 would write it too."""
+    _paper(tmp_path)
+    other = {"source": "media-arxiv-2401-00001", "target": "gamma-project", "label": "mentions",
+             "observer": "agent", "context": "general", "claim_id": "clm_elsewhere", "valid_from": None}
+    (tmp_path / "graph_edges.yaml").write_text(yaml.dump({"edges": [other]}), encoding="utf-8")
+    assert upsert_claim_edges(tmp_path, ["media-arxiv-2401-00001"]) is True
+    assert other in _edges(tmp_path)

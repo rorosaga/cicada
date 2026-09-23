@@ -40,8 +40,8 @@ from api.services import decay_policy, entity_body, markdown_parser, telemetry
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
 from api.services import evidence as evidence_mod
-from api.services.claim_reconciler import reconcile_stage3
-from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
+from api.services.claim_reconciler import is_human, reconcile_stage3
+from api.services.claims import RETRACT_PREDICATE, Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 _EP_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -138,7 +138,12 @@ def _find_subject_candidates(memory_path: Path, subject: str, limit: int = 5) ->
 
 
 def _ensure_subject_page(
-    memory_path: Path, subject: str, predicate: str, source_episode: str | None
+    memory_path: Path,
+    subject: str,
+    predicate: str,
+    source_episode: str | None,
+    *,
+    summary: str = "",
 ) -> tuple[Path, str]:
     """Resolve the subject's entity page, creating a minimal v2 stub if absent.
 
@@ -146,6 +151,13 @@ def _ensure_subject_page(
     Sleep cycle's conflict_resolver uses (``layout_version: 2`` +
     ``entity_body.compose_body_v2``), so an agent-created page is
     indistinguishable in structure from a Sleep-created one.
+
+    ``summary`` is the new page's first line — ``write_claim`` passes the claim
+    being written (F1 R-FX9); the old ``— created via agentic write.``
+    placeholder left pages with nothing but that line and, under it, the claims
+    fence. It is used only when the page is created: a later claim never
+    rewrites a Summary, and Sleep's prose takes over once the subject is
+    consolidated.
     """
     entities_dir = memory_path / "entities"
     entities_dir.mkdir(parents=True, exist_ok=True)
@@ -186,7 +198,7 @@ def _ensure_subject_page(
         "layout_version": 2,
     }
     body = entity_body.compose_body_v2(
-        summary=f"{display_name} — created via agentic write.",
+        summary=summary or f"{display_name}.",
         key_facts=[],
         history_entries=[],
         related=[],
@@ -219,8 +231,12 @@ def _determine_action(
       claim already tops it (REJECT) or the two are tied and need a human
       call (CONFLICT_NUDGE); the existing claim stands unchanged.
     """
+    # Open copies only: ids are deterministic per (subject, predicate, object,
+    # observer), so a fact restated after G140 expiry closed it leaves the
+    # closed copy on the page under the same id. Matching that one would
+    # report a rejected restatement as "written" (Task 4 review round 1).
     for c in reconciled_claims:
-        if c.id == claim_id:
+        if c.id == claim_id and c.valid_to is None:
             if getattr(c, "_status_note", None) == "shadowed_by_human":
                 return "coexist"
             return "written"
@@ -231,6 +247,16 @@ def _determine_action(
     # Not present anywhere and no audit/nudge trail => it was folded into an
     # existing claim as a reinforcing duplicate (same object, same key).
     return "written"
+
+
+def _iso_date(value) -> str | None:
+    """``YYYY-MM-DD`` or ``None`` — a stated end is a date or it is nothing (G140 Q-R6)."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return date.fromisoformat(str(value).strip()[:10]).isoformat()
+    except ValueError:
+        return None
 
 
 def write_claim(
@@ -252,6 +278,7 @@ def write_claim(
     evidence: list[dict] | None = None,
     authored_by: str | None = None,
     forbid_owner_observer: bool = False,
+    expected_end: str | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -288,8 +315,14 @@ def write_claim(
     observer that resolves to the owner, in any of its three spellings: a
     remote app may never record the person's own words as theirs.
 
+    ``expected_end`` (G140 Q-R6): the date the fact says it ends, as
+    YYYY-MM-DD; anything else is ignored — reported back, the claim still
+    written. Stored on ``Claim.expected_end``, never as a future ``valid_to``
+    (every reader takes a set ``valid_to`` to mean closed); Sleep's
+    ``claim_expiry`` closes the claim after that day.
+
     Returns ``{subject, entity_id, claim_id, action, observer, evidence, path,
-    page_created}`` on success (``path`` memory-relative, so the caller can
+    page_created, expected_end, expected_end_ignored}`` on success (``path`` memory-relative, so the caller can
     commit exactly the page it touched — G135 R-R11),
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
     error}`` on any failure/bad input — the caller (MCP tool handler) can
@@ -371,8 +404,13 @@ def write_claim(
                     ),
                 }
 
+        # One text for both the claim and, on a page this write creates, its
+        # first Summary line (F1 R-FX9) — so the page opens with a sentence
+        # about what the agent actually said, never a placeholder.
+        claim_text = text or f"{subject_raw} {predicate_raw} {object_raw}"
         page, entity_id = _ensure_subject_page(
-            memory_path, subject_raw, predicate_raw, source_episode
+            memory_path, subject_raw, predicate_raw, source_episode,
+            summary=entity_body.summary_line(claim_text, predicate=predicate_raw),
         )
 
         predicate_slug = sanitize_id(predicate_raw) or "relates-to"
@@ -393,6 +431,7 @@ def write_claim(
         )
 
         claim_id = _claim_id(entity_id, predicate_slug, object_raw, observer)
+        end = _iso_date(expected_end)
         spans = evidence_mod.verify_many(memory_path, evidence)
         if not spans:
             # R6: no citation → one `reasoning` entry on the source episode.
@@ -404,7 +443,7 @@ def write_claim(
             ]
         new_claim = Claim(
             id=claim_id,
-            text=text or f"{subject_raw} {predicate_raw} {object_raw}",
+            text=claim_text,
             subject=entity_id,
             predicate=predicate_slug,
             object=object_raw,
@@ -420,6 +459,7 @@ def write_claim(
             session_id=(session_id or "").strip() or None,
             evidence=spans,
             authored_by=(authored_by or "").strip() or None,
+            expected_end=end,
         )
 
         parsed = markdown_parser.parse(page)
@@ -484,6 +524,8 @@ def write_claim(
             # `entities/<id>.md`, so the page is always under `entities/`.
             "path": f"entities/{page.name}",
             "page_created": existing_page is None,
+            "expected_end": end,
+            "expected_end_ignored": bool(expected_end) and end is None,
         }
     except Exception as exc:  # never raise on a normal input
         logger.warning(
@@ -498,6 +540,130 @@ def write_claim(
             "observer": observer,
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+
+MAX_REASON_CHARS = 240
+# Every stdio MCP claim written before G135 R-R11 carried this author: the
+# reconcile shim's model name, stamped by `_stamp_new`. Any local agent could
+# have written it, so any local agent may withdraw it (Q-R5) — but ONLY when
+# its origin says stdio MCP. `_stamp_new` stamps the same placeholder on every
+# claim that arrives without `authored_by`, Telegram's user-stated
+# `saved-because` among them, so the author alone does not mean "an agent
+# wrote this" (final review, the T3 r1 M1 finding).
+_LEGACY_MCP_AUTHOR = _ReconcileSettings.litellm_model
+_LEGACY_MCP_ORIGIN = "mcp"
+
+
+def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
+    """May this caller withdraw ``claim``? Only its own (G140 Q-R5).
+
+    A remote connection owns exactly the claims stamped ``remote:<its id>``
+    (R-R23); a local agent owns what its harness label authored, or the
+    pre-G135 placeholder on a claim whose origin is ``mcp``, and never a
+    remote app's. Nobody but the person
+    withdraws a human claim — ``is_human`` is the same protection Stage 3
+    gives it — and a Sleep claim's author is a model id, so it never matches.
+    """
+    if is_human(claim):
+        return False
+    claim_origin = claim.origin or ""
+    if origin and origin.startswith("remote:"):
+        return claim_origin == origin
+    if claim_origin.startswith("remote:"):
+        return False
+    authored_by = claim.authored_by or ""
+    return authored_by == author or (
+        authored_by == _LEGACY_MCP_AUTHOR and claim_origin == _LEGACY_MCP_ORIGIN
+    )
+
+
+def retract_claim(
+    memory_path: Path,
+    subject: str,
+    claim_id: str,
+    *,
+    reason: str,
+    author: str,
+    origin: str | None = None,
+    session_id: str | None = None,
+    evidence: list[dict] | None = None,
+    today: date | None = None,
+) -> dict:
+    """Withdraw one claim this caller wrote, keeping it as history (G140 Q-R5, R3 P7).
+
+    Instinct forgets an explicit negation; Cicada only ever closed a claim
+    when Sleep later extracted the correction, so an agent that recorded
+    something wrong could not say so. This closes the TARGET the way Stage 3
+    does (``valid_to`` = today, ``superseded_by`` = the record) and appends a
+    RECORD claim that holds the why: ``predicate: retracts``, ``object`` = the
+    target id, ``text`` = the reason, ``evidence`` = the caller's verified
+    quotes (the person's "that's wrong") or ``reasoning``. The record is born
+    closed (``valid_from == valid_to``) — history, never a current belief —
+    and nothing is deleted. Never raises.
+    """
+    reason = " ".join(str(reason or "").split())[:MAX_REASON_CHARS]
+    if not reason:
+        return {"action": "error", "error": "a reason is required — say why the claim is wrong; nothing was changed"}
+    memory_path = Path(memory_path)
+    page = resolve_entity_file(memory_path, (subject or "").strip())
+    if page is None or not page.exists():
+        return {"action": "not_found", "error": f"no page for subject {subject!r}"}
+    try:
+        parsed = markdown_parser.parse(page)
+        claims = parse_claims(parsed.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        return {"action": "error", "error": f"the page's claims block is unreadable ({exc}); nothing was changed"}
+    except Exception as exc:  # noqa: BLE001 — a bad page is an error reply, never a crashed tool
+        return {"action": "error", "error": f"the page could not be read ({type(exc).__name__}); nothing was changed"}
+    # An id is minted from its fact (`_claim_id`), so withdraw → restate
+    # leaves TWO claims with this id: the closed one and the open restatement.
+    # Taking the first match answered "already closed" while the fact read as
+    # current (final review) — the open copy is the one being withdrawn.
+    same = [c for c in claims if c.id == claim_id]
+    target = next((c for c in same if c.valid_to is None), same[0] if same else None)
+    if target is None:
+        return {"action": "not_found", "entity_id": page.stem, "error": f"no claim {claim_id!r} on {page.stem}"}
+    if target.valid_to is not None:
+        return {"action": "already_closed", "entity_id": page.stem, "claim_id": claim_id,
+                "valid_to": target.valid_to}
+    if not owns(target, author=author, origin=origin):
+        return {"action": "not_yours", "entity_id": page.stem, "claim_id": claim_id}
+    day = (today or date.today()).isoformat()
+    spans = evidence_mod.verify_many(memory_path, evidence) or [evidence_mod.reasoning("")]
+    # The record id must differ per withdrawal of the same id, or the second
+    # record would collide with the first and `superseded_by` would point at
+    # both. The first keeps the plain seed, so its id is what it always was.
+    prior = sum(1 for c in claims if c.predicate == RETRACT_PREDICATE and c.object == claim_id)
+    seed = claim_id if prior == 0 else f"{claim_id}\x00{prior}"
+    record = Claim(
+        id=f"clm_retract_{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}",
+        text=reason,
+        subject=target.subject or page.stem,
+        predicate=RETRACT_PREDICATE,
+        object=target.id,
+        object_kind="literal",
+        observer=target.observer,
+        context=target.context,
+        epistemic="explicit",
+        source_trust=target.source_trust,
+        confidence=1.0,
+        valid_from=day,
+        valid_to=day,
+        supersedes=target.id,
+        recorded_at=day,
+        authored_by=author,
+        origin=origin or target.origin,
+        session_id=(session_id or "").strip() or None,
+        evidence=spans,
+    )
+    target.valid_to = day
+    target.superseded_by = record.id
+    try:
+        markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, [*claims, record]))
+    except OSError as exc:
+        return {"action": "error", "error": f"the page could not be written ({type(exc).__name__}); nothing was changed"}
+    return {"action": "retracted", "entity_id": page.stem, "claim_id": claim_id, "record_id": record.id,
+            "path": f"entities/{page.name}", "evidence": [e.to_dict() for e in spans]}
 
 
 def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:

@@ -100,4 +100,28 @@ final class QuickMatchTests: XCTestCase {
         XCTAssertTrue(QuickMatch.matches("gra", fields: [QuickMatch.Field("Graph physics", weight: 1)]))
         XCTAssertFalse(QuickMatch.matches("zeta", fields: [QuickMatch.Field("Graph physics", weight: 1)]))
     }
+
+    // Settings search (G139) ranks through this same file; these pin what its
+    // index leans on beyond the palette's tests.
+
+    func testAnUppercaseAccentedQueryFindsTheFoldedTitle() {
+        XCTAssertEqual(tier("ZÜR", "Zürich"), .prefix)
+        XCTAssertEqual(tier("ZUR", "Zürich"), .prefix)
+    }
+
+    func testANameOutweighsTheSameTierInAKeyword() {
+        let inName = QuickMatch.match(QuickMatch.tokens("zoom"),
+                                      fields: [QuickMatch.Field("Zoom", weight: QuickMatch.Weight.name)])!
+        let inKeyword = QuickMatch.match(QuickMatch.tokens("zoom"),
+                                         fields: [QuickMatch.Field("Text size", weight: QuickMatch.Weight.name),
+                                                  QuickMatch.Field("zoom", weight: QuickMatch.Weight.keyword)])!
+        XCTAssertGreaterThan(inName.score, inKeyword.score)
+        XCTAssertTrue(inKeyword.ranges(inField: 0).isEmpty, "a keyword hit bolds nothing in the title")
+    }
+
+    func testAWordStartInTheTitleBoldsThatWord() {
+        let m = QuickMatch.match(QuickMatch.tokens("size"),
+                                 fields: [QuickMatch.Field("Text size", weight: QuickMatch.Weight.name)])
+        XCTAssertEqual(m?.ranges(inField: 0), [[5, 9]])
+    }
 }

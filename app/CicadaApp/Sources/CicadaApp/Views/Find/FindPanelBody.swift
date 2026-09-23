@@ -37,7 +37,18 @@ struct FindPanelBody: View {
         VStack(spacing: 0) {
             field
             if Self.showsBody(placement: placement, query: model.query, mode: model.mode) {
+                // Design §3.6: a hairline while the server tier is out, drawn as an
+                // overlay on the divider so it takes no layout — as a VStack child it
+                // pushed every shown row down on each pause and pulled them back when
+                // the server answered, breaking §3.2's "nothing shown moves" (S-ui
+                // final review). Under Reduce Motion there is no indeterminate bar —
+                // the footer's "Searching conversations…" is its text twin.
                 Divider().background(CicadaTheme.border)
+                    .overlay(alignment: .top) {
+                        if model.mode == .find, model.serverPhase == .searching, !reduceMotion {
+                            ProgressView().progressViewStyle(.linear).controlSize(.mini).accessibilityHidden(true)
+                        }
+                    }
                 Group {
                     if model.mode == .ask {
                         AskPanel(onSelectEntity: { run(.entity(id: $0)) }, hostedViewModel: model.ask)
@@ -114,6 +125,15 @@ struct FindPanelBody: View {
                         }
                         if let more = section.more { moreRow(section.group, more) }
                     }
+                    if model.offersSearchDeeper {
+                        Button { model.searchDeeper() } label: {
+                            Label("Search deeper", systemImage: "sparkle.magnifyingglass").font(CicadaTheme.captionFont)
+                        }
+                        .buttonStyle(.cicadaPlain)
+                        .foregroundStyle(CicadaTheme.accent)
+                        .padding(.horizontal, CicadaTheme.spacingMD)
+                        .help("Also find things that mean the same, not only the same words")
+                    }
                     if let hint = model.hint {
                         Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -132,11 +152,10 @@ struct FindPanelBody: View {
     private var emptyMessage: some View {
         let trimmed = model.query.trimmingCharacters(in: .whitespacesAndNewlines)
         return Text(trimmed.isEmpty
-                    // Only what the local tier searches today: conversations
-                    // come back with the server tier's group (Task 4), so
-                    // naming them here promised a search that never ran
-                    // (final review, finding 4).
-                    ? "Type to find anything Cicada remembers — people, projects, saved links, questions and settings."
+                    // Only what a search actually reaches (final review,
+                    // finding 4): conversations and beliefs arrive with the
+                    // server tier (G136 S4), so they are named now.
+                    ? "Type to find anything Cicada remembers — people, projects, conversations, beliefs, saved links, questions and settings."
                     : "Nothing matches “\(trimmed)”.")
             .font(CicadaTheme.bodyFont)
             .foregroundStyle(CicadaTheme.textSecondary)

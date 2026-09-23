@@ -263,3 +263,45 @@ def test_the_two_new_wire_fields_are_additive_and_optional():
         media_entity_id="media-b", url="https://vimeo.com/1", title="B",
         media_type="url", saved_at="2026-09-05T00:00:00+00:00",
         provider="vimeo", duration_s=95).model_dump(by_alias=True)
+
+
+# --- G140 Q-R12: descriptions and chapters, fields only ----------------------
+
+
+def test_vimeo_and_loom_keep_their_description_and_its_chapters():
+    desc = "A tour of alpha.\n0:00 Intro\n1:05 Indexing\n12:40 Wrap-up"
+    for url in ("https://vimeo.com/123456789", "https://www.loom.com/share/abc123def4567890abc123def4567890"):
+        client = FakeClient(FakeResponse({"title": "T", "description": desc, "html": "<iframe></iframe>"}))
+        meta = run(media_ingestor.enrich(url, client))
+        assert meta.description == desc
+        assert meta.chapters == [{"t": 0, "title": "Intro"}, {"t": 65, "title": "Indexing"},
+                                 {"t": 760, "title": "Wrap-up"}]
+
+
+def test_a_long_description_is_cut_not_refused():
+    client = FakeClient(FakeResponse({"title": "T", "description": "x" * 9000}))
+    meta = run(media_ingestor.enrich("https://vimeo.com/123456789", client))
+    assert len(meta.description) == media_ingestor.DESCRIPTION_LIMIT and meta.chapters is None
+
+
+def test_write_media_entity_writes_chapters_and_the_description_only_when_set(tmp_path):
+    from api.services import markdown_parser
+    media_ingestor.write_media_entity(
+        tmp_path, "media-c", RawItem(url="https://vimeo.com/123456789"),
+        MediaMeta(title="C", site="vimeo.com", provider="vimeo", description="0:00 A\n1:00 B",
+                  chapters=[{"t": 0, "title": "A"}, {"t": 60, "title": "B"}]), "ep_2026-09-23_001")
+    parsed = markdown_parser.parse(tmp_path / "media-c.md")
+    assert parsed.frontmatter["media"]["chapters"] == [{"t": 0, "title": "A"}, {"t": 60, "title": "B"}]
+    assert "## Description\n0:00 A" in parsed.body
+    media_ingestor.write_media_entity(tmp_path, "media-d", RawItem(url="https://example.com/d"),
+                                      MediaMeta(title="D", site="example.com"), "ep_2026-09-23_002")
+    assert "chapters" not in markdown_parser.parse(tmp_path / "media-d.md").frontmatter["media"]
+
+
+def test_the_entity_media_block_keeps_well_formed_chapters_only():
+    from api.routers.entities import _build_media_block
+
+    block = _build_media_block({"media": {"url": "https://vimeo.com/1", "media_type": "url", "chapters": [
+        {"t": 0, "title": "Intro"}, {"t": "5", "title": "bad t"}, {"t": 30, "title": ""}, "junk"]}}, "")
+    assert [(c.t, c.title) for c in block.chapters] == [(0, "Intro")]
+    assert _build_media_block({"media": {"url": "https://vimeo.com/1", "media_type": "url"}}, "").chapters is None

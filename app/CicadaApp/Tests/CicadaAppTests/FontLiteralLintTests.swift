@@ -41,10 +41,10 @@ final class FontLiteralLintTests: XCTestCase {
         }
     }
 
-    /// G137 R-M3: `CicadaTheme.displayFont(size:italic:)` is the one custom
-    /// face. `.custom(` anywhere else would be a second one arriving
-    /// unnoticed — unscaled by ⌘+/⌘−, unregistered, unlicensed. Comment lines
-    /// are skipped so a doc may name the API.
+    /// G137 R-M3, F1 R-FX12: no face is bundled any more — `displayFont` is
+    /// SF — so `.custom(` anywhere would be a second face arriving unnoticed:
+    /// unscaled by ⌘+/⌘−, unregistered, unlicensed. Comment lines are skipped
+    /// so a doc may name the API.
     func testNoCustomFontOutsideTheTheme() throws {
         for file in try sourceFiles() {
             let text = try String(contentsOf: file, encoding: .utf8)
@@ -57,8 +57,9 @@ final class FontLiteralLintTests: XCTestCase {
         }
     }
 
-    /// Instrument Serif is a display cut; its hairlines break up under 22 pt.
-    /// `displayFont` clamps, and this keeps a call site from asking.
+    /// Display is a role — a title — not a size (F1 R-FX12): a display call
+    /// under 22 pt is a heading in the wrong token. `displayFont` clamps, and
+    /// this keeps a call site from asking.
     func testDisplayFontIsNeverAskedForLessThanItsFloor() throws {
         let pattern = try NSRegularExpression(pattern: #"displayFont\(size:\s*([0-9]+(?:\.[0-9]+)?)"#)
         var seen = 0
@@ -73,5 +74,40 @@ final class FontLiteralLintTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(seen, 0, "no displayFont call found — the regex no longer matches and this lint is vacuous")
+    }
+
+    /// F1 R-FX12: `Font` cannot carry tracking, so every roman display title
+    /// pairs `.font(CicadaTheme.displayFont(size: n))` with
+    /// `.tracking(CicadaTheme.displayTracking(size: n))`. Counted per file —
+    /// a new title without its tracking fails here, not in a screenshot.
+    /// Italic lines keep SF's own spacing and are not counted.
+    func testEveryRomanDisplayTitleCarriesItsTracking() throws {
+        var seen = 0
+        for file in try sourceFiles() {
+            let code = try String(contentsOf: file, encoding: .utf8)
+                .components(separatedBy: .newlines)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            let roman = code.filter { $0.contains("displayFont(size:") && !$0.contains("italic: true") }.count
+            let tracked = code.filter { $0.contains("displayTracking(size:") }.count
+            XCTAssertEqual(roman, tracked, "\(file.lastPathComponent): \(roman) roman displayFont call(s) "
+                           + "but \(tracked) displayTracking — pair each title with its tracking (F1 R-FX12).")
+            seen += roman
+        }
+        XCTAssertGreaterThan(seen, 0, "no roman displayFont call found — this lint would pass vacuously")
+    }
+
+    /// F1 R-FX12: nothing is bundled any more. A font file under Resources/
+    /// would be a second face arriving unregistered, unlicensed and unscaled.
+    func testNoFontFileIsBundled() throws {
+        let resources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()   // CicadaAppTests
+            .deletingLastPathComponent()   // Tests
+            .deletingLastPathComponent()   // CicadaApp (package root)
+            .appendingPathComponent("Sources/CicadaApp/Resources")
+        let all = FileManager.default.enumerator(at: resources, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL } ?? []
+        XCTAssertFalse(all.isEmpty, "found nothing under \(resources.path) — the lint would pass vacuously")
+        let fonts = all.filter { ["ttf", "otf", "ttc", "woff", "woff2"].contains($0.pathExtension.lowercased()) }
+        XCTAssertEqual(fonts.map(\.lastPathComponent), [])
     }
 }

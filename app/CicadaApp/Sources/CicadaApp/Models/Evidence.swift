@@ -10,10 +10,10 @@ import Foundation
 // evidence, or a kind this build has never heard of must never blank a view
 // (design §4.1, R10 — the same rule `Epistemic`/`SourceTrust` follow).
 
-/// What kind of words a span points at. The server stores `user`,
-/// `assistant`, `page` and `reasoning` today (`claims.EVIDENCE_KINDS`);
-/// `speaker` (a meeting utterance, R-N2) and `media` (a video excerpt, R5 D4)
-/// are the kinds sibling tracks add; `derived` exists ONLY on read payloads —
+/// What kind of words a span points at. The server stores six
+/// (`claims.EVIDENCE_KINDS`): `user`, `assistant`, `page`, `reasoning`,
+/// `speaker` (a meeting utterance, R-N2 / G134) and `media` (a video excerpt,
+/// a timed `video [m:ss]:` line, R5 D4 / G140); `derived` exists ONLY on read payloads —
 /// a name match found at read, never written (R-PB9, §4.9). `unknown` is the
 /// forward-compatible tail and renders like `reasoning`.
 enum EvidenceKind: String, Codable, Hashable, CaseIterable {

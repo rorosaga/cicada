@@ -24,7 +24,29 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.sleep.title, Copy.sleepSettings)
         XCTAssertEqual(SettingsSection.integrations.title, Copy.integrations)
         XCTAssertEqual(SettingsSection.agents.title, Copy.agents)
+        XCTAssertEqual(SettingsSection.remote.title, Copy.fromAnywhere)
+        XCTAssertEqual(SettingsSection.engines.title, Copy.engines)
         XCTAssertEqual(SettingsSection.plansAndKeys.title, Copy.plansAndKeys)
+        XCTAssertEqual(SettingsSection.you.title, Copy.youSection)
+        XCTAssertEqual(SettingsSection.privacy.title, Copy.privacyAndData)
+        XCTAssertEqual(SettingsSection.memory.title, Copy.memorySection)
+        XCTAssertEqual(SettingsSection.advanced.title, Copy.advanced)
+        XCTAssertEqual(SettingsSection.skills.title, Copy.skills)
+    }
+
+    /// R7 / K1 — a persisted selection must survive Settings v3.
+    func testExistingRawValuesAreStable() {
+        XCTAssertEqual(SettingsSection.general.rawValue, "general")
+        XCTAssertEqual(SettingsSection.sleep.rawValue, "sleep")
+        XCTAssertEqual(SettingsSection.integrations.rawValue, "integrations")
+        XCTAssertEqual(SettingsSection.agents.rawValue, "agents")
+        XCTAssertEqual(SettingsSection.plansAndKeys.rawValue, "plansAndKeys")
+    }
+
+    func testEverySubtitleComesFromCopyAndPlansAndKeysNoLongerImpliesAPrice() {
+        XCTAssertEqual(SettingsSection.general.subtitle, Copy.generalSubtitle)
+        XCTAssertEqual(SettingsSection.plansAndKeys.subtitle, Copy.plansAndKeysSubtitle)
+        XCTAssertEqual(SettingsSection.plansAndKeys.icon, "key.horizontal", "K4 — creditcard implies a price")
     }
 
     /// A source-text check rather than a runtime one: `NavigationSplitView`

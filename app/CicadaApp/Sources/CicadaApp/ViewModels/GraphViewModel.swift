@@ -197,10 +197,8 @@ final class GraphViewModel {
         } else {
             observerRoster = Array(Set(response.nodes.flatMap { $0.observers })).sorted()
         }
-        var ctxs = Set(response.nodes.flatMap { $0.contexts })
-        for n in response.nodes { if let c = n.context { ctxs.insert(c) } }
-        for e in response.links { if let c = e.context { ctxs.insert(c) } }
-        contextRoster = ctxs.sorted()
+        // F1 R-FX3 — real contexts only; see `ClaimContext`.
+        contextRoster = ClaimContext.roster(nodes: response.nodes, links: response.links)
         entities = response.nodes.map { node in
             // Stub entity: the full markdown body is loaded lazily via
             // `selectEntity`/`store.entity(_:)`. §5.7 — seed `markdownContent`
@@ -436,13 +434,44 @@ final class GraphViewModel {
         selectEntity(id: id)
     }
 
-    /// Typeahead over the graph snapshot already in memory — no request per
-    /// keystroke. Prefix and word-start matches on the name, ranked by where
-    /// the match starts, then by degree (busier nodes first), then name.
+    /// A typeahead row: the node and the scalar runs to bold in its name.
+    struct SearchHit {
+        let node: GraphNode
+        let ranges: [[Int]]
+    }
+
+    /// G123 through `QuickMatch` (G136 S5): the name, then tags — the
+    /// palette's ranker, so the two never order one name differently. Over
+    /// the graph snapshot already in memory — no request per keystroke.
+    func searchHits(_ query: String, limit: Int = 8) -> [SearchHit] {
+        QuickMatch.rank(nodes, query: query, limit: limit, fields: Self.searchFields,
+                        tieBreak: { Double($0.degree) }, name: { $0.name.lowercased() })
+            .map { SearchHit(node: $0.item, ranges: $0.match.ranges(inField: 0)) }
+    }
+
+    nonisolated static func searchFields(_ node: GraphNode) -> [QuickMatch.Field] {
+        [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            + node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
+            + node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
+    }
+
     func searchMatches(_ query: String, limit: Int = 8) -> [GraphNode] {
-        let ids = Self.rankNames(nodes.map { ($0.id, $0.name, $0.degree) }, query: query, limit: limit)
-        let byId = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        return ids.compactMap { byId[$0] }
+        searchHits(query, limit: limit).map(\.node)
+    }
+
+    @ObservationIgnored private var clusterSearchCache: (stamp: Date?, count: Int, index: ClusterSearchIndex)?
+
+    /// Clusters' index (G136 S5): folded once per graph snapshot, on the first
+    /// keystroke after it changed — never per keystroke, and never for a
+    /// snapshot nobody searches. `entities` and `lastSyncedLoadedAt` move
+    /// together in `syncFromStore`, so the pair is the snapshot's identity.
+    func clusterSearchIndex() -> ClusterSearchIndex {
+        if let cache = clusterSearchCache, cache.stamp == lastSyncedLoadedAt, cache.count == entities.count {
+            return cache.index
+        }
+        let index = ClusterSearchIndex(entities)
+        clusterSearchCache = (lastSyncedLoadedAt, entities.count, index)
+        return index
     }
 
     /// G123's ranking, now `QuickMatch`'s (G136 R-SU4): the palette and this
@@ -493,6 +522,7 @@ final class GraphViewModel {
     /// entity data from the Store's memoised entity cache. No manual
     /// main-actor hop needed — the whole VM is already @MainActor.
     private func applySelection(id: String) {
+        let id = ClaimContext.cardTarget(for: id, in: nodes)
         if let existing = entities.first(where: { $0.id == id }) {
             selectedEntity = existing
         }
@@ -535,6 +565,10 @@ final class GraphViewModel {
         guard let fullEntity = await store.entity(id) else { return }
         if let idx = entities.firstIndex(where: { $0.id == id }) {
             entities[idx] = fullEntity
+            // The body just grew from the node summary to the full page, and
+            // Clusters searches it (G136 S5) — refold on the next keystroke
+            // rather than serve the stub's text from `clusterSearchIndex()`.
+            clusterSearchCache = nil
         }
         if selectedEntity?.id == id {
             selectedEntity = fullEntity

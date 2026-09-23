@@ -144,6 +144,7 @@ struct WelcomeView: View {
             } else {
                 Text(first.isEmpty ? Copy.welcomeHelloNoName : Copy.welcomeHello(first))
                     .font(CicadaTheme.displayFont(size: 40))
+                    .tracking(CicadaTheme.displayTracking(size: 40))
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityFocused($headlineFocused)

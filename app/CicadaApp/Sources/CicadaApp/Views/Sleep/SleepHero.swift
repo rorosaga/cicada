@@ -462,30 +462,22 @@ struct SleepControlRow: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// The page's one prominent action (R-M5, Z-B14): `.glassProminent`,
+    /// accent-tinted, on macOS 26 and `.borderedProminent` before, through the
+    /// shared `PrimaryActionButton` so its ink follows the key-window rule. It
+    /// lifts on hover because it is the one thing on the page that starts
+    /// something; Cancel beside it stays quiet.
     private var consolidateButton: some View {
-        Button {
+        PrimaryActionButton(title: Copy.consolidateNow, systemImage: "moon.fill") {
             Task {
                 await sleepVM.triggerManually()
                 await store.refresh([.status, .channels])
             }
-        } label: {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                if sleepVM.isRunning {
-                    ProgressView().controlSize(.small).frame(width: 12, height: 12)
-                } else {
-                    Image(systemName: "moon.fill").font(CicadaTheme.font(size: 12))
-                }
-                Text(sleepVM.isRunning ? Copy.consolidating : Copy.consolidateNow)
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(consolidateEnabled ? .white : CicadaTheme.textTertiary)
-            .padding(.horizontal, CicadaTheme.spacingLG)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .background(consolidateEnabled ? CicadaTheme.accent.opacity(0.9) : CicadaTheme.surfaceElevated)
-            .clipShape(Capsule())
         }
-        .buttonStyle(.cicadaPlain)
+        .font(CicadaTheme.font(size: 12, weight: .semibold))
+        .controlSize(.large)
         .disabled(!consolidateEnabled)
+        .hoverLift()
         .help(queuedCount == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
         .accessibilityLabel(Copy.consolidateNow)
     }

@@ -76,6 +76,10 @@ async def get_episode_span(
         stale=status == evidence.SPAN_STALE,
         grown=status == evidence.SPAN_GROWN,
         kind=evidence.kind_for(episode_id, text, start, override),
+        # G140 Q-R9: seconds into the video for a span on a timed `video [m:ss]:`
+        # line — the same marker grammar and override as `kind`, so `t` is set
+        # exactly where `kind` is `media`.
+        t=evidence.media_time(text, start, override) if is_episode else None,
         turn_number=turn["number"] if turn else None,
         turn_count=turn["of"] if turn else None,
         turn_ts=turn["ts"] if turn else None,

@@ -172,6 +172,10 @@ def _reinforce(existing: Claim, incoming: Claim) -> None:
             continue
         existing.evidence.append(ev)
         cited.add(ev.episode)
+    # G140 Q-R6: a restatement that names an end is the newer statement of it;
+    # one that names none leaves the known end alone.
+    if incoming.expected_end:
+        existing.expected_end = incoming.expected_end
 
 
 # --------------------------------------------------------------------------- #

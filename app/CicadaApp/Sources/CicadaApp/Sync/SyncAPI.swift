@@ -70,7 +70,8 @@ protocol SyncAPI: Sendable {
     /// client-side filter over a capped page would silently drop an older
     /// conversation of the selected harness. `harness: "unknown"` matches rows
     /// whose harness is empty.
-    func fetchRecentConversations(limit: Int, harness: String?, origin: String?) async throws -> [ConversationSummary]
+    /// `query` (G136 R-SU22) is a title filter the backend applies before the same cap (G136 R17).
+    func fetchRecentConversations(limit: Int, harness: String?, origin: String?, query: String?) async throws -> [ConversationSummary]
     /// Exact by-id lookup over the whole bank; `nil` = the bank has no episode
     /// carrying that id. NEVER resolve an id inside `fetchRecentConversations`'
     /// capped page — absence there means "not recent", not "not known".

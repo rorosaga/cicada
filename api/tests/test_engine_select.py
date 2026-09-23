@@ -410,7 +410,7 @@ def test_the_codex_model_pref_reaches_the_resolved_settings():
 
 def test_a_model_pref_reaches_a_cycle_that_passed_no_registry(tmp_path, monkeypatch):
     """R-E21 — every Sleep cycle calls resolve_settings with no registry; the
-    model picked in Settings → Sleep used to reach only the preview."""
+    model picked in Settings → Engines used to reach only the preview."""
     from api.services.connections.registry import get_registry, reset_registry
 
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))

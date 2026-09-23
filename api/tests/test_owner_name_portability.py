@@ -112,7 +112,7 @@ def test_no_mcp_tool_description_names_a_person():
         for t in server.TOOLS
         if t["name"] == "cicada_write_claim"
     )
-    assert SLUG in observer_schema["enum"], (
+    assert re.fullmatch(observer_schema["pattern"], SLUG), (
         "the legacy observer stays accepted, it just stops being advertised"
     )
 

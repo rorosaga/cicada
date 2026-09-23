@@ -82,6 +82,7 @@ struct HomeView: View {
                 VStack(spacing: 0) {
                     Text(Copy.homeHeadline)
                         .font(CicadaTheme.displayFont(size: HomeBandLayout.headlineSize))
+                        .tracking(CicadaTheme.displayTracking(size: HomeBandLayout.headlineSize))
                     Text(Copy.homeHeadlineItalic)
                         .font(CicadaTheme.displayFont(size: HomeBandLayout.headlineSize, italic: true))
                 }

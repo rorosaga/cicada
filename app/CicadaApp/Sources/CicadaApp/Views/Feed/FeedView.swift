@@ -130,29 +130,8 @@ struct FeedView: View {
 
     private var searchAndSortRow: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "magnifyingglass")
-                    .font(CicadaTheme.font(size: 12))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Search saved media...", text: Binding(
-                    get: { viewModel.searchText },
-                    set: { viewModel.searchText = $0 }
-                ))
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                if !viewModel.searchText.isEmpty {
-                    Button { viewModel.searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(CicadaTheme.font(size: 11))
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
-                    .buttonStyle(.cicadaPlain)
-                }
-            }
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+            CicadaSearchField(text: Binding(get: { viewModel.searchText }, set: { viewModel.searchText = $0 }),
+                              prompt: "Search saved media…")
 
             Picker("", selection: Binding(
                 get: { viewModel.sort },
@@ -183,6 +162,19 @@ struct FeedView: View {
                 title: "Couldn't load the feed",
                 subtitle: err
             )
+        } else if viewModel.filteredItems.isEmpty, !viewModel.items.isEmpty,
+                  !SearchAllMemoryRow.trimmed(viewModel.searchText).isEmpty {
+            // Something is saved; nothing matched — say that, not "Nothing
+            // saved yet" (G136 S5), and offer the same words everywhere.
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Spacer()
+                Text("Nothing saved matches “\(SearchAllMemoryRow.trimmed(viewModel.searchText))”.")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                SearchAllMemoryRow(query: viewModel.searchText)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
         } else if viewModel.filteredItems.isEmpty {
             emptyState(
                 symbol: "tray",
@@ -467,7 +459,9 @@ struct FeedItemPreviewSheet: View {
                 return
             }
             if let entity = try? await APIClient.shared.fetchEntity(id: item.mediaEntityId) {
-                enrichedDescription = Self.firstSection(
+                // F1 R-FX8 — `EntityProse` strips the claims fence first, so a
+                // paper's Summary never carries its YAML into the sheet.
+                enrichedDescription = EntityProse.firstSection(
                     ["## Description", "## Summary"],
                     in: entity.markdownContent
                 )
@@ -485,22 +479,4 @@ struct FeedItemPreviewSheet: View {
     /// so the size is settled on the first render and never changes when the
     /// description arrives from the fallback fetch.
     private var size: CGSize { FeedPreviewLayout.sheetSize(for: previewModel.kind) }
-
-    /// Extract the first present section body under one of the given headers.
-    private static func firstSection(_ headers: [String], in markdown: String) -> String? {
-        let lines = markdown.components(separatedBy: "\n")
-        for header in headers {
-            guard let start = lines.firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces) == header
-            }) else { continue }
-            var body: [String] = []
-            for line in lines[(start + 1)...] {
-                if line.trimmingCharacters(in: .whitespaces).hasPrefix("## ") { break }
-                body.append(line)
-            }
-            let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return text }
-        }
-        return nil
-    }
 }

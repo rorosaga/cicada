@@ -83,4 +83,16 @@ final class QuickIndexTests: XCTestCase {
         XCTAssertEqual(InboxSearch.filter(items, query: "alpha").map(\.id), ["i1"])
         XCTAssertEqual(InboxSearch.filter(items, query: "").map(\.id), ["i1", "i2"])
     }
+
+    /// G136 S6 — an alias finds its node at the alias weight, and a payload
+    /// without the field (an older backend, an on-disk cache) still decodes.
+    func testAnAliasFindsItsNodeAndAnOldPayloadStillDecodes() throws {
+        var inputs = FindFixtures.inputs()
+        inputs.nodes.append(FindFixtures.node("bob-example-2", "bob-example-2", aliases: ["beta tester"]))
+        XCTAssertEqual(QuickIndex.build(inputs).query("tester").rows.first?.key.id, "bob-example-2")
+        let old = try JSONDecoder().decode(GraphNode.self, from: Data(#"{"id": "a", "name": "A", "type": "concept", "confidence": 0.5}"#.utf8))
+        XCTAssertEqual(old.aliases, [])
+        let new = try JSONDecoder().decode(GraphNode.self, from: Data(#"{"id": "a", "name": "A", "type": "concept", "confidence": 0.5, "aliases": ["alpha"]}"#.utf8))
+        XCTAssertEqual(new.aliases, ["alpha"])
+    }
 }

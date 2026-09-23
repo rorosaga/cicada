@@ -108,7 +108,7 @@ struct ContextPill: View {
             Circle()
                 .fill(CicadaTheme.contextColor(context))
                 .frame(width: 7, height: 7)
-            Text(context)
+            Text(ClaimContext.displayName(context))
                 .font(CicadaTheme.font(size: 10, weight: .regular))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }

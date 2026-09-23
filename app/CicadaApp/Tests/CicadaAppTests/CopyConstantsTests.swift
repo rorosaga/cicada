@@ -10,6 +10,7 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertEqual(Copy.settingsPlansAndKeys, "\(Copy.settings) → \(Copy.plansAndKeys)")
         XCTAssertTrue(Copy.noConnections.contains(Copy.settingsPlansAndKeys),
                       "the empty-connections line must point somewhere real")
+        XCTAssertEqual(Copy.settingsPrivacy, "\(Copy.settings) → \(Copy.privacyAndData)")
     }
 
     /// The app is single-user; the observer is "You", never the account
@@ -41,6 +42,14 @@ final class CopyConstantsTests: XCTestCase {
             (Copy.sleepSettings, Copy.sleepSettingsSubtitle),
             (Copy.sources, Copy.sourcesSubtitle),
             (Copy.integrations, Copy.integrationsSubtitle),
+            (Copy.general, Copy.generalSubtitle),
+            (Copy.engines, Copy.enginesSubtitle),
+            (Copy.fromAnywhere, Copy.remoteSubtitle),
+            (Copy.youSection, Copy.youSubtitle),
+            (Copy.privacyAndData, Copy.privacySubtitle),
+            (Copy.memorySection, Copy.memorySubtitle),
+            (Copy.advanced, Copy.advancedSubtitle),
+            (Copy.skills, Copy.skillsSubtitle),
         ]
         for (title, subtitle) in pairs {
             XCTAssertLessThanOrEqual(subtitle.count, 60, "\(title): \"\(subtitle)\"")

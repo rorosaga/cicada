@@ -96,13 +96,9 @@ struct IntakePanel: View {
     }
 
     private func chooseFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText, .xml, .propertyList]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = true
-        panel.message = Copy.intakeDropTitle
-        guard panel.runModal() == .OK else { return }
-        intake.accept(urls: panel.urls, from: origin)
+        let urls = IntakePicker.choose()
+        guard !urls.isEmpty else { return }
+        intake.accept(urls: urls, from: origin)
     }
 
     // MARK: Reading / importing / failed

@@ -56,11 +56,14 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import bank_index, bank_registry, episode_ids, evidence, inbox_questions, markdown_parser
-from api.services.claims import parse_claims, strip_claims_block
+from api.services.claims import is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
 DB_FILE = "search_index.db"
-SCHEMA_VERSION = "1"
+# "2": withdrawal records (G140 Q-R5) are no longer indexed as claims. A bump
+# rebuilds every existing index on its next open, so a record indexed under
+# "1" stops surfacing without anyone deleting the file (final review).
+SCHEMA_VERSION = "2"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -378,9 +381,13 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
         )
     # Claims — every one, superseded included (R3 P4: history is searchable
     # here even though the vector claims index holds current claims only).
+    # Every BELIEF, that is: a withdrawal record (G140 Q-R5) is skipped, or a
+    # `/search` hit named with the agent's reason rendered under "Beliefs"
+    # (final review). The row number stays the fence position, so skipping
+    # one never renumbers the claims after it.
     for n, claim in enumerate(parse_claims(body)[:MAX_ROWS_PER_DOC], start=1):
         text = (claim.text or "").strip()
-        if not text:
+        if not text or is_record(claim):
             continue
         spans = [e for e in claim.evidence if e.is_span()]
         first = spans[0] if spans else (claim.evidence[0] if claim.evidence else None)

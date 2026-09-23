@@ -1,9 +1,10 @@
 """G136 — search everywhere, the server half: lexical + semantic retrieval.
 
 What ``GET /search`` runs (in a threadpool — R6 §4.2 found it blocking the
-event loop), and what MCP recall can adopt later without re-deriving it (the
-hand-off: ``lexical_entity_hits`` / ``claim_subject_hits`` are the keyword
-and claim legs in the exact shape ``mcp/server.py::_rrf_fuse`` reads).
+event loop), and what MCP recall reads without re-deriving it (the G136
+hand-off, landed with G140 Q-R1: ``lexical_entity_hits`` /
+``claim_subject_hits`` are the keyword and claim legs in the exact shape
+``mcp_tools.recall`` reads).
 
 Two modes (round-3 design §3.2):
 
@@ -93,11 +94,8 @@ def rrf_scores(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], 
 def rrf_fuse(*ranked_lists: list[dict], k: int = RRF_K, key: Callable[[dict], str | None] | None = None) -> list[dict]:
     """Reciprocal-rank fusion: score(id) = Σ 1/(k + rank), first-seen hit kept.
 
-    A port of ``mcp/server.py::_rrf_fuse`` (:905-922), not an import: the API
-    never imports the MCP server (mcp imports ``api.services``, never the
-    reverse). ``test_search_service.py`` pins parity on the MCP test's
-    fixture plus an ``id``-keyed hit, so Track R can make the MCP copy an
-    import of this one.
+    The one reciprocal-rank fusion: ``/search`` and MCP recall
+    (``mcp_tools._rrf_fuse`` is this function, G140 Q-R1).
     """
     scores, keep = rrf_scores(*ranked_lists, k=k, key=key)
     return [keep[h] for h in sorted(scores, key=lambda h: -scores[h])]
@@ -764,11 +762,9 @@ def search(
 
 
 def lexical_entity_hits(memory_path: Path, query: str, top_k: int = 8) -> list[dict]:
-    """The keyword leg ``mcp/server.py::handle_recall`` fuses (:953-956), in
-    the shape its ``_rrf_fuse`` reads — alias-aware and token-level (R3 P1),
-    where ``_keyword_search_entities`` (:1580-1608) is a whole-query
-    substring that never reads aliases. Pure lexical: claim-reached rows are
-    ``claim_subject_hits``' job. Adoption is Track R's (the G136 hand-off)."""
+    """MCP recall's keyword leg (``mcp_tools._keyword_search_entities``,
+    G140 Q-R1): alias-aware and token-level (R3 P1). Pure lexical:
+    claim-reached rows are ``claim_subject_hits``' job."""
     resp = search(memory_path, query, kinds=("entity",), mode="prefix", per_kind=min(top_k, MAX_PER_KIND))
     return [{"entity_id": h.id, "source": "keyword", "score": h.score}
             for h in resp.results if h.matched_field != "claim"]

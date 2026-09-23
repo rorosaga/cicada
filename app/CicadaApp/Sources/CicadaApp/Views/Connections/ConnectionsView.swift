@@ -3,6 +3,10 @@ import SwiftUI
 
 /// G50 — one card per provider connection. Subscriptions are probed through the
 /// vendor CLI (Cicada never holds a token); API keys go to ~/.cicada/secrets.env.
+///
+/// Credentials only (G139, R-O9): the plan, its sign-in and the keys. Engine
+/// choice lives on Engines — the Max tier picker (a cost-estimate control, K4)
+/// is gone and "Use for Sleep" moved there as "Auto may use my Claude plan".
 struct ConnectionsView: View {
     @Environment(ConnectionsViewModel.self) private var viewModel
     @State private var keyDrafts: [String: String] = [:]
@@ -10,44 +14,36 @@ struct ConnectionsView: View {
     @State private var terminalFallback = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            PageHeader(title: Copy.plansAndKeys,
-                       subtitle: Copy.plansAndKeysSubtitle) {
-                Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
-            }
-
+        SettingsPage(section: .plansAndKeys, trailing: AnyView(
+            Button { Task { await viewModel.load(fresh: true) } } label: { Image(systemName: "arrow.clockwise") }
+                .help("Check again")
+        )) {
             if let err = viewModel.errorMessage {
                 Text(err).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.statusColor(for: .decaying))
             }
-
             if viewModel.isLoading {
                 ProgressView().frame(maxWidth: .infinity, alignment: .center)
             } else {
-                ScrollView {
-                    VStack(spacing: CicadaTheme.spacingMD) {
-                        ForEach(viewModel.connections) { c in
-                            ConnectionCard(
-                                connection: c,
-                                keyDraft: Binding(get: { keyDrafts[c.id, default: ""] }, set: { keyDrafts[c.id] = $0 }),
-                                pendingLogin: viewModel.pendingLogin?.connectionId == c.id ? viewModel.pendingLogin : nil,
-                                awaitingTerminal: viewModel.awaitingTerminal == c.id,
-                                terminalFallback: terminalFallback,
-                                onConnect: { Task { await connect(c) } },
-                                onDisconnect: { confirmDisconnect = c },
-                                onSaveKey: { Task { await viewModel.saveKey(c.id, key: keyDrafts[c.id, default: ""]); keyDrafts[c.id] = "" } },
-                                onTier: { tier in Task { await viewModel.setTier(c.id, tier: tier) } },
-                                onUseForSleep: { on in Task { await viewModel.setUseForSleep(c.id, on: on) } }
-                            )
-                        }
+                VStack(spacing: CicadaTheme.spacingMD) {
+                    ForEach(viewModel.connections) { c in
+                        ConnectionCard(
+                            connection: c,
+                            keyDraft: Binding(get: { keyDrafts[c.id, default: ""] }, set: { keyDrafts[c.id] = $0 }),
+                            pendingLogin: viewModel.pendingLogin?.connectionId == c.id ? viewModel.pendingLogin : nil,
+                            awaitingTerminal: viewModel.awaitingTerminal == c.id,
+                            terminalFallback: terminalFallback,
+                            onConnect: { Task { await connect(c) } },
+                            onDisconnect: { confirmDisconnect = c },
+                            onSaveKey: { Task { await viewModel.saveKey(c.id, key: keyDrafts[c.id, default: ""]); keyDrafts[c.id] = "" } }
+                        )
+                        .settingsRow(.connection(c.id))
                     }
                 }
             }
-            Spacer()
         }
-        .padding(CicadaTheme.spacingLG)
         // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
         // over `Store.connections`, already hydrated + kept live by the
-        // Store — this tab renders instantly from the snapshot on revisit.
+        // Store — this section renders instantly from the snapshot on revisit.
         .onDisappear { viewModel.stopPolling() }
         // R-E28: signing out of ChatGPT runs `codex logout` in Cicada's own
         // Codex home only, so the dialog says the terminal's Codex is untouched.
@@ -105,11 +101,9 @@ private struct ConnectionCard: View {
     let onConnect: () -> Void
     let onDisconnect: () -> Void
     let onSaveKey: () -> Void
-    let onTier: (String?) -> Void
-    let onUseForSleep: (Bool) -> Void
 
     /// R-E27: the plan's vendor mark (Claude, ChatGPT), Ollama's, and each
-    /// key's vendor — one translation shared with Settings → Sleep.
+    /// key's vendor — one translation shared with Settings → Engines.
     private var logo: String? { ConnectionMark.logoName(connectionId: connection.id) }
 
     var body: some View {
@@ -130,6 +124,7 @@ private struct ConnectionCard: View {
 
             if let account = connection.account, connection.connected {
                 Text(account).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    .privacySensitive()
             }
             if let detail = connection.detail, !connection.connected {
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -156,38 +151,13 @@ private struct ConnectionCard: View {
                 }
             }
 
-            if connection.showsTierPicker {
-                // The Picker's own label renders as the row label to the left
-                // of the segmented control — a second, duplicate caption
-                // below it used to repeat the exact same string (G68 §1,
-                // round 2).
-                Picker(Copy.yourMaxTier,
-                       selection: Binding(get: { connection.tier ?? "" },
-                                          set: { onTier($0.isEmpty ? nil : $0) })) {
-                    Text("Pick tier…").tag("")
-                    Text("5x").tag("5x")
-                    Text("20x").tag("20x")
-                }
-                .pickerStyle(.segmented).frame(maxWidth: 300)
-            }
-
-            if connection.showsSleepEngineToggle {
-                Divider().opacity(0.35)
-                Toggle(Copy.sleepEngineTitle,
-                       isOn: Binding(get: { connection.useForSleep },
-                                     set: { onUseForSleep($0) }))
-                    .toggleStyle(.switch)
-                    .font(CicadaTheme.captionFont)
-                Text(Copy.sleepEngineExplainer)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
             actions
         }
         .padding(CicadaTheme.spacingMD)
-        .glassCard()
+        // Full width like every other Settings card — `settingsCardSurface`
+        // (unlike the old glass card's ScrollView) sets no width of its own.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .settingsCardSurface()
     }
 
     private var statusPill: some View {

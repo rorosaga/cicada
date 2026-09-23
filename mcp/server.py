@@ -39,6 +39,14 @@ from api.services import episode_ids  # noqa: E402,F401
 # rather than retyped, so `mcp/` holds no name literal of its own.
 from api.services.owner_identity import LEGACY_OBSERVER  # noqa: E402
 
+# G140 Q-R11: one pattern, not an enum — JSON Schema ANDs an `enum` with a
+# `pattern`, and the librarian skill's `external:<name>` (a named third party)
+# must be a value the schema accepts (R5 §2 defect 4, G75 R12). The legacy
+# value stays accepted and unadvertised (Track P R8), imported, never typed.
+OBSERVER_PATTERN = (
+    rf"^(owner|agent|external|{re.escape(LEGACY_OBSERVER)}|external:[a-z0-9][a-z0-9-]{{0,63}})$"
+)
+
 # G135 R-R2: every remote-capable tool body lives in `api/services/mcp_tools.py`.
 from api.services import mcp_tools  # noqa: E402
 # Re-exported for callers that CALL them (tests, back-compat). Tests that PATCH
@@ -274,6 +282,10 @@ TOOLS = [
                     "type": "string",
                     "description": "Optional. Filter to one context facet (e.g. 'engineering', 'family', 'career').",
                 },
+                "history": {
+                    "type": "boolean",
+                    "description": "Optional. Also list the subject's earlier claims — replaced, withdrawn or ended — newest first, with when each stopped being current. Default false.",
+                },
             },
             "required": ["subject"],
         },
@@ -291,6 +303,39 @@ TOOLS = [
                 },
             },
             "required": ["url"],
+        },
+    },
+    {
+        "name": "cicada_record_watch",
+        "description": "After you watch a video the person saved (with your own video tools — Cicada never downloads or watches one), record what it covers: a short summary and up to 12 short quotes with the time each is said. Cicada keeps one episode and a 'describes' claim on the video's page whose evidence points at your summary and at each quote, marked as the video's words — never the person's. Cite ≤240-character excerpts; never paste the transcript. A link that is not saved yet is saved first. The reply names the episode, to cite from cicada_write_claim.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The video's link as saved (http(s)://, or file:// for a local recording the app added)."},
+                "summary": {"type": "string", "description": "Your faithful account of what the video covers, one paragraph (at most 1,500 characters)."},
+                "excerpts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "t": {"type": "string", "description": "When it is said: m:ss or h:mm:ss (e.g. '12:34'), or whole seconds."},
+                            "quote": {"type": "string", "description": "The words the video says, verbatim (at most 240 characters)."},
+                        },
+                        "required": ["t", "quote"],
+                    },
+                    "description": "Optional. Up to 12 short timestamped quotes — the video's own words.",
+                },
+                "chapters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"t": {"type": "string"}, "title": {"type": "string"}},
+                        "required": ["t", "title"],
+                    },
+                    "description": "Optional. The video's chapters as {t, title}; stored only when the page has none.",
+                },
+            },
+            "required": ["url", "summary"],
         },
     },
     {
@@ -325,7 +370,7 @@ TOOLS = [
                 },
                 "observer": {
                     "type": "string",
-                    # The legacy observer value stays in the ENUM (not just
+                    # The legacy observer value stays in the PATTERN (not just
                     # in the prose) so the schema itself keeps the
                     # compatibility promise — CLAUDE.md R12: a primer or
                     # schema naming an argument the schema itself would
@@ -340,11 +385,11 @@ TOOLS = [
                     # constant built at import, before any bank is known, and
                     # a tool description must not vary per bank (one prose
                     # source, G75 R12). It stops being ADVERTISED here — an
-                    # agent should send 'owner'; the enum keeps accepting the
-                    # legacy value for old callers, and naming it only invites
-                    # new ones.
-                    "enum": ["owner", "agent", "external", LEGACY_OBSERVER],
-                    "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party. Defaults to 'agent'.",
+                    # agent should send 'owner'; the pattern keeps accepting
+                    # the legacy value for old callers, and naming it only
+                    # invites new ones. G140 Q-R11: `OBSERVER_PATTERN` above.
+                    "pattern": OBSERVER_PATTERN,
+                    "description": "Who holds this belief. 'owner' = the user stated this themselves (trust-protected). 'agent' = you inferred/extracted this. 'external' = attributed to a third party — or 'external:<name>' (lowercase letters, digits, hyphens) to name them. Defaults to 'agent'.",
                 },
                 "confidence": {
                     "type": "number",
@@ -385,8 +430,39 @@ TOOLS = [
                     },
                     "description": "Optional. WHERE this fact comes from: the passage(s) in a saved episode that state it. Cicada verifies each quote against the stored episode and records only its offsets (G118 — spans, not copies). Omit it when the claim is your own inference: it is then recorded as reasoning, never as an invented span. If you saved the conversation with cicada_save_episode, cite that episode.",
                 },
+                # G140 Q-R6: a stated end, never a future `valid_to` —
+                # `claim_expiry` closes the claim on Sleep's tail after it.
+                "expected_end": {
+                    "type": "string",
+                    "description": "Optional. The date this fact stops being true, when the person stated one — 'exams this weekend' → that Sunday, 'until Friday', a due date — as YYYY-MM-DD. The claim stays current through that day; Sleep closes it after. Nothing is deleted.",
+                },
             },
             "required": ["subject", "predicate", "object"],
+        },
+    },
+    {
+        "name": "cicada_retract_claim",
+        "description": "Withdraw ONE claim you wrote earlier with cicada_write_claim that turned out to be wrong — for example the person says 'that's not right' about something you recorded. Nothing is deleted: the claim stops being current, stays in its page's history, and a record keeps your reason (and, when you cite them, the person's exact words). You can only withdraw a claim this agent wrote — never one the person stated, one Sleep extracted, or another agent's; for those, record the correction as a new claim with cicada_write_claim.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The entity the claim is on (the `entity` cicada_write_claim returned)."},
+                "claim_id": {"type": "string", "description": "The claim id cicada_write_claim returned (e.g. 'clm_alpha-project_uses_38309bd1')."},
+                "reason": {"type": "string", "description": "Why it is wrong, in one sentence (at most 240 characters)."},
+                "evidence": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "episode": {"type": "string", "description": "The episode the words are in."},
+                            "quote": {"type": "string", "description": "The exact words, copied verbatim (at most 240 characters)."},
+                        },
+                        "required": ["episode", "quote"],
+                    },
+                    "description": "Optional. The person's exact words showing it is wrong, from a saved episode — verified and stored as offsets, never copied.",
+                },
+            },
+            "required": ["subject", "claim_id", "reason"],
         },
     },
     {
@@ -476,6 +552,19 @@ TOOLS = [
         "name": "cicada_handshake",
         "description": "Return Cicada's connection primer: what Cicada is, the interaction contract (recall first, check nudges after recall, save episodes as you learn, write claims with evidence and sources, world facts are a cache), the bank's now-view (engine, current projects with live branches, pending inbox count, recent conversations with resume handles) and capability notes. Identical to the `instructions` field of the MCP initialize response — call it once at the start of a conversation if your harness does not surface server instructions. No arguments.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cicada_timeline",
+        "description": "What changed in Cicada's memory recently, day by day, read from its git history: episodes captured per source, pages Sleep created or updated, pages that faded or were archived, facts that reached their stated end, agent writes (and withdrawals), and inbox questions answered. Ids and counts only — open a page with cicada_recall_detail. Use when the person asks what's new, what happened this week, or what you missed since you last talked.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since": {
+                    "type": "string",
+                    "description": "Optional. A date (YYYY-MM-DD) or a number of days back (e.g. '7'). Default 7 days; at most 90.",
+                },
+            },
+        },
     },
 ]
 
@@ -638,6 +727,8 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"))
     elif name == "cicada_handshake":
         return handle_handshake()
+    elif name == "cicada_timeline":
+        return handle_timeline(arguments.get("since"))
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":
@@ -647,9 +738,13 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("subject", ""),
             arguments.get("observer"),
             arguments.get("context"),
+            bool(arguments.get("history", False)),
         )
     elif name == "cicada_save_url":
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
+    elif name == "cicada_record_watch":
+        return handle_record_watch(arguments.get("url", ""), arguments.get("summary", ""),
+                                   arguments.get("excerpts"), arguments.get("chapters"))
     elif name == "cicada_sources":
         return handle_sources(arguments.get("entity_id", ""))
     elif name == "cicada_write_claim":
@@ -663,6 +758,14 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("source_episode"),
             bool(arguments.get("force_new_entity", False)),
             arguments.get("sources"),
+            arguments.get("evidence"),
+            expected_end=arguments.get("expected_end"),
+        )
+    elif name == "cicada_retract_claim":
+        return handle_retract_claim(
+            arguments.get("subject", ""),
+            arguments.get("claim_id", ""),
+            arguments.get("reason", ""),
             arguments.get("evidence"),
         )
     elif name == "cicada_pending":
@@ -740,14 +843,23 @@ def handle_sources(entity_id: str) -> str:
     return mcp_tools.sources(_ctx(), entity_id)
 
 
+def handle_timeline(since=None) -> str:
+    return mcp_tools.timeline(_ctx(), since)
+
+
 def handle_write_claim(subject, predicate, object_, observer, confidence, context, source_episode,
-                       force_new_entity=False, sources=None, evidence=None) -> str:
+                       force_new_entity=False, sources=None, evidence=None, expected_end=None) -> str:
     return mcp_tools.write_claim(_ctx(), subject, predicate, object_, observer, confidence, context,
-                                 source_episode, force_new_entity, sources, evidence)
+                                 source_episode, force_new_entity, sources, evidence,
+                                 expected_end=expected_end)
 
 
-def handle_get_perspective(subject, observer=None, context=None) -> str:
-    return mcp_tools.get_perspective(_ctx(), subject, observer, context)
+def handle_retract_claim(subject, claim_id, reason, evidence=None) -> str:
+    return mcp_tools.retract_claim(_ctx(), subject, claim_id, reason, evidence)
+
+
+def handle_get_perspective(subject, observer=None, context=None, history=False) -> str:
+    return mcp_tools.get_perspective(_ctx(), subject, observer, context, history)
 
 
 def handle_check_nudges(topic, entity_ids=None) -> str:
@@ -764,6 +876,10 @@ def handle_save_episode(content, title) -> str:
 
 def handle_save_url(url, note) -> str:
     return mcp_tools.save_url(_ctx(), url, note)
+
+
+def handle_record_watch(url, summary, excerpts=None, chapters=None) -> str:
+    return mcp_tools.record_watch(_ctx(), url, summary, excerpts, chapters)
 
 
 def handle_ask(query, top_k=6) -> str:

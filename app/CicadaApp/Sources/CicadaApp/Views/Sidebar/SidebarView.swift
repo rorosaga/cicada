@@ -70,7 +70,9 @@ struct SidebarView: View {
 
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private var colorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
+    /// R-O4 — the RESOLVED mode (a `system` preference already answered), so
+    /// the sun/moon glyph shows what is painted, not what was chosen.
+    private var colorScheme: AppColorScheme { CicadaTheme.mode }
 
     /// The sidebar's minimum content width **at `uiScale == 1.0`** — the value
     /// this frame has always carried, now stated once so a test can assert it
@@ -104,7 +106,9 @@ struct SidebarView: View {
                 SettingsGearButton(needsAttention: needsAttention)
 
                 ThemeToggleButton(colorScheme: colorScheme) {
-                    colorSchemeRaw = (colorScheme == .dark ? AppColorScheme.light : AppColorScheme.dark).rawValue
+                    // An explicit Light or Dark — flipping the glyph means
+                    // "not this one", which a `system` preference can't say.
+                    colorSchemeRaw = (colorScheme == .dark ? AppearancePreference.light : AppearancePreference.dark).rawValue
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingLG)

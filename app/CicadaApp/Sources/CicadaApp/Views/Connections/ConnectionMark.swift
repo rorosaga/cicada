@@ -1,7 +1,7 @@
 import Foundation
 
 /// R-E27 — which bundled mark a connection wears, on Plans & keys and on the
-/// Settings → Sleep engine row. A key translation only: a connection id maps
+/// Settings → Engines engine row. A key translation only: a connection id maps
 /// to its vendor, and the file name comes from the one map that already owns
 /// vendor marks (`ContributorIdentity.logoName(provider:)`), so this adds no
 /// name a typo could break (CLAUDE.md, Brand marks: one map, one precedence).

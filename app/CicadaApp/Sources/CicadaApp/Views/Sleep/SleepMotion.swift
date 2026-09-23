@@ -19,15 +19,20 @@ import SwiftUI
 ///   `.animation(...)` modifier that takes a non-optional literal is how
 ///   Reduce Motion gets silently skipped, which is exactly what this replaced
 ///   on the hero meter and the stage strip.
+///
+/// Z10 (Z-B13): where a name mirrors `CicadaMotion`'s it forwards to it — one
+/// budget, app-wide — and the Sleep-only constants below stay here.
+/// `SleepMeadowTests` pins the equalities, so "one budget" is a fact, not a
+/// comment.
 enum SleepMotion {
 
     /// The ceiling every settle on this page sits under.
-    static let maxDuration: TimeInterval = 0.4
+    static let maxDuration: TimeInterval = CicadaMotion.maxDuration
 
     /// A value-driven bar easing between two readings — the hero meter's
     /// blocks and the stage strip's Read fill. Short enough that a live cycle
     /// reads as *moving*, never as *drifting*.
-    static let settleDuration: TimeInterval = 0.35
+    static let settleDuration: TimeInterval = CicadaMotion.settleDuration
 
     /// The book pile restacking when a cycle reads through it. Slightly
     /// longer than a bar because several spines move at once and the eye is
@@ -38,8 +43,7 @@ enum SleepMotion {
     /// the reader asked for it and is already looking at the answer.
     static let disclosureDuration: TimeInterval = 0.15
 
-    // Track Z Z5 — the room responds. Named to mirror Meadow's `CicadaMotion`
-    // so Z10's swap is a rename, not a re-derivation.
+    // Track Z Z5 — the room responds.
 
     /// One beat frame (R-Z12) — pinned equal to `BookwormSprites.reactionInterval`
     /// by `SleepNumbersLintTests`, so the sprite and the page share one beat clock.
@@ -61,7 +65,7 @@ enum SleepMotion {
 
     /// A spine lifting under the pointer (§7.1), and — with feeding — the drop
     /// outline. Quick, because it answers a pointer that is already there.
-    static let hoverDuration: TimeInterval = 0.15
+    static let hoverDuration: TimeInterval = CicadaMotion.hoverDuration
 
     // Track Z Z8 — the window shows weather.
 
@@ -70,7 +74,7 @@ enum SleepMotion {
     static let weatherDuration: TimeInterval = 0.4
 
     static func settle(reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : .easeInOut(duration: settleDuration)
+        CicadaMotion.settle(reduceMotion: reduceMotion)
     }
 
     static func pile(reduceMotion: Bool) -> Animation? {
@@ -85,8 +89,9 @@ enum SleepMotion {
         reduceMotion ? nil : .easeInOut(duration: sentenceDuration)
     }
 
+    /// Meadow's hover: easeInOut since Z10 (it was easeOut; both 0.15 s).
     static func hover(reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : .easeOut(duration: hoverDuration)
+        CicadaMotion.hover(reduceMotion: reduceMotion)
     }
 
     static func weather(reduceMotion: Bool) -> Animation? {

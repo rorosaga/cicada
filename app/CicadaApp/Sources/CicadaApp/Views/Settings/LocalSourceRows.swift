@@ -104,6 +104,8 @@ struct AddFolderRow: View {
     let symbol: String
     let panelMessage: String
     @State private var picked: PickedFolder?
+    /// A chosen folder under a refused root, said in the intake's own words.
+    @State private var refused: String?
 
     static let obsidianBundleId = "md.obsidian"
     /// A LaunchServices lookup — a function, not a computed property, so a
@@ -136,6 +138,12 @@ struct AddFolderRow: View {
                 Text(blurb)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
+                if let refused {
+                    Text(refused)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             Button("Choose…") { pick() }
@@ -156,6 +164,14 @@ struct AddFolderRow: View {
         panel.message = panelMessage
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        refused = nil
+        // The intake's refused roots (final review, finding 3): a watched
+        // folder's bytes are read and posted on every change, so a folder
+        // under `~/.claude`, `~/.codex` or `~/.cicada` is never watched.
+        if let refusal = IntakeRouter.refusedRoot(of: [url]) {
+            refused = refusal.panelText
+            return
+        }
         picked = PickedFolder(url: url)
     }
 }

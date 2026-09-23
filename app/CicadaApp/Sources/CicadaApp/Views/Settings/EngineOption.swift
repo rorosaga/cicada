@@ -1,7 +1,8 @@
 import Foundation
 
-/// R-E4 / R-E25 — every decision Settings → Sleep's engine row makes, as pure
-/// functions with table tests, so `EngineCard` is a renderer.
+/// R-E4 / R-E25 — every decision the engine row (Settings → Engines since
+/// G139) makes, as pure functions with table tests, so `EngineChooser` is a
+/// renderer.
 ///
 /// The row is `GET /sleep/engine`'s five candidates in the server's order
 /// (Auto, Claude plan, ChatGPT plan, Ollama, API key). Marks come through
@@ -48,6 +49,17 @@ enum EngineOption {
 
     static func logoName(for candidateId: String) -> String? {
         connectionId(for: candidateId).flatMap { ConnectionMark.logoName(connectionId: $0) }
+    }
+
+    /// The mark beside a "What runs" line — the same vendor mark the chosen
+    /// card wears, from the engine id the preview reports.
+    static func previewMark(engine: String) -> String? {
+        switch engine {
+        case "claude-cli": logoName(for: "agent")
+        case "codex-cli": logoName(for: "codex")
+        case "ollama": logoName(for: "local")
+        default: nil
+        }
     }
 
     static func symbol(for candidateId: String) -> String {

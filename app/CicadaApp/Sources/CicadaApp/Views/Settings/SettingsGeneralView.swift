@@ -1,15 +1,16 @@
 import SwiftUI
 
-/// Settings → General (G130 R8): the Settings scene's first tab, holding the
-/// two "how the whole app looks" controls that used to have no settings home
-/// at all — Appearance (the same `cicada.colorScheme` key the sidebar's
-/// sun/moon toggle already writes, so the two never disagree) and Text size
-/// (a slider over `CicadaTheme.uiScale`, the same value ⌘+/⌘−/⌘0 change).
-/// Track C's sidebar redesign is expected to turn this same tab into the
-/// General section of its own settings sidebar rather than replace it, so
-/// this stays its own file/tab now instead of folding into an existing one.
+/// Settings → General (G130 R8, re-laid for G139): Appearance (now with
+/// System, R-O4), Text size (a direct binding onto `CicadaTheme.uiScale`, so
+/// the slider and ⌘+/⌘−/⌘0 stay in lockstep — the setter clamps and is
+/// idempotent) and Run setup again (G117: clears the active bank's
+/// `OnboardingState` first, then asks the main window for the sheet).
+///
+/// Appearance writes the same `cicada.colorScheme` key the sidebar's sun/moon
+/// toggle already writes, so the two never disagree; `"system"` is the one new
+/// value, and `ThemeStore` resolves it against the Mac's own appearance.
 struct SettingsGeneralView: View {
-    @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
     // G117 — "Run setup again" needs the active bank (to clear the right
     // per-bank `OnboardingState` flag) and the cross-scene hand-off
     // (Settings is its own window, same reasoning as every other
@@ -18,118 +19,64 @@ struct SettingsGeneralView: View {
     @Environment(Store.self) private var store
     @Environment(SetupRunner.self) private var runner
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: Copy.general, subtitle: Copy.generalSubtitle) {}
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    appearanceCard
-                    textSizeCard
-                    onboardingCard
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingXL)
-            }
-        }
+    private var appearance: Binding<AppearancePreference> {
+        Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
     }
 
     /// A direct `Binding` onto `CicadaTheme.uiScale` — not a locally-drafted
     /// `@State` mirror — so dragging this slider AND choosing ⌘+/⌘−/⌘0 from
     /// the View menu while Settings is open stay in lockstep: reading
     /// `CicadaTheme.uiScale` in `get` subscribes this view's body to the same
-    /// `@Observable` store every other token reads (R2's mechanism), so a
-    /// menu zoom while this tab is open moves the thumb without this view
-    /// doing anything special. The setter already clamps/steps (R1) and is
-    /// idempotent (R4), so a slider drag that lands off-step is corrected on
-    /// write, not here.
-    private var scaleBinding: Binding<Double> {
+    /// `@Observable` store every other token reads (R2's mechanism). The
+    /// setter already clamps/steps (R1) and is idempotent (R4).
+    private var scale: Binding<Double> {
         Binding(get: { CicadaTheme.uiScale }, set: { CicadaTheme.uiScale = $0 })
     }
 
-    private var appearanceCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("APPEARANCE")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-
-            Picker("", selection: $colorSchemeRaw) {
-                Text("Dark").tag(AppColorScheme.dark.rawValue)
-                Text("Light").tag(AppColorScheme.light.rawValue)
+    var body: some View {
+        SettingsPage(section: .general) {
+            SettingsGroupCard {
+                SettingsRow(.appearance, title: Copy.appearance) {
+                    PillPicker(title: Copy.appearance, selection: appearance,
+                               options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) })
+                }
+                SettingsDivider()
+                SettingsRow(.textSize, title: Copy.textSize, detail: Copy.textSizeDetail) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Slider(value: scale, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
+                            .frame(width: CicadaTheme.scaled(160))
+                        Text("\(Int((CicadaTheme.uiScale * 100).rounded()))%")
+                            .font(CicadaTheme.monoFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .frame(width: CicadaTheme.scaled(44), alignment: .trailing)
+                        Button(Copy.actualSize) { CicadaTheme.resetZoom() }
+                            .buttonStyle(.cicadaPlain)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.accent)
+                            .disabled(CicadaTheme.uiScale == 1.0)
+                    }
+                }
+                SettingsDivider()
+                SettingsRow(.runSetup, title: Copy.setup, detail: Copy.runSetupDetail) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Button(Copy.runSetupAgain) {
+                            OnboardingState.reset(bank: store.bank)
+                            router.requestFirstRun()
+                        }
+                        // R-IB17 — the checklist is re-openable: records an
+                        // (empty) Getting started card for the active bank and
+                        // lands on Home, where it lists what was found. Beside
+                        // Run setup again, in the same row, so G139's search
+                        // index lands on both.
+                        Button(Copy.gsShowChecklist) {
+                            GettingStartedState.record(bank: store.bank, enabled: [])
+                            runner.checklistChanged()
+                            router.pendingTab = .home
+                            router.activateMainWindow()
+                        }
+                    }
+                }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 220)
         }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var textSizeCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("TEXT SIZE")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                Slider(value: scaleBinding, in: ThemeStore.scaleRange, step: ThemeStore.scaleStep)
-                Text("\(Int(CicadaTheme.uiScale * 100))%")
-                    .font(CicadaTheme.monoFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: 48, alignment: .trailing)
-            }
-
-            Button("Actual size") { CicadaTheme.resetZoom() }
-                .buttonStyle(.cicadaPlain)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.accent)
-                .disabled(CicadaTheme.uiScale == 1.0)
-
-            Text("⌘+ and ⌘− do the same from any page.")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    /// G117 — reopens the first-run sheet for the ACTIVE bank. Clearing
-    /// `OnboardingState` first (rather than after) means a person who
-    /// closes the sheet immediately still sees it again next launch, the
-    /// same "did it actually take" guarantee every other settings toggle
-    /// here gives.
-    private var onboardingCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("SETUP")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-            Button("Run setup again") {
-                OnboardingState.reset(bank: store.bank)
-                router.requestFirstRun()
-            }
-            .buttonStyle(.cicadaPlain)
-            .foregroundStyle(CicadaTheme.accent)
-            // R-IB17 — the checklist is re-openable: records an (empty) Getting
-            // started card for the active bank and lands on Home, where it
-            // lists what was found. The design's "Show setup checklist" row,
-            // until Track O moves it into Settings v3.
-            Button(Copy.gsShowChecklist) {
-                GettingStartedState.record(bank: store.bank, enabled: [])
-                runner.checklistChanged()
-                router.pendingTab = .home
-                router.activateMainWindow()
-            }
-            .buttonStyle(.cicadaPlain)
-            .foregroundStyle(CicadaTheme.accent)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 }
