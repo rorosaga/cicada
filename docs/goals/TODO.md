@@ -128,6 +128,10 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
   repaired once as `cicada` (R-B12, R-B13).
 - The video and meeting skill bridges are active (`cicada_record_watch`; `cicada_save_episode` with
   `speaker:<name>:` lines, never `user:`); documents stays off (R-B14).
+- `GET /remote/status` finds ngrok and Tailscale in the standard install folders, not only on
+  launchd's PATH (R-B15); `/state`'s `sleep.next_at` was already calibrated (Track P) and is now
+  pinned against `/status` in all four modes (R-B16).
+- Baselines: backend **N passed** on `fix/backend-batch-2` — the orchestrator measures and fills this.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
@@ -350,15 +354,8 @@ and clock-free speech bubble, a book pile encoding queued characters per source 
 charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
 server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
 every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
-Sleep/Upload buttons removed from this page. **Disclosed gap:** `GET /status`'s `next_sleep` (the
-one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.compute`'s
-`last_cycle_at`/`newest_unprocessed_at`; `GET /state`'s own `sleep.next_at`
-(`api/routers/state.py:100`, feeding the MCP handshake's now-view, not the app) is not — it calls
-`sleep_scheduler.next_run_at` with neither, so `interval` mode reads "N hours from now" instead of
-"N hours from the last real cycle" and `after_import` always reads `null`. Lower-stakes than the app
-surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
-shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
-engine-free read path on a late pass — fold in alongside the next `/state` touch.
+Sleep/Upload buttons removed from this page. **Closed:** `GET /state`'s `sleep.next_at` is calibrated with the same inputs as `/status`'s
+"Next run" (Track P R6, `7d1de42`) and pinned against it in all four modes (F2-back R-B16).
 · **G130 slice 1a+1b app-wide zoom (2026-09-05,
 PR #54, PR #58)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph

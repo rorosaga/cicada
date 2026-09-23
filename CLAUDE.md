@@ -1003,7 +1003,8 @@ Three gates, and they do **not** mean the same thing — read the difference bef
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
 through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
-reconfigures a tunnel** — `GET /remote/status` only detects one. Access is a per-connector
+reconfigures a tunnel** — `GET /remote/status` only detects one — on PATH or in
+the standard install folders, since an older LaunchAgent's PATH is bare (F2-back R-B15). Access is a per-connector
 capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
 `~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
 `sources`/`answer`/`ask` opt-in — `sources` gates every verbatim word of the person's, recall's
