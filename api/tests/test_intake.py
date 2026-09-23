@@ -10,7 +10,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from _intake_fixtures import (BOOKMARKS_HTML, CHAT_HTML, chatgpt_zip, claude_conversations,
+from _intake_fixtures import (BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
                               claude_zip, gemini_activity_html, gemini_takeout_zip)
 from api import config
 from api.routers import conversations as conv
@@ -83,6 +83,38 @@ def test_activity_for_another_product_alone_is_refused():
     assert exc.value.detail == intake.NOT_GEMINI_REASON
 
 
+def test_a_search_page_that_mentions_gemini_is_still_search():
+    """Final review, findings 4/5: the old check matched "gemini" anywhere in
+    the page, so one query about it imported the whole search history as
+    Gemini prompts. The header cell's product title decides."""
+    page = gemini_activity_html((("gemini launch date", None, "Jan 5, 2026, 9:00:00 AM PST"),
+                                 ("bard pricing", None, "Jan 6, 2026, 9:00:00 AM PST")),
+                                product="Search", verb="Searched for")
+    with pytest.raises(HTTPException) as exc:
+        intake.parse_export(page.encode(), "MyActivity.html")
+    assert exc.value.detail == intake.NOT_GEMINI_REASON
+    # Inside a Gemini-named folder of a zip the page is still refused: the
+    # folder only ever refuses early, it never vouches for the page.
+    zipped = intake.parse_export(_zip({"Takeout/My Activity/Gemini Apps/MyActivity.html": page,
+                                       "conversations.json": json.dumps(claude_conversations(1))}), "t.zip")
+    assert zipped.vendors == {"claude"} and zipped.counts == {"conversations": 1}
+    assert {"name": "Gemini Apps/MyActivity.html", "reason": intake.OTHER_ACTIVITY} in zipped.ignored
+
+
+def test_a_localized_gemini_title_is_still_gemini():
+    page = gemini_activity_html(product="Aplicaciones de Gemini", verb="Prompted")
+    assert intake.parse_export(page.encode(), "MyActivity.html").vendor == "gemini"
+
+
+def test_a_stray_member_a_parser_chokes_on_is_one_more_other_file():
+    """Final review, finding 8: `[1, 2]` raised TypeError in `detect_source`
+    and 500'd the whole export."""
+    parsed = intake.parse_export(_zip({"conversations.json": json.dumps(claude_conversations(2)),
+                                       "numbers.json": "[1, 2]"}), "export.zip")
+    assert parsed.counts == {"conversations": 2}
+    assert parsed.warnings == ["1 other file in the zip isn't a conversation (images, attachments, settings)."]
+
+
 def test_a_bookmarks_page_is_not_a_chat_export():
     """D7: the `[soup]` fallback imported any page as role-less chat."""
     with pytest.raises(HTTPException) as exc:
@@ -106,7 +138,7 @@ def test_the_gemini_parser_splits_prompt_from_reply_and_titles_by_the_prompt():
     assert first["title"] == "Summarize my alpha-project notes"
     assert first["timestamp"] == "2026-02-24T12:39:02+00:00"
     assert [m["role"] for m in second["messages"]] == ["user"], "no reply, no assistant line"
-    assert all(e["origin"] == "gemini-export" and e["legacy_hash"] for e in (first, second))
+    assert all(e["origin"] == "gemini-export" and e["legacy_hashes"] for e in (first, second))
 
 
 def test_a_takeout_reimported_after_the_parser_change_duplicates_nothing(tmp_path, monkeypatch):
@@ -119,10 +151,10 @@ def test_a_takeout_reimported_after_the_parser_change_duplicates_nothing(tmp_pat
         if len(ep["messages"]) > 1:
             text += "\n\n" + ep["messages"][1]["text"]
         body = f"user: {text}"
-        assert hashlib.sha256(body.encode()).hexdigest()[:12] == ep["legacy_hash"]
+        assert hashlib.sha256(body.encode()).hexdigest()[:12] == ep["legacy_hashes"][0]
         markdown_parser.write(ep_dir / f"ep_2026-01-01_00{i + 1}.md",
                               {"id": f"ep_2026-01-01_00{i + 1}", "origin": "gemini-export", "source": "gemini_export",
-                               "processed": True, "content_hash": ep["legacy_hash"]}, body)
+                               "processed": True, "content_hash": ep["legacy_hashes"][0]}, body)
     client = _client(tmp_path, monkeypatch)
     r = _post(client, "/intake/import", "MyActivity.html", gemini_activity_html())
     assert r.status_code == 200, r.text
@@ -143,6 +175,46 @@ def test_plan_agrees_with_stage_for_new_grown_and_unchanged(tmp_path):
     assert conv._stage_episodes(second, ep_dir) == (1, 1, 2), "plan and stage must never disagree"
     again = intake.plan(conv.parse_anthropic_conversations(claude_conversations(4, grown=True)), tmp_path)
     assert (len(again.create), len(again.update), len(again.skip)) == (0, 0, 4)
+
+
+def test_plan_agrees_with_stage_when_a_scrub_rule_fires(tmp_path):
+    """Final review, finding 1: the stager hashes the SCRUBBED body and counts
+    the raw one as unchanged too; the old mirror hashed only the raw body, so
+    a thread holding a secret previewed as "grew" and then staged as a skip."""
+    ep_dir = tmp_path / "episodes"
+    convs = claude_conversations(3)
+    convs[0]["chat_messages"][0]["text"] = "my key is sk-" + "C" * 24
+    conv._stage_episodes(conv.parse_anthropic_conversations(json.loads(json.dumps(convs))), ep_dir)
+    stored = _episodes(tmp_path)
+    assert not any("sk-" + "C" * 24 in e.body for e in stored.values()), "scrubbed on the way in"
+    again = conv.parse_anthropic_conversations(json.loads(json.dumps(convs)))
+    predicted = intake.plan(again, tmp_path)
+    assert (len(predicted.create), len(predicted.update), len(predicted.skip)) == (0, 0, 3)
+    assert conv._stage_episodes(again, ep_dir) == (0, 0, 3)
+
+
+def test_plan_counts_a_legacy_raw_hash_as_unchanged(tmp_path):
+    """An episode staged before G133 carries the hash of its UNSCRUBBED body
+    (R-LS4): unchanged to the stager, so unchanged to the preview."""
+    ep_dir = tmp_path / "episodes"
+    ep_dir.mkdir(parents=True)
+    [ep] = conv.parse_anthropic_conversations(claude_conversations(1))
+    ep["messages"][0]["text"] = "token sk-" + "D" * 24
+    raw = "\n".join(f"{m['role']}: {m['text']}" for m in ep["messages"])
+    markdown_parser.write(ep_dir / "ep_2026-02-01_001.md",
+                          {"id": "ep_2026-02-01_001", "source": "claude", "processed": True,
+                           "content_hash": hashlib.sha256(raw.encode()).hexdigest()[:12],
+                           "source_id": ep["source_id"]}, raw)
+    predicted = intake.plan([ep], tmp_path)
+    assert (len(predicted.create), len(predicted.update), len(predicted.skip)) == (0, 0, 1)
+    assert conv._stage_episodes([ep], ep_dir) == (0, 0, 1)
+
+
+def test_the_plan_writes_nothing_even_into_a_missing_directory(tmp_path):
+    before = _tree(tmp_path)
+    predicted = intake.plan(conv.parse_anthropic_conversations(claude_conversations(2)), tmp_path)
+    assert len(predicted.create) == 2 and _tree(tmp_path) == before
+    assert not (tmp_path / "episodes").exists()
 
 
 # --- the sniff stages nothing (G71 §4.3, R-IA11) ------------------------------
@@ -206,6 +278,25 @@ def test_another_products_activity_never_sniffs_as_saved_links(tmp_path, monkeyp
     body = _post(client, "/intake/sniff", "MyActivity.html", page).json()
     assert body["recognized"] is False and body["kind"] == "unknown"
     assert body["reason"] == intake.NOT_GEMINI_REASON
+    config.get_settings.cache_clear()
+
+
+def test_a_search_page_mentioning_gemini_never_sniffs_as_anything(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    page = gemini_activity_html((("gemini pricing", None, "Jan 5, 2026, 9:00:00 AM PST"),),
+                                product="Search", verb="Searched for")
+    body = _post(client, "/intake/sniff", "MyActivity.html", page).json()
+    assert body["recognized"] is False and body["reason"] == intake.NOT_GEMINI_REASON
+    r = _post(client, "/intake/import", "MyActivity.html", page)
+    assert r.status_code == 400 and not list((tmp_path / "episodes").glob("*.md"))
+    config.get_settings.cache_clear()
+
+
+def test_a_zip_with_a_stray_member_sniffs_and_imports(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    z = _zip({"conversations.json": json.dumps(claude_conversations(2)), "numbers.json": "[1, 2]"})
+    assert _post(client, "/intake/sniff", "export.zip", z).json()["delta"]["new"] == 2
+    assert _post(client, "/intake/import", "export.zip", z).json()["episodesStaged"] == 2
     config.get_settings.cache_clear()
 
 

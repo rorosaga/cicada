@@ -1,4 +1,3 @@
-import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
-from api.services import episode_ids, episode_staging, session_stats, sync_service
+from api.services import episode_ids, episode_scrub, episode_staging, session_stats, sync_service
 
 router = APIRouter()
 
@@ -198,27 +197,23 @@ async def resume_conversation(
 
 
 def detect_source(data, filename: str = "") -> str:
-    """Detect export source from JSON structure."""
-    # Anthropic memories.json
-    if isinstance(data, list) and data and "conversations_memory" in data[0]:
+    """Detect export source from JSON structure.
+
+    Only a list whose first item is an object is an export: ``"key" in 1``
+    raised TypeError (a stray ``[1, 2]`` 500'd a whole zip), and ``"key" in
+    "a string"`` is a substring test that could misread a list of strings
+    (Track I final review, finding 8)."""
+    if not (isinstance(data, list) and data and isinstance(data[0], dict)):
+        return "unknown"
+    first = data[0]
+    if "conversations_memory" in first:
         return "anthropic_memories"
-
-    # Anthropic projects.json
-    if isinstance(data, list) and data and "prompt_template" in data[0]:
+    if "prompt_template" in first:
         return "anthropic_projects"
-
-    # Anthropic conversations.json — has uuid + chat_messages
-    if isinstance(data, list) and data:
-        first = data[0] if data else {}
-        if "chat_messages" in first and "uuid" in first:
-            return "anthropic"
-
-    # ChatGPT — has mapping with message nodes
-    if isinstance(data, list) and data:
-        first = data[0] if data else {}
-        if "mapping" in first:
-            return "chatgpt"
-
+    if "chat_messages" in first and "uuid" in first:
+        return "anthropic"
+    if "mapping" in first:
+        return "chatgpt"
     return "unknown"
 
 
@@ -560,6 +555,18 @@ def _gemini_title(prompt: str) -> str:
     return first if len(first) <= _GEMINI_TITLE_MAX else first[: _GEMINI_TITLE_MAX - 1].rstrip() + "…"
 
 
+def _gemini_legacy_hashes(legacy_text: str) -> list[str]:
+    """The hashes a pre-Track-I Gemini episode can carry: its one ``user:``
+    line hashed raw (every stager before G133), and hashed after the scrub
+    (dev's ``episode_staging`` scrubs before it hashes, R-N3). Both, because a
+    bank may hold either; one entry when no scrub rule fired."""
+    if not legacy_text:
+        return []
+    raw = episode_staging.content_hash(f"user: {legacy_text}")
+    scrubbed = episode_staging.content_hash(f"user: {episode_scrub.scrub(legacy_text)[0]}")
+    return list(dict.fromkeys((raw, scrubbed)))
+
+
 def parse_gemini_myactivity(html: str) -> list[dict]:
     """Parse a Google Takeout ``Gemini Apps/MyActivity.html`` export (Track I, R-IA9).
 
@@ -571,10 +578,12 @@ def parse_gemini_myactivity(html: str) -> list[dict]:
     — minus Google's own verb, which is not the person's words — is ``user``,
     what follows is ``assistant``, and the title is the prompt's first line.
 
-    Each entry also carries ``legacy_hash``: the ``content_hash`` the old
-    parser's body would have had. ``api/routers/intake.plan`` counts a legacy
-    hash already in the bank as unchanged, so a Takeout re-imported after this
-    change duplicates nothing (``_write_new_episode`` never writes the key).
+    Each entry also carries ``legacy_hashes``: the ``content_hash`` values the
+    old parser's body could have been stored under (see
+    ``_gemini_legacy_hashes``). ``api/routers/intake.plan`` counts one already
+    in the bank as unchanged, so a Takeout re-imported after this change
+    duplicates nothing (``episode_staging.draft_from_export`` never carries
+    the key into a file).
     """
     from bs4 import BeautifulSoup
 
@@ -618,8 +627,7 @@ def parse_gemini_myactivity(html: str) -> list[dict]:
             "messages": messages,
             "timestamp": ts,
             "original_date": _extract_date(ts),
-            "legacy_hash": (episode_staging.content_hash(f"user: {legacy_text}")
-                            if legacy_text else None),
+            "legacy_hashes": _gemini_legacy_hashes(legacy_text),
         })
 
     episodes.sort(key=lambda e: e.get("timestamp") or "")

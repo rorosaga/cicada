@@ -10,7 +10,7 @@ struct OnThisMacStrip: View {
     @Environment(BrowserWatcher.self) private var watcher
     @State private var inventory: LocalInventory?
     @State private var states: [FoundItemID: FoundRowState] = [:]
-    @State private var copyable: [FoundItemID: [String]] = [:]
+    @State private var refused: [FoundItemID: [String]] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -58,9 +58,13 @@ struct OnThisMacStrip: View {
                      state: states[item.id] ?? base, disclosure: disclosure,
                      action: { Task { await turnOn(item, agent: agent, wiring: wiring) } },
                      settingsLink: item.id == .agent("claude-desktop") ? .agents : nil)
-            if let lines = copyable[item.id] {
+            if let lines = refused[item.id] {
                 Text(Copy.foundRefused).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                ForEach(lines, id: \.self) { CommandBox(command: $0) }
+                // To inspect, not to run: no copy button (see `Copy.foundRefused`).
+                ForEach(lines, id: \.self) {
+                    Text($0).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -101,7 +105,7 @@ struct OnThisMacStrip: View {
                                                  binaries: Set(wiring.agents.compactMap(\.binary)))
             switch outcome {
             case .done: states[item.id] = nil
-            case .refused(let lines): states[item.id] = nil; copyable[item.id] = lines
+            case .refused(let lines): states[item.id] = nil; refused[item.id] = lines
             case .failed(let why): states[item.id] = .failed(why)
             }
             await inventory?.refresh()

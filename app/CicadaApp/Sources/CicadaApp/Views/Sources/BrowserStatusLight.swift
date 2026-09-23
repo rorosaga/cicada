@@ -99,6 +99,7 @@ struct BrowserStatusLight: View {
             case .blocked: return "Cicada isn't allowed to read this folder."
             case .failed: return "The last sync didn't finish. Try Sync now."
             case .absent: return "This folder isn't on this Mac."
+            case .off: return "Cicada reads this folder only after you turn it on."
             }
         }
         if channelId == LocalSourceWatcher.wisprChannel {
@@ -109,6 +110,7 @@ struct BrowserStatusLight: View {
             case .blocked: return "Cicada isn't allowed to read Wispr Flow's data."
             case .failed: return "The last sync didn't finish. Try Sync now."
             case .absent: return "Wispr Flow isn't on this Mac."
+            case .off: return "Cicada reads Wispr Flow only after you turn it on."
             }
         }
         return explanation(for: state)

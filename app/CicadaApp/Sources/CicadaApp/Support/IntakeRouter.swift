@@ -402,6 +402,9 @@ final class IntakeRouter {
         task?.cancel()
         phase = .idle
         sniffedPreview = nil
+        // The Into picker reads `target`; a cancelled "New memory" must not
+        // outlive the preview it was chosen for (final review, finding 3).
+        target = .active
     }
 
     /// Close the overlay. An import keeps running and reopens where it was.
@@ -415,6 +418,7 @@ final class IntakeRouter {
     func finish() {
         phase = .idle
         sniffedPreview = nil
+        target = .active
         isOverlayPresented = false
     }
 

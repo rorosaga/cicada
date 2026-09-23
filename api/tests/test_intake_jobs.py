@@ -8,7 +8,7 @@ import threading
 from _intake_fixtures import claude_conversations
 from api import config
 from api.routers import conversations as conv
-from api.services import bank_registry, intake_jobs, markdown_parser
+from api.services import bank_registry, episode_staging, intake_jobs, markdown_parser
 
 
 def _client(tmp_path, monkeypatch):
@@ -74,14 +74,15 @@ def test_an_unknown_job_is_404(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
 
 
-def test_a_failing_job_records_its_error_and_still_finishes(tmp_path):
+def test_a_failing_job_records_its_error_and_still_finishes(tmp_path, monkeypatch):
     intake_jobs.reset()
     job = intake_jobs.start(3)
 
-    def boom(_episodes, _dir):
+    def boom(*_args, **_kwargs):
         raise OSError("disk full")
 
-    intake_jobs.run(job.id, [{}, {}, {}], tmp_path / "episodes", boom)
+    monkeypatch.setattr(episode_staging, "stage", boom)
+    intake_jobs.run(job.id, [{}, {}, {}], tmp_path / "episodes")
     done = intake_jobs.get(job.id)
     assert done.done is True and done.error == "OSError: disk full" and done.staged == 0
 
@@ -96,10 +97,37 @@ def test_two_jobs_into_one_bank_never_collide(tmp_path):
     for ep in b:
         ep["source_id"] = "other-" + ep["source_id"]
     jobs = [intake_jobs.start(30), intake_jobs.start(30)]
-    threads = [threading.Thread(target=intake_jobs.run, args=(j.id, eps, ep_dir, conv._stage_episodes), kwargs={"batch": 7})
+    threads = [threading.Thread(target=intake_jobs.run, args=(j.id, eps, ep_dir))
                for j, eps in zip(jobs, (a, b))]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
     assert len(list(ep_dir.glob("*.md"))) == 60
+    assert all(intake_jobs.get(j.id).created == 30 for j in jobs)
+
+
+def test_a_job_scans_the_bank_once_and_counts_per_episode(tmp_path, monkeypatch):
+    """Final review, finding 2: the first cut staged in 50-episode batches and
+    every batch re-scanned the whole bank — 177 s against 9.9 s as one call
+    for 1,000 threads into a 2,000-episode bank. One stage call, one scan, and
+    the counter still moves per episode."""
+    intake_jobs.reset()
+    ep_dir = tmp_path / "episodes"
+    scans, seen = [], []
+    real_scan = episode_staging.scan
+    monkeypatch.setattr(episode_staging, "scan", lambda d: scans.append(d) or real_scan(d))
+    eps = conv.parse_anthropic_conversations(claude_conversations(120))
+    job = intake_jobs.start(len(eps))
+    real_mark = episode_staging._mark
+
+    def spy(result, verb, *rest):
+        seen.append(intake_jobs.get(job.id).staged)
+        return real_mark(result, verb, *rest)
+
+    monkeypatch.setattr(episode_staging, "_mark", spy)
+    intake_jobs.run(job.id, eps, ep_dir)
+    done = intake_jobs.get(job.id)
+    assert len(scans) == 1
+    assert (done.staged, done.created, done.done, done.error) == (120, 120, True, None)
+    assert seen == list(range(120)), "the counter advances one episode at a time"

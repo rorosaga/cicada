@@ -17,9 +17,9 @@ a file needs, and what the file holds besides (R-IA7, R-IA8).
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import json
+import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -41,7 +41,7 @@ from api.models.schemas import (
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import bank_index, bank_registry, intake_jobs, media_ingestor
+from api.services import bank_registry, episode_staging, intake_jobs, media_ingestor
 
 router = APIRouter()
 
@@ -160,15 +160,44 @@ def _is_activity_page(base: str, text: str) -> bool:
     return "myactivity" in base.lower() or "mdl-typography" in text or "outer-cell" in text
 
 
+#: Gemini, or Bard (its old name), as a word — Takeout localizes the product
+#: title ("Gemini Apps", "Aplicaciones de Gemini") but keeps the brand.
+_GEMINI_WORD = re.compile(r"\b(?:gemini|bard)\b", re.IGNORECASE)
+
+
+def _product_titles(text: str) -> list[str]:
+    """Each activity cell's product title — Takeout's
+    ``div.header-cell > p.mdl-typography--title`` ("Gemini Apps", "Search",
+    "YouTube")."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(text, "html.parser")
+    return [p.get_text(" ", strip=True)
+            for cell in soup.find_all("div", class_="header-cell")
+            for p in cell.find_all("p", class_="mdl-typography--title")]
+
+
 def _is_gemini_activity(path: str, text: str) -> bool:
-    """Takeout's "My Activity" is per product. Inside a zip the folder says which
-    (``My Activity/Gemini Apps/MyActivity.html``); a page dropped alone is
-    Gemini's when it names Gemini — or Bard, its old name — anywhere."""
-    lowered = path.lower()
-    if "/" in lowered:
-        return "gemini" in lowered or "bard" in lowered
-    text = text.lower()
-    return "gemini" in text or "bard" in text
+    """Takeout's "My Activity" is per product, and the page says which in every
+    cell's header. Decided by those titles — Gemini when most cells name it —
+    never by a word anywhere in the page: a Search page whose one query was
+    "gemini launch date" matched the old whole-text check and imported the
+    person's search history as Gemini prompts, the thing ``FINAL_REFUSALS``
+    exists to stop (Track I final review, findings 4 and 5). The path cannot
+    say yes on its own either: the app uploads a dropped folder's files by name
+    alone, so an unzipped Takeout never carries its folder (``_parse_zip`` uses
+    the folder only to refuse early).
+
+    Only a page with NO header cell falls back to its folder, then its text, as
+    a word: a real Takeout page always has them, so a Search or YouTube page is
+    always decided by its titles."""
+    titles = _product_titles(text)
+    if titles:
+        return sum(1 for t in titles if _GEMINI_WORD.search(t)) * 2 > len(titles)
+    parent = PurePosixPath(path).parent.name
+    if parent and _GEMINI_WORD.search(parent):
+        return True
+    return bool(_GEMINI_WORD.search(text))
 
 
 def _parse_html(content: bytes, path: str, base: str) -> ParsedExport:
@@ -227,7 +256,12 @@ def _parse_zip(content: bytes) -> ParsedExport:
         if low == CHAT_HTML:
             out.ignored.append({"name": base, "reason": CHAT_HTML_SKIP})
             continue
-        if low == "myactivity.html" and "/" in info.filename and not _is_gemini_activity(info.filename, ""):
+        if (low == "myactivity.html" and len(member.parts) > 1
+                and not _GEMINI_WORD.search(member.parent.name)):
+            # Takeout names each product's folder (`My Activity/Search/`), and a
+            # Search or YouTube page can run to tens of megabytes: skipped here
+            # unparsed. The folder only ever REFUSES — a page it lets through
+            # is still decided by its own header titles below.
             out.ignored.append({"name": "/".join(member.parts[-2:]), "reason": OTHER_ACTIVITY})
             continue
         if not low.endswith((".json", ".html", ".htm")):
@@ -235,7 +269,20 @@ def _parse_zip(content: bytes) -> ParsedExport:
             continue
         try:
             part = parse_export(zf.read(info), info.filename)
-        except HTTPException:
+        except HTTPException as exc:
+            if low == "myactivity.html" and exc.detail == NOT_GEMINI_REASON:
+                # Takeout's per-product activity (Search, YouTube…): named, not counted.
+                out.ignored.append({"name": "/".join(member.parts[-2:]), "reason": OTHER_ACTIVITY})
+            else:
+                others += 1
+            continue
+        except Exception as exc:
+            # Any member a parser chokes on — a stray `.json` holding `[1, 2]`
+            # raised TypeError in `detect_source` and 500'd the whole export
+            # (T2 review; Track I final review, finding 8) — is one more file
+            # that isn't a conversation. The type only: a message could quote
+            # the member's own text.
+            logger.warning(f"Intake: skipped a zip member ({type(exc).__name__})")
             others += 1
             continue
         out.absorb(part)
@@ -260,53 +307,31 @@ class StagePlan:
     legacy: list[dict] = field(default_factory=list)
 
 
-def _body_hash(episode: dict) -> str:
-    body = "\n".join(conv._message_line(m) for m in episode.get("messages", []))
-    return hashlib.sha256(body.encode()).hexdigest()[:12]
-
-
 def plan(episodes: list[dict], memory_path: Path) -> StagePlan:
     """What ``conversations._stage_episodes`` WOULD do to ``memory_path``, writing
-    nothing (design §9.1 item 1). Mirrors its decision rule clause for clause —
-    ``test_plan_agrees_with_stage_for_new_grown_and_unchanged`` runs both over the
-    same fixtures, so a change to one side that misses the other goes red.
-    Reads frontmatter through ``bank_index`` (cached by mtime and size), not a
-    re-parse per call: a sniff runs on every drop."""
-    source_hashes: dict = {}
-    known: set[str] = set()
-    for f in bank_index.files(memory_path, "episodes"):
-        fm = f.frontmatter
-        digest = fm.get("content_hash")
-        if digest:
-            known.add(digest)
-        sid = fm.get("source_id")
-        if sid:
-            source_hashes[sid] = digest
+    nothing (design §9.1 item 1) — ``episode_staging.plan``, the stager's own
+    loop run dry, so the preview and the write share one decision rule (same
+    scrub, same scrubbed-or-legacy hash). This module used to mirror the rule
+    and hashed the raw body, so any thread a scrub rule touched previewed as
+    "grew" and staged as a skip (Track I final review, finding 1).
+
+    The one thing layered on top is the Gemini ``legacy_hashes`` check (R-IA9):
+    an episode the pre-Track-I parser staged is unchanged, and ``import_bytes``
+    leaves it out of the write for the same reason."""
+    episodes_dir = memory_path / "episodes"
+    _, known = episode_staging.scan(episodes_dir)
     out = StagePlan()
+    rest: list[dict] = []
     for ep in episodes:
-        legacy = ep.get("legacy_hash")
-        if legacy and legacy in known:
+        if known.intersection(ep.get("legacy_hashes") or ()):
             out.skip.append(ep)
             out.legacy.append(ep)
-            continue
-        digest = _body_hash(ep)
-        sid = ep.get("source_id")
-        if sid:
-            if sid not in source_hashes:
-                out.create.append(ep)
-            elif source_hashes[sid] == digest:
-                out.skip.append(ep)
-                continue
-            else:
-                out.update.append(ep)
-            source_hashes[sid] = digest
-            known.add(digest)
-            continue
-        if digest in known:
-            out.skip.append(ep)
-            continue
-        out.create.append(ep)
-        known.add(digest)
+        else:
+            rest.append(ep)
+    dry = episode_staging.plan([episode_staging.draft_from_export(e) for e in rest], episodes_dir)
+    bucket = {"created": out.create, "updated": out.update, "renamed": out.update, "skipped": out.skip}
+    for ep, verdict in zip(rest, dry.verdicts, strict=True):
+        bucket[verdict].append(ep)
     return out
 
 
@@ -368,8 +393,8 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
         pending = [e for e in parsed.episodes if id(e) in writes]
         return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
                             pending=(pending, target / "episodes"))
-    with intake_jobs.STAGING_LOCK:
-        created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
+    # `episode_staging.stage` holds its own process-wide lock (G114 ids).
+    created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
     if not active and created + updated:
         # G87: staged into a bank Sleep does not read until someone switches to it.
         logger.warning(f"Import into NON-active bank '{name}': {created + updated} episode(s) staged")
@@ -468,7 +493,7 @@ async def import_file(
         return _import_response(result)
     todo, episodes_dir = result.pending
     job = intake_jobs.start(len(todo), already_skipped=result.skipped)
-    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, conv._stage_episodes)
+    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir)
     response.status_code = 202
     return _import_response(result, job=job)
 

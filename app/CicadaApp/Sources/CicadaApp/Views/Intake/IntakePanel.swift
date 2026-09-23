@@ -19,8 +19,12 @@ struct IntakePanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dropTargeted = false
     @State private var filter = ""
+    /// The new memory's name as typed — a draft only. Whether the panel is
+    /// creating one is the ROUTER's `target`, never local state: a panel-held
+    /// flag survived Cancel and a fresh drop (`accept` resets the target to
+    /// `.active`), so the picker read "New memory" while the import went to the
+    /// active bank — G87's one lie (Track I final review, finding 3).
     @State private var newMemoryName = ""
-    @State private var creatingNew = false
 
     private var vendors: [ChatVendor] { vendor.map { [$0] } ?? ChatVendor.allCases }
     /// A panel shows the router's phase only when it is the host that phase belongs to.
@@ -175,7 +179,7 @@ struct IntakePanel: View {
                 MeadowPill(title: p.importCount == 0 ? Copy.intakeNothingNew : Copy.intakeImportButton(p.importCount)) {
                     intake.confirm(createBank: { name in await banksVM.create(name: name) })
                 }
-                .disabled(p.importCount == 0 || (creatingNew && newMemoryName.trimmingCharacters(in: .whitespaces).isEmpty))
+                .disabled(p.importCount == 0 || newBankName.map { $0.trimmingCharacters(in: .whitespaces).isEmpty } == true)
             }
         }
     }
@@ -218,10 +222,8 @@ struct IntakePanel: View {
                 get: { creatingNew ? "__new__" : (targetSlug ?? banksVM.activeName ?? "") },
                 set: { value in
                     if value == "__new__" {
-                        creatingNew = true
                         intake.retarget(.newBank(newMemoryName))
                     } else {
-                        creatingNew = false
                         intake.retarget(value == banksVM.activeName ? .active : .bank(value))
                     }
                 })) {
@@ -236,16 +238,32 @@ struct IntakePanel: View {
             if creatingNew {
                 TextField(Copy.intakeNewMemoryPlaceholder, text: $newMemoryName)
                     .textFieldStyle(.roundedBorder)
-                    .onChange(of: newMemoryName) { _, name in intake.retarget(.newBank(name)) }
+                    .onChange(of: newMemoryName) { _, name in
+                        if creatingNew { intake.retarget(.newBank(name)) }
+                    }
             }
         }
         .task { await banksVM.load() }
+        // A target that stops being a new memory (Cancel, a new drop) drops
+        // the draft too, so the next "New memory" starts empty.
+        .onChange(of: intake.target) { _, target in
+            if case .newBank = target { return }
+            newMemoryName = ""
+        }
     }
 
     private var targetSlug: String? {
         if case .bank(let slug) = intake.target { return slug }
         return nil
     }
+
+    /// The name the router will create, when its target is a new memory.
+    private var newBankName: String? {
+        if case .newBank(let name) = intake.target { return name }
+        return nil
+    }
+
+    private var creatingNew: Bool { newBankName != nil }
 }
 
 /// "Don't have one yet?" — one vendor's mark, what you get, the export page,

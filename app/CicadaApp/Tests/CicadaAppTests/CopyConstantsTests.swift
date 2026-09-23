@@ -119,4 +119,14 @@ final class CopyConstantsTests: XCTestCase {
             XCTAssertFalse(sentence.lowercased().contains("claim"), sentence)
         }
     }
+
+    /// Track I final review, findings 6 and 7: a refusal never tells the person
+    /// to run by hand what the allowlist refused, and the drop zone never
+    /// promises "nothing is read" — the sniff reads the file, and "read" is a
+    /// Sleep read a schedule runs unasked.
+    func testIntakeCopyNeverUndoesARefusalOrPromisesNoRead() {
+        XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("terminal"))
+        XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("copy them"))
+        XCTAssertFalse(Copy.intakeDropSubtitle.localizedCaseInsensitiveContains("read"))
+    }
 }

@@ -162,6 +162,28 @@ final class IntakeRouterTests: XCTestCase {
         XCTAssertEqual(api.importedBanks, ["alpha-project"])
     }
 
+    /// Final review, finding 3: "New memory" chosen, then Cancel, then a new
+    /// drop — the target must be the active bank again, and the import must go
+    /// where the (router-derived) picker says.
+    func testACancelledNewMemoryNeverOutlivesItsPreview() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs["c.json"] = chat("claude")
+        api.sniffs["d.json"] = chat("claude")
+        let router = IntakeRouter(api: api)
+        router.accept(urls: [try file("c.json")], from: .windowDrop)
+        try await eventually("preview") { self.isPreview(router) }
+        router.retarget(.newBank("alpha-project"))
+        XCTAssertEqual(router.target, .newBank("alpha-project"))
+        router.cancel()
+        XCTAssertEqual(router.target, .active)
+        router.accept(urls: [try file("d.json")], from: .windowDrop)
+        try await eventually("second preview") { self.isPreview(router) }
+        XCTAssertEqual(router.target, .active)
+        router.confirm(createBank: { _ in XCTFail("no memory was asked for"); return nil })
+        try await eventually("done") { self.isDone(router) }
+        XCTAssertEqual(api.importedBanks, [nil])
+    }
+
     func testADropWhileImportingIsRefused() async throws {
         let api = FakeIntakeAPI()
         api.sniffs["c.json"] = chat("claude")

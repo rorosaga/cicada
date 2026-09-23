@@ -8,7 +8,10 @@ import Foundation
 extension Copy {
     // MARK: The intake panel (Task 7)
     static let intakeDropTitle = "Drop an export here. The .zip is fine."
-    static let intakeDropSubtitle = "Cicada works out what it is. Nothing is read until you say so."
+    /// Not "nothing is read": the sniff reads the whole file to build the
+    /// preview, and in this app "read" is a Sleep read that a schedule runs
+    /// unasked. What waits for the person is the SAVE (final review, finding 7).
+    static let intakeDropSubtitle = "Cicada works out what it is. Nothing is saved until you choose Import."
     static let intakeChooseFile = "Choose a file…"
     static let intakeNoExportYet = "Don't have one yet?"
     static let intakeOpenExportPage = "Open export page"
@@ -75,7 +78,11 @@ extension Copy {
     static let foundCouldNotCheck = "Couldn't check this app in time. Try again."
     static let foundPastStays = "Past sessions stay where they are. Cicada never reads them."
     static let foundInvalidSettings = "Its settings file isn't valid JSON, so Cicada didn't touch it. Fix it, then Retry."
-    static let foundRefused = "Cicada couldn't vouch for these commands, so it didn't run them. Copy them into Terminal instead."
+    /// Never "paste them into Terminal": `AgentConnectPolicy` refuses exactly
+    /// the commands it cannot vouch for byte for byte, and each wires a hook
+    /// that runs on every agent turn — recommending them by hand undid the
+    /// allowlist (final review, finding 6). The lines are shown to inspect only.
+    static let foundRefused = "These commands don't match this copy of Cicada, so it didn't run them. Reinstall Cicada, then try again."
     static let foundBackendDown = "Waiting for Cicada's background service…"
 
     // MARK: Honesty (Task 6, design §5.3) — ruling 4, said out loud
