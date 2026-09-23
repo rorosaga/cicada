@@ -52,7 +52,17 @@ moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=
 derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
 rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
-(M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
+(M1) merges; MCP recall adopted the G136 helpers with G140 Q-R1 (Track Q).
+
+**Round 3, Track Q — memory quality from the Instinct comparison + the video watch record (2026-09-23,
+`feat/memory-quality`, G140).** Recall reads aliases, words and claims (the G136 hand-off) and shows bounded
+dated history; `cicada_timeline`, `cicada_retract_claim` and `cicada_record_watch` are new; stated ends
+(`expected_end`, `due`) close on Sleep's tail in a `cicada` `Expiry` commit; the primer is Standing/Current
+with the person, their timezone and How to work with me (contract v3); the video chain's four defects are
+fixed and `media` is the sixth evidence kind (after Track L's `speaker`; one marker grammar reads both). Backend **2869 passed** on the branch (2714 on its base). P9
+(the rubric eval) is open in G140. Hand-offs: Track P renders `media` spans and `t`; Track O's skills
+manifest names `cicada_record_watch`; the Local-sources scrub wraps the two new episode writers
+(`write_note_episode`, `watch_record` — done in the merge of `dev`).
 
 **Round 3, Track S-ui — G136 app half (2026-09-23, `feat/find-palette`).** ⌘K is a find palette
 with Ask as a mode (⌘⏎), a server tier appended without moving a row, one `CicadaSearchField` on every

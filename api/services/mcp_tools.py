@@ -34,7 +34,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from api.services import agent_commits, agentic_write, episode_ids, episode_scrub
+from api.services import agent_commits, agentic_write, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import markdown_parser
 
@@ -256,6 +256,20 @@ def _render_ask(result: dict) -> str:
     return "\n".join(lines).strip()
 
 
+def _saved_reply(status: str, title: str, media_type: str, entity_id: str, episode_id: str,
+                 note_episode_id: str | None) -> str:
+    """One reply for both save paths (G140 Q-R10, R5 §2 defect 2): the episode
+    id is what ``cicada_write_claim``'s ``evidence`` cites, and the old replies
+    never named it. A duplicate names the kept note's episode too — that note
+    is the watch-later summary G22's chain exists for."""
+    if status == "duplicate":
+        kept = (f" Your note was kept as episode {note_episode_id} — cite that id as evidence."
+                if note_episode_id else "")
+        return f"Already saved: \"{title}\" (entity {entity_id}, episode {episode_id}).{kept}"
+    return (f"Saved \"{title}\" as {media_type} media (entity {entity_id}, episode {episode_id}). "
+            "It joins the graph after the next Sleep cycle.")
+
+
 def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     """Save a URL as media. Prefers the running backend (shared dedup index,
     background enrichment); falls back to direct ingestion via the api package."""
@@ -285,9 +299,9 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
             )
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            return (
-                f"Saved \"{data.get('title', url)}\" as {data.get('mediaType', 'url')} media "
-                f"(entity {data.get('mediaEntityId', '?')}). {data.get('message', '')}"
+            return _saved_reply(
+                data.get("status", "created"), data.get("title", url), data.get("mediaType", "url"),
+                data.get("mediaEntityId", "?"), data.get("episodeId", "?"), data.get("noteEpisodeId"),
             )
         except Exception:
             pass
@@ -321,9 +335,13 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
             async with httpx.AsyncClient() as client:
                 result = await media_ingestor.ingest_one(item, memory_path, client, idx)
             media_ingestor.save_url_index(memory_path, idx)
-            return result
+            # G140 Q-R10: a note for an already-saved link is kept as its own
+            # episode — this is one of the two single-save paths that may.
+            note_ep = (media_ingestor.write_note_episode(memory_path, item, result)
+                       if result.status == "duplicate" else None)
+            return result, note_ep
 
-        result = asyncio.run(_save())
+        result, note_ep = asyncio.run(_save())
         if ctx.is_remote and result.status == "created":
             # R-R11: the three files this save wrote, committed on their own
             # under the app that saved them (the batch path's own path list).
@@ -335,14 +353,91 @@ def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
                        f"entities/{result.media_entity_id}.md: created (source: {result.episode_id}, trigger: {ctx.trigger})",
                        f"episodes/{result.episode_id}.md: created (trigger: {ctx.trigger})"],
                 paths=paths, author=ctx.author, session=ctx.session_id)
-        if result.status == "duplicate":
-            return f"Already saved: \"{result.title}\""
-        return (
-            f"Saved \"{result.title}\" as {result.media_type} media "
-            f"(entity {result.media_entity_id}). It joins the graph after the next Sleep cycle."
-        )
+        if ctx.is_remote and note_ep and note_ep[1]:
+            # R-R11: a kept note commits alone, under its app, like any remote
+            # write. Stdio's backend-down path leaves it uncommitted, exactly as
+            # it leaves a created save (G135's byte-identical ruling).
+            agent_commits.commit_write(
+                memory_path, subject=ctx.commit_subject,
+                lines=[f"episodes/{note_ep[0]}.md: created (trigger: {ctx.trigger})"],
+                paths=[f"episodes/{note_ep[0]}.md"], author=ctx.author, session=ctx.session_id)
+        return _saved_reply(result.status, result.title, result.media_type, result.media_entity_id,
+                            result.episode_id, note_ep[0] if note_ep else None)
     except Exception as e:
         return f"Error: could not save URL ({type(e).__name__}: {e})"
+
+
+def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None = None,
+                 chapters: list | None = None) -> str:
+    """``cicada_record_watch`` (G140 Q-R8, R5 §5.7): record what the caller's
+    own tools saw in a saved video — a summary, ≤ 12 timestamped quotes, and
+    optional chapters — as one episode and one ``describes`` claim, committed
+    together under the caller. Cicada fetches nothing for a saved video; an
+    unsaved ``http(s)`` link is saved first through ``save_url`` (its own
+    rails), and a ``file://`` one must be added in the app."""
+    from api.services import watch_record
+
+    url = (url or "").strip()
+    if not url.startswith(("http://", "https://", "file://")):
+        return "Error: url must be the saved video's link (http(s):// or file://)."
+    memory_path = ctx.memory_path()
+    target = watch_record.resolve(memory_path, url)
+    if target is None:
+        if url.startswith("file://"):
+            return ("That video isn't saved in Cicada yet. Add the file in the Cicada app first, then record "
+                    "the watch.")
+        # Q-R8: saved first through save_url's own two paths and rails. On
+        # stdio's backend-down path that save stays uncommitted (as any
+        # cicada_save_url does there), so the page's creation rides in the
+        # watch commit below; url_index.json and the save's episode do not.
+        saved = save_url(ctx, url, None)
+        if saved.startswith("Error"):
+            return saved
+        target = watch_record.resolve(memory_path, url)
+        if target is None:
+            return "Error: the link could not be saved, so the watch was not recorded."
+    r = watch_record.record(
+        memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
+        session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
+        origin=ctx.claim_origin or watch_record.ORIGIN,
+    )
+    if r.get("error"):
+        return f"Could not record the watch: {r['error']}"
+
+    from api.services import telemetry
+
+    refs = {"entity_id": r["entity_id"], "claim_id": r["claim_id"], "episode_id": r["episode_id"],
+            "action": "watch_recorded", "session_id": ctx.session_id, "harness": ctx.harness,
+            "client_name": ctx.client_name, "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+    if not ctx.sleep_running():
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
+                   f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, trigger: {ctx.trigger})"],
+            paths=r["paths"], author=ctx.author, session=ctx.session_id,
+        )
+    quotes = sum(1 for e in r["evidence"] if e.get("kind") == "media")
+    parts = [f"Recorded the watch of \"{target.title}\" (entity `{r['entity_id']}`): episode "
+             f"`{r['episode_id']}`, claim `{r['claim_id']}`. Evidence: the summary and {quotes} timestamped "
+             "quote(s) from the video."]
+    if r["dropped"]:
+        parts.append(f"{r['dropped']} excerpt(s) left out (no readable time, a time past 24 hours, empty, "
+                     "or past the 12-quote cap).")
+    if r["summary_clipped"]:
+        parts.append("The summary was cut at 1,500 characters.")
+    if r["chapters"] is True:
+        parts.append("Chapters saved on the page.")
+    elif r["chapters"] is False:
+        parts.append("The page already has chapters; yours were not stored.")
+    parts.append("Cicada keeps these short quotes, never the transcript.")
+    return " ".join(parts)
 
 
 def parse_frontmatter(content: str) -> tuple[dict, str]:
@@ -395,24 +490,10 @@ MEDIUM_TYPES = {"person", "location"}
 MEDIUMLONG_TYPES = {"tool", "concept"}
 
 
-def _rrf_fuse(*ranked_lists, k: int = 60) -> list[dict]:
-    """Reciprocal-rank fusion over hit lists keyed by entity_id.
-
-    score(id) = sum over lists of 1/(k + rank). Rewards ids that rank well in
-    multiple sources (a strong keyword AND vector hit reinforce). Keeps the
-    first-seen hit dict per id.
-    """
-    scores: dict[str, float] = {}
-    keep: dict[str, dict] = {}
-    for lst in ranked_lists:
-        for rank, hit in enumerate(lst):
-            eid = hit.get("entity_id") or hit.get("id")
-            if not eid:
-                continue
-            scores[eid] = scores.get(eid, 0.0) + 1.0 / (k + rank)
-            keep.setdefault(eid, hit)
-    ordered = sorted(scores, key=lambda e: -scores[e])
-    return [keep[e] for e in ordered]
+# G136 hand-off 1(c) / G140 Q-R1: one reciprocal-rank fusion for search and
+# recall. The API's port was pinned to this helper by a parity test; now there
+# is one function, and `mcp/server.py` keeps re-exporting the name.
+_rrf_fuse = search_service.rrf_fuse
 
 
 def recall(ctx: ToolContext, query: str) -> str:
@@ -443,10 +524,14 @@ def recall(ctx: ToolContext, query: str) -> str:
             + "\n".join(inbox_blurbs)
         )
 
-    # === Sources 1+2: semantic + keyword, rank-fused ===
+    # === Sources 1+2+3: semantic, lexical and claims, rank-fused (G140 Q-R1) ===
+    # The lexical leg is search_service's (aliases, word by word, word-start
+    # prefix); the claim leg maps a matching CURRENT claim to its subject
+    # (R3 P2), so "partner" reaches the person a `partner-of` claim is about.
     semantic = _leann_search_entities(memory_path, query, top_k=8)
     keyword = _keyword_search_entities(entities_dir, query, top_k=8)
-    merged = _rrf_fuse(semantic, keyword)
+    claim_subjects = _claim_subject_search(memory_path, query, top_k=8)
+    merged = _rrf_fuse(semantic, keyword, claim_subjects)
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
 
     # === Structured hints block (machine-parseable, emitted first) ===
@@ -490,6 +575,13 @@ def recall(ctx: ToolContext, query: str) -> str:
 
     if entity_blocks:
         output_parts.append("\n\n".join(entity_blocks))
+
+    # === G140 Q-R2 (R3 P4c): what changed recently on the top pages ===
+    changes = _recent_changes(entities_dir, merged, date.today())
+    if changes:
+        output_parts.append(
+            f"**Changed recently (last {RECENT_CHANGE_DAYS} days):**\n" + "\n".join(changes)
+        )
 
     # === Wikilink traversal: one hop out from the top entities ===
     hop_blurbs: list[str] = []
@@ -761,6 +853,17 @@ def sources(ctx: ToolContext, entity_id: str) -> str:
     return "\n".join(parts)
 
 
+def timeline(ctx: ToolContext, since=None) -> str:
+    """``cicada_timeline`` (G140 Q-R4, R3 P6) — what changed, day by day, read
+    from git on demand. See ``change_timeline``: nothing is stored, ids and
+    counts only, no LLM."""
+    from api.services import change_timeline
+
+    today = date.today()
+    start = change_timeline.parse_since(since, today)
+    return change_timeline.render(change_timeline.collect(ctx.memory_path(), start, today), start, today)
+
+
 def write_claim(
     ctx: ToolContext,
     subject: str,
@@ -773,6 +876,7 @@ def write_claim(
     force_new_entity: bool = False,
     sources: list | None = None,
     evidence: list | None = None,
+    expected_end=None,
 ) -> str:
     """Write one atomic fact as an observer-tagged claim (agentic write path).
 
@@ -780,6 +884,10 @@ def write_claim(
     list; the reply names what happened to it — how many quotes verified into
     spans, and which episode a missed quote was NOT found in — so the agent
     can re-cite the exact words instead of silently leaving ``reasoning``.
+
+    ``expected_end`` (G140 Q-R6) is the date the fact says it stops being
+    true; the reply says through when it stays current, or that an
+    unparseable one was ignored — the claim is written either way.
     """
     # One bank resolution per call: the write, the ledger row and the commit
     # must all name the same bank even if the active bank flips mid-call.
@@ -809,6 +917,7 @@ def write_claim(
         # the person's own observer; stdio passes None/False (unchanged).
         origin=ctx.claim_origin,
         forbid_owner_observer=ctx.is_remote,
+        expected_end=expected_end,
     )
 
     if result.get("action") == "ambiguous_subject":
@@ -894,6 +1003,12 @@ def write_claim(
         ev_note = f"evidence: reasoning (quote not found in {missed} — cite the exact words, or omit evidence)"
     else:
         ev_note = "evidence: reasoning (no quote given)"
+    # G140 Q-R6: with no expected_end the reply is byte-identical (the golden
+    # `write_claim` key holds); with one, the agent learns when it closes.
+    if result.get("expected_end"):
+        ev_note += f"; current through {result['expected_end']}, then closed by Sleep"
+    elif result.get("expected_end_ignored"):
+        ev_note += "; expected_end ignored (use YYYY-MM-DD)"
 
     return (
         f"{verb}: {subject} {predicate} {object_} "
@@ -902,9 +1017,55 @@ def write_claim(
     )
 
 
+def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, evidence: list | None = None) -> str:
+    """``cicada_retract_claim`` (G140 Q-R5, R3 P7): withdraw a claim THIS caller
+    wrote. The claim stays in its page's history, a record keeps the reason,
+    and the page commits alone under the caller — like ``write_claim``."""
+    memory_path = ctx.memory_path()
+    result = agentic_write.retract_claim(
+        memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
+        origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
+    )
+    action = result.get("action")
+    if action == "already_closed":
+        return (f"Claim `{claim_id}` on `{result['entity_id']}` already stopped being current on "
+                f"{result['valid_to']}; nothing changed.")
+    if action == "not_found":
+        return f"No claim `{claim_id}` on '{subject}' — use the claim id cicada_write_claim returned."
+    if action == "not_yours":
+        return (f"Claim `{claim_id}` was not written by this agent, so it can't be withdrawn here. Record the "
+                "correction as a new claim with cicada_write_claim, or let the person answer it in the Cicada app.")
+    if action != "retracted":
+        return f"Could not withdraw the claim: {result.get('error', 'unknown error')}"
+
+    from api.services import telemetry
+
+    refs = {"entity_id": result["entity_id"], "claim_id": claim_id, "episode_id": None, "action": "retracted",
+            "session_id": ctx.session_id, "harness": ctx.harness, "client_name": ctx.client_name,
+            "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+    if not ctx.sleep_running():
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{result['path']}: retracted (source: n/a, trigger: {ctx.trigger})"],
+            paths=[result["path"]], author=ctx.author, session=ctx.session_id,
+        )
+    cited = sum(1 for e in result.get("evidence") or [] if e.get("kind") != "reasoning")
+    ev = f"{cited} quote verified" if cited else "reasoning"
+    return (f"Withdrew claim `{claim_id}` on `{result['entity_id']}`. It stays in history with your reason "
+            f"(record `{result['record_id']}`, evidence: {ev}); nothing was deleted.")
+
+
+
 def get_perspective(
     ctx: ToolContext,
-    subject: str, observer: str | None = None, context: str | None = None
+    subject: str, observer: str | None = None, context: str | None = None, history: bool = False,
 ) -> str:
     """Return a subject's currently-valid claims, optionally filtered by perspective.
 
@@ -913,6 +1074,11 @@ def get_perspective(
     keeps only currently-valid (open, non-superseded) claims, applies the optional
     ``observer`` / ``context`` post-filters, and renders each with its provenance
     so the agent can attribute "who believes what" honestly.
+
+    ``history`` (G140 Q-R2, R3 P4b): also list the subject's closed claims,
+    newest first, at most ``PERSPECTIVE_HISTORY_MAX``, each with how it
+    stopped being current. Off, the reply is byte-identical to before — the
+    stdio golden fixture pins it.
     """
     from api.services import markdown_parser
     from api.services.claims import parse_claims
@@ -931,15 +1097,21 @@ def get_perspective(
     except Exception as e:
         return f"Could not read '{subject}': {e}"
 
-    claims = [
-        c
-        for c in parse_claims(parsed.body)
-        if c.valid_to is None and not c.superseded_by
-    ]
+    page_claims = parse_claims(parsed.body)
+    claims = [c for c in page_claims if c.valid_to is None and not c.superseded_by]
     if observer:
         claims = [c for c in claims if c.observer == observer]
     if context:
         claims = [c for c in claims if c.context == context]
+    earlier: list = []
+    if history:
+        earlier = [c for c in page_claims if (c.valid_to is not None or c.superseded_by) and not _is_record(c)]
+        if observer:
+            earlier = [c for c in earlier if c.observer == observer]
+        if context:
+            earlier = [c for c in earlier if c.context == context]
+        earlier.sort(key=lambda c: (str(c.valid_to or ""), c.id), reverse=True)
+        earlier = earlier[:PERSPECTIVE_HISTORY_MAX]
 
     fm = parsed.frontmatter or {}
     title = str(fm.get("name", page.stem.replace("-", " ").title()))
@@ -952,7 +1124,7 @@ def get_perspective(
     if perspective:
         header += f" ({', '.join(perspective)})"
 
-    if not claims:
+    if not claims and not earlier:
         return f"{header}: no currently-valid claims match."
 
     lines = [f"{header} — {len(claims)} valid claim(s):", ""]
@@ -962,6 +1134,13 @@ def get_perspective(
             f"conf {c.confidence:.2f} · since {c.valid_from or 'undated'}"
         )
         lines.append(f"- {c.text}\n  _({prov})_")
+    if earlier:
+        lines += ["", f"Earlier, newest first ({len(earlier)}):"]
+        for c in earlier:
+            lines.append(
+                f"- {c.text}\n  _({_how_closed(c, page_claims)} · valid {c.valid_from or 'undated'} → "
+                f"{c.valid_to or 'undated'} · {c.observer} · {c.source_trust})_"
+            )
     return "\n".join(lines)
 
 
@@ -1008,34 +1187,32 @@ def _leann_search_episodes(memory_path: Path, query: str, top_k: int) -> list[di
 
 
 def _keyword_search_entities(entities_dir: Path, query: str, top_k: int) -> list[dict]:
-    query_lower = query.lower()
-    scored: list[tuple[int, dict]] = []
-    for filepath in sorted(entities_dir.glob("*.md")):
-        content = filepath.read_text(encoding="utf-8")
-        fm, body = parse_frontmatter(content)
-        name = str(fm.get("name", filepath.stem.replace("-", " ")))
-        tags = fm.get("tags", []) if isinstance(fm.get("tags"), list) else []
-        related = fm.get("related", []) if isinstance(fm.get("related"), list) else []
+    """Recall's lexical leg (G140 Q-R1): ``search_service.lexical_entity_hits``.
 
-        relevance = 0
-        if query_lower in name.lower():
-            relevance += 10
-        if any(query_lower in str(t).lower() for t in tags):
-            relevance += 5
-        if any(query_lower in str(r).lower() for r in related):
-            relevance += 3
-        if query_lower in body.lower():
-            relevance += 2
+    It used to match the WHOLE query as one substring of name/tags/related/
+    body and never read ``aliases`` — "project alpha" missed "Alpha Project",
+    and an alias Stage 1 extracted and merged was invisible (R3 P1). The FTS
+    index behind this reads names, aliases and prose word by word. Name and
+    signature are kept: tests patch this seam. ``entities_dir`` is the active
+    bank's, resolved per call by the caller (the split-brain rule), so its
+    parent is the bank. Never raises: a broken index is recall with one leg
+    fewer, not an error."""
+    try:
+        return search_service.lexical_entity_hits(entities_dir.parent, query, top_k=top_k)
+    except Exception:  # noqa: BLE001 — a leg, never the reason recall fails
+        return []
 
-        if relevance > 0:
-            scored.append((relevance, {
-                "entity_id": filepath.stem,
-                "source": "keyword",
-                "score": float(relevance),
-            }))
 
-    scored.sort(key=lambda x: -x[0])
-    return [s[1] for s in scored[:top_k]]
+def _claim_subject_search(memory_path: Path, query: str, top_k: int) -> list[dict]:
+    """Recall's claim leg (G140 Q-R1, R3 P2): current claims whose words match,
+    mapped to the page they are about — how "partner" reaches a person whose
+    page never says it but whose claims do. Lexical on purpose (G136 R9: a
+    vector claim leg hands every page with nearby claims a second,
+    always-present vote)."""
+    try:
+        return search_service.claim_subject_hits(memory_path, query, top_k=top_k)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _render_entity_summary(entities_dir: Path, hit: dict) -> str:
@@ -1095,6 +1272,114 @@ def _truncate_to_desc_and_recent_history(body: str, max_history: int = 10) -> st
     ]
     recent = history_lines[-max_history:]
     return f"{description}\n\n## History\n" + "\n".join(recent)
+
+
+# ---------- Helpers: what changed (G140 Q-R2, R3 P4) ----------
+
+RECENT_CHANGE_DAYS = 30
+RECENT_CHANGES_PER_PAGE = 2
+RECENT_CHANGES_TOTAL = 5
+PERSPECTIVE_HISTORY_MAX = 20
+_HISTORY_CLIP = 80
+
+
+def _clip(text, limit: int = _HISTORY_CLIP) -> str:
+    text = " ".join(str(text or "").split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _age_days(value, today: date) -> int | None:
+    try:
+        return (today - date.fromisoformat(str(value)[:10])).days
+    except (TypeError, ValueError):
+        return None
+
+
+def _page_claims(path: Path) -> list:
+    """The page's claims block — the source of truth, not the index (Q-R2)."""
+    from api.services import markdown_parser
+    from api.services.claims import parse_claims
+
+    try:
+        return parse_claims(markdown_parser.parse(path).body)
+    except Exception:  # noqa: BLE001 — history is garnish; a bad page shows none
+        return []
+
+
+def _is_record(claim) -> bool:
+    """A withdrawal record (``cicada_retract_claim``) is bookkeeping about a
+    claim, never a belief of its own, so no history list shows it. The test
+    itself is ``claims.is_record``, shared with every other claim surface."""
+    from api.services.claims import is_record
+
+    return is_record(claim)
+
+
+def _ended_at_stated_end(claim) -> bool:
+    """Closed by ``claim_expiry`` (G140 Q-R7): no successor, and a ``valid_to``
+    equal to what expiry writes. Nothing replaced it, so "was X until D" would
+    read as a lost successor. A stated end alone is not enough: the inbox
+    closes claims with no successor too ('neither', a pick with no claim), and
+    a ``due`` 2026-12-01 closed that way on 2026-09-20 did not reach its end
+    (Task 4 review round 1)."""
+    from api.services import claim_expiry
+
+    closing = claim_expiry.closing_date(claim)
+    return closing is not None and str(claim.valid_to or "")[:10] == closing
+
+
+def _how_closed(old, page: list) -> str:
+    """How a closed claim stopped being current, read off the page alone."""
+    new = {c.id: c for c in page}.get(old.superseded_by or "")
+    if new is not None and _is_record(new):
+        return f"withdrawn by {new.authored_by or 'an agent'}: {_clip(new.text, 160)}"
+    if not old.superseded_by and _ended_at_stated_end(old):
+        return "ended at its stated end"
+    if new is not None and new.valid_to is None:
+        return f'replaced by "{_clip(new.object or new.text)}"'
+    if old.superseded_by:
+        return f"superseded by `{old.superseded_by}`"
+    return "closed"
+
+
+def _history_line(eid: str, old, page: list) -> str:
+    """One closed claim as a dated line — supermemory's "old versions
+    included", done as data: ``was X until D → now Y`` (R3 P4c)."""
+    head = f"- `{eid}` {old.predicate or 'claim'}:"
+    was = f'"{_clip(old.object or old.text)}"'
+    new = {c.id: c for c in page}.get(old.superseded_by or "")
+    if new is not None and _is_record(new):
+        return f"{head} {was} withdrawn {old.valid_to} by {new.authored_by or 'an agent'} — {_clip(new.text, 160)}"
+    if not old.superseded_by and _ended_at_stated_end(old):
+        return f"{head} {was} ended {old.valid_to} (its stated end)"
+    if new is not None and new.valid_to is None and new.predicate == old.predicate:
+        return f'{head} was {was} until {old.valid_to} → now "{_clip(new.object or new.text)}"'
+    return f"{head} was {was} until {old.valid_to}"
+
+
+def _recent_changes(entities_dir: Path, hits: list[dict], today: date) -> list[str]:
+    """Bounded, dated history for recall's top pages (Q-R2): claims closed in
+    the last ``RECENT_CHANGE_DAYS``, at most ``RECENT_CHANGES_PER_PAGE`` per
+    page and ``RECENT_CHANGES_TOTAL`` overall, newest first. Engine-free: one
+    parse per page recall already reads."""
+    lines: list[str] = []
+    for hit in hits[:3]:
+        eid = hit.get("entity_id") or hit.get("id")
+        path = entities_dir / f"{eid}.md" if eid else None
+        if path is None or not path.exists():
+            continue
+        page = _page_claims(path)
+        closed = []
+        for c in page:
+            age = _age_days(c.valid_to, today) if c.valid_to else None
+            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS and not _is_record(c):
+                closed.append(c)
+        closed.sort(key=lambda c: (str(c.valid_to), c.id), reverse=True)
+        for c in closed[:RECENT_CHANGES_PER_PAGE]:
+            lines.append(_history_line(eid, c, page))
+            if len(lines) >= RECENT_CHANGES_TOTAL:
+                return lines
+    return lines
 
 
 def _mcp_sanitize_id(name: str) -> str:

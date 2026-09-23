@@ -10,6 +10,8 @@ G49/G76 SessionStart hook — out of scope here beyond ``HOOK_POINTER``).
 
 Shape: what Cicada is (3 lines) → a 2–3 line per-harness prelude (R11) →
 the contract → the now-view from ``_state.md`` → capability notes. The
+now-view is Standing (the person, their timezone, how to work with them,
+what lasts) then Current (G140). The
 contract's inbox paragraph is FIXED BY G115 (quoted verbatim from the G75
 row); the G121 sentence comes from ``state_dictionary.WORLD_FACTS_NOTE`` so
 there is exactly one source. Zero LLM, ≤ ``MAX_TOKENS`` by the chars/4
@@ -43,7 +45,9 @@ from api.services.auth import cicada_home
 # it, so an upgraded backend never serves last version's text from disk.
 # 2: item 2 made honest against the tools (skip=true exists, normalization
 # filtered, Cause/Recommended stated as conditional) — final review.
-CONTRACT_VERSION = 2
+# 3: G140 — timeline, record_watch, expected_end and retract named;
+# recall_detail(entity_id) (R12).
+CONTRACT_VERSION = 3
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -53,7 +57,9 @@ VARIANTS = ("claude-code", "codex", "generic")
 # never by a client name, which is self-reported (a cloud client calling itself
 # "claude-ai" must never be promised `claude --resume`).
 REMOTE_VARIANT = "remote"
-REMOTE_CONTRACT_VERSION = 1
+# 2: G140 — timeline, record_watch, expected_end and retract named;
+# recall_detail(entity_id) (R12).
+REMOTE_CONTRACT_VERSION = 2
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -84,8 +90,9 @@ def _remote_contract(tools: frozenset[str]) -> str:
     items: list[str] = []
     reads = [text for tool, text in (
         ("cicada_recall", "`cicada_recall(query)` at the start of a topic"),
-        ("cicada_recall_detail", "`cicada_recall_detail(id)` for a page"),
+        ("cicada_recall_detail", "`cicada_recall_detail(entity_id)` for a page"),
         ("cicada_ask", "`cicada_ask` for a direct factual question"),
+        ("cicada_timeline", "`cicada_timeline(since)` for what changed recently"),
     ) if tool in tools]
     if reads:
         items.append("Recall first: " + ", ".join(reads) + ". State only what the tools returned.")
@@ -102,14 +109,21 @@ def _remote_contract(tools: frozenset[str]) -> str:
         items.append("Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact "
                      "worth keeping" + ("; `cicada_save_url(url, note)` for a link." if "cicada_save_url" in tools
                                         else "."))
+    if "cicada_record_watch" in tools:
+        items.append("After watching a video the person saved: `cicada_record_watch(url, summary, "
+                     "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript.")
     if "cicada_write_claim" in tools:
         items.append("Write facts as claims: `cicada_write_claim(subject, predicate, object, observer, "
                      "evidence=[{episode, quote}])` with observer `agent` (you inferred it) or `external` "
                      "(someone else said it) — a remote app never records the person's own words as theirs; "
-                     "quote the exact words you relied on.")
+                     "quote the exact words you relied on; add `expected_end` when the fact states an end.")
+    if "cicada_retract_claim" in tools:
+        items.append("Withdraw a claim this connection wrote that proved wrong with "
+                     "`cicada_retract_claim(subject, claim_id, reason)`; it stays in history with your reason.")
     items.append(state_dictionary.WORLD_FACTS_NOTE)
-    items.append("Nothing here deletes or rewrites memory: every write is added with its source, and nothing "
-                 "you write overrides what the person said.")
+    # Q-R14: withdrawing one's own claim rewrites its validity, so "or rewrites" went.
+    items.append("Nothing here deletes memory: every write is added with its source, and nothing you write "
+                 "overrides what the person said.")
     return "## Contract\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(items, 1))
 
 
@@ -174,8 +188,9 @@ _PRELUDE = {
 # `state_dictionary` so the state file and the primer can never drift apart.
 _CONTRACT = (
     "## Contract\n"
-    "1. Recall first: `cicada_recall(query)` at the start of a topic, `cicada_recall_detail(id)` for a page, "
-    "`cicada_ask` for a direct factual question. State only what the tools returned.\n"
+    "1. Recall first: `cicada_recall(query)` at the start of a topic, `cicada_recall_detail(entity_id)` for a "
+    "page, `cicada_ask` for a direct factual question, `cicada_timeline(since)` for what changed recently. State "
+    "only what the tools returned.\n"
     "2. After `cicada_recall`, call `cicada_check_nudges(entity_ids=<recall ids>)`; at most one question per "
     "turn, after the user's request is done; quote the Cause line and lead with the Recommended option when the "
     "item shows them; never a blocking question at the end of an unrelated turn; "
@@ -183,9 +198,12 @@ _CONTRACT = (
     "that session; resolve only with the person's own answer; say what changed in one line; `normalization` "
     "items are app-only and the ask path never returns them.\n"
     "3. Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact worth keeping; "
-    "`cicada_save_url` for a link.\n"
+    "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
+    "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript.\n"
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
-    "sources=[url])` — quote the exact words you relied on, and give `sources` for anything you looked up.\n"
+    "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
+    "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
+    "`cicada_retract_claim(subject, claim_id, reason)`.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"
@@ -217,18 +235,72 @@ def variant_for(client_name: str | None) -> str:
     return "generic"
 
 
-def _now_block(state: dict | None, bank: str, *, remote: bool = False) -> str:
+def local_timezone() -> str | None:
+    """The machine's IANA zone (``Europe/Madrid``) — G140 Q-R13, Instinct's
+    identity block without the account email. Per request, never stored:
+    ``_state.md`` travels with the bank (portability) and an idle night must
+    not commit because its owner travelled (R1). ``tzlocal`` is APScheduler's
+    own dependency, already installed; a failure falls back to the UTC
+    offset, and ``None`` only when even that is unknown."""
+    try:
+        from tzlocal import get_localzone_name
+
+        name = get_localzone_name()
+        if name:
+            return str(name)
+    except Exception:  # noqa: BLE001 — a primer line is never worth a failed connect
+        pass
+    offset = datetime.now().astimezone().strftime("%z")
+    return f"UTC{offset[:3]}:{offset[3:]}" if offset else None
+
+
+def _holds_read_scope(tools: frozenset[str]) -> bool:
+    """True when a remote connection holds any ``read``-scope tool.
+
+    Why (G140 final review): the Standing rows describe the PERSON — their
+    one-line summary, their timezone, how they like to work, their
+    long-standing pages — and the pages in focus say what they are thinking
+    about. A connection granted only ``record`` was promised "Save notes,
+    links and facts" in its consent copy, not a description of who and where
+    the person is. The scope table is ``api.remote.catalog``'s, so a new read
+    tool widens this without a second list to keep in step.
+    """
+    from api.remote.catalog import TOOL_SCOPE
+
+    return any(TOOL_SCOPE.get(t) == "read" for t in tools)
+
+
+def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str | None = None,
+               personal: bool = True) -> str:
     """``remote`` (G135 R-R15) drops what a caller off this Mac must not see
     or cannot act on: the `GET /state` hint (a loopback endpoint) and every
-    repo path. Repo paths never leave the Mac. Stdio output is unchanged."""
+    repo path. Repo paths never leave the Mac. Stdio output is unchanged.
+
+    G140 Q-R13 (R3 P5) splits the view by the decay classes: **Standing** —
+    the person, their timezone, how to work with them, what lasts
+    (durable/evergreen) — and **Current** — projects, pages in focus this
+    fortnight, people, recent conversations (active/volatile). Every row is
+    an id or a one-liner already on a page; ``tz`` comes from
+    ``load_or_build`` per request and never from the file.
+
+    ``personal=False`` (a remote connection with no ``read``-scope tool, see
+    ``_holds_read_scope``) drops every row that describes the person: the
+    one-liner beside their entity id, the timezone, *How to work with me*,
+    *Long-standing* and *In focus*. The id itself stays — every write needs a
+    subject. Projects, people ids and conversation titles predate G140 and
+    reach such a connection too; that older exposure is recorded in G135's
+    open list rather than silently changed here."""
+    tz_line = f"- Their timezone: {tz}." if tz and personal else None
     if state is None and remote:
-        return f"## Now\n- Bank `{bank}` has no now-view yet; the contract above still applies."
+        head = f"## Now\n- Bank `{bank}` has no now-view yet; the contract above still applies."
+        return head + (f"\n{tz_line}" if tz_line else "")
     if state is None:
-        return (
+        head = (
             "## Now\n"
             f"- Bank `{bank}` has no `_state.md` yet — run a Sleep cycle or `GET /state?refresh=true` "
             "to generate the now-view; the contract above still applies."
         )
+        return head + (f"\n{tz_line}" if tz_line else "")
     eng = state.get("engine") or {}
     slp = state.get("sleep") or {}
     inb = state.get("inbox") or {}
@@ -238,8 +310,21 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False) -> str:
         f"inbox: {inb.get('pending', 0)} pending · Sleep queue {slp.get('queue_depth', 0)} · "
         f"last Sleep {slp.get('last_at') or 'never'} · as of {state.get('generated_at')}",
     ]
+    standing: list[str] = []
     if state.get("owner_id"):
-        lines.append(f"- The person's own entity: `{state['owner_id']}`.")
+        one = state.get("owner_one_liner") if personal else None
+        standing.append(f"- The person's own entity: `{state['owner_id']}`" + (f" — {one}" if one else "."))
+    if tz_line:
+        standing.append(tz_line)
+    prefs = (state.get("preferences") or []) if personal else []
+    if prefs:
+        standing.append("- How to work with me: " + "; ".join(p.get("one_liner") or p["name"] for p in prefs))
+    lasting = (state.get("standing") or []) if personal else []
+    if lasting:
+        standing.append("- Long-standing: " + "; ".join(f"`{s['id']}` {s['name']}" for s in lasting))
+    if standing:
+        lines += ["### Standing — changes rarely", *standing]
+    lines.append("### Current — in motion")
     projects = state.get("projects") or []
     lines.append("- Current projects:" if projects else "- No active projects recorded yet.")
     for p in projects:
@@ -249,6 +334,10 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False) -> str:
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
         lines.append(f"  - `{p['id']}` {p['name']}{tail}" + (f" [{repos}]" if repos else ""))
+    focus = (state.get("focus") or []) if personal else []
+    if focus:
+        lines.append(f"- In focus (last {state_dictionary.FOCUS_WINDOW_DAYS} days): "
+                     + ", ".join(f"`{f['id']}` {f['name']}" for f in focus))
     people = state.get("people") or []
     if people:
         lines.append("- People recently in play: " + ", ".join(f"`{p['id']}`" for p in people))
@@ -257,50 +346,60 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False) -> str:
         lines.append("- Recent conversations (id · harness · title):")
         for c in convs:
             lines.append(f"  - `{c['id']}` · {c.get('harness') or 'unknown'} · {c.get('title', '')}")
-    prefs = state.get("preferences") or []
-    if prefs:
-        lines.append("- Standing preferences: " + "; ".join(p.get("one_liner") or p["name"] for p in prefs))
     return "\n".join(lines)
 
 
-def _assemble(state: dict | None, variant: str, bank: str) -> str:
-    return "\n\n".join([_WHAT, _PRELUDE[variant], _CONTRACT, _now_block(state, bank), _CAPABILITIES])
+def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None) -> str:
+    return "\n\n".join([_WHAT, _PRELUDE[variant], _CONTRACT, _now_block(state, bank, tz=tz), _CAPABILITIES])
 
 
 def _fit(assemble, state: dict | None) -> str:
     text = assemble(state)
-    if len(text) // 4 > MAX_TOKENS and state is not None:
-        slim = dict(state)
-        for key in ("people", "preferences", "conversations"):
-            slim[key] = []
-            text = assemble(slim)
-            if len(text) // 4 <= MAX_TOKENS:
-                return text
-        slim["projects"] = [{**p, "one_liner": ""} for p in slim.get("projects", []) or []]
+    if len(text) // 4 <= MAX_TOKENS or state is None:
+        return text
+    slim = dict(state)
+    # G140 Q-R13: current rows before standing ones, the working agreements
+    # last — the most useful tokens per line (Instinct's "autonomy
+    # calibration"). Projects keep R10's place: the list a cursor exists for.
+    for key in ("people", "focus", "conversations", "standing"):
+        slim[key] = []
         text = assemble(slim)
-    return text
+        if len(text) // 4 <= MAX_TOKENS:
+            return text
+    slim["projects"] = [{**p, "one_liner": ""} for p in slim.get("projects", []) or []]
+    text = assemble(slim)
+    if len(text) // 4 <= MAX_TOKENS:
+        return text
+    slim["preferences"] = [{**p, "one_liner": ""} for p in slim.get("preferences", []) or []]
+    return assemble(slim)
 
 
-def build(state: dict | None, *, variant: str, bank: str) -> str:
+def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None) -> str:
     """Pure: the primer for a parsed state (or none) and a variant.
 
     The state block is the only elastic part (the contract is verbatim by
     ruling); when the chars/4 proxy overshoots ``MAX_TOKENS`` rows are
-    dropped in the same order the state file itself trims (R10): people,
-    then preferences, then conversations, then project one-liners — the
-    projects list is what a cursor exists for, so it is given up last.
+    dropped in a fixed order (G140 Q-R13): people, pages in focus,
+    conversations, standing pages, then project one-liners, then the
+    working agreements' one-liners — current before standing, and the
+    projects list (what a cursor exists for, R10) is never dropped whole.
+    ``tz`` is the per-request zone ``load_or_build`` passes; never stored.
     """
     variant = variant if variant in VARIANTS else "generic"
-    return _fit(lambda st: _assemble(st, variant, bank), state)
+    return _fit(lambda st: _assemble(st, variant, bank, tz), state)
 
 
-def build_remote(state: dict | None, *, tools: frozenset[str], bank: str) -> str:
+def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None) -> str:
     """The primer a remote connection receives (G135 R-R15): no resume, no
     `CICADA_SESSION_ID`, no repo paths, no loopback endpoint, and only the tools
-    this connection holds (G75 R12). Carries `CONVERSATION_SLOT`."""
+    this connection holds (G75 R12). Carries `CONVERSATION_SLOT`. The rows
+    that describe the person need a ``read``-scope tool (G140 final review,
+    ``_holds_read_scope``)."""
     tools = frozenset(tools)
+    personal = _holds_read_scope(tools)
     return _fit(lambda st: "\n\n".join([
-        _WHAT, _REMOTE_PRELUDE, _remote_contract(tools), _now_block(st, bank, remote=True),
+        _WHAT, _REMOTE_PRELUDE, _remote_contract(tools),
+        _now_block(st, bank, remote=True, tz=tz, personal=personal),
         _remote_capabilities(tools)]), state)
 
 
@@ -344,18 +443,21 @@ def load_or_build(
         stamp = f"{st.st_mtime_ns}:{st.st_size}"
     except OSError:
         stamp = "absent"
+    # G140 Q-R13: the zone is per request and part of the key — never in the file.
+    tz = local_timezone()
+    tz_key = tz or "-"
     if variant == REMOTE_VARIANT:
         if not tools:
             raise ValueError("the remote handshake needs the connection's tools")
         tool_key = hashlib.sha256(",".join(sorted(tools)).encode("utf-8")).hexdigest()[:12]
         cache_name = f"remote-{tool_key}"
-        key = f"r{REMOTE_CONTRACT_VERSION}:{cache_name}:{stamp}"
-        make = lambda st: build_remote(st, tools=frozenset(tools), bank=memory_path.name)  # noqa: E731
+        key = f"r{REMOTE_CONTRACT_VERSION}:{cache_name}:{stamp}:{tz_key}"
+        make = lambda st: build_remote(st, tools=frozenset(tools), bank=memory_path.name, tz=tz)  # noqa: E731
     else:
         variant = variant if variant in VARIANTS else variant_for(client_name)
         cache_name = variant
-        key = f"{CONTRACT_VERSION}:{variant}:{stamp}"
-        make = lambda st: build(st, variant=variant, bank=memory_path.name)  # noqa: E731
+        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}"
+        make = lambda st: build(st, variant=variant, bank=memory_path.name, tz=tz)  # noqa: E731
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)

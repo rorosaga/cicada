@@ -41,7 +41,7 @@ This file only adds the traversal notes below.
 
 ## Hub browsing (filesystem traversal)
 For structured exploration rather than fuzzy search, walk the hub tier:
-`cicada_open_hub(hub_id)` opens a hub page that lists its member entities.
+`cicada_open_hub(hub)` opens a hub page that lists its member entities.
 On disk this mirrors `_index.md` -> `hubs/<hub>.md` -> `entities/<entity>.md`:
 start at the index, pick a hub, then drill into entities. Use hubs to answer
 "show me everything about <area>"; use recall to answer "find <specific thing>".

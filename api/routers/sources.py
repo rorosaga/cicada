@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
@@ -127,11 +127,33 @@ async def save_source(
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
-    message = (
-        "Saved — it joins the graph after the next Sleep cycle"
-        if result.status == "created"
-        else "Already saved"
-    )
+    # G140 Q-R10: a note for a link that is already saved is kept, not dropped
+    # (G22's save-now-watch-later case). Committed alone, under whoever sent it
+    # — the same author rule as the created branch above (G135 R-R12).
+    note_episode_id = None
+    if result.status == "duplicate":
+        note = media_ingestor.write_note_episode(memory_path, item, result)
+        if note is not None:
+            note_episode_id, created_note = note
+            if created_note:
+                by_agent = bool((request.session_id or "").strip())
+                author = agent_commits.author_for(request.harness) if by_agent else "user"
+                trigger = f"mcp/{author}" if by_agent else "user/media_save"
+                from api.services import git_service
+
+                try:
+                    await git_service.commit_paths(memory_path, git_service.build_commit_message(
+                        f"Sources note {date.today().isoformat()}",
+                        [f"episodes/{note_episode_id}.md: created (trigger: {trigger})"],
+                        authors=[author], sessions=[request.session_id] if by_agent else None,
+                    ), [f"episodes/{note_episode_id}.md"])
+                except Exception as e:
+                    logger.warning(f"Note commit failed: {type(e).__name__}: {e}")
+
+    if result.status == "created":
+        message = "Saved — it joins the graph after the next Sleep cycle"
+    else:
+        message = "Already saved — your note was kept" if note_episode_id else "Already saved"
     return SourceSaveResponse(
         status=result.status,
         media_entity_id=result.media_entity_id,
@@ -140,6 +162,7 @@ async def save_source(
         media_type=result.media_type,
         thumbnail=result.thumbnail,
         message=message,
+        note_episode_id=note_episode_id,
     )
 
 

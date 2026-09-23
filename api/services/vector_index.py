@@ -642,26 +642,25 @@ class SqliteVecIndexer:
         *,
         observer: str | None = None,
         context: str | None = None,
-        include_superseded: bool = False,
     ) -> list[dict]:
         """KNN over currently-valid claims, with optional perspective filters.
 
         ``observer`` / ``context`` are SQL-free post-filters applied to the
-        ``claims``-kind metadata. By default, claims carrying a
-        ``superseded_by`` marker are excluded; ``include_superseded=True`` lifts
-        that. Returns ``[]`` gracefully on a missing db or missing ``claims``
-        table (mirrors :meth:`search_entities` / :meth:`_search_kind`).
+        ``claims``-kind metadata. A claim carrying a ``superseded_by`` marker
+        is never returned. G140 Q-R3 removed ``include_superseded``: this index
+        holds only claims with no ``valid_to`` (``index_claims``) and
+        ``claim_reconciler._close`` always stamps both fields, so the flag
+        could only surface a marker-only claim no writer produces. History is
+        the page's (MCP recall, ``cicada_get_perspective(history=true)``) and
+        the FTS index's (G136 R10). Returns ``[]`` gracefully on a missing db
+        or a missing ``claims`` table.
         """
         if not self.db_path.exists():
             return []
         conn = self._connect()
         try:
             # over-fetch so post-filtering doesn't starve the result set
-            needs_postfilter = (
-                observer is not None or context is not None or not include_superseded
-            )
-            fetch_k = top_k * 3 if needs_postfilter else top_k
-            results = self._knn(conn, "claims", query, fetch_k)
+            results = self._knn(conn, "claims", query, top_k * 3)
         except sqlite3.OperationalError as exc:
             logger.warning(f"vector_index.search_claims: query failed ({exc}); degrading to []")
             return []
@@ -674,7 +673,7 @@ class SqliteVecIndexer:
                 continue
             if context is not None and meta.get("context") != context:
                 continue
-            if not include_superseded and meta.get("superseded_by"):
+            if meta.get("superseded_by"):
                 continue
             filtered.append(r)
         return filtered[:top_k]
