@@ -197,8 +197,20 @@ def _host(raw: str | None) -> str | None:
 
 
 def _first_source_url(frontmatter: dict) -> str | None:
+    """The first ``url`` source the PERSON named (or accepted) — never a model's.
+
+    G61 S1's Stage 5.56 attaches cited links (``fact_sources.attach_cited_urls``)
+    as ``url`` sources added by the extractor. Read as the page's own domain,
+    one Sleep over a sentence with a URL re-branded a tool and gave a person a
+    site's favicon as an avatar — and started an unattended favicon fetch to a
+    host taken from conversation text (G61 final review, finding 1). A source
+    with no ``added_by`` is the person's, as ``EntitySource.added_by`` defaults.
+    """
     for entry in frontmatter.get("sources") or []:
         if not isinstance(entry, dict):
+            continue
+        added_by = str(entry.get("added_by") or "user").strip() or "user"
+        if added_by != "user" and not entry.get("accepted"):
             continue
         if str(entry.get("kind") or "").strip().lower() != "url":
             continue

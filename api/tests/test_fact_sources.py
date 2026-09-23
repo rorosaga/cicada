@@ -106,7 +106,6 @@ from fastapi import HTTPException
 
 from api.models.schemas import EntitySourceCreate
 from api.routers import entities as entities_router
-from api.services import inbox_generator
 
 
 def run(coro):
@@ -168,95 +167,6 @@ def test_delete_out_of_range_is_404(tmp_path):
     with pytest.raises(HTTPException) as exc:
         run(entities_router.delete_entity_source("rodrigo", 3, settings=_FakeSettings(repo)))
     assert exc.value.status_code == 404
-
-
-def test_generated_conflict_carries_the_source_hint(tmp_path):
-    memory = tmp_path / "memory"
-    _entity(memory, {"sources": [
-        {"ref": "https://linkedin.example/rodrigo", "kind": "url", "predicate": "works-at"},
-    ]})
-    (memory / "inbox").mkdir(parents=True)
-
-    inbox_generator.write_claim_nudges([{
-        "id": "rodrigo",
-        "action": "conflict_nudge",
-        "entity": {"name": "Rodrigo"},
-        "predicate": "works-at",
-        "question": "Where does Rodrigo work now?",
-        "allow_other": True,
-        "allow_defer": True,
-        "conflict_context": "conflict",
-        "options": [{"key": "a", "label": "mongodb", "claim_id": "clm_a"}],
-        "claim_id": "clm_a",
-    }], memory)
-
-    fm = markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter
-    assert fm["hint"] == "You said https://linkedin.example/rodrigo is where to check this"
-
-
-def test_entity_path_conflict_carries_the_source_hint(tmp_path):
-    """The legacy entity-path conflict written by ``generate()`` also gets a
-    hint (controller ruling): its predicate is always the literal
-    ``"description"``, so any url-kind source matches (§ruling 2)."""
-    memory = tmp_path / "memory"
-    _entity(memory, {"sources": [
-        {"ref": "https://example.com/rodrigo-cv", "kind": "url"},
-    ]})
-    (memory / "inbox").mkdir(parents=True)
-
-    run(inbox_generator.generate(
-        [{
-            "id": "rodrigo",
-            "action": "conflict_nudge",
-            "entity": {"name": "Rodrigo"},
-            "question": "Where does Rodrigo work now?",
-            "options": [{"key": "a", "label": "mongodb"}],
-        }],
-        [],
-        memory,
-    ))
-
-    fm = markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter
-    assert fm["hint"] == "You said https://example.com/rodrigo-cv is where to check this"
-
-
-def test_merge_on_collision_refreshes_the_hint_on_the_open_item(tmp_path):
-    """A source added AFTER the first conflict was written must still surface
-    on the already-open item once a second nudge merges into it (controller
-    ruling 2)."""
-    memory = tmp_path / "memory"
-    _entity(memory)
-    (memory / "inbox").mkdir(parents=True)
-
-    first_nudge = {
-        "id": "rodrigo",
-        "action": "conflict_nudge",
-        "entity": {"name": "Rodrigo"},
-        "predicate": "works-at",
-        "question": "Where does Rodrigo work now?",
-        "allow_other": True,
-        "allow_defer": True,
-        "conflict_context": "conflict",
-        "options": [{"key": "a", "label": "mongodb", "claim_id": "clm_a"}],
-        "claim_id": "clm_a",
-    }
-    inbox_generator.write_claim_nudges([first_nudge], memory)
-
-    fm_before = markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter
-    assert fm_before.get("hint") is None
-
-    fact_sources.add_source(
-        memory, "rodrigo", "https://linkedin.example/rodrigo",
-        predicate="works-at", added_at="2026-08-30",
-    )
-
-    second_nudge = dict(first_nudge, options=[{"key": "b", "label": "stripe", "claim_id": "clm_b"}],
-                         claim_id="clm_b")
-    result = inbox_generator.write_claim_nudges([second_nudge], memory)
-    assert result["merged"] == 1
-
-    fm_after = markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter
-    assert fm_after["hint"] == "You said https://linkedin.example/rodrigo is where to check this"
 
 
 def test_adding_a_source_commits_only_that_entity_file(tmp_path):

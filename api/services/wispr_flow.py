@@ -419,7 +419,7 @@ def write_todo_claims(memory_path: Path, staged, meeting_todos: dict[str, list[s
     it, and a to-do may be someone else's), with a span on the to-do line. No
     owner page, no claims — never a guessed subject."""
     from api.config import get_settings
-    from api.services import agentic_write, owner_identity
+    from api.services import agentic_write, git_service, owner_identity
 
     out = {"written": 0, "skipped_no_owner": 0, "paths": []}
     touched = {sid: ep for sid, ep in staged.touched.items() if sid in meeting_todos}
@@ -434,6 +434,8 @@ def write_todo_claims(memory_path: Path, staged, meeting_todos: dict[str, list[s
             result = agentic_write.write_claim(
                 memory_path, owner, "committed-to", title, observer="agent", object_kind="literal",
                 confidence=0.5, source_episode=ep_id, origin=ORIGIN,
+                # F2-back R-B11: Wispr Flow's model wrote the list (its spans are `assistant`).
+                authored_by=git_service.AGENT_AUTHOR,
                 evidence=[{"episode": ep_id, "quote": f"- {title}"}])
             if result.get("action") not in {"error", "ambiguous_subject", "corrupt_claims_block"}:
                 out["written"] += 1

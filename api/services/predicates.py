@@ -240,6 +240,48 @@ def cardinality(memory_path: Path | None, predicate: str) -> str:
     return "unknown"
 
 
+LOCI = ("world", "artifact", "person")
+# Most conservative first (plan R-AC29): `person` is never checked, `artifact`
+# only recommends, `world` may settle — so a disagreement between the seed and a
+# bank's map always resolves to the less settleable reading, the way `multi`
+# wins for cardinality.
+_LOCUS_PRECEDENCE = ("person", "artifact", "world")
+
+
+def build_locus_fn(memory_path: Path | None) -> Callable[[str], str]:
+    """A ``predicate -> world | artifact | person | unknown`` oracle, reading the
+    seed and the bank's ``_predicates.yaml`` once (G61 phase 2 S1, spec R-AC8).
+
+    Where a fact's truth lives decides whether a source may answer it: the
+    inbox's checkability (``source_check``) and the extraction-time link attach
+    (``fact_sources.attach_cited_urls``) both ask. Unseen is ``unknown``, never a
+    guess.
+    """
+    sources = [_read_runtime_map(memory_path)] if memory_path is not None else []
+    sources.append(_load_seed_map())
+    sets: dict[str, set[str]] = {k: set() for k in LOCI}
+    for data in sources:
+        raw = data.get("locus") if isinstance(data, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        for k in LOCI:
+            sets[k] |= {str(x).strip().lower() for x in (raw.get(k) or [])}
+
+    def locus_of(predicate: str) -> str:
+        p = (predicate or "").strip().lower()
+        for k in _LOCUS_PRECEDENCE:
+            if p and p in sets[k]:
+                return k
+        return "unknown"
+
+    return locus_of
+
+
+def locus(memory_path: Path | None, predicate: str) -> str:
+    """One-shot convenience wrapper around :func:`build_locus_fn`."""
+    return build_locus_fn(memory_path)(predicate)
+
+
 def normalize_predicate(memory_path: Path, label: str) -> str:
     """One-shot convenience: build the normalizer and apply it to ``label``."""
     return load_normalizer(memory_path)(label)

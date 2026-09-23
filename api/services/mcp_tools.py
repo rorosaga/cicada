@@ -34,7 +34,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
-from api.services import agent_commits, agentic_write, episode_ids, episode_scrub, search_service
+from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import markdown_parser
 
@@ -168,6 +168,17 @@ class ToolContext:
         return _backend_sleep_running(self.backend_url, self.backend_headers())
 
 
+def _demo_refusal(memory_path: Path) -> str | None:
+    """G141 capture-side track (R-CS13): every write tool refuses a demo bank —
+    one check for stdio and remote alike. It takes the bank the tool already
+    resolved for this call, so the check, the write, the ledger row and the
+    commit all name ONE bank (the split-brain rule; `write_claim`'s "one bank
+    resolution per call"). The demo holds only made-up examples; a real
+    conversation's note or belief written into it leaks into the demo's
+    content and its screenshots."""
+    return demo_guard.AGENT_REFUSAL if demo_guard.is_demo(memory_path) else None
+
+
 def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
     """Answer a NL question over memory with citations + explicit gaps.
 
@@ -273,6 +284,8 @@ def _saved_reply(status: str, title: str, media_type: str, entity_id: str, episo
 def save_url(ctx: ToolContext, url: str, note: str | None) -> str:
     """Save a URL as media. Prefers the running backend (shared dedup index,
     background enrichment); falls back to direct ingestion via the api package."""
+    if (refusal := _demo_refusal(ctx.memory_path())) is not None:
+        return refusal
     url = (url or "").strip()
     if not url.startswith(("http://", "https://")):
         return "Error: URL must start with http:// or https://"
@@ -381,6 +394,8 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
     if not url.startswith(("http://", "https://", "file://")):
         return "Error: url must be the saved video's link (http(s):// or file://)."
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     target = watch_record.resolve(memory_path, url)
     if target is None:
         if url.startswith("file://"):
@@ -970,6 +985,8 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
     from api.services.id_utils import resolve_entity_file
 
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     ref = (project or "").strip()
     kind = (kind or "").strip()
     status = (status or "").strip()
@@ -1128,6 +1145,8 @@ def write_claim(
     # One bank resolution per call: the write, the ledger row and the commit
     # must all name the same bank even if the active bank flips mid-call.
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     author = ctx.author
     result = agentic_write.write_claim(
         memory_path,
@@ -1276,6 +1295,8 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
     wrote. The claim stays in its page's history, a record keeps the reason,
     and the page commits alone under the caller — like ``write_claim``."""
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     event = _event_claim(memory_path, subject, (claim_id or "").strip())
     if event is not None:
         # G141 §5.2: an event is withdrawn through `progress.withdraw`. A done
@@ -1333,6 +1354,69 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
     return (f"Withdrew claim `{claim_id}` on `{result['entity_id']}`. It stays in history with your reason "
             f"(record `{result['record_id']}`, evidence: {ev}); nothing was deleted.")
 
+
+
+def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
+               access: str | None = None, kind: str | None = None) -> str:
+    """Record WHERE a fact can be checked when there is no claim to write — "the
+    person told me the team page lists this" (G61 phase 2 S1, spec §5.3, plan R-AC31).
+
+    Only a source the person named, never one the agent guessed — the tool's
+    description says so, because nothing here can tell. The subject must be an
+    existing page (a source never mints one); the predicate is slugged exactly as
+    ``cicada_write_claim`` slugs its own, so a claim and its source agree. A
+    remote app may not name a path or a repo on this Mac, or ``access: local``:
+    refused, nothing written. A new entry commits alone under the harness
+    (``agent_commits``, G135 R-R11) — not while Sleep runs, as ``write_claim``.
+    Cicada fetches nothing. Replies name no other tool: a remote caller may not
+    hold it.
+    """
+    from api.services import fact_sources
+    from api.services.id_utils import resolve_entity_file, sanitize_id
+
+    memory_path = ctx.memory_path()
+    # G141 capture side (R-CS13) meets G61 S1: a source is a write like any
+    # other, so the demo refusal covers this tool too — one bank per call.
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    ref_text = (ref or "").strip()
+    if not ref_text:
+        return "Nothing added — `ref` is empty."
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    if page is None:
+        return f"No page named '{subject}' — nothing added. Use the page's id as `subject`."
+    entity_id = page.stem
+    kind_value = (kind or "").strip().lower() or fact_sources.infer_kind(ref_text)
+    access_value = (access or "").strip().lower() or None
+    # The ref's own shape is checked too, whatever kind the caller stated: a
+    # path sent as kind "note" or "app" still names a file on this Mac (R-AC31;
+    # G61 final review, findings 2 and 4).
+    if ctx.is_remote and (kind_value in fact_sources.LOCAL_KINDS
+                          or fact_sources.infer_kind(ref_text) in fact_sources.LOCAL_KINDS
+                          or access_value == fact_sources.ACCESS_LOCAL):
+        return ("Nothing added — a remote app can't name a file or folder on this Mac as a source. "
+                "The person can add it in the Cicada app.")
+    predicate_slug = sanitize_id(predicate) if (predicate or "").strip() else None
+    before = len(fact_sources.list_sources(memory_path, entity_id))
+    try:
+        entry = fact_sources.add_source(memory_path, entity_id, ref_text, kind=kind_value,
+                                        predicate=predicate_slug, added_by=ctx.author, access=access_value)
+    except fact_sources.InvalidSource as exc:
+        return f"Nothing added — {exc}."
+    if entry is None:
+        return "Nothing added."
+    what = f"'s {predicate_slug}" if predicate_slug else ""
+    if len(fact_sources.list_sources(memory_path, entity_id)) == before:
+        return f"Already listed: {entry['ref']} is where to check {entity_id}{what}."
+    if not ctx.sleep_running():
+        path = f"entities/{entity_id}.md"
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{path}: updated (trigger: {ctx.trigger})"], paths=[path],
+            author=ctx.author, session=ctx.session_id,
+        )
+    return (f"Added {entry['ref']} as where to check {entity_id}{what}. "
+            "The person sees it on the page, marked as yours.")
 
 
 def get_perspective(
@@ -1942,12 +2026,15 @@ def _agent_question(
     person logged in the app exists, never its words (R-PJ23).
     """
     try:
-        from api.services import inbox_context, inbox_questions, inbox_service
+        from api.services import fact_sources, inbox_context, inbox_questions, inbox_service
 
         fm = dict(fm)
         if ctx is None:
             ctx = inbox_context.InboxContext(memory_path, today=today)
         entity_id = str(fm.get("entity_id") or "")
+        # G61 phase 2 S0: the same derived hint the app is served (served_hint).
+        page = ctx.entity(entity_id)
+        fm["hint"] = fact_sources.served_hint(fm, page.frontmatter.get("sources") if page is not None else None)
         options = inbox_questions.normalize_options(fm.get("options"))
         if str(fm.get("kind") or "") == "decay" and not options:
             question = inbox_questions.decay_question(
@@ -2088,6 +2175,8 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     from datetime import timezone
 
     memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
 

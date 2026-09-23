@@ -147,6 +147,7 @@ class InboxContext:
         self._entities: dict[str, bank_index.IndexedFile] | None = None
         self._claims: dict[str, list] = {}
         self._bodies: dict[str, str] = {}
+        self._check_vocab = None
 
     # ---------- indices ----------
 
@@ -211,6 +212,16 @@ class InboxContext:
                     parsed = []
             self._claims[entity_id] = parsed
         return self._claims[entity_id]
+
+    def check_vocab(self):
+        """G61 phase 2 S2: the predicate vocabulary ``source_check`` reads, built
+        once per read (the seed + the bank's ``_predicates.yaml``). Imported here
+        so this module keeps no dependency on the claim layer."""
+        if self._check_vocab is None:
+            from api.services import source_check
+
+            self._check_vocab = source_check.vocab_for(self.memory_path)
+        return self._check_vocab
 
     def _body(self, ep) -> str:
         if ep.stem not in self._bodies:

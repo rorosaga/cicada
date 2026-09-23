@@ -54,6 +54,12 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # G141 PJ-0 (R-CS3): claims Stage 5.56 could not write because their
+    # subject has no page, and how many subjects they were on. Counts only —
+    # G141's M3 measure, carried into the `sleep_run` ledger row; never on
+    # `/sleep/status`.
+    claims_page_less: int = 0
+    subjects_page_less: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
     # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
@@ -394,6 +400,28 @@ async def _poll_feeds_and_calendars_safely(memory_path: Path) -> None:
             logger.warning(f"{label} poll failed: {type(e).__name__}: {e}")
 
 
+def _link_summarizer():
+    """Stage 5.57's page summarizer, or ``None`` when Sleep may not read pages.
+
+    G61 phase 2 S0 (spec §2, plan R-AC18): the in-cycle pass read a web page on
+    every cycle with no gate at all, while its tail twin
+    (``_backfill_links_safely``) has been behind ``CICADA_ALLOW_CONNECTOR_FETCH``
+    since G102. Same gate, same reason — a fetch Cicada starts on its own — and
+    regardless of ``user_triggered``, exactly like the tail; the person's way to
+    read pages on demand is ``POST /maintenance/enrich-links``, never gated.
+    With ``None`` the pass still runs its zero-network §2a reuse; a thin page is
+    stamped ``no_description`` as in any hermetic run, which retires nothing:
+    ``scan_backfill`` never reads ``enrichment_attempted``.
+    """
+    from api.services.connectors.base import network_allowed
+    from api.services.link_enrichment import default_summarize
+
+    if network_allowed():
+        return default_summarize
+    logger.info("Stage 5.57: page read skipped — CICADA_ALLOW_CONNECTOR_FETCH is off (reuse still runs)")
+    return None
+
+
 async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
     """G102 cheap slice: describe + relate ``link_enrich_backfill_per_cycle``
     saved links a night, oldest-imported first, until the bank is drained.
@@ -494,7 +522,8 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         deferred = await asyncio.to_thread(papers.reconcile_pending, memory_path)
         if deferred["folders"]:
             await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
-                                                 trigger="folder/papers", author="cicada")
+                                                 trigger="folder/papers", author="cicada",
+                                                 channel="papers")
         if not await asyncio.to_thread(paper_metadata.has_pending, memory_path):
             return
         if not network_allowed():
@@ -523,7 +552,8 @@ async def _replay_wispr_todos_safely(memory_path: Path) -> None:
         report = await asyncio.to_thread(wispr_flow.replay_pending_todos, memory_path)
         if report["paths"]:
             await folder_source.commit_paths_for(memory_path, report["paths"], subject="Wispr Flow to-dos",
-                                                 trigger="wispr-flow/todos", author="cicada")
+                                                 trigger="wispr-flow/todos", author="cicada",
+                                                 channel=wispr_flow.CHANNEL_ID)
     except Exception as e:
         logger.warning(f"Wispr Flow to-dos failed: {type(e).__name__}: {e}")
 
@@ -909,6 +939,10 @@ async def _run_engine_independent_tail(
     after expiry — tonight's closed dues are then visible to it — and before
     any poll, whose `git add -A` would otherwise sweep its inbox files into a
     poll commit; its own commit is scoped and `cicada`-authored.
+
+    G141 capture-side track (R-CS16): on a demo bank the outside-world steps
+    are skipped; expiry, the follow-up proposer, the state refresh, logos and
+    the question refresh still run.
     """
     await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
@@ -922,11 +956,20 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
-        await _poll_connectors_safely(memory_path)
-        await _poll_feeds_and_calendars_safely(memory_path)
-        await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
-        await _resolve_papers_safely(memory_path)
-        await _replay_wispr_todos_safely(memory_path)
+        from api.services import demo_guard
+
+        if demo_guard.is_demo(memory_path):
+            # G141 capture-side track (R-CS16): a demo bank's Sleep consolidates
+            # its own made-up episodes but never takes in the outside world —
+            # the connector credentials are machine-global, so a poll here would
+            # pull the person's real saves into the demo.
+            logger.info("demo bank: connector, feed/calendar, link-backfill, paper and Wispr to-do steps skipped")
+        else:
+            await _poll_connectors_safely(memory_path)
+            await _poll_feeds_and_calendars_safely(memory_path)
+            await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+            await _resolve_papers_safely(memory_path)
+            await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
             "claim expiry, follow-ups, connector, feed/calendar, link-backfill, paper details and Wispr "
@@ -941,6 +984,21 @@ async def _run_engine_independent_tail(
         # reached Stage 5.56 must still escalate questions everyone stopped
         # talking about (and clear ones answered organically).
         await _refresh_questions_safely(memory_path, settings)
+
+
+async def _flush_pending_commits_safely(memory_path: Path) -> None:
+    """F2-back R-B5: land the folder, paper and Wispr commits git refused, under
+    their own authors, BEFORE any stage writes — `_finalize`'s `git add -A` is
+    the writer that would otherwise sweep them under this cycle's model (the
+    G85 smear). Deterministic; never fatal."""
+    try:
+        from api.services import folder_source
+
+        landed = await folder_source.flush_pending_commits(memory_path)
+        if landed:
+            logger.info(f"Landed {landed} kept commit(s) before the cycle")
+    except Exception as e:
+        logger.warning(f"Kept commits not landed: {type(e).__name__}: {e}")
 
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True) -> None:
@@ -989,6 +1047,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.episodes_requeued = 0
     _state.questions_refreshed = 0
     _state.organic_resolutions = 0
+    _state.claims_page_less = 0
+    _state.subjects_page_less = 0
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
@@ -1029,6 +1089,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
 
     outcome = _StageOutcome()
     try:
+        await _flush_pending_commits_safely(memory_path)
         with agent_engine.use_scope(f"sleep:{cycle_id}"):
             outcome = await _run_stages(
                 settings, cycle_id, memory_path, user_triggered=user_triggered
@@ -1335,7 +1396,13 @@ async def _run_stages(
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
-        claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
+        claim_result = run_claim_pipeline(
+            extracted, existing, memory_path, settings,
+            # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
+            name_to_id=resolved_result.get("name_to_id"),
+        )
+        _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
+        _state.subjects_page_less = int(claim_result.get("subjects_skipped", 0) or 0)
         nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
@@ -1363,7 +1430,8 @@ async def _run_stages(
         logger.info(
             f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
             f"claims across {claim_result.get('subjects_written', 0)} pages "
-            f"({claim_result.get('subjects_skipped', 0)} page-less), "
+            f"({claim_result.get('claims_page_less', 0)} claim(s) on "
+            f"{claim_result.get('subjects_skipped', 0)} page-less subject(s) not written), "
             f"{nudge_result.get('written', 0)} claim nudges written, "
             f"{nudge_result.get('merged', 0)} merged into open items"
         )
@@ -1380,15 +1448,17 @@ async def _run_stages(
         logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
     # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
-    # (e.g. a website Prof. John recommended) lacks a meaningful description,
-    # a bounded subagent fetches + summarizes it and records a `describes`
+    # (e.g. a website a person recommended) lacks a meaningful description,
+    # a bounded subagent reads + summarizes it and records a `describes`
     # claim + `recommends` claims, with bidirectional ![[…]] transclusion
-    # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
-    # logs a warning and continues — the cycle is never hard-blocked.
+    # (m5-prep/link-enrichment.md). The page read is the rail's
+    # (`default_fetch`) and only behind CICADA_ALLOW_CONNECTOR_FETCH
+    # (G61 phase 2 S0, `_link_summarizer`). Offline-safe, LLM-call-capped;
+    # any failure logs a warning and continues — the cycle is never hard-blocked.
     try:
-        from api.services.link_enrichment import default_summarize, enrich_media_links
+        from api.services.link_enrichment import enrich_media_links
         n_enriched = await enrich_media_links(
-            memory_path, changes, settings, summarize_fn=default_summarize
+            memory_path, changes, settings, summarize_fn=_link_summarizer()
         )
         if n_enriched:
             logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
@@ -2055,6 +2125,9 @@ async def _finalize(
             "entities_updated": _state.entities_updated,
             "skills_detected": _state.skills_detected,
             "session_count": len(sessions or []),
+            # G141 PJ-0 (R-CS3): M3's per-cycle page-less count — integers only.
+            "claims_page_less": _state.claims_page_less,
+            "subjects_page_less": _state.subjects_page_less,
         },
     ))
 

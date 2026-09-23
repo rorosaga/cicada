@@ -409,8 +409,17 @@ TOOLS = [
                 },
                 "sources": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional 'where to check this fact' references the user gave you — a URL, a file path, or a plain-English instruction ('ask me, I announce job changes'). Stored on the subject's entity page, attributed to you.",
+                    "items": {"anyOf": [
+                        {"type": "string"},
+                        {"type": "object",
+                         "properties": {
+                             "ref": {"type": "string", "description": "A URL, a file path, or plain words."},
+                             "access": {"type": "string", "enum": ["public", "signed_in", "local", "unknown"],
+                                        "description": "Optional: 'public' when anyone can open it, 'signed_in' when it needs the person's login."},
+                         },
+                         "required": ["ref"]},
+                    ]},
+                    "description": "Optional 'where to check this fact' references the user gave you — a URL, a file path, or a plain-English instruction ('ask me, I announce job changes'); a plain string, or {ref, access} when you know whether it needs a login. Stored on the subject's entity page, attributed to you.",
                 },
                 "evidence": {
                     "type": "array",
@@ -463,6 +472,21 @@ TOOLS = [
                 },
             },
             "required": ["subject", "claim_id", "reason"],
+        },
+    },
+    {
+        "name": "cicada_add_source",
+        "description": "Record WHERE a fact about a page can be checked — a web page, an app, a file or plain words the PERSON gave you ('the team page lists who works there') — when there is no new fact to write. Only a source the person named or one you already opened for them, never one you guessed or searched for. This is not cicada_sources, which lists the conversations a page was built from. With a fact to record, pass `sources` on cicada_write_claim instead. Cicada fetches nothing when you add one.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The page the fact is on — its id (e.g. 'bob-example') or name."},
+                "ref": {"type": "string", "maxLength": 2048, "description": "The source: an http(s) link, an app's name, a file path, or plain words saying where to look."},
+                "predicate": {"type": "string", "description": "Optional: which fact it checks (e.g. 'works-at'). Leave it out when it covers the page as a whole."},
+                "access": {"type": "string", "enum": ["public", "signed_in", "local", "unknown"], "description": "Optional: 'public' when anyone can open it, 'signed_in' when it needs the person's login, 'local' for a file or repo on this Mac. Left out, Cicada infers it."},
+                "kind": {"type": "string", "enum": ["url", "path", "note", "app", "repo"], "description": "Optional: what the ref is. Left out, Cicada infers url, path or note; say 'app' or 'repo' yourself."},
+            },
+            "required": ["subject", "ref"],
         },
     },
     {
@@ -800,6 +824,14 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("reason", ""),
             arguments.get("evidence"),
         )
+    elif name == "cicada_add_source":
+        return handle_add_source(
+            arguments.get("subject", ""),
+            arguments.get("ref", ""),
+            arguments.get("predicate"),
+            arguments.get("access"),
+            arguments.get("kind"),
+        )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":
@@ -903,6 +935,10 @@ def handle_write_claim(subject, predicate, object_, observer, confidence, contex
 
 def handle_retract_claim(subject, claim_id, reason, evidence=None) -> str:
     return mcp_tools.retract_claim(_ctx(), subject, claim_id, reason, evidence)
+
+
+def handle_add_source(subject, ref, predicate=None, access=None, kind=None) -> str:
+    return mcp_tools.add_source(_ctx(), subject, ref, predicate, access, kind)
 
 
 def handle_get_perspective(subject, observer=None, context=None, history=False) -> str:

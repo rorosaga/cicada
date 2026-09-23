@@ -18,6 +18,7 @@ the reason, as history (G140 Q-R5): its validity changes, its words never do.
 `cicada_record_watch` is open-world for the same reason: a link that is not
 saved yet is saved first, through `cicada_save_url`'s own path (G140 Q-R8).
 Cicada never fetches the video itself.
+`cicada_add_source` is not open-world: it only records a reference (G61 phase 2 S1).
 """
 from __future__ import annotations
 
@@ -102,8 +103,16 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                              "cicada_save_episode returned."},
            "force_new_entity": {"type": "boolean",
                                 "description": "Only after an 'ambiguous subject' reply, to make a new page."},
-           "sources": {"type": "array", "items": dict(_STRING),
-                       "description": "Optional places to check this fact (a URL, or plain words)."},
+           "sources": {"type": "array",
+                       "items": {"anyOf": [
+                           dict(_STRING),
+                           {"type": "object", "required": ["ref"], "properties": {
+                               "ref": {"type": "string", "description": "A URL, or plain words."},
+                               "access": {"type": "string", "enum": ["public", "signed_in", "unknown"],
+                                          "description": "Optional: 'signed_in' when it needs the person's login."}}},
+                       ]},
+                       "description": "Optional places to check this fact (a URL, or plain words), each a "
+                                      "string or {ref, access}."},
            "evidence": {"type": "array", "description": "Where the fact comes from.",
                         "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                             "episode": {"type": "string",
@@ -131,6 +140,20 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                       "description": "The exact words, copied verbatim (at most 240 characters)."},
                         }}}},
           ("subject", "claim_id", "reason"), read_only=False, idempotent=True),
+    _tool("cicada_add_source",
+          "Record where a fact about a page can be checked — a web page or an app the person named, or plain "
+          "words saying where to look — when there is no new fact to write. Only a source the person gave you "
+          "or one you opened for them, never one you guessed or searched for. Cicada fetches nothing when you "
+          "add one. Files and folders on the person's computer can only be added in the Cicada app.",
+          {"subject": {"type": "string", "description": "The page the fact is on, for example 'bob-example'."},
+           "ref": {"type": "string", "maxLength": 2048, "description": "An http(s) link, an app's name, or plain words."},
+           "predicate": {"type": "string", "description": "Optional: which fact it checks, for example 'works-at'."},
+           "access": {"type": "string", "enum": ["public", "signed_in", "unknown"],
+                      "description": "Optional: 'public' when anyone can open it, 'signed_in' when it needs the "
+                                     "person's login."},
+           "kind": {"type": "string", "enum": ["url", "note", "app"],
+                    "description": "Optional: what the ref is; inferred when left out."}},
+          ("subject", "ref"), read_only=False, idempotent=True),
     _tool("cicada_save_url",
           "Save a link — an article, a video, a paper — to the person's memory, with an optional note on why. "
           "Cicada reads the page's title only when the page is on the public internet.",

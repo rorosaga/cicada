@@ -234,6 +234,28 @@ multi_valued:
   - spec
 
 # ---------------------------------------------------------------------------
+# WHERE THE TRUTH LIVES (G61 phase 2 S1, spec R-AC8 — G121's world/personal
+# marking at the predicate level). Additive; resolved over this seed AND a
+# bank's _predicates.yaml with the most conservative value winning
+# (person > artifact > world). `person` is never checked against a source (a
+# page cannot say what someone prefers); `artifact` only ever recommends;
+# `world` may, in time, settle. A slug not listed is `unknown`: checkable only
+# through a source the person attached for that predicate. Only predicates this
+# seed already has are listed; a slug joins when the vocabulary gains it.
+# ---------------------------------------------------------------------------
+locus:
+  world:
+    - takes-place-in
+    - located-in
+    - works-at
+  artifact:
+    - runs-on
+    - depends-on
+    - part-of
+  person:
+    - considering
+
+# ---------------------------------------------------------------------------
 # uncertain_flag_for_audit: HEAD-frequency labels deliberately LEFT UNFOLDED
 # because the fold target is not unambiguous. These MUST surface in the mandatory
 # normalization-audit nudge before any auto-fold. (Long-tail freq==1 labels are

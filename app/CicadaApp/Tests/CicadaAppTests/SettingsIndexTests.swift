@@ -70,20 +70,4 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(SettingsLiveValue.text(for: .textSize, inputs), "120%")
         XCTAssertNil(SettingsLiveValue.text(for: .runSetup, inputs))
     }
-
-    // MARK: The deep-link row seed (R-O15)
-
-    func testTheSeedRoundTripsAndGoesStale() {
-        let at = Date(timeIntervalSince1970: 1_000)
-        let seed = SettingsRowFocusSeed.encode(.sleepRuns, at: at)
-        let parsed = SettingsRowFocusSeed.parse(seed)
-        XCTAssertEqual(parsed?.row, .sleepRuns)
-        XCTAssertTrue(SettingsRowFocusSeed.isFresh(parsed!, now: at.addingTimeInterval(5)))
-        XCTAssertFalse(SettingsRowFocusSeed.isFresh(parsed!, now: at.addingTimeInterval(31)),
-                       "a seed left in UserDefaults must not re-land on every launch")
-        XCTAssertEqual(SettingsRowFocusSeed.parse("channel:x@y@123")?.row, SettingsRowID("channel:x@y"),
-                       "split on the LAST @")
-        XCTAssertNil(SettingsRowFocusSeed.parse(""))
-        XCTAssertNil(SettingsRowFocusSeed.parse("noNonce"))
-    }
 }

@@ -31,7 +31,7 @@ async def get_contributors(
     response: Response,
     settings: Settings = Depends(get_settings),
 ):
-    etag = sync_service.etag_for(settings.memory_path, "git_head")
+    etag = sync_service.etag_for(settings.memory_path, "git_head", extra=git_service.AUTHOR_SHAPE)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     contributors = await git_service.get_contributors(

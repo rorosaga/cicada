@@ -83,9 +83,16 @@ final class SleepViewModelTests: XCTestCase {
 
         await vm.triggerManually()
 
-        // Poll cadence is 1s; wait past three ticks (running, running, idle)
-        // with margin, then assert exactly one completion fired.
-        try await Task.sleep(for: .seconds(4))
+        // Poll cadence is 1s: three ticks (running, running, idle). A fixed 4 s
+        // wait flaked under load (load() also awaits the live backend through
+        // APIClient.shared, so a tick can finish at 4.0x s). Wait for the first
+        // completion with a generous deadline, then hold two more ticks so a
+        // second firing would still be caught — the property is "exactly once".
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while completedCount == 0 && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .seconds(2.5))
 
         XCTAssertEqual(completedCount, 1, "onCycleCompleted must fire exactly once")
         XCTAssertEqual(vm.status?.status, "idle")

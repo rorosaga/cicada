@@ -16,20 +16,31 @@ import XCTest
 ///
 /// **Scope is named, not global** (R-S18). A whole-tree lint would drown in
 /// legitimate label interpolations — `Text("Removed from \(source.label)")` is
-/// not a number — get noisy, and then get disabled. So it walks the four places
-/// Track S owns, and every line it flags has an escape hatch that must state a
+/// not a number — get noisy, and then get disabled. So it walks the places
+/// Track S and Track I own, and every line it flags has an escape hatch that must state a
 /// reason: a needle that tries to tell an `Int` from a `String` by variable name
 /// would be guessing.
 final class CountLiteralLintTests: XCTestCase {
 
-    /// R-S18's four paths. Two directories and two files, because
+    /// R-S18's four paths — two directories and two files, because
     /// `IntegrationCategory.swift` and `SourceOverview.swift` compose the same
-    /// counts outside `Views/`.
+    /// counts outside `Views/` — plus `Views/Home/` (Track I part b, R-IB9):
+    /// Home is a page of numbers, each shown once, so it formats them the same
+    /// way the Sources grid does — and `Views/Onboarding/` (Task 4): the
+    /// Welcome's start line and its dropped-export rows carry counts too — and
+    /// `Views/Shell/` (DS-1 T3): the rail's Inbox numeral and its "6 pending" label —
+    /// and the two list-header components (DS-1 T5, DR-25/DR-45): a tab's count and
+    /// the eyebrow's "6 pending" are the numbers every list page will show first.
     static let scope = [
         "/Views/Sources/",
         "/Views/Contributors/",
         "/Models/SourceOverview.swift",
         "/Models/IntegrationCategory.swift",
+        "/Views/Home/",
+        "/Views/Onboarding/",
+        "/Views/Shell/",
+        "/Views/Common/TextTabs.swift",
+        "/Views/Common/EyebrowRow.swift",
     ]
 
     /// The documented way out, for a line the needle flags but that renders no
@@ -72,7 +83,7 @@ final class CountLiteralLintTests: XCTestCase {
     /// The scope filter is itself the thing most likely to rot: a renamed
     /// directory would make `scopedSources()` return a smaller set that still
     /// passes the non-empty guard, and the lint would quietly stop watching
-    /// half its ground. Pin the four paths by their known inhabitants.
+    /// half its ground. Pin every path in the scope by its known inhabitants.
     func testTheScopeActuallyCoversAllFourPaths() throws {
         let paths = try Self.scopedSources().map(\.path)
         for fragment in Self.scope {

@@ -152,7 +152,7 @@ final class SourcesPageTests: XCTestCase {
         let sections = SourceSections.group([a, b, c, d])
         XCTAssertEqual(sections.map(\.kind), [.harness, .feed, .messaging],
                         "no browser/social/import rows in the input -> those headers never appear")
-        XCTAssertEqual(sections.map(\.title), ["CHAT & AGENTS", "FEEDS & CALENDARS", "MESSAGING"])
+        XCTAssertEqual(sections.map(\.title), ["Chat & agents", "Feeds & calendars", "Messaging"])
         XCTAssertEqual(sections[0].rows.map(\.id), ["harness:claude-code", "harness:cursor"],
                         "within-kind order is still gridOrder — newest activity first")
     }

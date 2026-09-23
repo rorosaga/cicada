@@ -10,13 +10,6 @@ import SwiftUI
 ///
 /// This is Task 2's stub fleshed out in place, not a second file.
 struct IntegrationsView: View {
-    /// Fired after a row hands off to the main window. The default is a no-op
-    /// — in Settings → Integrations the window activation (`AppRouter`
-    /// R7) IS the whole hand-off — but `FirstRunSheet` passes `finish`, so a
-    /// hand-off from inside onboarding dismisses the sheet instead of routing
-    /// to a Feed the person cannot see behind a modal (recent-work #8).
-    var onHandOff: () -> Void = {}
-
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -161,10 +154,7 @@ struct IntegrationsView: View {
     @ViewBuilder
     private func categorySection(_ category: IntegrationCategory, rows: [SourceChannel]) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(category.title.uppercased())
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel(category.title)
 
             VStack(spacing: 2) {
                 // Chat & agents also carries the informational harness rows
@@ -195,7 +185,6 @@ struct IntegrationsView: View {
                     ForEach(Self.exportOnlyTiles) { tile in
                         IntegrationExportOnlyRow(tile: tile) {
                             router.routeToFeedAddSource(tile)
-                            onHandOff()
                         }
                     }
                 }

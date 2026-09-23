@@ -38,6 +38,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_save_episode": "record",
     "cicada_write_claim": "record",
     "cicada_retract_claim": "record",
+    "cicada_add_source": "record",
     "cicada_save_url": "record",
     "cicada_record_watch": "record",
     "cicada_note_progress": "record",   # G141 R-PJ23: a write, never the person's own words
@@ -47,7 +48,8 @@ TOOL_SCOPE: dict[str, str | None] = {
 }
 NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
-                         "cicada_save_url", "cicada_record_watch", "cicada_note_progress"})
+                         "cicada_save_url", "cicada_record_watch", "cicada_add_source",
+                         "cicada_note_progress"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
                         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
                         "cicada_ask"})

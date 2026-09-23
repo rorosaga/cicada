@@ -264,7 +264,7 @@ private struct KindChip: View {
                 Text(label)
                     .font(CicadaTheme.font(size: 11, weight: .medium))
                 Text("\(count)")
-                    .font(CicadaTheme.font(size: 10, design: .monospaced))
+                    .font(CicadaTheme.font(size: 10).monospacedDigit())
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)

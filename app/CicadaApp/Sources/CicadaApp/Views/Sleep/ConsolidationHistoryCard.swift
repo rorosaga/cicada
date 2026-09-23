@@ -182,10 +182,7 @@ struct ConsolidationHistoryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("PAST NIGHTS")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Past nights")
 
             if entries.isEmpty {
                 Text("Nothing consolidated yet.")
@@ -225,10 +222,10 @@ struct ConsolidationHistoryCard: View {
                 // "—" rather than a fabricated midnight (R-A14).
                 VStack(alignment: .leading, spacing: 1) {
                     Text(SleepHistoryPresentation.dateText(entry.date))
-                        .font(CicadaTheme.font(size: 11, design: .monospaced))
+                        .font(CicadaTheme.font(size: 11).monospacedDigit())
                         .foregroundStyle(tone)
                     Text(SleepHistoryPresentation.timeText(entry.date))
-                        .font(CicadaTheme.font(size: 9, design: .monospaced))
+                        .font(CicadaTheme.font(size: 9).monospacedDigit())
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .frame(width: 58, alignment: .leading)
@@ -323,7 +320,7 @@ struct ConsolidationHistoryCard: View {
     /// and there is simply no row to join when telemetry was off (R5).
     private func durationText(_ entry: SleepHistoryEntry) -> some View {
         Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-            .font(CicadaTheme.font(size: 11, design: .monospaced))
+            .font(CicadaTheme.font(size: 11).monospacedDigit())
             .foregroundStyle(CicadaTheme.textTertiary)
             .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
     }

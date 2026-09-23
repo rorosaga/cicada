@@ -179,6 +179,27 @@ It is never used for selection, nav, badges, tabs or chips. `[lint]` An allowlis
 - **How it is applied:** only through `liquidGlass(_:in:)` in `Theme/LiquidGlass.swift`. It is gated on macOS 26 and becomes opaque under Reduce Transparency.
 - **Never glass:** the focus card and the Reader.
 
+### 3.8 Progress fill: the Projects band
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| `progressFill` (new) | `#6FB57B` | `#37753D` | the Projects band's fill, from the project's first moment up to Today, and the list row's mini bar; solid, never a gradient |
+| track (existing `bgBadge`) | `#3A3B3F` | `#D9D9D6` | the unfilled part of the same bar |
+
+Both values come from the Meadow `meadow` hue (H ≈ 130). Light is `meadow` itself. Dark is `meadow` (`#7FC98A`) with less lightness and chroma, so it sits calmly on graphite instead of glowing. Contrast, measured as a graphical object (≥ 3:1):
+
+| Pair | Dark | Light |
+|---|---|---|
+| fill on track | 4.57:1 | 3.93:1 |
+| fill on `bgBase` | 7.65:1 | 5.19:1 |
+| `bgBase` knockout ring on fill (around every node that sits inside the green) | 7.65:1 | 5.19:1 |
+| `textSecondary` planned-diamond outline on track | 7.33:1 | 8.16:1 |
+
+- **One exception to DR-13.** This is the only place a Meadow hue encodes data: progress on the Projects band (ruling of 2026-09-23, §9). It never appears as a row fill, a tag, a tint or behind text.
+- **Nodes stay neutral.** Everything drawn on the band is in the text ladder, as a shape: `textPrimary` for done dots, done diamonds and the Today marker ("You, today"); `textSecondary` for planned diamonds and ongoing spans; `textTertiary`, dashed, for a moved milestone's earlier date and the bracket that joins it to the new one. Each node inside the green gets a 2 pt `bgBase` knockout ring. The fill is the band's one hue. Selection is a `textPrimary` ring, never the accent (DR-5).
+- **No plan, no track.** An unplanned project's bar (band and list row) is the fill plus a dashed open end, never a grey remainder: a remainder would read as "almost done". "N of M done" is shown only when there is a plan; there is never a percentage (G141 R-PJ11).
+- **Disclosed:** the unfilled track is not held to 3:1 against its surface: `bgBase` 1.68:1 dark / 1.32:1 light, and `bgSelected` (a selected list row's mini bar) 1.40:1 / 1.15:1. Nothing depends on seeing its end: the plan's end carries the last milestone's `textSecondary` diamond (≥ 7:1) on the band, and "N of M done" or "Next · …" says it in words on the row and in the bar's `.help`.
+
 ---
 
 ## 4. Type
@@ -249,7 +270,8 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 **DR-22. Navigation is an icon rail, 56 pt wide.** `[lint]` `SelectionTintLintTests`: rail and sidebar state uses only `textTertiary`, `textPrimary` and `bgSelected`.
 - **Cells.** Each cell is 36 × 36 pt, uses `cornerRadiusSmall`, sits at a 40 pt pitch, and holds an 18 pt glyph.
 - **State.** Inactive glyphs are `textTertiary`. The selected cell is `bgSelected` with a `textPrimary` glyph: never the accent, never a filled symbol.
-- **Tooltips.** Every cell has a tooltip naming its page and shortcut ("Inbox ⌘5"). The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
+- **Tooltips.** Every cell has a tooltip naming its page and shortcut ("Inbox ⌘6"). The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
+- **Pages, in ⌘ order:** Home ⌘1, Graph ⌘2, Clusters ⌘3, Feed ⌘4, Sleep ⌘5, Inbox ⌘6, Sources ⌘7, Projects ⌘8 (ruling of 2026-09-23, §9). The rail's order is its ⌘ order, so a new page joins at the end and no shortcut moves. The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
 - **The Inbox badge** is a neutral tabular numeral in a `bgBadge` capsule, with a 2 pt knockout in `bgRail`.
 - **While a cycle runs**, the Sleep glyph becomes a spinner.
 - **The rail's foot** holds the gear (⌘,), which shows a `warning` attention dot when needed, and the theme toggle, which uses `.symbolEffect(.replace)`.
@@ -533,7 +555,7 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 
 ## 8. Motion and interaction
 
-**DR-60. Keyboard actions never animate.** This applies to ⌘1–6, ⌘K, ⌘F, Esc, 1–9, O, L, ⏎, ↑/↓, ⌥↑/⌥↓ and ⏎ in the palette. Their pointer equivalents animate only where the table under DR-61 says so. `CicadaMotion.paletteIn` and `paletteOut` are deleted: the palette appears and leaves in one frame. `[lint]` `KeyboardAnimationLintTests`: no `withAnimation` in any handler reachable from `.keyboardShortcut`, `onKeyPress` or `FindCommands`, with an allowlist.
+**DR-60. Keyboard actions never animate.** This applies to ⌘1–8, ⌘K, ⌘F, Esc, 1–9, O, L, ⏎, ↑/↓, ⌥↑/⌥↓ and ⏎ in the palette. Their pointer equivalents animate only where the table under DR-61 says so. `CicadaMotion.paletteIn` and `paletteOut` are deleted: the palette appears and leaves in one frame. `[lint]` `KeyboardAnimationLintTests`: no `withAnimation` in any handler reachable from `.keyboardShortcut`, `onKeyPress` or `FindCommands`, with an allowlist.
 
 **DR-61. Durations live only in `CicadaMotion` and `SleepMotion`.** The ceiling for UI motion is 300 ms. Weather, the pile and the camera sit under a separately named `ambientMaxDuration = 0.4`. `[lint]` `MotionLiteralLintTests`.
 
@@ -584,7 +606,7 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 
 | Key | Where | Does |
 |---|---|---|
-| ⌘1–6 | anywhere | switch page (instant) |
+| ⌘1–8 | anywhere | switch page (instant) |
 | ⌘K | anywhere | open the palette under the command bar; ⌘⏎ inside it toggles Find ↔ Ask |
 | ⌘F | pages with something to find | focus the page's `CicadaSearchField` |
 | ↑ / ↓ | list focused | move the selection; the question swaps in place |
@@ -594,6 +616,8 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 | ⏎ | question | resolve with the highlighted option; in Other…, Submit |
 | O / L | question | Other… / Not now — ask again in 7 days |
 | ⌘Z | during the Undo window | undo the last answer |
+| L / M / D | Projects, a project open | focus Log progress / add a milestone / mark the selected thread or milestone done (Projects only: on an Inbox question, L is still "Not now") |
+| ← / → | Projects, the band focused | step along the band's nodes; ⏎ opens the node's source in the Reader |
 | ⌥↑ / ⌥↓ · ⌥⌘[ | Reader | previous / next cited span · back |
 | Esc | anywhere | close the rightmost open thing (DR-28) |
 | ⌘, · ⌘+ ⌘− ⌘0 · ⇧⌘I | anywhere | Settings panel · chrome zoom · Import… (via `IntakeRouter`) |
@@ -631,6 +655,21 @@ Each ruling is dated. A new ruling is added as a new line, and old lines are nev
 - **2026-09-23: One tap wins over C's click-then-Resolve.** UX principle 1 outranks C's two-step flow. Safety comes from a 5 s Undo, implemented as a send delay (DR-42).
 - **2026-09-23: The system accent replaces Cicada indigo.** This follows from taking C's material. The Linear report's §4.7 idea of a nature-derived accent is declined, because nature lives in art (DR-13).
 - **2026-09-23: The Sleep page gets a quick engine and model menu.** Owner: "there should be a quick and easy way to change which model to use for consolidation" (§10, Sleep).
+- **2026-09-23: The Projects band is a green bar that fills up, and its nodes are clickable.** Owner: *"as to the timeline colors, maybe like a green bar that fills up? something that fits the aesthetic. make nodes in the timeline clickable and stuff."*
+  - The band's progress is `progressFill` (§3.8), a meadow green that fills the track from the project's first moment up to Today. With a plan, the track ends at the latest target and "N of M done" sits beside it in words. With no plan, the fill runs to Today and the track ends in an open end.
+  - Every node on the band is clickable: dots, diamonds and spans. A click selects the node (a `textPrimary` ring) and opens its card in the detail column. A hover shows the sentence's first words and the date.
+  - This is the one place a Meadow hue encodes something (an exception to DR-13). It replaces §10's "dots use data hues" and settles the spec's R-PJ21: nodes are neutral shapes, and the fill is the only colour.
+- **2026-09-23: Projects is the eighth rail page, ⌘8, after Sources.** Owner, on G141's open decisions: *"on the things you mention as my decision, i'd go with your suggestions"*. The suggestion was the first free cell after Sources, so that no existing shortcut moves; Home took ⌘1, which makes that cell the eighth (DR-22, DR-68).
+- **2026-09-23: DS-1 ships without the `cicada.design.focus` flag (DR-73).** The tokens are static reads several hundred call sites share, the `Settings{}` scene and the panel cannot both own ⌘,, and a dual chrome doubles the surface the live check must cover. Comparison is the orchestrator's installed build against the branch on the demo bank. Revisit if the owner asks for side-by-side.
+- **2026-09-23: DR-1's "blue exceeds red by at most 3" holds for the window family, not the fills.** `bgOption`, `bgButton`, `bgButtonHover`, `bgSelected` and `bgKey` measure 4 and `bgBadge` 5, copied from the approved mock; the table wins. `ThemeTokenTests` pins ≤ 3 for `bgRail`…`bgMenu`, ≤ 5 for fills, chroma ≤ 4 for all.
+- **2026-09-23: `accentText` follows the Mac's accent (DR-4, DR-5).** For the default blue it is exactly §3.3's values; for any other accent `AccentInk` darkens (light) or lightens (dark) in 5 % steps until it clears 4.5:1 on `bgBase`, capped at 60 %.
+- **2026-09-23: The pre-D token names stay as aliases (§3.1).** `surface` has no D row and maps to `bgFocus`; `border` / `borderLight` are the opaque composites of the resting ring and the input border over `bgBase`, because AppKit and graph.js need opaque colours; graph.js's dark edge twins `borderLight`.
+- **2026-09-23: The retired indigo stays as a data hue (DR-8).** `statusColor(.active)` and the usage heat ramp keep `#8C9CFF` / `#4A5BD6`: data hues do not move when the chrome's accent does.
+- **2026-09-23: `bodyFont` stays 13 (DR-16).** "13 → 14 on detail surfaces" is `detailBodyFont` (14), adopted by the focus card and the Reader; a global 14 would resize every list body the ladder wants at 13.
+- **2026-09-23: The rail's light hover is `#E3E3E0` (DR-22).** Light `bgHover` equals `bgRail` (`#EFEFEC`) and would not show; `bgButtonHover`'s light step is the mock's value.
+- **2026-09-23: The command bar is a SwiftUI toolbar's principal item, and the palette hangs 4 pt under the titlebar (DR-23).** AppKit owns the titlebar, so the drag area and double-click-zoom are its own; macOS 26's shared toolbar platter is hidden so the bar draws its own surface. The mock's palette overlaps the titlebar strip by 6 pt; drawing into AppKit's titlebar risks hit-testing fights, so it starts just under it.
+- **2026-09-23: The palette's "Switch to <bank>" row and the intake card's switch stay (DR-24).** They act on the same `BanksViewModel` in the same window; split-brain is two switcher views drifting apart, and `SingleBankSwitcherTests` holds the view to one.
+- **2026-09-23: ⌘, and ⌃⌘S live in `Support/ShellCommands.swift`, not `FindCommands.swift` (DR-68).** DR-68's "menu commands stay in FindCommands" is about ⌘K / ⌘F, which stay there (`HiddenShortcutLintTests`); the shell's two commands get their own file with the same one-home lint (`ShellCommandsTests`). ⌃⌘S is inserted before the system's View-menu sidebar group, never replacing it, because that group also carries Enter/Exit Full Screen.
 
 This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. CLAUDE.md's "Meadow (round 3, G137)" (type, accent, neutrals), "Sleep page" (the sentence's typeface), Settings navigation (a panel, not a scene) and "Find palette" (no palette animation) paragraphs keep describing what ships until the track that implements D lands. That track updates each paragraph in the same PR that changes the code.
 
@@ -671,8 +710,8 @@ Each screen below names the problems it fixes: **P1** chrome louder than the wor
 - **Chips:** at most two per claim (speaker and age). Everything else goes in `.help`.
 - **Nothing to show:** a page with nothing readable says so in words and never shows raw YAML.
 
-**Projects (future page; backlog row added 2026-09-23). Fixes P3, P4.** The first screen designed for D from the start. It uses the same columns: projects list → project → Reader.
-- **Timeline band.** A project opens on a 96 pt band: dated claims and episodes on a horizontal track, a "Today" marker in `textPrimary`, and planned dates (G17 `due`, G140 `expected_end`) as hollow ticks. A project with no plan shows only what has happened. The band carries no painted art, and its dots use data hues.
+**Projects (G141; ⌘8). Fixes P3, P4.** The first screen designed for D from the start. It uses the same columns: projects list → project → Reader.
+- **Timeline band.** A project opens on a 112 pt band: a `progressFill` track that fills from the project's first moment up to a "You, today" marker in `textPrimary` (§3.8, ruling of 2026-09-23 in §9), done happenings and milestones as neutral dots and diamonds inside the green, planned dates (G17 `due`, G140 `expected_end`) as hollow diamonds on the unfilled track, and ongoing threads as thin spans that end at Today. Every node is clickable. A project with no plan shows only what has happened and an open end. The band carries no painted art, and the fill is its only colour.
 - **What's happening.** Under the band sit sentences that carry their provenance, for example: "Yesterday · You got a PDF setup guide for the Northwind lab cluster from Leo Fischer, and are connecting to run the Lantern demo."
   - Each noun links to its entity: the PDF opens as media, and the cluster's page holds its specs as claims.
   - The sentence's evidence chip opens the Reader.

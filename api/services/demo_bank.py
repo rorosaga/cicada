@@ -36,7 +36,8 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import decay_policy, entity_body, episode_ids, episode_scrub, git_service, markdown_parser, owner_identity
+from api.services import (decay_policy, demo_guard, entity_body, episode_ids, episode_scrub, fact_sources,
+                          git_service, markdown_parser, owner_identity)
 from api.services.agentic_write import write_claim
 
 # --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
@@ -73,6 +74,11 @@ _ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
 
 _ORIGINS = ("claude-code", "safari-tab", "telegram", "rss")
 
+# G61 phase 2 S0 (plan R-AC26): the works-at conflict (`inbox-003`) gets one
+# person-added source, so a freshly generated demo shows the derived hint.
+_SOURCED_SUBJECT = "dana-example"
+_SOURCED_REF = "https://example.com/dana-example/team"
+
 # One sentence skeleton per episode "slot" (i % len), each naming three
 # entities by DISPLAY NAME only — episodes are raw, unlinked text per the
 # Awake/Sleep split (CLAUDE.md), never a `[[wikilink]]`. Cycling through a
@@ -102,9 +108,13 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     checking bank existence first, so this never needs to guard itself).
 
     ``today`` (G141 R-PJB7) pins every relative date, ``recorded_at`` included.
-    """
+
+    The bank is marked demo FIRST (`demo_guard.write_manifest`, G141
+    capture-side track R-CS10), so a populate that fails half-way still
+    leaves a bank every capture writer refuses."""
     bank_dir = Path(bank_dir)
     today = today or date.today()
+    demo_guard.write_manifest(bank_dir)
     _write_entities(bank_dir, today)
     episodes = _write_episodes(bank_dir, today)
     _write_inbox(bank_dir, episodes, today)
@@ -379,12 +389,25 @@ def _commit_history(bank_dir: Path, day: date) -> None:
     every other name in this module.
     """
     subprocess.run(
-        ["git", "-C", str(bank_dir), "config", "user.email", "demo@cicada.example"],
+        ["git", "-C", str(bank_dir), "config", "user.email", demo_guard.GENERATOR_EMAIL],
         check=True, capture_output=True,
     )
     subprocess.run(
         ["git", "-C", str(bank_dir), "config", "user.name", "Cicada Demo"],
         check=True, capture_output=True,
+    )
+    # R-CS10: the manifest is a fact about the bank, so it is versioned —
+    # committed alone, first, as `cicada` (no model wrote it, no person's words
+    # are in it). Untracked, the next `git add -A` would sweep it into a Sleep
+    # commit under a model's name (the G85 smear).
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            "Demo bank",
+            [f"{demo_guard.MANIFEST}: created (trigger: user/companion_app)"],
+            authors=["cicada"],
+        ),
+        [demo_guard.MANIFEST],
     )
 
     today = str(day)
@@ -444,6 +467,22 @@ def _commit_history(bank_dir: Path, day: date) -> None:
         owner_path,
     )
 
+    # G61 phase 2 S0: a person-added fact source, committed ALONE as the person's
+    # — the shape `POST /entities/{id}/sources` commits
+    # (`routers/entities._commit_sources`) — so it never rides a model-authored
+    # "Sleep cycle" commit above.
+    fact_sources.add_source(bank_dir, _SOURCED_SUBJECT, _SOURCED_REF, kind="url",
+                            predicate="works-at", added_by="user", added_at=today)
+    sourced = [f"entities/{_SOURCED_SUBJECT}.md"]
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            f"Add fact source {today}",
+            [f"{p}: updated (trigger: user/companion_app)" for p in sourced],
+            authors=["user"],
+        ),
+        sourced,
+    )
 
 # --- G141 scenario (spec §12): a planned robotics project, an unplanned one --
 #

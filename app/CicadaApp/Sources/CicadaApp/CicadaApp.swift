@@ -31,13 +31,14 @@ struct CicadaApp: App {
     /// observes this domain) — constructed bare, unlike every view model
     /// above it.
     @State private var sleepEngineVM = SleepEngineViewModel()
-    /// G126 R9 — the Feed hand-off. No `Store` dependency, same reasoning
-    /// as `sleepEngineVM` above: nothing but `FeedView`/`ContentView`
-    /// (main window) and `IntegrationsView` (Settings) observes this.
+    /// G126 R9 — the Feed hand-off, and since DR-33 the Settings panel's
+    /// open state (R-DS21 … R-DS24). No `Store` dependency, same reasoning as
+    /// `sleepEngineVM` above: nothing but the main window's views — the panel
+    /// included — and the menu commands observe this.
     @State private var appRouter = AppRouter()
     /// G118 slice 2 — the Reader's navigation and its in-memory payload
-    /// cache. Main window only: Settings never opens a Reader, and neither is
-    /// a Store domain (R-PB11), so neither needs the Store.
+    /// cache. Main window only: the Settings panel never opens a Reader, and
+    /// neither is a Store domain (R-PB11), so neither needs the Store.
     @State private var provenanceRouter = ProvenanceRouter()
     @State private var provenanceCache = ProvenanceCache()
     @State private var banksVM: BanksViewModel
@@ -48,6 +49,10 @@ struct CicadaApp: App {
     /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
     /// recents and instant index survive the palette closing.
     @State private var findModel: FindPaletteModel
+    /// Track I part b (R-IB4) — Home's field: a second palette model sharing
+    /// the palette's one Ask, keeping no recents, so a ⌘K elsewhere never wipes
+    /// what was left typed on Home.
+    @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
@@ -61,6 +66,16 @@ struct CicadaApp: App {
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
     @State private var intakeRouter = IntakeRouter()
+    /// Track I part b (R-IB14) — what Start does, app-lifetime so a Welcome that
+    /// has faded out keeps reporting its rows to Home's Getting started card.
+    @State private var setupRunner = SetupRunner()
+    /// One inventory for the Welcome and Getting started, so a row's state is
+    /// the same probe on both (the `+` strip keeps its own per appearance).
+    @State private var inventory: LocalInventory
+    /// Track I part b (R-IB22) — export reminders: a per-viewer convenience in
+    /// defaults, told by the Feed, the menu bar and Getting started whether or
+    /// not notifications were allowed.
+    @State private var exportWaits = ExportWaitStore()
     /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
     /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
     /// `.onAppear` attaches the router.
@@ -107,6 +122,7 @@ struct CicadaApp: App {
         let lights = BrowserWatcher()
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
+        _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
         _sleepVM = State(initialValue: SleepViewModel(store: store))
@@ -115,11 +131,18 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
-        _findModel = State(initialValue: FindPaletteModel(store: store))
+        let find = FindPaletteModel(store: store)
+        _findModel = State(initialValue: find)
+        _homeSearch = State(initialValue: HomeSearch(model: FindPaletteModel(store: store, ask: find.ask,
+                                                                              keepsRecents: false)))
     }
 
+    /// R-DS23 — ⌘, can reopen the one window: with the app living in the menu bar and no
+    /// window open, `ShellCommands` opens this one and the staged Settings request lands in it.
+    static let mainWindowID = "main"
+
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             ContentView()
                 .environment(graphVM)
                 .environment(inboxVM)
@@ -135,9 +158,13 @@ struct CicadaApp: App {
                 .environment(usageVM)
                 .environment(store)
                 .environment(findModel)
+                .environment(homeSearch)
                 .environment(browserWatcher)
                 .environment(localSources)
                 .environment(intakeRouter)
+                .environment(setupRunner)
+                .environment(inventory)
+                .environment(exportWaits)
                 // R-IA24 — a Dock open reuses this window instead of opening a
                 // second one (the router, and its overlay, live in this one).
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
@@ -193,6 +220,18 @@ struct CicadaApp: App {
                         intakeRouter.accept(urls: urls, from: .dock)
                     }
                     localSources.start(store: store)
+                    // R-IB22 — the export someone was waiting for arrived (a sniff
+                    // recognised its vendor): its wait, in the active memory, is done.
+                    intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
+                        exportWaits.clear(vendor: vendor, bank: store.bank)
+                    }
+                    // A tapped reminder opens the one intake idle for that vendor —
+                    // never a cycle (G125 R10). Queued until now on a cold launch.
+                    appDelegate.reminderTaps.attach { [intakeRouter] vendor in
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                        intakeRouter.present(from: .reminder(vendor))
+                    }
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -215,6 +254,10 @@ struct CicadaApp: App {
                         syncWindowChrome(window, mode: appColorScheme)
                         enableFirstMouseAcceptance(for: window)
                         window.makeKeyAndOrderFront(nil)
+                    }
+                    // Read as the menu opens, so "requested 2 hours ago" is true then.
+                    menuBarManager.exportWaitLines = { [exportWaits, store] in
+                        exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
                     menuBarManager.setup(
                         onOpenApp: {
@@ -264,6 +307,9 @@ struct CicadaApp: App {
                 // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
+        // DR-23 — the titlebar is a command bar: the window's title is hidden, and the toolbar's
+        // unified 52 pt band holds the toggle, the bar and the `?` (R-DS16).
+        .windowToolbarStyle(.unified(showsTitle: false))
         // G130 R5: the View menu — ⌘+/⌘−/⌘0 scale the whole SwiftUI chrome
         // through the one persisted `CicadaTheme.uiScale` (Task 1). Placed
         // `after: .sidebar` so it lands right after macOS's own "Enter Full
@@ -284,38 +330,15 @@ struct CicadaApp: App {
             }
             // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
             FindCommands(router: appRouter)
+            // DS-1 T3 (R-DS15) — View → Show labelled sidebar / Show icon rail (⌃⌘S);
+            // DS-1 T6 (R-DS23) — Settings… ⌘, opens the in-app panel.
+            ShellCommands(router: appRouter)
             // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
             // of every drop (design §5.1).
             CommandGroup(after: .newItem) {
                 Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
             }
-        }
-
-        // ⌘, and the sidebar's footer gear. Gets the same environment as the
-        // main window — `ConnectionsView` is a projection over the same Store.
-        // `sleepVM` added for the Schedule tab (G106 amendment) — the SAME
-        // view model instance the main window's Sleep page uses, so a
-        // change made here (or a Pause tap over there) is visible in both
-        // without a refetch.
-        Settings {
-            SettingsScene()
-                .environment(localSources)
-                .environment(connectionsVM)
-                .environment(sleepVM)
-                .environment(sleepEngineVM)
-                .environment(appRouter)
-                .environment(store)
-                // Track I T1: Integrations' Sync now routes a watched browser
-                // through the watcher (consent), so it reads it from here;
-                // without this the Settings window would trap on that page.
-                .environment(browserWatcher)
-                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                // The `.id(colorSchemeRaw)` that used to be here is gone with
-                // its twin in `ContentView`: `CicadaTheme.mode` is observable
-                // now, so this window's own token reads repaint it on a theme
-                // flip. The comment it carried — "static reads SwiftUI doesn't
-                // track" — described the bug, not a rule.
         }
     }
 

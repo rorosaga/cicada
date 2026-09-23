@@ -170,10 +170,7 @@ struct StudyListCard: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             // "What's waiting" — the Details section's own name (Track Z
             // §4.2), in the plain words the sentence above already uses.
-            Text("WHAT'S WAITING")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("What's waiting")
 
             content
 

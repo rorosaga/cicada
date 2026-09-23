@@ -2471,7 +2471,7 @@ s = p.read_text()
 old_tail = "(contract unchanged pending G116). | 🔲 |"
 assert s.count(old_tail) == 1, "G113 row tail not found exactly once — read the row and update this anchor to match"
 new_tail = ("(contract unchanged pending G116). "
-            "**Shipped 2026-09-05 (PR #TBD, `feat/feedback-ledger`) — slices 3–7:** trigger `inbox/<kind>/resolved:<label>` + "
+            "**Shipped 2026-09-05 (PR #88, `feat/feedback-ledger`) — slices 3–7:** trigger `inbox/<kind>/resolved:<label>` + "
             "`statusChange` for decay (slices 1–2, already covered above); "
             "`divergence` + `normalization` resolvable in API and Swift; merge reject persisted in `_merge_rejected.yaml`; "
             "decay `keep_active` and clarification answers reach the claim layer; "
@@ -2490,7 +2490,7 @@ TODO.md already reflects the "slices 1–2 merged, 3–7 open" state (it was kep
 current through G115 Phase 1) — re-read it before editing; the anchors below
 are current as of `dev` @ 7933de1 but this file changes often.
 
-1. Under `## ✅ Shipped` (line 135), add a line in the style of its neighbours: "**G113 grounded-reward ledger (2026-09-05, PR #TBD)** — every inbox verdict is a `resolution` telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable; merge reject sticks; keep_active/answers write claims."
+1. Under `## ✅ Shipped` (line 135), add a line in the style of its neighbours: "**G113 grounded-reward ledger (2026-09-05, PR #88)** — every inbox verdict is a `resolution` telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable; merge reject sticks; keep_active/answers write claims."
 2. Remove (or replace with a shipped-strikethrough, matching the style of the `4d`/`4d′` rows nearby) the Wave B item `4a. **G113 slices 1–4**` — its real text on `dev` today is `4a. **G113 slices 1–4** — the grounded-reward ledger: ... slices 1–2 merged (PR #31); 3–7 open — S/M` (lines 268-273 of `docs/goals/TODO.md`), not the plan's original guess.
 3. In `## Where things stand` (line 7) update the date line (line 133's `_Last synced: ...`) and the in-flight PR list to name `feat/feedback-ledger` as open (or merged, if Step 4 of the merge procedure already ran); update the "Worktrees" paragraph (lines 128-130, currently "G113 slices 1–2 merged as PR #31; slices 3–7 paused") to say slices 3–7 shipped too. In `## Pick up here` (line 106), the queue line (115-119) currently opens "**G129 slice 2** ... → **G113 slices 3–7** (the grounded-reward ledger, half-built ...) → **G125** ..." — drop the G113 entry from the queue (it's done) so the queue reads "**G129 slice 2** → **G125** → ...".
 

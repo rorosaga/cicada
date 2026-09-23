@@ -20,7 +20,6 @@ scope). Never raises.
 """
 from __future__ import annotations
 
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -90,14 +89,9 @@ def _rewrite(episodes_dir: Path) -> list[Path]:
 
 def _commit(memory_path: Path, written: list[Path]) -> None:
     rel = [str(p.relative_to(memory_path)) for p in written]
-    subprocess.run(["git", "add", "--", *rel], cwd=str(memory_path), check=True)
-    status = subprocess.run(["git", "status", "--porcelain", "--", *rel], cwd=str(memory_path),
-                            check=True, capture_output=True, text=True)
-    if not status.stdout.strip():
-        return
     message = git_service.build_commit_message(
         f"Backfill export origins {date.today().isoformat()}",
         [f"episodes/: {len(rel)} chat-export episode(s) stamped with their origin (trigger: {TRIGGER})"],
         authors=["cicada"],
     )
-    subprocess.run(["git", "commit", "-m", message, "--", *rel], cwd=str(memory_path), check=True)
+    git_service.commit_paths_sync(memory_path, message, rel)  # F2-back R-B1

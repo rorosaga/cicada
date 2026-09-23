@@ -5,6 +5,13 @@ import SwiftUI
 /// Home page (Track I, decision 12) hosts the same search field in-page; the
 /// overlay chrome is `FindPalette`'s. `open` runs what a row navigates to —
 /// the host owns the tabs, the sheets and the router.
+///
+/// Track I part b (R-IB6) hosts it on Home with three additive parameters
+/// whose defaults keep the palette byte for byte: `prompt` (Home's own
+/// placeholder), `focusRequest` (a nonce whose change focuses the field — ⌘K
+/// and ⌘1 on Home) and `submitOverride` (⏎ saves a pasted link, R-IB7; it
+/// returns true when it handled the submit). On a page, Esc runs
+/// `model.escape()` and never closes anything — `close` stays a no-op there.
 struct FindPanelBody: View {
     enum Placement { case palette, page }
 
@@ -12,39 +19,52 @@ struct FindPanelBody: View {
     var placement: Placement = .palette
     let open: (FindDestination) -> Void
     var close: () -> Void = {}
+    var prompt: String? = nil
+    var focusRequest: Int = 0
+    var submitOverride: (() -> Bool)? = nil
 
     @FocusState private var fieldFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// R-IB6 — the palette always shows its rows; a page shows only its field until
+    /// there is something to show (the first keystroke, or Ask). Design H2: the
+    /// first keystroke replaces Home's cards.
+    static func showsBody(placement: Placement, query: String, mode: FindMode) -> Bool {
+        placement == .palette || mode == .ask || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             field
-            // Design §3.6: a hairline while the server tier is out, drawn as an
-            // overlay on the divider so it takes no layout — as a VStack child it
-            // pushed every shown row down on each pause and pulled them back when
-            // the server answered, breaking §3.2's "nothing shown moves" (S-ui
-            // final review). Under Reduce Motion there is no indeterminate bar —
-            // the footer's "Searching conversations…" is its text twin.
-            Divider().background(CicadaTheme.border)
-                .overlay(alignment: .top) {
-                    if model.mode == .find, model.serverPhase == .searching, !reduceMotion {
-                        ProgressView().progressViewStyle(.linear).controlSize(.mini).accessibilityHidden(true)
+            if Self.showsBody(placement: placement, query: model.query, mode: model.mode) {
+                // Design §3.6: a hairline while the server tier is out, drawn as an
+                // overlay on the divider so it takes no layout — as a VStack child it
+                // pushed every shown row down on each pause and pulled them back when
+                // the server answered, breaking §3.2's "nothing shown moves" (S-ui
+                // final review). Under Reduce Motion there is no indeterminate bar —
+                // the footer's "Searching conversations…" is its text twin.
+                Divider().background(CicadaTheme.border)
+                    .overlay(alignment: .top) {
+                        if model.mode == .find, model.serverPhase == .searching, !reduceMotion {
+                            ProgressView().progressViewStyle(.linear).controlSize(.mini).accessibilityHidden(true)
+                        }
+                    }
+                Group {
+                    if model.mode == .ask {
+                        AskPanel(onSelectEntity: { run(.entity(id: $0)) }, hostedViewModel: model.ask)
+                    } else {
+                        rows
                     }
                 }
-            Group {
-                if model.mode == .ask {
-                    AskPanel(onSelectEntity: { run(.entity(id: $0)) }, hostedViewModel: model.ask)
-                } else {
-                    rows
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(CicadaTheme.surface)   // R-SU17: opaque content, no glass on glass
+                footer
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(CicadaTheme.surface)   // R-SU17: opaque content, no glass on glass
-            footer
         }
         .onExitCommand { if model.escape() { close() } }
         .defaultFocus($fieldFocused, true)
         .task { fieldFocused = true }
+        .onChange(of: focusRequest) { _, _ in fieldFocused = true }
     }
 
     private var field: some View {
@@ -53,13 +73,16 @@ struct FindPanelBody: View {
                 .font(CicadaTheme.font(size: 15))
                 .foregroundStyle(CicadaTheme.accent)
                 .accessibilityHidden(true)
-            TextField(model.mode == .find ? "Search your memory" : "Ask your memory",
+            TextField(model.mode == .find ? (prompt ?? "Search your memory") : "Ask your memory",
                       text: Binding(get: { model.fieldText }, set: { model.setFieldText($0) }))
                 .textFieldStyle(.plain)
                 .font(CicadaTheme.font(size: 15))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .focused($fieldFocused)
-                .onSubmit { if let destination = model.submit() { run(destination) } }
+                .onSubmit {
+                    if submitOverride?() == true { return }
+                    if let destination = model.submit() { run(destination) }
+                }
                 .onKeyPress(phases: .down) { press in
                     handle(FindKeymap.action(key: press.key, modifiers: press.modifiers, mode: model.mode))
                 }
@@ -144,12 +167,10 @@ struct FindPanelBody: View {
             Image(systemName: section.group.glyph)
                 .font(CicadaTheme.font(size: 10, weight: .semibold))
                 .iconHover()
-            Text(section.group.title.uppercased())
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .tracking(1.2)
+            SectionLabel(section.group.title)
             Spacer()
             if let count = section.headerCount {
-                Text(count).font(CicadaTheme.font(size: 10, design: .monospaced))
+                Text(count).font(CicadaTheme.font(size: 10).monospacedDigit())
             }
         }
         .foregroundStyle(CicadaTheme.textTertiary)
@@ -196,7 +217,7 @@ struct FindPanelBody: View {
             Spacer()
             Text(model.mode == .find ? "↑↓ move · ⏎ open · ⌥⏎ more · ⌘⏎ ask · esc close"
                                      : "⏎ ask · esc back to find")
-                .font(CicadaTheme.font(size: 10, design: .monospaced))
+                .font(CicadaTheme.font(size: 10))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
         }

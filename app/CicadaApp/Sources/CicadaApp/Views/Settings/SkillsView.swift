@@ -17,6 +17,13 @@ struct SkillsView: View {
             // sections resets the sub-page by recreating this view; landing on
             // the same section does not).
             .onChange(of: focus?.landedNonce ?? 0) { _, _ in openSkill = nil }
+            // R-O5 — while a detail is open, Esc goes back to the list instead
+            // of closing the panel (the ×'s `.cancelAction` would win over a
+            // view-level exit command; see `SettingsFocus.escapeBack`).
+            .onChange(of: openSkill, initial: true) { _, open in
+                focus?.escapeBack = open == nil ? nil : { openSkill = nil }
+            }
+            .onDisappear { focus?.escapeBack = nil }
     }
 
     @ViewBuilder

@@ -16,8 +16,8 @@ Two enrichment paths:
 
 * **§2b scour + summarize (bounded LLM):** when the description is absent/thin, a
   single mini-model call summarizes the page. The summarizer is injected via
-  ``summarize_fn`` (so tests are hermetic); the default fetches the URL through
-  ``media_ingestor``'s HTTP path and calls ``settings.litellm_model``. Capped at
+  ``summarize_fn`` (so tests are hermetic); the default reads the page through
+  :func:`default_fetch` (the rail's transport, G61 phase 2 S0) and calls ``settings.litellm_model``. Capped at
   ``link_enrich_max_per_cycle`` calls/cycle; every failure mode is offline-safe.
 
 Idempotency: ``enrichment_attempted`` in the media page frontmatter short-circuits
@@ -26,8 +26,8 @@ network timeout can never hard-block the cycle; ``link_enrich_enabled=False`` is
 clean kill switch.
 
 Scope note (M5f): the bounded zero-LLM reuse path + recommends/transclusion is
-shipped and tested hermetically. The live §2b network fetch reuses the existing
-``media_ingestor`` HTTP helpers behind the injectable ``summarize_fn`` seam; it is
+shipped and tested hermetically. The live §2b network fetch is :func:`default_fetch`, handed over only when
+``CICADA_ALLOW_CONNECTOR_FETCH`` allows it, behind the injectable ``summarize_fn`` seam; it is
 offline-safe (any fetch/LLM failure marks the page attempted and writes no claim).
 
 G102 cheap slice (2026-09-02): the in-cycle pass above only ever sees the 20
@@ -336,44 +336,26 @@ def _episode_persons(memory_path: Path, changes: list[dict]) -> dict[str, list[s
 
 
 async def default_summarize(title: str, url: str, settings) -> str | None:
-    """The live §2b summarizer: fetch the page via ``media_ingestor``'s HTTP path,
-    extract visible text, and make one bounded mini-model call. Offline-safe —
-    returns ``None`` on any fetch/parse/LLM failure (caller writes no claim).
+    """The live §2b summarizer for Stage 5.57: the rail's own read of the page,
+    then one bounded mini-model call. ``None`` unless the page came back ``ok``.
+
+    G61 phase 2 S0 (spec §2, plan R-AC18): this used to open its own client on
+    ``media_ingestor._TIMEOUT`` (5 s) with the default proxy environment, no
+    401/403 handling, and ``resp.text[:_MAX_READ]`` — which downloads the WHOLE
+    body before slicing it to 1.5 MB, so no byte cap applied at all. It now reads
+    through :func:`default_fetch`, the rail's reference transport (4 s, ≤ 512 KB
+    streamed, no cookies, ``trust_env=False``, net_guard on every hop, a block or
+    a wall redirect is ``blocked`` and never retried), so Sleep has exactly one
+    way to read a page. Whether Sleep may call it at all is the caller's gate
+    (``sleep_cycle._link_summarizer``), as it is for the G102 backfill.
 
     Kept out of the hermetic test path: ``enrich_media_links`` only invokes a
-    summarizer that is explicitly passed in, so unit tests never hit the network.
-    ``sleep_cycle`` passes THIS function to enable live enrichment.
+    summarizer that is explicitly passed in.
     """
-    if not url:
+    result = await default_fetch(url, settings)
+    if result.status != "ok" or not result.text:
         return None
-    from api.services import net_guard  # G135 R-R10
-
-    if not await net_guard.is_fetchable_url_async(url):
-        return None
-    try:
-        import httpx
-
-        from api.services.media_ingestor import _MAX_READ, _TIMEOUT, USER_AGENT
-
-        async with httpx.AsyncClient(
-            event_hooks={"request": [net_guard.httpx_request_guard]},
-        ) as client:
-            resp = await client.get(
-                url,
-                timeout=_TIMEOUT,
-                follow_redirects=True,
-                headers={"User-Agent": USER_AGENT},
-            )
-            resp.raise_for_status()
-            html = resp.text[:_MAX_READ]
-        excerpt = _extract_visible_text(html, int(getattr(settings, "link_enrich_excerpt_chars", 2000) or 2000))
-        if len(excerpt) < 100:
-            return None  # JS-rendered / empty body
-    except Exception as e:
-        logger.warning(f"link fetch failed for {url}: {type(e).__name__}: {e}")
-        return None
-
-    return await _summarize_excerpt(title, excerpt, url, settings)
+    return await _summarize_excerpt(title, result.text, url, settings)
 
 
 async def _summarize_excerpt(title: str, excerpt: str, url: str, settings) -> str | None:

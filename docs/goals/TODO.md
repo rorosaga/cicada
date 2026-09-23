@@ -39,8 +39,10 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Round 3, Track I part a** (`feat/intake-onboarding`): one intake for every chat export and every way a file arrives
 (sniff → preview → import → a card that never closes itself; `UploadOverlay` and the Feed's Upload
 button retired), consent before any browser read, the Gemini channel and the export-origin
-backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. Part b
-(T8 Welcome, T9 Home + ⌘1–7, T10 reminders, T11 docs, T12 live pass) is next.
+backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. **Part b** (`feat/welcome-home`): the one-screen Welcome (the four-step
+sheet and F2 retired), Home at ⌘1 with Getting started, and export reminders with text twins; T12 (the
+live pass and screenshots) is the orchestrator's. Measured on the branch: Swift **1539 executed, 0
+failures**, backend **2902 passed** (unchanged — no Python in this track).
 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
@@ -108,6 +110,31 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 (R-FX12, R-FX13). Baselines: backend **2954 passed**, Swift **1433 executed, 0 failures**, graph JS
 7/7 — measured on `fix/owner-feedback-1`; replace with the merged numbers.
 
+**Round 3 · Track F2-back — backend fixes, batch 2 (2026-09-23, `fix/backend-batch-2`, plan
+`docs/superpowers/plans/2026-09-23-backend-batch-2.md`).**
+- One git writer per bank: every mutating git command queues on one per-bank lock, another
+  process's `index.lock` is waited out and never deleted, readers never take it, and a lint keeps
+  it that way (R-B1 … R-B4).
+- A folder, paper or Wispr commit git still refuses is kept, said on its channel, and landed by
+  the writer's next run or the next Sleep cycle's start under its own author (R-B5).
+- Saving a folder's authorship rules re-derives its existing episodes in place — same bytes, same
+  hash, agent → owner re-queued, owner → agent parked unless Sleep already read it — and its papers'
+  why-claims follow; the app no longer has to re-post a byte (R-B6 … R-B8).
+- Agent writes are labelled by their harness: `author_identity` has a `harness` kind, a write that
+  names no author is `agent`, deterministic writers name whose words they hold, and the pre-G135
+  placeholder reads as `agent` everywhere without rewriting history (R-B9 … R-B11). `/contributors`,
+  `/entities/{id}/provenance` and `/episodes/{id}/citations` fold `git_service.AUTHOR_SHAPE` into
+  their ETags, so no cache keeps the old kinds (R-B10).
+- Paper why-claims no longer carry in-document anchors (`[N50](#note-n50)`) or footnote markers;
+  the episode keeps them, ids are unchanged, a sync repairs what it re-reads, and existing banks are
+  repaired once as `cicada` (R-B12, R-B13).
+- The video and meeting skill bridges are active (`cicada_record_watch`; `cicada_save_episode` with
+  `speaker:<name>:` lines, never `user:`); documents stays off (R-B14).
+- `GET /remote/status` finds ngrok and Tailscale in the standard install folders, not only on
+  launchd's PATH (R-B15); `/state`'s `sleep.next_at` was already calibrated (Track P) and is now
+  pinned against `/status` in all four modes (R-B16).
+- Baselines: backend **3252 passed** on `fix/backend-batch-2` (measured by the orchestrator on the merged head, 2026-09-23).
+
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.
@@ -173,6 +200,10 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
   race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
   is saved with its URL-derived title and never fetched (R-R10).
+- **G61 phase 2 (S0–S2), disclosed not fixed:** save-time `media_ingestor.enrich` (the person's own
+  save or paste) still reads a page on `_TIMEOUT` (5 s) with `resp.text[:_MAX_READ]` (the whole body
+  downloaded, then cut to 1.5 MB); S0 moved only Sleep's own read onto `default_fetch`, and the same
+  one-function change applies there. Two sources with one ref and two predicates share the app's `EntitySource.id` (`kind|ref`), so the entity card's Sources `ForEach` sees a duplicate id until S5 rebuilds that section; deleting still addresses by index, so the right entry goes (plan R-AC43). `InboxItem.check` reads two inputs no `/inbox` ETag component covers — a bank's `_predicates.yaml` (as `informational` already does) and today's date (clamp 4, as `age_days` already does); no screen reads `check` yet, and S6, its first reader, closes both (plan R-AC40).
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -293,6 +324,19 @@ PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their ow
 the DS shell; PJ-7/PJ-8 gated.** The Swift `followup` case landed with the final review (label "Follow-up",
 clarification's hue); `GraphNode` dates ride PJ-5.
 
+**PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
+longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
+recently, every other writer refuses; CLAUDE.md's seventh Awake rail). Next on the backend: **PJ-0b** (hold a
+page-less subject's claims with its pending entity, ruled 2026-09-23; the seam is
+`claim_pipeline.hold_page_less`) and **PJ-1**.
+
+**Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
+(`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Its three backend-only slices are built on
+`feat/g61-sources-checkable` (plan `docs/superpowers/plans/2026-09-23-g61-s0-s2.md`): **S0** (Stage 5.57's ungated `default_summarize`, the
+duplicate `source_episode` key, the hint's voice), **S1** (checkable sources, `cicada_add_source`) and
+**S2** (a read-only checkability census, `scripts/check-census.sh <bank>`, whose live-bank counts go on the G61 row before S3). Its five owner decisions
+are listed under Research / decisions.
+
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
 
@@ -357,15 +401,8 @@ and clock-free speech bubble, a book pile encoding queued characters per source 
 charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
 server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
 every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
-Sleep/Upload buttons removed from this page. **Disclosed gap:** `GET /status`'s `next_sleep` (the
-one user-visible "Next run …" text, R6/R7) is calibrated from `sleep_debt.compute`'s
-`last_cycle_at`/`newest_unprocessed_at`; `GET /state`'s own `sleep.next_at`
-(`api/routers/state.py:100`, feeding the MCP handshake's now-view, not the app) is not — it calls
-`sleep_scheduler.next_run_at` with neither, so `interval` mode reads "N hours from now" instead of
-"N hours from the last real cycle" and `after_import` always reads `null`. Lower-stakes than the app
-surface (an agent's primer briefly imprecise right after a schedule-mode change, never a wrong clock
-shown to the user) and left as-is rather than adding a second `sleep_debt.compute` scan to an
-engine-free read path on a late pass — fold in alongside the next `/state` touch.
+Sleep/Upload buttons removed from this page. **Closed:** `GET /state`'s `sleep.next_at` is calibrated with the same inputs as `/status`'s
+"Next run" (Track P R6, `7d1de42`) and pinned against it in all four modes (F2-back R-B16).
 · **G130 slice 1a+1b app-wide zoom (2026-09-05,
 PR #54, PR #58)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
 (⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
@@ -474,6 +511,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **Direction D — DS-1 (tokens, type, shell, Settings panel)** | Built on `feat/d-shell` (plan `2026-09-23-d-shell.md`): graphite + the Mac's accent + rings, SF only with one `SectionLabel`, the icon rail ⇄ labelled sidebar (⌃⌘S), the titlebar command bar (the one bank selector, search, the page's `?`), the eyebrow/tabs components, Settings as an in-app panel. | Orchestrator live check (both themes, 1.0×/1.4×, every page by rail and ⌘1–7, ⌘K from the bar, a bank switch, Settings search landing on a row, Esc), then merge; DS-2 (Inbox columns + Reader) next, then the page tracks and G141 PJ-5 at ⌘8. |
 | **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
 | **G118 slice 2** | **Server merged** (PR #72, plan `2026-09-23-provenance-backend.md`). **App merged** (PR #78) from `feat/provenance-ui` (plan `2026-09-23-provenance-ui.md`): evidence chips with a hover quote, the Reader inspector (turns, washed span, honest banners, navigator, "Noted from this conversation"), "Where this came from" on the entity card, contributor faces in the claim footer and History, "Show in conversation" from the inbox, evidence under Ask answers. | Orchestrator live check on the demo bank (the plan's Verification), then merge. P6 (palette → Reader) rides Track S; the server hand-offs are listed in the G118 row. |
 | **G137 Meadow (round 3)** | **M1 foundation merged** (PR #71) from `feat/meadow-foundation` — Meadow tokens, Instrument Serif (replaced by SF Pro Display in F1), `CicadaMotion` + hover modifiers, `liquidGlass`, the art set + manifest, the glass sidebar, the empty state. Plan: `docs/superpowers/plans/2026-09-23-meadow-foundation.md`. | Live-checked by the orchestrator in both themes at 1.0×; still open: 1.4×, Reduce Motion / Transparency / Increase Contrast (both themes, 1.0×/1.4×, Reduce Motion / Transparency / Increase Contrast; the empty state's one action on 26 (`.glassProminent`) with the window key AND not key, both themes — its ink is `onAccent` only while key, measured on `.borderedProminent`, unverified on glass), merge to `dev`; then the M2 pass. Builds on a macOS 14/15 SDK: every 26/15-only call is also behind `#if canImport(SwiftUI, _version:)`. |
@@ -514,6 +552,20 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
     + research-resolvable conflicts: the same judge may grep a linked repo / read a declared source and must
     cite what it checked; multi-valued predicates (`uses`) never open a conflict at all (G98)
+4e. **G61 phase 2 — check the source before asking the person** *(owner 2026-09-23: "some things can be
+    clarified by checking a link to a website or an app using browser harness or computer use … before
+    scaling it to the user itself")* — spec `docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`.
+    An escalation ladder: Cicada's own public fetch → an agent the person runs (`cicada_record_check`,
+    the G140 watch-record shape, a seventh evidence kind `source`) → the person, with the check on the card.
+    Two-witness settle (a local agent's reading + Cicada's own re-read of the same site); never a human
+    claim, never the owner's page, never a remote report; `cicada`-authored, reviewable in `inbox/settled/`,
+    one-tap "Ask me instead". Ships in **shadow** first — the owner flips auto with the numbers in view.
+    **S0–S2 ✅ 2026-09-23 — run `scripts/check-census.sh` on the live bank and record the counts (only) on the G61 row before S3:** S0 truth + fetch hygiene (Stage 5.57's ungated
+    `default_summarize`, `add_source` on `(ref, predicate)`, the hint voiced by `added_by` and derived at
+    read, the duplicate `source_episode` key, organic resolution on `is_human`), S1 checkable sources
+    (`access`, `kind: app|repo`, predicate `locus`, `cicada_add_source`), S2 a read-only checkability
+    census that decides whether S3–S8 are worth it. S3 waits on D-AC3 and D-AC5; S7 on D-AC1 and G116(a).
+    S0–S7 $0; S8 💸 — M each
 4d′. ~~**G115 Phase 1**~~ — **shipped 2026-09-03 (`feat/inbox-phase1`)** — inbox redesign, first
    slice: one question object for every kind, `cause` on the
    card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
@@ -578,13 +630,14 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     claims (a done one born closed, `is_event` for history readers), dates decided in Python, nothing relative
     stored. Order: derive → write → spend. Spec
     `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md` (R-PJ1…R-PJ23). Slices:
-    **PJ-0** page-less claim fix · **PJ-1** read model + `GET /projects[/{id}/timeline]` · **PJ-4** Stop-hook
-    turn stamps — all three backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
+    **PJ-0** page-less claim fix ✅ · **PJ-4** Stop-hook turn stamps ✅ (both PR #88) · **PJ-0b** hold
+    page-less claims with the pending entity (ruled 2026-09-23) · **PJ-1** read model +
+    `GET /projects[/{id}/timeline]` — backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
     handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
     page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
-    per-project re-read 💸 — L. Open DECIDEs (rail cell, band colour, pending-store hold) are under Research /
-    decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over
+    per-project re-read 💸 — L. The three DECIDEs (rail cell, band colour, pending-store hold) were ruled
+    2026-09-23 — see Research / decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over
     `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3;
     PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
     the `is_event` readers and their grep gate) is T4; its agent path (`cicada_note_progress`, the event
@@ -651,14 +704,27 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   rule-executed Stage-5 write (recommended `cicada`, rule string in the manifest line — not yet
   ruled); (b) whether an in-conversation resolve carries `Cicada-Session:` on its `user` commit
   (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
+  — G61 phase 2 (2026-09-23) adds a second caller (a source-settled item); rule (a) once for both.
+- **G61 phase 2 owner decisions — ruled 2026-09-23** (owner: "i'd go with your suggestions"; he named browser
+  harnesses and computer use in the ask itself): **D-AC1** shadow first — the owner flips auto-settling on at
+  ≥ 20 shadow settles and ≥ 95 % agreement, never automatically (working-method §4's "never auto-applied"
+  stands until he flips it); **D-AC2** the alternative, because the owner asked for browser agents by name: a
+  host Cicada refuses to fetch (LinkedIn-class) gets a `Check first:` line for an agent **in the person's own
+  already-open session only — never signing in, never passing a login** — and that finding is inform-only
+  forever (it never settles); **D-AC3** yes, a seventh evidence kind `source`; **D-AC4** = G116(a): `cicada`
+  authors a rule- or check-executed write, the rule in the manifest; **D-AC5** yes, contract step 2 lets an
+  agent check before asking.
 - **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
   gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
-- **G141 DECIDEs** — (a) a Projects rail cell (spends a rail slot and a ⌘ number; default the seventh cell,
-  ⌘7, after Sources, so no shortcut moves; this is G108's call; the fallback is "Open project ›" on the
-  card, plus a Home "In motion" section once Home exists); (b) the timeline band's colour: neutral shapes,
-  or DESIGN_RULES §10's "dots use data hues" (R-PJ21; shown to the owner on the demo bank in PJ-5, his answer
-  recorded as a §9 line); (c) whether Sleep holds an unpromoted subject's claims with the pending entity and
-  writes them on promotion (changes the pending store; split out of PJ-0 on purpose). $0.
+- **G141 DECIDEs — ruled 2026-09-23** (owner: "on the things you mention as my decision, i'd go with your
+  suggestions, and as to the timeline colors, maybe like a green bar that fills up? something that fits the
+  aesthetic. make nodes in the timeline clickable and stuff."): (a) Projects is the **eighth** rail item, ⌘8,
+  after Sources — Home took ⌘1 in #86, so no shortcut moves; (b) the band's progress is a **meadow-green fill
+  that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
+  encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
+  writes them on promotion: a new slice **PJ-0b** after PJ-0 — its seam,
+  `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88) and holds nothing until PJ-0b. R-PJ16 (the Stop
+  hook writes the per-turn `turns` list) is accepted.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors

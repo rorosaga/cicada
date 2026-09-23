@@ -39,8 +39,8 @@ final class AppRouterTests: XCTestCase {
     /// flag. `ContentView` consumes it on the MAIN window, but nothing
     /// activated the app or ordered that window front, so Settings stayed key
     /// and the button read as broken. Worse inside onboarding, where
-    /// `FirstRunSheet` embeds `IntegrationsView` whole: the hand-off fired
-    /// from inside a modal sheet that never dismissed.
+    /// the retired first-run sheet embedded `IntegrationsView` whole: the
+    /// hand-off fired from inside a modal sheet that never dismissed.
     ///
     /// Which window is "main" is a pure predicate so it can be tested at all —
     /// an NSWindow cannot be stood up in this suite, and the app's existing
@@ -70,5 +70,47 @@ final class AppRouterTests: XCTestCase {
         XCTAssertFalse(router.pendingFirstRun)
         router.requestFirstRun()
         XCTAssertTrue(router.pendingFirstRun)
+    }
+
+    /// DR-33 / R-DS22 — one door into the panel; a request is read once.
+    func testOpenSettingsStagesARequestAndOpensThePanel() {
+        let router = AppRouter()
+        router.openSettings(.sleep, row: .sleepRuns)
+        XCTAssertTrue(router.settingsOpen)
+        let request = router.consumeSettings()
+        XCTAssertEqual(request?.section, .sleep)
+        XCTAssertEqual(request?.row, .sleepRuns)
+        XCTAssertNil(router.consumeSettings())
+        XCTAssertTrue(router.settingsOpen, "consuming the request does not close the panel")
+    }
+
+    /// R-DS23 — a lingering menu-bar popover (an NSPanel) is never the main window, or ⌘,
+    /// would "find" it instead of reopening the real one.
+    func testAPanelIsNeverTheMainWindow() {
+        XCTAssertFalse(AppRouter.isMainWindow(identifier: nil, title: "", canBecomeKey: true, isPanel: true))
+        XCTAssertTrue(AppRouter.isMainWindow(identifier: nil, title: "", canBecomeKey: true))
+    }
+
+    func testTwoOpensOfOneSectionAreTwoRequests() {
+        let router = AppRouter()
+        router.openSettings(.integrations)
+        let first = router.pendingSettings
+        router.openSettings(.integrations)
+        XCTAssertNotEqual(first, router.pendingSettings, "the nonce makes a second link re-land")
+    }
+
+    /// R-DS24 — anything that leaves the panel closes it.
+    func testEveryHandOffToAPageClosesThePanel() {
+        let hands: [(String, (AppRouter) -> Void)] = [
+            ("feed", { $0.routeToFeedAddSource(.instagram) }), ("source", { $0.routeToSourceDetail("rss") }),
+            ("entity", { $0.routeToEntity("alpha-project") }), ("setup", { $0.requestFirstRun() }),
+        ]
+        for (name, hand) in hands {
+            let router = AppRouter()
+            router.openSettings()
+            hand(router)
+            XCTAssertFalse(router.settingsOpen, name)
+            XCTAssertNil(router.pendingSettings, name)
+        }
     }
 }

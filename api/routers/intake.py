@@ -41,7 +41,7 @@ from api.models.schemas import (
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import bank_registry, episode_staging, intake_jobs, media_ingestor
+from api.services import bank_registry, demo_guard, episode_staging, intake_jobs, media_ingestor
 
 router = APIRouter()
 
@@ -363,6 +363,12 @@ def resolve_target(settings: Settings, bank: str | None, *, scaffold: bool = Tru
     if name not in (registry.get("banks", {}) or {}):
         raise HTTPException(404, f"Unknown bank '{name}'")
     target = bank_registry.bank_dir(root, name)
+    if demo_guard.is_demo(target):
+        # G141 capture-side track (R-CS15): the TARGET bank decides, not the
+        # active one — importing into your own memory while the demo is open
+        # still works (`?bank=`), and nothing real is imported into the demo.
+        # Checked before the scaffold, so a refusal creates nothing.
+        raise HTTPException(409, demo_guard.REFUSAL)
     if scaffold:
         bank_registry.scaffold_bank(target, git_init=False)
     return name, target, name == active

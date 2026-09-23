@@ -32,7 +32,7 @@ struct ConnectedChannelsStrip: View {
 
     /// The count is the point of a collapsible strip, so it survives collapsing.
     static func stripTitle(connected: Int) -> String {
-        connected == 0 ? "CONNECTED" : "CONNECTED (\(connected))"
+        connected == 0 ? "Connected" : "Connected (\(UsageFormat.count(connected)))"
     }
 
     /// PR #19 review: `store.channels` missing is not one state, it's two — a
@@ -66,10 +66,7 @@ struct ConnectedChannelsStrip: View {
                         .font(CicadaTheme.font(size: 9, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                    Text(Self.stripTitle(connected: connected.count))
-                        .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .tracking(1.2)
+                    SectionLabel(Self.stripTitle(connected: connected.count))
                     Spacer()
                 }
                 .contentShape(Rectangle())

@@ -29,6 +29,11 @@ struct FoundRow: View {
     /// Instead of a button: the one thing to do is in Settings (a plain closure
     /// cannot reliably open that window — see `SettingsSectionLink`).
     var settingsLink: SettingsSection? = nil
+    /// The Welcome's tick (W4, R-IB12): present, the tick IS the consent, so an
+    /// `.off` row shows no Turn on — nothing runs before Start. Only Allow…
+    /// (`.needsAction`) and Retry (`.failed`) keep a button. nil everywhere
+    /// else (the `+` strip, Getting started), which keep their buttons.
+    var tick: Binding<Bool>? = nil
 
     @State private var hovering = false
     @State private var expanded = false
@@ -46,6 +51,12 @@ struct FoundRow: View {
         "\(title). \(detail). \(stateText(state))"
     }
 
+    /// W4 — a ticked row reads its tick, not its machine state: before Start
+    /// nothing is on, so "On." means "Start will turn this on".
+    static func tickLabel(title: String, detail: String, ticked: Bool) -> String {
+        "\(title). \(detail). \(ticked ? Copy.foundOn : Copy.foundOff)."
+    }
+
     static func defaultActionTitle(_ state: FoundRowState) -> String? {
         switch state {
         case .off: Copy.foundTurnOn
@@ -58,6 +69,11 @@ struct FoundRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
             HStack(spacing: CicadaTheme.spacingSM) {
+                if let tick {
+                    Toggle(isOn: tick) { EmptyView() }
+                        .toggleStyle(FoundTickStyle())
+                        .labelsHidden()
+                }
                 markView.markHover(hovering: hovering)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.textPrimary)
@@ -97,7 +113,8 @@ struct FoundRow: View {
         .animation(CicadaMotion.settle(reduceMotion: reduceMotion), value: expanded)
         .onHover { hovering = $0 }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Self.accessibilityLabel(title: title, detail: detail, state: state))
+        .accessibilityLabel(tick.map { Self.tickLabel(title: title, detail: detail, ticked: $0.wrappedValue) }
+                            ?? Self.accessibilityLabel(title: title, detail: detail, state: state))
     }
 
     @ViewBuilder private var markView: some View {
@@ -120,6 +137,9 @@ struct FoundRow: View {
                 ProgressView().controlSize(.small)
                 Text(text).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
+        case .off where tick != nil:
+            // The tick is the consent (W4): no Turn on before Start.
+            EmptyView()
         case .off, .needsAction, .failed:
             if let settingsLink {
                 SettingsSectionLink(section: settingsLink, label: actionTitle ?? Copy.foundClaudeDesktopDetail)
@@ -127,5 +147,24 @@ struct FoundRow: View {
                 Button(title, action: action).buttonStyle(.bordered)
             }
         }
+    }
+}
+
+/// W4 — the tick: `checkmark.circle.fill` in the accent (a UI state, never a
+/// nature token — R-M2 keeps meadow for washes and the one pill), a bounce on
+/// change that Reduce Motion removes.
+struct FoundTickStyle: ToggleStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            Image(systemName: configuration.isOn ? "checkmark.circle.fill" : "circle")
+                .font(CicadaTheme.font(size: 16))
+                .foregroundStyle(configuration.isOn ? CicadaTheme.accent : CicadaTheme.textTertiary)
+                .symbolEffect(.bounce, value: configuration.isOn)
+                .symbolEffectsRemoved(reduceMotion)
+        }
+        .buttonStyle(.cicadaPlain)
+        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
     }
 }

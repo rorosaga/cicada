@@ -96,6 +96,17 @@ final class FontLiteralLintTests: XCTestCase {
         XCTAssertGreaterThan(seen, 0, "no roman displayFont call found — this lint would pass vacuously")
     }
 
+    /// DR-15 / DR-18 — SF only. New York was the last second face; `design: .serif` anywhere
+    /// would bring it back unannounced.
+    func testNoSerifFaceSurvives() throws {
+        for file in try sourceFiles() + [URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/CicadaApp/Theme/CicadaTheme.swift")] {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertFalse(text.contains("design: .serif"), file.lastPathComponent)
+        }
+    }
+
     /// F1 R-FX12: nothing is bundled any more. A font file under Resources/
     /// would be a second face arriving unregistered, unlicensed and unscaled.
     func testNoFontFileIsBundled() throws {

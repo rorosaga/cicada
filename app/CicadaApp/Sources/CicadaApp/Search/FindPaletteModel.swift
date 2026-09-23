@@ -26,6 +26,10 @@ final class FindPaletteModel {
     @ObservationIgnored private(set) var recents: [FindRowKey] = []
     @ObservationIgnored private var loadedBank: String?
     @ObservationIgnored private let store: Store
+    /// False for Home's field (R-IB4): recents are the palette's empty state,
+    /// Home's empty state is its cards, and two writers of `.quickRecents`
+    /// would clobber each other's list.
+    @ObservationIgnored private let keepsRecents: Bool
 
     /// The server tier (G136 S4): where the last pass stands, for the
     /// hairline and the footer's second clause (design §3.6).
@@ -41,11 +45,18 @@ final class FindPaletteModel {
     /// `api` and `sleeper` are injected so every test runs the passes against
     /// a fake with a clock that never waits — no test may reach
     /// `APIClient.shared`, which on a dev machine is the owner's live backend.
-    init(store: Store, api: any FindSearchAPI = APIClient.shared, sleeper: @escaping FindSleeper = FindSleepers.real) {
+    ///
+    /// Track I part b (R-IB4) — Home hosts a second instance so a ⌘K on another
+    /// page (`present` resets the query) never wipes what was left typed on
+    /// Home. It passes the palette's `ask`, so the app keeps one Ask history and
+    /// one `.askHistory` writer (R-SU7); `nil` builds the app's one Ask.
+    init(store: Store, ask: AskViewModel? = nil, keepsRecents: Bool = true,
+         api: any FindSearchAPI = APIClient.shared, sleeper: @escaping FindSleeper = FindSleepers.real) {
         self.store = store
         self.api = api
         self.sleeper = sleeper
-        self.ask = AskViewModel(store: store)
+        self.ask = ask ?? AskViewModel(store: store)
+        self.keepsRecents = keepsRecents
     }
 
     var sections: [FindSection] { results.sections(expanded: expanded) }
@@ -276,6 +287,7 @@ final class FindPaletteModel {
     }
 
     private func remember(_ key: FindRowKey) {
+        guard keepsRecents else { return }
         let next = FindRecents.push(key, into: recents)
         guard next != recents else { return }
         recents = next

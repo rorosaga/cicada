@@ -125,6 +125,19 @@ final class FindPaletteTests: XCTestCase {
         XCTAssertNotEqual(PaletteRequest(), PaletteRequest(), "two ⌘K presses are two changes")
     }
 
+    /// Track I part b (R-IB5) — on Home, ⌘K focuses Home's own field; the overlay never opens over it.
+    func testCommandKOnHomeFocusesItsFieldInsteadOfTheOverlay() {
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(), isOpen: false, firstRunShowing: false, homeVisible: true),
+                       .focusHome(prefill: "", mode: .find))
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(prefill: "alpha", mode: .ask), isOpen: false,
+                                             firstRunShowing: false, homeVisible: true),
+                       .focusHome(prefill: "alpha", mode: .ask))
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(), isOpen: true, firstRunShowing: false, homeVisible: true),
+                       .close, "an overlay opened elsewhere, then ⌘1, still closes on ⌘K")
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(), isOpen: false, firstRunShowing: true, homeVisible: true),
+                       .ignore)
+    }
+
     func testAConversationFindsItsSourceCard() {
         let rows = [SourceOverview(id: "harness:claude-code", label: "Claude Code", kind: .harness, harness: "claude-code"),
                     SourceOverview(id: "chat-export:chatgpt", label: "ChatGPT export", kind: .harness,
@@ -132,5 +145,13 @@ final class FindPaletteTests: XCTestCase {
         XCTAssertEqual(ConversationSource.sourceId(harness: "claude-code", origin: nil, rows: rows), "harness:claude-code")
         XCTAssertEqual(ConversationSource.sourceId(harness: nil, origin: "chatgpt-export", rows: rows), "chat-export:chatgpt")
         XCTAssertNil(ConversationSource.sourceId(harness: "cursor", origin: nil, rows: rows), "never a guessed neighbour")
+    }
+
+    /// R-DS21 — the Settings panel is modal: ⌘K waits until it closes.
+    func testCommandKIsIgnoredWhileTheSettingsPanelIsOpen() {
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(), isOpen: false, firstRunShowing: false,
+                                             settingsOpen: true), .ignore)
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(prefill: "alpha"), isOpen: false, firstRunShowing: false,
+                                             homeVisible: true, settingsOpen: true), .ignore)
     }
 }
