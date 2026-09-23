@@ -1564,6 +1564,46 @@ class IntakeJobStatus(CamelModel):
     error: Optional[str] = None
 
 
+# --- Agent wiring (Track I T3, read-only) ---
+
+
+class AgentWiringStep(CamelModel):
+    """One command the APP may run after the person's click (spec decision 14).
+    ``display == shlex.join(argv)`` so the disclosure can never show one thing
+    and run another; ``touches`` are ``~/``-relative (R-IA15)."""
+
+    step: Literal["mcp", "hook"]
+    display: str
+    argv: list[str]
+    touches: list[str] = []
+
+
+class AgentWiringRow(CamelModel):
+    """One harness. ``recall: unknown`` is a probe that timed out or could not
+    run — never ``off``, or the app would offer an ``mcp add`` that fails on a
+    registered server. ``autosave: invalid`` is a settings file that does not
+    parse (F8: ``registry.status`` alone would have said ``absent``)."""
+
+    id: str
+    installed: bool = False
+    binary: Optional[str] = None
+    recall: Literal["on", "off", "unknown"] = "off"
+    autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    connect: list[AgentWiringStep] = []
+    detail: Optional[str] = None
+
+
+class AgentWiringResponse(CamelModel):
+    """``GET /agents/wiring``. ``python``/``repo``/``memory`` ride along so the
+    app can pin its allowlist to the same checkout (R-IA28) and build Cursor's
+    deep link against the live memory root."""
+
+    agents: list[AgentWiringRow] = []
+    python: str = ""
+    repo: str = ""
+    memory: str = ""
+
+
 # --- Sources (media ingestion) ---
 
 

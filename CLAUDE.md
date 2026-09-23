@@ -470,6 +470,14 @@ Integrations; a *one-shot* import (drop an export, sync a folder once) stays whe
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces.
 
+**Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
+*recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
+each, a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
+unparseable settings file is `invalid`, never `off`), plus the exact argv install.sh would run. The
+**app** runs them, only after the person's click (spec decision 14, D-1), with
+`CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
+harness root.
+
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
 bands (mark · brand name · one status verb · 14-day capture sparkline + lifetime total · four
