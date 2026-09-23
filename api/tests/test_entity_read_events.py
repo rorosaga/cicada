@@ -108,11 +108,11 @@ def test_mcp_recall_records_the_suggested_ids_with_the_recall_surface(home, tmp_
     # retrieval source but the keyword scan is stubbed, so the one suggested
     # id can only have come from the page written above.
     monkeypatch.setattr(mcp, "get_memory_path", lambda: memory)
-    monkeypatch.setattr(mcp, "_relevant_inbox", lambda memory_path, query: [])
-    monkeypatch.setattr(mcp, "_match_hub", lambda memory_path, query: (None, []))
-    monkeypatch.setattr(mcp, "_leann_search_entities", lambda memory_path, query, top_k: [])
-    monkeypatch.setattr(mcp, "_leann_search_episodes", lambda memory_path, query, top_k: [])
-    # `_keyword_search_entities` (mcp/server.py:1439) is a whole-query
+    monkeypatch.setattr(mcp.mcp_tools, "_relevant_inbox", lambda memory_path, query: [])
+    monkeypatch.setattr(mcp.mcp_tools, "_match_hub", lambda memory_path, query: (None, []))
+    monkeypatch.setattr(mcp.mcp_tools, "_leann_search_entities", lambda memory_path, query, top_k: [])
+    monkeypatch.setattr(mcp.mcp_tools, "_leann_search_episodes", lambda memory_path, query, top_k: [])
+    # `_keyword_search_entities` (api/services/mcp_tools.py) is a whole-query
     # substring match on the name/tags/body, so the query must be a phrase the
     # page contains.
     mcp.handle_recall("alpha project")

@@ -17,16 +17,16 @@ def test_total_miss_falls_through_to_episode_excerpts(monkeypatch, tmp_path):
     (tmp_path / "entities").mkdir()
 
     monkeypatch.setattr(mcp, "get_memory_path", lambda: tmp_path)
-    monkeypatch.setattr(mcp, "_relevant_inbox", lambda memory_path, query: [])
-    monkeypatch.setattr(mcp, "_match_hub", lambda memory_path, query: (None, []))
+    monkeypatch.setattr(mcp.mcp_tools, "_relevant_inbox", lambda memory_path, query: [])
+    monkeypatch.setattr(mcp.mcp_tools, "_match_hub", lambda memory_path, query: (None, []))
     monkeypatch.setattr(
-        mcp, "_leann_search_entities", lambda memory_path, query, top_k: []
+        mcp.mcp_tools, "_leann_search_entities", lambda memory_path, query, top_k: []
     )
     monkeypatch.setattr(
-        mcp, "_keyword_search_entities", lambda entities_dir, query, top_k: []
+        mcp.mcp_tools, "_keyword_search_entities", lambda entities_dir, query, top_k: []
     )
     monkeypatch.setattr(
-        mcp,
+        mcp.mcp_tools,
         "_leann_search_episodes",
         lambda memory_path, query, top_k: [
             {
