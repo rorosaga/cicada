@@ -36,13 +36,20 @@ final class SettingsPanelTests: XCTestCase {
     }
 
     /// R-DS21 — Esc closes through the visible close control's `.cancelAction`, and the panel's
-    /// own search field hands Esc to the same close instead of clearing itself first.
+    /// own search field hands Esc to the same close instead of clearing itself first. Both go
+    /// through `SettingsFocus.escape`, so an open sub-page goes back first (R-O5).
     func testEscClosesThroughAVisibleControl() throws {
         let text = try source("Views/Settings/SettingsPanel.swift")
         XCTAssertTrue(text.contains("shortcut: .cancelAction"))
         XCTAssertTrue(text.contains("router.closeSettings()"))
-        XCTAssertTrue(text.contains("onEscape: { router.closeSettings() }"),
+        XCTAssertTrue(text.contains("onEscape: { focus.escape { router.closeSettings() } }"),
                       "the focused search field would otherwise answer Esc itself (clear, then blur)")
+        XCTAssertTrue(text.contains("shortcut: .cancelAction) { focus.escape { router.closeSettings() } }"),
+                      "R-O5 — the ×'s key equivalent backs out of a sub-page before it closes")
+        let detail = try source("Views/Settings/SkillDetailView.swift")
+        XCTAssertFalse(detail.contains(".onExitCommand"),
+                       "the ×'s .cancelAction pre-empts it; Esc goes back through SettingsFocus.escapeBack")
+        XCTAssertTrue(try source("Views/Settings/SkillsView.swift").contains("focus?.escapeBack ="))
     }
 
     /// G139 survives the move: the search field, the groups, the index, the results, the hover.

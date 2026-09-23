@@ -785,11 +785,13 @@ Settings panel; each page paragraph below describes what ships until that page's
 · `bgFocus` · `bgOption` · `bgButton` · `bgSelected` · `bgMenu` · `bgKey` · `bgBadge` (DESIGN_RULES §3.1, chroma ≤ 4,
 `ThemeTokenTests`) — with the pre-D names as aliases (`background`, `surface`, `surfaceHover`, `surfaceElevated`) and
 `border`/`borderLight` the opaque twins of the resting ring and the input border (graph.js's edges). Text is four steps
-plus `textTertiaryOnFill` (`ThemeContrastTests` holds every surface). The accent is the Mac's (`Color.accentColor`,
-six uses only); `accentText` derives from it — exactly the rules' values for the default blue, pushed to ≥ 4.5:1 for
+plus `textTertiaryOnFill` (`ThemeContrastTests` holds every surface). The accent is the Mac's (`Color.accentColor`);
+DR-5 allows it six uses, and the pre-D call sites that still read `CicadaTheme.accent` (now the Mac's accent, so a
+state dot among them changes hue on a red or orange Mac) are swept by each page's DS track. `accentText` derives from it — exactly the rules' values for the default blue, pushed to ≥ 4.5:1 for
 any other (`AccentInk`). The retired indigo survives only as a data hue (the "active" status, the heat ramp). Depth is
 an inset ring, never a shadow in dark and one soft shadow on a light floating surface (`ringed`, `floatingSurface`,
-`Theme/Elevation.swift`; `ElevationLintTests`); `GlassCard` is a `bgFocus` card with a ring. The nature tokens (`sky`,
+`Theme/Elevation.swift`; `ElevationLintTests`) — the target; the three sites that lint still allowlists
+(`MediaPreview`, `HeroPreview`, `WelcomeView`) shadow until their tracks; `GlassCard` is a `bgFocus` card with a ring. The nature tokens (`sky`,
 `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, the procedural skies) are for art and reward moments
 only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
 **Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
@@ -800,8 +802,8 @@ directly on paint — enforced by an allowlist lint; the Welcome's hero band (`W
 (`HomeSkyBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
-only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span
-the Reader and the Inbox adopt. **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
+only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
+defined for DS-2's Reader and Inbox to adopt (no view uses it yet). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates.
 

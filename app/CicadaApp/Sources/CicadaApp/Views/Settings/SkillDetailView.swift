@@ -3,7 +3,8 @@ import SwiftUI
 /// One recommended skill (the sub-page, R-O5): why, where it comes from, what
 /// it needs in plain words, the terms note, Cicada's own note, and per agent
 /// either "Install in …" (the consent sheet) or — for a hosted connector —
-/// the command to paste into the agent. ⌘[ and Esc go back.
+/// the command to paste into the agent. ⌘[ and Esc go back (Esc through
+/// `SettingsFocus.escapeBack`, which `SkillsView` sets while this is open).
 struct SkillDetailView: View {
     let skill: RecommendedSkill
     let back: () -> Void
@@ -32,7 +33,6 @@ struct SkillDetailView: View {
                 .frame(maxWidth: CicadaTheme.scaled(760), alignment: .leading)
             }
         }
-        .onExitCommand(perform: back)
         .sheet(item: Binding(get: { consentAgent.map(AgentChoice.init) }, set: { consentAgent = $0?.id })) { choice in
             // Handed on explicitly: the sheet reloads the catalog after an
             // install, and a missing `@Observable` in the environment is a

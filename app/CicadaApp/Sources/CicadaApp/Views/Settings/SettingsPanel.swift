@@ -114,9 +114,10 @@ struct SettingsPanel: View {
         let hits = self.hits
         let counts = SettingsIndex.counts(hits)
         return VStack(alignment: .leading, spacing: 0) {
-            // R-DS21 — Esc in this field closes the panel, the same close the × carries.
+            // R-DS21 — Esc in this field does what the ×'s key equivalent does:
+            // back out of an open sub-page first, else close the panel (R-O5).
             CicadaSearchField(text: $query, prompt: Copy.searchSettings, onSubmit: openTopHit,
-                              onEscape: { router.closeSettings() })
+                              onEscape: { focus.escape { router.closeSettings() } })
                 .padding(.horizontal, CicadaTheme.spacingMD)
                 .padding(.top, CicadaTheme.scaled(14))
                 .padding(.bottom, CicadaTheme.spacingSM)
@@ -168,7 +169,7 @@ struct SettingsPanel: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 KeyHint("esc").help(Copy.pressEscToClose)
                 IconButton(systemName: "xmark", help: Copy.closeSettingsHelp, accessibilityLabel: Copy.closeSettings,
-                           shortcut: .cancelAction) { router.closeSettings() }
+                           shortcut: .cancelAction) { focus.escape { router.closeSettings() } }
             }
             .padding(.top, CicadaTheme.scaled(18))
             .padding(.trailing, CicadaTheme.spacingLG)

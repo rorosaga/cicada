@@ -26,6 +26,19 @@ final class SettingsFocus {
     private(set) var landedNonce = 0
     /// Rows matching an active query carry a steady 3 pt leading bar (§2.4).
     var matchedRows: Set<SettingsRowID> = []
+    /// A sub-page's "go back", taken by Esc before the panel's close (R-O5:
+    /// "⌘[ and Esc go back"; DS-1 final review). The panel's × carries a
+    /// window-wide `.cancelAction`, and AppKit resolves that key equivalent
+    /// before a view's `.onExitCommand` ever sees `cancelOperation:` — so a
+    /// sub-page's own exit command would never fire and Esc would close the
+    /// whole panel, losing the open detail. One owner of Esc, one check here.
+    var escapeBack: (() -> Void)?
+
+    /// What Esc (or the ×'s key equivalent) does right now: back out of an
+    /// open sub-page first, and only close the panel from a top-level page.
+    func escape(close: () -> Void) {
+        if let back = escapeBack { back() } else { close() }
+    }
 
     private var requests = 0
     private var fade: Task<Void, Never>?
