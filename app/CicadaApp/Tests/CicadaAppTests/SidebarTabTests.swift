@@ -1,18 +1,20 @@
 import XCTest
 @testable import CicadaApp
 
-/// G68 §1 — six rows, stable identities, and a decoder that survives a
+/// G68 §1 — seven rows (G108 added Home at ⌘1), stable identities, and a decoder that survives a
 /// selection written by an older build.
 @MainActor
 final class SidebarTabTests: XCTestCase {
 
-    func testTheSidebarIsSixRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.graph, .clusters, .feed, .sleep, .inbox, .sources])
+    /// G108 ruled (spec decision 12): Home is the front door at ⌘1, Graph follows at ⌘2.
+    func testTheSidebarIsSevenRowsInVisualOrder() {
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources])
     }
 
     /// Raw values ARE the persisted identity. A surviving tab must never
     /// change its own.
     func testSurvivingRawValuesAreUnchanged() {
+        XCTAssertEqual(AppTab.home.rawValue, "Home")
         XCTAssertEqual(AppTab.graph.rawValue, "Graph")
         XCTAssertEqual(AppTab.clusters.rawValue, "Clusters")
         XCTAssertEqual(AppTab.feed.rawValue, "Feed")
@@ -34,10 +36,15 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.restored(from: "Connect"), .graph)
     }
 
-    func testUnknownOrMissingSelectionsFallBackToGraph() {
-        XCTAssertEqual(AppTab.restored(from: nil), .graph)
-        XCTAssertEqual(AppTab.restored(from: ""), .graph)
-        XCTAssertEqual(AppTab.restored(from: "Nudges"), .graph)
+    func testUnknownOrMissingSelectionsFallBackToHome() {
+        XCTAssertEqual(AppTab.restored(from: nil), .home, "a fresh install opens on the front door")
+        XCTAssertEqual(AppTab.restored(from: ""), .home)
+        XCTAssertEqual(AppTab.restored(from: "Nudges"), .home)
+    }
+
+    /// Relaunch restores the last tab, so nobody who lives in the graph is moved (D-3b: no).
+    func testAStoredGraphSelectionStaysOnGraph() {
+        XCTAssertEqual(AppTab.restored(from: "Graph"), .graph)
     }
 
     func testRoundTrippingASurvivingTabIsIdentity() {
@@ -46,9 +53,11 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// ⌘1–6 follow the visual order, and every row has an icon.
+    /// ⌘1–7 follow the visual order, and every row has an icon.
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 6)
+        XCTAssertEqual(AppTab.allCases.count, 7)
+        XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
+        XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
         for (index, tab) in AppTab.allCases.enumerated() {
             XCTAssertLessThan(index, 9, "\(tab.rawValue) has no ⌘ slot")
             XCTAssertFalse(tab.icon.isEmpty, tab.rawValue)

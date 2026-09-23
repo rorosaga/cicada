@@ -48,6 +48,10 @@ struct CicadaApp: App {
     /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
     /// recents and instant index survive the palette closing.
     @State private var findModel: FindPaletteModel
+    /// Track I part b (R-IB4) — Home's field: a second palette model sharing
+    /// the palette's one Ask, keeping no recents, so a ⌘K elsewhere never wipes
+    /// what was left typed on Home.
+    @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
@@ -61,6 +65,16 @@ struct CicadaApp: App {
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
     @State private var intakeRouter = IntakeRouter()
+    /// Track I part b (R-IB14) — what Start does, app-lifetime so a Welcome that
+    /// has faded out keeps reporting its rows to Home's Getting started card.
+    @State private var setupRunner = SetupRunner()
+    /// One inventory for the Welcome and Getting started, so a row's state is
+    /// the same probe on both (the `+` strip keeps its own per appearance).
+    @State private var inventory: LocalInventory
+    /// Track I part b (R-IB22) — export reminders: a per-viewer convenience in
+    /// defaults, told by the Feed, the menu bar and Getting started whether or
+    /// not notifications were allowed.
+    @State private var exportWaits = ExportWaitStore()
     /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
     /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
     /// `.onAppear` attaches the router.
@@ -107,6 +121,7 @@ struct CicadaApp: App {
         let lights = BrowserWatcher()
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
+        _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
         _sleepVM = State(initialValue: SleepViewModel(store: store))
@@ -115,7 +130,10 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
-        _findModel = State(initialValue: FindPaletteModel(store: store))
+        let find = FindPaletteModel(store: store)
+        _findModel = State(initialValue: find)
+        _homeSearch = State(initialValue: HomeSearch(model: FindPaletteModel(store: store, ask: find.ask,
+                                                                              keepsRecents: false)))
     }
 
     var body: some Scene {
@@ -135,9 +153,13 @@ struct CicadaApp: App {
                 .environment(usageVM)
                 .environment(store)
                 .environment(findModel)
+                .environment(homeSearch)
                 .environment(browserWatcher)
                 .environment(localSources)
                 .environment(intakeRouter)
+                .environment(setupRunner)
+                .environment(inventory)
+                .environment(exportWaits)
                 // R-IA24 — a Dock open reuses this window instead of opening a
                 // second one (the router, and its overlay, live in this one).
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
@@ -193,6 +215,18 @@ struct CicadaApp: App {
                         intakeRouter.accept(urls: urls, from: .dock)
                     }
                     localSources.start(store: store)
+                    // R-IB22 — the export someone was waiting for arrived (a sniff
+                    // recognised its vendor): its wait, in the active memory, is done.
+                    intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
+                        exportWaits.clear(vendor: vendor, bank: store.bank)
+                    }
+                    // A tapped reminder opens the one intake idle for that vendor —
+                    // never a cycle (G125 R10). Queued until now on a cold launch.
+                    appDelegate.reminderTaps.attach { [intakeRouter] vendor in
+                        NSApplication.shared.activate(ignoringOtherApps: true)
+                        NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                        intakeRouter.present(from: .reminder(vendor))
+                    }
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -215,6 +249,10 @@ struct CicadaApp: App {
                         syncWindowChrome(window, mode: appColorScheme)
                         enableFirstMouseAcceptance(for: window)
                         window.makeKeyAndOrderFront(nil)
+                    }
+                    // Read as the menu opens, so "requested 2 hours ago" is true then.
+                    menuBarManager.exportWaitLines = { [exportWaits, store] in
+                        exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
                     menuBarManager.setup(
                         onOpenApp: {
@@ -310,6 +348,9 @@ struct CicadaApp: App {
                 // through the watcher (consent), so it reads it from here;
                 // without this the Settings window would trap on that page.
                 .environment(browserWatcher)
+                // Track I part b — *Show setup checklist* (Settings → General)
+                // bumps the runner's revision so Home re-renders the card.
+                .environment(setupRunner)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 // The `.id(colorSchemeRaw)` that used to be here is gone with
                 // its twin in `ContentView`: `CicadaTheme.mode` is observable

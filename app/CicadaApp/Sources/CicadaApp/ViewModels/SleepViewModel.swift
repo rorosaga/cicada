@@ -19,6 +19,11 @@ final class SleepViewModel {
     var status: SleepStatusResponse?
     var episodes: [EpisodeQueueItem] = []
     var schedule: ScheduleConfig = ScheduleConfig(mode: "manual", hour: 3, minute: 0)
+    /// R-IB20 — `schedule` starts as a placeholder `manual`; this turns true
+    /// only once the real one arrived (`load()`) or was written
+    /// (`updateSchedule`). Getting started's schedule question waits for it:
+    /// asked on the placeholder, an answer would overwrite a real `interval`.
+    private(set) var scheduleLoaded = false
     var errorMessage: String?
 
     /// G125 R4 — the consolidation history the Sleep page's history card
@@ -250,7 +255,7 @@ final class SleepViewModel {
         }
         do {
             let sc = try await scheduleTask
-            if token == loadToken { schedule = sc }
+            if token == loadToken { schedule = sc; scheduleLoaded = true }
         } catch {
             if token == loadToken { errorMessage = "Schedule: \(error.localizedDescription)" }
         }
@@ -350,6 +355,7 @@ final class SleepViewModel {
     func updateSchedule(_ new: ScheduleConfig) async -> Bool {
         do {
             schedule = try await putSchedule(new)
+            scheduleLoaded = true
             return true
         } catch {
             errorMessage = error.localizedDescription

@@ -17,6 +17,7 @@ struct SettingsGeneralView: View {
     // `AppRouter` use — see that type's own doc comment).
     @Environment(AppRouter.self) private var router
     @Environment(Store.self) private var store
+    @Environment(SetupRunner.self) private var runner
 
     private var appearance: Binding<AppearancePreference> {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
@@ -57,9 +58,25 @@ struct SettingsGeneralView: View {
                 }
                 SettingsDivider()
                 SettingsRow(.runSetup, title: Copy.setup, detail: Copy.runSetupDetail) {
-                    Button(Copy.runSetupAgain) {
-                        OnboardingState.reset(bank: store.bank)
-                        router.requestFirstRun()
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Button(Copy.runSetupAgain) {
+                            OnboardingState.reset(bank: store.bank)
+                            router.requestFirstRun()
+                        }
+                        // R-IB17 — the checklist is re-openable: records an
+                        // (empty) Getting started card for the active bank and
+                        // lands on Home, where it lists what was found. Beside
+                        // Run setup again, in the same row, so G139's search
+                        // index lands on both.
+                        Button(Copy.gsShowChecklist) {
+                            GettingStartedState.record(bank: store.bank, enabled: [])
+                            // A card already seen done this session would
+                            // otherwise reopen as "You're set up." (finding 4).
+                            runner.sawDoneThisSession = false
+                            runner.checklistChanged()
+                            router.pendingTab = .home
+                            router.activateMainWindow()
+                        }
                     }
                 }
             }
