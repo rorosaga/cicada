@@ -204,6 +204,21 @@ here.
 7. **G93 — cross-stream ask.** A question that spans conversations, links, calendar and notes, with
    span citations rather than page citations. Partly a DECIDE row: what "smart" adds over today's
    `/ask` is still open.
+8. **G141 — project timelines** (owner 2026-09-23: track projects with clusters of knowledge and dated
+   ongoing things, "see graphically me today and progress throughout the timeline"). Spec
+   `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`. *Why this order inside it:*
+   derive, write, spend. PJ-1's read model is truthful on every existing bank at $0, because the dated data
+   (G17 `due`, G140 `expected_end`, supersede chains, G118 spans) already exists and is simply never drawn
+   together. PJ-3's writers cost nothing either: an agent in the conversation records the owner's own
+   sentence as a dated happening the same day. On a live bank that has never consolidated, that is the
+   fastest route to what he described. Sleep extraction (PJ-7, 💸) is built only after the owner grades
+   derived moments (M1–M3 in the spec). PJ-0 goes first because the timeline is only as rich as the claims
+   Sleep keeps, and today Sleep silently drops every claim on a page-less subject. PJ-4 goes before PJ-7
+   because without Stop-hook turn stamps every Claude Code happening is dated "around" the session's first
+   day. *Why not sooner:* the app half (PJ-5) wants the DS shell, and the rail cell wants a G108 ruling.
+   *Two tracks:* backend (PJ-0 ∥ PJ-1 ∥ PJ-4 now; then PJ-2 ∥ PJ-3 once PJ-1 lands; then PJ-6 after PJ-3),
+   then app (PJ-5 after DS). Every slice runs the §1 bar; PJ-3's merge bar also includes the grep-gate test (every module that
+   iterates closed claims calls `is_record` or `is_event`).
 
 **Filed 2026-09-03, unqueued:** **G128** — visits and places as a capture channel, grounded in MemPal
 (arXiv:2502.01801), whose transferable result is that *a text diary beat a spatial index*. First step is
@@ -222,6 +237,13 @@ three shapes judged: lead with *distributed Awake, one Sleep* — the satellite 
 locally and POSTs scrubbed turns to the primary over an overlay network, with a spool, ids still minted
 on the MacBook — then a read-only git mirror for recall. Two owner decisions gate it (thin satellite vs
 full second node; shared bearer vs per-device tokens), so it is DECIDE before APPLY.
+
+**Filed 2026-09-23, queued (item 8):** **G141** — project timelines. Happenings and milestones are claims:
+`happened` / `milestone`, with `status`, `target`, `participants` and `date_basis`. A done happening is born
+closed, so no current-belief reader changes. A quiet ongoing thread asks (`followup`) instead of decaying. The
+Projects page is list → project → Reader, with a 96 pt band whose Today marker is `textPrimary`, never the
+accent; its dots stay neutral unless the owner picks data hues. Three DECIDEs are recorded on the row: the
+rail cell (G108), the band's colour, and holding page-less claims in the pending store.
 
 Then the standing bigger rocks, unchanged: **G81 → G95** (contacts, then meetings and human-to-human
 conversations — the largest gap between the vision and the code), **G112 steps 2–4** (portable

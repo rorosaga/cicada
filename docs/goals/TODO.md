@@ -267,6 +267,14 @@ any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 fr
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
 
+**Filed 2026-09-23 — G141 project timelines.** The spec is committed
+(`docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`). Three backend tracks can start
+now with no app dependency: **PJ-0** (the page-less claim loss: `claim_pipeline.py:139-146`'s false comment,
+subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, with the demo scenario and a
+`today=` seam on `demo_bank.populate`) and **PJ-4** (the Stop hook writes the `turns` list). The Projects page
+(PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
+generated demo bank only.
+
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
 
@@ -547,6 +555,18 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 13a. **G112 steps 2–4** — portable skills: a deterministic `skill_compiler` turns a grounded
     `skill` entity into a SKILL.md bundle with `## Evidence` (episode ids, agreement rates from
     G113), exported so someone else can load it on their own plan. WikiSkill's third layer — M
+13b. **G141** project timelines (owner 2026-09-23) — dated happenings with every participant linked, a
+    "you are here" band, and the knowledge around a project, planned or not. Happenings and milestones are
+    claims (a done one born closed, `is_event` for history readers), dates decided in Python, nothing relative
+    stored. Order: derive → write → spend. Spec
+    `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md` (R-PJ1…R-PJ23). Slices:
+    **PJ-0** page-less claim fix · **PJ-1** read model + `GET /projects[/{id}/timeline]` · **PJ-4** Stop-hook
+    turn stamps — all three backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
+    handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
+    page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
+    Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
+    per-project re-read 💸 — L. Open DECIDEs (rail cell, band colour, pending-store hold) are under Research /
+    decisions below
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S
@@ -609,6 +629,12 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
 - **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
   gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
+- **G141 DECIDEs** — (a) a Projects rail cell (spends a rail slot and a ⌘ number; default the seventh cell,
+  ⌘7, after Sources, so no shortcut moves; this is G108's call; the fallback is "Open project ›" on the
+  card, plus a Home "In motion" section once Home exists); (b) the timeline band's colour: neutral shapes,
+  or DESIGN_RULES §10's "dots use data hues" (R-PJ21; shown to the owner on the demo bank in PJ-5, his answer
+  recorded as a §9 line); (c) whether Sleep holds an unpromoted subject's claims with the pending entity and
+  writes them on promotion (changes the pending store; split out of PJ-0 on purpose). $0.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
