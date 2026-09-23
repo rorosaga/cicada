@@ -27,6 +27,21 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.plansAndKeys.title, Copy.plansAndKeys)
     }
 
+    /// R7 / K1 — a persisted selection must survive Settings v3.
+    func testExistingRawValuesAreStable() {
+        XCTAssertEqual(SettingsSection.general.rawValue, "general")
+        XCTAssertEqual(SettingsSection.sleep.rawValue, "sleep")
+        XCTAssertEqual(SettingsSection.integrations.rawValue, "integrations")
+        XCTAssertEqual(SettingsSection.agents.rawValue, "agents")
+        XCTAssertEqual(SettingsSection.plansAndKeys.rawValue, "plansAndKeys")
+    }
+
+    func testEverySubtitleComesFromCopyAndPlansAndKeysNoLongerImpliesAPrice() {
+        XCTAssertEqual(SettingsSection.general.subtitle, Copy.generalSubtitle)
+        XCTAssertEqual(SettingsSection.plansAndKeys.subtitle, Copy.plansAndKeysSubtitle)
+        XCTAssertEqual(SettingsSection.plansAndKeys.icon, "key.horizontal", "K4 — creditcard implies a price")
+    }
+
     /// A source-text check rather than a runtime one: `NavigationSplitView`
     /// has no reliable ViewInspector-free runtime signature, so this greps
     /// the file directly the way `FontLiteralLintTests` already does for its

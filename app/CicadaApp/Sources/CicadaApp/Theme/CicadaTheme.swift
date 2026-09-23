@@ -38,6 +38,10 @@ final class ThemeStore {
 
     var mode: AppColorScheme
 
+    /// G139 (R-O4) — the system appearance, observable like `mode`, so a
+    /// `system` preference repaints both scenes when macOS flips.
+    var systemIsDark: Bool
+
     /// The key `uiScale` persists under (G130).
     static let scaleKey = "cicada.uiScale"
     /// R1: one scale, clamped to a floor/ceiling a scaled layout can't clip
@@ -49,9 +53,10 @@ final class ThemeStore {
 
     var uiScale: Double
 
-    init(defaults: UserDefaults = .standard) {
-        let raw = defaults.string(forKey: Self.defaultsKey)
-        mode = raw.flatMap(AppColorScheme.init(rawValue:)) ?? .dark
+    init(defaults: UserDefaults = .standard, systemIsDark: Bool? = nil) {
+        let dark = systemIsDark ?? AppearancePreference.systemIsDark(defaults)
+        self.systemIsDark = dark
+        mode = AppearancePreference.stored(defaults.string(forKey: Self.defaultsKey)).resolved(systemIsDark: dark)
 
         // `defaults.double(forKey:)` returns exactly 0 both when the key is
         // absent (fresh install) and when it holds a non-numeric value (a
@@ -300,6 +305,9 @@ enum CicadaTheme {
     static var bodyFont: Font { font(size: 13) }
     static var captionFont: Font { font(size: 11) }
     static var monoFont: Font { font(size: 12, design: .monospaced) }
+    /// The small uppercase group label (design §1.3; it was retyped by hand in
+    /// ~12 files as 10 pt monospaced semibold with 1.2 tracking).
+    static var labelFont: Font { font(size: 10, weight: .semibold, design: .monospaced) }
 
     // MARK: - Display + quote faces (G137, spec R-M3; plan R-M15)
     /// Instrument Serif is a display cut: its hairlines break up under ~22 pt.

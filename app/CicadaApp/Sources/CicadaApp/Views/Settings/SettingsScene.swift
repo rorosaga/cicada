@@ -15,21 +15,39 @@ import SwiftUI
 /// once on appear so a retired/bogus persisted value falls back to
 /// `.general` (the same tolerant-restore shape `AppTab.restored(from:)`
 /// already uses for the main sidebar) instead of `List` selecting nothing.
+///
+/// G139 — grouped sidebar over `SettingsGroup`, glyphs that acknowledge
+/// hover, and one `SettingsFocus` handed to every page: a pointer, a search
+/// hit or a deep link asks the focus, and this scene applies the section and
+/// lands the row.
 struct SettingsScene: View {
     @AppStorage("cicada.settingsSection") private var sectionRaw = SettingsSection.general.rawValue
     @State private var selection: SettingsSection = .general
 
+    @State private var focus = SettingsFocus()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         NavigationSplitView {
-            List(SettingsSection.allCases, selection: $selection) { section in
-                Label(section.title, systemImage: section.icon).tag(section)
+            List(selection: $selection) {
+                ForEach(SettingsGroup.allCases) { group in
+                    Section(group.title) {
+                        ForEach(group.sections) { section in
+                            SettingsSidebarLabel(section: section, isSelected: selection == section)
+                                .tag(section)
+                        }
+                    }
+                }
             }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+            .navigationSplitViewColumnWidth(min: CicadaTheme.scaled(180),
+                                            ideal: CicadaTheme.scaled(210),
+                                            max: CicadaTheme.scaled(240))
         } detail: {
             detailView
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(CicadaTheme.background)
         }
+        .environment(focus)
         .frame(minWidth: Self.windowWidth, minHeight: Self.windowHeight)
         .onAppear { selection = SettingsSection.restored(from: sectionRaw) }
         .onChange(of: selection) { _, newValue in sectionRaw = newValue.rawValue }
@@ -39,6 +57,16 @@ struct SettingsScene: View {
         // stored value back onto `selection` makes the pair symmetric: the
         // `onChange(of: selection)` above writes, this one reads.
         .onChange(of: sectionRaw) { _, raw in selection = SettingsSection.restored(from: raw) }
+        // G139 — every in-window landing (pointer, search hit, deep link)
+        // arrives here as a nonce'd request, so the same section twice still
+        // re-lands.
+        .onChange(of: focus.request) { _, request in
+            guard let request else { return }
+            selection = request.section
+            if let row = request.row {
+                focus.land(on: row, announcing: request.section.title, reduceMotion: reduceMotion)
+            }
+        }
     }
 
     /// G130 — every font and spacing token inside this window scales with
@@ -56,5 +84,22 @@ struct SettingsScene: View {
         case .agents: ConnectView()
         case .plansAndKeys: ConnectionsView()
         }
+    }
+}
+
+/// A sidebar row: the section's glyph acknowledges the pointer once (M1's
+/// `iconHover`, design §2.5) and bounces when the row becomes selected.
+private struct SettingsSidebarLabel: View {
+    let section: SettingsSection
+    let isSelected: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        Label {
+            Text(section.title)
+        } icon: {
+            Image(systemName: section.icon).iconHover(hovering: hovering, selected: isSelected)
+        }
+        .onHover { hovering = $0 }
     }
 }

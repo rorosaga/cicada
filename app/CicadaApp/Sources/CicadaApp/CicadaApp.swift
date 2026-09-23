@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// A transparent AppKit passthrough container that accepts the first mouse
 /// click even when its window isn't key yet. `ClickableWebView`
@@ -57,7 +58,11 @@ struct CicadaApp: App {
     // doesn't pick up from SwiftUI state automatically — see
     // `syncWindowChrome` below.
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
-    private var appColorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
+    /// R-O4 — the preference resolved against the system appearance
+    /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
+    private var appColorScheme: AppColorScheme {
+        AppearancePreference.stored(colorSchemeRaw).resolved(systemIsDark: ThemeStore.shared.systemIsDark)
+    }
 
     init() {
         // Swift Package executable targets launch without an Info.plist, so AppKit
@@ -105,12 +110,12 @@ struct CicadaApp: App {
                 .environment(store)
                 .environment(browserWatcher)
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                .onChange(of: colorSchemeRaw) { _, newValue in
-                    let mode = AppColorScheme(rawValue: newValue) ?? .dark
-                    CicadaTheme.mode = mode
-                    if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                        syncWindowChrome(window, mode: mode)
-                    }
+                .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
+                .onReceive(DistributedNotificationCenter.default()
+                    .publisher(for: AppearancePreference.systemChangedNotification)
+                    .receive(on: RunLoop.main)) { _ in
+                    ThemeStore.shared.systemIsDark = AppearancePreference.systemIsDark()
+                    applyAppearance()
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -252,6 +257,16 @@ struct CicadaApp: App {
     /// the default gray macOS titlebar material. (A per-page content
     /// background can't recolor window chrome — that was the failed earlier
     /// attempt that also stretched the Inbox window.)
+    /// One place the resolved mode reaches the tokens and the AppKit chrome —
+    /// a preference change and a system flip both land here.
+    private func applyAppearance() {
+        let mode = appColorScheme
+        CicadaTheme.mode = mode
+        if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
+            syncWindowChrome(window, mode: mode)
+        }
+    }
+
     private func syncWindowChrome(_ window: NSWindow, mode: AppColorScheme) {
         window.titlebarAppearsTransparent = true
         switch mode {

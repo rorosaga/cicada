@@ -15,7 +15,13 @@ import Foundation
 /// break a saved selection or force a silent identity migration. `title`
 /// computes the display string from `Copy.*` instead, so the two can move
 /// independently.
+///
+/// G139 (Settings v3) — each section now also knows its `subtitle` (the
+/// detail header's second line) and its `group` (the sidebar heading it sits
+/// under); the raw values did not move, so a saved selection survives.
 enum SettingsSection: String, CaseIterable, Identifiable {
+    // Declared in sidebar order — `SettingsGroup.sections` filters this list,
+    // and `SettingsKitTests` pins that the groups read it back unchanged.
     case general, sleep, integrations, agents, plansAndKeys
 
     var id: String { rawValue }
@@ -30,13 +36,33 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The header's second line (design §2.1) — and a search field at 0.4.
+    var subtitle: String {
+        switch self {
+        case .general: Copy.generalSubtitle
+        case .sleep: Copy.sleepSettingsSubtitle
+        case .integrations: Copy.integrationsSubtitle
+        case .agents: Copy.agentsSubtitle
+        case .plansAndKeys: Copy.plansAndKeysSubtitle
+        }
+    }
+
     var icon: String {
         switch self {
         case .general: "gearshape"
         case .sleep: "moon.zzz"
         case .integrations: "puzzlepiece.extension"
         case .agents: "cable.connector"
-        case .plansAndKeys: "creditcard"
+        // K4: `creditcard` read as a price on a page that must never show one.
+        case .plansAndKeys: "key.horizontal"
+        }
+    }
+
+    var group: SettingsGroup {
+        switch self {
+        case .general, .sleep: .cicada
+        case .integrations, .agents: .customize
+        case .plansAndKeys: .enginesAndKeys
         }
     }
 
@@ -51,4 +77,23 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         }
         return section
     }
+}
+
+/// The sidebar's three headings (spec decision 17): what Cicada is, what you
+/// plug into it, and who does its thinking. Data, not layout — the sidebar and
+/// the search results both read it.
+enum SettingsGroup: String, CaseIterable, Identifiable {
+    case cicada, customize, enginesAndKeys
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cicada: Copy.groupCicada
+        case .customize: Copy.groupCustomize
+        case .enginesAndKeys: Copy.groupEnginesAndKeys
+        }
+    }
+
+    var sections: [SettingsSection] { SettingsSection.allCases.filter { $0.group == self } }
 }

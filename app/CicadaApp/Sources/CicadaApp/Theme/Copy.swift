@@ -291,7 +291,7 @@ enum Copy {
     /// `testSubtitlesAreShortAndDoNotRepeatTheirTitle` bans a subtitle that
     /// repeats its own title.
     static let sleepSettingsSubtitle = "Who runs the nightly cycle, and when."
-    static let generalSubtitle = "Appearance and text size."
+    static let generalSubtitle = "Appearance, text size and setup."
     static let integrationsSubtitle = "Every app connected to Cicada, in one place."
 
     // MARK: Remote connector (G135) — pinned by RemoteConnectorTests
