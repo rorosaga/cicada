@@ -30,7 +30,7 @@ def test_build_schema_and_ranking(tmp_path):
     memory = _bank(tmp_path)
     fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW,
                                       repo_resolver=_ok_repo)
-    assert fm["type"] == "state" and fm["schema_version"] == 1
+    assert fm["type"] == "state" and fm["schema_version"] == 2
     assert fm["generated_at"] == NOW.isoformat()
     assert fm["bank"] == "memory" and "owner_id" not in fm
     assert fm["engine"] == {"mode": "byok", "engine": "litellm", "model": "gpt-5.4-mini", "connected": []}
@@ -231,3 +231,60 @@ def test_next_run_at_moved_to_scheduler(tmp_path):
     now = datetime(2026, 9, 3, 12, 0)
     assert sleep_scheduler.next_run_at(memory, now=now) == "2026-09-04T03:00:00"
     assert status._next_sleep_at(memory).startswith("20")
+
+
+# --- G140 Q-R13: standing and current, read off the decay classes -----------
+
+
+def test_standing_focus_and_how_to_work_with_me(tmp_path):
+    memory = _bank(tmp_path)
+    _entity(memory, "local-first", type="concept", decay_class="durable", confidence=0.9,
+            last_referenced="2026-01-01", body="## Summary\nKeeps data on the device.\n")
+    _entity(memory, "pinned-tool", type="tool", decay_class="evergreen", confidence=0.5)
+    _entity(memory, "exam-week", type="concept", decay_class="volatile", confidence=0.4,
+            last_referenced="2026-09-01")
+    _entity(memory, "old-interest", type="concept", confidence=0.9, last_referenced="2026-07-01")
+    _entity(memory, "saved-link", type="media", decay_class="evergreen", confidence=0.9)
+    _entity(memory, "ask-first", type="skill", confidence=0.4, tags=["autonomy"],
+            body="## Summary\nAsk before acting on anything irreversible.\n")
+    fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    assert fm["schema_version"] == 2
+    assert [s["id"] for s in fm["standing"]] == ["local-first", "pinned-tool"], "confidence alone, no recency"
+    assert [f["id"] for f in fm["focus"]] == ["exam-week"], "active/volatile, touched in 14 days"
+    assert [p["id"] for p in fm["preferences"]] == ["ask-first", "concise-summaries"], "a working tag sorts first"
+    assert "saved-link" not in str(fm["standing"]) + str(fm["focus"]), "an artifact is never a belief row"
+    for heading in ("## In focus (last 14 days)", "## How to work with me", "## Standing"):
+        assert heading in body
+
+
+def test_the_owner_row_comes_from_the_one_resolver(tmp_path):
+    memory = _bank(tmp_path)
+    fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    assert "owner_id" not in fm
+    from api.services import owner_identity
+    owner_identity.save_owner({"entity_id": "bob-example"})
+    fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    assert fm["owner_id"] == "bob-example", "G117's owner.json, not only the env override"
+    assert fm["owner_one_liner"].startswith("Bob Example is a synthetic fixture")
+    assert "## The person" in body
+
+
+def test_the_schema_is_an_input(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    before = state_dictionary.inputs_version(memory)
+    monkeypatch.setattr(state_dictionary, "SCHEMA_VERSION", 99)
+    assert state_dictionary.inputs_version(memory) != before, "an upgraded backend rebuilds a v1 file once"
+
+
+def test_the_size_cap_gives_up_current_before_standing_and_keeps_the_agreements(tmp_path):
+    memory = _bank(tmp_path)
+    long = "## Summary\n" + "A long synthetic line " * 8 + ".\n"
+    for i in range(40):
+        _entity(memory, f"focus-{i:02d}", type="concept", decay_class="volatile", last_referenced="2026-09-02", body=long)
+        _entity(memory, f"standing-{i:02d}", type="concept", decay_class="durable", confidence=0.9, body=long)
+        _entity(memory, f"person-{i:02d}", type="person", confidence=0.9, body=long)
+    settings = _settings(memory, state_people=40, state_focus=40, state_standing=40)
+    fm, body = state_dictionary.build(memory, settings, today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    assert len(state_dictionary.render(fm, body).encode("utf-8")) <= state_dictionary.MAX_BYTES
+    assert not fm["people"] and not fm["focus"], "current rows go first"
+    assert fm["preferences"] and fm["projects"], "the working agreements and the projects stay"

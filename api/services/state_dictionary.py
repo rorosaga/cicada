@@ -70,7 +70,10 @@ from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 
 STATE_FILENAME = "_state.md"
-SCHEMA_VERSION = 1
+# 2: G140 Q-R13 — `standing`, `focus` and `owner_one_liner`; `preferences`
+# re-ranked by confidence alone. A v1 file still renders (the handshake
+# reads every new key with `.get`).
+SCHEMA_VERSION = 2
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -91,7 +94,23 @@ WORLD_FACTS_NOTE = (
     "world facts on a page are a dated cache — verify before acting on them."
 )
 _ARCHIVED = {"archived", "dropped"}
-_DEFAULTS = {"state_projects": 7, "state_people": 7, "state_preferences": 5, "state_conversations": 5}
+_DEFAULTS = {"state_projects": 7, "state_people": 7, "state_preferences": 5, "state_conversations": 5,
+             "state_standing": 5, "state_focus": 5}
+# G140 Q-R13 (R3 P5) — the now-view split by the decay classes (G66) every
+# page already carries: STANDING is what changes rarely, CURRENT what is in
+# motion. Supermemory's static/dynamic profile and its [Summary]/[Recent]
+# labels are the same idea; Cicada needs no classifier and no prose.
+STANDING_CLASSES = frozenset({"durable", "evergreen"})
+CURRENT_CLASSES = frozenset({"active", "volatile"})
+FOCUS_WINDOW_DAYS = 14
+# Types with a row of their own (projects, people), artifacts (a bookmark is
+# evergreen and would flood "standing"), paths and the retired deadline type.
+_OWN_ROW_TYPES = frozenset({"project", "person", "media", "directory", "deadline"})
+# A tag convention, not a producer: a skill page tagged with one of these is a
+# working agreement ("ask before acting", "short replies") and sorts first in
+# "How to work with me". Stage 4 writes `tags: []` today, so the row never
+# depends on it (Instinct's "autonomy calibration", R3 P5).
+WORKING_TAGS = frozenset({"autonomy", "communication-style", "working-style"})
 
 RepoResolver = Callable[..., dict]
 
@@ -103,6 +122,9 @@ def state_path(memory_path: Path) -> Path:
 def inputs_version(memory_path: Path) -> str:
     comps = sync_service.components(Path(memory_path))
     parts = {k: comps.get(k, "") for k in INPUT_COMPONENTS}
+    # G140: the schema is an input — an upgraded backend rebuilds a v1 file
+    # once instead of serving it until something else changes.
+    parts["schema"] = SCHEMA_VERSION
     return hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
 
 
@@ -173,6 +195,101 @@ def _one_liner(f: bank_index.IndexedFile) -> str:
         return _one_line_summary(strip_claims_block(f.body()), limit=ONE_LINER_LIMIT)
     except Exception:
         return ""
+
+
+def _class_of(fm: dict) -> str:
+    from api.services import decay_policy
+
+    cls, _ = decay_policy.resolve(fm)
+    return str(getattr(cls, "value", cls))
+
+
+def _confidence(fm: dict) -> float:
+    try:
+        return float(fm.get("confidence", 0.5) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _live(fm: dict) -> bool:
+    return str(fm.get("status", "active") or "active").lower() not in _ARCHIVED
+
+
+def _row(f: bank_index.IndexedFile) -> dict:
+    return {"id": f.stem, "name": _name(f), "one_liner": _one_liner(f)}
+
+
+def _preferences(memory_path: Path, n: int) -> list[dict]:
+    """How to work with me (Q-R13): `skill` pages whose class is standing,
+    ranked by confidence ALONE — the old `/(1 + days/30)` term let a standing
+    preference fall out after a quiet month (R3 P5). Working-agreement tags
+    sort first; ties break on id so two runs agree (R1)."""
+    rows = []
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter
+        if str(fm.get("type") or "") != "skill" or not _live(fm) or _class_of(fm) not in STANDING_CLASSES:
+            continue
+        raw_tags = fm.get("tags")
+        tags = {str(t).strip().lower() for t in raw_tags} if isinstance(raw_tags, list) else set()
+        rows.append((0 if tags & WORKING_TAGS else 1, -_confidence(fm), f.stem, f))
+    rows.sort(key=lambda r: r[:3])
+    return [_row(r[3]) for r in rows[: max(0, n)]]
+
+
+def _standing(memory_path: Path, n: int) -> list[dict]:
+    """What lasts (Q-R13): non-skill pages outside the own-row types whose
+    class is durable or evergreen, by confidence."""
+    rows = []
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter
+        etype = str(fm.get("type") or "")
+        if etype in _OWN_ROW_TYPES or etype == "skill" or not _live(fm):
+            continue
+        if _class_of(fm) in STANDING_CLASSES:
+            rows.append((-_confidence(fm), f.stem, f))
+    rows.sort(key=lambda r: r[:2])
+    return [_row(r[2]) for r in rows[: max(0, n)]]
+
+
+def _focus(memory_path: Path, today: date, n: int) -> list[dict]:
+    """What is in motion (Q-R13): pages outside the own-row types whose class
+    is active or volatile and that were referenced in the last
+    ``FOCUS_WINDOW_DAYS``; most recent first, volatile before active.
+
+    The window is a date, disclosed rather than hidden: the night a page
+    leaves it, Sleep's forced rebuild writes one ``State snapshot`` — a real
+    change to the cursor, like the recency ranking's. Nothing here writes a
+    clock into the file, so an idle night still commits nothing (R1)."""
+    rows = []
+    for f in bank_index.files(memory_path, "entities"):
+        fm = f.frontmatter
+        if str(fm.get("type") or "") in _OWN_ROW_TYPES or not _live(fm):
+            continue
+        cls = _class_of(fm)
+        days = _days_since(fm.get("last_referenced"), today)
+        if cls in CURRENT_CLASSES and days <= FOCUS_WINDOW_DAYS:
+            rows.append((days, 0 if cls == "volatile" else 1, -_confidence(fm), f.stem, f))
+    rows.sort(key=lambda r: r[:4])
+    return [{**_row(r[4]), "last_referenced": str(r[4].frontmatter.get("last_referenced") or "")[:10] or None}
+            for r in rows[: max(0, n)]]
+
+
+def _owner(memory_path: Path, settings) -> tuple[str | None, str]:
+    """The person's own page and its one-liner (Q-R13) — through
+    ``owner_identity.resolve_observer``, the one resolver every writer has
+    used since G117. The builder used to read only the env override, so a
+    bank onboarded in the app never showed its owner here. Only a page that
+    exists; never a name in code (the portability rail)."""
+    from api.services import owner_identity
+
+    try:
+        owner = str(owner_identity.resolve_observer(memory_path, settings) or "").strip()
+    except Exception:  # noqa: BLE001 — a cursor row is never worth a failed build
+        return None, ""
+    for f in bank_index.files(memory_path, "entities") if owner else []:
+        if f.stem == owner:
+            return owner, _one_liner(f)
+    return None, ""
 
 
 # --- blocks -----------------------------------------------------------------
@@ -374,8 +491,7 @@ def build(
     people = [{"id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
                "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None}
               for f in _ranked(memory_path, "person", today, _limit(settings, "state_people"))]
-    preferences = [{"id": f.stem, "name": _name(f), "one_liner": _one_liner(f)}
-                   for f in _ranked(memory_path, "skill", today, _limit(settings, "state_preferences"))]
+    preferences = _preferences(memory_path, _limit(settings, "state_preferences"))
 
     fm: dict = {
         "type": "state",
@@ -384,11 +500,13 @@ def build(
         "inputs_version": inputs_version(memory_path),
         "bank": memory_path.name,
     }
-    # Portability rail: the owner is an entity id from config, never a name
-    # in code, and only when that page actually exists in this bank.
-    owner = str(getattr(settings, "observer_owner", "") or "").strip()
-    if owner and (memory_path / "entities" / f"{owner}.md").exists():
-        fm["owner_id"] = owner
+    # Portability rail: the owner is an entity id from the one resolver (G117),
+    # never a name in code, and only when that page exists in this bank.
+    owner_id, owner_line = _owner(memory_path, settings)
+    if owner_id:
+        fm["owner_id"] = owner_id
+        if owner_line:
+            fm["owner_one_liner"] = owner_line
     fm.update({
         "engine": _engine_block(settings, connected_ids),
         "sleep": _sleep_block(memory_path, git_runner),
@@ -397,6 +515,8 @@ def build(
         "people": people,
         "conversations": _conversations(memory_path, _limit(settings, "state_conversations")),
         "preferences": preferences,
+        "standing": _standing(memory_path, _limit(settings, "state_standing")),
+        "focus": _focus(memory_path, today, _limit(settings, "state_focus")),
         "repos_probed_at": now.isoformat() if resolver is not None else (previous or {}).get("repos_probed_at"),
         "world_facts_note": WORLD_FACTS_NOTE,
     })
@@ -405,12 +525,19 @@ def build(
 
 
 def render_body(fm: dict) -> str:
-    """The human-readable half: a cursor (wikilinks + ids), never entity bodies."""
+    """The human-readable half: a cursor (wikilinks + ids), never entity
+    bodies. G140 Q-R13: the person, then what is in motion, then what lasts."""
+    def row(p: dict) -> str:
+        return f"- [[{p['name']}]] (`{p['id']}`)" + (f" — {p['one_liner']}" if p.get("one_liner") else "")
+
     lines = ["# Cicada — now", "",
              f"Bank `{fm['bank']}` · engine {fm['engine']['engine']} ({fm['engine']['model'] or 'unset'}) · "
              f"inbox {fm['inbox']['pending']} pending · queue {fm['sleep']['queue_depth']} · "
-             f"last Sleep {fm['sleep']['last_at'] or 'never'} · as of {fm['generated_at']}",
-             "", "## Projects"]
+             f"last Sleep {fm['sleep']['last_at'] or 'never'} · as of {fm['generated_at']}"]
+    if fm.get("owner_id"):
+        lines += ["", "## The person",
+                  f"- `{fm['owner_id']}`" + (f" — {fm['owner_one_liner']}" if fm.get("owner_one_liner") else "")]
+    lines += ["", "## Projects"]
     for p in fm["projects"]:
         repo_bits = ", ".join(
             f"{r['path']}@{r['branch']}" + (f" (dirty {r['dirty']})" if r.get("dirty") else "")
@@ -420,12 +547,17 @@ def render_body(fm: dict) -> str:
         lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}" + (f" — repo: {repo_bits}" if repo_bits else ""))
     if not fm["projects"]:
         lines.append("- (no active projects yet)")
+    lines += ["", f"## In focus (last {FOCUS_WINDOW_DAYS} days)"]
+    lines += [row(p) for p in fm.get("focus") or []] or ["- (nothing recent)"]
     lines += ["", "## People"]
-    lines += [f"- [[{p['name']}]] (`{p['id']}`)" + (f" — {p['one_liner']}" if p.get("one_liner") else "") for p in fm["people"]] or ["- (none yet)"]
+    lines += [row(p) for p in fm["people"]] or ["- (none yet)"]
     lines += ["", "## Recent conversations"]
-    lines += [f"- `{c['id']}` · {c['harness'] or 'unknown'} · {c['title']} · {c['last_seen'][:10]}" for c in fm["conversations"]] or ["- (none recorded)"]
-    lines += ["", "## Preferences"]
-    lines += [f"- [[{p['name']}]] (`{p['id']}`)" + (f" — {p['one_liner']}" if p.get("one_liner") else "") for p in fm["preferences"]] or ["- (none extracted yet)"]
+    lines += [f"- `{c['id']}` · {c['harness'] or 'unknown'} · {c['title']} · {c['last_seen'][:10]}"
+              for c in fm["conversations"]] or ["- (none recorded)"]
+    lines += ["", "## How to work with me"]
+    lines += [row(p) for p in fm["preferences"]] or ["- (none extracted yet)"]
+    lines += ["", "## Standing"]
+    lines += [row(p) for p in fm.get("standing") or []] or ["- (none yet)"]
     lines += ["", "## Rules for agents",
               f"- {fm['world_facts_note']}",
               "- This file is a cursor: open `entities/<id>.md` (or `cicada_recall_detail`) for the page; `_index.md` is the map.",
@@ -449,10 +581,11 @@ def _fit(fm: dict) -> None:
         c["title"] = c["title"][:TITLE_LIMIT]
     if size() <= MAX_BYTES:
         return
-    # Whole rows go people → preferences → conversations → projects: the
-    # projects list is what a cursor exists for, so it is given up last (R10).
-    for key in ("people", "preferences", "conversations", "projects"):
-        while fm[key] and size() > MAX_BYTES:
+    # G140 Q-R13: current rows go before standing ones, the working agreements
+    # late, and projects last (R10's reason stands: the projects list is what
+    # a cursor exists for).
+    for key in ("people", "focus", "standing", "conversations", "preferences", "projects"):
+        while fm.get(key) and size() > MAX_BYTES:
             fm[key].pop()
 
 
