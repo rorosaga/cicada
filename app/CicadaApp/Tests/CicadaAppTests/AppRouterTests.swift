@@ -44,6 +44,16 @@ final class AppRouterTests: XCTestCase {
 
     /// `requestFirstRun` exists so BOTH hand-offs go through the router and
     /// neither view can forget to bring the window forward (R7).
+    /// G139 — Settings → You → "Show on graph" stages the tab and the entity
+    /// together, and the entity is read-then-cleared like the Feed tile.
+    func testRouteToEntityStagesTheGraphTabAndTheEntity() {
+        let router = AppRouter()
+        router.routeToEntity("alex-example")
+        XCTAssertEqual(router.pendingTab, .graph)
+        XCTAssertEqual(router.consumeRevealEntity(), "alex-example")
+        XCTAssertNil(router.consumeRevealEntity(), "read-then-clear")
+    }
+
     func testRequestFirstRunStagesTheSheet() {
         let router = AppRouter()
         XCTAssertFalse(router.pendingFirstRun)

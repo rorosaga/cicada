@@ -127,6 +127,24 @@ struct StatusSnapshot: Codable, Equatable {
     var episodes: Episodes
     var lastSleepAt: String?         // ISO8601, null if never
     var nextSleepAt: String?         // ISO8601, null if schedule disabled
+
+    /// G139 — facts about the backend that name nothing (R-O21/R-O22): the
+    /// usage ledger's switch, the three outbound gates, and which env switches
+    /// are set, by name. Optional, so the on-disk snapshot cache and an older
+    /// backend still decode; the memberwise init keeps working through the
+    /// defaults.
+    var telemetry: String? = nil
+    var gates: Gates? = nil
+    var envOverrides: [String]? = nil
+
+    /// Each gate optional too: a missing key reads as "—" on Privacy & data,
+    /// never as a guessed On or Off, and never fails the whole `/status`
+    /// decode (which would blank the menu-bar bookworm with it).
+    struct Gates: Codable, Equatable {
+        var connectorFetch: Bool?
+        var feedFetch: Bool?
+        var logoFetch: Bool?
+    }
 }
 
 // MARK: - Date parsing helpers

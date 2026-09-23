@@ -23,22 +23,31 @@ import Foundation
 /// that answers "who does Cicada's thinking". `remote` (A1) is From anywhere,
 /// promoted out of Agents' segmented picker so it can be deep-linked and
 /// searched like any other section.
+///
+/// O4 — the Cicada group gains You (the owner, G117), Privacy & data (what
+/// stays on this Mac and how to take it away), and Memory (the derived index
+/// and the link backfill); Advanced closes Engines & keys. New cases only, so
+/// every persisted raw value still restores (K1).
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, sleep, integrations, agents, remote, engines, plansAndKeys
+    case general, you, privacy, memory, sleep, integrations, agents, remote, engines, plansAndKeys, advanced
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: Copy.general
+        case .you: Copy.youSection
+        case .privacy: Copy.privacyAndData
+        case .memory: Copy.memorySection
         case .sleep: Copy.sleepSettings
         case .integrations: Copy.integrations
         case .agents: Copy.agents
         case .remote: Copy.fromAnywhere
         case .engines: Copy.engines
         case .plansAndKeys: Copy.plansAndKeys
+        case .advanced: Copy.advanced
         }
     }
 
@@ -46,18 +55,25 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .general: Copy.generalSubtitle
+        case .you: Copy.youSubtitle
+        case .privacy: Copy.privacySubtitle
+        case .memory: Copy.memorySubtitle
         case .sleep: Copy.sleepSettingsSubtitle
         case .integrations: Copy.integrationsSubtitle
         case .agents: Copy.agentsSubtitle
         case .remote: Copy.remoteSubtitle
         case .engines: Copy.enginesSubtitle
         case .plansAndKeys: Copy.plansAndKeysSubtitle
+        case .advanced: Copy.advancedSubtitle
         }
     }
 
     var icon: String {
         switch self {
         case .general: "gearshape"
+        case .you: "person.crop.circle"
+        case .privacy: "hand.raised"
+        case .memory: "books.vertical"
         case .sleep: "moon.zzz"
         case .integrations: "puzzlepiece.extension"
         case .agents: "cable.connector"
@@ -65,14 +81,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .engines: "cpu"
         // K4: `creditcard` read as a price on a page that must never show one.
         case .plansAndKeys: "key.horizontal"
+        case .advanced: "wrench.and.screwdriver"
         }
     }
 
     var group: SettingsGroup {
         switch self {
-        case .general, .sleep: .cicada
+        case .general, .you, .privacy, .memory, .sleep: .cicada
         case .integrations, .agents, .remote: .customize
-        case .engines, .plansAndKeys: .enginesAndKeys
+        case .engines, .plansAndKeys, .advanced: .enginesAndKeys
         }
     }
 

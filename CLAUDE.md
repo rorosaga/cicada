@@ -487,7 +487,11 @@ unchanged for future use.
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
 in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
 and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
-Sleep; Customize: Integrations · Agents · From anywhere; Engines & keys: Engines · Plans & keys.
+You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere; Engines & keys:
+Engines · Plans & keys · Advanced. Privacy & data exports a bank and moves one to `<root>/.trash/`, but
+never switches banks (that stays in the Graph page's `BankSwitcher` — a second switcher in another
+window is the split-brain class); Memory has no "Look for duplicates" until the dedup endpoint stops
+blocking the event loop and commits what it merges (R-O17).
 Search is `SettingsIndex` over `QuickMatch`, and landing (search, `SettingsSectionLink(section:row:)`,
 an in-window pointer) always selects, scrolls, washes and announces the row (G139).
 `SettingsSection` raw values are the persisted selection and did not move when the groups arrived.

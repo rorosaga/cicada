@@ -51,10 +51,15 @@ enum SettingsIndex {
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
         .appearance, .textSize, .runSetup,
+        .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
+        .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
+        .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
+        .searchIndex, .enrichLinks,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .agentsInstall, .agentsCloud,
         .remoteSwitch, .remoteReach, .remoteNew,
         .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
+        .backendStatus, .mcpCommand, .apiToken, .envOverrides,
     ]
 
     static let staticEntries: [SettingsEntry] = [
@@ -62,6 +67,26 @@ enum SettingsIndex {
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
+        // You
+        SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),
+        SettingsEntry(.ownerHandle, .you, Copy.ownerHandleTitle, keywords: ["github", "avatar", "picture", "username"], detail: Copy.ownerHandleDetail),
+        SettingsEntry(.ownerEmail, .you, Copy.ownerEmailTitle, keywords: ["email", "mail", "address"]),
+        SettingsEntry(.ownerPage, .you, Copy.ownerPageTitle, keywords: ["my page", "profile", "graph"]),
+        // Privacy & data
+        SettingsEntry(.memoryLocation, .privacy, Copy.memoryLocationTitle, keywords: ["folder", "path", "where", "finder", "CICADA_MEMORY_PATH"]),
+        SettingsEntry(.banks, .privacy, Copy.banksTitle, keywords: ["bank", "memories", "workspaces"]),
+        SettingsEntry(.bankExport, .privacy, Copy.bankExportTitle, keywords: ["backup", "download", "zip", "take out", "copy"]),
+        SettingsEntry(.bankDelete, .privacy, Copy.bankDeleteTitle, keywords: ["remove", "erase", "trash"]),
+        SettingsEntry(.telemetry, .privacy, Copy.telemetryTitle, keywords: ["telemetry", "analytics", "tracking", "ledger", "CICADA_TELEMETRY"]),
+        SettingsEntry(.outboundConnectors, .privacy, Copy.outboundConnectorsTitle, keywords: ["network", "internet", "fetch", "CICADA_ALLOW_CONNECTOR_FETCH"]),
+        SettingsEntry(.outboundFeeds, .privacy, Copy.outboundFeedsTitle, keywords: ["rss", "calendar", "network", "CICADA_ALLOW_FEED_FETCH"]),
+        SettingsEntry(.outboundLogos, .privacy, Copy.outboundLogosTitle, keywords: ["logos", "icons", "network", "CICADA_ALLOW_LOGO_FETCH"]),
+        SettingsEntry(.credentials, .privacy, Copy.credentialsTitle, keywords: ["api keys", "secrets", "remove keys", "secrets.env"]),
+        SettingsEntry(.remoteAccess, .privacy, Copy.remoteAccessTitle, keywords: ["remote", "outside", "from anywhere"]),
+        SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
+        // Memory
+        SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
+        SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
         // Sleep
         SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when"]),
         SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
@@ -88,6 +113,11 @@ enum SettingsIndex {
         // renamed it to what it does (shown only under the API key card).
         SettingsEntry(.engineAutoClaude, .engines, Copy.useClaudePlanWhenIStart,
                       keywords: ["claude plan", "subscription", "use for sleep", "api key"]),
+        // Advanced
+        SettingsEntry(.backendStatus, .advanced, Copy.backendTitle, keywords: ["server", "version", "status"]),
+        SettingsEntry(.mcpCommand, .advanced, Copy.mcpCommandTitle, keywords: ["mcp", "command", "python"]),
+        SettingsEntry(.apiToken, .advanced, Copy.apiTokenTitle, keywords: ["token", "bearer", "CICADA_API_TOKEN"]),
+        SettingsEntry(.envOverrides, .advanced, Copy.envOverridesTitle, keywords: ["env", ".env", "environment", "variables", "CICADA_LLM_MODE"]),
     ]
 
     static let pageEntries: [SettingsEntry] = SettingsSection.allCases.map {

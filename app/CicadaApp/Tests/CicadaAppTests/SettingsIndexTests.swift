@@ -22,6 +22,8 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(SettingsIndex.search("dark", in: all).first?.entry.id, .appearance)
         XCTAssertTrue(SettingsIndex.search("schedule", in: all).contains { $0.entry.id == .sleepRuns })
         XCTAssertEqual(SettingsIndex.search("engines", in: all).first?.entry.id, .page(.engines))
+        XCTAssertEqual(SettingsIndex.search("tele", in: all).first?.entry.id, .telemetry)
+        XCTAssertEqual(SettingsIndex.search("backup", in: all).first?.entry.id, .bankExport)
     }
 
     func testSectionTitlesFindTheirRowsAtLowWeight() {

@@ -112,6 +112,12 @@ struct ContentView: View {
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
             router.pendingTab = nil
         }
+        // G139 — Settings → You → "Show on graph": the tab switch above and
+        // the reveal here are staged together by `routeToEntity`.
+        .onChange(of: router.pendingRevealEntity) { _, id in
+            guard id != nil, let id = router.consumeRevealEntity() else { return }
+            graphVM.revealEntity(id: id)
+        }
         // G117 — Settings → General's "Run setup again" hand-off. Settings
         // is a separate window/scene (same reason `pendingTab` exists above
         // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`

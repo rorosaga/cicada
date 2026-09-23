@@ -180,12 +180,16 @@ struct SettingsScene: View {
     @ViewBuilder private var detailView: some View {
         switch selection {
         case .general: SettingsGeneralView()
+        case .you: YouView()
+        case .privacy: PrivacyView()
+        case .memory: MemoryView()
         case .sleep: SettingsSleepView()
         case .integrations: IntegrationsView()
         case .agents: ConnectView()
         case .remote: FromAnywhereView()
         case .engines: EnginesView()
         case .plansAndKeys: ConnectionsView()
+        case .advanced: AdvancedView()
         }
     }
 }
