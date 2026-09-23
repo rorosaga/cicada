@@ -96,6 +96,10 @@ class EpisodeDraft:
     queue_for_sleep: bool = True
     content_sha: str | None = None
     writer: str = "import"
+    #: Who consolidated an episode that lands already processed (G114 R6). A
+    #: parser by default (R-LS10); G141 R-PJ18's companion note is `user` — the
+    #: person's own Log words, which Sleep never re-reads.
+    processed_by: str = PARSED_ONLY
 
 
 @dataclass
@@ -256,7 +260,7 @@ def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict]) -> None:
         fm.pop("processed_by", None)
     else:
         fm["processed"] = True
-        fm["processed_by"] = PARSED_ONLY
+        fm["processed_by"] = draft.processed_by
     # R-PB4: the new body's times replace the old ones, as the LAST key so the
     # episode's identity reads first; a body that lost them drops the key
     # rather than keeping stale offsets.
@@ -341,7 +345,7 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
         fm.pop("processed_by", None)
     elif not draft.queue_for_sleep and not fm.get("processed"):
         fm["processed"] = True
-        fm["processed_by"] = PARSED_ONLY
+        fm["processed_by"] = draft.processed_by
 
 
 def _restamp(path: Path, draft: EpisodeDraft) -> None:

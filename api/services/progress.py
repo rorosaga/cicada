@@ -677,3 +677,71 @@ def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, rea
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"progress.withdraw failed: {type(exc).__name__}: {exc}")
         return _error(f"{type(exc).__name__}: {exc}")
+
+
+# --------------------------------------------------------------------------- #
+# the person's path (T6, PJ-3b)
+# --------------------------------------------------------------------------- #
+
+MIN_NAME_CHARS = 3
+# §5.3: the role a linked page takes by its type — never a guess at what the
+# sentence meant, only at what kind of thing the page is.
+_ROLE_BY_TYPE = {"person": "with", "tool": "used", "directory": "used", "media": "document", "project": "project"}
+
+
+def write_note_episode(memory_path: Path, text: str, *, origin: str, title: str, now: datetime) -> str:
+    """R-PJ18: the person's Log text is a SPAN, not a copy — a small companion
+    episode holding the person's words exactly (scrubbed like every writer, R-N3),
+    already processed (`processed_by: user`) so Sleep never re-extracts it, with a
+    turn stamp so the Reader shows when it was written. `source_id` carries the
+    instant: two identical notes on two days are two episodes, never a dedup."""
+    from api.services import episode_staging
+
+    instant = when_mod.utc_z(now)
+    draft = episode_staging.EpisodeDraft(
+        title=title, source_id=f"companion-app:{instant}", timestamp=instant,
+        original_date=now.date().isoformat(),
+        source="companion_app", origin=origin, turns=[episode_staging.Turn(text=text, speaker="user", ts=instant)],
+        queue_for_sleep=False, processed_by="user", writer="companion_app")
+    result = episode_staging.stage([draft], Path(memory_path) / "episodes", bank=Path(memory_path).name)
+    return result.episode_ids[draft.source_id]
+
+
+def link_participants(memory_path: Path, text: str) -> list[dict]:
+    """Who a Log sentence names, linked only where the bank already has a page
+    (§5.3): the owner (by `owner: true`, never by a name — the `_participants`
+    rule), plus every OTHER live page whose name or alias (≥ 3 chars) occurs in
+    `text` word-bounded and case-insensitive. Exact names only — a fuzzy match
+    would put a stranger on the person's timeline (R-PJ15). `surface` is the
+    matched words as written, so the sentence is never rewritten to fit."""
+    memory_path = Path(memory_path)
+    text = text or ""
+    _, owner_page = _entity_index(memory_path)
+    if owner_page is None:
+        oid = _owner_id(memory_path)
+        owner_page = oid if _entity_page(memory_path, oid) is not None else None
+    out: list[dict] = [{"role": "owner", "entity": owner_page}] if owner_page else []
+    for f in sorted((memory_path / "entities").glob("*.md")):
+        if f.stem == owner_page:
+            continue
+        try:
+            fm = markdown_parser.parse(f).frontmatter or {}
+        except Exception:  # noqa: BLE001 — one unreadable page never fails a write
+            continue
+        if str(fm.get("status") or "active") == "dropped":
+            continue
+        names = [str(n or "").strip() for n in [fm.get("name"), *(fm.get("aliases") or [])]]
+        hit = None
+        for name in sorted({n for n in names if len(n) >= MIN_NAME_CHARS}, key=lambda n: (-len(n), n)):
+            m = re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I)
+            if m:
+                hit = m.group(0)
+                break
+        if hit is None:
+            continue
+        etype = str(fm.get("type") or "")
+        entry = {"role": _ROLE_BY_TYPE.get(etype, "about"), "entity": f.stem, "surface": hit}
+        if etype == "media" and isinstance(fm.get("media"), dict) and fm["media"].get("url"):
+            entry["url"] = str(fm["media"]["url"])
+        out.append(entry)
+    return out

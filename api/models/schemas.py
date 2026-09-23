@@ -1195,6 +1195,46 @@ class ProjectTimeline(CamelModel):
     partial: bool = False
 
 
+# G141 PJ-3b (§5.3) — the person's writes from the Projects page. Every day on
+# the wire is `YYYY-MM-DD` (R-PJ6: nothing relative is stored or sent).
+
+
+class MilestoneCreate(CamelModel):
+    name: str
+    target: Optional[str] = None
+
+
+class MilestonePatch(CamelModel):
+    target: Optional[str] = None
+    status: Optional[str] = None
+    on: Optional[str] = None
+    name: Optional[str] = None
+
+
+class HappeningCreate(CamelModel):
+    text: str
+    status: str = "done"          # done | ongoing
+    when: Optional[str] = None    # the date chip, YYYY-MM-DD
+
+
+class ThreadSettle(CamelModel):
+    status: str                   # done | ongoing | dropped
+    on: Optional[str] = None
+
+
+class WithdrawRequest(CamelModel):
+    claim_id: str
+
+
+class ProjectWriteResponse(CamelModel):
+    action: str
+    claim_id: Optional[str] = None
+    day: Optional[str] = None
+    date_basis: Optional[str] = None
+    episode_id: Optional[str] = None
+    claims: list[ClaimModel] = []
+
+
 class TransclusionPayload(CamelModel):
     """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
 

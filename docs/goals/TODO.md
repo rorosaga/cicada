@@ -281,7 +281,10 @@ event predicates and Stage 1's stray labels relabelled. PJ-3a's agent path (T5) 
 `cicada_note_progress` (stdio + remote `record`, observer always the agent, never a new page),
 `cicada_retract_claim` withdrawing an event through `progress.withdraw`, happenings, open threads and
 `milestone` chains in the read model (`PROJECT_SHAPE` `g141-2`), `_state.md`'s `now` filled, the Now/Quiet
-lines in `cicada_project`, and the demo's two event commits — contract 6, remote contract 4.
+lines in `cicada_project`, and the demo's two event commits — contract 6, remote contract 4. PJ-3b (T6),
+the person's path, is there too: five Projects writes (milestones add/move/rename, the Log with its
+companion note, a thread settled or restated, "Not right" on a happening), `companion_app` a human
+origin, a 409 while Sleep runs, and the demo's `user` commit (the arm done early, first grasp moved).
 
 **Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
 open is on the row.
@@ -578,7 +581,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3;
     PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
     the `is_event` readers and their grep gate) is T4; its agent path (`cicada_note_progress`, the event
-    layer in the read model, the demo's event commits) is T5.
+    layer in the read model, the demo's event commits) is T5; PJ-3b, the person's writes
+    (`/projects/{id}/milestones|happenings|threads|withdraw`, `companion_app` human), is T6.
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S

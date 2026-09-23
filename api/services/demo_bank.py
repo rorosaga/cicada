@@ -115,6 +115,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _commit_scenario(bank_dir, today, scenario)
     _expire_scenario(bank_dir, today)
     _write_scenario_events(bank_dir, today, scenario)
+    _write_scenario_person(bank_dir, today)
 
 
 def _write_entities(bank_dir: Path, day: date) -> None:
@@ -719,3 +720,34 @@ def _write_scenario_events(bank_dir: Path, today: date, scenario: dict) -> None:
     commit(run(_AGENT_EVENTS, origin="mcp", authored_by="claude-code", session_id=_AGENT_SESSION, today=today,
                now=datetime.combine(s7_day, time(18, 0), tzinfo=timezone.utc)),
            "Agent write", "mcp/claude-code", authors=["claude-code"], sessions=[_AGENT_SESSION])
+
+
+def _write_scenario_person(bank_dir: Path, today: date) -> None:
+    """The person's two moves from the Projects page (spec §12, G141 PJ-3b):
+    the arm marked done three days before its date, and first grasp moved
+    after it slipped. Each goes through `progress.advance` exactly as
+    `routers/projects.py` calls it — `origin="companion_app"`, the resolved
+    owner as observer, `authored_by: user` — so `is_human` protects them as it
+    would a real tap (R-PJ18); `today` is pinned per move, so each is recorded
+    the day the person made it (R-PJB7). One commit, `Cicada-Author: user`,
+    trigger `user/companion_app` — what the app's own write commits."""
+    from api.services import progress
+
+    owner = owner_identity.resolve_observer(bank_dir, None)
+    rover = "rover-arm-project"
+    moves = (
+        dict(slug=f"due-{today - timedelta(days=42)}", status="done", on=today - timedelta(days=45),
+             today=today - timedelta(days=45)),
+        dict(slug=f"due-{today - timedelta(days=14)}", target=str(today + timedelta(days=8)),
+             on=today - timedelta(days=13), today=today - timedelta(days=13)),
+    )
+    paths: list[str] = []
+    for move in moves:
+        result = progress.advance(bank_dir, subject=rover, observer=owner, origin="companion_app",
+                                  authored_by="user", tz_name="UTC", **move)
+        paths += result.get("paths") or []
+    paths = list(dict.fromkeys(paths))
+    if paths:
+        _run_commit(bank_dir, git_service.build_commit_message(
+            f"Project update {today}", [f"{p}: updated (source: n/a, trigger: user/companion_app)" for p in paths],
+            authors=["user"]), paths)

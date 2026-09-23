@@ -122,3 +122,20 @@ def test_a_watch_record_is_scrubbed(tmp_path, monkeypatch):
     body = markdown_parser.parse(memory / "episodes" / f"{r['episode_id']}.md").body
     assert SECRET not in body and "998877" not in body and "video [0:10]:" in body
     assert SECRET not in seen["object"]
+
+
+def test_a_projects_log_note_is_scrubbed(tmp_path):
+    """G141 R-PJ18's companion note joins R-LS6: the person's Log words are
+    staged through `episode_staging`, so a secret never lands in the episode
+    the claim's `user` span points into."""
+    from datetime import UTC, datetime
+
+    from api.services import progress
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    ep = progress.write_note_episode(memory, f"set the key to {SECRET}", origin="companion_app",
+                                     title="Note on Alpha", now=datetime(2026, 9, 23, 18, tzinfo=UTC))
+    parsed = markdown_parser.parse(memory / "episodes" / f"{ep}.md")
+    assert SECRET not in parsed.body and parsed.body.startswith("user: set the key to")
+    assert (parsed.frontmatter["processed"], parsed.frontmatter["processed_by"]) == (True, "user")

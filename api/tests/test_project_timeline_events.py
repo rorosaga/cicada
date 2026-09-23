@@ -166,3 +166,27 @@ def test_the_state_cursor_never_runs_the_quiet_clock(bank, monkeypatch):
     monkeypatch.setattr(project_timeline, "_last_heard", boom)
     now, _ = project_timeline.now_next(bank, "rover-arm-project")
     assert now["text"] == ONGOING and now["since"] == d(0)
+
+
+def test_expected_values_after_pj3_with_the_persons_moves(tmp_path, clock):
+    """Spec §12 "after PJ-3", the person's two moves in place (T6): the arm
+    done three days early, first grasp moved past its slipped date."""
+    bank = demo(tmp_path, followups=False)
+    tl = project_timeline.build(bank, "rover-arm-project", tz_name="UTC")
+    st = project_state.timeline_state(project_state.input_from_timeline(tl), T)
+    assert st["progress"] == {"done": 1, "total": 4} and st["quietThreshold"] == 20
+    rows = {m.slug: m for m in tl.milestones}
+    grasp = rows["first-grasp"]
+    assert st["next"] == "first-grasp" and (grasp.status, grasp.target, grasp.moved) == ("planned", d(8), True)
+    assert len(grasp.chain) == 2 and grasp.chain[-1].predicate == "due"
+    assert grasp.chain[0].origin == "companion_app" and grasp.chain[0].authored_by == "user"
+    arm = rows["arm-assembled"]
+    assert (arm.status, arm.done_on, arm.target) == ("done", d(-45), d(-42))
+    assert "3 days early" in mcp_tools.project(_ctx(bank), "rover-arm-project")
+    camera = next(t for t in tl.now.threads if t.text == CAMERA)
+    quiet = next(t for t in st["threads"] if t["claimId"] == camera.claim_id)
+    assert quiet == {"claimId": camera.claim_id, "quietDays": 24, "followupEligible": True}
+    garden = project_timeline.build(bank, "garden-sensor-project", tz_name="UTC")
+    gs = project_state.timeline_state(project_state.input_from_timeline(garden), T)
+    assert gs["planned"] is False and gs["section"] == "inMotion" and gs["quietThreshold"] == 43
+    assert garden.last_moment_day == d(-9)

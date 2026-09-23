@@ -170,7 +170,8 @@ Six rails hold across all of them:
   `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. Legacy files are not
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
-  consolidation.
+  consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
+  (G141 PJ-3b's Log; already processed, so Sleep never re-reads it).
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
@@ -325,7 +326,10 @@ not records: they stay in FTS and citations, where they read as dated happenings
 current'. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
 `object`, never its `context`. Event cardinality is multi and lives in code. **Only `progress.py`
 writes an event**: `write_claim` refuses the predicates, `claim_pipeline` relabels a stray label.
-Dates are decided by `when.py`'s closed table; nothing relative is stored.
+Dates are decided by `when.py`'s closed table; nothing relative is stored. `companion_app` is a
+human origin (G141 R-PJ18): only `routers/projects.py` sets it (and the synthetic demo, which replays
+app writes), no MCP tool accepts an `origin`, and `is_human` protects the person's milestones and Log
+entries — an agent's different state on them coexists with a divergence item.
 
 **Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
 being true — and a G17 `due` claim's ISO-date object is its own. Never a future `valid_to`, which
@@ -478,7 +482,8 @@ Cicada-Session: <id>
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
 `sleep/state`, `sleep/expiry`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
-`user/companion_app`,
+`user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
+`Cicada-Author: user`),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
@@ -838,7 +843,12 @@ the same files (F1's context filter and fence strip); an entity node's hash also
 `contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed. `/projects` and
 `/projects/{id}/timeline` (G141) ETag over `entities`+`episodes`+`inbox` with `extra` =
 `projects|<shape>|<machine zone>` — never today, never a viewer zone — and are **not** Store domains
-(no `VersionVector` mapping, fetched on demand like provenance).
+(no `VersionVector` mapping, fetched on demand like provenance). The person's writes (G141 PJ-3b) —
+`POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
+(the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
+/projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
+while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
+`user/companion_app`.
 
 **Endpoint traps worth knowing before you touch them:**
 

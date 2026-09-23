@@ -59,7 +59,11 @@ _DECAY_FACTOR = {
 # multiplies to 0.0 — its claims never decay — while a volatile subject's fade
 # twice as fast. See ``schemas.CLAIM_DECAY_MULTIPLIERS``.
 
-_HUMAN_ORIGINS = {"manual_edit", "clarification"}
+# G141 R-PJ18: `companion_app` is the app's writes (`routers/projects.py`) —
+# without it an agent or Sleep claim could supersede the person's milestone or
+# Log entry. Only that router (and the synthetic demo) ever sets it; no MCP tool
+# accepts an `origin` (`test_human_origin_pin.py`).
+_HUMAN_ORIGINS = {"manual_edit", "clarification", "companion_app"}
 
 # G85 §2 / Wave-1 1.8: mirrors conflict_resolver.MAX_DECAY_DAYS_PER_CYCLE — a
 # single decay pass never charges more than one week's worth, regardless of
@@ -79,8 +83,8 @@ def is_human(c: Claim) -> bool:
 
     A ``user_stated`` claim whose ``origin`` is a logged harness (the agent
     extracted a first-person statement) is NOT overwrite-protected — protection
-    is anchored to ``origin``, which only the manual-edit / clarification paths
-    may set. This closes the spoofing hole where routine extraction could
+    is anchored to ``origin``, which only the manual-edit / clarification /
+    companion-app (G141's Projects writes, R-PJ18) paths may set. This closes the spoofing hole where routine extraction could
     self-label its way into immunity.
     """
     return c.source_trust == "user_stated" and (c.origin or "") in _HUMAN_ORIGINS
