@@ -175,4 +175,42 @@ extension Copy {
         if let episodes { parts.append("\(UsageFormat.count(episodes)) \(episodes == 1 ? "episode" : "episodes")") }
         return parts.joined(separator: " · ")
     }
+
+    // MARK: Skills (G138)
+    static let skills = "Skills"
+    static let skillsSubtitle = "Abilities your agents can add, with your consent."
+    static let settingsSkills = "\(settings) → \(skills)"
+    static let cicadasOwnGroup = "Cicada's own"
+    static let recommendedGroup = "Recommended"
+    static func reviewedOn(_ date: String) -> String { "Reviewed \(date)" }
+    static let installedGroup = "Already installed"
+    static let skillsFootnote = "Cicada never runs a skill itself. Installing one runs your agent's own installer, after you say yes."
+    static let agentsSkillTitle = "Cicada's skill for your agents"
+    static let agentsSkillDetail = "Tells an agent when to look things up in Cicada and when to save."
+    static let openSkills = "Open Skills"
+    static let install = "Install"
+    static let update = "Update"
+    static let remove = "Remove"
+    static let changedByYou = "Changed by you — Cicada won't touch it."
+    static let installedByHand = "Installed (not by Cicada)"
+    static let differentCopy = "A different copy is installed — Cicada won't touch it."
+    static let sourceMissing = "Cicada's skill file isn't on this Mac."
+    static let whatItNeeds = "What it needs"
+    static let showExactCommand = "Show the exact command"
+    static let copyCommand = "Copy command"
+    static let understandThirdParty = "I understand this installs someone else's code on this Mac."
+    static func installIn(_ agent: String) -> String { "Install in \(agent)…" }
+    static func installTitle(_ skill: String, _ agent: String) -> String { "Install \(skill) in \(agent)?" }
+    static func installLead(_ agent: String) -> String {
+        "This runs \(agent)'s own installer on this Mac. Cicada never runs the skill itself."
+    }
+    static let installing = "Installing… this can take a minute."
+    static func installedStartNew(_ agent: String) -> String { "Installed. Start a new \(agent) session to use it." }
+    static let installDidntFinish = "It didn't finish. Here's what the installer said:"
+    static func agentMissing(_ program: String) -> String {
+        program == "npx"
+            ? "This needs Node.js (for npx). Install it from nodejs.org, then try again — or copy the command."
+            : "\(program) isn't installed on this Mac. Copy the command to run it where it is."
+    }
+    static let connectInYourAgent = "Connect it in your agent — it will ask you to sign in."
 }

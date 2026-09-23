@@ -28,10 +28,13 @@ import Foundation
 /// stays on this Mac and how to take it away), and Memory (the derived index
 /// and the link backfill); Advanced closes Engines & keys. New cases only, so
 /// every persisted raw value still restores (K1).
+///
+/// O5 — Skills (G138) closes Customize: what your agents can add, installed
+/// only by the agent's own installer after consent (R-O26).
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, you, privacy, memory, sleep, integrations, agents, remote, engines, plansAndKeys, advanced
+    case general, you, privacy, memory, sleep, integrations, agents, remote, skills, engines, plansAndKeys, advanced
 
     var id: String { rawValue }
 
@@ -45,6 +48,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .integrations: Copy.integrations
         case .agents: Copy.agents
         case .remote: Copy.fromAnywhere
+        case .skills: Copy.skills
         case .engines: Copy.engines
         case .plansAndKeys: Copy.plansAndKeys
         case .advanced: Copy.advanced
@@ -62,6 +66,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .integrations: Copy.integrationsSubtitle
         case .agents: Copy.agentsSubtitle
         case .remote: Copy.remoteSubtitle
+        case .skills: Copy.skillsSubtitle
         case .engines: Copy.enginesSubtitle
         case .plansAndKeys: Copy.plansAndKeysSubtitle
         case .advanced: Copy.advancedSubtitle
@@ -78,6 +83,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .integrations: "puzzlepiece.extension"
         case .agents: "cable.connector"
         case .remote: "dot.radiowaves.left.and.right"
+        case .skills: "sparkles"
         case .engines: "cpu"
         // K4: `creditcard` read as a price on a page that must never show one.
         case .plansAndKeys: "key.horizontal"
@@ -88,7 +94,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var group: SettingsGroup {
         switch self {
         case .general, .you, .privacy, .memory, .sleep: .cicada
-        case .integrations, .agents, .remote: .customize
+        case .integrations, .agents, .remote, .skills: .customize
         case .engines, .plansAndKeys, .advanced: .enginesAndKeys
         }
     }

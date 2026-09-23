@@ -31,6 +31,7 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(SettingsSection.privacy.title, Copy.privacyAndData)
         XCTAssertEqual(SettingsSection.memory.title, Copy.memorySection)
         XCTAssertEqual(SettingsSection.advanced.title, Copy.advanced)
+        XCTAssertEqual(SettingsSection.skills.title, Copy.skills)
     }
 
     /// R7 / K1 — a persisted selection must survive Settings v3.

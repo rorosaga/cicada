@@ -35,6 +35,9 @@ struct SettingsScene: View {
     @State private var selection: SettingsSection = .general
 
     @State private var focus = SettingsFocus()
+    /// Skills' data (G138) lives here, not in the page, so search can index
+    /// the recommended skills while another section is showing.
+    @State private var skillsVM = SkillsViewModel()
     @State private var query = ""
     /// Picking a sidebar row after typing shows that section (with its
     /// matches barred); typing again brings the results back (design §2.4).
@@ -52,7 +55,8 @@ struct SettingsScene: View {
             harnessRows: IntegrationHarnessRows.rows(from: store.sourcesOverview.value ?? []),
             exportOnly: IntegrationsView.exportOnlyTiles,   // the page's own list, never a retyped copy
             connections: store.connections.value ?? [],
-            agents: agents)
+            agents: agents,
+            skills: skillsVM.all)
     }
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hits: [SettingsHit] { SettingsIndex.search(trimmedQuery, in: entries) }
@@ -122,6 +126,8 @@ struct SettingsScene: View {
             focus.matchedRows = trimmedQuery.isEmpty ? [] : Set(self.hits.map(\.entry.anchor))
         }
         .environment(focus)
+        .environment(skillsVM)
+        .task { await skillsVM.load() }
         .frame(minWidth: Self.windowWidth, minHeight: Self.windowHeight)
         .onAppear {
             selection = SettingsSection.restored(from: sectionRaw,
@@ -187,6 +193,7 @@ struct SettingsScene: View {
         case .integrations: IntegrationsView()
         case .agents: ConnectView()
         case .remote: FromAnywhereView()
+        case .skills: SkillsView()
         case .engines: EnginesView()
         case .plansAndKeys: ConnectionsView()
         case .advanced: AdvancedView()

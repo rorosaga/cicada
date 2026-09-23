@@ -29,6 +29,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Agents and From anywhere (Task 3)
     static let agentsInstall = SettingsRowID("agentsInstall")
     static let agentsCloud = SettingsRowID("agentsCloud")
+    // Agents' pointer to Skills (Task 8)
+    static let agentsSkill = SettingsRowID("agentsSkill")
     static let remoteSwitch = SettingsRowID("remoteSwitch")
     static let remoteReach = SettingsRowID("remoteReach")
     static let remoteNew = SettingsRowID("remoteNew")

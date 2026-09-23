@@ -2059,6 +2059,10 @@ actor APIClient {
     /// only means the app stopped waiting.
     func rebuildSearchIndex() async throws -> SearchIndexStatus { try await post("/maintenance/search-index/rebuild") }
 
+    /// `GET /skills/recommended` (G138) — the reviewed catalog with install
+    /// state derived per request. No ETag and no Store domain (R-O23).
+    func fetchRecommendedSkills() async throws -> RecommendedSkillsResponse { try await get("/skills/recommended") }
+
     /// `POST /maintenance/enrich-links` — the on-demand twin of the Sleep-tail
     /// backfill (G102); 409 while Sleep or another run is going. `limit=10`,
     /// not the backend's per-cycle 20: each link is a ≤ 4 s fetch plus a

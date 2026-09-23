@@ -82,10 +82,9 @@ enum AgentSetupCatalog {
                         command: "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(SnippetEscape.shell(memory)) -- \(SnippetEscape.shell(python)) \(SnippetEscape.shell(server))",
                         note: "Verify with `claude mcp list` or `/mcp` inside a session. New sessions pick it up automatically."
                     ),
-                    .init(
-                        label: "Optional: install the Cicada skill so Claude knows when to recall and save",
-                        command: "mkdir -p ~/.claude/skills/cicada && cp \(SnippetEscape.shell("\(home)/SKILL.md")) ~/.claude/skills/cicada/SKILL.md"
-                    ),
+                    // G138 — the skill step lives on Settings → Skills now,
+                    // which writes Cicada's own skill with a marker (R-O26)
+                    // instead of asking the person to paste a `cp`.
                 ]
             ),
             AgentSetup(
@@ -246,6 +245,10 @@ struct ConnectView: View {
                         openAgent = openAgent == agent.id ? nil : agent.id
                     }
                     .settingsRow(.agent(agent.id))
+                }
+                SettingsDivider()
+                SettingsRow(.agentsSkill, title: Copy.agentsSkillTitle, detail: Copy.agentsSkillDetail) {
+                    SettingsInlineLink(section: .skills, row: .skill(CicadaSkillBundle.cicada.rawValue), label: Copy.openSkills)
                 }
             }
             SettingsGroupCard {

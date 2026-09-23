@@ -487,7 +487,7 @@ unchanged for future use.
 **Navigation.** Six sidebar rows (⌘1–6): Graph, Clusters, Feed, Sleep, Inbox, Sources. Setup lives
 in a native `Settings{}` scene (⌘,): a `NavigationSplitView` whose sidebar starts with a search field
 and groups its rows as Cicada · Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General ·
-You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere; Engines & keys:
+You · Privacy & data · Memory · Sleep; Customize: Integrations · Agents · From anywhere · Skills; Engines & keys:
 Engines · Plans & keys · Advanced. Privacy & data exports a bank and moves one to `<root>/.trash/`, but
 never switches banks (that stays in the Graph page's `BankSwitcher` — a second switcher in another
 window is the split-brain class); Memory has no "Look for duplicates" until the dedup endpoint stops
@@ -530,6 +530,18 @@ only: the Max-tier cost-estimate picker is gone (the no-price ruling).
 Integrations; a *one-shot* import (drop an export, sync a folder once) stays where it already was,
 behind the Feed's `+`. Both read the same `channel_registry`, so a channel never drifts between the
 two surfaces.
+
+**Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
+licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
+bridges; `scripts/verify-skills.sh` re-checks it) served by `GET /skills/recommended` — at most
+five not-installed entries by rank, install state derived per request from `SKILL.md` files and
+Claude Code plugin ids, never an agent's config. **The backend never installs anything.** The app
+runs only the agent's own installer (`claude`, `codex`, `npx skills` pinned to the reviewed
+commit), after a consent sheet that shows the exact command, as an argv with
+`CICADA_CAPTURE=off`; hosted MCP servers are copy-only. The app writes files only for Cicada's
+own `cicada` and `cicada-librarian` (`SkillInstaller`, a `.cicada-managed.json` marker, never
+over a changed copy). The handshake gains a capability line only for an installed, active bridge
+whose tool exists; video and meeting bridges wait for the watch record and speaker-aware evidence.
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five

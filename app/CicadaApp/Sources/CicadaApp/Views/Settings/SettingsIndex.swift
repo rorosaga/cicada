@@ -56,7 +56,9 @@ enum SettingsIndex {
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchIndex, .enrichLinks,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
-        .agentsInstall, .agentsCloud,
+        .agentsInstall, .agentsCloud, .agentsSkill,
+        // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
+        .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
         .engineChoice, .engineModel, .engineOverage, .enginePreview, .engineAsk, .engineAutoClaude,
         .backendStatus, .mcpCommand, .apiToken, .envOverrides,
@@ -95,6 +97,12 @@ enum SettingsIndex {
         // Agents
         SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
+        SettingsEntry(.agentsSkill, .agents, Copy.agentsSkillTitle, keywords: ["skill", "SKILL.md", "claude code"]),
+        // Cicada's own skills (G138) — per-item ids, so outside the bare-name lint
+        SettingsEntry(.skill(CicadaSkillBundle.cicada.rawValue), .skills, CicadaSkillBundle.cicada.title,
+                      keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),
+        SettingsEntry(.skill(CicadaSkillBundle.cicadaLibrarian.rawValue), .skills, CicadaSkillBundle.cicadaLibrarian.title,
+                      keywords: ["librarian", "consolidate"], detail: CicadaSkillBundle.cicadaLibrarian.summary),
         // From anywhere — landing on its header (R-O12)
         SettingsEntry(.remoteSwitch, .remote, Copy.remoteSwitchTitle,
                       keywords: ["phone", "claude.ai", "chatgpt", "perplexity", "connector", "remote", "mobile"], anchor: .page(.remote)),
@@ -129,7 +137,7 @@ enum SettingsIndex {
     /// so typing in Settings never matches — or displays — a secret.
     static func dynamicEntries(channels: [SourceChannel], harnessRows: [SourceOverview],
                                exportOnly: [AddSourceTile], connections: [ConnectionStatus],
-                               agents: [AgentSetup]) -> [SettingsEntry] {
+                               agents: [AgentSetup], skills: [RecommendedSkill] = []) -> [SettingsEntry] {
         var out: [SettingsEntry] = []
         out += channels.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
                                             keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title]) }
@@ -139,6 +147,10 @@ enum SettingsIndex {
         out += connections.map { SettingsEntry(.connection($0.id), .plansAndKeys, $0.label,
                                                keywords: [$0.planLabel ?? "", "sign in", "key", "plan"].filter { !$0.isEmpty }) }
         out += agents.map { SettingsEntry(.agent($0.id), .agents, $0.name, keywords: ["mcp", "connect", "register"]) }
+        // G138 — the recommended and installed skills the window already
+        // fetched; a title, a publisher and an id, never an install command.
+        out += skills.map { SettingsEntry(.skill($0.id), .skills, $0.title,
+                                          keywords: [$0.publisher, $0.id].filter { !$0.isEmpty }, detail: $0.summary) }
         return out
     }
 

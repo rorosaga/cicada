@@ -46,14 +46,25 @@ rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conver
 Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
 (M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
 
-**Round 3, Track O — G139 Settings v3, Tasks 1–2 (2026-09-23, `feat/settings-v3`, not yet a PR).** The
+**Round 3, Track O — G139 Settings v3 + G138 recommended skills (2026-09-23, `feat/settings-v3`, not yet a PR).** The
 settings kit, a sidebar grouped Cicada · Customize · Engines & keys, General with a System appearance
 (one app-scope observer), and a new Engines page that owns engine choice; Plans & keys is credentials
 only. Final-review ruling on the design doc's A3: the moved `use_for_sleep` switch shows only under the
 API key card as "Use my Claude plan when I start a cycle", because `engine_select` never reads it under
 Auto. Tasks 3–7 of `docs/superpowers/plans/2026-09-23-settings-v3.md` are built (From anywhere's own
 row, search, the Cicada-group pages, and G138's server half: the reviewed catalog, `GET /skills/recommended`,
-the handshake bridge at `CONTRACT_VERSION` 3); Task 8 (the Skills page and `SkillInstaller`) is open.
+the handshake bridge at `CONTRACT_VERSION` 3), and Task 8 closes the plan: Settings → Skills — Cicada's
+own two skills written by the app with a `.cicada-managed.json` marker (never over a changed copy), at
+most five recommended cards that open a detail sub-page (breadcrumb, ⌘[ and Esc back), and a consent
+sheet that shows the exact command before the agent's own installer runs (`SkillInstaller`: argv only,
+`claude`/`codex`/`npx` only, `CICADA_CAPTURE=off`, 300 s cap, cancel terminates). Agents' pasted `cp`
+skill step is now a pointer to Skills. Baselines at Task 8: backend 2754 passed; app 1159 tests, 0 failures;
+graph JS 7/7. **Follow-ups (named, not forgotten):** R-O12 remote connectors in the
+Settings index; R-O16 ⌘F in Settings (waits for the palette's "Find on This Page"); R-O17 "Look for
+duplicates" on Memory (the dedup endpoint must stop blocking the event loop and commit its merges);
+R-O28 pending bridges (`watch` → `cicada_record_watch` with Track Q, meetings/documents with Track N);
+R-O29 pending marks (`granola`, `wispr-flow`, `arxiv`); and the O0 `openSettings` runtime result, which
+the orchestrator records in the design doc's A5 once its scratch-app spike runs.
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
