@@ -233,25 +233,8 @@ struct SleepView: View {
     // `.onChange` instead of contending for either slot.
     @State private var justFinishedAt: Date?
 
-    /// G125 Task 7 — the SSE-preferred, REST-fallback read of the cycle's
-    /// per-origin queue/read dicts (R3) that both the desk card's book pile
-    /// and the study list are built from. Resolved once per body evaluation
-    /// so the two never disagree about which cycle's counts they're showing.
-    private var liveOriginCounts: (queueByOrigin: [String: Int], readByOrigin: [String: Int]) {
-        resolveOriginCounts(sse: store.sleepEvent, status: sleepVM.status)
-    }
-
-    private var studyListRows: [StudyRow] {
-        let origins = liveOriginCounts
-        return studyRows(
-            queued: sleepVM.queuedEpisodes,
-            queueByOrigin: origins.queueByOrigin,
-            readByOrigin: origins.readByOrigin,
-            running: sleepVM.isRunning
-        )
-    }
-
     var body: some View {
+        let page = resolvePage()
         ZStack {
             // No .ignoresSafeArea(): the title bar is darkened at the window level
             // (CicadaApp). Ignoring the safe area here pushed content under the menu
@@ -263,7 +246,7 @@ struct SleepView: View {
             // the ScrollView rather than sitting inside it: inside, it would
             // measure the scroll content it is itself sizing.
             GeometryReader { geo in
-                scrollContent(width: geo.size.width, layout: sleepLayout(width: geo.size.width))
+                scrollContent(page, width: geo.size.width, layout: sleepLayout(width: geo.size.width))
             }
 
             // Top-right: just the `?` button now (R10 — the Sleep/Upload
@@ -327,7 +310,7 @@ struct SleepView: View {
     /// The scrolling body. Two columns side by side when there is room; the
     /// SAME two groups stacked when there is not, in the same order — a reflow
     /// must never reorder what the reader was looking at.
-    private func scrollContent(width: CGFloat, layout: SleepLayout) -> some View {
+    private func scrollContent(_ page: SleepPageModel, width: CGFloat, layout: SleepLayout) -> some View {
         let leftWidth = layout.leftColumnWidth(available: width,
                                                padding: CicadaTheme.spacingXL,
                                                gutter: CicadaTheme.spacingLG)
@@ -336,11 +319,11 @@ struct SleepView: View {
                 headerRow
                 if layout.isTwoColumn {
                     HStack(alignment: .top, spacing: CicadaTheme.spacingLG) {
-                        leftColumn.frame(width: leftWidth)
+                        leftColumn(page).frame(width: leftWidth)
                         rightColumn
                     }
                 } else {
-                    leftColumn
+                    leftColumn(page)
                     rightColumn
                 }
             }
@@ -348,6 +331,22 @@ struct SleepView: View {
             .frame(maxWidth: layout.maxContentWidth)
             .frame(maxWidth: .infinity, alignment: .top)
         }
+    }
+
+    /// Track Z Z1 — the page, resolved once per body (§9). Every reader below
+    /// takes its numbers from this value, so the room, the queue and the
+    /// controls cannot disagree about which reading they show (H1, now
+    /// structural). `now` is the body's own clock read — `studyRows` ages and
+    /// the 6 s digest window already depended on it.
+    private func resolvePage(now: Date = .now) -> SleepPageModel {
+        SleepPageModel.resolve(
+            status: sleepVM.status, sse: store.sleepEvent, queued: sleepVM.queuedEpisodes,
+            schedule: sleepVM.schedule, enginePreview: sleepVM.enginePreview, history: sleepVM.history,
+            storeStatus: store.status.value,
+            queueLoad: StudyListCard.loadState(status: store.status.value,
+                                               isLoading: store.status.isEmpty && store.status.isRefreshing,
+                                               error: store.domainErrors[.status]),
+            justFinishedAt: justFinishedAt, intakeInFlight: store.intakeInFlight, now: now)
     }
 
     /// The one error the page has to tell, if there is one — `lastError`
@@ -418,14 +417,15 @@ struct SleepView: View {
     /// `deskCard` either way — so the crispness question is a live-render
     /// check (it is on the verification list), not a code-shape one.
     @ViewBuilder
-    private var leftColumn: some View {
+    private func leftColumn(_ page: SleepPageModel) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            deskCard
+            deskCard(page)
                 .saturation(liveness.saturation)
             if let error = pageError {
                 errorBanner(error)
             }
-            StudyListCard(rows: studyListRows, episodes: sleepVM.queuedEpisodes, onSelectEntity: onSelectEntity)
+            StudyListCard(rows: page.rows, episodes: sleepVM.queuedEpisodes, queueLoad: page.queueLoad,
+                          onSelectEntity: onSelectEntity)
                 .saturation(liveness.saturation)
         }
     }
@@ -608,36 +608,25 @@ struct SleepView: View {
     /// `deskSceneLayout` reserves for it beside him. Nothing in the room is
     /// painted books (P10): the page's one volume encoding is that pile.
     ///
-    /// Both the mood and the per-origin counts prefer the
-    /// continuously-updating SSE `sleep` event (`store.sleepEvent`) and fall
-    /// back to the last REST `/sleep/status` fetch, via
-    /// `resolveSleepDebt`/`resolveProgressPct`/`resolveOriginCounts`.
+    /// Every value it draws comes from `page` (Track Z Z1), which resolved the
+    /// SSE-over-REST precedence (`store.sleepEvent` first, the last
+    /// `/sleep/status` fetch second) once for the whole body — the card no
+    /// longer re-derives the mood, the pile or the strip on its own.
     ///
     /// The scene box is a FIXED height at a given zoom (R-A2), so idle →
     /// running → idle never reflows the art: the mood changes the worm's
     /// frames, never the room's geometry.
-    private var deskCard: some View {
-        let debt = resolveSleepDebt(sse: store.sleepEvent, status: sleepVM.status)
-        let mood = deriveSleepPageMood(
-            status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt,
-            intakeInFlight: store.intakeInFlight
-        )
-        let origins = liveOriginCounts
-        let rows = studyListRows
-        let books = bookPileLayout(originVolumes(
-            queued: sleepVM.queuedEpisodes,
-            queueByOrigin: origins.queueByOrigin,
-            readByOrigin: origins.readByOrigin,
-            running: sleepVM.isRunning
-        ))
+    private func deskCard(_ page: SleepPageModel) -> some View {
+        let mood = page.mood
+        let debt = page.debt
         let bubbleCtx = BubbleContext(
-            unprocessed: debt?.unprocessedCount ?? 0,
-            topOriginLabel: rows.first?.label,
-            topOriginCount: rows.first?.count ?? 0,
+            unprocessed: page.debt?.unprocessedCount ?? 0,
+            topOriginLabel: page.rows.first?.label,
+            topOriginCount: page.rows.first?.count ?? 0,
             stage: sleepVM.status?.stage ?? 0,
-            read: origins.readByOrigin.values.reduce(0, +),
-            total: origins.queueByOrigin.values.reduce(0, +),
-            hoursSinceLastCycle: debt?.hoursSinceLastCycle
+            read: page.read,
+            total: page.total,
+            hoursSinceLastCycle: page.debt?.hoursSinceLastCycle
         )
 
         let scene = deskSceneLayout(pointSize: Self.wormPointSize)
@@ -650,7 +639,7 @@ struct SleepView: View {
                 // `mode != "manual"` by definition (`ScheduleConfig`), so the
                 // lamp and the schedule sentence read the same field — the
                 // art can never disagree with the words.
-                DeskSceneView(pointSize: Self.wormPointSize, lampLit: sleepVM.schedule.enabled)
+                DeskSceneView(pointSize: Self.wormPointSize, lampLit: page.lampLit)
 
                 // The worm sits on the cushion; `caption` is dropped because
                 // the scene positions the sprite by its own box, and a
@@ -663,7 +652,7 @@ struct SleepView: View {
 
                 // The REAL pile, in the column the layout reserves for it —
                 // never a painted stack (P10).
-                BookPileView(books: books)
+                BookPileView(books: page.books)
                     .frame(width: scene.pileFrame.width, height: scene.pileFrame.height,
                            alignment: .bottomLeading)
                     .offset(x: scene.pileFrame.minX, y: -scene.pileFrame.minY)
@@ -681,9 +670,10 @@ struct SleepView: View {
             SleepHeroView(
                 mood: mood,
                 debt: debt,
-                read: bubbleCtx.read,
-                total: bubbleCtx.total,
-                queuedCount: sleepVM.queuedEpisodes.count
+                read: page.read,
+                total: page.total,
+                queuedCount: page.queuedCount,
+                lastDurationMs: page.lastCycle?.durationMs
             )
 
             // R-A8 — the five-stage strip, in the slot the old
@@ -692,14 +682,7 @@ struct SleepView: View {
             // (H1): the stage from the one status snapshot, the two counts
             // from the one `resolveOriginCounts` call above.
             SleepStageStrip(
-                pips: stageStripState(
-                    stage: sleepVM.status?.stage ?? 0,
-                    isRunning: sleepVM.isRunning,
-                    cancelled: sleepVM.status?.cancelled == true,
-                    error: !(sleepVM.status?.error ?? "").isEmpty,
-                    read: bubbleCtx.read,
-                    total: bubbleCtx.total
-                ),
+                pips: page.pips,
                 showsCaughtUpWorm: stageStripShowsCaughtUpWorm(mood: mood, debt: debt)
             )
 
@@ -714,17 +697,20 @@ struct SleepView: View {
             // sentence mentioned either. Both get a real, structured
             // readout here rather than depending on the human sitting there
             // to parse a sentence.
-            if sleepVM.status?.cancelled == true {
+            if page.cancelled {
                 cancelledBanner
             }
-            if let s = sleepVM.status, s.episodesQueued > s.episodesTotal {
+            // The cap NUMBERS still read the status itself — they are Details
+            // content (Task 4); only the "is there a cap to report" decision
+            // moved onto the page model.
+            if page.capped, let s = sleepVM.status {
                 capBanner(processed: s.episodesTotal, queued: s.episodesQueued, cap: s.episodeCap)
             }
 
             // Non-fatal warnings (e.g. LEANN episode index rebuild failed
             // even though entity writes + commit succeeded). Surfaced so a
             // "completed with warnings" cycle never looks like a clean pass.
-            if let warning = sleepVM.status?.indexWarning, !warning.isEmpty {
+            if let warning = page.indexWarning {
                 warningBanner(warning)
             }
         }

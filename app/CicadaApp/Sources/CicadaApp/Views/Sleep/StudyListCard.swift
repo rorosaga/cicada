@@ -117,14 +117,19 @@ struct StudyListCard: View {
 
     let rows: [StudyRow]
     let episodes: [EpisodeQueueItem]
+    /// Track Z Z1 — resolved once by the page (`SleepPageModel.queueLoad`,
+    /// through the static `loadState` below) rather than re-derived from the
+    /// Store here, so the card and the room read one snapshot per body.
+    let queueLoad: LoadState
     var onSelectEntity: ((String) -> Void)?
 
     /// Which origins are disclosed. Local UI state, not persisted — a fresh
     /// visit to the page starts every row collapsed.
     @State private var expandedOrigins: Set<String> = []
 
+    /// Read only by `footer`'s next-run line, until Task 3 moves that line
+    /// out of this card.
     private var status: StatusSnapshot? { store.status.value }
-    private var isLoading: Bool { store.status.isEmpty && store.status.isRefreshing }
 
     /// PR #19 review (moved verbatim from `SleepQueueCard`, R11): a missing
     /// `store.status` is not one state, it's two — a fetch still in flight
@@ -181,7 +186,7 @@ struct StudyListCard: View {
 
     @ViewBuilder
     private var content: some View {
-        switch Self.loadState(status: status, isLoading: isLoading, error: store.domainErrors[.status]) {
+        switch queueLoad {
         case .loading:
             HStack(spacing: CicadaTheme.spacingSM) {
                 ProgressView().controlSize(.small)

@@ -93,6 +93,24 @@ func ageLabel(hours: Double) -> String {
     return "\(Int(hours / 24))d"
 }
 
+/// `ageLabel`'s long form, for sentences (Track Z Z-P21) — the same thresholds
+/// in whole words, so "The oldest has waited 3 days." and the list's "3d" can
+/// never disagree about the age, only about how much room they have.
+func agePhrase(hours: Double) -> String {
+    if hours < 1 { return "under an hour" }
+    if hours < 48 {
+        let h = Int(hours)
+        return h == 1 ? "1 hour" : "\(h) hours"
+    }
+    return "\(Int(hours / 24)) days"
+}
+
+/// How long the oldest queued episode has waited, in hours — `nil` for an
+/// empty queue or one whose timestamps all fail to parse (never a guess).
+func oldestQueuedHours(_ queued: [EpisodeQueueItem], now: Date = .now) -> Double? {
+    queued.compactMap { parseEpisodeTimestamp($0.timestamp) }.min().map { now.timeIntervalSince($0) / 3600 }
+}
+
 /// The study list's rows: `groupEpisodesByOrigin`'s buckets (largest pile
 /// first), each with its oldest episode's age and — only while `running` —
 /// the Stage 1 countdown for that source. A source that IS in the full

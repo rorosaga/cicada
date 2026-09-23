@@ -192,14 +192,16 @@ struct HeroTile: Equatable, Identifiable {
 /// Present tense or measured, never a forecast (R-A6, and G107's estimate
 /// deferral is binding): what is in memory right now, how many sources feed
 /// it right now, and how long the last cycle actually took according to the
-/// `sleep_run` telemetry join — `—` when no row joined.
+/// `sleep_run` telemetry join — `—` when no row joined. "The last cycle" is
+/// the newest `kind == "sleep"` commit (Z-P3, `lastCycleEntry`): neither the
+/// G85 `(decay)` commit nor an inbox-resolution commit is a cycle.
 ///
 /// P6 — every input is a domain the `Store` already holds: the active bank's
 /// `entityCount` from `GET /banks`, the `sourcesOverview` rows with captures,
-/// and `sleepVM.history`. No new fetch, no new endpoint, and specifically not
-/// `/healthz` (auth-free, un-ETagged, not a Store domain — reading it would
-/// add a second freshness model to a page built entirely from last-known-good
-/// projections). The readout is identical; only its source moves.
+/// and `sleepVM.history` (through `SleepPageModel`). No new fetch, no new
+/// endpoint, and specifically not `/healthz` (auth-free, un-ETagged, not a
+/// Store domain — reading it would add a second freshness model to a page
+/// built entirely from last-known-good projections). The readout is identical; only its source moves.
 func heroTiles(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?) -> [HeroTile] {
     [
         HeroTile(
@@ -252,6 +254,11 @@ struct SleepHeroView: View {
     /// `sleepVM.queuedEpisodes.count`, passed in rather than re-derived: it
     /// is what the Consolidate button enables on, and the page already has it.
     let queuedCount: Int
+    /// The newest `kind == "sleep"` commit's measured duration
+    /// (`SleepPageModel.lastCycle`, Z-P3). It used to be read here as
+    /// `history.first { $0.kind != "decay" }`, which also matched an inbox
+    /// resolution commit — the person's own answer timed as "the last cycle".
+    let lastDurationMs: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
@@ -340,7 +347,7 @@ struct SleepHeroView: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
             ForEach(heroTiles(entityCount: activeBankEntityCount,
                               sourceCount: feedingSourceCount,
-                              lastDurationMs: lastMeasuredCycleMs)) { tile in
+                              lastDurationMs: lastDurationMs)) { tile in
                 VStack(alignment: .leading, spacing: 1) {
                     Text(tile.value)
                         .font(CicadaTheme.font(size: 15, weight: .semibold, design: .rounded))
@@ -369,13 +376,6 @@ struct SleepHeroView: View {
     /// source that has captured nothing is not feeding anything.
     private var feedingSourceCount: Int? {
         store.sourcesOverview.value.map { rows in rows.filter { $0.episodes > 0 }.count }
-    }
-
-    /// The most recent cycle that actually consolidated something — a
-    /// `decay` commit is pure arithmetic over unmentioned entities (the G85
-    /// split) and its wall-clock says nothing about how long a cycle takes.
-    private var lastMeasuredCycleMs: Int? {
-        sleepVM.history.first { $0.kind != "decay" }?.durationMs
     }
 
     // MARK: The one Consolidate/Cancel control (R-A7)
