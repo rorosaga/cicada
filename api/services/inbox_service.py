@@ -174,6 +174,8 @@ def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") 
     extractor's ``suggested_confidence``, conflict → the proposed claim's
     ``confidence`` and ``authored_by``. Read-only; ids and numbers only.
     """
+    from api.services import git_service
+
     out: dict = {"extractor_confidence": None, "extractor_model": None}
     if kind == "decay":
         out["extractor_confidence"] = _as_float(fm.get("priority"))
@@ -185,7 +187,8 @@ def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") 
             claim = next((c for c in context.claims(str(fm.get("entity_id", "") or "")) if c.id == claim_id), None)
             if claim is not None:
                 out["extractor_confidence"] = _as_float(claim.confidence)
-                out["extractor_model"] = _opt_str(claim.authored_by)
+                out["extractor_model"] = _opt_str(
+                    git_service.canonical_author(claim.authored_by) if claim.authored_by else None)
     return out
 
 
@@ -609,6 +612,8 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
     yields no claim info — this is bookkeeping, never a reason to block a
     resolve. Only ids and numbers leave this function.
     """
+    from api.services import git_service
+
     out: dict = {"winner": None, "losers": [], "extractor_confidence": None, "extractor_model": None}
     item_claim = _opt_str(fm.get("claim_id"))
     existing_claim = _opt_str(fm.get("existing_claim_id"))
@@ -651,7 +656,8 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
                 claim = next((c for c in parse_claims(parsed.body) if c.id == lookup_id), None)
                 if claim is not None:
                     out["extractor_confidence"] = _as_float(claim.confidence)
-                    out["extractor_model"] = _opt_str(claim.authored_by)
+                    out["extractor_model"] = _opt_str(
+                        git_service.canonical_author(claim.authored_by) if claim.authored_by else None)
         except Exception:  # noqa: BLE001 — no claim info is an acceptable answer
             logger.debug("feedback refs: claim lookup failed", exc_info=True)
     return out

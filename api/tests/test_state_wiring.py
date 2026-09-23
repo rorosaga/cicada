@@ -321,3 +321,43 @@ def test_a_user_write_never_sweeps_the_projection(api_bank):
             assert subject.startswith("State snapshot "), subject
             assert files == ["_state.md"]
             assert git_service._parse_authors(_git(api_bank, "log", "-1", "--format=%B", sha)) == ["cicada"]
+
+
+@pytest.mark.parametrize("mode", ["manual", "daily", "interval", "after_import"])
+def test_state_and_status_name_the_same_next_run_in_every_mode(api_bank, mode):
+    """F2-back R-B16: `/state`'s `sleep.next_at` and `/status`'s `nextSleepAt` are
+    one formula with one set of inputs (Track P R6, `7d1de42`) in all four modes.
+    The cycle is an hour old, so `interval` anchors on it rather than flooring at
+    now; `after_import` has a waiting episode, so it names an instant."""
+    from api.models.schemas import ScheduleConfig
+    from api.services import episode_ids, sleep_scheduler
+
+    an_hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(timespec="seconds")
+    _git(api_bank, "commit", "-q", "--allow-empty", "--date", an_hour_ago, "-m", "Sleep cycle 2026-09-22")
+    markdown_parser.write(
+        api_bank / "episodes" / "ep_2026-09-22_001.md",
+        {"id": "ep_2026-09-22_001", "timestamp": episode_ids.utc_now_iso(),
+         "processed": False, "origin": "claude-code", "title": "Alpha project sync"},
+        "user: ship alpha-project",
+    )
+    sleep_scheduler.save_schedule(api_bank, ScheduleConfig(mode=mode, hour=3, minute=0, interval_hours=6))
+    with TestClient(main.app) as client:
+        state_next = client.get("/state").json()["sleep"]["next_at"]
+        status_next = client.get("/status").json()["nextSleepAt"]
+    if mode == "manual":
+        assert (state_next, status_next) == (None, None)
+        return
+    gap = abs(datetime.fromisoformat(state_next) - datetime.fromisoformat(status_next))
+    assert gap <= timedelta(seconds=2), (state_next, status_next)
+    if mode == "interval":
+        assert datetime.fromisoformat(state_next) > datetime.now() + timedelta(hours=4)
+
+
+def test_after_import_with_nothing_waiting_has_no_next_run_on_either(api_bank):
+    from api.models.schemas import ScheduleConfig
+    from api.services import sleep_scheduler
+
+    sleep_scheduler.save_schedule(api_bank, ScheduleConfig(mode="after_import", hour=3, minute=0))
+    with TestClient(main.app) as client:
+        assert client.get("/state").json()["sleep"]["next_at"] is None
+        assert client.get("/status").json()["nextSleepAt"] is None

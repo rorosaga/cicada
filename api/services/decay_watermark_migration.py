@@ -79,7 +79,6 @@ pre-existing dirty edit or a concurrent Sleep write is never mis-attributed.
 
 from __future__ import annotations
 
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -312,13 +311,6 @@ def _commit_backfill(memory_path: Path, counts: dict, rel: list[str]) -> None:
     """
     if not rel:
         return
-    subprocess.run(["git", "add", "--", *rel], cwd=str(memory_path), check=True)
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--", *rel],
-        cwd=str(memory_path), check=True, capture_output=True, text=True,
-    )
-    if not status.stdout.strip():
-        return
     message = git_service.build_commit_message(
         f"Backfill decay watermarks {date.today().isoformat()}",
         [
@@ -327,8 +319,4 @@ def _commit_backfill(memory_path: Path, counts: dict, rel: list[str]) -> None:
         ],
         authors=["cicada"],
     )
-    subprocess.run(
-        ["git", "commit", "-m", message, "--", *rel],
-        cwd=str(memory_path),
-        check=True,
-    )
+    git_service.commit_paths_sync(memory_path, message, rel)  # F2-back R-B1

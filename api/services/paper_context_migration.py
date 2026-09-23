@@ -27,7 +27,6 @@ repairs whatever it re-reads (R-FX6(b)). Never raises.
 """
 from __future__ import annotations
 
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -117,14 +116,9 @@ def _rewrite(memory_path: Path) -> tuple[list[Path], int, list[str], bool]:
 
 
 def _commit(memory_path: Path, rel: list[str]) -> None:
-    subprocess.run(["git", "add", "--", *rel], cwd=str(memory_path), check=True)
-    status = subprocess.run(["git", "status", "--porcelain", "--", *rel], cwd=str(memory_path),
-                            check=True, capture_output=True, text=True)
-    if not status.stdout.strip():
-        return
     message = git_service.build_commit_message(
         f"Repair paper contexts {date.today().isoformat()}",
         [f"{p}: updated (trigger: {TRIGGER})" for p in rel],
         authors=["cicada"],
     )
-    subprocess.run(["git", "commit", "-q", "-m", message, "--", *rel], cwd=str(memory_path), check=True)
+    git_service.commit_paths_sync(memory_path, message, rel)  # F2-back R-B1: the bank's one write lock

@@ -500,7 +500,8 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         deferred = await asyncio.to_thread(papers.reconcile_pending, memory_path)
         if deferred["folders"]:
             await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
-                                                 trigger="folder/papers", author="cicada")
+                                                 trigger="folder/papers", author="cicada",
+                                                 channel="papers")
         if not await asyncio.to_thread(paper_metadata.has_pending, memory_path):
             return
         if not network_allowed():
@@ -529,7 +530,8 @@ async def _replay_wispr_todos_safely(memory_path: Path) -> None:
         report = await asyncio.to_thread(wispr_flow.replay_pending_todos, memory_path)
         if report["paths"]:
             await folder_source.commit_paths_for(memory_path, report["paths"], subject="Wispr Flow to-dos",
-                                                 trigger="wispr-flow/todos", author="cicada")
+                                                 trigger="wispr-flow/todos", author="cicada",
+                                                 channel=wispr_flow.CHANNEL_ID)
     except Exception as e:
         logger.warning(f"Wispr Flow to-dos failed: {type(e).__name__}: {e}")
 
@@ -922,6 +924,21 @@ async def _run_engine_independent_tail(
         await _refresh_questions_safely(memory_path, settings)
 
 
+async def _flush_pending_commits_safely(memory_path: Path) -> None:
+    """F2-back R-B5: land the folder, paper and Wispr commits git refused, under
+    their own authors, BEFORE any stage writes — `_finalize`'s `git add -A` is
+    the writer that would otherwise sweep them under this cycle's model (the
+    G85 smear). Deterministic; never fatal."""
+    try:
+        from api.services import folder_source
+
+        landed = await folder_source.flush_pending_commits(memory_path)
+        if landed:
+            logger.info(f"Landed {landed} kept commit(s) before the cycle")
+    except Exception as e:
+        logger.warning(f"Kept commits not landed: {type(e).__name__}: {e}")
+
+
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True) -> None:
     """Execute the 5-stage Sleep cycle pipeline.
 
@@ -1010,6 +1027,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
 
     outcome = _StageOutcome()
     try:
+        await _flush_pending_commits_safely(memory_path)
         with agent_engine.use_scope(f"sleep:{cycle_id}"):
             outcome = await _run_stages(
                 settings, cycle_id, memory_path, user_triggered=user_triggered

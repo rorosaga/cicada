@@ -33,7 +33,7 @@
         "safeUses": ["your own recordings", "videos you made, like your own Looms"]
       },
       "cicadaNote": "Cicada itself never downloads video. It only keeps what your agent tells it afterwards.",
-      "bridge": {"key": "video", "tool": "cicada_record_watch", "active": false}
+      "bridge": {"key": "video", "tool": "cicada_record_watch", "active": true}
     },
     {
       "id": "paper-lookup", "kind": "skill", "rank": 2,
@@ -67,7 +67,7 @@
       "needs": {"accounts": ["a Wispr Flow account"], "network": ["api.wisprflow.ai"],
                 "limits": ["Read-only.", "Meetings only — it can't see your dictation history."]},
       "cicadaNote": "Meetings hold other people's words. Keep only what you'd be comfortable keeping.",
-      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": false}
+      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": true}
     },
     {
       "id": "granola", "kind": "mcp-hosted", "rank": 4,
@@ -81,7 +81,7 @@
       "needs": {"accounts": ["a Granola account; full transcripts need a Granola paid plan"], "network": ["mcp.granola.ai"],
                 "limits": ["Read-only."]},
       "cicadaNote": "Meetings hold other people's words. Keep only what you'd be comfortable keeping.",
-      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": false}
+      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": true}
     },
     {
       "id": "skill-creator", "kind": "plugin", "rank": 5,
@@ -155,7 +155,7 @@
       "detect": {"skillDirs": ["transcribe"]},
       "needs": {"keys": [{"name": "OPENAI_API_KEY", "optional": false}], "network": ["api.openai.com"]},
       "cicadaNote": "Recordings hold other people's words. Keep only what you'd be comfortable keeping.",
-      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": false}
+      "bridge": {"key": "meetings", "tool": "cicada_save_episode", "active": true}
     }
   ]
 }

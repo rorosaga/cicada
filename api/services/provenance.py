@@ -277,7 +277,7 @@ def entity_provenance(
     commit_authors = commit_authors or {}
     docs = _Episodes(memory_path)
 
-    claim_authors = Counter((c.authored_by or git_service.UNKNOWN_AUTHOR) for c in current)
+    claim_authors = Counter(git_service.canonical_author(c.authored_by) for c in current)
     contributors: list[ProvenanceContributor] = []
     for author in set(claim_authors) | set(commit_authors):
         kind, provider = git_service.author_identity(author)
@@ -441,7 +441,7 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
             base = {
                 "claim_id": claim.id, "subject_id": subject_id, "subject_name": subject_name,
                 "subject_type": subject_type, "text": claim.text, "current": _current(claim),
-                "authored_by": claim.authored_by or git_service.UNKNOWN_AUTHOR, "observer": claim.observer,
+                "authored_by": git_service.canonical_author(claim.authored_by), "observer": claim.observer,
             }
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]

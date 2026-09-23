@@ -43,6 +43,27 @@ async def list_folders(settings: Settings = Depends(get_settings)):
     return FolderListResponse(folders=[_record(f) for f in folder_source.list_folders(settings.memory_path)])
 
 
+async def _reapply_authorship(memory_path, folder: dict) -> list[str]:
+    """F2-back R-B6/R-B7: re-derive every existing episode's authorship from the
+    folder's current rules, then bring its papers' why-claims in line — through
+    `papers.reconcile`, which reads the authorship each episode now declares.
+    While Sleep runs the paper step waits (R-LS17): the folder is flagged
+    `papers_pending` and the next sync or the Sleep tail re-parses it. Returns
+    the bank-relative paths written, for the caller's one commit."""
+    moved = await run_in_threadpool(folder_source.reapply_authorship, memory_path, folder["id"])
+    paths = list(moved["paths"])
+    if not moved["touched"]:
+        return paths
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        folder_source.set_flags(memory_path, folder["id"], papers_pending=True)
+        return paths + [f"sources/{folder_source.FOLDERS_FILENAME}"]
+    current = folder_source.get_folder(memory_path, folder["id"]) or folder
+    report = await run_in_threadpool(papers.reconcile, memory_path, current, touched=moved["touched"], tombstoned={})
+    return paths + list(report["paths"])
+
+
 @router.post("/sources/folders", response_model=FolderRecord, dependencies=_DEMO_GATE)
 async def register_folder(req: FolderRegisterRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
@@ -65,21 +86,36 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     paths = [f"sources/{folder_source.FOLDERS_FILENAME}"]
     if project_id:
         paths.append(f"entities/{project_id}.md")
+    trigger = "user/companion_app"
+    if req.authorship is not None:
+        # A re-pick that carries rules is a rules change too (R-B6); a new folder has nothing to move.
+        moved = await _reapply_authorship(memory_path, folder)
+        if moved:
+            paths += moved
+            trigger = folder_source.AUTHORSHIP_TRIGGER
     await folder_source.commit_paths_for(
-        memory_path, paths, subject=f"Folder added ({folder['label']})", trigger="user/companion_app")
+        memory_path, paths, subject=f"Folder added ({folder['label']})", trigger=trigger,
+        channel=folder_source.channel_id(folder["id"]))
     return _record(folder)
 
 
 @router.put("/sources/folders/{folder_id}", response_model=FolderRecord, dependencies=_DEMO_GATE)
 async def update_folder(folder_id: str, req: FolderUpdateRequest, settings: Settings = Depends(get_settings)):
+    memory_path = settings.memory_path
     folder = folder_source.update(
-        settings.memory_path, folder_id, label=req.label,
+        memory_path, folder_id, label=req.label,
         authorship=[r.model_dump() for r in req.authorship] if req.authorship is not None else None)
     if folder is None:
         raise HTTPException(404, f"No folder {folder_id!r}")
+    paths = [f"sources/{folder_source.FOLDERS_FILENAME}"]
+    trigger = "user/companion_app"
+    if req.authorship is not None:
+        # F2-back R-B6: the rules and the episodes they relabel land in ONE `user` commit.
+        paths += await _reapply_authorship(memory_path, folder)
+        trigger = folder_source.AUTHORSHIP_TRIGGER
     await folder_source.commit_paths_for(
-        settings.memory_path, [f"sources/{folder_source.FOLDERS_FILENAME}"],
-        subject=f"Folder settings ({folder['label']})", trigger="user/companion_app")
+        memory_path, paths, subject=f"Folder settings ({folder['label']})", trigger=trigger,
+        channel=folder_source.channel_id(folder_id))
     return _record(folder)
 
 
@@ -161,7 +197,8 @@ async def sync_folder(
     # launch) must not churn git or the sources ETag (Task 2 review, R-LS30).
     if paths:
         await folder_source.commit_paths_for(
-            memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
+            memory_path, paths, subject=f"Folder sync ({folder['label']})", trigger="folder/sync",
+            channel=folder_source.channel_id(folder_id))
     if resolve:
         # R-LS18: the person asked (first add, or "Sync now") — fetch details
         # after the response, one run per process, skipped while Sleep runs.
@@ -181,7 +218,7 @@ async def put_wispr_settings(req: WisprFlowSettings, settings: Settings = Depend
                                      owner_speaker_names=req.owner_speaker_names)
     await folder_source.commit_paths_for(
         settings.memory_path, [f"sources/{wispr_flow.SETTINGS_FILENAME}"],
-        subject="Wispr Flow settings", trigger="user/companion_app")
+        subject="Wispr Flow settings", trigger="user/companion_app", channel=wispr_flow.CHANNEL_ID)
     return WisprFlowSettings(**saved)
 
 
@@ -209,5 +246,5 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
                                      defer_todos=sleeping)
     sync_state.record_sync(memory_path, wispr_flow.CHANNEL_ID, count=report.pop("live"))
     await folder_source.commit_paths_for(memory_path, report.pop("paths"), subject="Wispr Flow sync",
-                                         trigger="wispr-flow/sync")
+                                         trigger="wispr-flow/sync", channel=wispr_flow.CHANNEL_ID)
     return WisprFlowCaptureResponse(**report)
