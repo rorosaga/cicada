@@ -132,6 +132,15 @@ HARNESS_LABELS = {
     "claude-desktop": "Claude Desktop",
     "cursor": "Cursor",
     "codex": "Codex",
+    # G135 R-R26 — a remote connector's app, as its episodes stamp it.
+    "claude-web": "Claude",
+    "chatgpt": "ChatGPT",
+    "perplexity": "Perplexity",
+    "claude-code-remote": "Claude Code (remote)",
+    "codex-remote": "Codex (remote)",
+    "vscode": "VS Code",
+    "gemini-cli": "Gemini CLI",
+    "remote-app": "Other remote app",
     "unknown": "Other agents",
 }
 UNKNOWN = "unknown"

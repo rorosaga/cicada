@@ -88,6 +88,18 @@ def _default_cicada_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_live_sleep_probe(monkeypatch):
+    """G135 final review: a stdio `cicada_write_claim` asks the backend's
+    `GET /sleep/status` before committing. Unpinned, every such test would hit
+    whatever backend is listening on 127.0.0.1:8000 — the developer's live
+    one included — and a cycle running there would change the test's outcome.
+    Pinned to "not running"; the test for the gate patches it back."""
+    from api.services import mcp_tools
+
+    monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda url, headers: False)
+
+
+@pytest.fixture(autouse=True)
 def _disable_api_auth(monkeypatch):
     monkeypatch.setenv("CICADA_API_AUTH", "off")
 
@@ -100,6 +112,17 @@ def _disable_logo_fetch(monkeypatch):
 @pytest.fixture(autouse=True)
 def _default_public_logo_resolver(monkeypatch):
     monkeypatch.setattr(logo_service, "_resolve_host", lambda host: ["93.184.216.34"])
+
+
+@pytest.fixture(autouse=True)
+def _default_public_net_guard_resolver(monkeypatch):
+    """G135 R-R10: `net_guard` resolves every hostname a fetcher is about to
+    request, exactly as the logo ladder above does — so the same fixed public
+    address stands in for DNS, or every `example.com` fixture would fail closed
+    in a network-less run. Tests of the guard itself pass `resolver=`."""
+    from api.services import net_guard
+
+    monkeypatch.setattr(net_guard, "_resolve_host", lambda host: ["93.184.216.34"])
 
 
 @pytest.fixture(autouse=True)

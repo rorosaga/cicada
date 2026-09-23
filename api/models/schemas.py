@@ -2284,3 +2284,53 @@ class ConsumptionConnections(CamelModel):
 class HarnessStats(CamelModel):
     claude_code: Optional[dict] = None
     codex: Optional[dict] = None
+
+
+# --- Remote connector (G135) ---
+
+
+class RemoteConnectorOut(CamelModel):
+    id: str
+    label: str
+    app: str
+    scopes: list[str]
+    created_at: str
+    expires_at: Optional[str] = None
+    revoked_at: Optional[str] = None
+    last_used_at: Optional[str] = None
+    last_client: Optional[str] = None
+    state: str
+
+
+class RemoteConnectorCreatedOut(CamelModel):
+    connector: RemoteConnectorOut
+    token: str
+    link: Optional[str] = None
+    mcp_url: Optional[str] = None
+
+
+class RemoteConnectorIn(CamelModel):
+    app: str
+    label: str = ""
+    scopes: list[str]
+    expires_in_days: int = 30  # 7/30/90 only — never null (R-R3: every connector expires)
+
+
+class RemoteSettingsIn(CamelModel):
+    enabled: Optional[bool] = None
+    public_base_url: Optional[str] = None
+
+
+class RemoteStatusOut(CamelModel):
+    enabled: bool
+    port: int
+    listener_up: bool
+    listener_error: Optional[str] = None
+    public_base_url: Optional[str] = None
+    detected_url: Optional[str] = None
+    effective_url: Optional[str] = None
+    tailscale: str
+    ngrok_installed: bool
+    reachable: Optional[bool] = None
+    funnel_command: str
+    ngrok_command: str

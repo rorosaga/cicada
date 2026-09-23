@@ -263,12 +263,18 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
     """
     if not url:
         return None
+    from api.services import net_guard  # G135 R-R10
+
+    if not await net_guard.is_fetchable_url_async(url):
+        return None
     try:
         import httpx
 
         from api.services.media_ingestor import _MAX_READ, _TIMEOUT, USER_AGENT
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            event_hooks={"request": [net_guard.httpx_request_guard]},
+        ) as client:
             resp = await client.get(
                 url,
                 timeout=_TIMEOUT,
@@ -569,6 +575,10 @@ async def default_fetch(url: str, settings) -> FetchResult:
     """
     if not url:
         return FetchResult("failed:no_url")
+    from api.services import net_guard  # G135 R-R10
+
+    if not await net_guard.is_fetchable_url_async(url):
+        return FetchResult("failed:private_host")
     try:
         import httpx
 
@@ -577,6 +587,7 @@ async def default_fetch(url: str, settings) -> FetchResult:
         async with httpx.AsyncClient(
             timeout=FETCH_TIMEOUT_S, follow_redirects=True, max_redirects=FETCH_MAX_REDIRECTS,
             headers={"User-Agent": USER_AGENT}, trust_env=False,
+            event_hooks={"request": [net_guard.httpx_request_guard]},
         ) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code in (401, 403, 407, 451):
@@ -597,6 +608,9 @@ async def default_fetch(url: str, settings) -> FetchResult:
                         break
                 raw = b"".join(chunks)[:FETCH_MAX_BYTES]
                 html = raw.decode(resp.encoding or "utf-8", errors="replace")
+    except net_guard.UnsafeURL:
+        # A public page redirected inward (the request hook refused the hop).
+        return FetchResult("failed:private_host")
     except Exception as e:
         logger.warning(f"link fetch failed for {url}: {type(e).__name__}")
         return FetchResult(f"failed:{type(e).__name__}")

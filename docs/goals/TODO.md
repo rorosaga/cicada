@@ -39,7 +39,7 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 
-**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #TBD).** `/search`
+**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #75).** `/search`
 moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
 derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
 rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
@@ -101,6 +101,16 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
   260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
   16-cell grid (the spec said 40).
+- **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
+  Sleep cycle starting mid-remote-write can still sweep that file (R-R27); a stdio
+  `cicada_write_claim` asks `GET /sleep/status` before its own commit and leaves the page dirty for
+  Sleep while a cycle runs (Sleep holds `index.lock` per git command, not per cycle, so committing
+  would take Sleep's hunks on that page under the agent's name) — a cycle that starts between that
+  probe and the commit is still the narrow residual window, and a probe that times out leaves the
+  page dirty (the pre-G135 behaviour); remote writes are
+  serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
+  race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
+  is saved with its URL-derived title and never fetched (R-R10).
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -350,6 +360,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
 | **G118 slice 2 — server half** | **Merged** from `feat/provenance-viewer` (plan `2026-09-23-provenance-backend.md`): `grown` spans, `/episodes/{id}/text`, `/entities/{id}/provenance`, `/episodes/{id}/citations`, `/ask` evidence, per-turn import times. | Next: the Swift viewer track (P1–P6 client), now that Meadow M1 has landed. |
 | **G137 Meadow (round 3)** | **M1 foundation merged** (PR #71) from `feat/meadow-foundation` — Meadow tokens, Instrument Serif, `CicadaMotion` + hover modifiers, `liquidGlass`, the art set + manifest, the glass sidebar, the empty state. Plan: `docs/superpowers/plans/2026-09-23-meadow-foundation.md`. | Live-checked by the orchestrator in both themes at 1.0×; still open: 1.4×, Reduce Motion / Transparency / Increase Contrast (both themes, 1.0×/1.4×, Reduce Motion / Transparency / Increase Contrast; the empty state's one action on 26 (`.glassProminent`) with the window key AND not key, both themes — its ink is `onAccent` only while key, measured on `.borderedProminent`, unverified on glass), merge to `dev`; then the M2 pass. Builds on a macOS 14/15 SDK: every 26/15-only call is also behind `#if canImport(SwiftUI, _version:)`. |
 | **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |

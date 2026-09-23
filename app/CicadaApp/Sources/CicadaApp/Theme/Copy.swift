@@ -294,6 +294,16 @@ enum Copy {
     static let generalSubtitle = "Appearance and text size."
     static let integrationsSubtitle = "Every app connected to Cicada, in one place."
 
+    // MARK: Remote connector (G135) — pinned by RemoteConnectorTests
+    static let onThisMac = "On this Mac"
+    static let fromAnywhere = "From anywhere"
+    static let remoteSwitchTitle = "Let AI apps outside this Mac use your memory."
+    static let remoteSwitchDetail = "Works while this Mac is awake and online. Everything still lives here."
+    static let remoteNeverOpensTunnel = "Cicada never opens a tunnel on its own."
+    static let remoteShownOnce = "You won't see this again. Revoke any time."
+    static let remoteMachineNameWarning = "Turning on HTTPS in Tailscale writes this Mac's name into a public certificate log. Rename your Mac first if its name is personal."
+    static let remoteGeminiApp = "Using the Gemini app? It can't connect to outside memory yet. Use Gemini CLI, or bring your Gemini history in from the Feed."
+
     // MARK: Pointers
 
     static let noConnections = "No connections yet — add one in \(settingsPlansAndKeys)."

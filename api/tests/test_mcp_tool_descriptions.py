@@ -1,6 +1,6 @@
-import importlib
+from _stdio_server import stdio_server
 
-mcp = importlib.import_module("mcp.server")
+mcp = stdio_server()
 
 
 def test_recall_description_has_grounding_and_detail_guidance():
