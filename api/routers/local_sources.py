@@ -106,7 +106,10 @@ async def sync_folder(
         else:
             sync_state.record_sync(memory_path, folder_source.channel_id(folder_id),
                                    count=folder_source.live_file_count(memory_path, folder_id))
-        await folder_source.commit_paths_for(
-            memory_path, (staged.paths if staged else []) + [f"sources/{folder_source.FOLDERS_FILENAME}"],
-            subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
+        # No episode moved → no commit: a no-change rescan must not churn git or
+        # the sources ETag (``sync`` stamps ``last_sync`` under the same rule).
+        if staged and staged.paths:
+            await folder_source.commit_paths_for(
+                memory_path, staged.paths + [f"sources/{folder_source.FOLDERS_FILENAME}"],
+                subject=f"Folder sync ({folder['label']})", trigger="folder/sync")
     return FolderSyncResponse(**out)

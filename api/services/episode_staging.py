@@ -33,11 +33,20 @@ What the move adds — each additive, each inert to an episode that does not use
 
 The pre-scan reads ``bank_index``'s cached frontmatter instead of re-parsing
 every episode per call (R-LS3): a watched folder stages on every save.
+
+One process-wide lock serialises ``stage`` (Track L Task 2 review, round 1):
+the scan, the id mint (``max_suffix_by_date``) and the write are a
+read-modify-write, and two overlapping callers — the folder watcher plus a
+manual Sync, two folder batches, a chat import landing mid-sync — both minted
+the same ``ep_<date>_NNN`` and ``markdown_parser.write`` silently overwrote the
+first episode. Reproduced with two threads on one date; the lock is here, in
+the stager, so every source that stages is covered, not only the folder route.
 """
 
 from __future__ import annotations
 
 import hashlib
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +60,10 @@ TURN_INDEX_COLUMNS = ("offset", "ts", "speaker")
 MAX_TURN_INDEX_ROWS = 4000
 #: ``processed_by`` of an episode a deterministic parser consolidated (R-LS10).
 PARSED_ONLY = "parser"
+#: Serialises every ``stage`` call in this process (see the module docstring).
+#: Re-entrant so a caller that already holds it (a source that scans, decides and
+#: stages under one critical section) can call ``stage`` without deadlocking.
+STAGE_LOCK = threading.RLock()
 
 
 @dataclass
@@ -256,20 +269,36 @@ def _refresh(path: Path, draft: EpisodeDraft) -> None:
     never un-processed — its claims exist either way."""
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
-    was_parser_only = fm.get("processed_by") == PARSED_ONLY
     fm.pop("source_deleted_at", None)
     fm.update(draft.extra)
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
     if draft.source_updated_at:
         fm["source_updated_at"] = draft.source_updated_at
-    if draft.queue_for_sleep and was_parser_only:
+    _requeue_for_authorship(fm, draft)
+    markdown_parser.write(path, fm, parsed.body)
+
+
+def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
+    """The queue rule for an episode whose BODY is unchanged but whose
+    authorship may have moved (R-LS10 / R-F2): a parser-only episode that is now
+    the person's own words is queued; an unconsolidated one that is now an
+    agent's is parked as parser-only. An episode Sleep already consolidated is
+    never un-processed — its claims exist either way.
+
+    Shared by ``_refresh`` (a glob flip) and ``_repoint`` (a rename). Before it
+    was shared, a rename across an authorship glob (``notes.md`` →
+    ``archive/notes.md``) flipped ``evidence_kind`` but not the queue state, so
+    Sleep consolidated agent prose — or never saw the person's words — and the
+    folder's idempotence check (``content_sha`` + ``evidence_kind``) then read
+    the file as unchanged forever (Track L Task 2 review, round 1)."""
+    if draft.queue_for_sleep and fm.get("processed_by") == PARSED_ONLY:
         fm["processed"] = False
+        # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
     elif not draft.queue_for_sleep and not fm.get("processed"):
         fm["processed"] = True
         fm["processed_by"] = PARSED_ONLY
-    markdown_parser.write(path, fm, parsed.body)
 
 
 def _restamp(path: Path, draft: EpisodeDraft) -> None:
@@ -294,6 +323,7 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
         fm["title"] = draft.title
     fm.pop("source_deleted_at", None)
     fm.update(draft.extra)
+    _requeue_for_authorship(fm, draft)
     markdown_parser.write(path, fm, parsed.body)
 
 
@@ -316,7 +346,14 @@ def stage(drafts: Iterable[EpisodeDraft], episodes_dir: Path, *,
     """Create / skip / update / rename / tombstone, delta-aware by ``source_id``.
 
     A draft WITHOUT a ``source_id`` keeps the pre-G20 content-hash behaviour
-    exactly (create or skip, never update)."""
+    exactly (create or skip, never update). Runs under ``STAGE_LOCK``."""
+    with STAGE_LOCK:
+        return _stage_locked(list(drafts), episodes_dir,
+                             deleted_source_ids=list(deleted_source_ids), bank=bank)
+
+
+def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
+                  deleted_source_ids: list[str], bank: str | None) -> StageResult:
     episodes_dir.mkdir(parents=True, exist_ok=True)
     index, known_hashes = scan(episodes_dir)
     date_counts = episode_ids.max_suffix_by_date(episodes_dir)
@@ -346,7 +383,7 @@ def stage(drafts: Iterable[EpisodeDraft], episodes_dir: Path, *,
                     entry = index.pop(old)
                     deleted.remove(old)
                     _repoint(entry.path, draft, old)
-                    entry.fm.update(source_id=sid)
+                    entry.fm.update(source_id=sid, evidence_kind=draft.extra.get("evidence_kind"))
                     entry.fm.pop("source_deleted_at", None)
                     index[sid] = entry
                     result.renamed_sources.append((old, sid))

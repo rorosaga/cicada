@@ -221,3 +221,124 @@ def test_the_routes(client):
     assert c.post(f"/sources/folders/{fid}/sync", json=too_many).status_code == 413
     assert c.delete(f"/sources/folders/{fid}").json() == {"removed": True}
     assert list((bank / "episodes").glob("*.md")), "removing a folder never deletes its episodes"
+
+
+# --- Task 2 review, round 1 ---------------------------------------------------
+
+
+def test_two_overlapping_syncs_keep_both_episodes(bank):
+    """The watcher's batch and a manual Sync overlap in the threadpool: without
+    the lock both minted the same ``ep_<date>_NNN`` and one episode was
+    overwritten, and the shared ``folders.json.tmp`` raised FileNotFoundError."""
+    import threading
+
+    folder = _folder(bank)
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2)
+
+    def run(rel):
+        try:
+            barrier.wait()
+            fs.sync(bank, folder, [_file(rel, f"{rel} body")], [])
+        except BaseException as e:  # pragma: no cover - the failure being guarded
+            errors.append(e)
+
+    threads = [threading.Thread(target=run, args=(rel,)) for rel in ("a.md", "b.md")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    files = sorted((bank / "episodes").glob("ep_*.md"))
+    assert len(files) == 2 and len({p.name for p in files}) == 2
+    assert set(_episodes(bank)) == {f"folder:{folder['id']}:a.md", f"folder:{folder['id']}:b.md"}
+
+
+def test_concurrent_registry_saves_never_lose_a_write(bank):
+    import threading
+
+    folder = _folder(bank)
+    errors: list[BaseException] = []
+
+    def stamp(i):
+        try:
+            fs.set_flags(bank, folder["id"], **{f"k{i}": i})
+        except BaseException as e:  # pragma: no cover
+            errors.append(e)
+
+    threads = [threading.Thread(target=stamp, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    record = fs.get_folder(bank, folder["id"])
+    assert all(record.get(f"k{i}") == i for i in range(8))
+    assert not list((bank / "sources").glob("*.tmp"))
+
+
+def test_a_rename_across_an_authorship_glob_moves_the_queue_state(bank):
+    """R-LS10 / R-F2: a rename into ``archive/**`` parks the episode as
+    parser-only; a rename back out queues it for Sleep again."""
+    folder = _folder(bank)
+    sid_user = f"folder:{folder['id']}:notes.md"
+    sid_agent = f"folder:{folder['id']}:archive/notes.md"
+    fs.sync(bank, folder, [_file("notes.md", "my own words")], [])
+    fm = _episodes(bank)[sid_user].frontmatter
+    assert (fm["processed"], fm["evidence_kind"]) == (False, "user") and "processed_by" not in fm
+
+    out = fs.sync(bank, folder, [_file("archive/notes.md", "my own words")], ["notes.md"])
+    assert out["renamed"] == 1
+    fm = _episodes(bank)[sid_agent].frontmatter
+    assert (fm["evidence_kind"], fm["processed"], fm["processed_by"]) == ("assistant", True, "parser")
+    again = fs.sync(bank, folder, [_file("archive/notes.md", "my own words")], [])
+    assert again["files_unchanged"] == 1
+
+    out = fs.sync(bank, folder, [_file("notes.md", "my own words")], ["archive/notes.md"])
+    assert out["renamed"] == 1
+    fm = _episodes(bank)[sid_user].frontmatter
+    assert (fm["evidence_kind"], fm["processed"]) == ("user", False) and "processed_by" not in fm
+
+
+def test_a_rename_never_unprocesses_what_sleep_consolidated(bank):
+    folder = _folder(bank)
+    fs.sync(bank, folder, [_file("notes.md", "my own words")], [])
+    ep = _episodes(bank)[f"folder:{folder['id']}:notes.md"]
+    path = bank / "episodes" / f"{ep.frontmatter['id']}.md"
+    markdown_parser.write(path, {**ep.frontmatter, "processed": True, "processed_by": "sleep"}, ep.body)
+    bank_index.invalidate()
+    fs.sync(bank, folder, [_file("archive/notes.md", "my own words")], ["notes.md"])
+    fm = _episodes(bank)[f"folder:{folder['id']}:archive/notes.md"].frontmatter
+    assert (fm["processed"], fm["processed_by"]) == (True, "sleep")
+
+
+def test_a_repick_without_rules_keeps_the_rules_set_in_manage(bank):
+    folder = _folder(bank)
+    fs.update(bank, folder["id"], authorship=[])
+    again = fs.register(bank, label="alpha-project", path="/Users/example/alpha-project", device="mac-1")
+    assert again["id"] == folder["id"] and again["authorship"] == []
+    custom = fs.register(bank, label="alpha-project", path="/Users/example/alpha-project", device="mac-1",
+                         include=["**/*.md"], exclude=["drafts/**"])
+    kept = fs.register(bank, label="alpha-project", path="/Users/example/alpha-project", device="mac-1")
+    assert (kept["include"], kept["exclude"], kept["authorship"]) == (["**/*.md"], ["drafts/**"], [])
+    assert custom["id"] == kept["id"]
+    fresh = fs.register(bank, label="beta", path="/Users/example/beta-example", device="mac-1")
+    assert fresh["authorship"] == [{"glob": "archive/**", "authorship": "agent"}]
+
+
+@pytest.mark.parametrize("mtime", [1e20, -1e20, float("nan"), float("inf")])
+def test_a_bad_mtime_is_one_file_error_not_a_failed_batch(bank, mtime):
+    folder = _folder(bank)
+    out = fs.sync(bank, folder, [_file("bad.md", "x", mtime=mtime), _file("good.md", "y")], [])
+    assert out["errors"] == [{"relpath": "bad.md", "reason": "bad mtime"}]
+    assert out["created"] == 1 and out["files_new"] == 1
+
+
+def test_a_no_change_resync_leaves_the_registry_alone(bank):
+    folder = _folder(bank)
+    fs.sync(bank, folder, [_file("README.md", "v1")], [])
+    reg = fs.registry_path(bank)
+    before = (reg.read_bytes(), reg.stat().st_mtime_ns)
+    out = fs.sync(bank, folder, [_file("README.md", "v1")], [])
+    assert out["files_unchanged"] == 1 and not out["_staged"].paths
+    assert (reg.read_bytes(), reg.stat().st_mtime_ns) == before

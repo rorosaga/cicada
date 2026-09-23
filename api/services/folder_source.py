@@ -17,6 +17,14 @@ Authorship (R-F2): a per-folder glob list decides whose words a file holds.
 ``archive/**`` defaults to ``agent`` — dated research sweeps an agent wrote. An
 agent-written file is stored and searchable but never credited to the person
 (``evidence_kind: assistant``) and never queued for Sleep (R-LS10).
+
+Concurrency (Task 2 review, round 1): ``sync`` runs in the threadpool, and the
+watcher's batch can overlap a manual Sync. ``_LOCK`` is held across the whole
+of ``sync`` (scan → decide → stage → registry stamp) and around every registry
+read-modify-write, so two batches never decide against the same stale scan and
+two saves never lose each other's edit. ``episode_staging.STAGE_LOCK`` still
+guards the id mint for every other writer; the order is always ``_LOCK`` then
+``STAGE_LOCK``, never the reverse.
 """
 
 from __future__ import annotations
@@ -26,7 +34,9 @@ import binascii
 import hashlib
 import json
 import math
+import os
 import re
+import threading
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
@@ -56,6 +66,8 @@ MAX_BATCH_BYTES = 8_000_000
 _MAX_RELPATH = 512
 _H2 = re.compile(r"^##[ \t]+(.+?)[ \t]*#*[ \t]*$")
 _FENCE = re.compile(r"^[ \t]*(`{3}|~{3})")
+#: Re-entrant: ``sync`` holds it and then calls ``set_flags``, which takes it too.
+_LOCK = threading.RLock()
 
 
 @dataclass
@@ -87,7 +99,9 @@ def list_folders(memory_path: Path) -> list[dict]:
 def _save(memory_path: Path, folders: list[dict]) -> None:
     path = registry_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
+    # A per-writer temp name: a shared ``folders.json.tmp`` let one writer's
+    # ``replace`` move the other's file away mid-save (FileNotFoundError → 500).
+    tmp = path.with_suffix(f".json.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps({"folders": folders}, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 
@@ -114,10 +128,23 @@ def _clean_rules(rules) -> list[dict]:
 def register(memory_path: Path, *, label: str, path: str, include=None, exclude=None,
              authorship=None, project_id: str | None = None, device: str | None = None) -> dict:
     """Create or update the folder at ``(device, path)`` (R-LS9: an upsert, so a
-    re-pick of the same folder keeps its id, its episodes and its history)."""
+    re-pick of the same folder keeps its id, its episodes and its history).
+
+    On an existing record a rule list left as ``None`` keeps what is stored — a
+    re-pick, or the add sheet's second POST without rules, must not wipe what
+    the person set in Manage (``authorship: []`` coming back as ``archive/** =
+    agent`` would park those files again; Task 2 review, round 1). Only a new
+    record gets the defaults."""
     from api.services import local_refs
 
     device = device or local_refs.current_device_id()
+    with _LOCK:
+        return _register_locked(memory_path, label=label, path=path, include=include, exclude=exclude,
+                                authorship=authorship, project_id=project_id, device=device)
+
+
+def _register_locked(memory_path: Path, *, label: str, path: str, include, exclude, authorship,
+                     project_id: str | None, device: str) -> dict:
     folders = list_folders(memory_path)
     existing = next((f for f in folders if f.get("device") == device and f.get("path") == path), None)
     key = hashlib.sha1(f"{device}\x00{path}".encode()).hexdigest()[:6]
@@ -127,9 +154,10 @@ def register(memory_path: Path, *, label: str, path: str, include=None, exclude=
         "label": (label or "").strip() or Path(path).name or "Folder",
         "path": path,
         "device": device,
-        "include": list(include) if include else list(DEFAULT_INCLUDE),
-        "exclude": list(exclude) if exclude else list(DEFAULT_EXCLUDE),
+        "include": list(include) if include else list(record.get("include") or DEFAULT_INCLUDE),
+        "exclude": list(exclude) if exclude else list(record.get("exclude") or DEFAULT_EXCLUDE),
         "authorship": _clean_rules(authorship) if authorship is not None
+        else _clean_rules(record["authorship"]) if "authorship" in record
         else [dict(r) for r in DEFAULT_AUTHORSHIP],
         "project_id": project_id or record.get("project_id"),
     })
@@ -140,35 +168,38 @@ def register(memory_path: Path, *, label: str, path: str, include=None, exclude=
 
 
 def update(memory_path: Path, folder_id: str, *, label: str | None = None, authorship=None) -> dict | None:
-    folders = list_folders(memory_path)
-    record = next((f for f in folders if f.get("id") == folder_id), None)
-    if record is None:
-        return None
-    if label is not None and label.strip():
-        record["label"] = label.strip()
-    if authorship is not None:
-        record["authorship"] = _clean_rules(authorship)
-    _save(memory_path, folders)
-    return record
+    with _LOCK:
+        folders = list_folders(memory_path)
+        record = next((f for f in folders if f.get("id") == folder_id), None)
+        if record is None:
+            return None
+        if label is not None and label.strip():
+            record["label"] = label.strip()
+        if authorship is not None:
+            record["authorship"] = _clean_rules(authorship)
+        _save(memory_path, folders)
+        return record
 
 
 def remove(memory_path: Path, folder_id: str) -> bool:
     """Forget the registration. Episodes stay — the history is the history (R-F1)."""
-    folders = list_folders(memory_path)
-    kept = [f for f in folders if f.get("id") != folder_id]
-    if len(kept) == len(folders):
-        return False
-    _save(memory_path, kept)
-    return True
+    with _LOCK:
+        folders = list_folders(memory_path)
+        kept = [f for f in folders if f.get("id") != folder_id]
+        if len(kept) == len(folders):
+            return False
+        _save(memory_path, kept)
+        return True
 
 
 def set_flags(memory_path: Path, folder_id: str, **fields) -> None:
-    folders = list_folders(memory_path)
-    for f in folders:
-        if f.get("id") == folder_id:
-            f.update(fields)
-            _save(memory_path, folders)
-            return
+    with _LOCK:
+        folders = list_folders(memory_path)
+        for f in folders:
+            if f.get("id") == folder_id:
+                f.update(fields)
+                _save(memory_path, folders)
+                return
 
 
 # --- Paths and globs --------------------------------------------------------
@@ -314,8 +345,23 @@ def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: li
     """Stage (or, with ``preview``, only count) one posted batch. Never opens
     the folder; decodes and re-hashes what the app sent. Returns the counts the
     route serialises, plus ``_staged`` (the ``StageResult``) and ``_texts``
-    (relpath -> decoded text) for the paper step (Task 3)."""
-    memory_path = Path(memory_path)
+    (relpath -> decoded text) for the paper step (Task 3).
+
+    Held under ``_LOCK`` end to end (see the module docstring). ``last_sync`` is
+    stamped only when something landed: ``folders.json`` is versioned, and a
+    no-change rescan (the app's full pass on launch) stamping it made a
+    ``Folder sync`` commit and moved the ``sources`` ETag every time — the
+    projection churn ``sleep.next_at`` was taken out of ``_state.md`` for.
+    ``sync_state.json`` still records that the sync ran."""
+    with _LOCK:
+        return _sync_locked(Path(memory_path), folder, files, deleted, preview=preview)
+
+
+def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: list[str], *,
+                 preview: bool) -> dict:
+    # Re-read under the lock: the caller's copy may predate a Manage save that
+    # landed while this batch waited, and the rules decide authorship.
+    folder = get_folder(memory_path, folder["id"]) or folder
     episodes_dir = memory_path / "episodes"
     index, _ = episode_staging.scan(episodes_dir)
     mine = _by_relpath(index, folder["id"])
@@ -348,6 +394,12 @@ def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: li
         if sha != (f.sha256 or "").strip().lower():
             out["errors"].append({"relpath": rel, "reason": "checksum mismatch"})
             continue
+        try:
+            mtime_iso = episode_ids.to_utc_iso(float(f.mtime))
+        except (OverflowError, ValueError, OSError, TypeError):
+            # NaN, ±inf or a year past 9999: one bad file, not a 500 for the batch.
+            out["errors"].append({"relpath": rel, "reason": "bad mtime"})
+            continue
         who = authorship_for(rel, rules)
         kind = "user" if who == "user" else "assistant"
         existing = mine.get(rel, [])
@@ -364,7 +416,7 @@ def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: li
             out["agent_files"] += 1
         else:
             out["stage1_passes"] += stage1_passes(text)
-        new = drafts_for_file(folder, rel, text, mtime_iso=episode_ids.to_utc_iso(float(f.mtime)), sha=sha)
+        new = drafts_for_file(folder, rel, text, mtime_iso=mtime_iso, sha=sha)
         drafts.extend(new)
         new_sids = {d.source_id for d in new}
         deleted_sids += [sid for sid, e in existing if sid not in new_sids and not e.fm.get("source_deleted_at")]
@@ -384,7 +436,8 @@ def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: li
     out.update(created=staged.created, updated=staged.updated, renamed=staged.renamed,
                tombstoned=staged.tombstoned)
     out["_staged"] = staged
-    set_flags(memory_path, folder["id"], last_sync=episode_ids.utc_now_iso())
+    if staged.paths:
+        set_flags(memory_path, folder["id"], last_sync=episode_ids.utc_now_iso())
     return out
 
 
