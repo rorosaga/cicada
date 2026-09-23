@@ -50,3 +50,36 @@ extension Copy {
         static func citedPassage(_ text: String) -> String { "Cited passage: \(text)" }
     }
 }
+
+// MARK: - The evidence chip (§4.2) — Task 3
+
+extension Copy.Provenance {
+    static let youSaid = "You said"
+    static let theAgentReplied = "The agent replied"
+    static func replied(_ agent: String) -> String { "\(agent) replied" }
+    static let inTheVideo = "In the video"
+    static let someoneElseSaid = "Someone else said"
+    static func said(_ name: String) -> String { "\(name) said" }
+    static let inferredLabel = "Inferred"
+    static let mentionedHere = "Mentioned here"
+
+    /// The two captions the brief asked for by name (2026-09-23): whether the
+    /// words were QUOTED by whoever wrote the belief, or FOUND afterwards.
+    static let quotedCaption = "Quoted by the contributor"
+    static let derivedCaption = "Found by searching the conversation"
+
+    static let openConversation = "Open conversation"
+    static let opensTheConversation = "Opens the conversation."
+    static let previewQuote = "Preview quote"
+    static func moreEvidence(_ n: Int) -> String { "+\(UsageFormat.count(n)) more" }
+    static let fewerEvidence = "Show fewer"
+    static let previewNotFound = "Cicada couldn't find the name in this conversation."
+
+    // MARK: Plain trust labels (§4.6) — what the `source_trust` axis MEANS,
+    // not its enum name ("agent extracted" read as jargon to everyone but us).
+    static let youToldCicada = "You told Cicada"
+    static let cicadaNoticed = "Cicada noticed"
+    static let cicadaConcluded = "Cicada concluded"
+    static let fromASource = "From a source"
+    static let notRecorded = "Not recorded"
+}

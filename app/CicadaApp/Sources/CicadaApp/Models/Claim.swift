@@ -78,13 +78,15 @@ enum SourceTrust: String, Codable {
         self = SourceTrust(rawValue: (try? d.singleValueContainer().decode(String.self)) ?? "") ?? .unknown
     }
 
+    /// G118 slice 2 (§4.6) — plain words for a non-technical reader. The axis
+    /// is unchanged and still orthogonal to confidence; only its name changed.
     var label: String {
         switch self {
-        case .userStated: return "user stated"
-        case .agentExtracted: return "agent extracted"
-        case .agentReflected: return "agent reflected"
-        case .external: return "external"
-        case .unknown: return "unknown"
+        case .userStated: return Copy.Provenance.youToldCicada
+        case .agentExtracted: return Copy.Provenance.cicadaNoticed
+        case .agentReflected: return Copy.Provenance.cicadaConcluded
+        case .external: return Copy.Provenance.fromASource
+        case .unknown: return Copy.Provenance.notRecorded
         }
     }
 }
