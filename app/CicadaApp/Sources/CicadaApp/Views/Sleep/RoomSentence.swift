@@ -283,8 +283,8 @@ func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> St
 /// — so a longer tail, an answer or no tail at all never reflows what sits
 /// below it.
 ///
-/// New York through `CicadaTheme.font(size:design: .serif)` until Meadow's
-/// `displayFont` exists (design §5; Z10 swaps these two calls and nothing else).
+/// The lead is Meadow's `displayFont` with its tracking, the tail its italic —
+/// SF Pro Display since F1 (R-FX13, Z10's swap).
 struct RoomSentenceView: View {
     /// The status sentence — what the slot shows whenever no answer is up.
     let line: SentenceLine
@@ -322,7 +322,8 @@ struct RoomSentenceView: View {
         ZStack {
             VStack(spacing: CicadaTheme.spacingXS) {
                 leadText(shown)
-                    .font(CicadaTheme.font(size: 30, design: .serif))
+                    .font(CicadaTheme.displayFont(size: 30))
+                    .tracking(CicadaTheme.displayTracking(size: 30))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 tailView(shown)
@@ -401,7 +402,7 @@ struct RoomSentenceView: View {
     @ViewBuilder
     private func tailText(_ line: SentenceLine) -> some View {
         let tail = line.tail ?? " "
-        let tailFont = CicadaTheme.font(size: 22, design: .serif).italic()
+        let tailFont = CicadaTheme.displayFont(size: 22, italic: true)
         let tailColor = color(line.tailTone, plain: CicadaTheme.textSecondary)
         if let action = line.action, line.tail != nil {
             let link = tailLink(tail)
