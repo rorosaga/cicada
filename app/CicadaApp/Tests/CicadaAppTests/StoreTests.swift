@@ -200,16 +200,23 @@ final class FakeSyncAPI: SyncAPI {
     var conversationIdFetches: [String] = []
     var failConversationById = false
 
+    /// G136 R-SU22 — every `query` the fake was asked with, `nil` for a plain load.
+    var recentQueries: [String?] = []
+
     /// G124 R5 — the fake filters the way the backend does: `harness`/`origin`
     /// match exactly, and `harness == "unknown"` matches rows with an empty
-    /// harness (an MCP episode that never stamped one).
-    func fetchRecentConversations(limit: Int, harness: String?, origin: String?) async throws -> [ConversationSummary] {
+    /// harness (an MCP episode that never stamped one). G136 R17: `query`
+    /// filters titles, and all of it runs BEFORE the cap, as the server does.
+    func fetchRecentConversations(limit: Int, harness: String?, origin: String?, query: String?) async throws -> [ConversationSummary] {
+        recentQueries.append(query)
         if failRecentConversations { throw APIError.serverUnreachable }
-        return recentConversations.filter { row in
+        let rows = recentConversations.filter { row in
             if let harness, !(row.harness == harness || (harness == "unknown" && row.harness.isEmpty)) { return false }
             if let origin, row.origin != origin { return false }
             return true
         }
+        let matched = query.map { ConversationFilter.apply(rows, query: $0) } ?? rows
+        return Array(matched.prefix(limit))
     }
 
     func fetchConversation(id: String) async throws -> ConversationSummary? {

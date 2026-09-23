@@ -251,12 +251,17 @@ struct SourceOverviewResponse: Codable {
 
 /// Title filter for a harness's conversation list — the owner's words:
 /// "search is secondary; the view of the conversations that exist is the
-/// point", so this is a substring match over `displayTitle`, nothing more.
+/// point", so this matches `displayTitle` and nothing more.
 enum ConversationFilter {
+    /// Titles, every word somewhere, folded like every other field (G136,
+    /// `QuickMatch`) — order kept: this list is newest-first, and a filter
+    /// must not reshuffle it (R-SU20).
     static func apply(_ rows: [ConversationSummary], query: String) -> [ConversationSummary] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return rows }
-        return rows.filter { $0.displayTitle.lowercased().contains(q) }
+        let tokens = QuickMatch.tokens(query)
+        guard !tokens.isEmpty else { return rows }
+        return rows.filter {
+            QuickMatch.match(tokens, fields: [QuickMatch.Field($0.displayTitle, weight: QuickMatch.Weight.name)]) != nil
+        }
     }
 }
 

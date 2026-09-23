@@ -113,6 +113,25 @@ final class ConversationsTests: XCTestCase {
         XCTAssertEqual(rows.map(\.id), [uuid])
     }
 
+    /// G136 R-SU22 — `q` is percent-encoded and sent only when there is one
+    /// (the server applies it before its cap, G136 R17).
+    func testFetchRecentConversationsSendsTheTitleQuery() async throws {
+        MockURLProtocol.handler = { request in
+            let query = request.url?.query ?? ""
+            XCTAssertTrue(query.contains("q=planning%20notes"), query)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("[]".utf8))
+        }
+        _ = try await APIClient(session: MockURLProtocol.makeSession())
+            .fetchRecentConversations(limit: 200, harness: nil, origin: nil, query: "planning notes")
+        MockURLProtocol.handler = { request in
+            XCTAssertFalse((request.url?.query ?? "").contains("q="))
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data("[]".utf8))
+        }
+        _ = try await APIClient(session: MockURLProtocol.makeSession()).fetchRecentConversations(limit: 20)
+    }
+
     func testFetchRecentConversationsIsEmptyAgainstABackendWithoutTheEndpoint() async throws {
         MockURLProtocol.handler = { request in
             let response = HTTPURLResponse(url: request.url!, statusCode: 404,

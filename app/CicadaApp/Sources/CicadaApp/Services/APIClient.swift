@@ -1372,7 +1372,12 @@ actor APIClient {
     /// `harness: "unknown"` travels literally — the backend matches it to an
     /// empty harness. Values are percent-encoded the way
     /// `fetchContributorCommits` encodes `author`.
-    func fetchRecentConversations(limit: Int = 20, harness: String? = nil, origin: String? = nil) async throws -> [ConversationSummary] {
+    ///
+    /// G136 R-SU22: `query` becomes `q=`, a title filter the backend also
+    /// applies before the cap (G136 R17) — how a source's conversation list
+    /// finds a title older than its newest 200. Sent only when non-blank.
+    func fetchRecentConversations(limit: Int = 20, harness: String? = nil, origin: String? = nil,
+                                  query: String? = nil) async throws -> [ConversationSummary] {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&+=?/#")
         var path = "/conversations/recent?limit=\(limit)"
@@ -1381,6 +1386,9 @@ actor APIClient {
         }
         if let origin {
             path += "&origin=\(origin.addingPercentEncoding(withAllowedCharacters: allowed) ?? origin)"
+        }
+        if let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            path += "&q=\(query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query)"
         }
         do {
             return try await get(path)

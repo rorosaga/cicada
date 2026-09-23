@@ -10,12 +10,15 @@ struct InboxListView: View {
     @State private var kindFilter: InboxKind?
     /// G136 — the item a palette row landed on; its card opens expanded.
     @State private var focusedItem: String?
+    /// G136 S5 — the page's own field. It filters and highlights but keeps
+    /// the Inbox's priority order (R-SU20).
+    @State private var query = ""
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var visibleItems: [InboxItem] {
         let base = kindFilter.map { k in viewModel.items.filter { $0.kind == k } }
             ?? viewModel.items
-        return base.sorted {
+        return InboxSearch.filter(base, query: query).sorted {
             if $0.priority != $1.priority { return $0.priority > $1.priority }
             return $0.createdDateValue > $1.createdDateValue
         }
@@ -36,6 +39,15 @@ struct InboxListView: View {
                 loadingState
             } else if viewModel.items.isEmpty {
                 emptyState
+            } else if visibleItems.isEmpty && !query.isEmpty {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    Text("No question matches “\(SearchAllMemoryRow.trimmed(query))”.")
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                    SearchAllMemoryRow(query: query)
+                }
+                .padding(CicadaTheme.spacingXL)
+                Spacer(minLength: 0)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -80,6 +92,8 @@ struct InboxListView: View {
     private func land(_ proxy: ScrollViewProxy) {
         guard let id = router.consumeInboxItem() else { return }
         kindFilter = nil
+        // A palette hand-off is never hidden by an old filter.
+        query = ""
         focusedItem = id
         withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { proxy.scrollTo(id, anchor: .top) }
     }
@@ -117,14 +131,21 @@ struct InboxListView: View {
                 }
                 .padding(.horizontal, CicadaTheme.spacingXL)
                 .padding(.bottom, CicadaTheme.spacingMD)
+
+                CicadaSearchField(text: $query, prompt: "Search questions…")
+                    .frame(maxWidth: CicadaTheme.scaled(320))
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .padding(.bottom, CicadaTheme.spacingMD)
             }
         }
     }
 
-    /// Kinds present in the current inbox, in a stable display order.
+    /// Kinds present in the current inbox, in a stable display order. The two
+    /// kinds Sleep writes (G113 slice 3) finally get their chips (R6 §2.6).
     private var orderedKinds: [InboxKind] {
         let present = Set(viewModel.items.map(\.kind))
-        return [.decay, .conflict, .clarification, .mergeSuggestion, .removal].filter { present.contains($0) }
+        return [.decay, .conflict, .clarification, .mergeSuggestion, .removal, .divergence, .normalization]
+            .filter { present.contains($0) }
     }
 
     // MARK: - Empty state ("Nothing pending" + the truth, featuring the bookworm)
