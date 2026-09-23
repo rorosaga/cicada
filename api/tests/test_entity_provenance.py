@@ -376,3 +376,17 @@ def test_transcluded_claims_carry_the_same_author_identity(client_bank):
     [c] = payload["claims"]
     assert (c["authorKind"], c["authorProvider"], c["sessionIds"], c["recordedAt"]) == (
         "model", "anthropic", [SID], "2026-09-01")
+
+
+def test_a_hand_broken_page_reads_as_empty_not_a_500(client_bank):
+    # Final review: invalid YAML (an Obsidian hand-edit) must not break the
+    # card's "Where this came from" section; /claims already degrades to [].
+    page = client_bank / "entities" / "alpha-project.md"
+    page.write_text("---\nname: Alpha: Project: [broken\n---\n\nBody.\n", encoding="utf-8")
+    with TestClient(main.app) as client:
+        claims = client.get("/entities/alpha-project/claims")
+        resp = client.get("/entities/alpha-project/provenance")
+    assert claims.status_code == 200
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["entityId"] == "alpha-project" and data["totals"]["claims"] == 0

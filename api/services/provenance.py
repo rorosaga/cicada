@@ -259,7 +259,13 @@ def entity_provenance(
     pure, thread-pool-safe function). Writes nothing.
     """
     memory_path = Path(memory_path)
-    parsed = markdown_parser.parse(page)
+    # A page hand-edited into invalid YAML (Obsidian is a supported editor)
+    # reads as an empty page, not a 500 — the entity card opens this route, and
+    # `claims._load_subject_claims` already degrades the same way (final review).
+    try:
+        parsed = markdown_parser.parse(page)
+    except Exception:
+        parsed = markdown_parser.ParsedMarkdown()
     fm = parsed.frontmatter or {}
     entity_id = page.stem
     name = str(fm.get("name") or entity_id)

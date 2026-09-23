@@ -203,7 +203,14 @@ the brief or design left a choice, with the reason, so no task re-opens it.
   the file, so already-imported threads gain times only on a grown re-import or a fresh bank (no
   backfill — G20's skip means "nothing changed" and stays byte-identical). The Stop hook's
   `turns: <count>` is untouched; the reader (`evidence.turn_stamps`) treats any non-list as "no
-  stamps".
+  stamps". **Final-review amendment:** the cost is not only cold `bank_index` scans — every full
+  episode scan that parses frontmatter directly pays it. Measured at 2,000 imported 20-message
+  episodes with the pure-Python `SafeLoader`: `sleep_cycle.list_all_episodes` 0.41 s → 2.88 s
+  (synchronous behind `GET /sleep/episodes`) and `transcript_capture._find_session_episode`
+  0.38 s → 2.99 s (the Stop hook's `TIMEOUT_S = 3.0`); ~1.35 ms vs ~0.15 ms per parse. Fix:
+  `markdown_parser.parse` reads with libyaml's `CSafeLoader` when PyYAML has it (same
+  `SafeConstructor`, identical output), which brings the same scan to ~0.4 s. `write` keeps
+  `yaml.dump` — a different emitter would reformat pages already in a bank's history.
 - **R-PB5 — `GET /episodes/{id}/text`.** Cap `MAX_TEXT_CHARS = 400_000` **characters** (offsets are
   code-point indices, and the cut must land on one); `length` and `hash` always describe the whole
   text; turns starting past the cap are dropped and the straddling one clipped. A page is ONE block
