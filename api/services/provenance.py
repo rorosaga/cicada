@@ -26,15 +26,20 @@ Rails, enforced here rather than documented:
 
 from __future__ import annotations
 
+import os
 from collections import Counter
 from dataclasses import asdict, replace
 from pathlib import Path
 
 from api.models.schemas import (
     EntityProvenance,
+    EpisodeCitation,
+    EpisodeCitationEntity,
+    EpisodeCitations,
     EpisodeFocus,
     EpisodeText,
     EpisodeTurn,
+    EvidenceModel,
     ProvenanceContributor,
     ProvenanceConversation,
     ProvenancePage,
@@ -347,3 +352,98 @@ def entity_provenance(
                                 conversations=len(rows)),
         commits_truncated=commits_truncated,
     )
+
+
+# The most entity pages one citations call parses (R-PB10). A page is parsed
+# only when its raw text names the document, so this bounds the pathological
+# case — a conversation cited by hundreds of pages — and `partial` says so.
+MAX_CITATION_PAGES = 200
+
+
+def _candidate_pages(memory_path: Path, doc_id: str) -> tuple[list[Path], bool]:
+    """Entity pages whose raw text contains ``doc_id``, in filename order,
+    capped. A substring test before any YAML parse: a page can only cite a
+    document whose id is written in it (a claim's ``evidence`` or
+    ``source_episodes``, or the frontmatter's), and an ``ep_YYYY-MM-DD_nnn``
+    id is distinctive, so a false positive costs one parse and a miss is
+    impossible. This is the "cold" path the design names (§4.8.3): the pages'
+    own claims blocks — not the vector claims index, whose metadata carries no
+    evidence (``vector_index.index_claims``), and not Track S's FTS table,
+    which this track does not depend on."""
+    entities_dir = Path(memory_path) / "entities"
+    try:
+        with os.scandir(entities_dir) as it:
+            names = sorted(e.name for e in it if e.is_file() and e.name.endswith(".md"))
+    except FileNotFoundError:
+        return [], False
+    out: list[Path] = []
+    for fname in names:
+        path = entities_dir / fname
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if doc_id not in raw:
+            continue
+        if len(out) >= MAX_CITATION_PAGES:
+            return out, True
+        out.append(path)
+    return out, False
+
+
+def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None:
+    """Every belief ``doc_id`` contributed (G106 (ii) at claim precision), or
+    ``None`` for an unknown / non-bare id. Engine-free; writes nothing.
+
+    Per claim: one row per span into the document (freshness from
+    ``span_status``; stale rows carry no offsets, R-PB2); else one
+    ``reasoning`` row when the contributor inferred it from here; else — a
+    legacy claim that only lists the document in ``source_episodes`` — one
+    ``derived`` row located by the subject's name (R-PB9), with offsets only
+    when the name is found.
+    """
+    doc = evidence.source_document(memory_path, doc_id)
+    if doc is None:
+        return None
+    _fm, text = doc
+    is_episode = evidence.is_episode_id(doc_id)
+    pages, partial = _candidate_pages(memory_path, doc_id)
+    rows: list[EpisodeCitation] = []
+    entities: list[EpisodeCitationEntity] = []
+    for path in pages:
+        try:
+            parsed = markdown_parser.parse(path)
+        except Exception:
+            continue
+        pfm = parsed.frontmatter or {}
+        subject_id = path.stem
+        subject_name = str(pfm.get("name") or subject_id)
+        subject_type = str(pfm.get("type") or "")
+        if doc_id in [str(e) for e in (pfm.get("source_episodes") or [])]:
+            entities.append(EpisodeCitationEntity(entity_id=subject_id, name=subject_name, type=subject_type))
+        for claim in parse_claims(parsed.body):
+            base = {
+                "claim_id": claim.id, "subject_id": subject_id, "subject_name": subject_name,
+                "subject_type": subject_type, "text": claim.text, "current": _current(claim),
+                "authored_by": claim.authored_by or git_service.UNKNOWN_AUTHOR, "observer": claim.observer,
+            }
+            mine = [ev for ev in claim.evidence if ev.episode == doc_id]
+            spans = [ev for ev in mine if ev.is_span()]
+            for ev in spans:
+                status = evidence.span_status(text, end=ev.end, hash=ev.hash, appendable=is_episode)
+                stale = status == evidence.SPAN_STALE or ev.end > len(text)
+                rows.append(EpisodeCitation(
+                    **base, evidence=EvidenceModel(**ev.to_dict()), kind=ev.kind,
+                    start=None if stale else ev.start, end=None if stale else ev.end,
+                    stale=stale, grown=not stale and status == evidence.SPAN_GROWN,
+                ))
+            if spans:
+                continue
+            if mine:
+                rows.append(EpisodeCitation(**base, evidence=EvidenceModel(**mine[0].to_dict()), kind="reasoning"))
+            elif doc_id in claim.source_episodes:
+                hit = inbox_context.locate_mention(text, subject_name, subject_id)
+                rows.append(EpisodeCitation(**base, kind="derived", derived=True,
+                                            start=hit[0] if hit else None, end=hit[1] if hit else None))
+    rows.sort(key=lambda r: (r.start is None, r.start if r.start is not None else 0, r.subject_name, r.claim_id))
+    return EpisodeCitations(episode=doc_id, citations=rows, entities=entities, partial=partial)

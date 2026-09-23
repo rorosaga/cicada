@@ -20,6 +20,8 @@ like every route; no ETag (R9) — the response validates itself.
 turns for the Reader — see ``provenance.episode_document``. It carries an
 ETag for the client's in-memory cache only: it is fetched on demand and is
 not a Store domain, so there is no ``VersionVector`` mapping (R-PB11).
+``GET /episodes/{id}/citations`` lists every belief the document contributed
+— see ``provenance.episode_citations`` (same ETag rule).
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import EpisodeSpan, EpisodeText
+from api.models.schemas import EpisodeCitations, EpisodeSpan, EpisodeText
 from api.services import evidence, provenance, sync_service
 
 router = APIRouter()
@@ -107,3 +109,26 @@ async def get_episode_text(
     if doc is None:
         raise HTTPException(404, f"No stored document {episode_id!r}")
     return doc
+
+
+@router.get("/episodes/{episode_id}/citations", response_model=EpisodeCitations)
+async def get_episode_citations(
+    episode_id: str,
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """What this conversation taught Cicada (G118 s2, §4.8.3; G106 (ii)).
+
+    Spans in document order, then rows without offsets; ``partial`` when more
+    pages named the document than one call parses. Engine-free, nothing
+    written. 404 for an unknown or non-bare id.
+    """
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(memory_path, "episodes", "entities", extra=f"citations|{episode_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    result = await run_in_threadpool(provenance.episode_citations, memory_path, episode_id)
+    if result is None:
+        raise HTTPException(404, f"No stored document {episode_id!r}")
+    return result

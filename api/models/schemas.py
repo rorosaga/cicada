@@ -872,6 +872,49 @@ class EntityProvenance(CamelModel):
     commits_truncated: bool = False
 
 
+class EpisodeCitation(CamelModel):
+    """One belief a document contributed (G118 slice 2, design §4.8.3).
+    ``evidence`` is the stored entry for a span or reasoning row, ``None`` for
+    a derived one. ``start``/``end`` are what to wash — the asserted offsets,
+    a derived name match, or ``None`` (reasoning, no match, or ``stale``:
+    R-PB2). ``current`` is false for a superseded or closed claim."""
+
+    claim_id: str
+    subject_id: str
+    subject_name: str = ""
+    subject_type: str = ""
+    text: str = ""
+    current: bool = True
+    authored_by: str = "unknown"
+    observer: str = "agent"
+    evidence: Optional[EvidenceModel] = None
+    kind: str = "reasoning"
+    start: Optional[int] = None
+    end: Optional[int] = None
+    stale: bool = False
+    grown: bool = False
+    derived: bool = False
+
+
+class EpisodeCitationEntity(CamelModel):
+    entity_id: str
+    name: str = ""
+    type: str = ""
+
+
+class EpisodeCitations(CamelModel):
+    """``GET /episodes/{id}/citations`` — spans first in document order (the
+    Reader's navigator steps through them), then rows without offsets.
+    ``entities`` are the pages whose frontmatter ``source_episodes`` lists the
+    document. ``partial`` is true when more pages named it than one call
+    parses (R-PB10). Fetched on demand, not a Store domain."""
+
+    episode: str
+    citations: list[EpisodeCitation] = []
+    entities: list[EpisodeCitationEntity] = []
+    partial: bool = False
+
+
 class TransclusionPayload(CamelModel):
     """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
 
@@ -987,6 +1030,11 @@ class AskCitation(CamelModel):
     file_path: str
     snippet: str
     source_episodes: list[str] = []
+    # G118 slice 2 (R-PB12) — set when the retrieval hit was a claim: the
+    # claim and the spans behind it, read from the page (the source of truth),
+    # raw as stored; freshness is `/episodes/{id}/span`'s job. Additive.
+    claim_id: Optional[str] = None
+    evidence: list[EvidenceModel] = []
 
 
 class AskResponse(CamelModel):
