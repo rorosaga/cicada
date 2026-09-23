@@ -44,6 +44,9 @@ struct CicadaApp: App {
     @State private var contributorsVM: ContributorsViewModel
     @State private var connectionsVM: ConnectionsViewModel
     @State private var usageVM: UsageViewModel
+    /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
+    /// recents and instant index survive the palette closing.
+    @State private var findModel: FindPaletteModel
     @State private var menuBarManager = MenuBarManager()
     @State private var backend = BackendProcess()
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
@@ -106,6 +109,7 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
+        _findModel = State(initialValue: FindPaletteModel(store: store))
     }
 
     var body: some Scene {
@@ -124,6 +128,7 @@ struct CicadaApp: App {
                 .environment(connectionsVM)
                 .environment(usageVM)
                 .environment(store)
+                .environment(findModel)
                 .environment(browserWatcher)
                 .environment(localSources)
                 .environment(intakeRouter)
@@ -265,6 +270,8 @@ struct CicadaApp: App {
                 Button("Actual Size") { CicadaTheme.resetZoom() }
                     .keyboardShortcut("0", modifiers: .command)
             }
+            // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
+            FindCommands(router: appRouter)
             // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
             // of every drop (design §5.1).
             CommandGroup(after: .newItem) {

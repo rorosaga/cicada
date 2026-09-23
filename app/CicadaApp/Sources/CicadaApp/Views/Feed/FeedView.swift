@@ -57,7 +57,7 @@ struct FeedView: View {
             // button on every Feed render (G68 §1, round 2). Feed is the only
             // page that pairs a PageHeader trailing action with the floating
             // TopBarControls row, so folding the button into this same row
-            // (same pattern as GraphContainerView's AskButton) removes the
+            // (same pattern as GraphContainerView's SearchButton) removes the
             // collision entirely instead of just tuning padding.
             VStack {
                 HStack {
@@ -419,7 +419,8 @@ enum FeedPreviewLayout {
 // open is only the fallback for a row an older backend served without one.
 // Degrades quietly: if that fetch fails, the preview still renders without a
 // description.
-private struct FeedItemPreviewSheet: View {
+/// Internal since G136: the ⌘K palette previews a saved item in place.
+struct FeedItemPreviewSheet: View {
     let item: MediaFeedItem
     @Environment(\.dismiss) private var dismiss
     @State private var enrichedDescription: String?

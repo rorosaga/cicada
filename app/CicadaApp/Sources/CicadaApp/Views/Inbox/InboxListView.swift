@@ -6,7 +6,10 @@ import SwiftUI
 /// cycle (G115 R12). Replaces the separate Nudges + Clarifications tabs.
 struct InboxListView: View {
     @Environment(InboxViewModel.self) private var viewModel
+    @Environment(AppRouter.self) private var router
     @State private var kindFilter: InboxKind?
+    /// G136 — the item a palette row landed on; its card opens expanded.
+    @State private var focusedItem: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var visibleItems: [InboxItem] {
@@ -34,28 +37,35 @@ struct InboxListView: View {
             } else if viewModel.items.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(visibleItems) { item in
-                            InboxCardView(item: item) { resolution in
-                                await viewModel.resolve(
-                                    id: item.id,
-                                    action: resolution.action,
-                                    answer: resolution.answer,
-                                    optionKey: resolution.optionKey,
-                                    remindDays: resolution.remindDays,
-                                    mergeTarget: resolution.mergeTarget,
-                                    mergeSurvivor: resolution.mergeSurvivor
-                                )
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: CicadaTheme.spacingSM) {
+                            ForEach(visibleItems) { item in
+                                InboxCardView(item: item, startsExpanded: item.id == focusedItem) { resolution in
+                                    await viewModel.resolve(
+                                        id: item.id,
+                                        action: resolution.action,
+                                        answer: resolution.answer,
+                                        optionKey: resolution.optionKey,
+                                        remindDays: resolution.remindDays,
+                                        mergeTarget: resolution.mergeTarget,
+                                        mergeSurvivor: resolution.mergeSurvivor
+                                    )
+                                }
+                                .id(item.id)
+                                .transition(.asymmetric(
+                                    insertion: .opacity,
+                                    removal: .opacity.combined(with: .scale(scale: 0.96)).combined(with: .move(edge: .trailing))
+                                ))
                             }
-                            .transition(.asymmetric(
-                                insertion: .opacity,
-                                removal: .opacity.combined(with: .scale(scale: 0.96)).combined(with: .move(edge: .trailing))
-                            ))
                         }
+                        .padding(CicadaTheme.spacingXL)
+                        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: viewModel.items.map(\.id))
                     }
-                    .padding(CicadaTheme.spacingXL)
-                    .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: viewModel.items.map(\.id))
+                    // G136 — a palette inbox row lands here: every kind shown,
+                    // the card scrolled to and opened.
+                    .onAppear { land(proxy) }
+                    .onChange(of: router.pendingInboxItem) { _, _ in land(proxy) }
                 }
             }
         }
@@ -65,6 +75,13 @@ struct InboxListView: View {
         // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
         // content under the menu bar and stretched the whole window to full height.
         .background(CicadaTheme.background)
+    }
+
+    private func land(_ proxy: ScrollViewProxy) {
+        guard let id = router.consumeInboxItem() else { return }
+        kindFilter = nil
+        focusedItem = id
+        withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { proxy.scrollTo(id, anchor: .top) }
     }
 
     // MARK: - Header (title + kind filter chips)
