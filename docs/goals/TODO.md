@@ -133,7 +133,7 @@ Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`,
 - `GET /remote/status` finds ngrok and Tailscale in the standard install folders, not only on
   launchd's PATH (R-B15); `/state`'s `sleep.next_at` was already calibrated (Track P) and is now
   pinned against `/status` in all four modes (R-B16).
-- Baselines: backend **N passed** on `fix/backend-batch-2` — the orchestrator measures and fills this.
+- Baselines: backend **3252 passed** on `fix/backend-batch-2` (measured by the orchestrator on the merged head, 2026-09-23).
 
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
