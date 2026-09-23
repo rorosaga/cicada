@@ -67,7 +67,9 @@ final class LocalInventoryTests: XCTestCase {
         let inventory = LocalInventory(probes: LocalInventoryProbes(
             wiring: { nil }, isInstalled: { _ in false }, browserPresence: { $0 == "chrome-bookmarks" ? chrome : .absent },
             claudeDesktopHasCicada: { nil }))
+        XCTAssertFalse(inventory.hasChecked, "empty before the first scan means not asked, not nothing here")
         await inventory.refresh()
+        XCTAssertTrue(inventory.hasChecked)
         XCTAssertEqual(inventory.items.first?.readiness, .ready)
         chrome = .on
         await inventory.refresh()

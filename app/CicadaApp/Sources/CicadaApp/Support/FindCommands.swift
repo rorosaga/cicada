@@ -74,17 +74,25 @@ struct PaletteRequest: Equatable {
 /// that carries text or asks for Ask always opens — a "Search all of memory
 /// for …" row must never close what it asks for. Never over the first-run
 /// sheet (§3.1).
+///
+/// Track I part b (R-IB5): on Home the page already IS the search field, so
+/// ⌘K focuses it (carrying the request's prefill and mode) instead of opening
+/// a second field over the first. An overlay opened elsewhere and still up
+/// after ⌘1 closes on a plain ⌘K as before.
 enum PaletteToggle {
     enum Outcome: Equatable {
         case open(prefill: String, mode: FindMode)
         case close
         case ignore
+        case focusHome(prefill: String, mode: FindMode)
     }
 
-    static func outcome(for request: PaletteRequest, isOpen: Bool, firstRunShowing: Bool) -> Outcome {
+    static func outcome(for request: PaletteRequest, isOpen: Bool, firstRunShowing: Bool,
+                        homeVisible: Bool = false) -> Outcome {
         if firstRunShowing { return .ignore }
         let plain = request.prefill.isEmpty && request.mode == .find
         if isOpen && plain { return .close }
+        if homeVisible && !isOpen { return .focusHome(prefill: request.prefill, mode: request.mode) }
         return .open(prefill: request.prefill, mode: request.mode)
     }
 }

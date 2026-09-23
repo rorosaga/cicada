@@ -32,6 +32,12 @@ final class LocalInventory {
     private(set) var items: [FoundItem] = []
     private(set) var wiring: AgentWiringResponse?
     private(set) var isChecking = false
+    /// A scan has finished at least once. `items == []` means "nothing here"
+    /// only after this; before it, it means "not asked yet" — the inventory is
+    /// app-level and refreshed only by the Welcome and Getting started, so on an
+    /// established bank it is still empty when *Show setup checklist* first
+    /// renders the card (I-b final re-review, finding 4).
+    private(set) var hasChecked = false
     @ObservationIgnored var probes: LocalInventoryProbes
 
     init(probes: LocalInventoryProbes) { self.probes = probes }
@@ -49,6 +55,7 @@ final class LocalInventory {
         wiring = fetched
         items = FoundPolicy.order(Self.items(from: snapshot))
         isChecking = false
+        hasChecked = true
     }
 
     nonisolated static func items(from s: InventorySnapshot) -> [FoundItem] {

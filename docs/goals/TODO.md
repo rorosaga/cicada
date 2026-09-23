@@ -39,8 +39,10 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Round 3, Track I part a** (`feat/intake-onboarding`): one intake for every chat export and every way a file arrives
 (sniff → preview → import → a card that never closes itself; `UploadOverlay` and the Feed's Upload
 button retired), consent before any browser read, the Gemini channel and the export-origin
-backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. Part b
-(T8 Welcome, T9 Home + ⌘1–7, T10 reminders, T11 docs, T12 live pass) is next.
+backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. **Part b** (`feat/welcome-home`): the one-screen Welcome (the four-step
+sheet and F2 retired), Home at ⌘1 with Getting started, and export reminders with text twins; T12 (the
+live pass and screenshots) is the orchestrator's. Measured on the branch: Swift **1539 executed, 0
+failures**, backend **2902 passed** (unchanged — no Python in this track).
 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
