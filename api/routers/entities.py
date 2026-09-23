@@ -202,8 +202,9 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
             media.get("duration_s") if isinstance(media.get("duration_s"), int)
             and not isinstance(media.get("duration_s"), bool) else None
         ),
-        # G133 — `paper` on a paper page (R-LS14); absent on every other.
-        kind=media.get("kind") or None,
+        # G133 — `paper` on a paper page (R-LS14); absent on every other. Type-checked like
+        # `duration_s`: a hand-edited `kind: [paper]` must not 500 the whole page (T4 review r1).
+        kind=media.get("kind") if isinstance(media.get("kind"), str) and media.get("kind") else None,
     )
 
 

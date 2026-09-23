@@ -121,14 +121,20 @@ def _clean(text) -> str:
     return " ".join(str(text or "").split())
 
 
-def parse_arxiv_atom(body: bytes) -> dict[str, dict]:
+def parse_arxiv_atom(body: bytes) -> dict[str, dict] | None:
     """``arxiv id -> metadata`` from an API response. An id the API does not
     know is simply absent (arXiv answers with fewer entries, or an ``Error``
-    entry whose id is not an abs URL)."""
+    entry whose id is not an abs URL).
+
+    ``None`` — not ``{}`` — when the body is not XML at all (T4 review round 1,
+    finding 4): a 200 that fails to parse is a transport or format problem, most
+    likely a response cut at ``MAX_BYTES``, and reading it as "the API knows none
+    of these" would back 50 papers off for ``RETRY_DAYS``. ``{}`` stays the
+    answer for a valid, empty feed."""
     try:
         root = ET.fromstring(body)
     except ET.ParseError:
-        return {}
+        return None
     out: dict[str, dict] = {}
     for entry in root.findall(f"{_ATOM}entry"):
         m = papers.ARXIV_URL_RE.search(entry.findtext(f"{_ATOM}id") or "")
@@ -207,8 +213,22 @@ def _mark_failed(memory_path: Path, entity_id: str, status: str, today: str) -> 
     markdown_parser.write(path, fm, parsed.body)
 
 
-def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today: str, idx: dict) -> str | None:
-    """Write one response onto its page; returns a DOI learned from arXiv, if any."""
+@dataclass
+class _IndexOp:
+    """What one ``_apply`` wants from ``url_index.json`` — recorded, never applied
+    in place. T4 review round 1, finding 1: holding one loaded index across every
+    network wait and saving it at the end silently dropped whatever another writer
+    (a bookmark or Safari sync, an MCP ``cicada_save_url``, a Telegram capture, a
+    folder sync) had added meanwhile. ``_replay_index`` applies these to a FRESH
+    load instead, with no await between its load and its save."""
+    entity_id: str
+    alias: "papers.PaperKey | None" = None
+    title: str | None = None
+
+
+def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today: str) -> _IndexOp | None:
+    """Write one response onto its page; returns the index change it implies
+    (a DOI learned from arXiv, a placeholder title replaced), if any."""
     from api.services.link_enrichment import _upsert_description
 
     path = papers.page_path(memory_path, entity_id)
@@ -224,12 +244,10 @@ def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today:
     paper.update(metadata_source=source, metadata_at=today)
     paper.pop("metadata_status", None)
     paper.pop("metadata_attempted_at", None)
+    new_title = None
     if paper.get("title_from") == "placeholder" and meta.get("title"):
-        fm["name"] = meta["title"]
+        fm["name"] = new_title = meta["title"]
         paper["title_from"] = source
-        for entry in idx.values():
-            if isinstance(entry, dict) and entry.get("media_entity_id") == entity_id and not entry.get("alias_of"):
-                entry["title"] = meta["title"]
     fm["paper"] = paper
     body = parsed.body
     abstract = meta.get("abstract")
@@ -250,72 +268,179 @@ def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today:
                 authored_by="cicada", origin=f"papers/{source}", evidence=[span])]
             body = write_claims(body, claims)
     markdown_parser.write(path, fm, body)
+    alias = None
     if learned:
-        papers.index_aliases(idx, papers.PaperKey(arxiv_id=paper.get("arxiv_id"), doi=learned), entity_id, title=None)
+        alias = papers.PaperKey(arxiv_id=paper.get("arxiv_id"), doi=learned)
         fact_sources.add_source(memory_path, entity_id, f"https://doi.org/{learned}", kind="url", added_by="cicada")
-    return learned
+    return _IndexOp(entity_id, alias=alias, title=new_title) if (alias or new_title) else None
+
+
+def _replay_index(memory_path: Path, ops: list[_IndexOp]) -> bool:
+    """Apply this run's index changes to a fresh load and save only on a change.
+    Synchronous on purpose: nothing awaits between the load and the save, so an
+    event-loop writer can never land in between (finding 1)."""
+    if not ops:
+        return False
+    idx = media_ingestor.load_url_index(memory_path)
+    before = json.dumps(idx, sort_keys=True)
+    for op in ops:
+        if op.title:
+            # Only the page's primary (Feed) row; the person's own bullet title lives on the page.
+            for entry in idx.values():
+                if isinstance(entry, dict) and entry.get("media_entity_id") == op.entity_id \
+                        and not entry.get("alias_of"):
+                    entry["title"] = op.title
+        if op.alias:
+            papers.index_aliases(idx, op.alias, op.entity_id, title=None)
+    if json.dumps(idx, sort_keys=True) == before:
+        return False
+    media_ingestor.save_url_index(memory_path, idx)
+    return True
+
+
+def _sleep_running() -> bool:
+    from api.services import sleep_cycle
+
+    return sleep_cycle.get_sleep_state().status == "running"
+
+
+def _write_guarded(memory_path: Path, entity_id: str, report: dict, paths: set[str], ops: list[_IndexOp],
+                   write: Callable[[], "_IndexOp | None"], *, resolved: bool) -> None:
+    """One page write that can never abort the run (T4 review round 1, finding 2):
+    a page archived or moved by an inbox resolve mid-run, or one with malformed
+    frontmatter, counts as failed and the run goes on — so the pages already
+    written still reach ``run_locked``'s scoped commit instead of riding the next
+    ``git add -A`` under another author. The path is kept whenever the file
+    still exists, because a write can fail after the page was already rewritten."""
+    rel = f"entities/{entity_id}.md"
+    try:
+        op = write()
+    except Exception as e:  # noqa: BLE001 - one page never sinks the run
+        logger.warning(f"paper details: {entity_id} not written: {type(e).__name__}")
+        report["failed"] += 1
+        if papers.page_path(memory_path, entity_id).exists():
+            paths.add(rel)
+        return
+    if op:
+        ops.append(op)
+    report["resolved" if resolved else "failed"] += 1
+    paths.add(rel)
+
+
+def _apply_arxiv_chunk(memory_path: Path, chunk: list[tuple[str, str]], found: dict, *, today: str,
+                       report: dict, paths: set[str], ops: list[_IndexOp]) -> None:
+    for entity_id, arxiv_id in chunk:
+        meta = found.get(arxiv_id)
+        if meta:
+            _write_guarded(memory_path, entity_id, report, paths, ops, resolved=True,
+                           write=lambda e=entity_id, m=meta: _apply(memory_path, e, m, source="arxiv", today=today))
+        else:
+            _write_guarded(memory_path, entity_id, report, paths, ops, resolved=False,
+                           write=lambda e=entity_id: _mark_failed(memory_path, e, "not_found", today))
+
+
+def new_report() -> dict:
+    return {"arxiv_requests": 0, "crossref_requests": 0, "resolved": 0, "failed": 0, "remaining": 0,
+            "error": None, "stopped": None, "paths": []}
 
 
 async def resolve(memory_path: Path, *, fetch_fn: FetchFn | None = None, max_arxiv: int | None = None,
-                  max_crossref: int | None = None, clock=time.monotonic, sleep=asyncio.sleep) -> dict:
+                  max_crossref: int | None = None, clock=time.monotonic, sleep=asyncio.sleep,
+                  stop_if_sleeping: bool = False, report: dict | None = None) -> dict:
     """Fetch details for every paper page that has none. Stops an API at its
     first refusal or failure (R-LS18); a record the API does not have backs off
-    ``RETRY_DAYS``. Returns counts plus the bank paths written."""
+    ``RETRY_DAYS``. Returns counts plus the bank paths written.
+
+    ``report`` may be passed in so a caller still holds the paths written when
+    this raises (``run_locked`` commits them in a ``finally``). Bank scans and
+    page writes run in a worker thread (T4 review round 1, finding 6); only the
+    fetches and the pacer stay on the loop. ``stop_if_sleeping`` is the
+    user-triggered run's (finding 3): R-LS17 says paper writes wait while Sleep
+    runs, and a long run must not overlap a cycle that starts during it — so the
+    Sleep state is checked before every request and again before a response is
+    written, and the run stops (the tail picks up what is left). The Sleep tail
+    itself never passes it: it runs while the status still reads ``running``."""
     memory_path = Path(memory_path)
     fetch = fetch_fn or default_fetch
     today_d = date.today()
     today = today_d.isoformat()
-    pending = _pending(memory_path, today_d)
-    arxiv = [(e, a) for e, a, _ in pending if a][:max_arxiv]
-    dois = [(e, d) for e, a, d in pending if not a and d][:max_crossref]
-    report = {"arxiv_requests": 0, "crossref_requests": 0, "resolved": 0, "failed": 0, "remaining": 0, "error": None}
+    report = report if report is not None else new_report()
     paths: set[str] = set()
-    idx = media_ingestor.load_url_index(memory_path)
-    idx_before = json.dumps(idx, sort_keys=True)
-    pacer = _Pacer(ARXIV_SPACING_S, clock=clock, sleep=sleep, api="arxiv")
-    for i in range(0, len(arxiv), ARXIV_BATCH):
-        chunk = arxiv[i:i + ARXIV_BATCH]
-        await pacer.wait()
-        resp = await fetch(ARXIV_API, {"id_list": ",".join(a for _, a in chunk), "max_results": str(len(chunk))})
-        report["arxiv_requests"] += 1
-        if resp.status != 200 or "xml" not in resp.content_type:
-            report["error"] = f"arXiv {resp.error or f'HTTP {resp.status}'}"
-            break
-        found = parse_arxiv_atom(resp.body)
-        for entity_id, arxiv_id in chunk:
-            if found.get(arxiv_id):
-                _apply(memory_path, entity_id, found[arxiv_id], source="arxiv", today=today, idx=idx)
-                report["resolved"] += 1
+    ops: list[_IndexOp] = []
+
+    def stop_now() -> bool:
+        if stop_if_sleeping and _sleep_running():
+            report["stopped"] = "sleep"
+            return True
+        return False
+
+    try:
+        pending = await asyncio.to_thread(_pending, memory_path, today_d)
+        arxiv = [(e, a) for e, a, _ in pending if a][:max_arxiv]
+        dois = [(e, d) for e, a, d in pending if not a and d][:max_crossref]
+        chunks = [arxiv[i:i + ARXIV_BATCH] for i in range(0, len(arxiv), ARXIV_BATCH)]
+        pacer = _Pacer(ARXIV_SPACING_S, clock=clock, sleep=sleep, api="arxiv")
+        while chunks and not stop_now():
+            chunk = chunks.pop(0)
+            await pacer.wait()
+            resp = await fetch(ARXIV_API, {"id_list": ",".join(a for _, a in chunk), "max_results": str(len(chunk))})
+            report["arxiv_requests"] += 1
+            if resp.status != 200 or "xml" not in resp.content_type:
+                report["error"] = f"arXiv {resp.error or f'HTTP {resp.status}'}"
+                break
+            if len(resp.body) >= MAX_BYTES:
+                # Cut at the ToS rail's 512 KB (finding 4): a large-collaboration paper can list
+                # thousands of authors. Ask again in halves; one paper too big on its own is
+                # genuinely unreadable under the rail and backs off like a missing one.
+                if len(chunk) > 1:
+                    half = len(chunk) // 2
+                    chunks[:0] = [chunk[:half], chunk[half:]]
+                    continue
+                entity_id = chunk[0][0]
+                await asyncio.to_thread(_write_guarded, memory_path, entity_id, report, paths, ops,
+                                        lambda: _mark_failed(memory_path, entity_id, "unreadable", today),
+                                        resolved=False)
+                continue
+            found = parse_arxiv_atom(resp.body)
+            if found is None:
+                # Never "not found" for a body that is not XML — nothing is marked (finding 4).
+                report["error"] = "arXiv unreadable response"
+                break
+            if stop_now():
+                break
+            await asyncio.to_thread(_apply_arxiv_chunk, memory_path, chunk, found, today=today,
+                                    report=report, paths=paths, ops=ops)
+        pacer = _Pacer(CROSSREF_SPACING_S, clock=clock, sleep=sleep, api="crossref")
+        for entity_id, doi in dois:
+            if report["stopped"] or stop_now():
+                break
+            await pacer.wait()
+            resp = await fetch(CROSSREF_API + urllib.parse.quote(doi, safe="/"), {})
+            report["crossref_requests"] += 1
+            if resp.status == 404:
+                await asyncio.to_thread(_write_guarded, memory_path, entity_id, report, paths, ops,
+                                        lambda e=entity_id: _mark_failed(memory_path, e, "not_found", today),
+                                        resolved=False)
+                continue
+            if resp.status != 200 or "json" not in resp.content_type:
+                report["error"] = report["error"] or f"Crossref {resp.error or f'HTTP {resp.status}'}"
+                break
+            if stop_now():
+                break
+            meta = parse_crossref(resp.body)
+            if meta is None:
+                write, resolved = (lambda e=entity_id: _mark_failed(memory_path, e, "unreadable", today)), False
             else:
-                _mark_failed(memory_path, entity_id, "not_found", today)
-                report["failed"] += 1
-            paths.add(f"entities/{entity_id}.md")
-    pacer = _Pacer(CROSSREF_SPACING_S, clock=clock, sleep=sleep, api="crossref")
-    for entity_id, doi in dois:
-        await pacer.wait()
-        resp = await fetch(CROSSREF_API + urllib.parse.quote(doi, safe="/"), {})
-        report["crossref_requests"] += 1
-        if resp.status == 404:
-            _mark_failed(memory_path, entity_id, "not_found", today)
-            report["failed"] += 1
-            paths.add(f"entities/{entity_id}.md")
-            continue
-        if resp.status != 200 or "json" not in resp.content_type:
-            report["error"] = report["error"] or f"Crossref {resp.error or f'HTTP {resp.status}'}"
-            break
-        meta = parse_crossref(resp.body)
-        if meta is None:
-            _mark_failed(memory_path, entity_id, "unreadable", today)
-            report["failed"] += 1
-        else:
-            _apply(memory_path, entity_id, meta, source="crossref", today=today, idx=idx)
-            report["resolved"] += 1
-        paths.add(f"entities/{entity_id}.md")
-    if json.dumps(idx, sort_keys=True) != idx_before:
-        media_ingestor.save_url_index(memory_path, idx)
-        paths.add("sources/url_index.json")
-    report["remaining"] = len(_pending(memory_path, today_d))
-    report["paths"] = sorted(paths)
+                write, resolved = (lambda e=entity_id, m=meta: _apply(memory_path, e, m, source="crossref",
+                                                                      today=today)), True
+            await asyncio.to_thread(_write_guarded, memory_path, entity_id, report, paths, ops, write,
+                                    resolved=resolved)
+    finally:
+        # Replayed even when the run raised, so an alias whose page was written is never lost.
+        if _replay_index(memory_path, ops):
+            paths.add("sources/url_index.json")
+        report["paths"] = sorted(paths)
+    report["remaining"] = len(await asyncio.to_thread(_pending, memory_path, today_d))
     return report
 
 
@@ -335,14 +460,26 @@ async def run_locked(memory_path: Path, **kwargs) -> dict | None:
     nothing was asked of the person that this would refuse)."""
     if not _run_lock.acquire(blocking=False):
         return None
+    report = new_report()
     try:
-        report = await resolve(memory_path, **kwargs)
-        record(memory_path, report)
-        await folder_source.commit_paths_for(memory_path, report["paths"], subject="Paper details",
-                                             trigger="papers/metadata", author="cicada")
+        await resolve(memory_path, report=report, **kwargs)
         return report
+    except Exception as e:
+        report["error"] = report["error"] or f"paper details {type(e).__name__}"
+        raise
     finally:
-        _run_lock.release()
+        # T4 review round 1, finding 2: whatever was written is committed as `cicada` and the
+        # outcome recorded even when the run raised — a page left dirty here would ride the next
+        # `git add -A` writer's commit under its author (the G85-class smear).
+        try:
+            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Paper details",
+                                                 trigger="papers/metadata", author="cicada")
+            try:
+                record(memory_path, report)
+            except Exception as e:  # noqa: BLE001 - a status line never outranks the commit
+                logger.warning(f"paper details: outcome not recorded: {type(e).__name__}")
+        finally:
+            _run_lock.release()
 
 
 async def resolve_in_background(memory_path: Path) -> None:
@@ -353,6 +490,6 @@ async def resolve_in_background(memory_path: Path) -> None:
 
         if sleep_cycle.get_sleep_state().status == "running":
             return
-        await run_locked(memory_path)
+        await run_locked(memory_path, stop_if_sleeping=True)
     except Exception as e:  # noqa: BLE001 - a background run never surfaces as a 500
         logger.warning(f"paper details failed: {type(e).__name__}: {e}")

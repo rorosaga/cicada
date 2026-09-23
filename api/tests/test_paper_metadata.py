@@ -79,7 +79,8 @@ def test_parse_arxiv_atom():
     assert a["title"] == "Paper Alpha: A Synthetic Study" and a["authors"] == ["Ada Example", "Bob Example"]
     assert (a["published"], a["updated"], a["primary_category"]) == ("2024-01-02", "2024-02-01", "cs.LG")
     assert a["doi"] == "10.9999/alpha.2024" and a["abstract"].startswith("We study a synthetic problem")
-    assert pm.parse_arxiv_atom(b"<not xml") == {}
+    assert pm.parse_arxiv_atom(b"<not xml") is None  # unreadable, not "found nothing" (T4 r1 finding 4)
+    assert pm.parse_arxiv_atom(b'<feed xmlns="http://www.w3.org/2005/Atom"/>') == {}
 
 
 def test_parse_crossref():
@@ -205,3 +206,135 @@ def test_a_user_triggered_sync_schedules_one_background_run(bank, client, monkey
     r = client.post(f"/sources/folders/{folder['id']}/sync", params={"resolve": "true"},
                     json={"files": [], "deleted": []})
     assert r.status_code == 200 and seen == [bank]
+
+
+# --- T4 review round 1 -------------------------------------------------------------------------
+
+
+def test_a_url_index_write_during_the_run_survives(bank):
+    """Finding 1: the run replays its alias/title changes onto a FRESH index load, so a
+    bookmark sync or an MCP save landing during a network wait is never overwritten."""
+    other = media_ingestor.url_hash("https://example.com/saved-during-run")
+    inner = _fetcher([])
+
+    async def fetch(url, params):
+        idx = media_ingestor.load_url_index(bank)
+        idx[other] = {"url": "https://example.com/saved-during-run", "media_entity_id": "media-example"}
+        media_ingestor.save_url_index(bank, idx)
+        return await inner(url, params)
+
+    clock = _Clock()
+    report = asyncio.run(pm.resolve(bank, fetch_fn=fetch, clock=clock.now, sleep=clock.sleep))
+    idx = media_ingestor.load_url_index(bank)
+    assert other in idx, "concurrent url_index entry was overwritten"
+    assert idx[media_ingestor.url_hash("https://doi.org/10.9999/alpha.2024")]["alias_of"]  # ours landed too
+    assert "sources/url_index.json" in report["paths"]
+
+
+def test_one_bad_page_never_sinks_the_run(bank, monkeypatch):
+    """Finding 2 (per-page guard): a page that cannot be written counts as failed and the run goes on."""
+    real = pm._apply
+
+    def flaky(memory_path, entity_id, meta, **kw):
+        if entity_id == ALPHA:
+            raise ValueError("malformed frontmatter")
+        return real(memory_path, entity_id, meta, **kw)
+
+    monkeypatch.setattr(pm, "_apply", flaky)
+    clock = _Clock()
+    report = asyncio.run(pm.resolve(bank, fetch_fn=_fetcher([]), clock=clock.now, sleep=clock.sleep))
+    assert (report["resolved"], report["failed"]) == (1, 2)  # Beta resolved; Alpha errored, Nine not found
+    assert markdown_parser.parse(bank / "entities" / f"{BETA}.md").frontmatter["paper"]["metadata_source"] == "crossref"
+    assert f"entities/{ALPHA}.md" in report["paths"]  # still on disk, so still committed
+
+
+def test_a_run_that_raises_still_commits_what_it_wrote(bank, monkeypatch):
+    """Finding 2 (commit in finally): pages written before the failure get their scoped
+    `cicada` commit and the error is recorded, instead of waiting for the next `git add -A`."""
+    committed = []
+
+    async def fake_commit(memory_path, paths, **kw):
+        committed.append((list(paths), kw["author"], kw["trigger"]))
+
+    inner = _fetcher([])
+
+    async def fetch(url, params):
+        if url != pm.ARXIV_API:
+            raise RuntimeError("transport blew up")
+        return await inner(url, params)
+
+    monkeypatch.setattr(fs, "commit_paths_for", fake_commit)
+    clock = _Clock()
+    with pytest.raises(RuntimeError):
+        asyncio.run(pm.run_locked(bank, fetch_fn=fetch, clock=clock.now, sleep=clock.sleep))
+    ((paths, author, trigger),) = committed
+    assert f"entities/{ALPHA}.md" in paths and "sources/url_index.json" in paths
+    assert (author, trigger) == ("cicada", "papers/metadata")
+    assert sync_state.read_sync_state(bank)["papers"]["last_error"] == "paper details RuntimeError"
+    assert pm._run_lock.acquire(blocking=False)  # released
+    pm._run_lock.release()
+
+
+def test_a_user_triggered_run_stops_when_sleep_starts(bank, monkeypatch):
+    """Finding 3: R-LS17 — paper writes wait while Sleep runs, even mid-run. A cycle that starts
+    during a fetch means that response is not written and nothing further is asked."""
+    sleeping = {"now": False}
+    inner = _fetcher(calls := [])
+
+    async def fetch(url, params):
+        sleeping["now"] = True  # Consolidate pressed while this request was in flight
+        return await inner(url, params)
+
+    monkeypatch.setattr(pm, "_sleep_running", lambda: sleeping["now"])
+    clock = _Clock()
+    report = asyncio.run(pm.resolve(bank, fetch_fn=fetch, clock=clock.now, sleep=clock.sleep, stop_if_sleeping=True))
+    assert [c[0] for c in calls] == [pm.ARXIV_API] and report["stopped"] == "sleep"
+    assert (report["resolved"], report["failed"], report["paths"]) == (0, 0, [])
+    assert "metadata_at" not in markdown_parser.parse(bank / "entities" / f"{ALPHA}.md").frontmatter["paper"]
+    # The Sleep tail itself never stops on its own running status.
+    sleeping["now"] = True
+    report = asyncio.run(pm.resolve(bank, fetch_fn=_fetcher([]), clock=clock.now, sleep=clock.sleep))
+    assert report["stopped"] is None and report["resolved"] == 2
+
+
+def test_an_unreadable_arxiv_answer_marks_nothing(bank):
+    """Finding 4: a 200 that is not XML is a transport/format problem, never 'not found'."""
+    report = asyncio.run(pm.resolve(bank, fetch_fn=_fetcher([], arxiv=(200, "application/atom+xml", b"<feed><entr")),
+                                    clock=_Clock().now, sleep=_Clock().sleep))
+    assert report["error"] == "arXiv unreadable response"
+    for eid in (ALPHA, NINE):
+        assert "metadata_status" not in markdown_parser.parse(bank / "entities" / f"{eid}.md").frontmatter["paper"]
+
+
+def test_a_truncated_arxiv_batch_is_asked_again_in_halves(bank):
+    """Finding 4: a response cut at the 512 KB rail (a paper with thousands of authors) is split,
+    never read as 'the API knows none of these'; a single id too big on its own backs off as unreadable."""
+    calls = []
+    big = b"x" * pm.MAX_BYTES
+
+    async def fetch(url, params):
+        calls.append(params.get("id_list"))
+        if url != pm.ARXIV_API:
+            return pm.Response(200, "application/json", CROSSREF)
+        ids = params["id_list"].split(",")
+        return pm.Response(200, "application/atom+xml", big if len(ids) > 1 or ids == ["2401.00009"] else ATOM)
+
+    clock = _Clock()
+    report = asyncio.run(pm.resolve(bank, fetch_fn=fetch, clock=clock.now, sleep=clock.sleep))
+    assert calls[:3] == ["2401.00001,2401.00009", "2401.00001", "2401.00009"]
+    assert report["error"] is None and (report["resolved"], report["failed"]) == (2, 1)
+    assert clock.waits == [pm.ARXIV_SPACING_S] * 2  # every retry is still paced
+    assert markdown_parser.parse(bank / "entities" / f"{ALPHA}.md").frontmatter["paper"]["metadata_source"] == "arxiv"
+    assert markdown_parser.parse(bank / "entities" / f"{NINE}.md").frontmatter["paper"]["metadata_status"] == "unreadable"
+
+
+def test_a_hand_edited_media_kind_never_500s_the_page(bank, client):
+    """Finding 5: `kind: [paper]` is dropped like a non-int `duration_s`, not a validation 500."""
+    path = bank / "entities" / f"{ALPHA}.md"
+    page = markdown_parser.parse(path)
+    fm = dict(page.frontmatter)
+    fm["media"] = {**fm["media"], "kind": ["paper"]}
+    markdown_parser.write(path, fm, page.body)
+    bank_index.invalidate()
+    r = client.get(f"/entities/{ALPHA}")
+    assert r.status_code == 200 and r.json()["media"]["kind"] is None

@@ -489,7 +489,7 @@ async def _resolve_papers_safely(memory_path: Path) -> None:
         if deferred["folders"]:
             await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
                                                  trigger="folder/papers", author="cicada")
-        if not paper_metadata.has_pending(memory_path):
+        if not await asyncio.to_thread(paper_metadata.has_pending, memory_path):
             return
         if not network_allowed():
             sync_state.record_skip(memory_path, "papers", "network fetch disabled")
