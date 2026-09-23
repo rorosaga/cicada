@@ -40,7 +40,7 @@ enum SourceBlurb {
     private static let byId: [String: String] = [
         "chat-export:claude": "Claude conversations you exported and imported, one episode per thread.",
         "chat-export:chatgpt": "ChatGPT conversations you exported and imported, one episode per thread.",
-        "chat-export:gemini": "Gemini conversations you exported from Takeout, one episode per thread.",
+        "chat-export:gemini": "Your Gemini prompts and replies from Takeout, one episode per prompt.",
         "chrome-bookmarks": "Bookmarks you save in Chrome, synced as you add them.",
         "safari-bookmarks": "Bookmarks you save in Safari, synced as you add them.",
         "safari-tabs": "Your open Safari tabs across devices, via iCloud.",

@@ -1369,10 +1369,17 @@ def _episode_sort_key(r: dict) -> tuple[str, str]:
 
 
 # Legacy `source` -> G9 `origin` derivation (origin-and-harness-sync.md §1b).
+# Track I (D4): `claude`, `claude_memory`, `claude_project`, `chatgpt` and
+# `gemini_export` are written ONLY by the chat importer (conversations.py), so
+# they derive to the export — not to `claude-code`, which credited a claude.ai
+# export's claims to the Claude Code harness. `export_origin_migration` stamps
+# the files themselves; this keeps a not-yet-migrated bank right meanwhile.
 _SOURCE_TO_ORIGIN = {
-    "claude": "claude-code",
-    "claude_memory": "claude-code",
-    "claude_project": "claude-code",
+    "claude": "claude-export",
+    "claude_memory": "claude-export",
+    "claude_project": "claude-export",
+    "chatgpt": "chatgpt-export",
+    "gemini_export": "gemini-export",
     "mcp": "claude-code",
     "chatgpt-export": "chatgpt-export",
     "claude-export": "claude-export",

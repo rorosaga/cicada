@@ -24,7 +24,7 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, UploadFile
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
@@ -35,11 +35,13 @@ from api.models.schemas import (
     IntakeDelta,
     IntakeIgnored,
     IntakeImportResponse,
+    IntakeJobRef,
+    IntakeJobStatus,
     IntakeSniffResponse,
     IntakeTitle,
 )
 from api.routers import conversations as conv
-from api.services import bank_index, bank_registry, media_ingestor
+from api.services import bank_index, bank_registry, intake_jobs, media_ingestor
 
 router = APIRouter()
 
@@ -68,6 +70,9 @@ EMPTY_EXPORT_REASON = "Nothing in this file is a conversation."
 #: page would import the person's search history as "saved links".
 FINAL_REFUSALS = frozenset({CHAT_HTML_REASON, NOT_GEMINI_REASON})
 MAX_SNIFF_TITLES = 5000
+#: Design §9.2: above this many episodes to WRITE (plan's create + update — not
+#: the file's size, so a re-import that changes little stays instant).
+BACKGROUND_THRESHOLD = 10
 
 #: ``detect_source`` result -> (wire format, vendor, origin, counts key).
 _JSON_SHAPES = {
@@ -318,6 +323,9 @@ class ImportResult:
     skipped: int = 0
     date_from: str | None = None
     date_to: str | None = None
+    #: ``(episodes to write, episodes dir)`` when ``defer`` handed a large write
+    #: to the job runner instead of staging it here (R-IA12).
+    pending: tuple[list[dict], Path] | None = None
 
 
 def resolve_target(settings: Settings, bank: str | None, *, scaffold: bool = True) -> tuple[str, Path, bool]:
@@ -340,15 +348,28 @@ def date_range(episodes: list[dict]) -> tuple[str | None, str | None]:
     return (dates[0], dates[-1]) if dates else (None, None)
 
 
-def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str | None = None) -> ImportResult:
-    """Parse, plan, stage — the one import every route shares (R-IA10)."""
+def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str | None = None,
+                 defer: bool = False) -> ImportResult:
+    """Parse, plan, stage — the one import every route shares (R-IA10). With
+    ``defer`` (only ``POST /intake/import``), a large write is handed back as
+    ``pending`` for the job runner instead of staged here (R-IA12)."""
     name, target, active = resolve_target(settings, bank)
     parsed = parse_export(content, filename)
     date_from, date_to = date_range(parsed.episodes)
     staging = plan(parsed.episodes, target)
     legacy = {id(e) for e in staging.legacy}
     todo = [e for e in parsed.episodes if id(e) not in legacy]
-    created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
+    if defer and len(staging.create) + len(staging.update) > BACKGROUND_THRESHOLD:
+        # Only what WILL be written goes to the job, in the parsers' own order
+        # (ids mint per date in that order), so the job's `total` is the
+        # preview's "Import N" (new + grew) and "Bringing in 180 of 379" never
+        # counts past it. The unchanged rest is counted as skipped up front.
+        writes = {id(e) for e in staging.create + staging.update}
+        pending = [e for e in parsed.episodes if id(e) in writes]
+        return ImportResult(name, active, parsed, 0, 0, len(staging.skip), date_from, date_to,
+                            pending=(pending, target / "episodes"))
+    with intake_jobs.STAGING_LOCK:
+        created, updated, skipped = conv._stage_episodes(todo, target / "episodes")
     if not active and created + updated:
         # G87: staged into a bank Sleep does not read until someone switches to it.
         logger.warning(f"Import into NON-active bank '{name}': {created + updated} episode(s) staged")
@@ -356,7 +377,7 @@ def import_bytes(content: bytes, filename: str, settings: Settings, *, bank: str
     return ImportResult(name, active, parsed, created, updated, skipped + len(legacy), date_from, date_to)
 
 
-def _import_response(result: ImportResult) -> IntakeImportResponse:
+def _import_response(result: ImportResult, job: intake_jobs.Job | None = None) -> IntakeImportResponse:
     return IntakeImportResponse(
         episodes_staged=result.created,
         episodes_updated=result.updated,
@@ -369,6 +390,7 @@ def _import_response(result: ImportResult) -> IntakeImportResponse:
         origin=result.parsed.origin,
         members=result.parsed.members,
         ignored=[IntakeIgnored(**i) for i in result.parsed.ignored],
+        job=IntakeJobRef(id=job.id, total=job.total) if job else None,
     )
 
 
@@ -433,11 +455,31 @@ async def sniff(
 async def import_file(
     file: UploadFile,
     response: Response,
+    background_tasks: BackgroundTasks,
     bank: str | None = Query(None, max_length=128),
     settings: Settings = Depends(get_settings),
 ) -> IntakeImportResponse:
     """Stage a chat export into ``bank`` (default: the active one). Chat only —
-    a saved-content file commits through ``/sources/upload`` (R-IA32)."""
+    a saved-content file commits through ``/sources/upload`` (R-IA32). More than
+    ``BACKGROUND_THRESHOLD`` episodes to write: 202 + ``job``."""
     content = await file.read()
-    result = await run_in_threadpool(import_bytes, content, file.filename or "", settings, bank=bank)
-    return _import_response(result)
+    result = await run_in_threadpool(import_bytes, content, file.filename or "", settings, bank=bank, defer=True)
+    if result.pending is None:
+        return _import_response(result)
+    todo, episodes_dir = result.pending
+    job = intake_jobs.start(len(todo), already_skipped=result.skipped)
+    background_tasks.add_task(intake_jobs.run, job.id, todo, episodes_dir, conv._stage_episodes)
+    response.status_code = 202
+    return _import_response(result, job=job)
+
+
+@router.get("/intake/jobs/{job_id}", response_model=IntakeJobStatus)
+async def intake_job(job_id: str) -> IntakeJobStatus:
+    """A job's counter for the panel that started it (R-IA12). 404 when
+    unknown — never started, pruned an hour after it finished, or lost to a
+    backend restart (the episodes it wrote are not)."""
+    job = intake_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "unknown job")
+    return IntakeJobStatus(id=job.id, total=job.total, staged=job.staged, created=job.created,
+                           updated=job.updated, skipped=job.skipped, done=job.done, error=job.error)

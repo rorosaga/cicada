@@ -586,6 +586,9 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+- `POST /intake/import` answers **202** with `{job}` when more than 10 episodes would be written; poll
+  `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
+  stage runs at a time per process.
 - `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
   `POST /intake/import`; its `turns` sidecar is a list on imported episodes and an **integer
   count** on Stop-hook episodes, so a reader checks the type.

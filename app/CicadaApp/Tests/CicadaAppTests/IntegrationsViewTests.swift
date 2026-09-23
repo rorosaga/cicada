@@ -23,6 +23,7 @@ final class IntegrationsViewTests: XCTestCase {
     func testEveryChannelIdHasACategory() {
         let ids: [(String, IntegrationCategory)] = [
             ("chat-export:claude", .chatAndAgents), ("chat-export:chatgpt", .chatAndAgents),
+            ("chat-export:gemini", .chatAndAgents),
             ("chrome-bookmarks", .browsers), ("safari-bookmarks", .browsers), ("safari-tabs", .browsers),
             ("notes", .filesAndImports),
             ("rss", .feedsAndCalendars), ("calendar", .feedsAndCalendars),

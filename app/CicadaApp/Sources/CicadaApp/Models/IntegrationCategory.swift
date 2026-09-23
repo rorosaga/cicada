@@ -38,7 +38,7 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
 
     static func of(channelId: String) -> IntegrationCategory {
         switch channelId {
-        case "chat-export:claude", "chat-export:chatgpt":
+        case "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini":
             return .chatAndAgents
         case "chrome-bookmarks", "safari-bookmarks", "safari-tabs":
             return .browsers

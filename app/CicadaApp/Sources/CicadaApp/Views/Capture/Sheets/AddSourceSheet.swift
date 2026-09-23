@@ -122,7 +122,7 @@ enum AddSourceTile: String, CaseIterable, Identifiable {
     /// by no tile.
     var channelIds: [String] {
         switch self {
-        case .chatExport: ["chat-export:claude", "chat-export:chatgpt"]
+        case .chatExport: ["chat-export:claude", "chat-export:chatgpt", "chat-export:gemini"]
         case .bookmarksFile: ["files"]
         case .pasteLink: []
         case .rssFeed: ["rss"]

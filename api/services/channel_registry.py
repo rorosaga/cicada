@@ -35,6 +35,7 @@ from api.services.connectors import ADAPTERS
 _NON_CONNECTOR_HEAD = (
     "chat-export:claude",
     "chat-export:chatgpt",
+    "chat-export:gemini",
     "chrome-bookmarks",
     "safari-bookmarks",
     "safari-tabs",
@@ -237,6 +238,10 @@ def build_channels(
             "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
         "chat-export:chatgpt": _origin_channel(
             "chat-export:chatgpt", "ChatGPT chat export", "chatgpt-export", by_origin, "conversation"),
+        # Track I (R-IA14): a Takeout entry is one prompt and its reply, so the
+        # noun is "prompt"; before this row the Gemini card rested on episodes alone.
+        "chat-export:gemini": _origin_channel(
+            "chat-export:gemini", "Gemini chat export", "gemini-export", by_origin, "prompt"),
         # R4: one row per browser — the catalog has one tile per browser and a
         # channel must map to exactly one tile, so the old shared
         # "Chrome & Safari bookmarks" row could no longer be honest.

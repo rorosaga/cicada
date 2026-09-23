@@ -1551,6 +1551,19 @@ class IntakeImportResponse(CamelModel):
     job: Optional[IntakeJobRef] = None
 
 
+class IntakeJobStatus(CamelModel):
+    """``GET /intake/jobs/{id}`` — process-local; gone after a restart or an hour."""
+
+    id: str
+    total: int = 0
+    staged: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    done: bool = False
+    error: Optional[str] = None
+
+
 # --- Sources (media ingestion) ---
 
 
