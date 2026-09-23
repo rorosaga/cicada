@@ -272,6 +272,27 @@ def voiced_hint(source: dict) -> str:
     return f"An agent found {ref} as where to check this"
 
 
+def silenced(sources, predicate: str | None) -> bool:
+    """True when the person marked this predicate "Only I know" (``only_me``).
+
+    That note is a silence for the fact, not just a skipped entry: without this,
+    ``hint_from`` fell through to another predicate's URL and ``served_hint`` to
+    the stored pre-S0 sentence, so a card whose ``check`` said ``only_me`` still
+    read "You said <url> is where to check this" (spec §4.2 clamp 6 / §5.5; G61
+    final review, finding 3). Only the person's own note silences — an agent
+    cannot mute a fact on their behalf.
+    """
+    want = str(predicate or "").strip().lower()
+    if not want:
+        return False
+    return any(
+        s.get("only_me")
+        and (str(s.get("added_by") or USER).strip() or USER) == USER
+        and same_predicate(s.get("predicate"), want)
+        for s in as_sources(sources)
+    )
+
+
 def hint_from(sources, predicate: str | None) -> str | None:
     """Which source refreshes this fact, voiced — pure over a ``sources:`` value.
 
@@ -281,6 +302,8 @@ def hint_from(sources, predicate: str | None) -> str | None:
     bare ``note`` with no matching predicate yields no hint. An "Only I know"
     note (``only_me``, S1) is a silence, never a hint.
     """
+    if silenced(sources, predicate):
+        return None
     usable = [s for s in as_sources(sources) if not s.get("only_me")]
     want = str(predicate or "").strip().lower()
     match = next((s for s in usable if want and same_predicate(s.get("predicate"), want)), None)
@@ -311,7 +334,10 @@ def served_hint(item_fm: dict, sources) -> str | None:
     stored = str(item_fm.get("hint") or "").strip() or None
     if str(item_fm.get("kind") or "") != "conflict":
         return stored
-    derived = hint_from(sources, str(item_fm.get("predicate") or "").strip() or "description")
+    predicate = str(item_fm.get("predicate") or "").strip() or "description"
+    if silenced(sources, predicate):
+        return None
+    derived = hint_from(sources, predicate)
     return derived if derived is not None else stored
 
 

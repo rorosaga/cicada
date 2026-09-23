@@ -112,7 +112,26 @@ def test_only_me_is_the_persons_note_and_never_a_hint(tmp_path):
     listed = _only(memory)
     assert (listed[0]["kind"], listed[0]["only_me"]) == ("note", True)
     assert "only_me" not in listed[2], "only the person silences a fact"
-    assert fact_sources.hint_from(listed, "works-at") == f"You said {TEAM} is where to check this"
+    # "Only I know" silences the fact outright — no fallback to another
+    # predicate's URL (G61 final review, finding 3); other facts still fall back.
+    assert fact_sources.hint_from(listed, "works-at") is None
+    assert fact_sources.hint_from(listed, "role") == f"You said {TEAM} is where to check this"
+
+
+def test_only_me_silences_the_served_hint_even_over_a_stored_one(tmp_path):
+    memory = _bank(tmp_path)
+    fact_sources.add_source(memory, "bob-example", "https://example.com/where-bob-lives",
+                            predicate="located-in", added_by="user")
+    fact_sources.add_source(memory, "bob-example", "Only I know", predicate="works-at", only_me=True)
+    listed = _only(memory)
+    item = {"kind": "conflict", "predicate": "works-at",
+            "hint": "You said https://example.com/old is where to check this"}
+    assert fact_sources.served_hint(item, listed) is None
+    assert fact_sources.served_hint({**item, "predicate": "located-in"}, listed) == \
+        "You said https://example.com/where-bob-lives is where to check this"
+    # An agent's only_me (hand-written past the upsert's clamp) silences nothing.
+    agent = [{"ref": "x", "kind": "note", "predicate": "works-at", "added_by": "claude-code", "only_me": True}]
+    assert fact_sources.served_hint(item, agent) == item["hint"]
 
 
 def test_the_endpoint_takes_the_new_fields_and_answers_400(tmp_path):

@@ -1091,7 +1091,12 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     entity_id = page.stem
     kind_value = (kind or "").strip().lower() or fact_sources.infer_kind(ref_text)
     access_value = (access or "").strip().lower() or None
-    if ctx.is_remote and (kind_value in fact_sources.LOCAL_KINDS or access_value == fact_sources.ACCESS_LOCAL):
+    # The ref's own shape is checked too, whatever kind the caller stated: a
+    # path sent as kind "note" or "app" still names a file on this Mac (R-AC31;
+    # G61 final review, findings 2 and 4).
+    if ctx.is_remote and (kind_value in fact_sources.LOCAL_KINDS
+                          or fact_sources.infer_kind(ref_text) in fact_sources.LOCAL_KINDS
+                          or access_value == fact_sources.ACCESS_LOCAL):
         return ("Nothing added — a remote app can't name a file or folder on this Mac as a source. "
                 "The person can add it in the Cicada app.")
     predicate_slug = sanitize_id(predicate) if (predicate or "").strip() else None

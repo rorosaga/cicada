@@ -105,3 +105,26 @@ def test_at_most_three_links_per_claim_in_the_order_said(tmp_path):
     _run(memory, [{"source": "bob-example", "target": "company-b", "label": "works at",
                    "evidence": [_span(text, line)]}])
     assert [s["ref"] for s in fact_sources.list_sources(memory, "bob-example")] == links[:3]
+
+
+def test_a_cited_link_never_becomes_the_pages_logo_domain(tmp_path):
+    # Stage 5.56 writes a model-found url source; logo_service read the first
+    # url source as the page's own domain, so one Sleep gave a person a site's
+    # favicon and started an unattended fetch to a host from conversation text
+    # (G61 final review, finding 1). Only the person's (or accepted) sources count.
+    from api.services import logo_service
+
+    line = f"bob-example moved to company-b; the team page {LINK} lists him."
+    memory, text = _bank(tmp_path, line)
+    page = memory / "entities" / "bob-example.md"
+    before = markdown_parser.parse(page)
+    domain_before = logo_service.domain_for(before.frontmatter, before.body)
+    _run(memory, [{"source": "bob-example", "target": "company-b", "label": "works at",
+                   "evidence": [_span(text, line)]}])
+    after = markdown_parser.parse(page)
+    assert fact_sources.list_sources(memory, "bob-example"), "the cited link was attached"
+    assert logo_service.domain_for(after.frontmatter, after.body) == domain_before
+    # The person's own url source still names the domain.
+    fact_sources.add_source(memory, "bob-example", "https://bob.example.org/", added_by="user")
+    mine = markdown_parser.parse(page)
+    assert logo_service.domain_for(mine.frontmatter, mine.body) == "bob.example.org"

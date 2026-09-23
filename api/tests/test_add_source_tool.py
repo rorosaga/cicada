@@ -119,6 +119,10 @@ def test_a_remote_source_is_the_apps_with_its_own_commit(remote):
     {"ref": "alpha-project checkout", "kind": "repo"},
     {"ref": "alpha-project checkout", "kind": "path"},
     {"ref": TEAM, "access": "local"},
+    # A stated kind never launders a path (G61 final review, findings 2 and 4).
+    {"ref": "~/Documents/cv.pdf", "kind": "note"},
+    {"ref": "/tmp/alpha-project/notes.md", "kind": "app"},
+    {"ref": "/tmp/x", "kind": "url"},
 ])
 def test_a_remote_app_can_never_name_a_file_on_this_mac(remote, args):
     runtime, memory = remote
