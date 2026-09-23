@@ -1994,6 +1994,45 @@ actor APIClient {
         return try await put("/settings/owner", body: body)
     }
 
+    // MARK: - Remote connector (G135)
+
+    /// `GET /remote/status`. `probe: true` also checks the public address
+    /// (3 s server-side), so it gets a longer client timeout than the default poll.
+    func fetchRemoteStatus(probe: Bool = false) async throws -> RemoteStatus {
+        try await get("/remote/status" + (probe ? "?probe=true" : ""), timeout: probe ? 15 : nil)
+    }
+
+    /// `PUT /remote/settings` — omitted fields are left alone (the backend reads
+    /// `model_fields_set`); an empty `publicBaseURL` clears it.
+    func updateRemoteSettings(enabled: Bool? = nil, publicBaseURL: String? = nil) async throws -> RemoteStatus {
+        var body: [String: Any] = [:]
+        if let enabled { body["enabled"] = enabled }
+        if let publicBaseURL { body["publicBaseUrl"] = publicBaseURL }
+        return try await put("/remote/settings", body: body)
+    }
+
+    func fetchRemoteConnectors() async throws -> [RemoteConnector] {
+        try await get("/remote/connectors")
+    }
+
+    /// `expiresInDays: nil` means "no expiry" and must reach the backend as JSON
+    /// `null` — an omitted key would mean the 30-day default. `NSNull`, never a
+    /// boxed `Optional` (see `updateOwnerSettings`' note on why that throws).
+    func createRemoteConnector(app: String, label: String, scopes: [String], expiresInDays: Int?) async throws -> RemoteConnectorCreated {
+        var body: [String: Any] = ["app": app, "label": label, "scopes": scopes]
+        body["expiresInDays"] = expiresInDays.map { $0 as Any } ?? NSNull()
+        return try await post("/remote/connectors", body: body)
+    }
+
+    func rotateRemoteConnector(id: String) async throws -> RemoteConnectorCreated {
+        try await post("/remote/connectors/\(encodedID(id))/rotate")
+    }
+
+    func revokeRemoteConnector(id: String) async throws -> RemoteConnector {
+        let data = try await delete("/remote/connectors/\(encodedID(id))")
+        return try decoder.decode(RemoteConnector.self, from: data)
+    }
+
     // MARK: - Upload
 
     func uploadFile(fileURL: URL) async throws -> UploadResponse {
