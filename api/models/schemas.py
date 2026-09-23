@@ -167,6 +167,11 @@ class EntityHistoryEntry(CamelModel):
     # diff fetch. ``diff`` is populated only when history is requested with
     # ``include_diff=true`` (kept opt-in so the default response stays small).
     author: str = "unknown"
+    # G118 slice 2 (R-PB13): the author's bucket and provider, from the one
+    # `git_service.author_identity` rule, so the History tab renders a
+    # contributor without re-deriving it. Additive; an older app ignores them.
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
     # G48: the conversation(s) that produced THIS ENTITY's change at this
@@ -666,6 +671,14 @@ class ClaimModel(CamelModel):
     origin: Optional[str] = None
     # G118 slice 1 — additive; an older app build ignores the key (R10).
     evidence: list[EvidenceModel] = []
+    # G118 slice 2 (R-PB13) — additive. `session_ids` is every conversation
+    # that wrote or reinforced the claim (`Claim.all_session_ids`);
+    # `author_kind`/`author_provider` come from `git_service.author_identity`
+    # over `authored_by`, so the chip never duplicates the provider rule.
+    session_ids: list[str] = []
+    recorded_at: Optional[str] = None
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
 
 
 class ClaimListResponse(CamelModel):
@@ -769,6 +782,94 @@ class EpisodeText(CamelModel):
     capture_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
+
+
+class ProvenanceSpan(CamelModel):
+    """The one quote a provenance row shows (G118 slice 2, design §4.5).
+    ``kind`` is the evidence kind (``user`` | ``assistant`` | ``page``) or
+    ``derived`` — a name match found at read, never written (R-PB9).
+    ``start``/``end`` are absolute offsets to wash, ``None`` when ``stale``
+    (R-PB2). ``excerpt`` is ±240 chars cut on word boundaries,
+    ``excerpt_start`` its absolute offset, ``mention_offsets`` relative to it
+    — the inbox cause's shape (G115)."""
+
+    episode: str
+    start: Optional[int] = None
+    end: Optional[int] = None
+    hash: str = ""
+    kind: str = "derived"
+    excerpt: str = ""
+    excerpt_start: int = 0
+    mention_offsets: list[list[int]] = []
+    stale: bool = False
+    grown: bool = False
+    derived: bool = False
+
+
+class ProvenanceContributor(CamelModel):
+    """One author of an entity (R-PB6): ``claims`` = current claims with that
+    ``authored_by``; ``commits`` = commits that touched the page with that
+    ``Cicada-Author``. ``kind``/``provider`` as on ``Contributor``."""
+
+    author: str
+    kind: str = "unknown"
+    provider: Optional[str] = None
+    claims: int = 0
+    commits: int = 0
+
+
+class ProvenanceConversation(CamelModel):
+    """A conversation that fed the entity (R-PB7): episodes grouped by
+    ``session_id``, then ``source_id``, else the episode alone
+    (``conversation_id`` null). ``episode_id`` is its newest episode;
+    ``claim_count`` counts current claims citing any of its episodes;
+    ``available`` is false when no episode file is left in the bank."""
+
+    conversation_id: Optional[str] = None
+    episode_id: str
+    episode_ids: list[str] = []
+    title: str = ""
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    timestamp: Optional[str] = None
+    claim_count: int = 0
+    available: bool = True
+    best: Optional[ProvenanceSpan] = None
+
+
+class ProvenancePage(CamelModel):
+    entity_id: str
+    name: str = ""
+    claim_count: int = 0
+
+
+class ProvenanceTotals(CamelModel):
+    """Coverage stated honestly (design §4.5 item 5): of ``claims`` current
+    beliefs, ``with_span`` carry at least one exact quote and ``legacy`` carry
+    no evidence at all (written before slice 1; there is no backfill)."""
+
+    claims: int = 0
+    with_span: int = 0
+    legacy: int = 0
+    conversations: int = 0
+
+
+class EntityProvenance(CamelModel):
+    """``GET /entities/{id}/provenance`` — "Where this came from" in one call
+    (G118 slice 2, design §4.8.4). ``conversations`` is capped at 50
+    (``totals.conversations`` is the honest total); ``inferred_count`` counts
+    current claims whose only evidence is the contributor's own reasoning.
+    Fetched on demand, not a Store domain (R-PB11)."""
+
+    entity_id: str
+    entity_name: str = ""
+    entity_type: str = ""
+    contributors: list[ProvenanceContributor] = []
+    conversations: list[ProvenanceConversation] = []
+    pages: list[ProvenancePage] = []
+    inferred_count: int = 0
+    totals: ProvenanceTotals = Field(default_factory=ProvenanceTotals)
+    commits_truncated: bool = False
 
 
 class TransclusionPayload(CamelModel):

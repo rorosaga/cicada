@@ -26,11 +26,23 @@ Rails, enforced here rather than documented:
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from api.models.schemas import EpisodeFocus, EpisodeText, EpisodeTurn
-from api.services import evidence, inbox_context, markdown_parser
+from api.models.schemas import (
+    EntityProvenance,
+    EpisodeFocus,
+    EpisodeText,
+    EpisodeTurn,
+    ProvenanceContributor,
+    ProvenanceConversation,
+    ProvenancePage,
+    ProvenanceSpan,
+    ProvenanceTotals,
+)
+from api.services import bank_index, episode_ids, evidence, git_service, inbox_context, markdown_parser
+from api.services.claims import Claim, Evidence, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -135,4 +147,203 @@ def episode_document(
         capture_kind=_opt(fm.get("capture_kind")),
         turns=[EpisodeTurn(**asdict(t)) for t in spans],
         focus=focus_model,
+    )
+
+
+# How many conversation rows one provenance payload carries (R-PB7). The card
+# shows five and "+N more"; `totals.conversations` is the honest total, and
+# `best` is computed only for the rows that ship, so body reads stay bounded
+# by what is shown.
+MAX_PROVENANCE_CONVERSATIONS = 50
+
+
+class _Episodes:
+    """Episode frontmatter from ``bank_index`` (one scandir, cached parses)
+    and bodies read lazily, at most once each — the G97 budget rule, so an
+    entity citing twenty conversations costs twenty body reads, not a bank
+    scan (``test_fifty_claims_across_twenty_episodes_stay_in_budget``)."""
+
+    def __init__(self, memory_path: Path):
+        self._memory_path = memory_path
+        self._index: dict[str, bank_index.IndexedFile] | None = None
+        self._bodies: dict[str, str | None] = {}
+
+    def meta(self, ep_id: str) -> bank_index.IndexedFile | None:
+        if self._index is None:
+            self._index = {f.stem: f for f in bank_index.files(self._memory_path, "episodes")}
+        return self._index.get(ep_id)
+
+    def body(self, ep_id: str) -> str | None:
+        if ep_id not in self._bodies:
+            indexed = self.meta(ep_id)
+            try:
+                self._bodies[ep_id] = indexed.body() if indexed is not None else None
+            except Exception:
+                self._bodies[ep_id] = None
+        return self._bodies[ep_id]
+
+
+def _current(claim: Claim) -> bool:
+    return claim.valid_to is None and not claim.superseded_by
+
+
+def _recency(claim: Claim) -> str:
+    return str(claim.recorded_at or claim.valid_from or "")
+
+
+def _span_model(text: str, episode: str, start: int, end: int, *, hash: str, kind: str,  # noqa: A002
+                grown: bool = False, derived: bool = False) -> ProvenanceSpan:
+    ex = inbox_context.excerpt_around(text, (start, end))
+    return ProvenanceSpan(episode=episode, start=start, end=end, hash=hash, kind=kind,
+                          excerpt=ex.excerpt, excerpt_start=ex.start or 0,
+                          mention_offsets=ex.mention_offsets, grown=grown, derived=derived)
+
+
+def _stale_model(text: str, ev: Evidence) -> ProvenanceSpan:
+    """A stale span still shows its neighbourhood — "the words may have
+    moved" (§4.2) — but carries no offsets to wash (R-PB2)."""
+    anchor = (ev.start, min(ev.end, len(text))) if 0 <= ev.start < len(text) else None
+    ex = inbox_context.excerpt_around(text, anchor)
+    return ProvenanceSpan(episode=ev.episode, hash=ev.hash, kind=ev.kind, excerpt=ex.excerpt,
+                          excerpt_start=ex.start or 0, stale=True)
+
+
+def _best_span(docs: _Episodes, episode_ids: list[str],
+               spans_by_episode: dict[str, list[tuple[Claim, Evidence]]],
+               name: str, entity_id: str) -> ProvenanceSpan | None:
+    """R-PB8: an asserted span that still holds (newest claim first) → a
+    derived name match in the newest readable episode → a stale span → none."""
+    candidates = [pair for ep in episode_ids for pair in spans_by_episode.get(ep, [])]
+    candidates.sort(key=lambda pair: _recency(pair[0]), reverse=True)
+    stale: tuple[str, Evidence] | None = None
+    for _claim, ev in candidates:
+        text = docs.body(ev.episode)
+        if text is None:
+            continue
+        status = evidence.span_status(text, end=ev.end, hash=ev.hash)
+        if status == evidence.SPAN_STALE or ev.end > len(text):
+            stale = stale or (text, ev)
+            continue
+        return _span_model(text, ev.episode, ev.start, ev.end, hash=ev.hash, kind=ev.kind,
+                           grown=status == evidence.SPAN_GROWN)
+    for ep in reversed(episode_ids):
+        text = docs.body(ep)
+        if not text:
+            continue
+        hit = inbox_context.locate_mention(text, name, entity_id)
+        if hit is not None:
+            return _span_model(text, ep, hit[0], hit[1], hash=evidence.body_hash(text),
+                               kind="derived", derived=True)
+    if stale is not None:
+        return _stale_model(*stale)
+    return None
+
+
+def entity_provenance(
+    memory_path: Path,
+    page: Path,
+    *,
+    commit_authors: dict[str, int] | None = None,
+    commits_truncated: bool = False,
+) -> EntityProvenance:
+    """Where ``page``'s current beliefs came from and who wrote them (R-PB6…8).
+
+    One page parse, cached episode frontmatter, at most one body read per
+    shown conversation; ``commit_authors`` is the router's single
+    ``git_service.entity_commit_authors`` call (kept outside so this stays a
+    pure, thread-pool-safe function). Writes nothing.
+    """
+    memory_path = Path(memory_path)
+    parsed = markdown_parser.parse(page)
+    fm = parsed.frontmatter or {}
+    entity_id = page.stem
+    name = str(fm.get("name") or entity_id)
+    current = [c for c in parse_claims(parsed.body) if _current(c)]
+    commit_authors = commit_authors or {}
+    docs = _Episodes(memory_path)
+
+    claim_authors = Counter((c.authored_by or git_service.UNKNOWN_AUTHOR) for c in current)
+    contributors: list[ProvenanceContributor] = []
+    for author in set(claim_authors) | set(commit_authors):
+        kind, provider = git_service.author_identity(author)
+        contributors.append(ProvenanceContributor(
+            author=author, kind=kind, provider=provider,
+            claims=claim_authors.get(author, 0), commits=commit_authors.get(author, 0),
+        ))
+    contributors.sort(key=lambda c: (-(c.claims + c.commits), c.author))
+
+    cited: dict[str, set[str]] = {}
+    spans_by_episode: dict[str, list[tuple[Claim, Evidence]]] = {}
+    page_claims: dict[str, set[str]] = {}
+    with_span = inferred = legacy = 0
+    for claim in current:
+        episodes = {e for e in claim.source_episodes if evidence.is_episode_id(e)}
+        for ev in claim.evidence:
+            if not evidence.is_episode_id(ev.episode):
+                if ev.is_span():
+                    page_claims.setdefault(ev.episode, set()).add(claim.id)
+                continue
+            episodes.add(ev.episode)
+            if ev.is_span():
+                spans_by_episode.setdefault(ev.episode, []).append((claim, ev))
+        cited[claim.id] = episodes
+        if any(ev.is_span() for ev in claim.evidence):
+            with_span += 1
+        elif claim.evidence:
+            inferred += 1
+        else:
+            legacy += 1
+
+    fed_by = [str(e) for e in (fm.get("source_episodes") or []) if evidence.is_episode_id(str(e))]
+    ordered = list(dict.fromkeys(fed_by + sorted({e for eps in cited.values() for e in eps})))
+
+    groups: dict[str, dict] = {}
+    for ep_id in ordered:
+        indexed = docs.meta(ep_id)
+        efm = indexed.frontmatter if indexed is not None else {}
+        conversation_id = _opt(efm.get("session_id")) or _opt(efm.get("source_id"))
+        group = groups.setdefault(conversation_id or ep_id, {"id": conversation_id, "episodes": []})
+        group["episodes"].append((str(efm.get("timestamp") or ""), ep_id, efm, indexed is not None))
+
+    rows: list[ProvenanceConversation] = []
+    for group in groups.values():
+        # By instant, never by string (G114 R2): a bank holds naive, `Z` and
+        # `+00:00` stamps side by side, and lexical order across them is wrong.
+        group["episodes"].sort(key=lambda e: (episode_ids.timestamp_sort_key(e[0]), e[1]))
+        ep_ids = [e[1] for e in group["episodes"]]
+        first, last = group["episodes"][0], group["episodes"][-1]
+        members = set(ep_ids)
+        rows.append(ProvenanceConversation(
+            conversation_id=group["id"],
+            episode_id=last[1],
+            episode_ids=ep_ids,
+            title=str(first[2].get("title") or ""),
+            harness=next((_opt(e[2].get("harness")) for e in group["episodes"] if _opt(e[2].get("harness"))), None),
+            origin=_opt(last[2].get("origin")) or _opt(last[2].get("source")),
+            timestamp=last[0] or None,
+            claim_count=sum(1 for eps in cited.values() if eps & members),
+            available=any(e[3] for e in group["episodes"]),
+        ))
+    rows.sort(key=lambda r: (r.claim_count, episode_ids.timestamp_sort_key(r.timestamp)), reverse=True)
+    shown = rows[:MAX_PROVENANCE_CONVERSATIONS]
+    for row in shown:
+        row.best = _best_span(docs, row.episode_ids, spans_by_episode, name, entity_id)
+
+    pages: list[ProvenancePage] = []
+    for doc_id, claim_ids in sorted(page_claims.items()):
+        pdoc = evidence.source_document(memory_path, doc_id)
+        pname = str((pdoc[0] if pdoc else {}).get("name") or doc_id)
+        pages.append(ProvenancePage(entity_id=doc_id, name=pname, claim_count=len(claim_ids)))
+
+    return EntityProvenance(
+        entity_id=entity_id,
+        entity_name=name,
+        entity_type=str(fm.get("type") or ""),
+        contributors=contributors,
+        conversations=shown,
+        pages=pages,
+        inferred_count=inferred,
+        totals=ProvenanceTotals(claims=len(current), with_span=with_span, legacy=legacy,
+                                conversations=len(rows)),
+        commits_truncated=commits_truncated,
     )
