@@ -175,6 +175,10 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
   race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
   is saved with its URL-derived title and never fetched (R-R10).
+- **G61 phase 2 (S0–S2), disclosed not fixed:** save-time `media_ingestor.enrich` (the person's own
+  save or paste) still reads a page on `_TIMEOUT` (5 s) with `resp.text[:_MAX_READ]` (the whole body
+  downloaded, then cut to 1.5 MB); S0 moved only Sleep's own read onto `default_fetch`, and the same
+  one-function change applies there.
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them

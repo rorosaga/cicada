@@ -998,10 +998,14 @@ previews and stages nothing; `POST /intake/import` stages. `/conversations/uploa
 
 Three gates, and they do **not** mean the same thing — read the difference before adding a fourth:
 
-- **`CICADA_ALLOW_CONNECTOR_FETCH`** gates ONLY the unattended nightly connector poll's default
-  transport. It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite
-  sets). A user-initiated `sync_now` and every OAuth `authorize_url`/`exchange_code` call are
-  **never** gated by it — they always need the network to do what the user just asked.
+- **`CICADA_ALLOW_CONNECTOR_FETCH`** gates the default transport of every fetch Sleep starts on its
+  own: the unattended nightly connector poll, **link enrichment's page read** — Stage 5.57's
+  in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
+  through `link_enrichment.default_fetch`, the rail's reference transport — and paper details
+  (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links` and every OAuth
+  `authorize_url`/`exchange_code` call are **never** gated by it — they always need the network to
+  do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
