@@ -302,7 +302,27 @@ now with no app dependency: **PJ-0** (the page-less claim loss: `claim_pipeline.
 subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, with the demo scenario and a
 `today=` seam on `demo_bank.populate`) and **PJ-4** (the Stop hook writes the `turns` list). The Projects page
 (PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
-generated demo bank only.
+generated demo bank only. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), and
+served as `GET /projects` and `GET /projects/{id}/timeline` (T2; the opt-in bench, `CICADA_BENCH=1`, meets
+the detail's 150 ms p95 but not yet the list's 80 ms on its 2,500-page worst case). PJ-2 (T3) is on the
+same branch: `cicada_project` (stdio + remote `read`), `_state.md` schema v3 project `next` (`now` waits
+for PJ-3's happenings) and the handshake's Current line — contract 5, remote contract 3. PJ-3a's claim
+layer (T4) is there too: event claims born closed, one writer (`progress.py`), `write_claim` refusing the
+event predicates and Stage 1's stray labels relabelled. PJ-3a's agent path (T5) is there now:
+`cicada_note_progress` (stdio + remote `record`, observer always the agent, never a new page),
+`cicada_retract_claim` withdrawing an event through `progress.withdraw`, happenings, open threads and
+`milestone` chains in the read model (`PROJECT_SHAPE` `g141-2`), `_state.md`'s `now` filled, the Now/Quiet
+lines in `cicada_project`, and the demo's two event commits — contract 6, remote contract 4. PJ-3b (T6),
+the person's path, is there too: five Projects writes (milestones add/move/rename, the Log with its
+companion note, a thread settled or restated, "Not right" on a happening), `companion_app` a human
+origin, a 409 while Sleep runs, and the demo's `user` commit (the arm done early, first grasp moved).
+PJ-6 (T7), the engine-free `followup` inbox kind, closes the backend: a quiet thread, an overdue milestone
+or a passed `due` raises one follow-up (one per project, three in the bank) from Sleep's tail right after
+expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`), served as a question at read with a 30-day
+"not now", answered through `progress.py` and graded against the extractor (R-PJB24). **Status: PJ-1,
+PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their own tracks; PJ-5 waits for
+the DS shell; PJ-7/PJ-8 gated.** The Swift `followup` case landed with the final review (label "Follow-up",
+clarification's hue); `GraphNode` dates ride PJ-5.
 
 **PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
 longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
@@ -617,7 +637,13 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
     per-project re-read 💸 — L. The three DECIDEs (rail cell, band colour, pending-store hold) were ruled
-    2026-09-23 — see Research / decisions below
+    2026-09-23 — see Research / decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over
+    `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3;
+    PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
+    the `is_event` readers and their grep gate) is T4; its agent path (`cicada_note_progress`, the event
+    layer in the read model, the demo's event commits) is T5; PJ-3b, the person's writes
+    (`/projects/{id}/milestones|happenings|threads|withdraw`, `companion_app` human), is T6; PJ-6, the
+    `followup` inbox kind (`followups.py`, Sleep's tail after expiry, a 30-day not-now), is T7.
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S

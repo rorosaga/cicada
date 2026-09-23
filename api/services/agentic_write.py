@@ -41,7 +41,8 @@ from api.services import decay_policy, entity_body, git_service, markdown_parser
 # `from api.services import evidence` would be shadowed inside the function.
 from api.services import evidence as evidence_mod
 from api.services.claim_reconciler import is_human, reconcile_stage3
-from api.services.claims import RETRACT_PREDICATE, Claim, MalformedClaimsBlockError, parse_claims, write_claims
+from api.services.claims import (EVENT_PREDICATES, RETRACT_PREDICATE, Claim, MalformedClaimsBlockError,
+                                 parse_claims, write_claims)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 _EP_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
@@ -283,6 +284,7 @@ def write_claim(
     authored_by: str | None = None,
     forbid_owner_observer: bool = False,
     expected_end: str | None = None,
+    today: date | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -324,6 +326,10 @@ def write_claim(
     written. Stored on ``Claim.expected_end``, never as a future ``valid_to``
     (every reader takes a set ``valid_to`` to mean closed); Sleep's
     ``claim_expiry`` closes the claim after that day.
+
+    ``today`` (G141 R-PJB7): the demo's pinned day, threaded to Stage 3's
+    ``now_date`` so ``recorded_at`` is deterministic; omitted, ``recorded_at``
+    reads the real clock exactly as before.
 
     Returns ``{subject, entity_id, claim_id, action, observer, evidence, path,
     page_created, expected_end, expected_end_ignored}`` on success (``path`` memory-relative, so the caller can
@@ -383,6 +389,18 @@ def write_claim(
             "observer": observer,
             "error": "subject, predicate, and object are all required.",
         }
+
+    if (sanitize_id(predicate_raw) or "relates-to") in EVENT_PREDICATES:
+        # G141 §5.1: only progress.py writes an event — without its rules a
+        # plain write would store a happening with no status and no
+        # born-closed validity. Checked before any page is resolved or made.
+        # The reply names the tool that does write one (G141 PJ-3a), so an
+        # agent's next call is the right one. R12 holds: an MCP caller that
+        # holds `cicada_write_claim` holds `cicada_note_progress` (both `record`).
+        return {"subject": subject_raw, "entity_id": None, "claim_id": None, "action": "error",
+                "observer": observer,
+                "error": f"'{sanitize_id(predicate_raw)}' is a happening or a milestone, not a plain fact; "
+                         "nothing was written — record it with cicada_note_progress"}
 
     try:
         memory_path = Path(memory_path)
@@ -490,6 +508,7 @@ def write_claim(
             [new_claim],
             {entity_id: existing_claims},
             settings,
+            now_date=(today or date.today()).isoformat(),
         )
         # G113 — an agent's claim superseding or being rejected against the
         # page is feedback on that agent, same as in the Sleep pipeline.
@@ -594,6 +613,44 @@ def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
     return authored_by == author
 
 
+def _withdrawal_record(target: Claim, claims: list[Claim], *, reason: str, author: str, origin: str | None,
+                       session_id: str | None, spans: list, day: str, fallback_subject: str = "") -> Claim:
+    """The born-closed `retracts` record that withdraws `target` (G140 Q-R5).
+
+    Extracted from `retract_claim` so G141's `progress.withdraw` mints the
+    same record for an event claim — one shape of "I take that back", however
+    many writers can say it. `claims` is the page's fence (the prior-record
+    count decides the id seed); nothing here mutates `target`.
+    """
+    # The record id must differ per withdrawal of the same id, or the second
+    # record would collide with the first and `superseded_by` would point at
+    # both. The first keeps the plain seed, so its id is what it always was.
+    claim_id = target.id
+    prior = sum(1 for c in claims if c.predicate == RETRACT_PREDICATE and c.object == claim_id)
+    seed = claim_id if prior == 0 else f"{claim_id}\x00{prior}"
+    return Claim(
+        id=f"clm_retract_{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}",
+        text=reason,
+        subject=target.subject or fallback_subject,
+        predicate=RETRACT_PREDICATE,
+        object=target.id,
+        object_kind="literal",
+        observer=target.observer,
+        context=target.context,
+        epistemic="explicit",
+        source_trust=target.source_trust,
+        confidence=1.0,
+        valid_from=day,
+        valid_to=day,
+        supersedes=target.id,
+        recorded_at=day,
+        authored_by=author,
+        origin=origin or target.origin,
+        session_id=(session_id or "").strip() or None,
+        evidence=spans,
+    )
+
+
 def retract_claim(
     memory_path: Path,
     subject: str,
@@ -647,32 +704,8 @@ def retract_claim(
         return {"action": "not_yours", "entity_id": page.stem, "claim_id": claim_id}
     day = (today or date.today()).isoformat()
     spans = evidence_mod.verify_many(memory_path, evidence) or [evidence_mod.reasoning("")]
-    # The record id must differ per withdrawal of the same id, or the second
-    # record would collide with the first and `superseded_by` would point at
-    # both. The first keeps the plain seed, so its id is what it always was.
-    prior = sum(1 for c in claims if c.predicate == RETRACT_PREDICATE and c.object == claim_id)
-    seed = claim_id if prior == 0 else f"{claim_id}\x00{prior}"
-    record = Claim(
-        id=f"clm_retract_{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}",
-        text=reason,
-        subject=target.subject or page.stem,
-        predicate=RETRACT_PREDICATE,
-        object=target.id,
-        object_kind="literal",
-        observer=target.observer,
-        context=target.context,
-        epistemic="explicit",
-        source_trust=target.source_trust,
-        confidence=1.0,
-        valid_from=day,
-        valid_to=day,
-        supersedes=target.id,
-        recorded_at=day,
-        authored_by=author,
-        origin=origin or target.origin,
-        session_id=(session_id or "").strip() or None,
-        evidence=spans,
-    )
+    record = _withdrawal_record(target, claims, reason=reason, author=author, origin=origin,
+                                session_id=session_id, spans=spans, day=day, fallback_subject=page.stem)
     target.valid_to = day
     target.superseded_by = record.id
     try:

@@ -176,6 +176,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids")),
     "cicada_sources": lambda c, a: mcp_tools.sources(c, str(a.get("entity_id") or "")),
     "cicada_timeline": lambda c, a: mcp_tools.timeline(c, a.get("since")),
+    "cicada_project": lambda c, a: mcp_tools.project(c, str(a.get("project") or ""), a.get("since"), a.get("tz")),
     "cicada_save_episode": lambda c, a: mcp_tools.save_episode(c, str(a.get("content") or ""), a.get("title")),
     "cicada_write_claim": lambda c, a: mcp_tools.write_claim(
         c, str(a.get("subject") or ""), str(a.get("predicate") or ""), str(a.get("object") or ""),
@@ -189,6 +190,10 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), a.get("access"),
         a.get("kind")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
+    "cicada_note_progress": lambda c, a: mcp_tools.note_progress(
+        c, str(a.get("project") or ""), str(a.get("kind") or ""), str(a.get("summary") or ""),
+        str(a.get("status") or ""), when=a.get("when"), target=a.get("target"), milestone=a.get("milestone"),
+        settles=a.get("settles"), participants=a.get("participants"), evidence=a.get("evidence")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(

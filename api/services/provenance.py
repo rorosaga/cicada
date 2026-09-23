@@ -47,7 +47,7 @@ from api.models.schemas import (
     ProvenanceTotals,
 )
 from api.services import bank_index, episode_ids, evidence, git_service, inbox_context, markdown_parser
-from api.services.claims import Claim, Evidence, is_record, parse_claims
+from api.services.claims import Claim, Evidence, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 # The Reader's cap (R-PB5). A Stop-hook episode is already capped at 100,000
@@ -443,6 +443,12 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                 "subject_type": subject_type, "text": claim.text, "current": _current(claim),
                 "authored_by": git_service.canonical_author(claim.authored_by), "observer": claim.observer,
             }
+            if is_event(claim):
+                # G141 R-PJB11: a born-closed done happening's `valid_to` is its
+                # shape, not its end — it reads as a dated happening, and is
+                # "no longer current" only when something replaced it.
+                base.update(current=not claim.superseded_by, event_status=claim.status,
+                            event_day=claim.valid_from)
             mine = [ev for ev in claim.evidence if ev.episode == doc_id]
             spans = [ev for ev in mine if ev.is_span()]
             for ev in spans:

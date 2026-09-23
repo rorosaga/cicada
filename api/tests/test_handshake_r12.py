@@ -84,3 +84,13 @@ def test_the_parser_reads_nested_and_alternative_arguments():
     assert _args("subject, evidence=[{episode, quote}], sources=[url]") == ["subject", "evidence", "sources"]
     assert _args("entity_id|path") == ["entity_id", "path"] and _args("'projects'") == []
     assert _args("entity_ids=<recall ids>") == ["entity_ids"]
+
+
+@pytest.mark.parametrize("tool", ["cicada_project", "cicada_note_progress"])
+@pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))
+def test_the_project_sentences_appear_only_with_their_tool(scopes, tool):
+    """G141: `cicada_project` (PJ-2) and `cicada_note_progress` (PJ-3a) are
+    named in a remote primer only when the connection holds them (R12)."""
+    tools = catalog.tool_names_for(scopes)
+    text = handshake.build_remote(None, tools=tools, bank="memory")
+    assert (f"{tool}(" in text) == (tool in tools)

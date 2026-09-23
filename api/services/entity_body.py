@@ -524,6 +524,10 @@ def summary_from_claims(claims, *, limit: int = 3, max_chars: int = 240) -> str:
     for claim in claims or []:
         if getattr(claim, "valid_to", None) or getattr(claim, "superseded_by", None):
             continue
+        if getattr(claim, "predicate", "") in ("happened", "milestone"):
+            # G141: an open thread or plan is progress, not what the page IS —
+            # a Summary never reads "Bob is connecting…".
+            continue
         line = summary_line(getattr(claim, "text", ""), predicate=getattr(claim, "predicate", ""))
         if not line or line.lower() in seen:
             continue

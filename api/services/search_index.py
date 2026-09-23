@@ -56,15 +56,17 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (bank_index, bank_registry, episode_ids, evidence, fact_sources, inbox_questions,
-                          markdown_parser)
-from api.services.claims import is_record, parse_claims, strip_claims_block
+                          markdown_parser, text_fold)
+from api.services.claims import is_event, is_record, parse_claims, strip_claims_block
 from api.services.graph_builder import summarize
 
 DB_FILE = "search_index.db"
 # "2": withdrawal records (G140 Q-R5) are no longer indexed as claims. A bump
 # rebuilds every existing index on its next open, so a record indexed under
 # "1" stops surfacing without anyone deleting the file (final review).
-SCHEMA_VERSION = "2"
+# "3": G141 — `status` in the claim payload so an event hit renders as a dated
+# happening (R-PJB11); the bump rebuilds every index once (TODO ruling 3).
+SCHEMA_VERSION = "3"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -402,6 +404,8 @@ def _index_entity(conn, doc_key: str, f, fm: dict, body: str) -> None:
             "superseded_by": claim.superseded_by,
             "observer": claim.observer,
             "evidence": first.to_dict() if first else None,
+            # G141 R-PJB11: an event keeps its state beside its day.
+            "status": claim.status if is_event(claim) else None,
         }
         rowid = (doc_id << ROW_BITS) | n
         conn.execute(
@@ -696,6 +700,71 @@ def wait_idle(memory_path: Path, timeout: float = 30.0) -> bool:
         worker.join(timeout)
         return not worker.is_alive()
     return True
+
+
+def claims_about(memory_path: Path, names: list[str]) -> list[tuple[str, dict]] | None:
+    """`(subject page id, claim payload)` for every indexed claim whose
+    `predicate object` column holds one of `names` as a phrase (G141 §6.4's
+    reverse claims). A candidate list — the caller resolves the object exactly.
+    `None` when no usable index answers, so the caller can fall back and say
+    `partial` (§6.6); never raises."""
+    state = ensure_fresh(memory_path)
+    if state not in ("ready", "stale"):
+        return None
+    phrases = []
+    for name in names:
+        toks = [t for t in text_fold.words(name) if t]
+        if toks:
+            phrases.append('keywords : "' + " ".join(toks) + '"')
+    if not phrases:
+        return []
+    try:
+        with Reader(memory_path) as reader:
+            rows = reader.conn.execute(
+                f"SELECT d.ref, c.payload FROM clm c JOIN docs d ON d.id = (c.rowid >> {ROW_BITS}) "
+                "WHERE clm MATCH ? ORDER BY d.ref, c.rowid", (" OR ".join(phrases),)).fetchall()
+    except sqlite3.Error:
+        return None
+    return [(str(ref), json.loads(p or "{}")) for ref, p in rows]
+
+
+def pages_citing(memory_path: Path, episode_id: str) -> list[str] | None:
+    """Pages holding a claim with a SPAN into `episode_id` (R-PJB20), sorted;
+    `None` when no usable index answers."""
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    try:
+        with Reader(memory_path) as reader:
+            rows = reader.claims_citing(episode_id)
+            docs = reader.docs(sorted({doc_id for doc_id, *_ in rows}))
+    except sqlite3.Error:
+        return None
+    return sorted({d.ref for d in docs.values()})
+
+
+def pages_citing_many(memory_path: Path, episode_ids: list[str]) -> dict[str, list[str]] | None:
+    """`pages_citing` for many episodes through ONE reader: `{episode: sorted
+    page ids}`, every asked episode present (an uncited one maps to `[]`).
+    A project read asks for every moment's episode at once (R-PJB9's bench).
+    `None` when no usable index answers."""
+    if not episode_ids:
+        return {}
+    if ensure_fresh(memory_path) not in ("ready", "stale"):
+        return None
+    out: dict[str, set[str]] = {ep: set() for ep in episode_ids}
+    try:
+        with Reader(memory_path) as reader:
+            for i in range(0, len(episode_ids), 500):        # SQLite's bound-parameter ceiling
+                chunk = episode_ids[i:i + 500]
+                marks = ",".join("?" * len(chunk))
+                rows = reader.conn.execute(
+                    f"SELECT DISTINCT x.episode, d.ref FROM claim_evidence x "
+                    f"JOIN docs d ON d.id = (x.row >> {ROW_BITS}) WHERE x.episode IN ({marks})", chunk)
+                for ep, ref in rows:
+                    out.setdefault(str(ep), set()).add(str(ref))
+    except sqlite3.Error:
+        return None
+    return {ep: sorted(refs) for ep, refs in out.items()}
 
 
 # --- reading ------------------------------------------------------------------

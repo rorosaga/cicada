@@ -111,6 +111,9 @@ def _kind_ceiling(kind: str) -> Checkability | None:
     """Rows 1–3: the kinds decided before anything is read (spec §4.1)."""
     if kind in _NOT_A_QUESTION:
         return Checkability(NEVER, "not_a_question")          # G121(e): not a question of fact
+    if kind == "followup":
+        # G141 PJ-6: "how did it go?" is the person's own experience — no page can say it.
+        return Checkability(NEVER, "person_locus", "person")
     if kind not in _QUESTION_KINDS:
         return Checkability(NEVER, "unknown_kind")
     if kind == "merge_suggestion":

@@ -97,6 +97,10 @@ class EpisodeDraft:
     queue_for_sleep: bool = True
     content_sha: str | None = None
     writer: str = "import"
+    #: Who consolidated an episode that lands already processed (G114 R6). A
+    #: parser by default (R-LS10); G141 R-PJ18's companion note is `user` — the
+    #: person's own Log words, which Sleep never re-reads.
+    processed_by: str = PARSED_ONLY
 
 
 @dataclass
@@ -259,10 +263,16 @@ def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict]) -> None:
         fm.pop("processed_by", None)
     else:
         fm["processed"] = True
-        fm["processed_by"] = PARSED_ONLY
-    # R-PB4: the new body's times replace the old ones, as the LAST key so the
-    # episode's identity reads first; a body that lost them drops the key
-    # rather than keeping stale offsets.
+        fm["processed_by"] = draft.processed_by
+    set_turn_stamps(fm, stamps)
+
+
+def set_turn_stamps(fm: dict, stamps: list[dict]) -> None:
+    """R-PB4: the new body's times replace the old ones, as the LAST key so the
+    episode's identity reads first; a body that lost them drops the key rather
+    than keeping stale offsets. The one writer of the key (R-CS7's lint keeps
+    it to this module, ``evidence`` and ``transcript_capture``) — a writer that
+    builds its own frontmatter, like the demo generator, sets it through here."""
     fm.pop("turns", None)
     if stamps:
         fm["turns"] = stamps
@@ -344,7 +354,7 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
         fm.pop("processed_by", None)
     elif not draft.queue_for_sleep and not fm.get("processed"):
         fm["processed"] = True
-        fm["processed_by"] = PARSED_ONLY
+        fm["processed_by"] = draft.processed_by
 
 
 def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:

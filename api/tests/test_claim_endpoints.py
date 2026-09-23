@@ -346,3 +346,37 @@ def test_claims_endpoint_projects_evidence_camelcase(tmp_path):
     tl = run(claims_router.get_entity_timeline("alpha-project", predicate="uses", context="engineering",
                                                settings=_FakeSettings(tmp_path)))
     assert {c.id: len(c.evidence) for c in tl.claims} == {"clm_e": 1, "clm_legacy": 0}
+
+
+# --------------------------------------------------------------------------- #
+# G141 R-PJB10 — event claims only with include_events
+# --------------------------------------------------------------------------- #
+
+
+def test_claims_endpoint_hides_events_unless_asked(tmp_path):
+    """The shipped card calls any (predicate, context) key with two claims
+    "contested" — two happenings would grow a bogus row, so events are opt-in."""
+    from api.routers import claims as claims_router
+
+    _write_page(
+        tmp_path, "alpha-project", "Alpha Project",
+        [
+            Claim(id="clm_u", text="Alpha uses sqlite-vec.", subject="alpha-project",
+                  predicate="uses", object="sqlite-vec"),
+            Claim(id="clm_h1", text="Started the arm rewrite", subject="alpha-project", predicate="happened",
+                  object="started the arm rewrite", object_kind="literal", valid_from="2026-09-20",
+                  status="ongoing", date_basis="written"),
+            Claim(id="clm_m1", text="First grasp", subject="alpha-project", predicate="milestone",
+                  object="first-grasp", object_kind="literal", valid_from="2026-09-20", status="planned",
+                  target="2026-10-01", participants=[{"role": "with", "entity": "hana-example"}]),
+        ],
+    )
+    settings = _FakeSettings(tmp_path)
+    resp = run(claims_router.get_entity_claims("alpha-project", settings=settings))
+    assert [c.id for c in resp.claims] == ["clm_u"]
+    resp = run(claims_router.get_entity_claims("alpha-project", include_events=True, settings=settings))
+    assert [c.id for c in resp.claims] == ["clm_u", "clm_h1", "clm_m1"]
+    wire = resp.claims[2].model_dump(by_alias=True)
+    assert (wire["status"], wire["target"], wire["participants"]) == (
+        "planned", "2026-10-01", [{"role": "with", "surface": None, "entity": "hana-example", "url": None}])
+    assert wire["dateBasis"] is None and "expectedEnd" in wire

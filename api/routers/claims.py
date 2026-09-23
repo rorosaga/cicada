@@ -40,7 +40,7 @@ from api.services import (
     sync_service,
     transclusion_resolver,
 )
-from api.services.claims import Claim, is_record, parse_claims
+from api.services.claims import Claim, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
 router = APIRouter()
@@ -80,10 +80,20 @@ def _load_subject_claims(memory_path: Path, entity_id: str) -> list[Claim]:
 async def get_entity_claims(
     entity_id: str,
     include_superseded: bool = False,
+    include_events: bool = False,
     settings: Settings = Depends(get_settings),
 ):
-    """A subject's claims — currently-valid by default; superseded on request."""
+    """A subject's claims — currently-valid by default; superseded on request.
+
+    Event claims (G141 `happened`/`milestone`) only with ``include_events``
+    (R-PJB10): the shipped card groups claims by ``(predicate, context)`` and
+    calls any key with two or more "contested" (``EntityDetailCard.swift``),
+    so every project with two happenings would grow a bogus contested row.
+    Events have their own reader, ``/projects/{id}/timeline``.
+    """
     claims = _load_subject_claims(settings.memory_path, entity_id)
+    if not include_events:
+        claims = [c for c in claims if not is_event(c)]
     if not include_superseded:
         claims = [c for c in claims if _is_currently_valid(c)]
     return ClaimListResponse(claims=[_claim_to_model(c) for c in claims])

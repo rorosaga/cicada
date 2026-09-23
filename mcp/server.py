@@ -590,6 +590,34 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "cicada_project",
+        "description": "Where one of the person's projects stands: what is under way, what is next, what went quiet, what happened (dated, from whose words), and the people, tools, documents and sub-projects around it. Read-only. Use when the person asks how a project is going, what happened on it, or what's next.",
+        "inputSchema": {"type": "object", "required": ["project"], "properties": {
+            "project": {"type": "string", "description": "A project's id or name."},
+            "since": {"type": "string", "description": "Optional: YYYY-MM-DD, or a number of days back. Default 90."},
+            "tz": {"type": "string", "description": "Optional: the person's IANA timezone, for relative dates."}}},
+    },
+    {
+        # G141 §5.2, verbatim: a write, `record` scope remotely (R-PJ23).
+        "name": "cicada_note_progress",
+        "description": "Record something that happened in one of the person's projects, something under way, or a milestone they planned — dated, with who and what took part. Quote the person's words in evidence. For a standing fact (a spec, who works where) use cicada_write_claim instead.",
+        "inputSchema": {"type": "object", "required": ["project", "kind", "summary", "status"], "properties": {
+            "project": {"type": "string", "description": "The project page (id or name). Use the person's own page for something outside any project."},
+            "kind": {"type": "string", "enum": ["happened", "milestone"]},
+            "summary": {"type": "string", "description": "One sentence, third person, naming each participant exactly as the person did. No relative time words."},
+            "status": {"type": "string", "enum": ["ongoing", "done", "dropped", "planned", "missed"]},
+            "when": {"type": "string", "description": "Optional: YYYY-MM-DD, or the person's own words ('yesterday'), resolved against the cited episode."},
+            "target": {"type": "string", "description": "Milestone only: the planned date, YYYY-MM-DD."},
+            "milestone": {"type": "string", "description": "Milestone only: an existing milestone's name or slug, to move it or mark it done."},
+            "settles": {"type": "string", "description": "Optional: the claim id of an ongoing item this finishes or stops."},
+            "participants": {"type": "array", "items": {"type": "object", "required": ["name", "role"], "properties": {
+                "name": {"type": "string"},
+                "role": {"type": "string", "enum": ["owner", "from", "with", "for", "about", "used", "document", "project"]},
+                "url": {"type": "string"}}}},
+            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
+                "episode": {"type": "string"}, "quote": {"type": "string"}}}}}},
+    },
 ]
 
 
@@ -753,6 +781,10 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_handshake()
     elif name == "cicada_timeline":
         return handle_timeline(arguments.get("since"))
+    elif name == "cicada_project":
+        return handle_project(arguments.get("project", ""), arguments.get("since"), arguments.get("tz"))
+    elif name == "cicada_note_progress":
+        return handle_note_progress(arguments)
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":
@@ -877,6 +909,21 @@ def handle_sources(entity_id: str) -> str:
 
 def handle_timeline(since=None) -> str:
     return mcp_tools.timeline(_ctx(), since)
+
+
+def handle_project(project, since=None, tz=None) -> str:
+    """`cicada_project` (G141 PJ-2) — read-only, engine-free."""
+    return mcp_tools.project(_ctx(), project, since, tz)
+
+
+def handle_note_progress(arguments: dict) -> str:
+    """`cicada_note_progress` (G141 PJ-3a) — every §5.2 property, mapped once."""
+    return mcp_tools.note_progress(
+        _ctx(), str(arguments.get("project") or ""), str(arguments.get("kind") or ""),
+        str(arguments.get("summary") or ""), str(arguments.get("status") or ""),
+        when=arguments.get("when"), target=arguments.get("target"), milestone=arguments.get("milestone"),
+        settles=arguments.get("settles"), participants=arguments.get("participants"),
+        evidence=arguments.get("evidence"))
 
 
 def handle_write_claim(subject, predicate, object_, observer, confidence, context, source_episode,

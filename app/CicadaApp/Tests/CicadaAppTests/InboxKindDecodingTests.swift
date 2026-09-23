@@ -34,6 +34,20 @@ final class InboxKindDecodingTests: XCTestCase {
         XCTAssertEqual(InboxKind.removal.label, "Removed bookmark")
     }
 
+    /// G141 final review: Sleep's tail writes `followup`; decoding it as
+    /// `.unknown` labelled a "How did it go?" card "Update available".
+    func testDecodesFollowup() throws {
+        let json = #"""
+        [{"id":"inbox-023","kind":"followup","requiredInput":"choice","status":"pending","priority":0.4,
+          "entityId":"alpha-project","entityName":"Alpha Project","title":"t","createdDate":"2026-09-23",
+          "options":[{"key":"done","label":"Done"},{"key":"still","label":"Still going"}]}]
+        """#
+        let items = try JSONDecoder().decode([InboxItem].self, from: Data(json.utf8))
+        XCTAssertEqual(items.map(\.kind), [.followup])
+        XCTAssertEqual(InboxKind.followup.label, "Follow-up")
+        XCTAssertNotEqual(InboxKind.followup.label, InboxKind.unknown.label)
+    }
+
     func testUnknownFutureKindDoesNotBlankTheWholeInbox() throws {
         let json = #"""
         [{"id":"inbox-021","kind":"a_kind_from_the_future","requiredInput":"freetext","status":"pending","priority":0.1,

@@ -170,7 +170,8 @@ Seven rails hold across all of them:
   `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. Legacy files are not
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
-  consolidation.
+  consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
+  (G141 PJ-3b's Log; already processed, so Sleep never re-reads it).
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
@@ -227,8 +228,8 @@ answer.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
-refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit), the
-connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
+follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
@@ -334,6 +335,22 @@ is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an 
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
 
+**Events (G141).** Two predicates, `happened` (ongoing | done | dropped) and `milestone` (planned |
+done | missed | dropped), with four optional fields omitted when empty — `status` (as of
+`valid_from`), `target` (a milestone's planned date; expiry never reads it), `participants`
+(`[{role, surface?, entity?, url?}]`, a closed role set; `surface` is an exact substring of the plain
+sentence — no wikilinks in YAML) and `date_basis` (stated | turn | episode | person | written). A
+done happening is **born closed** (`valid_to == valid_from`), so every reader that treats open as
+current stays right; the history readers call `claims.is_event` (a grep gate enforces it). Events are
+not records: they stay in FTS and citations, where they read as dated happenings, never 'no longer
+current'. A milestone's slot is `(subject, milestone, slug)` across observers — the slug is its
+`object`, never its `context`. Event cardinality is multi and lives in code. **Only `progress.py`
+writes an event**: `write_claim` refuses the predicates, `claim_pipeline` relabels a stray label.
+Dates are decided by `when.py`'s closed table; nothing relative is stored. `companion_app` is a
+human origin (G141 R-PJ18): only `routers/projects.py` sets it (and the synthetic demo, which replays
+app writes), no MCP tool accepts an `origin`, and `is_human` protects the person's milestones and Log
+entries — an agent's different state on them coexists with a divergence item.
+
 **Stated ends (G140).** A claim may carry `expected_end` — the date the fact itself says it stops
 being true — and a G17 `due` claim's ISO-date object is its own. Never a future `valid_to`, which
 every reader takes to mean *closed*. Sleep's engine-free tail closes such a claim the day after its
@@ -417,14 +434,21 @@ Sleep's tail" gets swept into the next `git add -A` writer's commit under the wr
 G85-class smear. `sleep.next_at` is computed per request, never persisted: in the file it advanced
 every day and made every idle night commit.
 
+**`_state.md` schema v3 (G141):** each of the top 7 project rows gains `next: {slug, name, target}`
+and, once happenings exist, `now: {claim, text ≤ 80, since, verbatim?}` — the first claim text the
+file holds; `verbatim` marks the person's own Log sentence, which a remote primer shows as 'a note of
+yours' without `sources`. Neither field depends on today, and `_fit` drops every `now` before it
+drops a project.
+
 **The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
 itself, the now-view, and capability notes. The now-view is **Standing** — the person's page and
 one-liner (through G117's resolver), their timezone (per request, never in `_state.md`, part of the
 cache key), *How to work with me* (standing `skill` pages by confidence alone), long-standing
-durable/evergreen pages — then **Current** — projects, pages in focus in the last 14 days, people,
-recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
-every remote scope set. Delivered three ways — the MCP `initialize` result's
+durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
+pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
+every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the
+connection holds it). Delivered three ways — the MCP `initialize` result's
 `instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
@@ -490,8 +514,9 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `sleep/expiry`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
-`user/companion_app`,
+`sleep/state`, `sleep/expiry`, `sleep/followup`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
+`Cicada-Author: user`),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
@@ -501,7 +526,7 @@ Cicada-Session: <id>
   arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
-  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` commit). Built by
+  migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`.
   `git_service.author_identity` buckets a harness label (and `agent`) as kind `harness`, which the app
   names and marks as that app; the pre-G135 `mcp-agentic-write` claim placeholder reads as `agent`
@@ -559,7 +584,13 @@ subject — so an alias or a relationship label reaches its page. The top three 
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
 `read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
 video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
-video, and never keeps a transcript.
+video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** (G141 PJ-2, `read`
+scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
+queue, what happened and what is around it — from the engine-free read model, printing every relative
+word beside its absolute date ("yesterday (2026-09-22)"); a quote of the person's words needs
+`sources` remotely. **`cicada_note_progress`** (G141) records a happening or a milestone the person
+described — observer always the agent, `record` scope remotely, never creates a page, echoes how the date
+was decided; `cicada_retract_claim` withdraws an event the same way.
 **`cicada_add_source(subject, ref, predicate?, access?, kind?)`** (G61 phase 2 S1) records where a
 fact can be checked when there is no claim to write — only a source the person named, never one the
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
@@ -887,7 +918,7 @@ opens, and a bank switch closes it and empties the cache (episode ids repeat acr
 
 ## API Design
 
-27 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+31 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
@@ -906,7 +937,15 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 `.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip); an entity node's hash also folds its derived
-`contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed.
+`contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed. `/projects` and
+`/projects/{id}/timeline` (G141) ETag over `entities`+`episodes`+`inbox` with `extra` =
+`projects|<shape>|<machine zone>` — never today, never a viewer zone — and are **not** Store domains
+(no `VersionVector` mapping, fetched on demand like provenance). The person's writes (G141 PJ-3b) —
+`POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
+(the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
+/projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
+while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
+`user/companion_app`.
 
 **Endpoint traps worth knowing before you touch them:**
 
@@ -931,6 +970,10 @@ the same files (F1's context filter and fence strip); an entity node's hash also
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+- `GET /projects[/{id}/timeline]` serve absolute days (`tzName` is the machine zone they are bucketed
+  in) and never a relative word; the client derives 'yesterday', 'overdue' and 'quiet' through
+  `project_state.timeline_state` (its Swift twin shares `api/tests/fixtures/timeline_state.json`). A
+  404 means no page or not a `project`.
 - `POST /intake/import` answers **202** with `{job}` when more than 10 episodes would be written; poll
   `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
   stage runs at a time per process.
@@ -951,7 +994,7 @@ Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, ea
 discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `removal`, `divergence`,
 `normalization` — the last two were written by Sleep since G49/G98 but only became loadable and
 resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
-time (G129 slice 2)), behind `GET /inbox` /
+time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
@@ -1002,6 +1045,15 @@ synthesised at read from the page's `last_referenced`, never written. Its questi
 (`keep`/`remove`), no free text, no recommendation (the proposal came from the browser's own
 before/after diff, not the extractor) — `remove` archives the media entity it named; it is never
 deleted.
+
+**Follow-ups (G141 PJ-6).** A quiet ongoing happening (quiet ≥ max(21 days, the project's own Q)), a
+planned milestone 3 days overdue, or a `due` that expiry closed in the last 14 days raises one
+engine-free `followup` item — at most one open per project and three in the bank — written by Sleep's
+tail right after expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`, dirty pages skipped) and served
+as a question at read, like decay. Its 'not now' is an explicit option that defers 30 days (`allow_defer`
+false, so the shipped app's 7-day button never shows; the server clamps any defer to 30). Answers go
+through `progress.py` (origin `clarification`) and grade the extractor: done/still agreed, 'That didn't
+happen' overruled, a person's own thread always neutral.
 
 **G98 rule.** A multi-valued predicate never opens a conflict; an existing one is served
 `informational: true` — the card lists the values and offers `Got it`, which removes the item and

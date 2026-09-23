@@ -157,7 +157,7 @@ struct InboxListView: View {
     /// kinds Sleep writes (G113 slice 3) finally get their chips (R6 §2.6).
     private var orderedKinds: [InboxKind] {
         let present = Set(viewModel.items.map(\.kind))
-        return [.decay, .conflict, .clarification, .mergeSuggestion, .removal, .divergence, .normalization]
+        return [.decay, .conflict, .clarification, .followup, .mergeSuggestion, .removal, .divergence, .normalization]
             .filter { present.contains($0) }
     }
 

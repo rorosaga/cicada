@@ -52,7 +52,8 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "cicada_recall" in text and "cicada_check_nudges(entity_ids=" in text
     assert "at most one question per turn" in text and "cicada_resolve_inbox(id, skip=true)" in text
     assert "Recommended option when the item shows them" in text and "Cause" in text and "normalization" in text
-    assert handshake.CONTRACT_VERSION == 4, "G140 named its tools (3), then bridge lines joined the capabilities (G138)"
+    assert handshake.CONTRACT_VERSION == 6, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+                                             "cicada_project (5) and cicada_note_progress (6)")
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
     # the now-view

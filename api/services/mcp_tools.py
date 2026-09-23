@@ -879,6 +879,244 @@ def timeline(ctx: ToolContext, since=None) -> str:
     return change_timeline.render(change_timeline.collect(ctx.memory_path(), start, today), start, today)
 
 
+def _today_in(tz_name: str | None) -> date:
+    """The one clock `cicada_project` reads — a seam so tests pin a day.
+    `when` is imported under another name: `note_progress` (PJ-3) takes a
+    `when=` argument in this module (the G141 plan's global constraint)."""
+    from api.services import when as when_mod
+
+    return datetime.now(when_mod.zone(tz_name)).date()
+
+
+def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -> str:
+    """`cicada_project` (G141 PJ-2): where one project stands, as text an agent
+    can act on. Relative words are derived HERE, per call, in the caller's `tz`
+    (default the machine zone), and printed beside the absolute date so an agent
+    never trusts a relative word alone (R-PJ6). A quote is the person's verbatim
+    words: remote, it needs `sources` (R-PJ23). Engine-free, writes nothing but
+    an ids-only `read` ledger row."""
+    from api.services import handshake, project_state, project_text, project_timeline, telemetry
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = ctx.memory_path()
+    ref = (project or "").strip()
+    if not ref:
+        return "project is required — a project's id or name."
+    machine_tz = handshake.local_timezone() or "UTC"
+    today = _today_in(tz or machine_tz)
+    since_day = project_text.since_day(since, today)
+    # `build` resolves ids, names and aliases itself; the page lookup below only
+    # explains a miss, so an alias the stem scan cannot see still answers.
+    timeline = project_timeline.build(memory_path, ref, tz_name=machine_tz, since=since_day)
+    if timeline is None:
+        page = resolve_entity_file(memory_path, ref)
+        if page is None:
+            near = agentic_write._find_subject_candidates(memory_path, ref)
+            close = ", ".join(f"`{c['entity_id']}`" for c in near)
+            return f"No project '{ref}'." + (f" Close matches: {close}." if close else "")
+        fm = parse_frontmatter(page.read_text(encoding="utf-8"))[0]
+        etype = str(fm.get("type") or "page")
+        if etype == "project":   # `build` returns None for a dropped project page too
+            return f"`{page.stem}` was dropped from memory — cicada_project reads live projects."
+        return f"`{page.stem}` is a {etype}, not a project — cicada_project reads projects."
+    state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
+    telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
+    return project_text.render(timeline, state, memory_path=memory_path, today=today, raw=ctx.raw_excerpts,
+                               can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"))
+
+
+def _now_in(tz_name: str | None) -> datetime:
+    """The one clock `cicada_note_progress` reads — a seam so tests pin an
+    instant. Inside `note_progress` the name `when` is the caller's string, so
+    the module is imported under its own name here (the G141 plan's rule)."""
+    from api.services import when
+
+    return datetime.now(when.zone(tz_name))
+
+
+# How a happening's day was decided, in the reply's words (§7: the date is
+# provenance too). `stated` never reaches this table — it echoes the words.
+_BASIS_WORDS = {"turn": "the turn it was said in", "episode": "the conversation's day",
+                "written": "when it was recorded", "person": "the day given"}
+
+
+def _page_name(memory_path: Path, stem: str) -> str:
+    try:
+        fm = markdown_parser.parse(Path(memory_path) / "entities" / f"{stem}.md").frontmatter or {}
+    except Exception:  # noqa: BLE001 — a name is never worth a failed reply
+        fm = {}
+    return str(fm.get("name") or stem.replace("-", " ").title())
+
+
+def _match_milestone(rows, wanted: str):
+    """G141 §5.2: an agent names a milestone the way the person does. Open
+    `milestone` heads first (by slug or name), then the read-compat `due`
+    rows (`due-<date>` or the due's own name) — so "Lab showcase" advances the
+    G17 due the read model already shows under that name instead of opening a
+    second row beside it (R-PJ4). Case-insensitive, exact: never fuzzy."""
+    from api.services.id_utils import sanitize_id
+
+    key, slug = wanted.strip().lower(), sanitize_id(wanted)
+    for source in ("milestone", "due"):
+        for row in rows:
+            if row.source == source and (row.slug == slug or row.slug.lower() == key or row.name.lower() == key):
+                return row
+    return None
+
+
+def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, status: str, when=None,
+                  target=None, milestone=None, settles=None, participants=None, evidence=None) -> str:
+    """`cicada_note_progress` (G141 §5.2): record a happening or a milestone the
+    person described. An ENRICHMENT, never the only path to a timeline (G105:
+    capture stays the Stop hook's). Observer `agent`, never the owner — remote or
+    not; the origin is `mcp` or `remote:<id>`; the page commits alone under the
+    harness (G135 R-R11). Never creates a page. The reply echoes how the date
+    was decided so the agent can correct it.
+
+    Validation is this wrapper's and `progress.py`'s: every refusal is one line
+    and writes nothing. `settles` names a thread anywhere in the project's tree
+    (the thread's own page is the one written — a thread lives where it was
+    filed, and `reconcile_events` settles within one page). The clock is the
+    MACHINE's day (`_now_in`), never UTC's: "yesterday" is where the person
+    lives (R-PJ6)."""
+    from api.services import handshake, progress, project_timeline, telemetry
+    from api.services import when as when_mod
+    from api.services.claims import EVENT_STATUSES, HAPPENED
+    from api.services.id_utils import resolve_entity_file
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    ref = (project or "").strip()
+    kind = (kind or "").strip()
+    status = (status or "").strip()
+    summary = " ".join(str(summary or "").split())
+    if not ref:
+        return "project is required — a project's id or name. Nothing was recorded."
+    page = resolve_entity_file(memory_path, ref)
+    if page is None:
+        near = agentic_write._find_subject_candidates(memory_path, ref)
+        if not near:
+            return f"No page for '{ref}' — name one of the person's projects. Nothing was recorded."
+        lines = [f"NOT recorded — ambiguous subject '{ref}'. Existing entities are close matches:"]
+        lines += [f"  - {c['entity_id']} (match {c['score']})" for c in near]
+        lines.append("Re-issue cicada_note_progress with the intended project id.")
+        return "\n".join(lines)
+    stem = page.stem
+    name = _page_name(memory_path, stem)
+    bank = project_timeline._Bank(memory_path, None)
+    etype = bank.type_of(stem) or "page"
+    if etype != "project" and stem != bank.owner():
+        # R-PJ10's homes hold for agents: a happening lives on a project, or on
+        # the person's own page when it belongs to none.
+        return f"{name} is a {etype}; name the project it belongs to."
+    if kind not in EVENT_STATUSES:
+        return f"'{kind}' isn't a kind — use happened or milestone. Nothing was recorded."
+    if status not in EVENT_STATUSES[kind]:
+        return f"'{status}' isn't a status for a {kind} — use one of: {', '.join(EVENT_STATUSES[kind])}."
+    if when_mod.has_relative(summary):
+        return "Write the summary without time words ('yesterday', 'today'); put them in `when` instead."
+    tree = project_timeline._tree(bank, stem)[0]
+    subject = stem
+    if settles:
+        settles = str(settles).strip()
+        holder = next((p for p in tree for c in bank.all_claims(p)
+                       if c.id == settles and c.predicate == HAPPENED and c.status == "ongoing"
+                       and c.valid_to is None and not c.superseded_by), None)
+        if kind != HAPPENED or holder is None:
+            return f"No open thread `{settles}` in {name} — nothing was recorded."
+        subject = holder
+
+    machine_tz = handshake.local_timezone() or "UTC"
+    now = _now_in(machine_tz)
+    today = now.date()
+    common = dict(observer="agent", origin=ctx.claim_origin or "mcp", authored_by=ctx.author,
+                  session_id=ctx.session_id, evidence=evidence, today=today, tz_name=machine_tz)
+    slug = None
+    on_day = None
+    if kind != HAPPENED and when is not None and str(when).strip():
+        # §5.2: `when` is the day a milestone's state changed ("done yesterday").
+        # Resolved exactly as `record_happening` resolves it — the cited turn,
+        # then the episode, then now (R-PJ6) — so it is never silently dropped
+        # into today (task-5 review r1). Unreadable → one line, nothing written.
+        tz = progress._zone(machine_tz)
+        anchor = progress._anchor(memory_path, progress._spans(memory_path, evidence, None), now, tz)
+        on_day, basis = when_mod.resolve(str(when), anchor, direction=when_mod.PAST)
+        if on_day is None or basis != "stated":
+            return (f"I can't read '{when}' as a day within the last year — pass a date like 2026-09-22 "
+                    "or 'yesterday'. Nothing was recorded.")
+    dated = dict(on=on_day, date_basis="stated") if on_day else {}
+    if kind == HAPPENED:
+        result = progress.record_happening(memory_path, subject=subject, text=summary, status=status,
+                                           participants=participants, when=when, settles=settles, now=now,
+                                           **common)
+    else:
+        rows = [m for m in project_timeline._milestones(bank, tree) if m.source != "expectedEnd"]
+        row = _match_milestone(rows, milestone or summary)
+        if row is not None:
+            result = progress.advance(memory_path, subject=row.on or stem, slug=row.slug, status=status,
+                                      target=target, **dated, **common)
+        elif milestone:
+            listed = ", ".join(f"{m.name} ({m.slug})" for m in rows) or "none"
+            return f"No milestone '{milestone}' on {name} — open milestones: {listed}. Nothing was recorded."
+        else:
+            result = progress.set_milestone(memory_path, subject=stem, name=summary, target=target, status=status,
+                                            **dated, **common)
+        slug = result.get("slug")
+    action = result.get("action")
+    if action in ("error", "not_found") or not result.get("claim_id"):
+        return "Not recorded: " + str(result.get("error") or "unknown error")
+
+    refs = {"entity_id": result.get("entity_id"), "claim_id": result.get("claim_id"), "episode_id": None,
+            "action": "progress", "session_id": ctx.session_id, "harness": ctx.harness,
+            "client_name": ctx.client_name, "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+    paths = result.get("paths") or []
+    spans = result.get("evidence") or []
+    episode = next((e.get("episode") for e in spans if e.get("episode")), None)
+    # G135 R-R11 and the Sleep race: exactly `write_claim`'s rule — a stdio
+    # write mid-cycle leaves its pages dirty for Sleep's own sweep.
+    if paths and not ctx.sleep_running():
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"{p}: updated (source: {episode or 'n/a'}, trigger: {ctx.trigger})" for p in paths],
+            paths=paths, author=ctx.author, session=ctx.session_id,
+        )
+
+    cid = result["claim_id"]
+    where = _page_name(memory_path, result.get("entity_id") or subject)
+    if action == "reinforced":
+        reply = f"Already recorded on {where}: nothing new (reinforced claim `{cid}`)"
+    elif kind == HAPPENED:
+        how = f" from '{when}'" if result.get("matched") else \
+            f" ({_BASIS_WORDS.get(result.get('date_basis'), 'when it was recorded')})"
+        cited = sum(1 for e in spans if e.get("kind") != "reasoning")
+        ev = f"{cited} quote verified" if cited else "reasoning"
+        reply = f"Recorded: filed on {where}, dated {result['day']}{how} — {status} (claim `{cid}`; evidence: {ev})"
+    else:
+        lead = "Recorded alongside the person's own milestone (they will be asked which stands)" \
+            if action == "coexist" else "Recorded"
+        if action == "rejected":
+            lead = "NOT recorded — a later state of this milestone already stands"
+        tgt = result.get("target")
+        reply = f"{lead}: filed on {where} as milestone '{slug}' — {status}" \
+            + (f", on {on_day.isoformat()} from '{when}'" if on_day else "") \
+            + (f", target {tgt}" if tgt else "") + f" (claim `{cid}`)"
+    settled = result.get("settled")
+    if settled == "closed":
+        reply += f"; closed the thread `{settles}`"
+    elif settled == "refused":
+        # R-PJB14: an agent's `settles` never closes a human thread.
+        reply += f"; the thread `{settles}` stays open — only the person can close their own thread"
+    return reply + "."
+
+
 def write_claim(
     ctx: ToolContext,
     subject: str,
@@ -1034,6 +1272,24 @@ def write_claim(
     )
 
 
+def _event_claim(memory_path: Path, subject: str, claim_id: str):
+    """`(claim, page stem)` when `claim_id` names a happening or a milestone on
+    `subject`'s page, else None (the general withdrawal path answers)."""
+    from api.services.claims import is_event, parse_claims
+    from api.services.id_utils import resolve_entity_file
+
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if claim_id else None
+    if page is None:
+        return None
+    try:
+        claims = parse_claims(markdown_parser.parse(page).body)
+    except Exception:  # noqa: BLE001 — an unreadable page is the general path's error to report
+        return None
+    same = [c for c in claims if c.id == claim_id]
+    claim = next((c for c in same if c.valid_to is None), same[0] if same else None)
+    return (claim, page.stem) if claim is not None and is_event(claim) else None
+
+
 def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, evidence: list | None = None) -> str:
     """``cicada_retract_claim`` (G140 Q-R5, R3 P7): withdraw a claim THIS caller
     wrote. The claim stays in its page's history, a record keeps the reason,
@@ -1041,10 +1297,28 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
-    result = agentic_write.retract_claim(
-        memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
-        origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
-    )
+    event = _event_claim(memory_path, subject, (claim_id or "").strip())
+    if event is not None:
+        # G141 §5.2: an event is withdrawn through `progress.withdraw`. A done
+        # happening is born closed, so `agentic_write.retract_claim` would
+        # answer "already stopped being current" — true of its shape, wrong
+        # about the fact. Ownership is the same rule (`owns`).
+        from api.services import progress
+
+        claim, stem = event
+        if not agentic_write.owns(claim, author=ctx.author, origin=ctx.claim_origin):
+            result = {"action": "not_yours", "entity_id": stem, "claim_id": claim.id}
+        else:
+            result = progress.withdraw(memory_path, subject=stem, claim_id=claim.id, author=ctx.author,
+                                       reason=reason, origin=ctx.claim_origin, session_id=ctx.session_id,
+                                       evidence=evidence)
+            if result.get("paths"):
+                result["path"] = result["paths"][0]
+    else:
+        result = agentic_write.retract_claim(
+            memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
+            origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
+        )
     action = result.get("action")
     if action == "already_closed":
         return (f"Claim `{claim_id}` on `{result['entity_id']}` already stopped being current on "
@@ -1186,14 +1460,21 @@ def get_perspective(
     if context:
         claims = [c for c in claims if c.context == context]
     earlier: list = []
+    happened: list = []
     if history:
         earlier = [c for c in page_claims if (c.valid_to is not None or c.superseded_by) and not _is_record(c)]
         if observer:
             earlier = [c for c in earlier if c.observer == observer]
         if context:
             earlier = [c for c in earlier if c.context == context]
+        # G141 R-PJ3: a closed event is a dated happening, never "was X until
+        # D" — a born-closed done one closed the day it happened.
+        happened = [c for c in earlier if _is_event(c)]
+        earlier = [c for c in earlier if not _is_event(c)]
         earlier.sort(key=lambda c: (str(c.valid_to or ""), c.id), reverse=True)
         earlier = earlier[:PERSPECTIVE_HISTORY_MAX]
+        happened.sort(key=lambda c: (str(c.valid_from or ""), c.id), reverse=True)
+        happened = happened[:PERSPECTIVE_HISTORY_MAX]
 
     fm = parsed.frontmatter or {}
     title = str(fm.get("name", page.stem.replace("-", " ").title()))
@@ -1206,7 +1487,7 @@ def get_perspective(
     if perspective:
         header += f" ({', '.join(perspective)})"
 
-    if not claims and not earlier:
+    if not claims and not earlier and not happened:
         return f"{header}: no currently-valid claims match."
 
     lines = [f"{header} — {len(claims)} valid claim(s):", ""]
@@ -1215,6 +1496,11 @@ def get_perspective(
             f"{c.observer} · {c.context} · {c.source_trust} · "
             f"conf {c.confidence:.2f} · since {c.valid_from or 'undated'}"
         )
+        if _is_event(c):
+            # G141: an open thread or milestone reads as `day · status · sentence`.
+            line = f"- {c.valid_from} · {c.status} · {c.text}" + (f" (target {c.target})" if c.target else "")
+            lines.append(f"{line}\n  _({prov})_")
+            continue
         lines.append(f"- {c.text}\n  _({prov})_")
     if earlier:
         lines += ["", f"Earlier, newest first ({len(earlier)}):"]
@@ -1223,6 +1509,10 @@ def get_perspective(
                 f"- {c.text}\n  _({_how_closed(c, page_claims)} · valid {c.valid_from or 'undated'} → "
                 f"{c.valid_to or 'undated'} · {c.observer} · {c.source_trust})_"
             )
+    if happened:
+        lines += ["", f"Happened and earlier states, newest first ({len(happened)}):"]
+        lines += [f"- {c.valid_from} · {c.status} · {c.text}{_event_closed_note(c, page_claims)}"
+                  for c in happened]
     return "\n".join(lines)
 
 
@@ -1397,6 +1687,15 @@ def _is_record(claim) -> bool:
     return is_record(claim)
 
 
+def _is_event(claim) -> bool:
+    """A G141 happening or milestone — dated, never "no longer current"
+    (R-PJ3). The test itself is ``claims.is_event``, shared with every other
+    history reader (a grep gate holds it)."""
+    from api.services.claims import is_event
+
+    return is_event(claim)
+
+
 def _ended_at_stated_end(claim) -> bool:
     """Closed by ``claim_expiry`` (G140 Q-R7): no successor, and a ``valid_to``
     equal to what expiry writes. Nothing replaced it, so "was X until D" would
@@ -1422,6 +1721,23 @@ def _how_closed(old, page: list) -> str:
     if old.superseded_by:
         return f"superseded by `{old.superseded_by}`"
     return "closed"
+
+
+def _event_closed_note(old, page: list) -> str:
+    """How a closed event stopped standing, as a trailing phrase (Task 4
+    review r1, finding 2). A born-closed happening carries no `superseded_by`
+    and needs none. A withdrawn one MUST say so — listed bare as
+    `day · done · X`, an agent reading history would repeat as fact what was
+    taken back. A milestone state advanced by a later one reads `(then done)`,
+    so `planned · First grasp` is never mistaken for the current plan."""
+    if not old.superseded_by:
+        return ""
+    new = {c.id: c for c in page}.get(old.superseded_by)
+    if new is not None and _is_record(new):
+        return f" (withdrawn by {new.authored_by or 'an agent'}: {_clip(new.text, 160)})"
+    if new is not None and _is_event(new) and new.status:
+        return f" (then {new.status})"
+    return f" ({_how_closed(old, page)})"
 
 
 def _history_line(eid: str, old, page: list) -> str:
@@ -1454,7 +1770,9 @@ def _recent_changes(entities_dir: Path, hits: list[dict], today: date) -> list[s
         closed = []
         for c in page:
             age = _age_days(c.valid_to, today) if c.valid_to else None
-            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS and not _is_record(c):
+            # Events are not "changes" (G141 R-PJ3): a done happening closes
+            # the day it happens and would crowd out the real edits.
+            if age is not None and 0 <= age <= RECENT_CHANGE_DAYS and not _is_record(c) and not _is_event(c):
                 closed.append(c)
         closed.sort(key=lambda c: (str(c.valid_to), c.id), reverse=True)
         for c in closed[:RECENT_CHANGES_PER_PAGE]:
@@ -1683,7 +2001,7 @@ def _inbox_ctx(memory_path: Path, today: str):
 
 
 def _agent_question(
-    memory_path: Path, fm: dict, today: str, *, ctx=None
+    memory_path: Path, fm: dict, today: str, *, ctx=None, verbatim_ok: bool = True
 ) -> tuple[dict, dict | None, str | None]:
     """What both MCP readers hand :func:`render_question` (G115 Phase 1, R9).
 
@@ -1701,6 +2019,11 @@ def _agent_question(
     pays for the episode/entity scan ONCE (final review H3). Omitting it keeps
     the old per-call behaviour, which is what the standalone degrade path and
     the single-item tests want.
+
+    G141 PJ-6: a ``followup`` is synthesised the same way (``followup_synthesis``,
+    the one ``GET /inbox`` uses). ``verbatim_ok`` is the caller's
+    ``raw_excerpts`` — a remote relay without ``sources`` is told a thread the
+    person logged in the app exists, never its words (R-PJ23).
     """
     try:
         from api.services import fact_sources, inbox_context, inbox_questions, inbox_service
@@ -1719,6 +2042,11 @@ def _agent_question(
                 ctx.entity_last_referenced(entity_id),
                 today,
             )
+            fm.update(question)
+            options = inbox_questions.normalize_options(fm["options"])
+        if str(fm.get("kind") or "") == "followup":
+            question, _ = inbox_service.followup_synthesis(fm, ctx.claims(entity_id), today,
+                                                           verbatim_ok=verbatim_ok)
             fm.update(question)
             options = inbox_questions.normalize_options(fm["options"])
         rec = inbox_service.recommended_key(str(fm.get("kind") or ""), fm, options)
@@ -1834,7 +2162,7 @@ def _relevant_inbox(memory_path: Path, query: str, *, raw_excerpts: bool = True)
         # later, not on the next unrelated question.
         if inbox_questions.is_deferred(fm, today):
             continue
-        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx)
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=ctx, verbatim_ok=raw_excerpts)
         blurbs.append(_format_inbox_blurb(
             fm, body, cause=cause, recommended_key=rec, raw_excerpts=raw_excerpts))
     return blurbs
@@ -1969,7 +2297,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         # Decay becomes a question object here, and every question object gains
         # its cause + `(Recommended)` marker, so the agent reads the same card
         # the app shows (G115 Phase 1, R9).
-        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx)
+        fm, cause, rec = _agent_question(memory_path, fm, today, ctx=inbox_ctx, verbatim_ok=ctx.raw_excerpts)
 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))

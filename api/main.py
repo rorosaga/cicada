@@ -32,6 +32,7 @@ from api.routers import (
     maintenance,
     nudges,
     origins,
+    projects,
     remote,
     search,
     settings as settings_router,
@@ -205,6 +206,7 @@ app.include_router(nudges.router, tags=["nudges"])
 app.include_router(clarifications.router, tags=["clarifications"])
 app.include_router(entities.router, tags=["entities"])
 app.include_router(claims.router, tags=["claims"])
+app.include_router(projects.router, tags=["projects"])
 app.include_router(episodes.router, tags=["episodes"])
 app.include_router(contributors.router, tags=["contributors"])
 app.include_router(origins.router, tags=["origins"])
