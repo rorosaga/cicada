@@ -320,3 +320,65 @@ enum ReaderHeader {
         return "unknown"
     }
 }
+
+// MARK: - The navigator and "Noted from this conversation" (§4.4, P4)
+
+enum ReaderNavigator {
+    /// The spans the navigator steps through, in document order: the ranges
+    /// the SUBJECT's claims cite here when the Reader was opened for an
+    /// entity, else every cited range (a Reader opened from the inbox or a
+    /// history row steps through all of them, §4.4). Stale rows carry no
+    /// offsets (R-PB2), so they are never a stop; duplicates fold.
+    static func stops(_ citations: [EpisodeCitation], subjectId: String?) -> [Range<Int>] {
+        let ranged = citations.filter { $0.range != nil }
+        let mine = subjectId.map { id in ranged.filter { $0.subjectId == id } } ?? []
+        let chosen = mine.isEmpty ? ranged : mine
+        var seen = Set<Range<Int>>()
+        return chosen.compactMap(\.range)
+            .filter { seen.insert($0).inserted }
+            .sorted { $0.lowerBound != $1.lowerBound ? $0.lowerBound < $1.lowerBound : $0.upperBound < $1.upperBound }
+    }
+
+    /// Where `focus` sits among the stops — exact match first, else the first
+    /// stop that overlaps it — or nil when it is not one of them.
+    static func position(of focus: Range<Int>?, in stops: [Range<Int>]) -> Int? {
+        guard let focus else { return nil }
+        return stops.firstIndex(of: focus) ?? stops.firstIndex { $0.overlaps(focus) }
+    }
+
+    /// The stop `delta` steps from `current` (clamped, never wrapping — the
+    /// first and last passage are ends, not a loop). With no current stop,
+    /// forward goes to the first and back to the last.
+    static func step(from current: Int?, count: Int, by delta: Int) -> Int? {
+        guard count > 0 else { return nil }
+        guard let current else { return delta >= 0 ? 0 : count - 1 }
+        return min(max(current + delta, 0), count - 1)
+    }
+
+    /// "2 of 5 cited here".
+    static func label(position: Int?, count: Int) -> String {
+        guard count > 0 else { return "" }
+        let n = UsageFormat.count(count)
+        guard let position else { return "\(n) cited here" }
+        return "\(UsageFormat.count(position + 1)) of \(n) cited here"
+    }
+}
+
+extension ReaderPresentation {
+    /// A jump inside the Reader (a navigator step or a "Noted from this
+    /// conversation" row) replaces the target's focus with a citation's own,
+    /// judged by that citation's own flags: a derived row bolds, a grown row
+    /// says so, and the target's banners no longer apply to these words.
+    static func citation(_ c: EpisodeCitation, truncated: Bool, textCount: Int) -> ReaderPresentation {
+        guard let range = c.range, range.lowerBound < textCount else {
+            return ReaderPresentation(focus: nil, focusStyle: .focus, banners: truncated ? [.truncated] : [],
+                                      landing: nil)
+        }
+        var banners: [ReaderBanner] = []
+        if c.derived { banners.append(.derived) }
+        if c.grown { banners.append(.grown) }
+        if truncated { banners.append(.truncated) }
+        return ReaderPresentation(focus: range, focusStyle: c.derived ? .mention : .focus, banners: banners,
+                                  landing: range.lowerBound)
+    }
+}

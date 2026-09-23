@@ -13,6 +13,8 @@ struct ReaderInspector: View {
     @Environment(ProvenanceRouter.self) private var router
     @Environment(ProvenanceCache.self) private var cache
     @Environment(Store.self) private var store
+    @Environment(GraphViewModel.self) private var graphVM
+    @Environment(AppRouter.self) private var appRouter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Phase {
@@ -26,6 +28,11 @@ struct ReaderInspector: View {
     @State private var washVisible = false
     @State private var landingToken = 0
     @State private var conversations = ConversationsViewModel()
+    /// P4 — what this document taught Cicada (`/citations`, G106 (ii)).
+    @State private var citations: EpisodeCitations?
+    /// A navigator step or a "Noted" row re-focuses the Reader IN PLACE on
+    /// that citation; the router trail is for moving between documents.
+    @State private var jump: EpisodeCitation?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -45,6 +52,8 @@ struct ReaderInspector: View {
         guard let target = router.current else { return }
         phase = .loading
         washVisible = false
+        jump = nil
+        citations = nil
         let result = await cache.document(episode: target.episode, focus: target.query)
         // `.task(id:)` cancels a superseded load, but cancellation is
         // cooperative: a slow fetch for the previous target must never land
@@ -54,6 +63,9 @@ struct ReaderInspector: View {
         case let .loaded(doc):
             phase = .loaded(doc, ScalarText(doc.text))
             landingToken &+= 1
+            let cited = await cache.citations(episode: target.episode).value
+            guard !Task.isCancelled, router.current == target else { return }
+            citations = cited
             if let id = doc.conversationId, !doc.isPage {
                 await conversations.load(ids: [id])
             }
@@ -174,6 +186,10 @@ struct ReaderInspector: View {
         case let .loaded(doc, scalars):
             if let target = router.current {
                 document(doc, scalars: scalars, target: target)
+                if let citations {
+                    Divider().background(CicadaTheme.border)
+                    notedList(citations, doc: doc)
+                }
             }
         }
     }
@@ -199,43 +215,186 @@ struct ReaderInspector: View {
     }
 
     private func document(_ doc: EpisodeText, scalars: ScalarText, target: ReaderTarget) -> some View {
-        let presentation = ReaderPresentation.resolve(target: target, doc: doc, textCount: scalars.count)
+        let presentation = jump.map {
+            ReaderPresentation.citation($0, truncated: doc.truncated, textCount: scalars.count)
+        } ?? ReaderPresentation.resolve(target: target, doc: doc, textCount: scalars.count)
+        let rows = citations?.citations ?? []
+        let stops = ReaderNavigator.stops(rows, subjectId: target.subjectId)
         let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: presentation.focus,
-                                         focusStyle: presentation.focusStyle)
+                                         focusStyle: presentation.focusStyle,
+                                         others: stops.filter { $0 != presentation.focus })
         let landingBlock = presentation.landing.flatMap { ReaderLayout.blockIndex(containing: $0, in: blocks) }
         return ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                    ForEach(presentation.banners, id: \.self) { banner in
-                        ReaderBannerView(banner: banner)
+            VStack(alignment: .leading, spacing: 0) {
+                // Pinned ABOVE the text, never inside it: landing scrolls the
+                // cited turn to the centre, so a bar at the top of the scrolled
+                // stack would leave the screen the moment the Reader arrives
+                // (and, lazily unrealised, take ⌥↑ / ⌥↓ with it).
+                if stops.count > 1 {
+                    navigator(stops: stops, rows: rows, subjectId: target.subjectId,
+                              position: ReaderNavigator.position(of: presentation.focus, in: stops))
+                        .padding(.horizontal, CicadaTheme.spacingMD)
+                        .padding(.vertical, CicadaTheme.spacingSM)
+                    Divider().background(CicadaTheme.border)
+                }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                        ForEach(presentation.banners, id: \.self) { banner in
+                            ReaderBannerView(banner: banner)
+                        }
+                        if blocks.isEmpty {
+                            message(Copy.Provenance.empty, icon: "text.bubble")
+                        }
+                        ForEach(blocks) { block in
+                            ReaderTurnView(block: block, isLanding: block.index == landingBlock,
+                                           revealed: washVisible)
+                                .id(block.index)
+                        }
                     }
-                    if blocks.isEmpty {
-                        message(Copy.Provenance.empty, icon: "text.bubble")
+                    .padding(CicadaTheme.spacingMD)
+                }
+                .accessibilityRotor("Cited passages") {
+                    ForEach(blocks.filter(\.holdsFocus)) { block in
+                        AccessibilityRotorEntry(Text("\(block.speaker), \(Copy.Provenance.turn(block.index))"),
+                                                id: block.index)
                     }
+                }
+                .accessibilityRotor("Turns") {
                     ForEach(blocks) { block in
-                        ReaderTurnView(block: block, isLanding: block.index == landingBlock,
-                                       revealed: washVisible)
-                            .id(block.index)
+                        AccessibilityRotorEntry(Text("\(block.speaker), \(Copy.Provenance.turn(block.index))"),
+                                                id: block.index)
                     }
                 }
-                .padding(CicadaTheme.spacingMD)
-            }
-            .accessibilityRotor("Cited passages") {
-                ForEach(blocks.filter(\.holdsFocus)) { block in
-                    AccessibilityRotorEntry(Text("\(block.speaker), \(Copy.Provenance.turn(block.index))"),
-                                            id: block.index)
+                .onChange(of: landingToken, initial: true) { _, _ in
+                    land(proxy: proxy, block: landingBlock, blocks: blocks, presentation: presentation)
                 }
-            }
-            .accessibilityRotor("Turns") {
-                ForEach(blocks) { block in
-                    AccessibilityRotorEntry(Text("\(block.speaker), \(Copy.Provenance.turn(block.index))"),
-                                            id: block.index)
-                }
-            }
-            .onChange(of: landingToken, initial: true) { _, _ in
-                land(proxy: proxy, block: landingBlock, blocks: blocks, presentation: presentation)
             }
         }
+    }
+
+    // MARK: Navigator (P4)
+
+    /// "‹ 2 of 5 cited here ›" — steps through the spans this entity's claims
+    /// cite in this document (or every cited span when the Reader was not
+    /// opened for an entity). ⌥↓ / ⌥↑ from anywhere in the Reader.
+    private func navigator(stops: [Range<Int>], rows: [EpisodeCitation], subjectId: String?,
+                           position: Int?) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Button { step(-1, stops: stops, rows: rows, subjectId: subjectId, position: position) } label: {
+                Image(systemName: "chevron.up")
+            }
+            .keyboardShortcut(.upArrow, modifiers: .option)
+            .accessibilityLabel(Copy.Provenance.previousCited)
+            .disabled(position == 0)
+            Text(ReaderNavigator.label(position: position, count: stops.count))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            Button { step(1, stops: stops, rows: rows, subjectId: subjectId, position: position) } label: {
+                Image(systemName: "chevron.down")
+            }
+            .keyboardShortcut(.downArrow, modifiers: .option)
+            .accessibilityLabel(Copy.Provenance.nextCited)
+            .disabled(position == stops.count - 1)
+            Spacer()
+        }
+        .buttonStyle(.cicadaPlain)
+        .font(CicadaTheme.font(size: 11, weight: .semibold))
+    }
+
+    private func step(_ delta: Int, stops: [Range<Int>], rows: [EpisodeCitation], subjectId: String?,
+                      position: Int?) {
+        guard let next = ReaderNavigator.step(from: position, count: stops.count, by: delta) else { return }
+        let stop = stops[next]
+        let candidates = rows.filter { $0.range == stop }
+        jumpTo(candidates.first { $0.subjectId == subjectId } ?? candidates.first)
+    }
+
+    private func jumpTo(_ citation: EpisodeCitation?) {
+        guard let citation, citation.range != nil else { return }
+        washVisible = false
+        jump = citation
+        landingToken &+= 1
+    }
+
+    // MARK: Noted from this conversation (P4, G106 (ii))
+
+    /// Every belief this document contributed, each with its subject's mark
+    /// and how it was sourced. A row with offsets jumps the text to its words;
+    /// the trailing pin lands on the subject in the graph (G123).
+    private func notedList(_ payload: EpisodeCitations, doc: EpisodeText) -> some View {
+        let noted = payload.citations
+        let citedIds = Set(noted.map(\.subjectId))
+        let alsoOn = payload.entities.filter { !citedIds.contains($0.entityId) }
+            .map { $0.name.isEmpty ? $0.entityId : $0.name }
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Text("\(doc.isPage ? Copy.Provenance.notedFromThisPage : Copy.Provenance.notedFromThisConversation)"
+                 + " (\(UsageFormat.count(noted.count)))")
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .accessibilityAddTraits(.isHeader)
+            if noted.isEmpty {
+                Text(Copy.Provenance.nothingNoted)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(noted) { row in notedRow(row, doc: doc) }
+                }
+            }
+            .frame(maxHeight: CicadaTheme.scaled(200))
+            if !alsoOn.isEmpty {
+                Text(Copy.Provenance.alsoOn(alsoOn))
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            if payload.partial {
+                Text(Copy.Provenance.notedPartial)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+        .padding(CicadaTheme.spacingMD)
+    }
+
+    private func notedRow(_ row: EpisodeCitation, doc: EpisodeText) -> some View {
+        let name = row.subjectName.isEmpty ? row.subjectId : row.subjectName
+        let label = EvidenceLabel.speaker(kind: row.displayKind,
+                                          agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin))
+        return HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+            Button { jumpTo(row) } label: {
+                HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                    LogoImage(entityId: row.subjectId, name: name,
+                              type: EntityType(rawValue: row.subjectType) ?? .concept, size: CicadaTheme.scaled(18))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(renderWikilinks(row.text.isEmpty ? name : row.text))
+                            .font(CicadaTheme.font(size: 12))
+                            .strikethrough(!row.current)
+                            .lineLimit(2)
+                        Text(row.current ? label : "\(label) · \(Copy.Provenance.noLongerCurrent)")
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .disabled(row.range == nil)
+            .opacity(row.current ? 1 : 0.6)
+            Button {
+                appRouter.pendingTab = .graph
+                graphVM.revealEntity(id: row.subjectId)
+            } label: {
+                Image(systemName: "scope").font(CicadaTheme.font(size: 11))
+            }
+            .buttonStyle(.cicadaPlain)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .help(Copy.Provenance.showOnGraph(name))
+            .accessibilityLabel(Copy.Provenance.showOnGraph(name))
+        }
+        .padding(.vertical, 3)
     }
 
     /// Scroll to the cited turn after the first layout, fade the wash in over

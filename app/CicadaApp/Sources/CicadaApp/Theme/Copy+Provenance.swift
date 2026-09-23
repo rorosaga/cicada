@@ -112,3 +112,18 @@ extension Copy.Provenance {
         n == 1 ? "1 conversation" : "\(UsageFormat.count(n)) conversations"
     }
 }
+
+// MARK: - The Reader's reverse direction (§4.4, G106 (ii)) — Task 5
+
+extension Copy.Provenance {
+    static let notedFromThisConversation = "Noted from this conversation"
+    static let notedFromThisPage = "Noted from this page"
+    static let nothingNoted = "Nothing in memory cites this yet."
+    /// R-PB10: `partial` means the server stopped at its page cap.
+    static let notedPartial = "Some pages that name this conversation aren't listed here."
+    static func alsoOn(_ names: [String]) -> String { "Also on: \(names.joined(separator: ", "))" }
+    static let nextCited = "Next cited passage"
+    static let previousCited = "Previous cited passage"
+    static func showOnGraph(_ name: String) -> String { "Show \(name) on the graph" }
+    static let noLongerCurrent = "No longer current"
+}
