@@ -19,13 +19,18 @@ struct FindPanelBody: View {
     var body: some View {
         VStack(spacing: 0) {
             field
-            // Design §3.6: a hairline while the server tier is out. Under
-            // Reduce Motion there is no indeterminate bar — the footer's
-            // "Searching conversations…" is its text twin.
-            if model.mode == .find, model.serverPhase == .searching, !reduceMotion {
-                ProgressView().progressViewStyle(.linear).controlSize(.mini).accessibilityHidden(true)
-            }
+            // Design §3.6: a hairline while the server tier is out, drawn as an
+            // overlay on the divider so it takes no layout — as a VStack child it
+            // pushed every shown row down on each pause and pulled them back when
+            // the server answered, breaking §3.2's "nothing shown moves" (S-ui
+            // final review). Under Reduce Motion there is no indeterminate bar —
+            // the footer's "Searching conversations…" is its text twin.
             Divider().background(CicadaTheme.border)
+                .overlay(alignment: .top) {
+                    if model.mode == .find, model.serverPhase == .searching, !reduceMotion {
+                        ProgressView().progressViewStyle(.linear).controlSize(.mini).accessibilityHidden(true)
+                    }
+                }
             Group {
                 if model.mode == .ask {
                     AskPanel(onSelectEntity: { run(.entity(id: $0)) }, hostedViewModel: model.ask)

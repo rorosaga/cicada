@@ -81,12 +81,25 @@ struct InboxListView: View {
                 }
             }
         }
+        // G136 — a palette hand-off is observed here as well as in the list:
+        // while the page shows "No question matches", the list (and its
+        // `land(proxy)`) is not mounted, so the id would sit unconsumed until
+        // the filter was cleared by hand (S-ui final review). Clearing the
+        // filters mounts the list, whose `onAppear` consumes it and scrolls.
+        .onAppear { clearFiltersForHandOff(router.pendingInboxItem) }
+        .onChange(of: router.pendingInboxItem) { _, id in clearFiltersForHandOff(id) }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // The title bar is darkened at the window level (titlebarAppearsTransparent
         // + dark backgroundColor in CicadaApp), so the content background must NOT
         // ignoreSafeArea here — combined with maxHeight:.infinity that extended the
         // content under the menu bar and stretched the whole window to full height.
         .background(CicadaTheme.background)
+    }
+
+    private func clearFiltersForHandOff(_ id: String?) {
+        guard id != nil else { return }
+        query = ""
+        kindFilter = nil
     }
 
     private func land(_ proxy: ScrollViewProxy) {
