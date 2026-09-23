@@ -6,9 +6,11 @@ import SwiftUI
 /// shipped default is `manual` (`api/services/sleep_scheduler.py::_DEFAULT`,
 /// whose `register_job` registers no job at all), which is why the old copy
 /// — "it also runs on its own schedule" — was false on every new install.
+///
+/// Only the sentence lives here: the toggle's rule moved to `ScheduleToggle`
+/// (Track Z Z0, Z-P27), so the Sleep page's lamp and this step share one
+/// definition and a later redesign can delete this step without the rule.
 enum OnboardingSchedule {
-    static func isOn(_ cfg: ScheduleConfig) -> Bool { cfg.mode != "manual" }
-
     static func line(_ cfg: ScheduleConfig) -> String {
         switch cfg.mode {
         case "daily":
@@ -20,20 +22,6 @@ enum OnboardingSchedule {
         default:
             return "Sleep runs only when you ask. Turn this on and Cicada consolidates while you sleep."
         }
-    }
-
-    /// The toggle moves between exactly two states (R4). Turning it ON from a
-    /// bank that ALREADY carries `interval`/`after_import` returns that config
-    /// unchanged — onboarding never downgrades a schedule chosen in
-    /// `Settings → Sleep`. Turning it OFF preserves `hour`/`minute` so
-    /// re-enabling there restores what the person picked.
-    static func toggled(on: Bool, current: ScheduleConfig) -> ScheduleConfig {
-        if !on {
-            var next = current; next.mode = "manual"; return next
-        }
-        if isOn(current) { return current }
-        var next = current; next.mode = "daily"; next.hour = 3; next.minute = 0
-        return next
     }
 }
 
@@ -81,9 +69,9 @@ struct OnboardingSleepStep: View {
                 .frame(maxWidth: 420)
 
             Toggle(Copy.onboardingRunNightly, isOn: Binding(
-                get: { OnboardingSchedule.isOn(sleepVM.schedule) },
+                get: { ScheduleToggle.isOn(sleepVM.schedule) },
                 set: { on in
-                    Task { await sleepVM.updateSchedule(OnboardingSchedule.toggled(on: on, current: sleepVM.schedule)) }
+                    Task { await sleepVM.updateSchedule(ScheduleToggle.toggled(on: on, current: sleepVM.schedule)) }
                 }
             ))
             .toggleStyle(.switch)
@@ -125,7 +113,9 @@ struct OnboardingSleepStep: View {
     /// that has never run Sleep once.
     private var bookwormState: BookwormState {
         if sleepVM.isRunning {
-            return .sleeping(stage: max(1, min(5, sleepVM.status?.stage ?? 1)))
+            // R-Z14: the wire counts COMPLETED stages; this site was the
+            // third clamp that said "stage 1" while Sort ran.
+            return .sleeping(stage: activeStage(completed: sleepVM.status?.stage ?? 0))
         }
         if let err = sleepVM.status?.error, !err.isEmpty {
             return .error

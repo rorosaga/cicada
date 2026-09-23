@@ -53,7 +53,7 @@ from loguru import logger
 # Neither module imports back into ``api.services``: ``engine_errors`` is
 # import-free by design and ``git_service`` imports only ``api.models.schemas``,
 # so pulling them in at module level creates no cycle.
-from api.services import engine_errors, git_service, markdown_parser
+from api.services import engine_errors, engine_select, git_service, markdown_parser
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
 from api.services.episode_ids import utc_now_iso
 
@@ -277,12 +277,18 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
     """
     if not url:
         return None
+    from api.services import net_guard  # G135 R-R10
+
+    if not await net_guard.is_fetchable_url_async(url):
+        return None
     try:
         import httpx
 
         from api.services.media_ingestor import _MAX_READ, _TIMEOUT, USER_AGENT
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            event_hooks={"request": [net_guard.httpx_request_guard]},
+        ) as client:
             resp = await client.get(
                 url,
                 timeout=_TIMEOUT,
@@ -583,6 +589,10 @@ async def default_fetch(url: str, settings) -> FetchResult:
     """
     if not url:
         return FetchResult("failed:no_url")
+    from api.services import net_guard  # G135 R-R10
+
+    if not await net_guard.is_fetchable_url_async(url):
+        return FetchResult("failed:private_host")
     try:
         import httpx
 
@@ -591,6 +601,7 @@ async def default_fetch(url: str, settings) -> FetchResult:
         async with httpx.AsyncClient(
             timeout=FETCH_TIMEOUT_S, follow_redirects=True, max_redirects=FETCH_MAX_REDIRECTS,
             headers={"User-Agent": USER_AGENT}, trust_env=False,
+            event_hooks={"request": [net_guard.httpx_request_guard]},
         ) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code in (401, 403, 407, 451):
@@ -611,6 +622,9 @@ async def default_fetch(url: str, settings) -> FetchResult:
                         break
                 raw = b"".join(chunks)[:FETCH_MAX_BYTES]
                 html = raw.decode(resp.encoding or "utf-8", errors="replace")
+    except net_guard.UnsafeURL:
+        # A public page redirected inward (the request hook refused the hop).
+        return FetchResult("failed:private_host")
     except Exception as e:
         logger.warning(f"link fetch failed for {url}: {type(e).__name__}")
         return FetchResult(f"failed:{type(e).__name__}")
@@ -843,11 +857,13 @@ async def _commit_backfill(memory_path: Path, settings, report: BackfillReport, 
         authors, engine_trailer = ["cicada"], None
     else:
         engine_trailer = engine or None
-        if engine == "claude-cli":
+        if engine in engine_select.PLAN_ENGINES:
             from api.services import agent_engine
 
+            # R-E22: the models the plan reported, else its configured model
+            # — never an "unknown" author invented for a ChatGPT-plan default.
             authors = sorted(set(agent_engine.models_used()) - models_before) or [
-                str(getattr(settings, "agent_model", "") or "sonnet")
+                m for m in [engine_select.author_model(settings)] if m and m != "unknown"
             ]
         else:
             authors = [str(getattr(settings, "litellm_model", "") or "unknown")]
@@ -943,8 +959,8 @@ async def backfill(
 
     # §2b fetch + summarize — bounded by what is left of the cap.
     model = str(getattr(settings, "litellm_model", "") or "unknown")
-    if engine == "claude-cli":
-        model = str(getattr(settings, "agent_model", "") or "sonnet")
+    if engine in engine_select.PLAN_ENGINES:
+        model = engine_select.author_model(settings)
     for cand in scan.fetch[: max(0, cap - report.selected)]:
         if summarize_fn is None or fetch_fn is None or report.engine_aborted:
             break

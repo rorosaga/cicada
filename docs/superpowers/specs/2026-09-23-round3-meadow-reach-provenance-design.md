@@ -223,6 +223,88 @@ appended below when decided.
 
 ---
 
+## Wave 2 designs (settled by the design panel, 2026-09-23)
+
+Three opus designers proposed the mascot page (companion / calm instrument / meadow window) and a
+judge synthesised; two proposed onboarding + intake (guided / found-on-this-Mac) and a judge
+synthesised; one designed Settings v3, the ⌘K find palette and the provenance viewer together. The
+final documents are binding for their tracks and live beside this spec:
+
+- `2026-09-23-round3-design-mascot-page.md` — Track Z (rulings R-Z1…R-Z14, tasks Z0–Z12).
+- `2026-09-23-round3-design-onboarding-intake-home.md` — Track I (tasks T1–T12) and the G108 ruling.
+- `2026-09-23-round3-design-settings-search-provenance.md` — Tracks O, S and P (slices O0–O6,
+  S1–S6, P1–P6).
+
+**Their owner questions, answered by default (review these):**
+
+12. **Home becomes the front door (G108).** A search-first Home is ⌘1; Graph moves to ⌘2; the
+    sidebar is ⌘1–7; relaunch restores the last tab, so nobody who lives in the graph is moved.
+13. **One intake everywhere.** Every way a file arrives (window drop, Dock, menu bar, the Sleep
+    worm, empty states, Home, File → Import ⌘⇧I) goes sniff → preview → import → a "what happens
+    next" card. `UploadOverlay` and the Feed's Upload button retire (the one exception CLAUDE.md
+    names disappears with them).
+14. **Onboarding is one Welcome, then a Getting started card on Home.** The visible "found on this
+    Mac" checklist is the consent; only the person's own intentional acts with no new permission
+    prompt are pre-ticked (agent sessions from now on, readable bookmarks), and a line under Start
+    says exactly what Start will do. The app may register the MCP server and the Stop hook itself
+    after that consent, with the exact commands visible. The engine choice stays visible with each
+    option's cost model (G117's 2026-09-04 ruling) and never blocks Start.
+15. **Two consent defects ship first:** bookmark watchers import before any consent at first launch,
+    and today's import hand-off in the first-run sheet skips the first Sleep.
+16. **The mascot page (Sleep v4)** is the room, one serif sentence, one button and one schedule
+    line, with everything else under one Details disclosure (closed by default, remembered). The
+    worm notices the pointer (three gaze poses), answers a click with true lines (the last rung may
+    point to the Inbox), eats a dropped file through the one intake, and cheers when a real cycle
+    completes; the window shows weather that follows Sleep state on the room's one pixel lattice,
+    with a legend popover as its text twin; the lamp and pile spines are controls. No autonomous
+    beats without a fact behind them. The optional sky band above the page ships only if the
+    screenshots say calm.
+17. **Settings v3** groups: *Cicada* (General, You, Privacy & data, Memory, Sleep), *Customize*
+    (Integrations, Agents, From anywhere, Skills), *Engines & keys* (Engines, Plans & keys,
+    Advanced), with a sidebar search that also lists individual settings and highlights the row it
+    lands on. Deleting a bank moves it to `<root>/.trash/` (reversible). The plan-window percentage
+    stays hidden.
+18. **⌘K becomes a find palette** (instant local tier + debounced server tier, grouped, keyboard
+    first) with Ask as a mode; in-page search fields share one component.
+19. **Provenance:** evidence chips with a hover snippet (quote font, a text speaker label — You
+    said / Agent replied / From page / Inferred / a meeting speaker), a Reader that opens the whole
+    conversation scrolled to the highlighted span with turn, time and harness mark, and "Where this
+    came from" on every entity (contributors with marks, the conversations that fed it, coverage
+    stated honestly for legacy claims without spans).
+
+### Track Z (wave 2): the mascot page
+
+The rules below are one line each; the reasoning is in
+`2026-09-23-round3-design-mascot-page.md` §3, which binds as written.
+
+- **R-Z1.** Two kinds of art: *state art* (mood frames, lamp, weather, pile) encodes a fact and has
+  a text twin; *response art* (gaze, perk, talk, gulp, shake) is transient and never contradicts it.
+- **R-Z2.** Every interaction says something true or does something real; the plant, mug, cushion
+  and wall never react, not even to hover.
+- **R-Z3.** Magnitude never scales the art — quantities live in the pile, the sentence and Details.
+- **R-Z4.** All worm motion is sprite frames on the one lattice; no offset, scale, rotation or
+  spring on the worm (a lint).
+- **R-Z5.** The worm speaks in one fixed-height slot under the room; no floating bubble.
+- **R-Z6.** The default view is the room, the sentence, one button and one whisper line; the rest
+  is one collapsed Details, one column at every width, and the strip only while running or frozen.
+- **R-Z7.** No figure twice on the default view; answers replace the sentence.
+- **R-Z8.** The art layer stays inert; interaction is a hotspot layer from the pure
+  `deskHotspots(layout)` — whole cells, disjoint, tested.
+- **R-Z9.** A click on art never changes what the machine does; the schedule flips only through a
+  labelled toggle that shows the scheduled engine first, and Consolidate stays the one trigger.
+- **R-Z10.** Feeding is import, and only import, through Track I's `IntakeRouter`.
+- **R-Z11.** The window is weather, a total function of the mood alone, with a legend as its twin.
+- **R-Z12.** Autonomous motion is limited to state: only the completion cheer and the weather
+  crossfade happen without input.
+- **R-Z13.** Sentences and answers are pure `SentenceLine` values — lead ≤ 40, tail ≤ 80, no "!",
+  no bare `%`, no guess, clock-free.
+- **R-Z14.** One stage translation: the running page shows the active stage,
+  `activeStage(completed:)`.
+
+Built by `docs/superpowers/plans/2026-09-23-mascot-page.md`, part a: Z0–Z8 plus this docs slice
+of Z12. Z9 (feeding) follows Track I, Z10 (the Meadow pass and optional sky band) follows M1, and
+Z11 (live verification and screenshots) is the orchestrator's.
+
 ## Not in scope this round
 
 G132 device sync (beyond the bearer mode serving it later), G131, G10's paid re-extraction (the

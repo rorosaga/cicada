@@ -13,12 +13,17 @@ What the move adds — each additive, each inert to an episode that does not use
 
 * ``EpisodeDraft`` — what a parser hands the stager. ``turns`` render to
   ``<marker>: text`` lines; ``body`` is a pre-rendered document (a folder file).
-* ``turn_index`` — per-turn chronology as a frontmatter sidecar, rows of
-  ``[offset, ts, speaker]`` into the stored body (R7 §5.1). OUTSIDE the content
+* ``turns`` — per-turn chronology as a frontmatter sidecar, entries of
+  ``{offset, ts, speaker}`` into the stored body: G118 slice 2's R-PB4 shape,
+  the one ``evidence.turn_stamps`` reads for the Reader. OUTSIDE the content
   hash on purpose: timestamps in the body would change every export's hash and
-  re-queue the whole corpus on the next import (💸). Not ``turns`` — that key is
-  already an integer count on every hook-captured episode (R-LS1). Omitted, never
-  truncated, above ``MAX_TURN_INDEX_ROWS`` (R-LS2).
+  re-queue the whole corpus on the next import (💸). An entry only for a turn
+  that has a time, always the LAST frontmatter key, capped head-stable at
+  ``MAX_TURN_STAMPS``, omitted when no turn has a time. (This track first wrote
+  a ``turn_index`` of ``[offset, ts, speaker]`` rows, R-LS1/R-LS2, because the
+  Stop hook's ``turns:`` is an integer count; the merge with G118 slice 2 kept
+  ONE key — the hook's int reads as "no stamps" in ``turn_stamps`` — and turn
+  numbering now comes from the body's marker lines, ``evidence.turn_at``.)
 * Rename by content — a tombstoned ``source_id`` and a brand-new one in the same
   batch with the same ``content_sha`` and ``#fragment`` repoint the existing
   episode instead of forking a copy (R-F1, R-LS12).
@@ -54,10 +59,13 @@ from typing import Iterable
 
 from api.services import bank_index, episode_ids, episode_scrub, markdown_parser
 
-#: Column order of one ``turn_index`` row (R-LS2).
-TURN_INDEX_COLUMNS = ("offset", "ts", "speaker")
-#: Above this many turns the sidecar is omitted, never truncated (R-LS2).
-MAX_TURN_INDEX_ROWS = 4000
+#: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
+TURN_STAMP_KEYS = ("offset", "ts", "speaker")
+#: The sidecar's head-stable cap (R-PB4, moved here from the conversations
+#: router with the stager): frontmatter is parsed on every cold ``bank_index``
+#: scan, so turns past the cap carry no time — the Reader shows a time only when
+#: one is stored and never infers one.
+MAX_TURN_STAMPS = 500
 #: ``processed_by`` of an episode a deterministic parser consolidated (R-LS10).
 PARSED_ONLY = "parser"
 #: Serialises every ``stage`` call in this process (see the module docstring).
@@ -156,29 +164,59 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
-def render(draft: EpisodeDraft) -> tuple[str, list[list], int]:
-    """``(body, turn_index rows, replacements)``. Each turn is scrubbed BEFORE
+def _line(turn: Turn, text: str) -> str:
+    """One body line — the ONLY place a turn's ``<marker>: text`` shape is
+    spelled, so the hashed body and the sidecar's offsets cannot disagree."""
+    return f"{turn.speaker}: {text}"
+
+
+def _stamps(turns: list[Turn], texts: list[str]) -> list[dict]:
+    """``[{offset, ts, speaker}]`` for the body ``texts`` render to (R-PB4).
+    ``offset`` is the turn's marker-line start (a turn start ``evidence.turns``
+    finds); ``ts`` the turn's own time in the one aware-UTC shape; a turn
+    without a time gets no entry (it would only repeat the marker)."""
+    out: list[dict] = []
+    offset = 0
+    for turn, text in zip(turns, texts):
+        ts = normalise_timestamp(turn.ts)
+        if ts and len(out) < MAX_TURN_STAMPS:
+            out.append({"offset": offset, "ts": ts, "speaker": str(turn.speaker)})
+        offset += len(_line(turn, text)) + 1
+    return out
+
+
+def render(draft: EpisodeDraft) -> tuple[str, list[dict], int]:
+    """``(body, turns sidecar, replacements)``. Each turn is scrubbed BEFORE
     its offset is taken, so every offset points into the text that is stored."""
     if draft.body is not None:
         body, n = episode_scrub.scrub(draft.body)
         return body, [], n
-    lines: list[str] = []
-    rows: list[list] = []
-    offset = total = 0
+    texts: list[str] = []
+    total = 0
     for turn in draft.turns:
         text, n = episode_scrub.scrub(turn.text)
         total += n
-        line = f"{turn.speaker}: {text}"
-        rows.append([offset, turn.ts, turn.speaker])
-        lines.append(line)
-        offset += len(line) + 1
-    return "\n".join(lines), rows, total
+        texts.append(text)
+    body = "\n".join(_line(t, x) for t, x in zip(draft.turns, texts))
+    return body, _stamps(draft.turns, texts), total
+
+
+def stamps_for(draft: EpisodeDraft, body: str) -> list[dict]:
+    """The sidecar for ``body`` when it is exactly ``draft``'s own rendering
+    (scrubbed or raw), else ``[]`` — the offsets would vouch for text they do
+    not index. For the router's compat wrappers, which take a body as given."""
+    if draft.body is not None:
+        return []
+    for texts in ([episode_scrub.scrub(t.text)[0] for t in draft.turns], [t.text for t in draft.turns]):
+        if "\n".join(_line(t, x) for t, x in zip(draft.turns, texts)) == body:
+            return _stamps(draft.turns, texts)
+    return []
 
 
 def _raw_render(draft: EpisodeDraft) -> str:
     if draft.body is not None:
         return draft.body
-    return "\n".join(f"{t.speaker}: {t.text}" for t in draft.turns)
+    return "\n".join(_line(t, t.text) for t in draft.turns)
 
 
 def _fragment(source_id: str) -> str:
@@ -205,14 +243,10 @@ def scan(episodes_dir: Path) -> tuple[dict[str, IndexEntry], set[str]]:
     return by_source, hashes
 
 
-def _apply_common(fm: dict, draft: EpisodeDraft, rows: list[list]) -> None:
+def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict]) -> None:
     fm.update(draft.extra)
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
-    if rows and len(rows) <= MAX_TURN_INDEX_ROWS:
-        fm["turn_index"] = rows
-    else:
-        fm.pop("turn_index", None)
     if draft.queue_for_sleep:
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
@@ -220,10 +254,16 @@ def _apply_common(fm: dict, draft: EpisodeDraft, rows: list[list]) -> None:
     else:
         fm["processed"] = True
         fm["processed_by"] = PARSED_ONLY
+    # R-PB4: the new body's times replace the old ones, as the LAST key so the
+    # episode's identity reads first; a body that lost them drops the key
+    # rather than keeping stale offsets.
+    fm.pop("turns", None)
+    if stamps:
+        fm["turns"] = stamps
 
 
 def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
-              rows: list[list], date_counts: dict[str, int]) -> Path:
+              stamps: list[dict], date_counts: dict[str, int]) -> Path:
     """A fresh episode with a chronological id (G114 R1: ``date_counts`` holds the
     highest suffix per date, seeded from ``max_suffix_by_date``)."""
     ep_date = draft.original_date or datetime.now().strftime("%Y-%m-%d")
@@ -242,13 +282,13 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
     if draft.source_id is not None:
         fm["source_id"] = draft.source_id
         fm["source_updated_at"] = draft.source_updated_at
-    _apply_common(fm, draft, rows)
+    _apply_common(fm, draft, stamps)
     path = episodes_dir / f"{episode_id}.md"
     markdown_parser.write(path, fm, body)
     return path
 
 
-def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, rows: list[list]) -> None:
+def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
     """Same file, same id, same original timestamp; new body, re-queued (G20)."""
     fm = dict(markdown_parser.parse(path).frontmatter)
     fm["title"] = draft.title or fm.get("title", "Untitled")
@@ -258,7 +298,7 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, row
     if draft.origin:
         fm["origin"] = draft.origin
     fm.pop("source_deleted_at", None)
-    _apply_common(fm, draft, rows)
+    _apply_common(fm, draft, stamps)
     markdown_parser.write(path, fm, body)
 
 
@@ -370,7 +410,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
     writer = "import"
     for draft in drafts:
         writer = draft.writer
-        body, rows, n = render(draft)
+        body, stamps, n = render(draft)
         result.scrubbed += n
         digest = content_hash(body)
         legacy = content_hash(_raw_render(draft))
@@ -390,7 +430,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     _mark(result, "renamed", sid, entry, episodes_dir)
                     continue
             if entry is None:
-                path = write_new(draft, episodes_dir, body, digest, rows, date_counts)
+                path = write_new(draft, episodes_dir, body, digest, stamps, date_counts)
                 known_hashes.add(digest)
                 entry = IndexEntry(path=path, id=path.stem, fm={
                     "content_hash": digest, "content_sha": draft.content_sha,
@@ -416,7 +456,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
             if same_body:
                 _refresh(entry.path, draft)
             else:
-                update_in_place(entry.path, draft, body, digest, rows)
+                update_in_place(entry.path, draft, body, digest, stamps)
                 known_hashes.add(digest)
                 entry.fm["content_hash"] = digest
             entry.fm["evidence_kind"] = draft.extra.get("evidence_kind")
@@ -426,7 +466,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
         if digest in known_hashes or legacy in known_hashes:
             result.skipped += 1
             continue
-        path = write_new(draft, episodes_dir, body, digest, rows, date_counts)
+        path = write_new(draft, episodes_dir, body, digest, stamps, date_counts)
         known_hashes.add(digest)
         result.created += 1
         result.paths.append(_rel(path, episodes_dir))

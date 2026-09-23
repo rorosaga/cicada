@@ -2014,13 +2014,17 @@ actor APIClient {
     /// `SleepEngineChoice.model_fields_set` (`sleep_engine_prefs.
     /// validate_and_write`'s cross-mode staleness guard), so sending a
     /// `null` here would read as "clear this field" instead of "leave it
-    /// alone".
+    /// alone". `allowOverage` (R-E13) follows the same rule: the backend's
+    /// `SleepEngineChoice.allow_overage` is `None` when omitted, which leaves
+    /// the stored opt-in untouched.
     func updateSleepEngine(
-        mode: String, model: String? = nil, disambiguationModel: String? = nil
+        mode: String, model: String? = nil, disambiguationModel: String? = nil,
+        allowOverage: Bool? = nil
     ) async throws -> SleepEngineResponse {
         var body: [String: Any] = ["mode": mode]
         if let model { body["model"] = model }
         if let disambiguationModel { body["disambiguationModel"] = disambiguationModel }
+        if let allowOverage { body["allowOverage"] = allowOverage }
         return try await put("/sleep/engine", body: body)
     }
 
@@ -2062,6 +2066,43 @@ actor APIClient {
         if let handle { body["handle"] = handle }
         if let email { body["email"] = email }
         return try await put("/settings/owner", body: body)
+    }
+
+    // MARK: - Remote connector (G135)
+
+    /// `GET /remote/status`. `probe: true` also checks the public address
+    /// (3 s server-side), so it gets a longer client timeout than the default poll.
+    func fetchRemoteStatus(probe: Bool = false) async throws -> RemoteStatus {
+        try await get("/remote/status" + (probe ? "?probe=true" : ""), timeout: probe ? 15 : nil)
+    }
+
+    /// `PUT /remote/settings` — omitted fields are left alone (the backend reads
+    /// `model_fields_set`); an empty `publicBaseURL` clears it.
+    func updateRemoteSettings(enabled: Bool? = nil, publicBaseURL: String? = nil) async throws -> RemoteStatus {
+        var body: [String: Any] = [:]
+        if let enabled { body["enabled"] = enabled }
+        if let publicBaseURL { body["publicBaseUrl"] = publicBaseURL }
+        return try await put("/remote/settings", body: body)
+    }
+
+    func fetchRemoteConnectors() async throws -> [RemoteConnector] {
+        try await get("/remote/connectors")
+    }
+
+    /// `expiresInDays` is 7, 30 or 90 — every connector expires (R-R3); the
+    /// backend refuses anything else, `null` included.
+    func createRemoteConnector(app: String, label: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnectorCreated {
+        let body: [String: Any] = ["app": app, "label": label, "scopes": scopes, "expiresInDays": expiresInDays]
+        return try await post("/remote/connectors", body: body)
+    }
+
+    func rotateRemoteConnector(id: String) async throws -> RemoteConnectorCreated {
+        try await post("/remote/connectors/\(encodedID(id))/rotate")
+    }
+
+    func revokeRemoteConnector(id: String) async throws -> RemoteConnector {
+        let data = try await delete("/remote/connectors/\(encodedID(id))")
+        return try decoder.decode(RemoteConnector.self, from: data)
     }
 
     // MARK: - Upload

@@ -84,6 +84,7 @@ func resolveOriginCounts(
 /// - `justFinishedAt`: set by the caller the moment its own poll observes a
 ///   running -> idle transition (mirrors `MenuBarManager`'s own tracking);
 ///   `.digesting` shows for 6s after, matching the menu bar's window.
+/// - a cancelled cycle never reads as `.digesting` (Track Z §6.5)
 /// - `intakeInFlight`: `Store.intakeInFlight` (G125 R2) — the upload overlay
 ///   sets this while an import/upload is landing. It forces `.reading` ahead
 ///   of happy/hungry (the worm is visibly busy consuming what just arrived,
@@ -100,12 +101,15 @@ func deriveSleepPageMood(
 ) -> BookwormState {
     guard let status else { return .awake }
     if status.status == "running" {
-        return .sleeping(stage: max(1, min(5, status.stage)))
+        return .sleeping(stage: activeStage(completed: status.stage))
     }
     if let err = status.error, !err.isEmpty {
         return .error   // R6: the failure is the news, not the six-second chew
     }
-    if let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
+    // Track Z §6.5: a CANCELLED cycle filed nothing, so it never chews. The
+    // caller stamps `justFinishedAt` on any running→idle edge (SleepView), and
+    // this is the one place that edge becomes a mood.
+    if !status.cancelled, let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
         return .digesting
     }
     if intakeInFlight {

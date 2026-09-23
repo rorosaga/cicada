@@ -77,7 +77,12 @@ def test_a_meeting_keeps_its_speakers_and_only_its_whitelisted_words(bank):
     assert "- Send the deck" in body and "Old task" not in body
     assert (fm["origin"], fm["consent"], fm["wispr_kind"]) == ("wispr-flow", "unknown", "meeting")
     assert fm["participants"] == ["Ada Example", "bob-example"]       # the email is dropped
-    assert [row[2] for row in fm["turn_index"]] == ["assistant", "assistant", "assistant", "speaker:bob-example", "user"]
+    # The G118 `turns` sidecar (R-PB4): an entry only for a timed turn — the two
+    # utterances — while the Reader still sees all five turns from the markers.
+    assert [t["speaker"] for t in fm["turns"]] == ["speaker:bob-example", "user"]
+    assert [t["offset"] for t in fm["turns"]] == evidence.turn_starts(body)[3:]
+    assert [t.role for t in evidence.turns(body, stamps=evidence.turn_stamps(fm))] == [
+        "assistant", "assistant", "assistant", "speaker", "user"]
     assert evidence.speaker_kind(body, body.index("I will send")) == "speaker"
     assert evidence.speaker_kind(body, body.index("Thanks")) == "user"
     everything = "".join(p.read_text() for p in (bank / "episodes").glob("*.md"))
@@ -130,7 +135,7 @@ def test_dictation_is_refused_unless_opted_in_then_one_episode_per_day(bank):
     days = _by_source(bank)
     first = days["wispr:dictation:2026-09-01"]
     # R-LS23: the second post merged into the day the first post created (one episode, rebuilt
-    # from its own turn_index); the password-manager line was dropped.
+    # from its own marker lines and `turns` sidecar); the password-manager line was dropped.
     assert first.body == "user: Hello there.\nuser: Second thought."
     assert first.frontmatter["dictation_apps"] == ["com.apple.Notes", "com.apple.mail"]
     assert len([k for k in days if k.startswith("wispr:dictation:")]) == 2

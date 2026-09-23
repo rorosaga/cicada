@@ -14,6 +14,7 @@ struct FeedView: View {
     @State private var showUploadOverlay = false
     @State private var showAddSheet = false
     @State private var sheetTile: AddSourceTile?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -99,7 +100,7 @@ struct FeedView: View {
             // Refresh after the upload overlay closes — newly saved items appear.
             if !isShowing { Task { await viewModel.load() } }
         }
-        .animation(.spring(duration: 0.3), value: showUploadOverlay)
+        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: showUploadOverlay)
         // ⌘N while Feed is on screen opens the picker. Hidden-button pattern,
         // same as ContentView's ⌘K — and the ONLY registration of this
         // shortcut in the app.
@@ -275,6 +276,7 @@ struct FeedRow: View {
     let showRelevance: Bool
     @State private var isHovered = false
     @State private var showPreview = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button {
@@ -346,7 +348,7 @@ struct FeedRow: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
         .sheet(isPresented: $showPreview) {
             FeedItemPreviewSheet(item: item)
         }

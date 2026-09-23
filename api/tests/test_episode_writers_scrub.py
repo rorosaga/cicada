@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import os
 from pathlib import Path
 
 import pytest
+from _stdio_server import stdio_server
 
 from api.services import calendar_registry, markdown_parser, media_ingestor, telegram_capture
 
@@ -42,8 +42,10 @@ def test_every_module_that_mints_an_episode_id_references_episode_scrub():
 
 def test_the_lint_found_the_writers_it_exists_for():
     minted = {p.name for p in _python_files() if any(m in p.read_text(encoding="utf-8") for m in MINTERS)}
+    # G135 moved the MCP tool bodies out of `mcp/server.py`: `save_episode` now
+    # mints in `api/services/mcp_tools.py`, one implementation for stdio and remote.
     assert {"episode_staging.py", "telegram_capture.py", "media_ingestor.py", "notes_sync.py",
-            "calendar_registry.py", "demo_bank.py", "server.py", "transcript_capture.py"} <= minted
+            "calendar_registry.py", "demo_bank.py", "mcp_tools.py", "transcript_capture.py"} <= minted
 
 
 def test_telegram_writer_scrubs_before_hashing(tmp_path):
@@ -72,7 +74,8 @@ def test_media_writer_scrubs_a_saved_reason(tmp_path):
 
 
 def test_mcp_save_episode_scrubs(tmp_path, monkeypatch):
-    server = importlib.import_module("mcp.server")
+    # By FILE PATH (G135 R-R8): `mcp.server` now names the official SDK.
+    server = stdio_server()
     memory = tmp_path / "memory"
     (memory / "episodes").mkdir(parents=True)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))

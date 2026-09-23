@@ -16,19 +16,17 @@ import SwiftUI
 ///   fraction could be invented for a stage that has no per-episode unit.
 /// - **A cancel or a failure freezes the strip where it stopped**, again in
 ///   `stageStripState` — the view never resets anything.
-/// - **One `TimelineView`, and only while something is actually active.** The
-///   caught-up worm is drawn through `BookwormRenderer.cachedImage` directly
-///   rather than through `BookwormView` for exactly this reason: a second
-///   `TimelineView` on an idle page would tick forever to animate a worm that
-///   is meant to read as "nothing to do". That is also why the snapping
-///   `BookwormView` normally does has to happen here by hand (G130 R6).
+/// - **One `TimelineView`, and only while something is actually active.**
+///
+/// The caught-up worm that ended the strip is gone (Track Z, R-A8 amended):
+/// the room's own worm is already `.happy`, and a second one was a figure
+/// drawn twice. The strip itself now shows only with news
+/// (`stageStripIsVisible`, R-Z6).
 struct SleepStageStrip: View {
     /// Resolved by the caller from the same status reading the rest of the
     /// page uses (H1), so the strip can never disagree with the hero meter
     /// about how far the cycle got.
     let pips: [StagePip]
-    /// R-A8's right end — see `stageStripShowsCaughtUpWorm`.
-    var showsCaughtUpWorm: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -46,8 +44,6 @@ struct SleepStageStrip: View {
     /// of asking through the snap rather than setting a literal: every zoom
     /// step lands on a whole number of cells, so no icon is ever resampled.
     static let iconPointSize: CGFloat = 40
-    /// The caught-up worm's, before `uiScale` and the 24-cell snap.
-    static let wormPointSize: CGFloat = 48
 
     private var hasActivePip: Bool {
         pips.contains { if case .active = $0 { return true } else { return false } }
@@ -72,9 +68,6 @@ struct SleepStageStrip: View {
             ForEach(Array(SleepStages.all.enumerated()), id: \.element.id) { index, stage in
                 if index > 0 { arrow }
                 stageCell(stage, pip: pip(at: index), pulse: pulse)
-            }
-            if showsCaughtUpWorm {
-                caughtUpWorm
             }
             Spacer(minLength: 0)
         }
@@ -187,25 +180,6 @@ struct SleepStageStrip: View {
             if case .active(let fill) = pip { return fill ?? -1 }
         }
         return -2
-    }
-
-    // MARK: The caught-up worm
-
-    /// R-A8: the `.happy` worm at the right end when there is nothing waiting.
-    /// Rendered through `BookwormRenderer.cachedImage` at a hand-snapped size
-    /// (G130 R6) rather than through `BookwormView` — see this type's
-    /// docstring for why a second `TimelineView` would be wrong here. Frame 1
-    /// is the settled frame of the `happy` loop.
-    ///
-    /// Hidden from accessibility: the hero's qualifier chip already says
-    /// "caught up" in words, and reading the mood twice buries the strip.
-    private var caughtUpWorm: some View {
-        let pt = BookwormRenderer.snappedPointSize(Self.wormPointSize * CicadaTheme.uiScale)
-        return Image(nsImage: BookwormRenderer.cachedImage(state: .happy, frameIndex: 1, pointSize: pt))
-            .interpolation(.none)
-            .frame(width: pt, height: pt)
-            .padding(.leading, CicadaTheme.spacingSM)
-            .accessibilityHidden(true)
     }
 
     /// Namespaced for `PixelRenderer`'s shared scene cache (P13): whoever asks

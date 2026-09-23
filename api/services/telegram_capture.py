@@ -456,7 +456,14 @@ async def _default_save_url(
                 memory_path, result.media_entity_id, reason, result.episode_id
             )
         try:
-            await media_ingestor._commit_media(memory_path, 1)
+            # G135 R-R12: `paths` was missing, so this raised a TypeError the
+            # except below swallowed and no Telegram save was ever committed.
+            # Positional on purpose: the suite's `no_commit` fakes match it.
+            await media_ingestor._commit_media(
+                memory_path, 1,
+                ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"],
+            )
         except Exception as e:
             logger.warning(f"Telegram media commit failed: {type(e).__name__}: {e}")
     elif reason and result.media_entity_id:

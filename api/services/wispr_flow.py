@@ -18,7 +18,7 @@ line. Every meeting is ``consent: unknown`` until the person says otherwise
 Dictation (R-LS23) is off by default — dictated text goes into every app,
 passwords included. When on, only ``timestamp``, ``formattedText``/``editedText``,
 ``app`` and ``numWords`` are read, one episode per UTC day, merged across posts
-through the day's own ``turn_index``; password-manager apps are dropped. Every
+through the day's own ``turns`` sidecar; password-manager apps are dropped. Every
 body is scrubbed by the stager (R-N3).
 """
 
@@ -31,7 +31,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from api.services import episode_ids, episode_scrub, episode_staging, markdown_parser
+from api.services import episode_ids, episode_scrub, episode_staging, evidence, markdown_parser
 from api.services.episode_staging import EpisodeDraft, Turn
 from api.services.id_utils import sanitize_id
 
@@ -222,7 +222,7 @@ def _ts(value) -> str | None:
 
 def _turn_ts(value) -> str | None:
     """An utterance time: aware UTC when it is a date, else the raw offset
-    ("00:23:41") — informational only, it lives in ``turn_index``."""
+    ("00:23:41") — informational only, it lives in the ``turns`` sidecar."""
     parsed = _ts(value)
     if parsed or value in (None, ""):
         return parsed
@@ -365,19 +365,17 @@ def note_draft(raw: dict) -> EpisodeDraft | None:
 
 def _stored_dictation(entry) -> list[tuple[str, str]]:
     """``(ts, text)`` rows of a stored dictation day, rebuilt from its own
-    ``turn_index`` (R-LS23) — the app posts only what is new, so a day is merged
-    here rather than replaced."""
+    marker lines and ``turns`` sidecar (R-LS23, R-PB4) — the app posts only what
+    is new, so a day is merged here rather than replaced. The turns come from
+    ``evidence.turns`` (the one marker parser) and each time from the sidecar
+    entry at exactly that turn's start, so a turn is never dropped for a
+    missing entry; one past ``MAX_TURN_STAMPS`` comes back without a time."""
     if entry is None:
         return []
     body = markdown_parser.parse(entry.path).body
-    rows = [r for r in (entry.fm.get("turn_index") or []) if isinstance(r, (list, tuple)) and len(r) == 3]
-    out: list[tuple[str, str]] = []
-    for i, (offset, ts, speaker) in enumerate(rows):
-        end = int(rows[i + 1][0]) - 1 if i + 1 < len(rows) else len(body)
-        line = body[int(offset):end]
-        prefix = f"{speaker}: "
-        out.append((str(ts or ""), line[len(prefix):] if line.startswith(prefix) else line))
-    return out
+    stamps = evidence.turn_stamps(entry.fm)
+    return [(str(t.ts or ""), body[t.content_start:t.end])
+            for t in evidence.turns(body, stamps=stamps) if t.marker is not None]
 
 
 def dictation_drafts(rows: list[dict], index: dict) -> list[EpisodeDraft]:

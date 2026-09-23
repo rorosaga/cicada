@@ -41,9 +41,10 @@ upstream URL, and its licence line says exactly that instead of inventing one.
 | `rss` | rss.png | commons | [Feed-icon.svg](https://commons.wikimedia.org/wiki/File:Feed-icon.svg) | MPL 1.1 — unnamed (Mozilla Foundation) | Nominative use only; identifies the product, never restyled or recoloured. |
 | `telegram` | telegram.png | commons | [Telegram 2019 Logo.svg](https://commons.wikimedia.org/wiki/File:Telegram_2019_Logo.svg) | Public domain — Telegram FZ LLC | Trademarked — nominative use only; identifies the product, never restyled or recoloured. (Commons: trademarked) |
 | `tiktok` | tiktok.png | legacy | — | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
+| `vscode` | vscode.png | commons | [Visual Studio Code 1.35 icon.svg](https://commons.wikimedia.org/wiki/File:Visual_Studio_Code_1.35_icon.svg) | Public domain — Microsoft | Trademarked — nominative use only; identifies the product, never restyled or recoloured. (Commons: trademarked) |
 | `x` | x.png | recut | derived: cf2c449:app/CicadaApp/Sources/CicadaApp/Resources/logos/x.png — alphakey <src> x-dark.png dark; monoflip x-dark.png x.png | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `x-dark` | x-dark.png | recut | derived: cf2c449:app/CicadaApp/Sources/CicadaApp/Resources/logos/x.png — alphakey <src> x-dark.png dark | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `youtube` | youtube.png | legacy | — | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 
-27 marks. New ones are rasterized at 256 px; the 2026-08-31 favicon rasters stay at 128 px
+28 marks. New ones are rasterized at 256 px; the 2026-08-31 favicon rasters stay at 128 px
 because upscaling a favicon would be fake resolution.

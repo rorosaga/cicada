@@ -90,7 +90,7 @@ final class SleepMoodTests: XCTestCase {
     }
 
     func test_mood_isSleeping_wheneverACycleIsRunning_regardlessOfDebt() throws {
-        let st = try status(status: "running", stage: 3)
+        let st = try status(status: "running", stage: 2)   // 2 COMPLETED → stage 3 active (R-Z14)
         let mood = deriveSleepPageMood(status: st, debt: debtView(restedPct: 0, unprocessedCount: 50),
                                         justFinishedAt: nil)
         XCTAssertEqual(mood, .sleeping(stage: 3))
@@ -109,6 +109,21 @@ final class SleepMoodTests: XCTestCase {
         let mood = deriveSleepPageMood(status: st, debt: debtView(unprocessedCount: 0),
                                         justFinishedAt: now.addingTimeInterval(-3), now: now)
         XCTAssertEqual(mood, .digesting)
+    }
+
+    /// Track Z §6.5 / design §13.2: `SleepView` stamps `justFinishedAt` on
+    /// ANY running→idle edge, so a CANCELLED cycle used to chew for six
+    /// seconds and read "digesting". A cancel files nothing; it never chews.
+    func test_mood_isNotDigesting_afterACancelledCycle() throws {
+        let now = Date()
+        let cancelled = try JSONDecoder().decode(SleepStatusResponse.self,
+                                                 from: Data(#"{"status":"idle","cancelled":true}"#.utf8))
+        XCTAssertEqual(deriveSleepPageMood(status: cancelled, debt: debtView(unprocessedCount: 0),
+                                           justFinishedAt: now.addingTimeInterval(-1), now: now), .happy)
+        let completed = try status(status: "idle")
+        XCTAssertEqual(deriveSleepPageMood(status: completed, debt: debtView(unprocessedCount: 0),
+                                           justFinishedAt: now.addingTimeInterval(-1), now: now), .digesting,
+                       "a completed cycle still chews")
     }
 
     func test_mood_digestingWindowExpiresAt6Seconds() throws {
@@ -197,7 +212,7 @@ final class SleepMoodTests: XCTestCase {
     /// running — sleeping is a fact about the present, intake-in-flight is
     /// only a hint about what is about to be queued.
     func test_mood_intakeInFlight_neverOutranksARunningCycle() throws {
-        let st = try status(status: "running", stage: 4)
+        let st = try status(status: "running", stage: 3)   // 3 COMPLETED → stage 4 active (R-Z14)
         let mood = deriveSleepPageMood(status: st, debt: nil, justFinishedAt: nil, intakeInFlight: true)
         XCTAssertEqual(mood, .sleeping(stage: 4))
     }
@@ -283,7 +298,7 @@ final class SleepMoodTests: XCTestCase {
         let failed = try status(status: "idle", unprocessedCount: 4, restedPct: 60, error: "RuntimeError: boom")
         XCTAssertEqual(deriveSleepPageMood(status: failed, debt: debtView(restedPct: 60, unprocessedCount: 4), justFinishedAt: nil), .error)
         XCTAssertEqual(deriveSleepPageMood(status: failed, debt: nil, justFinishedAt: Date()), .error, "error beats digesting")
-        let running = try status(status: "running", stage: 2, error: "stale error from the previous cycle")
+        let running = try status(status: "running", stage: 1, error: "stale error from the previous cycle")
         XCTAssertEqual(deriveSleepPageMood(status: running, debt: nil, justFinishedAt: nil), .sleeping(stage: 2), "a running cycle outranks a stale error")
     }
 

@@ -11,10 +11,12 @@ MEETING = "assistant: Summary (written by Wispr Flow)\nWe agreed.\nspeaker:bob-e
 def _bank(tmp_path, fm_extra=None, body=MEETING):
     memory = tmp_path / "memory"
     (memory / "episodes").mkdir(parents=True)
+    # The G118 R-PB4 sidecar the stager writes: an entry only for a turn with a
+    # time, so Wispr's own (untimed) summary turn has none.
     fm = {"id": "ep_2026-09-01_001", "timestamp": "2026-09-01T10:00:00+00:00", "processed": False,
-          "turn_index": [[0, None, "assistant"],
-                         [MEETING.find("speaker:"), "2026-09-01T10:01:00Z", "speaker:bob-example"],
-                         [MEETING.find("user:"), "2026-09-01T10:02:00Z", "user"]]}
+          "turns": [{"offset": MEETING.find("speaker:"), "ts": "2026-09-01T10:01:00+00:00",
+                     "speaker": "speaker:bob-example"},
+                    {"offset": MEETING.find("user:"), "ts": "2026-09-01T10:02:00+00:00", "speaker": "user"}]}
     fm.update(fm_extra or {})
     markdown_parser.write(memory / "episodes" / "ep_2026-09-01_001.md", fm, body)
     return memory
@@ -46,10 +48,35 @@ def test_stage1_passes_the_override_through():
 
 
 def test_turn_at_names_the_turn_a_span_starts_in():
-    rows = [[0, None, "assistant"], [55, "t1", "speaker:bob-example"], [100, "t2", "user"]]
-    assert evidence.turn_at(rows, 60) == {"number": 2, "of": 3, "ts": "t1", "speaker": "speaker:bob-example"}
-    assert evidence.turn_at(rows, 0)["number"] == 1
-    assert evidence.turn_at([], 5) is None and evidence.turn_at(None, 5) is None
+    stamps = evidence.turn_stamps({"turns": [
+        {"offset": MEETING.find("speaker:"), "ts": "t1", "speaker": "speaker:bob-example"},
+        {"offset": MEETING.find("user:"), "ts": "t2", "speaker": "user"}]})
+    assert evidence.turn_at(MEETING, MEETING.find("send the deck"), stamps) == {
+        "number": 2, "of": 3, "ts": "t1", "speaker": "speaker:bob-example"}
+    # An untimed turn has no entry: it is still counted, and its speaker is the
+    # marker as written — never an inferred time.
+    assert evidence.turn_at(MEETING, MEETING.find("We agreed"), stamps) == {
+        "number": 1, "of": 3, "ts": None, "speaker": "assistant"}
+    assert evidence.turn_at(MEETING, 5, {}) is None and evidence.turn_at(MEETING, 5, None) is None
+
+
+def test_the_reader_turns_agree_with_the_span_kind_on_speaker_lines():
+    """R-PB3 across the merge: dev's turn parser and `speaker_kind` read one
+    grammar, so a meeting utterance is a `speaker` turn, never `user`."""
+    spans = evidence.turns(MEETING)
+    assert [t.role for t in spans] == ["assistant", "speaker", "user"]
+    assert spans[1].marker == "speaker:bob-example"
+    assert MEETING[spans[1].content_start:spans[1].end] == "I will send the deck"
+    assert evidence.turn_starts(MEETING) == [t.start for t in spans]
+    for t in spans:
+        for off in range(t.start, t.end):
+            assert t.role == evidence.speaker_kind(MEETING, off), (t, off)
+
+
+def test_an_override_relabels_every_reader_turn():
+    spans = evidence.turns("user: quoted in a sweep\nassistant: and more", override="assistant")
+    assert {t.role for t in spans} == {"assistant"}
+    assert {t.role for t in evidence.turns("user: q", override="bogus")} == {"user"}
 
 
 def test_the_span_endpoint_reports_the_speaker_and_the_turn(tmp_path, monkeypatch):
@@ -66,4 +93,4 @@ def test_the_span_endpoint_reports_the_speaker_and_the_turn(tmp_path, monkeypatc
     config.get_settings.cache_clear()
     assert body["kind"] == "speaker"
     assert (body["turnNumber"], body["turnCount"], body["turnSpeaker"]) == (2, 3, "speaker:bob-example")
-    assert body["turnTs"] == "2026-09-01T10:01:00Z"
+    assert body["turnTs"] == "2026-09-01T10:01:00+00:00"

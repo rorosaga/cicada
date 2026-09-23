@@ -14,6 +14,10 @@ import SwiftUI
 /// `caption` is the optional bracket line under the worm — the Sleep page's
 /// `[ 47 episodes behind ]` text survives there as a caption rather than as
 /// the mascot (the 2026-09-02 ask that superseded G107's interim ruling).
+///
+/// `pose` and `reaction` are response art (Track Z R-Z1). They are
+/// `.idle`/`nil` everywhere except the Sleep room, so the menu bar, empty
+/// states, onboarding and the upload overlay are unchanged.
 struct BookwormView: View {
     let state: BookwormState
     /// Multiples of 24 keep cells integer (R3): 48 (inline), 96 (empty states), 120 (Sleep).
@@ -22,6 +26,12 @@ struct BookwormView: View {
     var captionFont: Font = CicadaTheme.font(size: 13, weight: .semibold, design: .monospaced)
     var captionColor: Color = CicadaTheme.textTertiary
     var alignment: HorizontalAlignment = .center
+    /// Track Z §6.1 — where the worm looks / how it answers a drag. Folded
+    /// through `BookwormPose.effective(for:reduceMotion:)` so a state §6.4
+    /// suppresses (sleeping, error) never shows it.
+    var pose: BookwormPose = .idle
+    /// A beat in flight (≤ 3 frames, R-Z12); `nil` plays the pose loop.
+    var reaction: ActiveReaction? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -40,19 +50,46 @@ struct BookwormView: View {
         return ((ticks % count) + count) % count
     }
 
+    /// Which beat frame to show — `nil` once the beat has played (the view
+    /// falls back to its loop, and `WormStage` clears the reaction). Before
+    /// the start it holds frame 0 rather than trapping.
+    nonisolated static func reactionFrameIndex(at date: Date, startedAt: Date, count: Int) -> Int? {
+        guard count > 0 else { return nil }
+        let elapsed = date.timeIntervalSince(startedAt)
+        guard elapsed >= 0 else { return 0 }
+        let index = Int((elapsed / BookwormSprites.reactionInterval).rounded(.down))
+        return index < count ? index : nil
+    }
+
     var body: some View {
-        let (frames, interval) = BookwormSprites.frames(for: state)
+        // Track Z §6.1: the pose as this state and Reduce Motion allow it.
+        let effective = pose.effective(for: state, reduceMotion: reduceMotion)
+        let look = BookwormLook.pose(effective)
+        let (frames, interval) = BookwormSprites.frames(for: state, look: look)
+        // A beat plays only with Reduce Motion off and only where §6.4 allows
+        // it; `BookwormLook.beat` folds the gaze so its key is a counted one.
+        let beat: BookwormLook? = reduceMotion ? nil
+            : reaction.flatMap { BookwormLook.beat($0.kind, for: state, gaze: effective.gaze) }
         // G130 R6: scale the mascot with the rest of the chrome, but snap
         // back onto a multiple of 24 so a cell never lands on a fractional
         // point and the renderer's cache key — an `Int` — stays stable.
         let scaledSize = BookwormRenderer.snappedPointSize(pointSize * CicadaTheme.uiScale)
         VStack(alignment: alignment, spacing: CicadaTheme.spacingSM) {
-            TimelineView(.periodic(from: Self.timelineOrigin, by: interval)) { context in
-                let idx = Self.frameIndex(at: context.date, interval: interval, count: frames.count, reduceMotion: reduceMotion)
-                Image(nsImage: BookwormRenderer.cachedImage(state: state, frameIndex: idx, pointSize: scaledSize))
-                    .interpolation(.none)
-                    .frame(width: scaledSize, height: scaledSize)
-                    .accessibilityLabel("\(state.title) — \(state.detail)")
+            if let r = reaction, let beat {
+                let count = BookwormSprites.frames(for: state, look: beat).frames.count
+                TimelineView(.periodic(from: r.startedAt, by: BookwormSprites.reactionInterval)) { context in
+                    // Held on the last frame once the beat has played (§6.1);
+                    // `WormStage` clears the reaction right after.
+                    let idx = Self.reactionFrameIndex(at: context.date, startedAt: r.startedAt, count: count)
+                        ?? max(0, count - 1)
+                    sprite(beat, frameIndex: idx, size: scaledSize)
+                }
+            } else {
+                TimelineView(.periodic(from: Self.timelineOrigin, by: interval)) { context in
+                    let idx = Self.frameIndex(at: context.date, interval: interval, count: frames.count,
+                                              reduceMotion: reduceMotion)
+                    sprite(look, frameIndex: idx, size: scaledSize)
+                }
             }
             if let caption {
                 Text(caption)
@@ -60,5 +97,14 @@ struct BookwormView: View {
                     .foregroundStyle(captionColor)
             }
         }
+    }
+
+    /// One frame through the one mascot cache. The fixed frame means a tick
+    /// never causes layout.
+    private func sprite(_ look: BookwormLook, frameIndex: Int, size: CGFloat) -> some View {
+        Image(nsImage: BookwormRenderer.cachedImage(state: state, look: look, frameIndex: frameIndex, pointSize: size))
+            .interpolation(.none)
+            .frame(width: size, height: size)
+            .accessibilityLabel("\(state.title) — \(state.detail)")
     }
 }

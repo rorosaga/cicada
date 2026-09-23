@@ -33,28 +33,44 @@ struct SettingsSectionLink<Label: View>: View {
     let section: SettingsSection
     let accessibilityText: String
     let label: Label
+    /// G137 R-M18: an empty state's one action is the page's one prominent
+    /// action — same link, same seed write, drawn through
+    /// `primaryActionStyle()` (its label through `primaryActionInk()`) instead
+    /// of as accent text. Off by default, so every other caller (the Sleep
+    /// page's schedule link, a Feed-strip row) renders exactly as before.
+    var prominent: Bool = false
 
-    init(section: SettingsSection, accessibilityText: String, @ViewBuilder label: () -> Label) {
+    init(section: SettingsSection, accessibilityText: String, prominent: Bool = false,
+         @ViewBuilder label: () -> Label) {
         self.section = section
         self.accessibilityText = accessibilityText
+        self.prominent = prominent
         self.label = label()
     }
 
     var body: some View {
-        SettingsLink { label }
-            .buttonStyle(.cicadaPlain)
-            .simultaneousGesture(TapGesture().onEnded {
-                UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
-            })
-            .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
+        Group {
+            if prominent {
+                SettingsLink { label.primaryActionInk() }
+                    .primaryActionStyle()
+            } else {
+                SettingsLink { label }
+                    .buttonStyle(.cicadaPlain)
+            }
+        }
+        .simultaneousGesture(TapGesture().onEnded {
+            UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
+        })
+        .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
     }
 }
 
 extension SettingsSectionLink where Label == Text {
-    /// The plain accent-coloured text link every earlier call site uses.
-    init(section: SettingsSection, label: String) {
-        self.init(section: section, accessibilityText: label) {
-            Text(label).foregroundStyle(CicadaTheme.accent)
+    /// The text link every earlier call site uses: accent-coloured text, or —
+    /// `prominent` — the page's one prominent action (the body inks it).
+    init(section: SettingsSection, label: String, prominent: Bool = false) {
+        self.init(section: section, accessibilityText: label, prominent: prominent) {
+            prominent ? Text(label) : Text(label).foregroundStyle(CicadaTheme.accent)
         }
     }
 }

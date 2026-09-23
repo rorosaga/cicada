@@ -592,9 +592,10 @@ def _reconcile_locked(memory_path: Path, folder: dict, *, touched: dict[str, str
     alias_ops: list[tuple[PaperKey, str, str | None, str]] = []
     revisit: set[str] = set()
     for sid, ep_id in touched.items():
-        text, fm = evidence.source_document(memory_path, ep_id)
-        if text is None:
+        doc = evidence.source_document(memory_path, ep_id)
+        if doc is None:
             continue
+        fm, text = doc
         by_page: dict[str, list[Citation]] = {}
         for c in parse(text):
             eid, created, page_changed, index_changed = ensure_page(
@@ -749,7 +750,7 @@ def detail(memory_path: Path, entity_id: str) -> dict | None:
         return None
     paper = fm.get("paper") or {}
     claims = parse_claims(parsed.body)
-    docs: dict[str, tuple[str | None, dict]] = {}
+    docs: dict[str, tuple[dict, str] | None] = {}
     names: dict[str, str] = {}
     why: list[dict] = []
     open_why = sorted((c for c in claims if c.predicate in WHY_PREDICATES and not c.valid_to),
@@ -760,8 +761,10 @@ def detail(memory_path: Path, entity_id: str) -> dict | None:
                 continue
             if ev.episode not in docs:
                 docs[ev.episode] = evidence.source_document(memory_path, ev.episode)
-            text, efm = docs[ev.episode]
-            if text is None or ev.end > len(text):
+            if docs[ev.episode] is None:
+                continue
+            efm, text = docs[ev.episode]
+            if ev.end > len(text):
                 continue
             snippet, first, last = _snippet(text, ev.start, ev.end)
             target = None

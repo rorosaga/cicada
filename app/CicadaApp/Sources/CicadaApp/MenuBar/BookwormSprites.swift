@@ -26,7 +26,7 @@ enum BookwormPalette {
         "w": 0xFFFFFF,  // lens white
         "r": 0xF28BAE,  // blush
         "a": 0xE0A93A,  // accent: glasses rim, book cover (= CicadaTheme hub gold)
-        "z": 0x8896FF,  // zZ + sweat drop (= CicadaTheme dark accent)
+        "z": 0x8896FF,  // zZ + sweat drop (the pre-G137 dark accent — the mascot's palette is its own and did not move)
         "q": 0xFFCB57,  // ? mark, sparkle, badge pill (= CicadaTheme pendingPulse)
         "e": 0xE5484D,  // error red pupils — an art red, not the `danger` state token (see above)
     ]
@@ -135,12 +135,24 @@ enum BookwormSprites {
 
     /// Rows 5–9: two closed rims joined by a bridge on the top row, lenses
     /// four cells wide. `pupil` is `o` normally and `e` for the error state.
-    static func eyes(pupil: Character = "o", lid: Lid = .open) -> PixelGrid {
+    /// `gaze` moves only the pupils; the default `.center` is today's output,
+    /// byte for byte.
+    static func eyes(pupil: Character = "o", lid: Lid = .open, gaze: Gaze = .center) -> PixelGrid {
         func lens(_ inside: String) -> String { "a" + inside + "a" }
         func row(_ l: String, _ r: String) -> String { "....ob" + l + "b" + r + "bo..." }
         let white = lens("wwww")
         let shut = lens("oooo")
-        let look = lens("w" + String(pupil) + String(pupil) + "w")
+        let p = String(pupil)
+        // Track Z §6.1: each lens interior is four cells — `ooww` left, `woow`
+        // centre (today), `wwoo` right. Red pupils are state art and never
+        // look away (R-Z1).
+        let seen: Gaze = pupil == "e" ? .center : gaze
+        let look: String
+        switch seen {
+        case .left: look = lens(p + p + "ww")
+        case .center: look = lens("w" + p + p + "w")
+        case .right: look = lens("ww" + p + p)
+        }
         let rimTop = "....ob" + "aaaaaa" + "a" + "aaaaaa" + "bo..."     // 5 — the bridge joins the rims
         let rimBottom = "....ob" + "aaaaaa" + "b" + "aaaaaa" + "bo..."  // 9
         let middle: [String]
@@ -229,6 +241,14 @@ enum BookwormSprites {
     private static let dropSmall = [".z.", "zzz"]
     private static let book = ["aaaaa", "awwwa", "awwwa", "aaaaa"]
     private static let bookBitten = ["aaaa.", "awwa.", "awwa.", "aaaa."]
+    /// `.reading`'s open book and its page-flick frame. `glyph` requires each
+    /// row of `shape` to be the same width (a ragged row still renders, just
+    /// non-rectangular) — both grids are 9 columns per row. Hoisted out of
+    /// `frames(for: .reading)` (Track Z §6.1) because the pose and reaction
+    /// frames draw the same book: `marked` keeps it on every reading look
+    /// (R-Z1) and gulp lowers it (Z-P12).
+    private static let bookOpen  = ["aaaaaaaaa", "awwwawwwa", "awwwawwwa", "aaaaaaaaa"]
+    private static let bookFlick = ["aaaaaaaaa", "awwwaww.a", "awwwaw..a", "aaaaaaaaa"]
 
     /// 3×5 mini-font for the badge count, drawn in outline colour on the
     /// amber pill.
@@ -382,12 +402,7 @@ enum BookwormSprites {
             // ORIGINAL 2026-09-02 mascot plan — a different plan's R7 than this
             // one's; do not confuse it with G125 R7, "after imports"). Nothing
             // state-specific needed here — it applies to every state already.
-            //
-            // `glyph` requires each row of `shape` to be the same width (a
-            // ragged row still renders, just non-rectangular) — both grids
-            // below are 9 columns per row:
-            let bookOpen  = ["aaaaaaaaa", "awwwawwwa", "awwwawwwa", "aaaaaaaaa"]
-            let bookFlick = ["aaaaaaaaa", "awwwaww.a", "awwwaw..a", "aaaaaaaaa"]
+            // The book grids are `bookOpen` / `bookFlick` (statics above).
             //
             // `.reading` shifts rows 6–8 only, so the cap (rows 0–4) is never
             // dragged out of place by the head tilt — it is merged onto each
@@ -404,5 +419,148 @@ enum BookwormSprites {
             // between glasses and body — a glitch, not a bob.
             return ([errorBase, errorGlitch], 0.5)
         }
+    }
+}
+
+// MARK: - Poses and reactions (Track Z §6.1)
+
+extension BookwormSprites {
+    /// One beat frame; pinned equal to `SleepMotion.beatFrameInterval`.
+    static let reactionInterval: TimeInterval = 0.12
+    /// The drop poses' two-frame loop (G107 R8's 250–800 ms band).
+    static let posePulseInterval: TimeInterval = 0.4
+
+    /// "Noticed you" — the cheeks the smile rows carry, drawn over any mouth.
+    private static let blush: PixelGrid = glyph(["rr........rr"], top: 10, left: 7)
+
+    private static func restingLid(_ state: BookwormState) -> Lid {
+        if case .hungry = state { return .half }
+        return .open
+    }
+
+    private static func restingMouth(_ state: BookwormState) -> PixelGrid {
+        switch state {
+        case .happy: mouthGrin
+        case .hungry: mouthFrown
+        case .digesting: mouthChew
+        case .sleeping, .error, .curious: mouthNeutral
+        default: mouthSmile
+        }
+    }
+
+    private static func wearsCap(_ state: BookwormState) -> Bool {
+        switch state {
+        case .sleeping, .reading: true
+        default: false
+        }
+    }
+
+    /// What a state wears that no response may take off (R-Z1): the reading
+    /// cap and book, the sleeping cap and stage dots, the digesting book.
+    private static func marked(_ state: BookwormState, _ frame: PixelGrid) -> PixelGrid {
+        switch state {
+        case .reading: capped(merge(frame, glyph(bookOpen, top: 15, left: 8)))
+        case .sleeping(let stage): capped(merge(frame, stageDots(stage)))
+        case .digesting: merge(frame, glyph(book, top: 10, left: 17))
+        default: frame
+        }
+    }
+
+    private static func face(_ state: BookwormState, gaze: Gaze, mouth: PixelGrid? = nil, lid: Lid? = nil) -> PixelGrid {
+        compose(eyes(lid: lid ?? restingLid(state), gaze: gaze), mouth ?? restingMouth(state))
+    }
+
+    /// R-Z4 — a hop is a whole-cell shift. Z-P11: a capped state crouches one
+    /// cell instead, because its cap owns the grid's only headroom.
+    private static func hop(_ state: BookwormState, _ frame: PixelGrid) -> PixelGrid {
+        shift(frame, dy: wearsCap(state) ? 1 : -1)
+    }
+
+    private static func attentive(_ state: BookwormState, gaze: Gaze) -> PixelGrid {
+        marked(state, face(state, gaze: gaze))
+    }
+
+    /// The pose's frames for `state`. `.idle` returns `frames(for:)` itself,
+    /// which is how "idle is byte-identical" holds by construction.
+    static func frames(for state: BookwormState, pose: BookwormPose) -> (frames: [PixelGrid], interval: TimeInterval) {
+        let idle = frames(for: state)
+        switch pose.effective(for: state, reduceMotion: false) {
+        case .idle:
+            return idle
+        case .attentive(let gaze):
+            let a = attentive(state, gaze: gaze)
+            let blink = marked(state, face(state, gaze: .center, lid: .closed))
+            return ([a, a, a, blink], idle.interval)
+        case .expectant(let gaze):
+            let e = marked(state, face(state, gaze: gaze, mouth: mouthOpen))
+            return ([e, hop(state, e)], posePulseInterval)
+        case .eager:
+            let e = merge(marked(state, face(state, gaze: .center, mouth: mouthOpen)), blush)
+            return ([hop(state, e), e], posePulseInterval)
+        }
+    }
+
+    /// A beat's frames (≤ 3), or `[]` when §6.4 forbids it for `state`.
+    static func reactionFrames(_ reaction: BookwormReaction, for state: BookwormState, gaze: Gaze) -> [PixelGrid] {
+        guard state.allows(reaction) else { return [] }
+        let g: Gaze = reaction.followsGaze && state.acceptsGaze ? gaze : .center
+        switch reaction {
+        case .perk:
+            let a = attentive(state, gaze: g)
+            return [hop(state, merge(a, blush)), a]
+        case .talk:
+            if case .sleeping(let stage) = state {
+                // It talks in its sleep and never wakes (§6.1): eyes shut, cap and dots on.
+                func sleepTalk(_ mouth: PixelGrid) -> PixelGrid {
+                    capped(merge(merge(compose(eyes(lid: .closed), mouth), glyph(zSmall, top: 2, left: 21)),
+                                 stageDots(stage)))
+                }
+                return [sleepTalk(mouthOpen), sleepTalk(mouthNeutral), sleepTalk(mouthOpen)]
+            }
+            let open = marked(state, face(state, gaze: g, mouth: mouthOpen))
+            return [open, marked(state, face(state, gaze: g)), open]
+        case .gulp:
+            let chew = Array(frames(for: .digesting).frames.prefix(3))
+            // Z-P12: reading lowers its held book for the gulp only.
+            if case .reading = state { return chew.map { capped(merge($0, glyph(bookOpen, top: 17, left: 8))) } }
+            return chew
+        case .shake:
+            let f = face(state, gaze: g)
+            return [marked(state, shiftRows(f, 2..<13, dx: -1)),
+                    marked(state, shiftRows(f, 2..<13, dx: 1)),
+                    marked(state, f)]
+        case .cheer:
+            let happy = frames(for: .happy).frames
+            return [happy[1], happy[2], happyBase]
+        }
+    }
+
+    /// Z-P24 — the frames memo. `frames(for:look:)` is recomposed twice per
+    /// tick (`BookwormView.body` and `BookwormRenderer.cachedImage`) and is a
+    /// pure function of `spriteKey` × look, so it is computed once per pair.
+    /// Lock-guarded like the renderer's own cache (both consumers call it from
+    /// wherever they already are). Finite without a wipe: `spriteKey` clamps
+    /// the badge to 1…99 and the stage to 0…5 exactly as the frames do, and
+    /// the looks are a closed set. Kept because `BookwormFramesBenchmarkTests`
+    /// measured 0.514 s → 0.003 s per run (the gate is at least halving).
+    private static let memoLock = NSLock()
+    nonisolated(unsafe) private static var memo: [String: (frames: [PixelGrid], interval: TimeInterval)] = [:]
+
+    /// The renderer's one entry point for a look.
+    static func frames(for state: BookwormState, look: BookwormLook) -> (frames: [PixelGrid], interval: TimeInterval) {
+        let key = "\(state.spriteKey)|\(look.keySegment ?? "idle")"
+        memoLock.lock()
+        let hit = memo[key]
+        memoLock.unlock()
+        if let hit { return hit }
+        let result: (frames: [PixelGrid], interval: TimeInterval)
+        switch look {
+        case .pose(let pose): result = frames(for: state, pose: pose)
+        case .reaction(let reaction, let gaze): result = (reactionFrames(reaction, for: state, gaze: gaze), reactionInterval)
+        }
+        memoLock.lock()
+        memo[key] = result
+        memoLock.unlock()
+        return result
     }
 }

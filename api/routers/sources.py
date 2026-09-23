@@ -32,6 +32,7 @@ from api.models.schemas import (
     SourceUploadResponse,
 )
 from api.services import (
+    agent_commits,
     bookmark_sync,
     calendar_registry,
     channel_registry,
@@ -110,8 +111,19 @@ async def save_source(
     media_ingestor.save_url_index(memory_path, idx)
 
     if result.status == "created":
+        # G135 R-R12: this call used to omit `paths` and raise a TypeError that
+        # the except below swallowed, so no single save was ever committed. An
+        # MCP save (it carries a session id) is the agent's, not the person's.
+        paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"]
+        by_agent = bool((request.session_id or "").strip())
+        author = agent_commits.author_for(request.harness) if by_agent else "user"
         try:
-            await media_ingestor._commit_media(memory_path, 1)
+            await media_ingestor._commit_media(
+                memory_path, 1, paths, author=author,
+                sessions=[request.session_id] if by_agent else None,
+                trigger=f"mcp/{author}" if by_agent else "user/media_save",
+            )
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 

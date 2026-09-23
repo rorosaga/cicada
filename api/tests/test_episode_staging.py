@@ -19,7 +19,7 @@ def _only(ep_dir):
     return path, markdown_parser.parse(path)
 
 
-def test_turns_render_the_g20_body_and_index_every_turn(tmp_path):
+def test_turns_render_the_g20_body_and_stamp_every_timed_turn(tmp_path):
     ep_dir = tmp_path / "episodes"
     draft = st.EpisodeDraft(title="T", source_id="uuid-1", timestamp="2026-09-01T10:00:00+00:00",
                             original_date="2026-09-01", turns=[
@@ -29,32 +29,37 @@ def test_turns_render_the_g20_body_and_index_every_turn(tmp_path):
     assert st.stage([draft], ep_dir).as_tuple() == (1, 0, 0)
     _, parsed = _only(ep_dir)
     assert parsed.body == "user: First question\nassistant: An answer\nspeaker:2: Thanks"
-    rows = parsed.frontmatter["turn_index"]
-    assert rows == [[0, "2026-09-01T10:00:00Z", "user"],
-                    [21, "2026-09-01T10:00:05Z", "assistant"],
-                    [42, None, "speaker:2"]]
-    for offset, _, speaker in rows:
-        assert parsed.body[offset:].startswith(f"{speaker}: ")
-    assert "turns" not in parsed.frontmatter  # R-LS1
+    # G118 R-PB4's one shape (the merge kept it over this track's `turn_index`):
+    # an entry only for a timed turn, aware-UTC, the last frontmatter key.
+    stamps = parsed.frontmatter["turns"]
+    assert stamps == [{"offset": 0, "ts": "2026-09-01T10:00:00+00:00", "speaker": "user"},
+                      {"offset": 21, "ts": "2026-09-01T10:00:05+00:00", "speaker": "assistant"}]
+    for entry in stamps:
+        assert set(entry) == set(st.TURN_STAMP_KEYS)
+        assert parsed.body[entry["offset"]:].startswith(f"{entry['speaker']}: ")
+    assert list(parsed.frontmatter)[-1] == "turns"
+    assert "turn_index" not in parsed.frontmatter
 
 
-def test_the_index_is_omitted_not_truncated_past_the_cap(tmp_path, monkeypatch):
-    monkeypatch.setattr(st, "MAX_TURN_INDEX_ROWS", 2)
+def test_the_sidecar_is_capped_head_stable(tmp_path, monkeypatch):
+    monkeypatch.setattr(st, "MAX_TURN_STAMPS", 2)
     draft = st.EpisodeDraft(title="T", source_id="s", original_date="2026-09-01",
-                            turns=[st.Turn(str(i), "user") for i in range(3)])
+                            turns=[st.Turn(str(i), "user", f"2026-09-01T10:00:0{i}+00:00") for i in range(3)])
     st.stage([draft], tmp_path / "episodes")
-    assert "turn_index" not in _only(tmp_path / "episodes")[1].frontmatter
+    assert [t["offset"] for t in _only(tmp_path / "episodes")[1].frontmatter["turns"]] == [0, 8]
 
 
 def test_every_turn_is_scrubbed_before_its_offset_is_taken(tmp_path):
     key = "sk-" + "A" * 24
+    ts = "2026-09-01T10:00:00+00:00"
     draft = st.EpisodeDraft(title="T", source_id="s-1", original_date="2026-09-01", turns=[
-        st.Turn(f"my key is {key}", "user"), st.Turn("Your verification code is 482913", "assistant")])
+        st.Turn(f"my key is {key}", "user", ts), st.Turn("Your verification code is 482913", "assistant", ts)])
     result = st.stage([draft], tmp_path / "episodes")
     _, parsed = _only(tmp_path / "episodes")
     assert key not in parsed.body and "482913" not in parsed.body and result.scrubbed == 2
-    for offset, _, speaker in parsed.frontmatter["turn_index"]:
-        assert parsed.body[offset:].startswith(f"{speaker}: ")
+    assert len(parsed.frontmatter["turns"]) == 2
+    for entry in parsed.frontmatter["turns"]:
+        assert parsed.body[entry["offset"]:].startswith(f"{entry['speaker']}: ")
 
 
 def test_a_legacy_unscrubbed_hash_counts_as_unchanged(tmp_path):
@@ -152,5 +157,5 @@ def test_the_router_names_are_compat_wrappers_over_the_service(tmp_path):
             "messages": [{"role": "user", "text": "Q", "timestamp": "2026-02-24T13:00:00Z"}]}]
     assert conv._stage_episodes(eps, tmp_path / "episodes") == (1, 0, 0)
     fm = _only(tmp_path / "episodes")[1].frontmatter
-    assert fm["turn_index"] == [[0, "2026-02-24T13:00:00Z", "user"]]
+    assert fm["turns"] == [{"offset": 0, "ts": "2026-02-24T13:00:00+00:00", "speaker": "user"}]
     assert conv._stage_episodes(eps, tmp_path / "episodes") == (0, 0, 1)

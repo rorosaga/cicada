@@ -39,6 +39,13 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 
+**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #75).** `/search`
+moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
+derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
+rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
+Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
+(M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
+
 **Round 3 · Track L — local sources (G133 + G134).** A watched folder the app reads and the backend
 parses (one episode per file through the shared `episode_staging` stager; agent-written globs never
 credited to the owner), papers as `media` pages with `media.kind: paper` (arXiv/Crossref details under
@@ -102,6 +109,16 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
   260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
   16-cell grid (the spec said 40).
+- **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
+  Sleep cycle starting mid-remote-write can still sweep that file (R-R27); a stdio
+  `cicada_write_claim` asks `GET /sleep/status` before its own commit and leaves the page dirty for
+  Sleep while a cycle runs (Sleep holds `index.lock` per git command, not per cycle, so committing
+  would take Sleep's hunks on that page under the agent's name) — a cycle that starts between that
+  probe and the commit is still the narrow residual window, and a probe that times out leaves the
+  page dirty (the pre-G135 behaviour); remote writes are
+  serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
+  race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
+  is saved with its URL-derived title and never fetched (R-R10).
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -117,9 +134,12 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 3. **Markdown+git is the only source of truth.** A `.db` may exist only if deleting it costs CPU
    and never a fact, and **no derived artifact is ever tracked in a bank's git** (the 35 MB index
    was tracked and would have committed ~11 GB/yr once Sleep resumed).
-4. **Scheduled cycles cannot spend plan quota.** `user_triggered` is threaded through; a scheduled
-   cycle returns `byok` before the registry is touched. The UI copy says "never on the nightly
-   schedule" and that is now literally true.
+4. **Scheduled cycles cannot spend plan quota — Claude or ChatGPT.** `user_triggered` is threaded
+   through; a scheduled cycle returns `byok` before the registry is touched, and a Settings-chosen
+   `agent` **or `codex`** is demoted to `byok` on a schedule by one tuple,
+   `engine_select.SUBSCRIPTION_MODES`, so a third plan engine cannot forget the guard (Track E,
+   2026-09-23). Only an explicit `CICADA_LLM_MODE` in `api/.env` runs a plan on the schedule. The UI
+   copy says "never on the nightly schedule" and that is literally true for both plans.
 5. **Raw storage does not replace Sleep** (G101). Text cannot decay — only a belief can go stale or
    be contradicted — so "time as a signal" needs a belief object.
 6. **Capture is agent-judgment and that is a measured problem** (G105): 0 MCP invocations in 12
@@ -131,6 +151,15 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
    short-circuit makes per-turn firing idempotent. Revisit only if `capture.log` starts showing
    timeout `error:` lines (the hook's 3 s budget, `TIMEOUT_S` in `api/hooks/capture.py`) on the live
    bank — the hook logs no timing, so a blown budget surfaces as an `error:` line, not a latency figure.
+8. **The Sleep page shows the ACTIVE stage, and there is one translation** (Track Z R-Z14). The
+   wire's `stage` counts completed stages (`sleep_cycle.py` sets 1 only after Stage 1 returns);
+   three derivations clamped it without adding one, so the worm, the bracket line and VoiceOver
+   said "stage 1" while Sort ran. `activeStage(completed:)` is the only way any view turns the
+   wire number into a stage. Revisit only if the backend starts reporting the stage in flight.
+9. **Pixel art beside the worm is checked against the real worm, per weather** (Track Z
+   Z-P13). A hand-approximated worm passed two window clouds the real frames hide (the head's
+   shake uncovers a column); `WindowSpritesTests` masks with every look of every mood that shows
+   that weather. Any new art near the worm gets the same test.
 
 ## How work is run here
 
@@ -163,12 +192,15 @@ Everything about *what to do next and why* lives in one place:
 > reasoning for its order. Workflow agents run on sonnet/haiku unless the owner says otherwise for a
 > session (round 2 ran on opus with that permission); the orchestrator plans, verifies and merges.
 
-The queue there, in order: **G118 slice 2** (the provenance viewer — its server half has shipped
-and nothing renders it) → **G93** (cross-stream ask). Then the bigger rocks: **G81 → G95**, **G112
-steps 2–4**, **G76**, and **G127** as a decision, not a build. Before any of them, the cheap one:
-**G90 README screenshots** — done on 2026-09-06 from the **demo** bank (Graph, Inbox, the study room,
-Sources v2; the retired Activity image is gone). Re-take them from the demo bank, never the live one,
-after the next visual change.
+The queue there, in order: **G118 slice 2** (the provenance viewer — slice 1's spans and slice 2's
+read routes are server-side; nothing renders them yet) → **G93** (cross-stream ask). Then the bigger
+rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** as a decision, not a build. Before
+any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
+(Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
+demo bank, never the live one, after the next visual change.
+
+**Search (G136):** the server half has shipped. Next is the ⌘K find palette (design §6 S3–S6), after
+M1; it builds against "The wire" in `docs/superpowers/plans/2026-09-23-search-backend.md`.
 
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
@@ -216,6 +248,9 @@ updated in place, Sleep-queue source marks (`OriginMark`) · **G133 watched fold
 **Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
 G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — cause on the card,
 Recommended, decay through the question component, the G98 informational rule
+
+**Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
+with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the palette is open
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
@@ -343,6 +378,9 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
+| **G118 slice 2 — server half** | **Merged** from `feat/provenance-viewer` (plan `2026-09-23-provenance-backend.md`): `grown` spans, `/episodes/{id}/text`, `/entities/{id}/provenance`, `/episodes/{id}/citations`, `/ask` evidence, per-turn import times. | Next: the Swift viewer track (P1–P6 client), now that Meadow M1 has landed. |
+| **G137 Meadow (round 3)** | **M1 foundation merged** (PR #71) from `feat/meadow-foundation` — Meadow tokens, Instrument Serif, `CicadaMotion` + hover modifiers, `liquidGlass`, the art set + manifest, the glass sidebar, the empty state. Plan: `docs/superpowers/plans/2026-09-23-meadow-foundation.md`. | Live-checked by the orchestrator in both themes at 1.0×; still open: 1.4×, Reduce Motion / Transparency / Increase Contrast (both themes, 1.0×/1.4×, Reduce Motion / Transparency / Increase Contrast; the empty state's one action on 26 (`.glassProminent`) with the window key AND not key, both themes — its ink is `onAccent` only while key, measured on `.borderedProminent`, unverified on glass), merge to `dev`; then the M2 pass. Builds on a macOS 14/15 SDK: every 26/15-only call is also behind `#if canImport(SwiftUI, _version:)`. |
 | **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |

@@ -93,6 +93,7 @@ async def recent_conversations(
     limit: int = Query(20, ge=1, le=200),
     harness: str | None = Query(None, max_length=64),
     origin: str | None = Query(None, max_length=64),
+    q: str | None = Query(None, max_length=200),
     settings: Settings = Depends(get_settings),
 ):
     """Conversations that wrote to memory, newest write first (G48).
@@ -113,11 +114,19 @@ async def recent_conversations(
     ``harness`` / ``origin`` (G124 R5) narrow the list to one source BEFORE the
     cap, so the Sources page's per-harness view is complete up to ``limit``.
     Both fold into the ETag: they change the body without moving any component.
+
+    ``q`` (G136) is a title filter, also applied BEFORE the cap and folded
+    into the ETag the same way; whitespace-only is no filter. The ``|q=``
+    part is appended only when a filter is present, so every existing
+    client's ETag stays byte-identical. The query is never logged — it is
+    the person's words (K9); ``api/main.py`` strips it from uvicorn's
+    access log (G136 R22).
     """
-    etag = sync_service.etag_for(
-        settings.memory_path, "episodes", "entities",
-        extra=f"limit={limit}|harness={harness or ''}|origin={origin or ''}",
-    )
+    q = (q or "").strip() or None
+    extra = f"limit={limit}|harness={harness or ''}|origin={origin or ''}"
+    if q:
+        extra += f"|q={q}"
+    etag = sync_service.etag_for(settings.memory_path, "episodes", "entities", extra=extra)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
 
@@ -128,6 +137,7 @@ async def recent_conversations(
         transcript_exists=transcript_exists,
         harness=harness,
         origin=origin,
+        q=q,
     )
     return [ConversationSummary(**row) for row in rows]
 
@@ -744,7 +754,10 @@ def _extract_date(timestamp: str | None) -> str | None:
 # These four names stay because `api/routers/banks.py:28,232` and
 # `api/tests/test_conversations.py` call them; each is a thin wrapper over
 # `api.services.episode_staging`, so the chat importers stage exactly as before
-# (and now scrub, and now write a `turn_index` sidecar on new/changed threads).
+# (and now scrub). Each message's own time rides beside the body as the G118
+# slice-2 `turns: [{offset, ts, speaker}]` sidecar (R-PB4) — written by the
+# stager now, outside `content_hash`; `episode_staging.MAX_TURN_STAMPS` is the
+# cap that used to live here.
 
 
 def _stage_episodes(episodes: list[dict], episodes_dir: Path) -> tuple[int, int, int]:
@@ -758,10 +771,12 @@ def _normalise_import_timestamp(ts) -> str | None:
 
 def _write_new_episode(episode: dict, episodes_dir: Path, content_str: str, content_hash: str,
                        date_counts: dict[str, int]) -> Path:
-    return episode_staging.write_new(episode_staging.draft_from_export(episode), episodes_dir,
-                                     content_str, content_hash, [], date_counts)
+    draft = episode_staging.draft_from_export(episode)
+    return episode_staging.write_new(draft, episodes_dir, content_str, content_hash,
+                                     episode_staging.stamps_for(draft, content_str), date_counts)
 
 
 def _update_episode_in_place(path: Path, episode: dict, content_str: str, content_hash: str) -> None:
-    episode_staging.update_in_place(path, episode_staging.draft_from_export(episode),
-                                    content_str, content_hash, [])
+    draft = episode_staging.draft_from_export(episode)
+    episode_staging.update_in_place(path, draft, content_str, content_hash,
+                                    episode_staging.stamps_for(draft, content_str))
