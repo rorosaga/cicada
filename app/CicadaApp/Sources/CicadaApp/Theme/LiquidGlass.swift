@@ -9,11 +9,23 @@ import SwiftUI
 /// surface uses fills and vibrancy (WWDC25-219). Never over the graph canvas
 /// without the G109 frame-time check.
 ///
-/// **Gated.** The package floor is macOS 14, so every glass API sits behind
-/// `#available(macOS 26, *)` with a material fallback. On 26 the system
+/// **Gated twice.** The package floor is macOS 14, so every glass API sits
+/// behind `#available(macOS 26, *)` with a material fallback. On 26 the system
 /// handles Reduce Transparency, Increase Contrast and Reduce Motion for glass
 /// itself (WWDC25-219); the fallback branch is ours — opaque under Reduce
 /// Transparency, a stronger border under Increase Contrast.
+///
+/// `#available` is only a RUNTIME check: the glass symbols must still exist in
+/// the SDK at compile time, and they exist only in the macOS 26 SDK (M1 final
+/// review, measured: `GlassEffectContainer` / `.glassEffect` fail to resolve
+/// against MacOSX15.4 and MacOSX14.4). Xcode 26 does not install on macOS 14,
+/// so without a compile-time guard the README's "macOS 14+, command line
+/// tools" stops building. Each 26 branch therefore also sits inside
+/// `#if canImport(SwiftUI, _version: 7.0)` — SwiftUI's module version is 7.x
+/// in the 26 SDK, 6.x in 15 and 5.x in 14, so this tests the SDK itself.
+/// `#if compiler(>=6.2)` was rejected: a 6.2 toolchain pointed at an older
+/// SDK (`-sdk`) passes it and still fails. Each fallback is one private
+/// function so the two `#if` arms never duplicate it.
 ///
 /// `LiquidGlassLintTests` fails the build on a glass API anywhere else.
 enum GlassLevel: CaseIterable {
@@ -37,6 +49,9 @@ enum LiquidGlass {
     /// HIG Materials: over bright content, "consider adding a dark dimming
     /// layer of 35% opacity" beneath clear glass.
     static let overImageryDim: Double = 0.35
+    /// `onAccent` only while the accent plate is drawn — a key window. See
+    /// `PrimaryActionInk`.
+    static func primaryInkIsOnAccent(_ state: ControlActiveState) -> Bool { state == .key }
 }
 
 private struct LiquidGlassModifier<S: Shape>: ViewModifier {
@@ -45,7 +60,9 @@ private struct LiquidGlassModifier<S: Shape>: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorSchemeContrast) private var contrast
 
+    @ViewBuilder
     func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26, *) {
             switch level {
             case .control: content.glassEffect(.regular, in: shape)
@@ -56,13 +73,20 @@ private struct LiquidGlassModifier<S: Shape>: ViewModifier {
                     .background(Color.black.opacity(LiquidGlass.overImageryDim), in: shape)
             }
         } else {
-            content
-                .background(fallbackFill, in: shape)
-                .background(level == .overImagery ? Color.black.opacity(LiquidGlass.overImageryDim) : Color.clear,
-                            in: shape)
-                .overlay(shape.stroke(LiquidGlass.strongBorder(contrast: contrast)
-                                      ? CicadaTheme.textTertiary : CicadaTheme.border, lineWidth: 1))
+            fallback(content)
         }
+        #else
+        fallback(content)
+        #endif
+    }
+
+    private func fallback(_ content: Content) -> some View {
+        content
+            .background(fallbackFill, in: shape)
+            .background(level == .overImagery ? Color.black.opacity(LiquidGlass.overImageryDim) : Color.clear,
+                        in: shape)
+            .overlay(shape.stroke(LiquidGlass.strongBorder(contrast: contrast)
+                                  ? CicadaTheme.textTertiary : CicadaTheme.border, lineWidth: 1))
     }
 
     private var fallbackFill: AnyShapeStyle {
@@ -81,16 +105,21 @@ struct LiquidGlassGroup<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26, *) {
             GlassEffectContainer(spacing: spacing) { content() }
         } else {
             content()
         }
+        #else
+        content()
+        #endif
     }
 }
 
 /// The page's one prominent action (plan R-M18): `.glassProminent` on 26,
-/// `.borderedProminent` before, accent-tinted, label in `onAccent`.
+/// `.borderedProminent` before, accent-tinted, label through
+/// `primaryActionInk()`.
 struct PrimaryActionButton: View {
     let title: String
     var systemImage: String? = nil
@@ -101,7 +130,7 @@ struct PrimaryActionButton: View {
             Group {
                 if let systemImage { Label(title, systemImage: systemImage) } else { Text(title) }
             }
-            .foregroundStyle(CicadaTheme.onAccent)
+            .primaryActionInk()
         }
         .primaryActionStyle()
     }
@@ -111,12 +140,40 @@ struct PrimaryActionButton: View {
 /// (WWDC25-323: extra backgrounds interfere with it); the opaque theme
 /// background before, exactly as the sidebar always looked there.
 private struct SidebarChromeBackground: ViewModifier {
+    @ViewBuilder
     func body(content: Content) -> some View {
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26, *) {
             content
         } else {
             content.background(CicadaTheme.background)
         }
+        #else
+        content.background(CicadaTheme.background)
+        #endif
+    }
+}
+
+/// The prominent action's label ink — ONE writer, so the two callers
+/// (`PrimaryActionButton`, `SettingsSectionLink(prominent:)`) cannot drift.
+///
+/// `onAccent` is only readable on the accent plate, and the plate is only
+/// there while the window is key. M1 final review, measured offscreen on
+/// macOS 26.6: in a window that is not key, `.borderedProminent` swaps the
+/// accent plate for a neutral one (#2A3035 in dark) but a forced label ink
+/// still applies, so `onAccent` (#0D1216) sat on it at about 1.4:1 — every
+/// time the person switched apps, or had Settings in front, which is exactly
+/// what this link opens. Forcing `controlActiveState = .key` brought the
+/// accent plate back, which pins the cause on the window's active state.
+/// Whether `.glassProminent` on 26 does the same is unverified (glass does
+/// not render in `cacheDisplay`); the rule is applied there too and the
+/// live check covers it.
+private struct PrimaryActionInk: ViewModifier {
+    @Environment(\.controlActiveState) private var activeState
+
+    func body(content: Content) -> some View {
+        content.foregroundStyle(LiquidGlass.primaryInkIsOnAccent(activeState)
+                                ? CicadaTheme.onAccent : CicadaTheme.textPrimary)
     }
 }
 
@@ -128,15 +185,26 @@ extension View {
 
     /// The prominent-action button style — for a `Button` or a `SettingsLink`
     /// (`SettingsSectionLink(prominent:)`). One per page. The caller's label
-    /// uses `CicadaTheme.onAccent`.
+    /// uses `primaryActionInk()`, never a bare `onAccent`.
     @ViewBuilder
     func primaryActionStyle() -> some View {
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26, *) {
             buttonStyle(.glassProminent).tint(CicadaTheme.accent)
         } else {
-            buttonStyle(.borderedProminent).tint(CicadaTheme.accent)
+            borderedPrimaryAction()
         }
+        #else
+        borderedPrimaryAction()
+        #endif
     }
+
+    private func borderedPrimaryAction() -> some View {
+        buttonStyle(.borderedProminent).tint(CicadaTheme.accent)
+    }
+
+    /// The prominent action's label ink — see `PrimaryActionInk`.
+    func primaryActionInk() -> some View { modifier(PrimaryActionInk()) }
 
     /// The sidebar column's background — see `SidebarChromeBackground`.
     func sidebarChromeBackground() -> some View { modifier(SidebarChromeBackground()) }

@@ -152,13 +152,26 @@ struct IconHover: ViewModifier {
             }
     }
 
+    /// `.wiggle` is macOS 15 API, and `#available` is only a runtime check:
+    /// the symbol must exist in the SDK too (M1 final review, measured against
+    /// MacOSX14.4: "type 'DiscreteSymbolEffect' has no member 'wiggle'"). The
+    /// compile-time guard tests the SDK — SwiftUI's module version is 6.x from
+    /// the 15 SDK on — so a macOS 14 SDK still builds, with the bounce.
     @ViewBuilder
     private func wiggle(_ view: some View) -> some View {
+        #if canImport(SwiftUI, _version: 6.0)
         if #available(macOS 15, *) {
             view.symbolEffect(.wiggle.byLayer, options: .nonRepeating, value: hoverBumps)
         } else {
-            view.symbolEffect(.bounce.up.byLayer, options: .nonRepeating, value: hoverBumps)
+            bounce(view)
         }
+        #else
+        bounce(view)
+        #endif
+    }
+
+    private func bounce(_ view: some View) -> some View {
+        view.symbolEffect(.bounce.up.byLayer, options: .nonRepeating, value: hoverBumps)
     }
 }
 

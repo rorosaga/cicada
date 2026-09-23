@@ -37,7 +37,7 @@ struct SettingsSectionLink: View {
     var body: some View {
         Group {
             if prominent {
-                SettingsLink { Text(label).foregroundStyle(CicadaTheme.onAccent) }
+                SettingsLink { Text(label).primaryActionInk() }
                     .primaryActionStyle()
             } else {
                 SettingsLink { Text(label) }

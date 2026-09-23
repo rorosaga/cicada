@@ -43,4 +43,40 @@ final class LiquidGlassLintTests: XCTestCase {
         XCTAssertFalse(LiquidGlass.strongBorder(contrast: .standard))
         XCTAssertEqual(LiquidGlass.overImageryDim, 0.35, "Apple's recipe for clear glass over imagery")
     }
+
+    /// M1 final review: `#available` is only a runtime check, and the glass
+    /// symbols exist only in the macOS 26 SDK — an unguarded call stops the
+    /// README's macOS 14 / command-line-tools build from compiling. Every
+    /// runtime gate in the home file must sit inside the SDK guard.
+    func testEveryMacOS26GateAlsoHasTheSDKGuard() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix(Self.home) })
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let code = text.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("//") }
+        let runtimeGates = code.filter { $0.contains("#available(macOS 26, *)") }.count
+        let sdkGuards = code.filter { $0.hasPrefix("#if canImport(SwiftUI, _version: 7.0)") }.count
+        XCTAssertGreaterThan(runtimeGates, 0)
+        XCTAssertEqual(sdkGuards, runtimeGates, "each macOS 26 branch needs its own compile-time SDK guard")
+    }
+
+    /// M1 final review: in a window that is not key the prominent style
+    /// drops its accent plate, so `onAccent` ink there reads at ~1.4:1.
+    func testPrimaryInkIsOnAccentOnlyInAKeyWindow() {
+        XCTAssertTrue(LiquidGlass.primaryInkIsOnAccent(.key))
+        XCTAssertFalse(LiquidGlass.primaryInkIsOnAccent(.active))
+        XCTAssertFalse(LiquidGlass.primaryInkIsOnAccent(.inactive))
+    }
+
+    /// One writer for the prominent label's ink: a bare `onAccent` on a
+    /// primary-action label would skip the key-window rule.
+    func testPrimaryActionLabelsGoThroughTheInkModifier() throws {
+        let sources = try ThemeTokenTests.swiftSources()
+        for name in ["Views/Common/SettingsSectionLink.swift", Self.home] {
+            let file = try XCTUnwrap(sources.first { $0.path.hasSuffix(name) })
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertTrue(text.contains("primaryActionInk()"), name)
+            XCTAssertFalse(text.contains(".foregroundStyle(CicadaTheme.onAccent)"), name)
+        }
+    }
 }
