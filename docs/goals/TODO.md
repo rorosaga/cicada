@@ -39,6 +39,13 @@ assembled app (every provider logo had been falling back to a symbol in shipped 
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 
+**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #TBD).** `/search`
+moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
+derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
+rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
+Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
+(M1) merges; MCP recall adoption is Track R's — see the plan's hand-off.
+
 **Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
 test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
 Do not re-derive the queue from this file.
@@ -162,6 +169,9 @@ steps 2–4**, **G76**, and **G127** as a decision, not a build. Before any of t
 Sources v2; the retired Activity image is gone). Re-take them from the demo bank, never the live one,
 after the next visual change.
 
+**Search (G136):** the server half has shipped. Next is the ⌘K find palette (design §6 S3–S6), after
+M1; it builds against "The wire" in `docs/superpowers/plans/2026-09-23-search-backend.md`.
+
 **Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
 `click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
 `channel_registry` (every row but `files`) still counts items the Feed now hides — a channel's own
@@ -207,6 +217,9 @@ updated in place, Sleep-queue source marks (`OriginMark`)
 **Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
 G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — cause on the card,
 Recommended, decay through the question component, the G98 informational rule
+
+**Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
+with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; the palette is open
 
 **App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
 G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·

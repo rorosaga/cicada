@@ -326,6 +326,25 @@ is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, o
 asymmetric query/document prompts. The index is **derived and disposable** — rebuilt by Sleep from
 markdown, safe to delete at any time.
 
+### SQLite FTS5 (lexical index, G136)
+`api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
+inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode
+titles + 600-character passages that tile the evidence text exactly, media/paper metadata and inbox
+questions, in six per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
+`doc_id << 16 | n`). `dropped` pages are never indexed. **Derived and disposable** (TODO ruling 3):
+deleting it costs a few seconds of CPU and never a fact; a missing, corrupt or schema-mismatched file is
+rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_excluded` writes
+`.git/info/exclude` before the file first exists. It follows a worktree or submodule bank's `.git` file
+to the real git dir, and a new bank's `.gitignore` lists the file too. It never edits an existing
+`.gitignore`, which would dirty the tree and smear into the next `git add -A` commit. **Freshness:**
+Sleep rebuilds it beside the vectors; every read path calls `ensure_fresh`, a `bank_index` stamp diff
+(at most one check a second, inline up to 64 changed files, one background worker beyond); the
+lifespan and a bank switch warm it in the background. The caller always passes the active bank's path
+— the module never resolves a bank (the split-brain rule). `search_service` ranks over it (QuickMatch
+tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never embeds in `mode=prefix`**.
+**The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
+query string of `/search` and `/conversations/recent`, G136 R22).
+
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
 **IDs and enums only — never claim text, query text or answer text.** The `read` kind (G124) records
@@ -559,7 +578,15 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
   returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
   ordered list was cut" and is what a client renders its banner on.
 - `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
-  apply BEFORE the cap. Use `GET /conversations/{id}` to resolve one id against the whole bank.
+  (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap. Use `GET /conversations/{id}` to
+  resolve one id against the whole bank.
+- `GET /search` runs in the threadpool. `mode=prefix` (the per-keystroke pass) is FTS only and never
+  loads the embedding model; `mode=hybrid` (the default) fuses FTS with the stored vectors and reports
+  `mode: lexical` when no vector index answered. `totals` are exact **lexical** counts — semantic
+  neighbours are ranked, never counted. An `indexState` other than `ready`/`stale` means entities and
+  media only, from the frontmatter cache. No ETag: it is never a Store domain. Its query string (and
+  `/conversations/recent`'s) is stripped from uvicorn's access log; a new query-bearing GET joins
+  `_QUERY_PATHS` in `api/main.py`.
 - `POST /conversations/{id}/resume` returns a validated descriptor — **transcripts are never read,
   `isfile()` only**.
 - `POST /maintenance/enrich-links` returns `409` both while a Sleep cycle runs and while another
@@ -672,6 +699,7 @@ content hash.
 |----------|-----------|
 | Markdown over Neo4j | Same relational expressiveness at personal scale. Zero infrastructure. Portable. The LLM is the query engine. |
 | sqlite-vec over LEANN/FAISS | Stored (not recomputed) vectors give single-lookup latency with no cloud dependency; the index is derived and disposable. |
+| FTS5 beside sqlite-vec | Type-as-you-go needs words, not meanings: a derived lexical index answers a prefix in ~12.5 ms p95 at 2k entities / 1.5k episodes without an embedding call, and finds aliases, claims and conversation text by what they say. Derived and disposable, like the vectors. |
 | Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across a full day. Clean evaluation. |
 | Entity promotion over upfront extraction | Avoids polluting the graph with noise from single mentions. |
 | Temporal decay as an active signal | Absence of mention is informative. No other system does this. |
