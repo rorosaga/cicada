@@ -39,7 +39,7 @@ SESSION_TRAILER = "Cicada-Session"
 _SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
 
 # Engine trailer (G74(a) Task 6). Records WHICH ENGINE drove a Sleep commit —
-# "claude-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
+# "claude-cli" | "codex-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
 # `lastEngine` field into the git history so `/sleep/history` can stop being
 # the one place in the app "reflects what actually ran" (Ruling 4) never
 # reached. Singular (one trailer, not a list like authors/sessions): a commit

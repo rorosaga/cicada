@@ -273,7 +273,11 @@ async def run_recon(memory_path: Path, settings, report, *, limit=None, extract_
     extract_fn = extract_fn or default_extract
     match_fn = match_fn or default_match
     indexer = (indexer_factory or _default_indexer)(memory_path)
-    model = str(getattr(settings, "agent_model" if engine == "claude-cli" else "litellm_model", "") or "unknown")
+    from api.services import engine_select
+
+    # R-E22: a plan cycle's recon is authored by the plan's model.
+    model = (engine_select.author_model(settings) if engine in engine_select.PLAN_ENGINES
+             else str(getattr(settings, "litellm_model", "") or "unknown"))
     # Media pages are excluded from the match index: a link is never "about"
     # another link, and the Stage-2 fuzzy matcher would otherwise pair two
     # bookmarks with similar titles.

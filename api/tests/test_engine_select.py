@@ -311,3 +311,40 @@ def test_duck_typed_settings_never_touches_the_registry_for_prefs():
     stand_in = SimpleNamespace(llm_mode=None)  # no model_fields_set
     mode, why = _resolve(stand_in, _Boom())
     assert mode == "byok"
+
+
+# --- Track E Task 3: the codex label, the plan maps, authorship (R-E22) ------
+
+def test_the_codex_label_and_the_plan_maps():
+    assert engine_select.engine_label(Settings(llm_mode="codex")) == "codex-cli"
+    assert engine_select.PLAN_ENGINES == {"claude-cli": ("claude-plan", "subscription"),
+                                          "codex-cli": ("chatgpt-plan", "subscription")}
+    assert engine_select.PLAN_NAMES["codex-cli"] == "ChatGPT plan"
+
+
+def test_plan_work_is_authored_by_the_plans_model_and_byok_is_unchanged():
+    from types import SimpleNamespace
+    assert engine_select.author_model(Settings(llm_mode="agent", agent_model="opus")) == "opus"
+    assert engine_select.author_model(Settings(llm_mode="codex", codex_model="gpt-5.6-luna")) == "gpt-5.6-luna"
+    assert engine_select.author_model(Settings(llm_mode="codex")) == "unknown"
+    assert engine_select.author_model(SimpleNamespace(litellm_model="gpt-5.4-mini")) == "gpt-5.4-mini"
+
+
+def test_a_plan_cycles_claim_is_authored_by_the_plans_model_and_byok_is_unchanged():
+    from api.services import claim_reconciler
+    from api.services.claims import Claim
+
+    claim = Claim(id="c-fixture", text="alpha-project uses SQLite",
+                  subject="alpha-project", predicate="uses", object="sqlite")
+    claim_reconciler._stamp_new(claim, Settings(llm_mode="codex", codex_model="gpt-5.6-luna"),
+                                today="2026-09-23")
+    assert claim.authored_by == "gpt-5.6-luna"
+    byok = Claim(id="c-fixture-2", text="t")
+    claim_reconciler._stamp_new(byok, Settings(litellm_model="gpt-5.4-mini"), today="2026-09-23")
+    assert byok.authored_by == "gpt-5.4-mini"
+
+
+def test_codex_is_still_not_a_selectable_mode_until_the_ladder_task():
+    """Task 3 is inert on purpose: the scheduled guard ships with selectability (Task 4)."""
+    mode, _why = asyncio.run(engine_select.resolve_llm_mode(Settings(llm_mode="codex"), _FakeRegistry()))
+    assert mode == "byok"

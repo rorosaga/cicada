@@ -26,12 +26,16 @@ import sys
 import pytest
 
 from api.services import logo_service
+from api.services import codex_app_server as _codex_app_server
 from api.services.connections import base as _conn_base
 
 #: Captured at import, before `_no_real_agent_spawn` replaces it per test —
 #: `fake_cli` restores it so a test can drive the genuine subprocess path
 #: against a binary that can never reach a vendor.
 _REAL_RUN_CLI_SYNC = _conn_base.run_cli_sync
+#: The genuine app-server transport, captured before `_no_real_codex_app_server`
+#: replaces it per test (R-E18).
+_REAL_STDIO_TRANSPORT = _codex_app_server._stdio_transport
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -139,6 +143,28 @@ def _no_real_agent_spawn(monkeypatch):
         )
 
     monkeypatch.setattr(base, "run_cli_sync", _boom)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_codex_app_server(monkeypatch):
+    """R-E18: no test may spawn the real `codex app-server`. The default
+    transport degrades to "unavailable" (→ every caller falls back to `codex
+    login status`), deterministically; a test that wants a snapshot injects
+    one. The cache is cleared around every test."""
+    async def _unavailable(*, timeout):
+        raise FileNotFoundError("codex app-server is not spawned in tests — inject a transport")
+
+    monkeypatch.setattr(_codex_app_server, "_stdio_transport", _unavailable)
+    _codex_app_server.invalidate()
+    yield
+    _codex_app_server.invalidate()
+
+
+@pytest.fixture
+def real_app_server_transport():
+    """The genuine stdio transport, for the one test that drives it against a
+    fake `codex app-server` script (never the real binary)."""
+    return _REAL_STDIO_TRANSPORT
 
 
 @pytest.fixture(autouse=True)
@@ -322,6 +348,58 @@ def claude_stream(agent_envelopes):
         return "\n".join(json.dumps(line) for line in lines) + "\n"
 
     return make
+
+
+@pytest.fixture
+def codex_events():
+    """`codex exec --json` stdout recorded on codex-cli 0.154.0 (2026-09-23).
+    `ok` is R2's trivial structured run (ids replaced); `signed_out` is a real
+    signed-out run against an empty isolated home (cf-ray / request ids
+    dropped) — note the top-level `error` RETRY NOTICES before `turn.failed`
+    (R-E16). `usage_limit` and `reconnected_then_ok` are shaped from those two;
+    the exact usage-limit text could not be produced on demand."""
+    def lines(*objs):
+        return "\n".join(json.dumps(o) for o in objs) + "\n"
+
+    started = ({"type": "thread.started", "thread_id": "t-fixture"}, {"type": "turn.started"})
+    warning = {"type": "item.completed", "item": {"id": "item_0", "type": "error", "message":
+               "Skill descriptions were shortened to fit the skills context budget. Codex can "
+               "still see every skill, but some descriptions are shorter."}}
+
+    def answer(text):
+        return {"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": text}}
+
+    done = {"type": "turn.completed", "usage": {"input_tokens": 11589, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 15, "reasoning_output_tokens": 0}}
+    unauthorized = ("unexpected status 401 Unauthorized: Missing bearer or basic authentication "
+                    "in header, url: https://api.openai.com/v1/responses")
+    extraction = {"entities": [{
+        "name": "alpha-project", "type": "project", "aliases": [],
+        "summary": "A backend project moving from PostgreSQL to SQLite.",
+        "key_facts": ["The demo is due on 2026-10-15."], "history_entries": [],
+        "links": [{"url": "https://example.com/alpha-project", "title": "alpha-project repository",
+                   "note": "Repository for the project."}],
+        "open_questions": [], "tags": ["backend"], "confidence": 0.9, "decay_class": "active"}],
+        "relationships": [{"source": "alpha-project", "target": "2026-10-15", "label": "due",
+                           "evidence_quote": None}]}
+    return {
+        "ok": lines(*started, warning, answer('{"ok":true}'), done),
+        "extraction": lines(*started, answer(json.dumps(extraction)), done),
+        "signed_out": lines(
+            *started,
+            {"type": "error", "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: "
+             "Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses)"},
+            {"type": "item.completed", "item": {"id": "item_0", "type": "error", "message":
+             "Falling back from WebSockets to HTTPS transport. " + unauthorized.replace("https://", "wss://")}},
+            {"type": "error", "message": unauthorized},
+            {"type": "turn.failed", "error": {"message": unauthorized}}),
+        "usage_limit": lines(*started, {"type": "turn.failed", "error": {
+            "message": "You've hit your usage limit. Try again later."}}),
+        "reconnected_then_ok": lines(
+            *started, {"type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion)"},
+            answer('{"ok":true}'), done),
+        "no_answer": lines(*started, done),
+    }
 
 
 @pytest.fixture

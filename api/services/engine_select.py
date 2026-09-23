@@ -45,6 +45,7 @@ from api.config import Settings
 
 USE_FOR_SLEEP_PREF = "use_for_sleep"
 CLAUDE_CONNECTION_ID = "claude-plan"
+CODEX_CONNECTION_ID = "chatgpt-plan"
 OLLAMA_CONNECTION_ID = "ollama-local"
 
 # G122 — the pseudo-connection id `Registry.set_pref`/`.prefs()` read/write
@@ -54,7 +55,21 @@ OLLAMA_CONNECTION_ID = "ollama-local"
 # ordinary dict key here is all this needs.
 SLEEP_ENGINE_PREF_KEY = "sleep-engine"
 
-ENGINE_LABELS = {"agent": "claude-cli", "local": "ollama", "byok": "litellm"}
+# "codex" is labelled now (Track E Task 3) so every engine-keyed site is
+# generalised before the mode is selectable; `resolve_llm_mode` still reads
+# it as unrecognised (→ byok) until the ladder ships with ruling 4's guard.
+ENGINE_LABELS = {"agent": "claude-cli", "codex": "codex-cli", "local": "ollama", "byok": "litellm"}
+
+#: Engine label → (connection id, billing) for the two plan engines — the one
+#: map every site that used to test the literal "claude-cli" reads now
+#: (sleep_cycle._finalize, link_enrichment, link_recon), so a third plan
+#: engine is a row here, not a grep. `connection` must EQUAL the adapter id:
+#: consumption_stats joins strictly on it.
+PLAN_ENGINES: dict[str, tuple[str, str]] = {
+    "claude-cli": (CLAUDE_CONNECTION_ID, "subscription"),
+    "codex-cli": (CODEX_CONNECTION_ID, "subscription"),
+}
+PLAN_NAMES: dict[str, str] = {"claude-cli": "Claude plan", "codex-cli": "ChatGPT plan"}
 
 
 def engine_label(settings: Settings) -> str:
@@ -69,6 +84,24 @@ def engine_label(settings: Settings) -> str:
     """
     mode = (getattr(settings, "llm_mode", None) or "byok").strip().lower()
     return ENGINE_LABELS.get(mode, "litellm")
+
+
+def author_model(settings) -> str:
+    """R-E22: the model to stamp on work this engine did when nothing better
+    was recorded (a claim's ``authored_by``, a link-backfill fallback). The
+    plan engines read their own model; ``litellm_model`` never ran on them —
+    the L2 rule ``_finalize`` already applies to commit trailers. Every other
+    engine keeps ``litellm_model``, byte-identical to before."""
+    engine = engine_label(settings)
+    if engine == "claude-cli":
+        from api.services import agent_engine
+
+        return agent_engine.model_for_stage(settings, None)
+    if engine == "codex-cli":
+        from api.services import codex_engine
+
+        return codex_engine.model_for_stage(settings, None) or "unknown"
+    return str(getattr(settings, "litellm_model", "") or "unknown")
 
 
 def use_for_sleep(registry) -> bool:

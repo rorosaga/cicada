@@ -392,3 +392,16 @@ def test_the_requeue_note_names_the_plan_stop_when_there_is_one():
                                         "Sleep paused to leave you room.") == (
         " — 3 episode(s) requeued (Your Claude plan is 92% used for this 5-hour window — "
         "Sleep paused to leave you room.)")
+
+
+def test_the_failure_copy_names_the_plan_that_actually_ran():
+    """R-E22: a ChatGPT-plan cycle's failure copy never tells the person to
+    check a Claude sign-in it never used."""
+    msg = sleep_cycle._stage1_failure_message("codex-cli")
+    assert "ChatGPT" in msg and "claude" not in msg.lower()
+    agent_engine.trip_breaker("ChatGPT plan limit reached")
+    sleep_cycle._state.episodes_total = 2
+    try:
+        assert sleep_cycle._stage1_failure_message("codex-cli").startswith("ChatGPT plan throttled")
+    finally:
+        sleep_cycle._state.episodes_total = 0

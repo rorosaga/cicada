@@ -101,10 +101,12 @@ class Settings(BaseSettings):
     # ``ollama_base_url``. ``"agent"`` runs every call through the user's own
     # ``claude`` CLI on their subscription (G74(a)); ``"auto"`` resolves to
     # the agent rung when the Claude plan probes connected, else the local
-    # rung when Ollama is running, else ``"byok"``. Resolution happens once
+    # rung when Ollama is running, else ``"byok"``. ``"codex"`` runs every
+    # call through Cicada's own ``codex exec`` sign-in on the person's ChatGPT
+    # plan (G49, Track E). Resolution happens once
     # per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an
     # unresolved ``"auto"`` as ``"byok"`` and never shells out synchronously.
-    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|local)
+    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local)
     # Model name passed to Ollama when llm_mode="local" (litellm bind:
     # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
     ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
@@ -142,6 +144,15 @@ class Settings(BaseSettings):
     # Stage 1 through `--json-schema`. OFF until the demo-bank comparison is
     # recorded in G49 (R-E14, R1 §5.4).
     agent_extraction_schema: bool = False           # CICADA_AGENT_EXTRACTION_SCHEMA
+
+    # R-E2/R-E17 — the codex rung (llm_mode="codex"): `codex exec` in
+    # Cicada's own Codex home. No model id is pinned in code: "" means the
+    # plan's current default (resolved from `model/list` at a cycle's
+    # pre-flight; no `-m` elsewhere). Every model on the live roster lists
+    # `low` effort (2026-09-23).
+    codex_model: str = ""                           # CICADA_CODEX_MODEL
+    codex_disambiguation_model: str = ""            # CICADA_CODEX_DISAMBIGUATION_MODEL
+    codex_reasoning_effort: str = "low"             # CICADA_CODEX_REASONING_EFFORT
 
     # Server
     host: str = "127.0.0.1"

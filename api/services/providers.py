@@ -243,21 +243,24 @@ def resolve_llm_fn(
             ``telemetry.bank_name(settings)``.
         is_async: force the AGENT rung's returned callable to be awaitable
             (``True``) or blocking (``False``). Outside ``llm_mode="agent"``
+            (or ``"codex"``)
             this is a no-op (fix round 1, L4) — the byok/local ``_call``
             always branches on ``inspect.isawaitable(completion(...))`` at
             call time, exactly as before this parameter existed. Defaults to
             ``inspect.iscoroutinefunction(completion)``: verified sound
             (``litellm.acompletion`` is a coroutine function,
-            ``litellm.completion`` is not), but in ``llm_mode="agent"`` the
+            ``litellm.completion`` is not), but in ``llm_mode="agent"`` (or
+            ``"codex"``) the
             injected ``completion`` is never called, so the override exists
             for callers that pass neither.
-        runner: injected subprocess runner for ``llm_mode="agent"``
+        runner: injected subprocess runner for ``llm_mode="agent"`` or ``"codex"``
             (``runner(argv, *, stdin, timeout, cwd) -> CliResult``). Tests
             always pass one; production leaves it ``None`` and gets
             ``connections.base.run_cli_sync``.
         scope: the ``agent_engine`` throttle-breaker bucket this call's
             AGENT-rung requests check/trip — only meaningful when
-            ``llm_mode == "agent"``. Defaults to ``agent_engine.current_scope()``
+            ``llm_mode == "agent"`` or ``"codex"`` (one breaker for both plans,
+            R-E19). Defaults to ``agent_engine.current_scope()``
             (a Sleep cycle wraps its whole run in ``agent_engine.use_scope(...)``,
             so every stage's ``resolve_llm_fn`` call inherits that cycle's
             scope with no explicit passing needed); pass an explicit value to
@@ -276,6 +279,9 @@ def resolve_llm_fn(
         When ``settings.llm_mode == "agent"``, the call is routed through
         ``agent_engine.complete`` (a ``claude -p`` subprocess on the user's own
         subscription) instead — see the module docstring for the seam contract.
+        When it is ``"codex"``, the call is one ``codex exec`` in Cicada's own
+        Codex home on the person's ChatGPT plan (``codex_engine``, R-E2),
+        behind the same semaphore, breaker, telemetry and models ledger.
 
         Every call is timed and reported as one ``UsageEvent`` to ``sink``
         (default: the telemetry ledger) tagged with ``stage`` — the single
@@ -287,8 +293,10 @@ def resolve_llm_fn(
     # unresolved "auto" reaching this synchronous seam degrades to byok rather
     # than blocking a request thread on a subprocess probe.
     mode = (settings.llm_mode or "byok").strip().lower()
-    is_agent = mode == "agent"
-    if completion is None and not is_agent:
+    # R-E2: both plan engines are CLI rungs behind one seam — the Claude plan
+    # (`claude -p`) and the ChatGPT plan (`codex exec`).
+    is_cli = mode in ("agent", "codex")
+    if completion is None and not is_cli:
         # Fix round 1, N2: never imported on the agent rung — a multi-second
         # import for a callable that branch is built specifically to avoid
         # calling. `iscoroutinefunction(None)` below is False, same as
@@ -304,23 +312,31 @@ def resolve_llm_fn(
     if is_async is None:
         is_async = inspect.iscoroutinefunction(completion)
 
-    is_local = (not is_agent) and (mode == "local" or resolved_model.startswith("ollama/"))
+    is_local = (not is_cli) and (mode == "local" or resolved_model.startswith("ollama/"))
     if is_local and not resolved_model.startswith("ollama/"):
         resolved_model = f"ollama/{settings.ollama_model}"
 
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
 
-    if is_agent:
+    if is_cli:
         from api.services import agent_engine
 
         # A plan call is not money and does not belong to the disconnected
         # BYOK API-key card. `connection` must EQUAL the adapter id —
         # consumption_stats.per_connection joins strictly on it.
-        engine_label, connection, billing = "claude-cli", "claude-plan", "subscription"
-        # `litellm_model` ids mean nothing to `claude --model`; the rung has
-        # its own model pair (settings.agent_model / agent_disambiguation_model).
-        argv_model = agent_engine.model_for_stage(settings, stage)
+        if mode == "agent":
+            engine_label, connection, billing = "claude-cli", "claude-plan", "subscription"
+            # `litellm_model` ids mean nothing to `claude --model`; the rung has
+            # its own model pair (settings.agent_model / agent_disambiguation_model).
+            argv_model = agent_engine.model_for_stage(settings, stage)
+        else:
+            from api.services import codex_engine
+
+            # R-E2: the ChatGPT plan's own card and model pair. "" = no `-m`
+            # (the plan's default, R-E17).
+            engine_label, connection, billing = "codex-cli", "chatgpt-plan", "subscription"
+            argv_model = codex_engine.model_for_stage(settings, stage)
     else:
         engine_label = "litellm"
         connection, billing = telemetry.connection_for_model(resolved_model)
@@ -330,13 +346,15 @@ def resolve_llm_fn(
               equiv_override: float | None = None, refs: dict | None = None) -> None:
         try:
             usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
-            event_model = model_used or (argv_model if is_agent else resolved_model)
-            if is_agent:
+            event_model = model_used or (argv_model if is_cli else resolved_model)
+            if is_cli:
                 # `costBasis: "list"` says the envelope's figure is metering,
                 # not money charged — so it is an equivalent, never a spend.
                 cost = None
                 equiv = equiv_override
-                if equiv is None:
+                # `codex exec` reports no metering, and estimating would
+                # import litellm on the one rung built to avoid it (N2).
+                if equiv is None and mode == "agent":
                     equiv = pricing.estimate_cost(
                         event_model, usage["input_tokens"], usage["output_tokens"],
                         usage["cache_read_tokens"], usage["cache_write_tokens"])
@@ -378,7 +396,8 @@ def resolve_llm_fn(
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
     def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False):
-        """One `claude -p` call, the response shim, and telemetry.
+        """One plan-CLI call (`claude -p` or `codex exec`), the response shim,
+        and telemetry.
 
         Fix round 1, M1: the shim and cost extraction now sit INSIDE the
         guarded region, and the catch is widened from
@@ -407,18 +426,37 @@ def resolve_llm_fn(
         started = time.perf_counter()
         seen: dict = {}
         try:
-            envelope = agent_engine.complete(
-                messages=messages, model=argv_model, stage=stage,
-                want_json=response_format is not None, timeout=timeout, runner=runner,
-                scope=resolved_scope,
-                policy=agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
-                on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop),
-            )
-            resp = agent_engine.response_shim(envelope, argv_model)
-            used = resp["model"]
+            if mode == "agent":
+                envelope = agent_engine.complete(
+                    messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner,
+                    scope=resolved_scope,
+                    policy=agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                    on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop),
+                )
+                resp = agent_engine.response_shim(envelope, argv_model)
+                used = resp["model"]
+                equiv = agent_engine.equiv_cost_from_envelope(envelope)
+                refs = _claude_refs(envelope, seen.get("stream"))
+            else:
+                from api.services import codex_engine
+
+                # R-E2/R-E19: the ChatGPT plan through the same breaker scope,
+                # semaphore and ledger. Effort is every stage's `low`
+                # (R-E17), so `reasoning_off` has nothing further to lower.
+                parsed = codex_engine.complete(
+                    messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner,
+                    scope=resolved_scope, effort=codex_engine.effort_for(settings),
+                )
+                resp = codex_engine.response_shim(parsed, argv_model)
+                # exec does not echo the served model: record the one asked
+                # for, or nothing when the plan's default ran (R-E17).
+                used = argv_model or None
+                equiv = None
+                # A count, never the warning text (telemetry is ids and enums).
+                refs = {"warnings": len(parsed.warnings)} if parsed.warnings else {}
             agent_engine.record_model_used(used)
-            equiv = agent_engine.equiv_cost_from_envelope(envelope)
-            refs = _claude_refs(envelope, seen.get("stream"))
         except (engine_errors.EngineThrottled, engine_errors.EngineExhausted) as exc:
             # R-E12: a throttle trips in any scope (unchanged). An exhaustion
             # trips only inside a workload scope. Trip BEFORE emitting so a
@@ -488,7 +526,7 @@ def resolve_llm_fn(
             return _agent_invoke_async(messages, response_format, timeout, reasoning_off)
         return _agent_invoke_sync(messages, response_format, timeout, reasoning_off)
 
-    if is_agent:
+    if is_cli:
         return _agent_call
 
     def _call(*, messages, response_format=None, **kw):

@@ -240,6 +240,10 @@ def _engine_block(settings, connected_ids: list[str] | None) -> dict:
     engine = engine_select.engine_label(settings) if settings is not None else "litellm"
     if mode == "agent":
         model = getattr(settings, "agent_model", None)
+    elif mode == "codex":
+        # R-E17: "" = the plan's current default, which only a cycle's
+        # pre-flight resolves — the cursor says so rather than guessing.
+        model = getattr(settings, "codex_model", None) or None
     elif mode == "local":
         model = f"ollama/{getattr(settings, 'ollama_model', 'llama3.1')}"
     else:
