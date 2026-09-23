@@ -5,13 +5,16 @@ import XCTest
 /// own "Choose file…" action can actually upload.
 final class AddSourceTileTests: XCTestCase {
 
-    /// Chat exports go to `POST /conversations/upload`; every other export
+    /// Chat exports go through the one intake, `POST /intake/sniff` then
+    /// `/intake/import`; every other export
     /// platform goes to `POST /sources/upload`. Offering the wrong vendor on
     /// a tile sends the file to the wrong parser and reports "Imported 0" —
     /// G71 §4.1 split the old combined "Instagram & YouTube" tile into one
     /// tile per platform precisely so each tile's vendor list stays exact.
     func testEachWalkthroughTileOffersOnlyItsOwnVendors() {
-        XCTAssertEqual(AddSourceTile.chatExport.vendors, [.claude, .chatgpt])
+        XCTAssertEqual(AddSourceTile.claudeExport.vendors, [.claude])
+        XCTAssertEqual(AddSourceTile.chatgptExport.vendors, [.chatgpt])
+        XCTAssertEqual(AddSourceTile.geminiExport.vendors, [.gemini])
         XCTAssertEqual(AddSourceTile.instagram.vendors, [.instagram])
         XCTAssertEqual(AddSourceTile.youtube.vendors, [.takeout])
         XCTAssertEqual(AddSourceTile.tiktok.vendors, [.tiktok])
@@ -21,7 +24,7 @@ final class AddSourceTileTests: XCTestCase {
 
     func testNonWalkthroughTilesOfferNoVendors() {
         let walkthroughTiles: Set<AddSourceTile> = [
-            .chatExport, .instagram, .youtube, .tiktok, .linkedin, .reddit,
+            .claudeExport, .chatgptExport, .geminiExport, .instagram, .youtube, .tiktok, .linkedin, .reddit,
         ]
         for tile in AddSourceTile.allCases where !walkthroughTiles.contains(tile) {
             XCTAssertTrue(tile.vendors.isEmpty, "\(tile.rawValue) should have no walkthrough")

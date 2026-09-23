@@ -10,14 +10,14 @@ import Foundation
 /// a copy inside one test file would drift from the other's.
 enum ChannelMarks {
     /// Mirrors `api/services/channel_registry.py::CHANNEL_IDS` verbatim — a
-    /// 14th id added there needs this list AND
+    /// new id added there needs this list AND
     /// `ConnectedChannelRow.origin(forChannel:)` updated together, and the
     /// sweep in `ChannelMarkTests` is what makes forgetting the second half
     /// loud. `IntegrationsViewTests.testEveryChannelIdHasACategory` keeps its
     /// own copy of the same list for the category map; both are checked
     /// against the command in the plan's task 4 step 5.
     static let allChannelIds: [String] = [
-        "chat-export:claude", "chat-export:chatgpt",
+        "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini",
         "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
         "notes", "rss", "calendar",
         "pinterest", "reddit", "x", "telegram", "files",

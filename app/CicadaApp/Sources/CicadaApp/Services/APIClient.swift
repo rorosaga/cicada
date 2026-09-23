@@ -1154,41 +1154,6 @@ actor APIClient {
         return expectedSlug
     }
 
-    /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
-    /// into bank `name` as dated episodes. Format is auto-detected server-side.
-    func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {
-        var request = makeRequest("/banks/\(encodedBank(name))/import", method: "POST", json: false)
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
-
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverUnreachable
-        }
-        guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 { Self.invalidateToken() }
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw APIError.httpError(http.statusCode, msg)
-        }
-        do {
-            return try decoder.decode(BankImportResponse.self, from: data)
-        } catch {
-            throw APIError.decodingError("\(error)")
-        }
-    }
-
     // MARK: - Entities
 
     /// Legacy entity ids can contain `#`, `$`, parens, etc. — `#` silently
@@ -2105,39 +2070,6 @@ actor APIClient {
         return try decoder.decode(RemoteConnector.self, from: data)
     }
 
-    // MARK: - Upload
-
-    func uploadFile(fileURL: URL) async throws -> UploadResponse {
-        var request = makeRequest("/conversations/upload", method: "POST", json: false)
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
-
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverUnreachable
-        }
-        guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 { Self.invalidateToken() }
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw APIError.httpError(http.statusCode, msg)
-        }
-
-        return try decoder.decode(UploadResponse.self, from: data)
-    }
-
     // MARK: - Generic Helpers
 
     /// `timeout` overrides Foundation's 60 s default for this one request.
@@ -2519,6 +2451,39 @@ extension APIClient: SyncAPI {
         // lines, and an empty line is what terminates an SSE frame.
         return (SSELineSplitter.lines(from: bytes), http)
     }
+}
+
+// MARK: - One intake (Track I T5)
+
+extension APIClient: IntakeAPI {
+    private static func bankQuery(_ bank: String?) -> String {
+        guard let bank else { return "" }
+        // `.urlQueryAllowed` keeps `&`, `=` and `+`, which would split or
+        // re-read the one parameter; a bank slug never has them, but a name
+        // typed into "New memory…" is not a slug until the backend says so.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return "?bank=" + (bank.addingPercentEncoding(withAllowedCharacters: allowed) ?? bank)
+    }
+
+    /// `POST /intake/sniff` — stages nothing (G71 §4.3); safe on every drop.
+    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff {
+        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL)
+    }
+
+    /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
+    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse {
+        try await uploadMultipart(path: "/intake/import" + Self.bankQuery(bank), fileURL: fileURL)
+    }
+
+    func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
+
+    /// A `kind: saved` file commits through the path that previewed it (R-IA32).
+    func uploadSaved(fileURL: URL) async throws -> UploadResponse { try await uploadSource(fileURL: fileURL) }
+
+    /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
+    /// and the exact argv `AgentConnect` may run after the person's click.
+    func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
 }
 
 /// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.

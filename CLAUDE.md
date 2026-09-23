@@ -148,6 +148,9 @@ Six rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+  A browser is read only after the person turned it on — a Sync now, an all-folders import, or
+  onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
+  before this gate keeps syncing (Track I T1).
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
@@ -521,10 +524,16 @@ Integrations · Agents · Plans & keys (`SettingsSection`, replacing the earlier
 `AppTab.restored(from:)` maps retired ones onto the pages that inherited them, so an older selection
 never traps. A page's top-right control is the `?` alone — Track P's audit removed the global Sleep
 button, because a cycle starts from the Sleep page's one Consolidate control (G125 R10) or the
-menu-bar bookworm. **The Feed keeps its Upload button**, and that is the one exception: "a one-shot
-import lives behind the `+`" (the G126 rule above) covers a chat export, but importing an export
-*into a chosen or newly created memory bank* has no tile, and the upload overlay is also the only
-writer of `Store.intakeInFlight` — the flag that makes the bookworm read while an import lands.
+menu-bar bookworm.
+**One intake (Track I, spec decision 13).** Every way a file arrives — a drop anywhere on the
+window, the Dock icon, File → Import… (⌘⇧I), the menu-bar worm's *Import a file…*, an empty state,
+each `+` chat tile — goes through one `IntakeRouter`: sniff (`POST /intake/sniff`, stages nothing) →
+preview (counts, date range, new · grew · already here, skipped files by name, *Into* a memory) →
+import (`POST /intake/import`; a 202 and a job counter above 10 episodes) → a *what happens next*
+card that never closes on its own. `UploadOverlay` and the Feed's Upload button are gone; the router
+owns `Store.intakeInFlight` through a counter of requests in flight. The card's *Read now* is G125
+R10's first narrow amendment: a user trigger, subtitled with the manual engine like Consolidate,
+shown only when an engine can run and the import landed in the active bank.
 
 **Settings → Sleep: the engine picker (G122, Track E).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
@@ -546,6 +555,14 @@ behind the Feed's `+`. Both read the same `channel_registry`, so a channel never
 two surfaces. Round 3 added **Notes & files** (Apple Notes, every watched folder, *Add a folder* and,
 when Obsidian is installed, *Obsidian vault*) and **Voice & meetings** (Wispr Flow once it is on this
 Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+
+**Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
+*recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
+each, a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
+unparseable settings file is `invalid`, never `off`), plus the exact argv install.sh would run. The
+**app** runs them, only after the person's click (spec decision 14, D-1), with
+`CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
+harness root.
 
 **Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
 container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
@@ -583,7 +600,7 @@ behind them, cloud drift, a storm flash, estimates, prices.
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
-the upload overlay runs) forces `reading` ahead of `happy`/`hungry` but never ahead of
+the intake router has a request in flight) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
 only a measured, telemetry-joined duration is ever shown. Track Z adds **response art** inside
 `BookwormSprites`: `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and
@@ -703,6 +720,12 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+- `POST /intake/import` answers **202** with `{job}` when more than 10 episodes would be written; poll
+  `GET /intake/jobs/{id}` (process-local — gone after a restart or an hour; the episodes are not). One
+  stage runs at a time per process.
+- `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
+  `POST /intake/import`; its `turns` sidecar is a list on imported episodes and an **integer
+  count** on Stop-hook episodes, so a reader checks the type.
 
 ---
 
@@ -788,8 +811,14 @@ scheduled path — daily, interval, or the settle probe — passes `user_trigger
 scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`).
 
 ### 5. Conversation upload
-File picker for JSON/HTML exports; parses and stages into `episodes/`; dedups on timestamp +
-content hash.
+**One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
+folder, or one file — go through `api/routers/intake.py`: every member a parser knows (a Claude
+zip's conversations, memories and projects), the known extras (`user(s).json`, feedback and
+comparison files, ChatGPT's `chat.html` viewer) skipped **by name**, the vendor's `origin` stamped
+on every path, per-message times kept as `turns: [{offset, ts, speaker}]` outside `content_hash`,
+and re-imports updating grown threads in place (G20) without duplicating. `POST /intake/sniff`
+previews and stages nothing; `POST /intake/import` stages. `/conversations/upload` (deprecated,
+`Deprecation: true`) and `/banks/{name}/import` are shims over it.
 
 ---
 

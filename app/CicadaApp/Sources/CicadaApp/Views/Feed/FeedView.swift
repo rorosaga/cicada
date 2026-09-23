@@ -11,10 +11,10 @@ struct FeedView: View {
     /// router carries a one-shot tile across the sidebar-to-Feed boundary
     /// without either view importing the other.
     @Environment(AppRouter.self) private var router
-    @State private var showUploadOverlay = false
+    /// Track I T5 (R-IA27) — the empty state takes a dropped export itself.
+    @Environment(IntakeRouter.self) private var intake
     @State private var showAddSheet = false
     @State private var sheetTile: AddSourceTile?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -47,7 +47,9 @@ struct FeedView: View {
             // ZStack child; Feed keeps a fixed header, so it must fill explicitly).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            // Top-right controls (Add + Upload + Sleep + Help), shared chrome.
+            // Top-right controls (Add + Help), shared chrome. Track I T5
+            // retired the Upload button (R-IA22): a file arrives through the
+            // one intake — a drop anywhere, File → Import…, or this `+`.
             // `addButton` used to live inline in the page header's trailing
             // slot (PageHeader's own right-aligned HStack), which put it at
             // nearly the same top-right coordinates as this floating overlay
@@ -62,45 +64,17 @@ struct FeedView: View {
                     Spacer()
                     HStack(spacing: CicadaTheme.spacingSM) {
                         addButton
-                        // Final review F1 — Feed is the ONE page that opts
-                        // back into the Upload button. Track P R1 flipped
-                        // `showsUpload` to default-false on the reasoning
-                        // that "a one-shot import lives behind the `+`",
-                        // which is true for `UploadMode.conversations`
-                        // (`AddSourceTile.chatExport`) but NOT for
-                        // `UploadMode.project` — importing an export into a
-                        // chosen or newly created memory bank has no tile in
-                        // `AddSourceSheet`, so the flip stranded the only
-                        // route to it. It also stranded the only writer of
-                        // `store.intakeInFlight`, which is what lets the
-                        // Sleep page's bookworm read `.reading` during an
-                        // import (G125 R2). Opt in here, explicitly; the
-                        // default stays "`?` only" for every other page.
-                        TopBarControls(
-                            selectedTab: $selectedTab,
-                            showUploadOverlay: $showUploadOverlay,
-                            showsUpload: true
-                        )
+                        TopBarControls(selectedTab: $selectedTab, showUploadOverlay: .constant(false))
                     }
                     .padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
-            }
-
-            if showUploadOverlay {
-                UploadOverlay(isPresented: $showUploadOverlay)
-                    .transition(.opacity)
             }
         }
         // No `.task { load() }` here: `FeedViewModel` is a thin projection
         // over `Store.sources`, which the Store already hydrates from disk
         // and keeps live via SSE — this tab renders instantly from whatever
         // the Store already has, on every revisit, with no per-view refetch.
-        .onChange(of: showUploadOverlay) { _, isShowing in
-            // Refresh after the upload overlay closes — newly saved items appear.
-            if !isShowing { Task { await viewModel.load() } }
-        }
-        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: showUploadOverlay)
         // ⌘N while Feed is on screen opens the picker. Hidden-button pattern,
         // same as ContentView's ⌘K — and the ONLY registration of this
         // shortcut in the app.
@@ -243,7 +217,8 @@ struct FeedView: View {
                 title: title,
                 message: subtitle,
                 actionLabel: "Open Integrations",
-                settingsSection: .integrations
+                settingsSection: .integrations,
+                onDropFiles: { intake.accept(urls: $0, from: .emptyState(.feed)) }
             )
         } else {
             VStack(spacing: CicadaTheme.spacingMD) {

@@ -25,7 +25,7 @@ from api.models.schemas import (
     BankListResponse,
     BankRenameRequest,
 )
-from api.routers.conversations import _stage_episodes, parse_export_bytes
+from api.routers import intake
 from api.services import bank_index, bank_registry, search_index, sync_service
 from api.services.bank_migrations import run_bank_migrations
 from api.services.graph_builder import file_mtime
@@ -203,55 +203,22 @@ async def import_into_bank(
     file: UploadFile,
     settings: Settings = Depends(get_settings),
 ) -> BankImportResponse:
-    """Stage a chat-export file as DATED episodes into bank ``{name}``.
+    """Stage a chat export as DATED episodes into bank ``{name}`` (M7).
 
-    Additive only: parses + content-hash-dedups against the target bank's
-    ``episodes/`` and writes backdated episodes. Does NOT run consolidation or
-    rewrite git. Format is auto-detected (Claude / ChatGPT / Gemini / zip).
-    """
-    root = settings.memory_root
-    registry = bank_registry.load_registry(root)
-    if name not in (registry.get("banks", {}) or {}):
-        raise HTTPException(404, f"Unknown bank '{name}'")
-
-    target_dir = bank_registry.bank_dir(root, name)
-    # The bank may have been created empty; ensure its episodes dir exists.
-    bank_registry.scaffold_bank(target_dir, git_init=False)
-
+    Track I T2 (R-IA10): a shim over ``intake.import_bytes`` — the one pipeline,
+    so this route gains every zip member, named skips and the Gemini split — kept
+    for external callers with its shape, plus ``vendor``/``origin``. G87: the
+    ``active`` flag still says when the target is not the bank Sleep reads."""
     content = await file.read()
-    filename = file.filename or ""
-    logger.info(f"Import into bank '{name}': {filename} ({len(content)} bytes)")
-
-    episodes, fmt = parse_export_bytes(content, filename)
-
-    # dateRange = min/max original conversation date across parsed episodes
-    # (computed pre-staging so it reflects the export's true span, including any
-    # that dedup later skips).
-    dates = sorted(d for d in (e.get("original_date") for e in episodes) if d)
-    date_range = BankImportDateRange(
-        **{"from": dates[0] if dates else None, "to": dates[-1] if dates else None}
-    )
-
-    created, updated, skipped = _stage_episodes(episodes, target_dir / "episodes")
-    logger.info(
-        f"  Staged {created} new, {updated} updated, {skipped} unchanged ({fmt})"
-    )
-
-    # G87 / Wave-1 1.6: `name` need not be the ACTIVE bank — episodes staged
-    # into a non-active bank are invisible to Sleep until someone switches to
-    # it. Surface that in the response instead of a plain "imported" success.
-    is_active = name == registry.get("active", bank_registry.DEFAULT_BANK)
-    if not is_active:
-        logger.warning(
-            f"Import into bank '{name}' staged {created + updated} episode(s) into a "
-            "NON-active bank — they will not be consolidated until it is switched to."
-        )
-
+    logger.info(f"Import into bank '{name}': {file.filename or ''} ({len(content)} bytes)")
+    result = await run_in_threadpool(intake.import_bytes, content, file.filename or "", settings, bank=name)
     return BankImportResponse(
-        episodes_staged=created,
-        episodes_updated=updated,
-        duplicates_skipped=skipped,
-        date_range=date_range,
-        format=fmt,
-        active=is_active,
+        episodes_staged=result.created,
+        episodes_updated=result.updated,
+        duplicates_skipped=result.skipped,
+        date_range=BankImportDateRange(**{"from": result.date_from, "to": result.date_to}),
+        format=result.parsed.format,
+        active=result.active,
+        vendor=result.parsed.vendor,
+        origin=result.parsed.origin,
     )

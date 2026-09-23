@@ -11,6 +11,10 @@ import WebKit
 final class ClickableWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    /// Track I T5 (D10, R-IA24): a WKWebView registers for file drags itself and
+    /// would load a dropped export INTO the canvas. Never registering lets the drop
+    /// fall through to the window's one intake.
+    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {}
 }
 
 struct GraphView: NSViewRepresentable {

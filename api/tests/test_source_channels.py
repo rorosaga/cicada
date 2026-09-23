@@ -144,6 +144,18 @@ def test_chat_export_channels_come_from_origin_counts(tmp_path):
     assert chans["chat-export:chatgpt"]["count"] == 1
 
 
+def test_a_gemini_takeout_has_its_own_channel(tmp_path):
+    """D11 / R-IA14: counted by origin, in prompts."""
+    episodes = tmp_path / "episodes"
+    episodes.mkdir(parents=True)
+    (episodes / "ep_2026-02-24_001.md").write_text(
+        "---\nid: ep_2026-02-24_001\norigin: gemini-export\ntimestamp: '2026-02-24T12:39:02+00:00'\n---\nuser: alpha-project\n",
+        encoding="utf-8")
+    gemini = _channels(tmp_path)["chat-export:gemini"]
+    assert gemini["count"] == 1 and gemini["count_noun"] == "prompt"
+    assert gemini["label"] == "Gemini chat export" and gemini["actions"] == ["import"]
+
+
 # --- G71: the direct Pinterest + Reddit connectors as capture channels ------
 
 
@@ -245,8 +257,9 @@ def test_channel_ids_now_include_all_three_connectors(client):
     c, _ = client
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "chrome-bookmarks", "safari-bookmarks",
-        "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
+        "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
+        "telegram", "files",
     ]
 
 
@@ -318,8 +331,9 @@ def test_get_sources_channels_returns_every_known_channel(client):
     assert resp.status_code == 200, resp.text
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "chrome-bookmarks", "safari-bookmarks",
-        "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
+        "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
+        "telegram", "files",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 

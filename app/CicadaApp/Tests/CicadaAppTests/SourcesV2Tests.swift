@@ -25,6 +25,9 @@ final class SourcesV2Tests: XCTestCase {
                                          channel: nil, watch: .stale).state, .behind)
         XCTAssertEqual(SourceLiveness.of(row: row("chrome-bookmarks", actions: ["sync"]),
                                          channel: nil, watch: .syncing).state, .syncing)
+        // R-IA3 — a browser present but not turned on "syncs when you ask", which is exactly true.
+        XCTAssertEqual(SourceLiveness.of(row: row("chrome-bookmarks", actions: ["sync"]),
+                                         channel: nil, watch: .off).state, .syncsOnDemand)
         // A hook-captured harness: no channel, `harness` set.
         XCTAssertEqual(SourceLiveness.of(row: row("harness:claude-code", kind: .harness,
                                                   harness: "claude-code"),

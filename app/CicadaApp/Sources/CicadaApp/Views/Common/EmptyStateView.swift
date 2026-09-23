@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// G117 — one honest "nothing here, here's the one thing to do" component,
 /// reused by every tab that can be empty on a fresh bank (Graph, Inbox,
@@ -30,6 +31,11 @@ struct EmptyStateView: View {
     /// Set instead of `actionLabel`/`action` when the one thing to do is
     /// "open Settings, on this section."
     var settingsSection: SettingsSection? = nil
+    /// Track I T5 (R-IA27) — set on a page an export can fill (Graph, Feed,
+    /// Sources): the card takes a dropped file and hands it to the one intake
+    /// with that page's own origin. Nil (Inbox) attaches no drop target at all.
+    var onDropFiles: (([URL]) -> Void)? = nil
+    @State private var dropTargeted = false
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingLG) {
@@ -56,6 +62,12 @@ struct EmptyStateView: View {
                         .hoverLift()
                         .padding(.top, CicadaTheme.spacingXS)
                 }
+                if onDropFiles != nil {
+                    Label(Copy.emptyStateDropHint, systemImage: "tray.and.arrow.down")
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(dropTargeted ? CicadaTheme.meadow : CicadaTheme.textTertiary)
+                        .padding(.top, CicadaTheme.spacingXS)
+                }
             }
             .padding(CicadaTheme.spacingLG)
             .frame(maxWidth: .infinity)
@@ -63,11 +75,32 @@ struct EmptyStateView: View {
                         in: RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous)
                 .stroke(CicadaTheme.border, lineWidth: 1))
+            .modifier(EmptyStateDrop(onDropFiles: onDropFiles, targeted: $dropTargeted))
         }
         .frame(maxWidth: 360)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { GrassCorners(height: EmptyStateLayout.cornerHeight) }
         .clipped()
+    }
+}
+
+/// Track I T5 (R-IA27) — an empty page that can be filled by an export takes the
+/// drop itself; one that cannot (Inbox) attaches no target, so the window's
+/// handler still gets the drop.
+private struct EmptyStateDrop: ViewModifier {
+    let onDropFiles: (([URL]) -> Void)?
+    @Binding var targeted: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let onDropFiles {
+            content.onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
+                IntakeDrop.load(providers) { onDropFiles($0) }
+                return true
+            }
+        } else {
+            content
+        }
     }
 }
 

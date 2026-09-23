@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - Top Bar Controls (Help; Sleep + Upload are opt-in seams — Track P R1)
+// MARK: - Top Bar Controls (Help; Sleep is an opt-in seam — Track P R1; Upload retired — Track I T5)
 
 /// Which popover the `?` button opens (G125 Task 7). Track P: the audit
 /// removed the Sleep and Upload buttons from every page (R1), so "About
@@ -26,14 +26,11 @@ struct TopBarControls: View {
     /// later may earn one back — but the DEFAULT is now the policy, so a
     /// page added later inherits "`?` only".
     var showsSleep: Bool = false
-    /// Final review F1 — `showsUpload` is default-false but NOT unused:
-    /// `FeedView` opts back in. "A one-shot import lives behind the Feed's
-    /// `+` and ⌘N" (CLAUDE.md's Integrations rule) covers
-    /// `UploadMode.conversations` only; `UploadMode.project` — an export
-    /// imported into a chosen or newly created memory bank — has no
-    /// `AddSourceTile`, and `UploadOverlay` is also the only writer of
-    /// `Store.intakeInFlight` (G125 R2's `.reading` mascot). A default flip
-    /// must not delete a capability that has no replacement.
+    /// Track I T5 (R-IA22): inert. The Upload button retired with `UploadOverlay`
+    /// — every file now arrives through the one `IntakeRouter`, which owns
+    /// `Store.intakeInFlight`. The parameter (and `showUploadOverlay`) survive only
+    /// because `Views/Sleep/SleepView.swift` passes them and Track Z owns that
+    /// file; `TopBarControlsTests` fails if any call site passes `true`.
     var showsUpload: Bool = false
     var help: HelpContent = .aboutCicada
     @State private var showHelpOverlay = false
@@ -73,26 +70,6 @@ struct TopBarControls: View {
                 }
                 .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
                 .help(sleepVM.status?.progress ?? "Run memory consolidation")
-            }
-
-            // Upload button
-            if showsUpload {
-                Button {
-                    withAnimation(CicadaMotion.panel(reduceMotion: reduceMotion)) {
-                        showUploadOverlay = true
-                    }
-                } label: {
-                    HStack(spacing: CicadaTheme.spacingXS) {
-                        Image(systemName: "arrow.up.doc")
-                            .font(CicadaTheme.font(size: 12))
-                        Text("Upload")
-                            .font(CicadaTheme.font(size: 12, weight: .medium))
-                    }
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .padding(.horizontal, CicadaTheme.spacingMD)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                }
-                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
             }
 
             // Help button — the same button, a different popover per `help`.

@@ -1,4 +1,3 @@
-import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import ConversationSummary, ConversationUploadResponse, ResumeDescriptor
-from api.services import episode_ids, episode_staging, session_stats, sync_service
+from api.services import episode_ids, episode_scrub, episode_staging, session_stats, sync_service
 
 router = APIRouter()
 
@@ -30,59 +29,28 @@ CWD_SAFE_RE = re.compile(r"^[A-Za-z0-9/_.~-]+$")
 @router.post("/conversations/upload", response_model=ConversationUploadResponse)
 async def upload_conversation(
     file: UploadFile,
+    response: Response,
     settings: Settings = Depends(get_settings),
 ):
+    """Deprecated shim (Track I T2, R-IA10) — the app imports through
+    ``POST /intake/import``. Kept for external callers, now on the ONE pipeline:
+    a Claude export uploaded here is stamped ``claude-export`` (it read
+    "Unattributed" on the Sources page before, R7 §1.2 defect 1), a zip is
+    accepted, and a Gemini page reaches the Gemini parser instead of ChatGPT's
+    scraper (defect 2). Synchronous by contract — its callers expect counts."""
+    from api.routers import intake  # deferred: intake imports this module
+
+    response.headers["Deprecation"] = "true"
     content = await file.read()
-    filename = file.filename or ""
-    logger.info(f"Upload: {filename} ({len(content)} bytes)")
-
-    source = "unknown"
-    try:
-        if filename.endswith(".html"):
-            episodes = _parse_chatgpt_html(content.decode("utf-8"))
-            source = "chatgpt_html"
-            logger.info(f"  Parsed as ChatGPT HTML: {len(episodes)} episodes")
-        elif filename.endswith(".json"):
-            data = json.loads(content)
-            source = detect_source(data, filename)
-            logger.info(f"  Detected source: {source}")
-            if source == "anthropic":
-                episodes = parse_anthropic_conversations(data)
-            elif source == "anthropic_memories":
-                episodes = parse_anthropic_memories(data)
-            elif source == "anthropic_projects":
-                episodes = parse_anthropic_projects(data)
-            elif source == "chatgpt":
-                episodes = parse_chatgpt_json(data)
-            else:
-                raise HTTPException(400, "Unrecognized JSON format")
-        else:
-            raise HTTPException(400, "Unsupported file format. Use .json or .html")
-    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise HTTPException(400, f"Failed to parse file: {e}")
-
-    # Map source to human-readable labels
-    source_labels = {
-        "anthropic": "Claude — Conversations",
-        "anthropic_memories": "Claude — Memories",
-        "anthropic_projects": "Claude — Projects",
-        "chatgpt": "ChatGPT — Conversations",
-        "chatgpt_html": "ChatGPT — HTML Export",
-    }
-
-    created, updated, skipped = _stage_episodes(
-        episodes, settings.memory_path / "episodes"
-    )
-    logger.info(
-        f"  Staged {created} new, {updated} updated, {skipped} unchanged"
-    )
+    logger.info(f"Upload (deprecated shim): {file.filename or ''} ({len(content)} bytes)")
+    result = await run_in_threadpool(intake.import_bytes, content, file.filename or "", settings)
     return ConversationUploadResponse(
         status="success",
-        episodes_created=created,
-        episodes_updated=updated,
-        duplicates_skipped=skipped,
-        message=f"Staged {created} new, {updated} updated, {skipped} unchanged",
-        source=source_labels.get(source, source),
+        episodes_created=result.created,
+        episodes_updated=result.updated,
+        duplicates_skipped=result.skipped,
+        message=f"Staged {result.created} new, {result.updated} updated, {result.skipped} unchanged",
+        source=intake.source_label(result.parsed),
     )
 
 
@@ -229,27 +197,23 @@ async def resume_conversation(
 
 
 def detect_source(data, filename: str = "") -> str:
-    """Detect export source from JSON structure."""
-    # Anthropic memories.json
-    if isinstance(data, list) and data and "conversations_memory" in data[0]:
+    """Detect export source from JSON structure.
+
+    Only a list whose first item is an object is an export: ``"key" in 1``
+    raised TypeError (a stray ``[1, 2]`` 500'd a whole zip), and ``"key" in
+    "a string"`` is a substring test that could misread a list of strings
+    (Track I final review, finding 8)."""
+    if not (isinstance(data, list) and data and isinstance(data[0], dict)):
+        return "unknown"
+    first = data[0]
+    if "conversations_memory" in first:
         return "anthropic_memories"
-
-    # Anthropic projects.json
-    if isinstance(data, list) and data and "prompt_template" in data[0]:
+    if "prompt_template" in first:
         return "anthropic_projects"
-
-    # Anthropic conversations.json — has uuid + chat_messages
-    if isinstance(data, list) and data:
-        first = data[0] if data else {}
-        if "chat_messages" in first and "uuid" in first:
-            return "anthropic"
-
-    # ChatGPT — has mapping with message nodes
-    if isinstance(data, list) and data:
-        first = data[0] if data else {}
-        if "mapping" in first:
-            return "chatgpt"
-
+    if "chat_messages" in first and "uuid" in first:
+        return "anthropic"
+    if "mapping" in first:
+        return "chatgpt"
     return "unknown"
 
 
@@ -494,7 +458,13 @@ def parse_chatgpt_json(data: list) -> list[dict]:
 
 
 def _parse_chatgpt_html(html: str) -> list[dict]:
-    """Parse ChatGPT HTML export. Fallback — less structured than JSON."""
+    """Parse ChatGPT HTML export. Fallback — less structured than JSON.
+
+    Only ChatGPT's legacy export, whose threads sit in `div.conversation`
+    blocks. The old `[soup]` fallback turned any page — a bookmarks file, the
+    `chat.html` viewer — into role-less messages dated today (Track I D7); a
+    page without those blocks is not a chat export.
+    """
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
@@ -502,7 +472,7 @@ def _parse_chatgpt_html(html: str) -> list[dict]:
 
     conversations = soup.find_all("div", class_="conversation")
     if not conversations:
-        conversations = [soup]
+        return []
 
     for conv in conversations:
         messages: list[dict] = []
@@ -574,13 +544,46 @@ def _parse_gemini_timestamp(raw: str) -> str | None:
     return episode_ids.to_utc_iso(dt)
 
 
-def parse_gemini_myactivity(html: str) -> list[dict]:
-    """Parse a Google Takeout ``Gemini Apps/MyActivity.html`` export.
+_GEMINI_VERB = re.compile(r"^(?:Prompted|Asked|Said)[\s\u00a0]+")
+_GEMINI_TITLE_MAX = 60
 
-    Each activity entry is an ``outer-cell`` ``mdl-card`` whose body holds the
-    prompt text plus a rendered timestamp. We treat each entry as a single
-    backdated episode (``origin=gemini-export``), preserving the activity's own
-    timestamp so the Sleep cycle sees true chronology.
+
+def _gemini_title(prompt: str) -> str:
+    first = prompt.split("\n", 1)[0].strip()
+    if not first:
+        return "Gemini activity"
+    return first if len(first) <= _GEMINI_TITLE_MAX else first[: _GEMINI_TITLE_MAX - 1].rstrip() + "…"
+
+
+def _gemini_legacy_hashes(legacy_text: str) -> list[str]:
+    """The hashes a pre-Track-I Gemini episode can carry: its one ``user:``
+    line hashed raw (every stager before G133), and hashed after the scrub
+    (dev's ``episode_staging`` scrubs before it hashes, R-N3). Both, because a
+    bank may hold either; one entry when no scrub rule fired."""
+    if not legacy_text:
+        return []
+    raw = episode_staging.content_hash(f"user: {legacy_text}")
+    scrubbed = episode_staging.content_hash(f"user: {episode_scrub.scrub(legacy_text)[0]}")
+    return list(dict.fromkeys((raw, scrubbed)))
+
+
+def parse_gemini_myactivity(html: str) -> list[dict]:
+    """Parse a Google Takeout ``Gemini Apps/MyActivity.html`` export (Track I, R-IA9).
+
+    One episode per activity cell. The first content cell reads
+    ``Prompted <prompt>``, the activity's rendered timestamp, then Gemini's
+    reply; the old parser kept all of it as ONE ``user`` message, so Gemini's
+    words were credited to the person, and titled every entry "Gemini
+    activity". Now the cell is split at its (last) timestamp line: the prompt
+    — minus Google's own verb, which is not the person's words — is ``user``,
+    what follows is ``assistant``, and the title is the prompt's first line.
+
+    Each entry also carries ``legacy_hashes``: the ``content_hash`` values the
+    old parser's body could have been stored under (see
+    ``_gemini_legacy_hashes``). ``api/routers/intake.plan`` counts one already
+    in the bank as unchanged, so a Takeout re-imported after this change
+    duplicates nothing (``episode_staging.draft_from_export`` never carries
+    the key into a file).
     """
     from bs4 import BeautifulSoup
 
@@ -597,27 +600,34 @@ def parse_gemini_myactivity(html: str) -> list[dict]:
         text = content.get_text(separator="\n", strip=True)
         if not text:
             continue
-
-        # The timestamp is the trailing date-looking line within the cell text.
+        lines = text.split("\n")
         ts: str | None = None
-        for line in reversed(text.split("\n")):
-            parsed = _parse_gemini_timestamp(line)
+        at: int | None = None
+        for i in range(len(lines) - 1, -1, -1):
+            parsed = _parse_gemini_timestamp(lines[i])
             if parsed:
-                ts = parsed
-                # Strip the timestamp line from the prompt body.
-                text = text.replace(line, "").strip()
+                ts, at = parsed, i
                 break
-
-        if not text:
+        # Byte-for-byte what the pre-Track-I parser kept as the body.
+        legacy_text = text.replace(lines[at], "").strip() if at is not None else text
+        prompt_lines, reply_lines = (lines[:at], lines[at + 1:]) if at is not None else (lines, [])
+        prompt = _GEMINI_VERB.sub("", "\n".join(prompt_lines).strip())
+        reply = "\n".join(reply_lines).strip()
+        if not prompt and not reply:
             continue
-
+        messages = []
+        if prompt:
+            messages.append({"role": "user", "text": prompt, "timestamp": ts})
+        if reply:
+            messages.append({"role": "assistant", "text": reply, "timestamp": ts})
         episodes.append({
-            "title": "Gemini activity",
+            "title": _gemini_title(prompt),
             "source": "gemini_export",
             "origin": "gemini-export",
-            "messages": [{"role": "user", "text": text, "timestamp": ts}],
+            "messages": messages,
             "timestamp": ts,
             "original_date": _extract_date(ts),
+            "legacy_hashes": _gemini_legacy_hashes(legacy_text),
         })
 
     episodes.sort(key=lambda e: e.get("timestamp") or "")
@@ -657,43 +667,14 @@ _IMPORT_FORMAT = {
 
 
 def parse_export_bytes(content: bytes, filename: str) -> tuple[list[dict], str]:
-    """Detect + parse a chat-export file (or .zip) into episodes + a format tag.
+    """The old 2-tuple, kept for its callers (Track I T2, R-IA7). The one parser
+    is ``api.routers.intake.parse_export`` — every zip member it knows, named
+    skips, an origin on every path — and this returns its episodes and format.
+    Deferred import: ``intake`` imports this module."""
+    from api.routers import intake
 
-    Handles a raw ``conversations.json`` (Claude / ChatGPT), ``MyActivity.html``
-    (Gemini), a ChatGPT HTML export, or a ``.zip`` wrapping any of the above
-    (Claude data export, Gemini Takeout, ChatGPT export). Returns
-    ``(episodes, format)`` where ``format`` is the wire tag. Raises
-    ``HTTPException`` on unrecognized input.
-    """
-    name = (filename or "").lower()
-
-    if name.endswith(".zip"):
-        return _parse_zip(content)
-
-    if name.endswith(".html") or name.endswith(".htm"):
-        text = content.decode("utf-8", errors="replace")
-        # Gemini Takeout MyActivity vs a generic ChatGPT HTML export.
-        if "MyActivity" in (filename or "") or "mdl-typography" in text or "outer-cell" in text:
-            return parse_gemini_myactivity(text), "gemini"
-        return _parse_chatgpt_html(text), "chatgpt"
-
-    if name.endswith(".json") or not name:
-        try:
-            data = json.loads(content)
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise HTTPException(400, f"Failed to parse file: {e}")
-        source = detect_source(data, filename)
-        if source == "anthropic":
-            return _stamp_origin(parse_anthropic_conversations(data), "claude-export"), "claude"
-        if source == "anthropic_memories":
-            return _stamp_origin(parse_anthropic_memories(data), "claude-export"), "claude_memories"
-        if source == "anthropic_projects":
-            return _stamp_origin(parse_anthropic_projects(data), "claude-export"), "claude_projects"
-        if source == "chatgpt":
-            return parse_chatgpt_export(data), "chatgpt"
-        raise HTTPException(400, "Unrecognized JSON export format")
-
-    raise HTTPException(400, "Unsupported file format. Use .json, .html, or .zip")
+    parsed = intake.parse_export(content, filename)
+    return parsed.episodes, parsed.format
 
 
 def _stamp_origin(episodes: list[dict], origin: str) -> list[dict]:
@@ -701,42 +682,6 @@ def _stamp_origin(episodes: list[dict], origin: str) -> list[dict]:
     for ep in episodes:
         ep["origin"] = origin
     return episodes
-
-
-def _parse_zip(content: bytes) -> tuple[list[dict], str]:
-    """Extract a chat-export .zip in a temp dir and parse the contained file.
-
-    Locates (in priority order) a Gemini ``MyActivity.html``, a Claude/ChatGPT
-    ``conversations.json``, or any ``*.html``/``*.json`` and recurses into it.
-    """
-    import io
-    import tempfile
-    import zipfile
-
-    try:
-        zf = zipfile.ZipFile(io.BytesIO(content))
-    except zipfile.BadZipFile as e:
-        raise HTTPException(400, f"Invalid zip file: {e}")
-
-    names = [n for n in zf.namelist() if not n.endswith("/")]
-
-    def _first(pred):
-        return next((n for n in names if pred(n.lower())), None)
-
-    target = (
-        _first(lambda n: n.endswith("myactivity.html"))
-        or _first(lambda n: n.endswith("conversations.json"))
-        or _first(lambda n: n.endswith(".html"))
-        or _first(lambda n: n.endswith(".json"))
-    )
-    if not target:
-        raise HTTPException(400, "Zip contains no recognizable export file")
-
-    with tempfile.TemporaryDirectory() as tmp:
-        extracted = zf.extract(target, tmp)
-        with open(extracted, "rb") as f:
-            inner = f.read()
-    return parse_export_bytes(inner, Path(target).name)
 
 
 # --- Helpers ---

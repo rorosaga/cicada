@@ -14,12 +14,12 @@ import XCTest
 /// merge and a default flip cannot, and the flags survive as a documented
 /// opt-in seam for a page that later earns one back.
 ///
-/// Final review F1 walked the Upload half back one page: the Feed opts in
-/// again, because "a one-shot import lives behind the `+`" is only true of
-/// `UploadMode.conversations` — `UploadMode.project` (an export into a
-/// chosen or newly created bank) has no `AddSourceTile`, and `UploadOverlay`
-/// is the only writer of `Store.intakeInFlight` (G125 R2). The last test
-/// below is what makes that opt-in a rule instead of a habit.
+/// Track I T5 (R-IA22) retired the Upload button with `UploadOverlay`: every
+/// file now arrives through the one `IntakeRouter`, which owns
+/// `Store.intakeInFlight` and whose preview's *Into* picker replaced the
+/// overlay's project mode. `showsUpload` survives only as an inert parameter
+/// because `Views/Sleep/SleepView.swift` passes it; the lint below fails if
+/// any call site ever passes `true` again.
 final class TopBarControlsTests: XCTestCase {
 
     /// Track P R1 — the audit resolved by REMOVING, and the removal is a
@@ -27,7 +27,7 @@ final class TopBarControlsTests: XCTestCase {
     func testFlagsDefaultToHidingBothButtonsAndTheAboutPopover() {
         let view = TopBarControls(selectedTab: .constant(.graph), showUploadOverlay: .constant(false))
         XCTAssertFalse(view.showsSleep, "Sleep starts on the Sleep page (G125 R10), never from a global button")
-        XCTAssertFalse(view.showsUpload, "every page but the Feed inherits \"? only\" (F1)")
+        XCTAssertFalse(view.showsUpload, "the Upload button retired with UploadOverlay (R-IA22)")
         XCTAssertEqual(view.help, .aboutCicada)
     }
 
@@ -44,27 +44,16 @@ final class TopBarControlsTests: XCTestCase {
         XCTAssertEqual(view.help, .howSleepWorks)
     }
 
-    /// Final review F1 — a source lint, the same shape as
-    /// `FontLiteralLintTests`, because the defect it guards is invisible to a
-    /// behavior test: flipping a DEFAULT silently strands a call site, and
-    /// SwiftUI gives no seam to assert "this view tree contains an Upload
-    /// button". `UploadOverlay` is the only route to `UploadMode.project`
-    /// and the only writer of `Store.intakeInFlight`, so if this assertion
-    /// ever fails, both are unreachable from the running app.
-    func testFeedIsTheOneCallSiteThatOptsBackIntoUpload() throws {
-        // …/Tests/CicadaAppTests/<this file> → …/Sources/CicadaApp
-        let feed = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/CicadaApp/Views/Feed/FeedView.swift")
-        let text = try String(contentsOf: feed, encoding: .utf8)
-        XCTAssertTrue(
-            text.contains("showsUpload: true"),
-            "FeedView must pass showsUpload: true — it is the only presenter of UploadOverlay, "
-            + "which is the only route to UploadMode.project and the only writer of Store.intakeInFlight."
-        )
-        XCTAssertTrue(text.contains("UploadOverlay(isPresented:"), "…and it must still present it")
+    /// Track I T5 (R-IA22) — the Upload button retired with `UploadOverlay`; the
+    /// one intake owns `Store.intakeInFlight`. The parameters survive only because
+    /// `Views/Sleep/SleepView.swift` passes them (Track Z owns that file).
+    func testNoCallSiteOptsIntoTheRetiredUploadButton() throws {
+        let sources = try ThemeTokenTests.swiftSources()
+        XCTAssertFalse(sources.contains { $0.lastPathComponent == "UploadOverlay.swift" })
+        for file in sources {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertFalse(text.contains("showsUpload: true"), file.lastPathComponent)
+        }
     }
 
     /// Exhaustive switch — a compile-time guarantee that a THIRD case can't

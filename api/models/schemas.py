@@ -1801,6 +1801,139 @@ class BankImportResponse(CamelModel):
     # ever process — the app branches its toast on this rather than showing a
     # plain success message that silently hides the consequence.
     active: bool = False
+    # Track I T2 (R-IA10): the shim now runs the one pipeline, which knows both.
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+
+
+# --- One intake (Track I T2/T2b) ---
+
+
+class IntakeIgnored(CamelModel):
+    """A file the export carries that is not a conversation, said by name."""
+
+    name: str
+    reason: str
+
+
+class IntakeCounts(CamelModel):
+    conversations: int = 0
+    memories: int = 0
+    projects: int = 0
+    prompts: int = 0
+    items: int = 0
+
+
+class IntakeDelta(CamelModel):
+    """What an import WOULD do, from ``intake.plan`` (G20 made visible first)."""
+
+    new: int = 0
+    grown: int = 0
+    unchanged: int = 0
+
+
+class IntakeTitle(CamelModel):
+    title: str
+    date: Optional[str] = None
+
+
+class IntakeSniffResponse(CamelModel):
+    """``POST /intake/sniff`` — what a dropped file is, staging nothing (G71 §4.3).
+
+    ``recognized`` false with ``reason`` null and ``ignored`` set is a quiet
+    skip (a lone ``user.json``); with a ``reason`` it is a file the app should
+    name as unreadable, in these words."""
+
+    recognized: bool = False
+    kind: Literal["chat", "saved", "unknown"] = "unknown"
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+    platform: Optional[str] = None
+    members: list[str] = []
+    ignored: list[IntakeIgnored] = []
+    counts: IntakeCounts = Field(default_factory=IntakeCounts)
+    date_range: Optional[BankImportDateRange] = None
+    delta: IntakeDelta = Field(default_factory=IntakeDelta)
+    titles: list[IntakeTitle] = []
+    titles_truncated: bool = False
+    reason: Optional[str] = None
+    warnings: list[str] = []
+
+
+class IntakeJobRef(CamelModel):
+    id: str
+    total: int = 0
+
+
+class IntakeImportResponse(CamelModel):
+    """``POST /intake/import``. With ``job`` set (a 202, Track I T2b) the counts
+    are what was known at acceptance; poll ``GET /intake/jobs/{id}``."""
+
+    episodes_staged: int = 0
+    episodes_updated: int = 0
+    duplicates_skipped: int = 0
+    date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
+    format: str = "unknown"
+    active: bool = True
+    bank: str = "default"
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+    members: list[str] = []
+    ignored: list[IntakeIgnored] = []
+    job: Optional[IntakeJobRef] = None
+
+
+class IntakeJobStatus(CamelModel):
+    """``GET /intake/jobs/{id}`` — process-local; gone after a restart or an hour."""
+
+    id: str
+    total: int = 0
+    staged: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    done: bool = False
+    error: Optional[str] = None
+
+
+# --- Agent wiring (Track I T3, read-only) ---
+
+
+class AgentWiringStep(CamelModel):
+    """One command the APP may run after the person's click (spec decision 14).
+    ``display == shlex.join(argv)`` so the disclosure can never show one thing
+    and run another; ``touches`` are ``~/``-relative (R-IA15)."""
+
+    step: Literal["mcp", "hook"]
+    display: str
+    argv: list[str]
+    touches: list[str] = []
+
+
+class AgentWiringRow(CamelModel):
+    """One harness. ``recall: unknown`` is a probe that timed out or could not
+    run — never ``off``, or the app would offer an ``mcp add`` that fails on a
+    registered server. ``autosave: invalid`` is a settings file that does not
+    parse (F8: ``registry.status`` alone would have said ``absent``)."""
+
+    id: str
+    installed: bool = False
+    binary: Optional[str] = None
+    recall: Literal["on", "off", "unknown"] = "off"
+    autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    connect: list[AgentWiringStep] = []
+    detail: Optional[str] = None
+
+
+class AgentWiringResponse(CamelModel):
+    """``GET /agents/wiring``. ``python``/``repo``/``memory`` ride along so the
+    app can pin its allowlist to the same checkout (R-IA28) and build Cursor's
+    deep link against the live memory root."""
+
+    agents: list[AgentWiringRow] = []
+    python: str = ""
+    repo: str = ""
+    memory: str = ""
 
 
 # --- Sources (media ingestion) ---

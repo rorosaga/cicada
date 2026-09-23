@@ -82,9 +82,9 @@ class SourceSpec:
 CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("chat-export:claude", "Claude export", "harness", "claude-export", ("claude-export",), "chat-export:claude"),
     SourceSpec("chat-export:chatgpt", "ChatGPT export", "harness", "chatgpt-export", ("chatgpt-export",), "chat-export:chatgpt"),
-    # conversations.py — the Gemini Takeout importer; no channel row exists
-    # for it yet, so channel=None and its evidence is its episodes.
-    SourceSpec("chat-export:gemini", "Gemini export", "harness", "gemini-export", ("gemini-export",), None),
+    # conversations.py — the Gemini Takeout importer; its channel row counts
+    # `gemini-export` (Track I).
+    SourceSpec("chat-export:gemini", "Gemini export", "harness", "gemini-export", ("gemini-export",), "chat-export:gemini"),
     SourceSpec("chrome-bookmarks", "Chrome bookmarks", "browser", "chrome-bookmark", ("chrome-bookmark",), "chrome-bookmarks"),
     SourceSpec("safari-bookmarks", "Safari bookmarks", "browser", "safari-bookmark", ("safari-bookmark",), "safari-bookmarks"),
     SourceSpec("safari-tabs", "Safari iCloud tabs", "browser", "safari-tab", ("safari-tab",), "safari-tabs"),

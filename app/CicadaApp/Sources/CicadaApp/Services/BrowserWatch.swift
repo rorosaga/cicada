@@ -16,7 +16,9 @@ import Foundation
 /// in `BrowserFiles.swift`. So the watch is app-side, and detection runs only
 /// while the app runs. `catchUp` is the honest other half: on launch, sync any
 /// file whose signature moved since the last successful sync, which is also
-/// what finally reads a browser that has never been synced at all.
+/// what finally reads a browser that has never been synced at all — once the
+/// person has turned it on (Track I T1: before that gate, the first launch of
+/// a fresh install read Chrome with nobody asked).
 ///
 /// Bookmarks only, deliberately. Safari's iCloud tabs live behind the same
 /// seam and would be trivial to add here, but a tab opening is not a save —
@@ -71,10 +73,14 @@ enum BrowserWatchState: String, Sendable, CaseIterable {
     case stale
     /// The last sync attempt failed for a reason that is not permission.
     case failed
+    /// Present, but the person has not turned it on (Track I T1, design §4.3).
+    /// Nothing is read until they do — that is the point, not a fault.
+    case off
 
     /// Whether this state should read as healthy in the UI. `absent` is not
-    /// unhealthy — a browser you do not use is not a fault to report.
-    var isHealthy: Bool { self == .watching || self == .syncing || self == .absent }
+    /// unhealthy — a browser you do not use is not a fault to report — and
+    /// neither is `off`: a browser nobody asked Cicada to read is not behind.
+    var isHealthy: Bool { self == .watching || self == .syncing || self == .absent || self == .off }
 }
 
 enum BrowserWatchPolicy {
@@ -96,18 +102,42 @@ enum BrowserWatchPolicy {
     /// `current == nil` means the file is gone — nothing to read, and never an
     /// error. `lastSynced == nil` means this browser has never been synced, so
     /// the answer is yes even if the file is old: that is the case that finally
-    /// reads a browser the product has listed and never opened.
+    /// reads a browser the product has listed and never opened — **once the
+    /// person turned it on** (Track I T1; `shouldSync(current:lastSynced:enabled:)`
+    /// is what every sync decision uses; this two-argument form is only the
+    /// light's "up to date" question).
     static func shouldSync(current: BrowserFileSignature?, lastSynced: BrowserFileSignature?) -> Bool {
         guard let current else { return false }
         guard let lastSynced else { return true }
         return current != lastSynced
     }
 
+    /// Track I T1 (design §4.3, F1): the per-channel consent flag. Machine-global,
+    /// like the signature key beside it (`cicada.browserWatch.<channel>`), because
+    /// the browser file it guards is machine-global too.
+    static func enabledKey(_ channel: String) -> String { "cicada.browserWatch.enabled.\(channel)" }
+
+    /// `flag` is what a person set; `nil` means nobody ever did. A stored
+    /// signature means this install synced the browser before consent was a gate
+    /// (G129 slice 1), so it counts as on — an existing user loses nothing. An
+    /// explicit `false` outranks it (R-IA2).
+    static func isEnabled(flag: Bool?, hasSignature: Bool) -> Bool { flag ?? hasSignature }
+
+    /// F1: catch-up used to read any never-synced browser at first launch — before
+    /// the first-run gate had decided anything, and able to make `graphIsEmpty`
+    /// false under it (F1b). Consent comes first now; the signature rule is unchanged.
+    static func shouldSync(current: BrowserFileSignature?, lastSynced: BrowserFileSignature?, enabled: Bool) -> Bool {
+        enabled && shouldSync(current: current, lastSynced: lastSynced)
+    }
+
     /// The status light. Order matters: a permission problem outranks
     /// staleness, because it is the reason for the staleness and the only one
-    /// with something for the user to do.
+    /// with something for the user to do. A present browser nobody turned on
+    /// reads `.off` before any staleness question (R-IA3): "Behind" would say
+    /// Cicada failed to catch up on something nobody asked it to read.
     static func state(
         fileExists: Bool,
+        enabled: Bool,
         blocked: Bool,
         syncing: Bool,
         armed: Bool,
@@ -117,6 +147,7 @@ enum BrowserWatchPolicy {
         if syncing { return .syncing }
         if blocked { return .blocked }
         if !fileExists { return .absent }
+        if !enabled { return .off }
         if lastSyncFailed { return .failed }
         if armed && upToDate { return .watching }
         return .stale
@@ -220,12 +251,14 @@ final class BrowserWatcher {
         pending.removeAll()
     }
 
-    /// Sync every channel whose file moved since its last successful sync.
-    /// This is what covers the app being closed when the bookmark was saved.
+    /// Sync every turned-on channel whose file moved since its last successful
+    /// sync. This is what covers the app being closed when the bookmark was
+    /// saved. A channel nobody turned on is skipped (Track I T1, F1).
     func catchUp() async {
         for (channel, file) in channels {
             let current = signature(of: file)
-            if BrowserWatchPolicy.shouldSync(current: current, lastSynced: lastSynced(channel)) {
+            if BrowserWatchPolicy.shouldSync(current: current, lastSynced: lastSynced(channel),
+                                             enabled: isEnabled(channel)) {
                 await sync(channel: channel, file: file)
             }
         }
@@ -248,6 +281,43 @@ final class BrowserWatcher {
         externalErrors[channel] = error
     }
 
+    /// Whether the person has turned this browser on (R-IA2). Read fresh from
+    /// defaults on every call — the flag is written by the watcher itself and,
+    /// in part b, by the Welcome, so a cached copy would go stale.
+    func isEnabled(_ channel: String) -> Bool {
+        BrowserWatchPolicy.isEnabled(
+            flag: defaults.object(forKey: BrowserWatchPolicy.enabledKey(channel)) as? Bool,
+            hasSignature: lastSynced(channel) != nil
+        )
+    }
+
+    /// The person turned this browser on without a Sync now of their own (the
+    /// `+` panel's all-folders import; part b's Welcome tick). Records consent and
+    /// catches up through the watch's own path, so the signature is recorded and
+    /// the light reads Watching.
+    func enable(_ channel: String) {
+        guard let file = channels.first(where: { $0.channel == channel })?.file else { return }
+        defaults.set(true, forKey: BrowserWatchPolicy.enabledKey(channel))
+        refreshState(channel: channel, file: file)
+        Task { await syncIfChanged(channel: channel, file: file) }
+    }
+
+    /// A Sync now on a watched browser (R-IA2): turns it on, then syncs through the
+    /// SAME path the watch uses — one sync, the signature recorded — and hands the
+    /// one-line result back to the button that asked. Before this, a Sync now went
+    /// around the watcher, so the watcher re-read the whole file on its next event.
+    func syncNow(_ channel: String) async throws -> String {
+        guard let file = channels.first(where: { $0.channel == channel })?.file else {
+            throw BrowserImportActions.ImportActionError.failed("Unknown channel \(channel)")
+        }
+        defaults.set(true, forKey: BrowserWatchPolicy.enabledKey(channel))
+        switch await sync(channel: channel, file: file) {
+        case .success(let line)?: return line
+        case .failure(let error)?: throw error
+        case nil: return "Already syncing…"
+        }
+    }
+
     /// Whether this channel is one the app can watch at all — a row for a
     /// channel that is not watched (iCloud tabs, Notes) must not claim a light.
     /// `nonisolated` because it answers from the static policy alone and is
@@ -262,6 +332,7 @@ final class BrowserWatcher {
         if case .notReadable = errors[channel] { blocked = true } else { blocked = false }
         states[channel] = BrowserWatchPolicy.state(
             fileExists: current != nil,
+            enabled: isEnabled(channel),
             blocked: blocked,
             syncing: syncing.contains(channel),
             armed: sources[channel] != nil,
@@ -310,15 +381,20 @@ final class BrowserWatcher {
             return
         }
         let current = signature(of: file)
-        guard BrowserWatchPolicy.shouldSync(current: current, lastSynced: lastSynced(channel)) else {
+        guard BrowserWatchPolicy.shouldSync(current: current, lastSynced: lastSynced(channel),
+                                            enabled: isEnabled(channel)) else {
             refreshState(channel: channel, file: file)
             return
         }
         await sync(channel: channel, file: file)
     }
 
-    private func sync(channel: String, file: BrowserFile) async {
-        guard let store, !syncing.contains(channel) else { return }
+    /// Returns the outcome so `syncNow` can hand it to the button that asked;
+    /// the watch's own callers ignore it. `nil` when nothing ran (no store yet,
+    /// or this channel is already syncing).
+    @discardableResult
+    private func sync(channel: String, file: BrowserFile) async -> Result<String, Error>? {
+        guard let store, !syncing.contains(channel) else { return nil }
         // Read the signature BEFORE the sync: a bookmark saved while the sync
         // is in flight must not be recorded as already synced.
         let before = signature(of: file)
@@ -326,19 +402,24 @@ final class BrowserWatcher {
         lastSyncStarted[channel] = ContinuousClock.now
         refreshState(channel: channel, file: file)
 
+        let result: Result<String, Error>
         do {
-            _ = try await performSync(channel, store)
+            let line = try await performSync(channel, store)
             errors[channel] = nil
             failedChannels.remove(channel)
             if let before { record(before, for: channel) }
+            result = .success(line)
         } catch let error as BrowserFileError {
             errors[channel] = error
             if case .notReadable = error {} else { failedChannels.insert(channel) }
+            result = .failure(error)
         } catch {
             failedChannels.insert(channel)
+            result = .failure(error)
         }
         syncing.remove(channel)
         refreshState(channel: channel, file: file)
+        return result
     }
 
     // MARK: Signatures
