@@ -118,6 +118,39 @@ final class ArtAssetTests: XCTestCase {
         }
     }
 
+    /// Task 5 review round 1: the grass corners' sources are 256-colour
+    /// palette PNGs, and Pillow's `resize` on a palette image silently swaps
+    /// any filter for NEAREST. The manifest said "(Lanczos)" over aliased,
+    /// nearest-neighbour bytes, and the hash test could not see it because the
+    /// hashes matched the wrong bytes. A real Lanczos pass blends neighbours,
+    /// so it leaves far more than 256 distinct colours; a nearest pass over a
+    /// palette source can never exceed 256. A file quantized afterwards is
+    /// exempt — its own entry says so.
+    func testAFileRecordedAsLanczosResizedWasNotNearestNeighbour() throws {
+        let resized = try manifest().assets.filter {
+            $0.processing.contains("(Lanczos)") && !$0.processing.contains("quantized")
+        }
+        XCTAssertFalse(resized.isEmpty, "no entry records a Lanczos resize — this check would pass vacuously")
+        for e in resized {
+            let r = try rep(e.file)
+            let bytesPerPixel = r.bitsPerPixel / 8
+            XCTAssertEqual(r.bitsPerSample, 8, "\(e.file) is not 8 bits per sample")
+            XCTAssertFalse(r.isPlanar, "\(e.file) is planar")
+            let data = try XCTUnwrap(r.bitmapData, "\(e.file) has no bitmap data")
+            var colours = Set<UInt32>()
+            for y in 0..<r.pixelsHigh {
+                let row = data + y * r.bytesPerRow
+                for x in 0..<r.pixelsWide {
+                    var v: UInt32 = 0
+                    for b in 0..<min(bytesPerPixel, 4) { v = v << 8 | UInt32(row[x * bytesPerPixel + b]) }
+                    colours.insert(v)
+                }
+            }
+            XCTAssertGreaterThan(colours.count, 256,
+                                 "\(e.file) has \(colours.count) colours; its manifest says Lanczos, the bytes say nearest")
+        }
+    }
+
     func testArtStaysInsideItsPixelAndByteBudget() throws {
         var total = 0
         for e in try manifest().assets {

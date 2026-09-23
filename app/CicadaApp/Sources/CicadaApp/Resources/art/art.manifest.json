@@ -116,7 +116,7 @@
       "date": "2026-09-23",
       "licence": "MIT, as this repository (see LICENSE). Generated for Cicada; no third-party artwork or brand marks.",
       "processing": "At generation: Picked 1 of 2 candidates; native alpha. Premultiplied LANCZOS resize 1774x887 -> 1200x600. palette-quantised to 256 colours with libimagequant (dithering 1.0; checked contrast-stretched sky crops for banding, none), then oxipng level 4. Bundled: resized from 1200x600 to 640x320 px (Lanczos) to fit the cap; PNG, optimize",
-      "sha256": "ff9f7ec1d9c42684a9f58c049f6ea7363c3e04643c378ca00a251a39900b5d42"
+      "sha256": "2df9db8f5401f7f63ec0192261bc4b4bab821282f088b3babfbaf24a5901e7fd"
     },
     {
       "id": "grass-left-dark",
@@ -129,7 +129,7 @@
       "date": "2026-09-23",
       "licence": "MIT, as this repository (see LICENSE). Generated for Cicada; no third-party artwork or brand marks.",
       "processing": "At generation: Picked 1 of 2 candidates (native transparent RGBA 1774x887, exact 2:1). Alpha < 6 zeroed, premultiplied-alpha LANCZOS resize to 1200x600, 256-colour RGBA palette via libimagequant (dithering 1.0) + oxipng level 4. Verified over #F4F6F1 and #0D1216. Bundled: resized from 1200x600 to 640x320 px (Lanczos) to its light twin's size; PNG, optimize",
-      "sha256": "49a5da80afb67c56cfbea0e6e94cd4b40796f715c7e96515af96fad9a221760b"
+      "sha256": "30d03c4ce41a54207132f52600bb96ad00ab7ad2c3b815a47e92d1b36bf384d7"
     },
     {
       "id": "grass-right",
@@ -142,7 +142,7 @@
       "date": "2026-09-23",
       "licence": "MIT, as this repository (see LICENSE). Generated for Cicada; no third-party artwork or brand marks.",
       "processing": "At generation: Picked 1 of 4 candidates (second prompt revision; first two did not reach the right/bottom edges); native alpha. Its low fringe hit the inner (left) edge with a hard cut, so the leftmost 140px were replaced by the mirrored natural fringe-end of the grass-left source, joined with a minimum-error vertical seam cut (4px feather). Premultiplied LANCZOS resize to 1200x600. palette-quantised to 256 colours with libimagequant (dithering 1.0; checked contrast-stretched sky crops for banding, none), then oxipng level 4. Bundled: resized from 1200x600 to 640x320 px (Lanczos) to fit the cap; PNG, optimize",
-      "sha256": "4452f8fb20f956ee64b46af202c8e24f68c13900c36bf719a3faa3d2ae3ff0bd"
+      "sha256": "a5070c8b85207b08c5212db5632eff214346474492c68800ca84af8c8d22d2c7"
     },
     {
       "id": "grass-right-dark",
@@ -155,7 +155,7 @@
       "date": "2026-09-23",
       "licence": "MIT, as this repository (see LICENSE). Generated for Cicada; no third-party artwork or brand marks.",
       "processing": "At generation: Picked 1 of 2 candidates (native transparent RGBA 1774x887, exact 2:1). Alpha < 6 zeroed, premultiplied-alpha LANCZOS resize to 1200x600, 256-colour RGBA palette via libimagequant (dithering 1.0) + oxipng level 4. Verified over #F4F6F1 and #0D1216. Bundled: resized from 1200x600 to 640x320 px (Lanczos) to its light twin's size; PNG, optimize",
-      "sha256": "2260618226b44e913e91048e11efa864621acbc812da526f91ec0c725a6b1c2d"
+      "sha256": "0256b7a11ee02bb79621efc43b04fa23bd1a65e5bd8958ab687dcb8e1c0b121d"
     },
     {
       "id": "hero-day",
