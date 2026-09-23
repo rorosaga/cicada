@@ -3,7 +3,7 @@ import SwiftUI
 /// Relevance-sorted media feed (§3.4). Browses items saved via the sources
 /// pipeline (bookmarks, pasted URLs, RSS/Atom feeds), ordered by the relevance
 /// metric (``confidence x recency-decay x personal weight``) or recency. Follows
-/// the Topics screen's list + TopBarControls layout and the app's CicadaTheme.
+/// the Topics screen's list layout and the app's CicadaTheme.
 struct FeedView: View {
     @Binding var selectedTab: AppTab
     @Environment(FeedViewModel.self) private var viewModel
@@ -51,26 +51,13 @@ struct FeedView: View {
             // ZStack child; Feed keeps a fixed header, so it must fill explicitly).
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            // Top-right controls (Add + Help), shared chrome. Track I T5
-            // retired the Upload button (R-IA22): a file arrives through the
-            // one intake — a drop anywhere, File → Import…, or this `+`.
-            // `addButton` used to live inline in the page header's trailing
-            // slot (PageHeader's own right-aligned HStack), which put it at
-            // nearly the same top-right coordinates as this floating overlay
-            // — the header's blue "+" circle bled out from behind the Help
-            // button on every Feed render (G68 §1, round 2). Feed is the only
-            // page that pairs a PageHeader trailing action with the floating
-            // TopBarControls row, so folding the button into this same row
-            // (same pattern as GraphContainerView's SearchButton) removes the
-            // collision entirely instead of just tuning padding.
+            // Top-right: the page's `+` (Track I T5 — a file arrives through the one intake: a
+            // drop anywhere, File → Import…, or this `+`). The `?` moved to the titlebar, one per
+            // window (DR-23, R-DS18); the `+` stays a page control until the Feed's D track.
             VStack {
                 HStack {
                     Spacer()
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        addButton
-                        TopBarControls(selectedTab: $selectedTab, showUploadOverlay: .constant(false))
-                    }
-                    .padding(CicadaTheme.spacingLG)
+                    addButton.padding(CicadaTheme.spacingLG)
                 }
                 Spacer()
             }

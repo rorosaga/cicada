@@ -267,26 +267,6 @@ struct SleepView: View {
                     }
                 }
             }
-
-            // Top-right: just the `?` button now (R10 — the Sleep/Upload
-            // pair left this page; the one Consolidate control lives in the
-            // study list's footer). It opens *How Cicada sleeps* instead of
-            // the generic "About these actions" popover every other page
-            // shows.
-            VStack {
-                HStack {
-                    Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: .constant(false),
-                        showsSleep: false,
-                        showsUpload: false,
-                        help: .howSleepWorks
-                    )
-                    .padding(CicadaTheme.spacingLG)
-                }
-                Spacer()
-            }
         }
         .task {
             if !loadedOnce {

@@ -111,7 +111,6 @@ struct ContentView: View {
         .overlay {
             if paletteOpen {
                 FindPalette(model: find, open: openFind, close: closePalette)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
             }
         }
         .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
@@ -187,7 +186,7 @@ struct ContentView: View {
                 }
         }
         .toolbar {
-            ShellToolbar(labelled: $labelledSidebar, chrome: ShellChrome(welcomeShowing: showFirstRun))
+            ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab), chrome: ShellChrome(welcomeShowing: showFirstRun))
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -267,7 +266,8 @@ struct ContentView: View {
                                      homeVisible: selectedTab == .home) {
         case .open(let prefill, let mode):
             find.present(prefill: prefill, mode: mode)
-            withAnimation(CicadaMotion.paletteIn(reduceMotion: reduceMotion)) { paletteOpen = true }
+            // DR-60: ⌘K never animates — the palette arrives in one frame (R-DS17).
+            paletteOpen = true
         case .close:
             closePalette()
         case .focusHome(let prefill, let mode):
@@ -278,7 +278,7 @@ struct ContentView: View {
     }
 
     private func closePalette() {
-        withAnimation(CicadaMotion.paletteOut(reduceMotion: reduceMotion)) { paletteOpen = false }
+        paletteOpen = false
         find.dismissed()
     }
 
@@ -434,7 +434,6 @@ struct ContentView: View {
 struct GraphContainerView: View {
     @Binding var selectedTab: AppTab
     @Environment(GraphViewModel.self) private var graphVM
-    @Environment(BanksViewModel.self) private var banksVM
     /// Track I T5 (R-IA27) — the empty graph takes a dropped export itself.
     @Environment(IntakeRouter.self) private var intake
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -460,33 +459,13 @@ struct GraphContainerView: View {
                 )
             }
 
-            // Top-right: Search + Help (Track P: the audit removed Sleep/Upload —
-            // a cycle starts on the Sleep page, an import behind the Feed's +)
-            VStack {
-                HStack {
-                    Spacer()
-                    HStack(spacing: CicadaTheme.spacingSM) {
-                        SearchButton()
-                        TopBarControls(
-                            selectedTab: $selectedTab,
-                            showUploadOverlay: .constant(false)
-                        )
-                    }
-                    .padding(CicadaTheme.spacingLG)
-                }
-                Spacer()
-            }
-
-            // Top-left: memory-bank ("Projects") switcher (M6) above the observer
-            // "who believes what" filter (§3a). The filter bar only renders once
-            // the graph carries observer data, otherwise EmptyView.
+            // Top-left: find a node (G123), above the observer filter. The
+            // bank selector moved to the command bar (DR-24). The filter bar only
+            // renders once the graph carries observer data, otherwise EmptyView.
             VStack {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            BankSwitcher(banksVM: banksVM)
-                            GraphSearchField(isActive: selectedTab == .graph)
-                        }
+                        GraphSearchField(isActive: selectedTab == .graph)
                         ObserverFilterBar()
                     }
                     .padding(CicadaTheme.spacingLG)
@@ -688,34 +667,6 @@ struct ZoomControls: View {
                 .help(graphVM.panModeOn ? "Pan mode on — click to return to normal (or just hold Shift)" : "Pan mode — drag anywhere to move the graph (or hold Shift)")
         }
         .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
-    }
-}
-
-// MARK: - Search Button (G136)
-
-/// The graph's visible twin of ⌘K (design §3.1: "`AskButton` … is renamed
-/// Search and opens Find"). Ask is one keystroke away inside (⌘⏎).
-struct SearchButton: View {
-    @Environment(AppRouter.self) private var router
-    @State private var isHovered = false
-
-    var body: some View {
-        Button { router.requestPalette() } label: {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "magnifyingglass")
-                    .font(CicadaTheme.font(size: 12))
-                    .iconHover(hovering: isHovered)
-                Text("Search")
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
-            }
-            .foregroundStyle(isHovered ? CicadaTheme.textPrimary : CicadaTheme.accent)
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-        }
-        .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .onHover { isHovered = $0 }
-        .help("Search your memory (⌘K)")
-        .accessibilityLabel("Search your memory")
     }
 }
 

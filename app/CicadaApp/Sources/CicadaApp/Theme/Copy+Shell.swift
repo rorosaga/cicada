@@ -14,4 +14,25 @@ extension Copy {
     /// `consolidating` — `Copy.swift:146` already declares that name ("Consolidating…"), and a
     /// second `static let consolidating` in an extension is a redeclaration error.
     static let railConsolidating = "consolidating"
+
+    // The command bar (DR-23) and its one memory-bank selector (DR-24). "Project" is G141's word
+    // now, so a bank is a "memory bank" everywhere the shell names it (R-DS19).
+    static let searchYourMemory = "Search your memory"
+    static let findInMemoryHelp = "Find in Memory… ⌘K"
+    static let memoryBank = "Memory bank"
+    static let memoryBanks = "Memory banks"
+    static let switchMemoryBank = "Switch memory bank"
+    static let noMemoryBanks = "No memory banks yet"
+    static let newMemoryBankItem = "New memory bank…"
+    static let saveMemoryBankAsItem = "Save as…"
+    static let renameMemoryBankItem = "Rename…"
+    static let newMemoryBankTitle = "New memory bank"
+    static let newMemoryBankMessage = "Creates a new, empty memory bank."
+    static let saveMemoryBankAsTitle = "Save memory bank as…"
+    static let saveMemoryBankAsMessage = "Copies this memory bank under a new name."
+    static let renameMemoryBankTitle = "Rename memory bank"
+    static func renameMemoryBankMessage(_ name: String) -> String { "Renames \u{201C}\(name)\u{201D} in place." }
+    static let renameMemoryBankFallback = "Renames the memory bank in place."
+    static let memoryBankName = "Memory bank name"
+    static let helpForThisPage = "Help for this page"
 }

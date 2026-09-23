@@ -9,7 +9,6 @@ final class CicadaMotionTests: XCTestCase {
         ("press", CicadaMotion.press), ("hover", CicadaMotion.hover), ("snap", CicadaMotion.snap),
         ("standard", CicadaMotion.standard), ("panel", CicadaMotion.panel), ("expand", CicadaMotion.expand),
         ("lift", CicadaMotion.lift), ("settle", CicadaMotion.settle), ("morph", CicadaMotion.morph),
-        ("paletteIn", CicadaMotion.paletteIn), ("paletteOut", CicadaMotion.paletteOut),
         ("groupExpand", CicadaMotion.groupExpand),
     ]
 
@@ -25,7 +24,6 @@ final class CicadaMotionTests: XCTestCase {
         let durations = [CicadaMotion.pressDuration, CicadaMotion.hoverDuration, CicadaMotion.snapDuration,
                          CicadaMotion.standardDuration, CicadaMotion.panelDuration, CicadaMotion.expandDuration,
                          CicadaMotion.liftDuration, CicadaMotion.settleDuration, CicadaMotion.morphDuration,
-                         CicadaMotion.paletteInDuration, CicadaMotion.paletteOutDuration,
                          CicadaMotion.groupExpandDuration]
         for d in durations { XCTAssertLessThanOrEqual(d, CicadaMotion.maxDuration) }
         XCTAssertLessThanOrEqual(CicadaMotion.maxDuration, 0.4, "the same 400 ms ceiling SleepMotion holds")

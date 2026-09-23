@@ -8,7 +8,7 @@ import UniformTypeIdentifiers   // `UTType.zip` for the save panel
 /// access from other apps, and the transcript rail stated as a fact.
 ///
 /// It exports and deletes; it never switches (R-O18). Switch, new, copy and
-/// rename stay in the Graph page's `BankSwitcher`, whose switch reloads the
+/// rename stay in the command bar's `BankSwitcher`, whose switch reloads the
 /// graph through a main-window object — a second switcher here would be the
 /// bank split-brain class.
 struct PrivacyView: View {

@@ -52,19 +52,6 @@ struct TopicsView: View {
                     removal: .move(edge: .leading).combined(with: .opacity)
                 ))
             }
-
-            // Top-right controls
-            VStack {
-                HStack {
-                    Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: .constant(false)
-                    )
-                    .padding(CicadaTheme.spacingLG)
-                }
-                Spacer()
-            }
         }
         // G136 — a palette entity row's ⌥⏎ opens it here.
         .onAppear { openPendingEntity() }
