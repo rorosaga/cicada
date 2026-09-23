@@ -108,9 +108,17 @@ enum GettingStartedProgress {
     /// bank the vacuous `allSatisfy` made the card say only "You're set up." and
     /// hide itself — never listing what was found, the one thing that button is
     /// for (R-IB17; I-b final review, finding 4).
+    ///
+    /// And an empty Also found is an answer only once the inventory has given
+    /// one (`inventoryLoaded`, `LocalInventory.hasChecked`). Before its first
+    /// scan lands, `items` is `[]`, so Also found is empty too; the card's
+    /// `onChange(initial:)` read that first render as done and persisted the
+    /// hide, undoing the button a second before the scan said otherwise. Unknown
+    /// is never empty — the default is "not loaded" (I-b final re-review,
+    /// finding 4).
     static func isDone(rows: [GettingStartedRow], hasRunBefore: Bool, scheduleAnswered: Bool,
-                       alsoFoundIsEmpty: Bool = true) -> Bool {
-        guard !rows.isEmpty || alsoFoundIsEmpty else { return false }
+                       alsoFoundIsEmpty: Bool = true, inventoryLoaded: Bool = false) -> Bool {
+        guard !rows.isEmpty || (inventoryLoaded && alsoFoundIsEmpty) else { return false }
         return rows.allSatisfy { $0.state == .on } && hasRunBefore && scheduleAnswered
     }
 

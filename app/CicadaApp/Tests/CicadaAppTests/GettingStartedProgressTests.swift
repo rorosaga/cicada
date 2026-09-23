@@ -76,12 +76,31 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertFalse(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true,
                                                      alsoFoundIsEmpty: false))
         XCTAssertTrue(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true,
-                                                    alsoFoundIsEmpty: true),
+                                                    alsoFoundIsEmpty: true, inventoryLoaded: true),
                       "nothing offered and nothing ticked: set up")
         let on = [GettingStartedRow(id: .agent("codex"), title: "Codex", detail: "", state: .on)]
         XCTAssertTrue(GettingStartedProgress.isDone(rows: on, hasRunBefore: true, scheduleAnswered: true,
                                                     alsoFoundIsEmpty: false),
                       "a checklist someone saw through is done; an untouched offer does not hold it open")
+    }
+
+    /// I-b final re-review, finding 4 — the inventory is app-level and empty
+    /// until its first scan, so on the card's first render after *Show setup
+    /// checklist* an empty Also found means "not asked yet", not "nothing here".
+    /// Deciding done then persisted the hide before the scan could answer.
+    func testAnEmptyChecklistWaitsForTheInventoryToAnswer() {
+        XCTAssertFalse(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true,
+                                                     alsoFoundIsEmpty: true, inventoryLoaded: false),
+                       "an inventory that has not answered is never an empty one")
+        XCTAssertFalse(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true),
+                       "the default is not loaded — unknown is never empty")
+        XCTAssertTrue(GettingStartedProgress.isDone(rows: [], hasRunBefore: true, scheduleAnswered: true,
+                                                    alsoFoundIsEmpty: true, inventoryLoaded: true),
+                      "once loaded with nothing also found: set up")
+        let on = [GettingStartedRow(id: .agent("codex"), title: "Codex", detail: "", state: .on)]
+        XCTAssertTrue(GettingStartedProgress.isDone(rows: on, hasRunBefore: true, scheduleAnswered: true,
+                                                    inventoryLoaded: false),
+                      "recorded rows are the machine's answer already; the scan does not gate them")
     }
 
     func testTheCardShowsOnlyForARecordedUnhiddenBank() {

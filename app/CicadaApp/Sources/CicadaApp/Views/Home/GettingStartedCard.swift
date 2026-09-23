@@ -62,7 +62,8 @@ struct GettingStartedCard: View {
         let alsoFound = GettingStartedProgress.alsoFound(inputs)
         let done = GettingStartedProgress.isDone(rows: rows, hasRunBefore: hasRunBefore,
                                                  scheduleAnswered: scheduleAnswered,
-                                                 alsoFoundIsEmpty: alsoFound.isEmpty)
+                                                 alsoFoundIsEmpty: alsoFound.isEmpty,
+                                                 inventoryLoaded: inventory.hasChecked)
         let hasDrop = rows.contains { if case .dropped = $0.id { return true }; return false }
 
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
