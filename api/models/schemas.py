@@ -712,6 +712,65 @@ class EpisodeSpan(CamelModel):
     kind: str = "user"
 
 
+class EpisodeTurn(CamelModel):
+    """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
+    evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
+    ``user`` | ``assistant`` | ``page``; ``marker`` is the word as written
+    (``None`` for a marker-less block); ``ts``/``speaker`` exist only where the
+    episode stores a ``turns`` sidecar entry for this turn."""
+
+    index: int
+    start: int
+    content_start: int
+    end: int
+    role: str = "user"
+    marker: Optional[str] = None
+    speaker: Optional[str] = None
+    ts: Optional[str] = None
+
+
+class EpisodeFocus(CamelModel):
+    """The span the Reader lands on (G118 slice 2). Asserted
+    (``?start&end&hash``): ``kind`` is the speaker at ``start`` and
+    ``stale``/``grown`` come from ``evidence.span_status``; a stale focus
+    carries NO offsets (R-PB2 — stale never highlights). Derived
+    (``?focus=<entity>``): ``kind == "derived"``, a name match found at read
+    and never written (G100's class, R-PB9)."""
+
+    start: Optional[int] = None
+    end: Optional[int] = None
+    kind: str = "user"
+    derived: bool = False
+    stale: bool = False
+    grown: bool = False
+
+
+class EpisodeText(CamelModel):
+    """``GET /episodes/{id}/text`` — a whole stored document for the Reader
+    (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
+    (``truncated``); ``length`` and ``hash`` always describe the WHOLE
+    evidence text, so ``hash`` can be handed back to ``/span``. ``kind`` is
+    ``episode`` or ``page``. ``conversation_id`` is the stamped ``session_id``
+    or G20's ``source_id``; ``project_dir`` and ``resumable`` are deliberately
+    absent — ``GET /conversations/{id}`` is the one place a transcript is
+    ``isfile()``-d (R-PB5). Fetched on demand, not a Store domain."""
+
+    episode: str
+    kind: str = "episode"
+    text: str = ""
+    length: int = 0
+    hash: str = ""
+    truncated: bool = False
+    title: str = ""
+    timestamp: Optional[str] = None
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    conversation_id: Optional[str] = None
+    capture_kind: Optional[str] = None
+    turns: list[EpisodeTurn] = []
+    focus: Optional[EpisodeFocus] = None
+
+
 class TransclusionPayload(CamelModel):
     """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
 

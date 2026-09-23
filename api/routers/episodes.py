@@ -15,15 +15,21 @@ have moved.
 anything else under ``entities/`` — the same resolver the writers use, so a
 ``page`` span on a media entity opens exactly what recon cited. Bearer-gated
 like every route; no ETag (R9) — the response validates itself.
+
+``GET /episodes/{id}/text`` (G118 slice 2) returns the WHOLE document with its
+turns for the Reader — see ``provenance.episode_document``. It carries an
+ETag for the client's in-memory cache only: it is fetched on demand and is
+not a Store domain, so there is no ``VersionVector`` mapping (R-PB11).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.models.schemas import EpisodeSpan
-from api.services import evidence
+from api.models.schemas import EpisodeSpan, EpisodeText
+from api.services import evidence, provenance, sync_service
 
 router = APIRouter()
 
@@ -65,3 +71,39 @@ async def get_episode_span(
         grown=status == evidence.SPAN_GROWN,
         kind=evidence.speaker_kind(text, start) if evidence.is_episode_id(episode_id) else "page",
     )
+
+
+@router.get("/episodes/{episode_id}/text", response_model=EpisodeText)
+async def get_episode_text(
+    episode_id: str,
+    request: Request,
+    response: Response,
+    start: int | None = Query(None, ge=0),
+    end: int | None = Query(None, ge=1),
+    hash: str | None = Query(None, max_length=64),  # noqa: A002 - the field's own name
+    focus: str | None = Query(None, max_length=200),
+    settings: Settings = Depends(get_settings),
+):
+    """The whole evidence text of one document, with its turns (G118 s2).
+
+    ``start``/``end`` (+ ``hash``) ask for an asserted focus; ``focus=<entity>``
+    for a derived one. 404 for an unknown or non-bare id (the ``source_path``
+    rail), 422 for a half or out-of-range pair. Engine-free: one parse.
+    """
+    memory_path = settings.memory_path
+    etag = sync_service.etag_for(
+        memory_path, "episodes", "entities",
+        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    try:
+        doc = await run_in_threadpool(
+            provenance.episode_document, memory_path, episode_id,
+            start=start, end=end, hash=hash, focus=focus,
+        )
+    except provenance.SpanOutOfRange as exc:
+        raise HTTPException(422, str(exc))
+    if doc is None:
+        raise HTTPException(404, f"No stored document {episode_id!r}")
+    return doc
