@@ -300,6 +300,12 @@ subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, wi
 (PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
 generated demo bank only.
 
+**PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
+longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
+recently, every other writer refuses; CLAUDE.md's seventh Awake rail). Next on the backend: **PJ-0b** (hold a
+page-less subject's claims with its pending entity, ruled 2026-09-23; the seam is
+`claim_pipeline.hold_page_less`) and **PJ-1**.
+
 **Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
 (`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Three backend-only slices can
 start now, in parallel with anything app-side: **S0** (Stage 5.57's ungated `default_summarize`, the
@@ -599,13 +605,14 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     claims (a done one born closed, `is_event` for history readers), dates decided in Python, nothing relative
     stored. Order: derive → write → spend. Spec
     `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md` (R-PJ1…R-PJ23). Slices:
-    **PJ-0** page-less claim fix · **PJ-1** read model + `GET /projects[/{id}/timeline]` · **PJ-4** Stop-hook
-    turn stamps — all three backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
+    **PJ-0** page-less claim fix ✅ · **PJ-4** Stop-hook turn stamps ✅ (both PR #88) · **PJ-0b** hold
+    page-less claims with the pending entity (ruled 2026-09-23) · **PJ-1** read model +
+    `GET /projects[/{id}/timeline]` — backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
     handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
     page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
-    per-project re-read 💸 — L. Open DECIDEs (rail cell, band colour, pending-store hold) are under Research /
-    decisions below
+    per-project re-read 💸 — L. The three DECIDEs (rail cell, band colour, pending-store hold) were ruled
+    2026-09-23 — see Research / decisions below
 14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
     pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
     need — S
@@ -684,8 +691,9 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   after Sources — Home took ⌘1 in #86, so no shortcut moves; (b) the band's progress is a **meadow-green fill
   that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
   encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
-  writes them on promotion: a new slice **PJ-0b** after PJ-0. R-PJ16 (the Stop hook writes the per-turn
-  `turns` list) is accepted.
+  writes them on promotion: a new slice **PJ-0b** after PJ-0 — its seam,
+  `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88) and holds nothing until PJ-0b. R-PJ16 (the Stop
+  hook writes the per-turn `turns` list) is accepted.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors

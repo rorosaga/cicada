@@ -1379,7 +1379,7 @@ assert s.count(old_tail) == 1, "G107 row tail not found exactly once"
 new_tail = ("and **G54** (an onboarding companion has the same asset need). "
             "**Interim ruling superseded 2026-09-02 (Rodrigo: \"work on doing a pixel bookworm mascot with animations so in every "
             "state it's always moving … I want just one Tamagotchi-like avatar of the bookworm that moves and shows the status\").** "
-            "**Shipped 2026-09-02 (`feat/mascot`, PR #TBD):** one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, "
+            "**Shipped 2026-09-02 (`feat/mascot`, PR #88):** one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, "
             "nine colours — outline, body, belly, eye, blush, accent, zZ, ?/badge, error red — composed from shared head/glasses/mouth/body "
             "fragments so the silhouette is identical across moods); every state ≥ 2 frames that differ (awake bob+blink, sleeping zZ drift + "
             "chest rise, digesting chews a book, curious tilts with a pulsing ? and the count as a pixel numeral in a pill, hungry droops with "
@@ -1403,10 +1403,10 @@ At the end of the "Sync engine" paragraph (`CLAUDE.md:545`, after "…before the
 
 - [ ] **Step 3: TODO.md**
 
-1. Line 162: `_Last synced: 2026-09-02 (PRs #21–#34 merged; G107 pixel mascot on feat/mascot, PR #TBD; inbox redesign folded as G115/G116)._`
+1. Line 162: `_Last synced: 2026-09-02 (PRs #21–#34 merged; G107 pixel mascot on feat/mascot, PR #88; inbox redesign folded as G115/G116)._`
 2. Shipped → **App** line (181–184): append ` · G107 pixel mascot + single menu-bar Tamagotchi` after `G15 avatars` (end of line 184).
 3. Delete Wave C item `12a. **G107** …` (the three lines 297–299). Leave `12c` as is (the list uses explicit labels).
-4. `## Where things stand` (line 7 — retitle its date to `(2026-09-02)`): add one short paragraph directly after the G109 phase-1 paragraph, i.e. after the line ending `that is the "explosion on return").` (line 54) and before `**Live environment (verified):**`: "**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #TBD).** The bracket-text interim is superseded: a nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView` at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual pass — menu bar light/dark, Sleep page, Reduce Motion — is the install step, not yet done at the time of this commit." A handoff that claims an eyeball nobody made is the stale header CLAUDE.md warns about; the orchestrator rewords it after the install.
+4. `## Where things stand` (line 7 — retitle its date to `(2026-09-02)`): add one short paragraph directly after the G109 phase-1 paragraph, i.e. after the line ending `that is the "explosion on return").` (line 54) and before `**Live environment (verified):**`: "**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #88).** The bracket-text interim is superseded: a nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView` at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual pass — menu bar light/dark, Sleep page, Reduce Motion — is the install step, not yet done at the time of this commit." A handoff that claims an eyeball nobody made is the stale header CLAUDE.md warns about; the orchestrator rewords it after the install.
 5. `## Pick up here`: no new numbered item — the work is shipped; add "(G107 shipped 2026-09-02 — see Where things stand)" to the end of the first paragraph.
 
 - [ ] **Step 4: Verify nothing stale remains**

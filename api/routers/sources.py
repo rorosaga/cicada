@@ -47,8 +47,13 @@ from api.services import (
 )
 from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
+from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter()
+
+#: G141 capture-side track (R-CS15): every route below that takes something in
+#: answers 409 while the demo bank is open, before its handler runs.
+_DEMO_GATE = [Depends(refuse_capture_into_demo)]
 
 # A media page in either state is a decision the person made (an inbox
 # `remove`, G129 slice 2) or one the system already recorded (`dropped`,
@@ -78,7 +83,7 @@ class CalendarUnsubscribeRequest(BaseModel):
     url: str
 
 
-@router.post("/sources/save", response_model=SourceSaveResponse)
+@router.post("/sources/save", response_model=SourceSaveResponse, dependencies=_DEMO_GATE)
 async def save_source(
     request: SourceSaveRequest,
     settings: Settings = Depends(get_settings),
@@ -166,7 +171,7 @@ async def save_source(
     )
 
 
-@router.post("/sources/upload", response_model=None)
+@router.post("/sources/upload", response_model=None, dependencies=_DEMO_GATE)
 async def upload_sources(
     file: UploadFile,
     background_tasks: BackgroundTasks,
@@ -277,7 +282,7 @@ async def upload_sources(
     )
 
 
-@router.post("/sources/rss", response_model=SourceUploadResponse)
+@router.post("/sources/rss", response_model=SourceUploadResponse, dependencies=_DEMO_GATE)
 async def ingest_rss(
     request: SourceRssRequest,
     settings: Settings = Depends(get_settings),
@@ -360,7 +365,7 @@ async def ingest_rss(
     )
 
 
-@router.post("/sources/sync-bookmarks", response_model=None)
+@router.post("/sources/sync-bookmarks", response_model=None, dependencies=_DEMO_GATE)
 async def sync_bookmarks(
     request: BookmarkSyncRequest | None = None,
     preview: bool = Query(False),
@@ -441,7 +446,7 @@ async def sync_bookmarks(
     return BookmarkSyncResponse(**result)
 
 
-@router.post("/sources/sync-safari-tabs", response_model=None)
+@router.post("/sources/sync-safari-tabs", response_model=None, dependencies=_DEMO_GATE)
 async def sync_safari_tabs(
     request: SafariTabsSyncRequest,
     preview: bool = Query(False),
@@ -764,7 +769,7 @@ async def list_feed_subscriptions(settings: Settings = Depends(get_settings)):
     return {"feeds": feeds, "total": len(feeds)}
 
 
-@router.post("/sources/feeds")
+@router.post("/sources/feeds", dependencies=_DEMO_GATE)
 async def subscribe_feed(
     request: FeedSubscribeRequest,
     settings: Settings = Depends(get_settings),
@@ -789,7 +794,7 @@ async def unsubscribe_feed(
     return {"status": "ok", "url": request.url}
 
 
-@router.post("/sources/poll-feeds")
+@router.post("/sources/poll-feeds", dependencies=_DEMO_GATE)
 async def poll_feeds(settings: Settings = Depends(get_settings)):
     """Run a poll cycle over every subscribed feed.
 
@@ -812,7 +817,7 @@ async def list_calendar_subscriptions(settings: Settings = Depends(get_settings)
     return {"calendars": calendars, "total": len(calendars)}
 
 
-@router.post("/sources/calendars")
+@router.post("/sources/calendars", dependencies=_DEMO_GATE)
 async def subscribe_calendar(
     request: CalendarSubscribeRequest,
     settings: Settings = Depends(get_settings),
@@ -840,7 +845,7 @@ async def unsubscribe_calendar(
     return {"status": "ok", "url": request.url}
 
 
-@router.post("/sources/poll-calendars")
+@router.post("/sources/poll-calendars", dependencies=_DEMO_GATE)
 async def poll_calendars(settings: Settings = Depends(get_settings)):
     """Run a poll cycle over every subscribed calendar.
 
@@ -858,7 +863,7 @@ async def poll_calendars(settings: Settings = Depends(get_settings)):
 # --- Apple Notes one-way import ----------------------------------------------
 
 
-@router.post("/sources/sync-notes", response_model=NotesSyncResponse)
+@router.post("/sources/sync-notes", response_model=NotesSyncResponse, dependencies=_DEMO_GATE)
 async def sync_notes(
     request: NotesSyncRequest | None = None,
     settings: Settings = Depends(get_settings),

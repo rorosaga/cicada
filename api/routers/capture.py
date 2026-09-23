@@ -18,7 +18,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from api.config import Settings, get_settings
-from api.services import telemetry
+from api.services import bank_registry, demo_guard
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -27,6 +27,21 @@ from api.services.telegram_capture import (
 from api.services.transcript_capture import capture_transcript
 
 router = APIRouter()
+
+
+def refuse_capture_into_demo(settings: Settings = Depends(get_settings)) -> None:
+    """G141 capture-side track (R-CS15): a route dependency that answers ``409``
+    with :data:`demo_guard.REFUSAL` while the ACTIVE bank is a demo bank.
+
+    Route-level, so FastAPI solves it before the body is validated and before
+    the handler runs (checked on 0.135.3): FastAPI has already read the body,
+    but a folder batch or an upload is refused before any of it is staged.
+    Every POST/PUT under ``/capture/`` and ``/sources/`` carries it unless
+    ``test_demo_capture_routes.HANDLED_ELSEWHERE`` names why not — the Stop
+    hook redirects, Telegram replies, the intake checks its target bank."""
+    if demo_guard.is_demo(settings.memory_path):
+        raise HTTPException(status_code=409, detail=demo_guard.REFUSAL)
+
 
 # "attempt once" — this endpoint is hit on every message forwarded to the
 # bot; an unconfigured secret must not retry auto-provisioning (or spam a
@@ -162,23 +177,40 @@ async def capture_transcript_endpoint(
     which of ``created | updated | unchanged | empty`` happened. Runs the
     read + parse off the event loop — an 85 MB transcript takes real time
     and must not stall SSE or the app.
+
+    G141 capture-side track (R-CS12): the demo bank is never the target. While
+    it is open, the session is saved into the real bank left most recently
+    (``bank_registry.capture_bank``) and the response names it — ``bank`` and
+    ``redirectedFrom`` — so the hook's log says where it went; with no real
+    bank to choose, ``409`` and nothing is read. Every Stop re-captures the
+    whole session, so the first reply after switching back saves it in full.
     """
+    target = bank_registry.capture_bank(settings.memory_root)
+    # No real bank to fall back to: the service is handed the demo path and
+    # refuses it unread, so the refusal lands in the ledger like any other.
+    memory_path = target.path if target is not None else settings.memory_path
     result = await asyncio.to_thread(
         capture_transcript,
-        settings.memory_path,
+        memory_path,
         harness=req.harness,
         session_id=req.session_id,
         transcript_path=req.transcript_path,
         cwd=req.cwd,
         keep_assistant=settings.capture_assistant_replies,
-        bank=telemetry.bank_name(settings),
+        bank=memory_path.name,
     )
-    if result.status == "refused":
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
         raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
     return {
         "status": result.status,
         "episodeId": result.episode_id,
         "turnsUser": result.turns_user,
         "turnsAssistant": result.turns_assistant,
         "summary": result.summary,
+        "bank": target.name,
+        "redirectedFrom": target.redirected_from,
     }

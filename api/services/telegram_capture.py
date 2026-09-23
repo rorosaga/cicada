@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, episode_scrub, markdown_parser, owner_identity
+from api.services import demo_guard, episode_ids, episode_scrub, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -231,6 +231,12 @@ async def ingest_telegram_update(
     reason = parsed["reason"]
     chat_id = parsed["chat_id"]
     captured_at = parsed["date"]
+
+    if demo_guard.is_demo(memory_path):
+        # G141 capture-side track (R-CS14): a 200 with a reply, never an error —
+        # Telegram retries a non-2xx for hours, and a retry landing after the
+        # person switched back would save a message they were told was not saved.
+        return {"kind": "skipped", "reason": "demo_bank", "ack": demo_guard.TELEGRAM_ACK, "chat_id": chat_id}
 
     try:
         if parsed["command"] == "remind":

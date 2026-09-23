@@ -6294,7 +6294,7 @@ struct ShownOnceView: View {
 
   Relations: → answers **G132** fork (b) for this path (per-connector tokens) and fork (e) (live
   HTTP recall); serves **G76** (the "other harnesses" story) and **G91** (a phone read path without
-  an iOS build); depends on **G75** R12, **G48**, **G118**. Status: `✅ S0–S2 (PR #TBD) · 🔲 S3/S4`.
+  an iOS build); depends on **G75** R12, **G48**, **G118**. Status: `✅ S0–S2 (PR #88) · 🔲 S3/S4`.
   **Privacy:** no tunnel hostname, no bank content, placeholders only.
 - [ ] **Step 2: The G132 cross-reference.** Append one sentence at the end of the G132 row's body,
   before its status cell: "**Cross-reference (2026-09-23): G135** ships per-connector capability
@@ -6330,7 +6330,7 @@ struct ShownOnceView: View {
   - Add `mcp/<harness>` and `remote/<harness>` to the **Triggers** list.
 - [ ] **Step 4: TODO.md.**
   - Add a row to the "🔄 In progress" table: **G135 remote connector** · "S0–S2 on
-    `feat/remote-connector` (PR #TBD): SSRF guard, honest agent commits, `mcp_tools`, remote
+    `feat/remote-connector` (PR #88): SSRF guard, honest agent commits, `mcp_tools`, remote
     runtime and door, the From anywhere page" · "Merge after the orchestrator's live check; then
     the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next".
   - Add one line under "Known and disclosed": "**G135:** DNS rebinding between `net_guard`'s check

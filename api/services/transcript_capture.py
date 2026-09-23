@@ -19,6 +19,12 @@ Writes mirror the conversation importer byte-for-byte (``conversations.py``
 rewrites the same file with ``processed: false`` so Sleep re-consolidates
 exactly one episode (the G104-safe path). Ids and stamps come from
 ``episode_ids`` (G114). No LLM anywhere.
+
+Each turn's own time rides in G118's sidecar ``turns: [{offset, ts, speaker}]``
+(G141 PJ-4, R-PJ16), written by ``episode_staging.stamps_for`` — the body here
+is that module's line shape byte for byte — outside the hash, the last key,
+head-stable at 500. The episode ``timestamp`` stays the session's start, so a
+session resumed over three days keeps one id while its day-3 turns read day 3.
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser, session_stats, telemetry
+from api.services import demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
 #: 256 MiB. The largest transcript seen on the author's machine during the
@@ -118,7 +124,7 @@ class CaptureResult:
     turns_user: int
     turns_assistant: int
     summary: dict
-    reason: str | None = None
+    reason: str | None = None  # a TranscriptRefused enum, or "demo_bank" (G141 capture-side track)
 
 
 def _utc(ts: str | None) -> str:
@@ -137,6 +143,31 @@ def _body(conv: Conversation) -> str:
     return "\n".join(f"{t.role}: {t.text}" for t in conv.turns)
 
 
+def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
+    """G141 PJ-4 (R-PJ16, R-CS6): the per-turn ``[{offset, ts, speaker}]``
+    sidecar, in the ONE shape ``evidence.turn_stamps`` reads.
+
+    :func:`_body` renders ``"{role}: {text}"`` lines joined by ``\\n`` — byte
+    for byte ``episode_staging._line`` — so the stager's own ``stamps_for``
+    builds it: one writer of the shape, its head-stable 500 cap, aware-UTC
+    times, and ``[]`` rather than offsets into text the body does not hold.
+    Before this the hook wrote ``turns: <count>`` and every Claude Code turn
+    dated to the session's first day."""
+    draft = episode_staging.EpisodeDraft(turns=[
+        episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts) for t in conv.turns])
+    return episode_staging.stamps_for(draft, body)
+
+
+def _place_turns(fm: dict, sidecar: list[dict]) -> None:
+    """The sidecar is the LAST key (R-PB4), replaced whole on every rewrite; a
+    body with no timed turn drops the key rather than keep stale offsets — the
+    stager's ``_apply_common`` rule. Never in ``content_hash``: a time never
+    re-queues a session."""
+    fm.pop("turns", None)
+    if sidecar:
+        fm["turns"] = sidecar
+
+
 def _title(conv: Conversation, harness: str) -> str:
     """R12: the first kept user turn's first line, else ``<Product> session``."""
     for t in conv.turns:
@@ -151,8 +182,18 @@ def _is_session_episode(fp: Path, session_id: str) -> bool:
     """R3: only a ``capture_kind: transcript`` page for this session counts.
     An MCP ``cicada_save_episode`` from the same session carries the same
     ``session_id`` but no ``capture_kind`` — a deliberate, separate episode
-    that is never rewritten here."""
+    that is never rewritten here.
+
+    Final review (G141 PJ-4): the raw-text check comes first. PJ-4 made a
+    Stop-hook episode carry up to 500 ``turns`` stamps instead of one
+    integer, so YAML-parsing every episode on a cache miss (every new
+    session's first Stop, every session after a restart) went from 0.06 s to
+    0.86 s at 1000 episodes x 80 turns — under ``_lock``, against the hook's
+    3 s timeout. A session id is a UUID, so "not in the bytes" is an exact
+    miss and only the one real candidate pays for a parse."""
     try:
+        if session_id not in fp.read_text(encoding="utf-8", errors="replace"):
+            return False
         fm = markdown_parser.parse(fp).frontmatter
     except Exception:  # noqa: BLE001 - one malformed episode must not block capture
         return False
@@ -216,11 +257,20 @@ def capture_transcript(
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
-    ``status``: ``refused`` (nothing read, nothing written), ``empty`` (read,
+    ``status``: ``refused`` (nothing read, nothing written — an unsafe path,
+    or a demo bank, reason ``demo_bank``), ``empty`` (read,
     nothing worth keeping, nothing written), ``created``, ``updated`` (body
     changed — re-queued for Sleep), ``unchanged`` (same hash — no write, so
     a Stop that fires after every reply costs no git noise).
     """
+    if demo_guard.is_demo(memory_path):
+        # G141 capture-side track (R-CS12): a demo bank holds only made-up
+        # examples, so a real session is never written into it — refused
+        # before the transcript is even validated, and recorded like every
+        # other refusal. The router sends the session to a real bank first;
+        # this is the guard for any caller that does not.
+        _record(harness, session_id, "refused", None, bank, "demo_bank")
+        return CaptureResult("refused", None, 0, 0, {}, reason="demo_bank")
     try:
         path = validate_transcript_path(harness, session_id, transcript_path)
     except TranscriptRefused as exc:
@@ -258,10 +308,10 @@ def capture_transcript(
                 "harness": harness,
                 "capture_kind": CAPTURE_KIND,
                 "captured_at": now,
-                "turns": len(conv.turns),
             }
             if cwd:
                 fm["project_dir"] = cwd
+            _place_turns(fm, _turn_sidecar(conv, body))
             path_out = episodes_dir / f"{episode_id}.md"
             markdown_parser.write(path_out, fm, body)
             _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
@@ -275,17 +325,18 @@ def capture_transcript(
             _record(harness, session_id, "unchanged", conv, bank)
             return CaptureResult("unchanged", episode_id, kept["user"], kept["assistant"], conv.summary)
 
-        # R3: same file, same id, same original timestamp; new body, re-queued.
+        # R3: same file, same id, same original timestamp; new body, re-queued,
+        # and the whole per-turn sidecar rewritten (G141 PJ-4, R-PJ16).
         # `processed_by` is written only beside `processed: true` (G114 R6),
         # so a re-queued episode must not carry a stale "sleep" stamp.
         fm["title"] = _title(conv, harness)
         fm["content_hash"] = content_hash
         fm["captured_at"] = now
-        fm["turns"] = len(conv.turns)
         fm["processed"] = False
         fm.pop("processed_by", None)
         if cwd and not fm.get("project_dir"):
             fm["project_dir"] = cwd
+        _place_turns(fm, _turn_sidecar(conv, body))
         markdown_parser.write(existing, fm, body)
         _record(harness, session_id, "updated", conv, bank)
         logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")

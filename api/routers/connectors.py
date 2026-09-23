@@ -49,6 +49,7 @@ from api.models.schemas import (
 from api.services import sync_state
 from api.services.connections import secrets as secret_store
 from api.services.connectors import ADAPTERS, base
+from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter(prefix="/sources/connectors")
 
@@ -238,7 +239,7 @@ async def connector_callback(
     )
 
 
-@router.post("/{connector_id}/sync", response_model=ConnectorSyncResult)
+@router.post("/{connector_id}/sync", response_model=ConnectorSyncResult, dependencies=[Depends(refuse_capture_into_demo)])
 async def sync_now(connector_id: str, settings: Settings = Depends(get_settings)):
     """Run one poll immediately, user-initiated — NOT a mirror of the nightly
     Sleep-tail poll (final-review H2: that claim was false). ``allow_fetch=True``

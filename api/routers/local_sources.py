@@ -25,8 +25,13 @@ from api.models.schemas import (
     WisprFlowSettings,
 )
 from api.services import folder_source, local_refs, paper_metadata, papers, sync_state, wispr_flow
+from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter()
+
+#: G141 capture-side track (R-CS15): every route below that takes something in
+#: answers 409 while the demo bank is open, before its handler runs.
+_DEMO_GATE = [Depends(refuse_capture_into_demo)]
 
 
 def _record(folder: dict) -> FolderRecord:
@@ -59,7 +64,7 @@ async def _reapply_authorship(memory_path, folder: dict) -> list[str]:
     return paths + list(report["paths"])
 
 
-@router.post("/sources/folders", response_model=FolderRecord)
+@router.post("/sources/folders", response_model=FolderRecord, dependencies=_DEMO_GATE)
 async def register_folder(req: FolderRegisterRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     from api.services import sleep_cycle
@@ -94,7 +99,7 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     return _record(folder)
 
 
-@router.put("/sources/folders/{folder_id}", response_model=FolderRecord)
+@router.put("/sources/folders/{folder_id}", response_model=FolderRecord, dependencies=_DEMO_GATE)
 async def update_folder(folder_id: str, req: FolderUpdateRequest, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     folder = folder_source.update(
@@ -124,7 +129,7 @@ async def remove_folder(folder_id: str, settings: Settings = Depends(get_setting
     return FolderRemoveResponse(removed=True)
 
 
-@router.post("/sources/folders/{folder_id}/sync", response_model=FolderSyncResponse)
+@router.post("/sources/folders/{folder_id}/sync", response_model=FolderSyncResponse, dependencies=_DEMO_GATE)
 async def sync_folder(
     folder_id: str,
     req: FolderSyncRequest,
@@ -206,7 +211,7 @@ async def get_wispr_settings(settings: Settings = Depends(get_settings)):
     return WisprFlowSettings(**wispr_flow.load_settings(settings.memory_path))
 
 
-@router.put("/capture/local-source/wispr-flow/settings", response_model=WisprFlowSettings)
+@router.put("/capture/local-source/wispr-flow/settings", response_model=WisprFlowSettings, dependencies=_DEMO_GATE)
 async def put_wispr_settings(req: WisprFlowSettings, settings: Settings = Depends(get_settings)):
     saved = wispr_flow.save_settings(settings.memory_path, enabled=req.enabled,
                                      include_dictation=req.include_dictation,
@@ -217,7 +222,7 @@ async def put_wispr_settings(req: WisprFlowSettings, settings: Settings = Depend
     return WisprFlowSettings(**saved)
 
 
-@router.post("/capture/local-source/wispr-flow", response_model=WisprFlowCaptureResponse)
+@router.post("/capture/local-source/wispr-flow", response_model=WisprFlowCaptureResponse, dependencies=_DEMO_GATE)
 async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends(get_settings)):
     """Stage what the app read from Wispr Flow (R-N1). 409 while the source is off
     for this memory — the app only posts when it is on, so a 409 means the two

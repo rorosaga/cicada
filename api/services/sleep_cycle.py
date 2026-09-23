@@ -54,6 +54,12 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # G141 PJ-0 (R-CS3): claims Stage 5.56 could not write because their
+    # subject has no page, and how many subjects they were on. Counts only —
+    # G141's M3 measure, carried into the `sleep_run` ledger row; never on
+    # `/sleep/status`.
+    claims_page_less: int = 0
+    subjects_page_less: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
     # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
@@ -873,6 +879,10 @@ async def _run_engine_independent_tail(
     G140: expiry (_expire_claims_safely) shares this branch — its commit is
     scoped, but on a half-written cycle it would stage Sleep's hunks on the
     same page.
+
+    G141 capture-side track (R-CS16): on a demo bank the outside-world steps
+    are skipped; expiry, the state refresh, logos and the question refresh
+    still run.
     """
     await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
@@ -884,11 +894,20 @@ async def _run_engine_independent_tail(
         # swept into a media/feed/calendar commit with no session provenance.
         # G140 Q-R7: expiry commits itself via commit_paths; first, so no poll's git add -A can sweep it.
         await _expire_claims_safely(memory_path)
-        await _poll_connectors_safely(memory_path)
-        await _poll_feeds_and_calendars_safely(memory_path)
-        await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
-        await _resolve_papers_safely(memory_path)
-        await _replay_wispr_todos_safely(memory_path)
+        from api.services import demo_guard
+
+        if demo_guard.is_demo(memory_path):
+            # G141 capture-side track (R-CS16): a demo bank's Sleep consolidates
+            # its own made-up episodes but never takes in the outside world —
+            # the connector credentials are machine-global, so a poll here would
+            # pull the person's real saves into the demo.
+            logger.info("demo bank: connector, feed/calendar, link-backfill, paper and Wispr to-do steps skipped")
+        else:
+            await _poll_connectors_safely(memory_path)
+            await _poll_feeds_and_calendars_safely(memory_path)
+            await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+            await _resolve_papers_safely(memory_path)
+            await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
             "claim expiry, connector, feed/calendar, link-backfill, paper details and Wispr "
@@ -966,6 +985,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.episodes_requeued = 0
     _state.questions_refreshed = 0
     _state.organic_resolutions = 0
+    _state.claims_page_less = 0
+    _state.subjects_page_less = 0
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
@@ -1313,7 +1334,13 @@ async def _run_stages(
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
-        claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
+        claim_result = run_claim_pipeline(
+            extracted, existing, memory_path, settings,
+            # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
+            name_to_id=resolved_result.get("name_to_id"),
+        )
+        _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
+        _state.subjects_page_less = int(claim_result.get("subjects_skipped", 0) or 0)
         nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
@@ -1341,7 +1368,8 @@ async def _run_stages(
         logger.info(
             f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
             f"claims across {claim_result.get('subjects_written', 0)} pages "
-            f"({claim_result.get('subjects_skipped', 0)} page-less), "
+            f"({claim_result.get('claims_page_less', 0)} claim(s) on "
+            f"{claim_result.get('subjects_skipped', 0)} page-less subject(s) not written), "
             f"{nudge_result.get('written', 0)} claim nudges written, "
             f"{nudge_result.get('merged', 0)} merged into open items"
         )
@@ -2033,6 +2061,9 @@ async def _finalize(
             "entities_updated": _state.entities_updated,
             "skills_detected": _state.skills_detected,
             "session_count": len(sessions or []),
+            # G141 PJ-0 (R-CS3): M3's per-cycle page-less count — integers only.
+            "claims_page_less": _state.claims_page_less,
+            "subjects_page_less": _state.subjects_page_less,
         },
     ))
 
