@@ -35,6 +35,7 @@ struct ConnectedChannelRow: View {
 
     @Environment(BrowserWatcher.self) private var watcher
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -168,7 +169,7 @@ struct ConnectedChannelRow: View {
                 .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
         )
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 
     /// The backend lists what a channel supports; "Manage…" is appended

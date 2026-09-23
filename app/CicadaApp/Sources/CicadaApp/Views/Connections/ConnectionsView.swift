@@ -49,14 +49,20 @@ struct ConnectionsView: View {
         // over `Store.connections`, already hydrated + kept live by the
         // Store — this tab renders instantly from the snapshot on revisit.
         .onDisappear { viewModel.stopPolling() }
-        .confirmationDialog("Disconnect \(confirmDisconnect?.label ?? "")?",
+        // R-E28: signing out of ChatGPT runs `codex logout` in Cicada's own
+        // Codex home only, so the dialog says the terminal's Codex is untouched.
+        .confirmationDialog(confirmDisconnect?.id == "chatgpt-plan"
+                                ? Copy.chatgptSignOutTitle
+                                : "Disconnect \(confirmDisconnect?.label ?? "")?",
                             isPresented: Binding(get: { confirmDisconnect != nil }, set: { if !$0 { confirmDisconnect = nil } }),
                             presenting: confirmDisconnect) { c in
-            Button("Disconnect", role: .destructive) { Task { await viewModel.logout(c.id) } }
+            Button(c.id == "chatgpt-plan" ? Copy.signOut : "Disconnect", role: .destructive) {
+                Task { await viewModel.logout(c.id) }
+            }
         } message: { c in
             Text(c.id == "claude-plan"
                  ? "Runs `claude auth logout`. Claude Code will ask you to sign in again next time you open it."
-                 : c.id == "chatgpt-plan" ? "Runs `codex logout`." : "Removes the key from ~/.cicada/secrets.env.")
+                 : c.id == "chatgpt-plan" ? Copy.chatgptSignOutExplainer : "Removes the key from ~/.cicada/secrets.env.")
         }
     }
 
@@ -102,13 +108,9 @@ private struct ConnectionCard: View {
     let onTier: (String?) -> Void
     let onUseForSleep: (Bool) -> Void
 
-    private var logo: String? {
-        switch connection.id {
-        case "claude-plan": "claude-code"
-        case "chatgpt-plan": "codex"
-        default: nil
-        }
-    }
+    /// R-E27: the plan's vendor mark (Claude, ChatGPT), Ollama's, and each
+    /// key's vendor — one translation shared with Settings → Sleep.
+    private var logo: String? { ConnectionMark.logoName(connectionId: connection.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -116,7 +118,7 @@ private struct ConnectionCard: View {
                 if let logo {
                     LogoImage.platformTile(name: logo, size: 28)
                 } else {
-                    Image(systemName: connection.isKeyBased ? "key.fill" : "cpu").frame(width: 28, height: 28)
+                    Image(systemName: ConnectionMark.symbol(isKeyBased: connection.isKeyBased)).frame(width: 28, height: 28)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(connection.label).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
@@ -128,9 +130,6 @@ private struct ConnectionCard: View {
 
             if let account = connection.account, connection.connected {
                 Text(account).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-            }
-            if let note = connection.priceNote, connection.connected, connection.priceUsdMonth == nil {
-                Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
             }
             if let detail = connection.detail, !connection.connected {
                 Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -162,7 +161,7 @@ private struct ConnectionCard: View {
                 // of the segmented control — a second, duplicate caption
                 // below it used to repeat the exact same string (G68 §1,
                 // round 2).
-                Picker("Your Max tier (for cost estimates only)",
+                Picker(Copy.yourMaxTier,
                        selection: Binding(get: { connection.tier ?? "" },
                                           set: { onTier($0.isEmpty ? nil : $0) })) {
                     Text("Pick tier…").tag("")
@@ -215,11 +214,12 @@ private struct ConnectionCard: View {
         } else if connection.billing == "free" {
             if !connection.connected, let cmd = connection.login?.command { CommandBox(command: cmd) }
         } else if connection.connected {
-            Button("Disconnect", role: .destructive, action: onDisconnect)
+            Button(connection.login?.mode == "device-code" ? Copy.signOut : "Disconnect",
+                   role: .destructive, action: onDisconnect)
         } else if !connection.available {
             EmptyView()
         } else if let pending = pendingLogin {
-            deviceCode(pending)
+            DeviceCodePanel(session: pending, onRetry: onConnect)
         } else if awaitingTerminal, let cmd = connection.login?.command {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 Text(terminalFallback
@@ -235,25 +235,9 @@ private struct ConnectionCard: View {
                         .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     CommandBox(command: cmd)
                 }
-                Button("Connect", action: onConnect).buttonStyle(.borderedProminent)
-            }
-        }
-    }
-
-    private func deviceCode(_ s: LoginSession) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            if s.state == "failed" {
-                Text(s.detail ?? "Sign-in failed").foregroundStyle(CicadaTheme.statusColor(for: .decaying))
-            } else if let code = s.code {
-                Text("Enter this code in your browser:").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                HStack(spacing: CicadaTheme.spacingMD) {
-                    Text(code).font(CicadaTheme.monoFont.weight(.bold)).textSelection(.enabled)
-                    if let url = s.url.flatMap(URL.init(string:)) { Link("Open sign-in page", destination: url) }
-                }
-                ProgressView().controlSize(.small)
-            } else {
-                HStack { ProgressView().controlSize(.small); Text("Starting `codex login --device-auth`…").font(CicadaTheme.captionFont) }
-                if !s.rawOutput.isEmpty { Text(s.rawOutput).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textTertiary) }
+                Button(connection.login?.mode == "device-code" ? Copy.signInWithChatGPT : "Connect",
+                       action: onConnect)
+                    .buttonStyle(.borderedProminent)
             }
         }
     }

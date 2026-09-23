@@ -106,3 +106,12 @@ def test_status_cold_cache_does_not_probe(client):
     assert body["connections"]["connected"] == []
     assert body["connections"]["engine"] is None
     assert client.run_cli_calls == []
+
+
+def test_status_engine_is_the_connection_sleep_would_run_on(client):
+    assert client.put("/sleep/engine", json={"mode": "agent"}).status_code == 200
+    assert client.get("/connections").status_code == 200        # warm the cache
+    assert client.get("/status").json()["connections"]["engine"] == "subscription-cli"
+    assert client.put("/sleep/engine", json={"mode": "byok"}).status_code == 200
+    assert client.get("/connections").status_code == 200
+    assert client.get("/status").json()["connections"]["engine"] is None   # no key saved

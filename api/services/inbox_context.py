@@ -300,7 +300,10 @@ def _asserted_span(claim, ep_id: str, body: str) -> tuple[int, int] | None:
     for e in getattr(claim, "evidence", None) or []:
         if not getattr(e, "is_span", lambda: False)() or e.episode != ep_id:
             continue
-        if e.hash and e.hash != ev.body_hash(body):
+        # G118 slice 2 (R-PB14): a conversation that continued after the
+        # span was minted keeps its exact quote (`grown`); only `stale` falls
+        # back to the derived name match.
+        if ev.span_status(body, end=e.end, hash=e.hash) == ev.SPAN_STALE:
             continue
         if 0 <= e.start < e.end <= len(body):
             return (e.start, e.end)

@@ -12,6 +12,16 @@ import SwiftUI
 /// empty state needs to send the person to Settings, it must go through that
 /// view, never a bare `action:` closure that calls `openSettings()` or the
 /// private AppKit selector directly.
+///
+/// **G137 — the one surface the Meadow foundation lands on in M1.** Grass
+/// grows in the two bottom corners and one cloud drifts behind the bookworm,
+/// which stays the focal point because it carries the state (pixel art at
+/// `.interpolation(.none)` beside a painting at `.high` — two languages in one
+/// frame by the owner's brief, kept apart by size and opacity). The words sit
+/// on a `surface` card, never directly on paint, so a grass corner reaching
+/// under them in a short window is behind a card, not behind a sentence. The
+/// title is the display serif; the one action is the page's one prominent
+/// action, and it lifts on hover because it opens something.
 struct EmptyStateView: View {
     let title: String
     let message: String
@@ -23,19 +33,55 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: CicadaTheme.spacingLG) {
-            BookwormView(state: .happy, pointSize: 96)
-            Text(title).font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-            Text(message)
-                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-            if let section = settingsSection, let actionLabel {
-                SettingsSectionLink(section: section, label: actionLabel)
-            } else if let actionLabel, let action {
-                Button(actionLabel, action: action)
-                    .buttonStyle(.cicadaPlain).foregroundStyle(CicadaTheme.accent)
+            ZStack {
+                DriftingCloud(art: EmptyStateLayout.cloud, width: CicadaTheme.scaled(EmptyStateLayout.cloudWidth))
+                    .offset(x: CicadaTheme.scaled(EmptyStateLayout.cloudOffset.width),
+                            y: CicadaTheme.scaled(EmptyStateLayout.cloudOffset.height))
+                BookwormView(state: .happy, pointSize: EmptyStateLayout.wormPointSize)
             }
+            VStack(spacing: CicadaTheme.spacingSM) {
+                Text(title)
+                    .font(CicadaTheme.displayFont(size: 26))
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                if let section = settingsSection, let actionLabel {
+                    SettingsSectionLink(section: section, label: actionLabel, prominent: true)
+                        .hoverLift()
+                        .padding(.top, CicadaTheme.spacingXS)
+                } else if let actionLabel, let action {
+                    PrimaryActionButton(title: actionLabel, action: action)
+                        .hoverLift()
+                        .padding(.top, CicadaTheme.spacingXS)
+                }
+            }
+            .padding(CicadaTheme.spacingLG)
+            .frame(maxWidth: .infinity)
+            .background(CicadaTheme.surface,
+                        in: RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge, style: .continuous)
+                .stroke(CicadaTheme.border, lineWidth: 1))
         }
         .frame(maxWidth: 360)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { GrassCorners(height: EmptyStateLayout.cornerHeight) }
+        .clipped()
     }
+}
+
+/// The empty state's composition as numbers, so "the bookworm stays the
+/// focal point" is a test (`EmptyStateViewTests`), not a hope. Points at
+/// `uiScale == 1`; the view scales them.
+enum EmptyStateLayout {
+    /// A multiple of 24 keeps the sprite's cells integer (G107 R3).
+    static let wormPointSize: CGFloat = 96
+    static let cloud: MeadowArt = .cloud2
+    /// Wider than the worm so it reads as sky; at most twice as wide so it
+    /// never reads as a second character.
+    static let cloudWidth: CGFloat = 180
+    /// Up and to the left: the cloud peeks out from behind the worm's head.
+    static let cloudOffset = CGSize(width: -36, height: -30)
+    static let cornerHeight: CGFloat = 130
 }
