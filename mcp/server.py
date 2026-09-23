@@ -389,6 +389,12 @@ TOOLS = [
                     },
                     "description": "Optional. WHERE this fact comes from: the passage(s) in a saved episode that state it. Cicada verifies each quote against the stored episode and records only its offsets (G118 — spans, not copies). Omit it when the claim is your own inference: it is then recorded as reasoning, never as an invented span. If you saved the conversation with cicada_save_episode, cite that episode.",
                 },
+                # G140 Q-R6: a stated end, never a future `valid_to` —
+                # `claim_expiry` closes the claim on Sleep's tail after it.
+                "expected_end": {
+                    "type": "string",
+                    "description": "Optional. The date this fact stops being true, when the person stated one — 'exams this weekend' → that Sunday, 'until Friday', a due date — as YYYY-MM-DD. The claim stays current through that day; Sleep closes it after. Nothing is deleted.",
+                },
             },
             "required": ["subject", "predicate", "object"],
         },
@@ -709,6 +715,7 @@ def handle_tool(name: str, arguments: dict) -> str:
             bool(arguments.get("force_new_entity", False)),
             arguments.get("sources"),
             arguments.get("evidence"),
+            expected_end=arguments.get("expected_end"),
         )
     elif name == "cicada_retract_claim":
         return handle_retract_claim(
@@ -797,9 +804,10 @@ def handle_timeline(since=None) -> str:
 
 
 def handle_write_claim(subject, predicate, object_, observer, confidence, context, source_episode,
-                       force_new_entity=False, sources=None, evidence=None) -> str:
+                       force_new_entity=False, sources=None, evidence=None, expected_end=None) -> str:
     return mcp_tools.write_claim(_ctx(), subject, predicate, object_, observer, confidence, context,
-                                 source_episode, force_new_entity, sources, evidence)
+                                 source_episode, force_new_entity, sources, evidence,
+                                 expected_end=expected_end)
 
 
 def handle_retract_claim(subject, claim_id, reason, evidence=None) -> str:

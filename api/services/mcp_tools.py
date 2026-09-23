@@ -781,6 +781,7 @@ def write_claim(
     force_new_entity: bool = False,
     sources: list | None = None,
     evidence: list | None = None,
+    expected_end=None,
 ) -> str:
     """Write one atomic fact as an observer-tagged claim (agentic write path).
 
@@ -788,6 +789,10 @@ def write_claim(
     list; the reply names what happened to it — how many quotes verified into
     spans, and which episode a missed quote was NOT found in — so the agent
     can re-cite the exact words instead of silently leaving ``reasoning``.
+
+    ``expected_end`` (G140 Q-R6) is the date the fact says it stops being
+    true; the reply says through when it stays current, or that an
+    unparseable one was ignored — the claim is written either way.
     """
     # One bank resolution per call: the write, the ledger row and the commit
     # must all name the same bank even if the active bank flips mid-call.
@@ -817,6 +822,7 @@ def write_claim(
         # the person's own observer; stdio passes None/False (unchanged).
         origin=ctx.claim_origin,
         forbid_owner_observer=ctx.is_remote,
+        expected_end=expected_end,
     )
 
     if result.get("action") == "ambiguous_subject":
@@ -902,6 +908,12 @@ def write_claim(
         ev_note = f"evidence: reasoning (quote not found in {missed} — cite the exact words, or omit evidence)"
     else:
         ev_note = "evidence: reasoning (no quote given)"
+    # G140 Q-R6: with no expected_end the reply is byte-identical (the golden
+    # `write_claim` key holds); with one, the agent learns when it closes.
+    if result.get("expected_end"):
+        ev_note += f"; current through {result['expected_end']}, then closed by Sleep"
+    elif result.get("expected_end_ignored"):
+        ev_note += "; expected_end ignored (use YYYY-MM-DD)"
 
     return (
         f"{verb}: {subject} {predicate} {object_} "
@@ -1208,11 +1220,21 @@ def _is_record(claim) -> bool:
     return is_record(claim)
 
 
+def _ended_at_stated_end(claim) -> bool:
+    """Closed by ``claim_expiry`` (G140 Q-R7): no successor, and a stated end.
+    Nothing replaced it, so "was X until D" would read as a lost successor."""
+    from api.services import claim_expiry
+
+    return claim_expiry.stated_end(claim) is not None
+
+
 def _how_closed(old, page: list) -> str:
     """How a closed claim stopped being current, read off the page alone."""
     new = {c.id: c for c in page}.get(old.superseded_by or "")
     if new is not None and _is_record(new):
         return f"withdrawn by {new.authored_by or 'an agent'}: {_clip(new.text, 160)}"
+    if not old.superseded_by and _ended_at_stated_end(old):
+        return "ended at its stated end"
     if new is not None and new.valid_to is None:
         return f'replaced by "{_clip(new.object or new.text)}"'
     if old.superseded_by:
@@ -1228,6 +1250,8 @@ def _history_line(eid: str, old, page: list) -> str:
     new = {c.id: c for c in page}.get(old.superseded_by or "")
     if new is not None and _is_record(new):
         return f"{head} {was} withdrawn {old.valid_to} by {new.authored_by or 'an agent'} — {_clip(new.text, 160)}"
+    if not old.superseded_by and _ended_at_stated_end(old):
+        return f"{head} {was} ended {old.valid_to} (its stated end)"
     if new is not None and new.valid_to is None and new.predicate == old.predicate:
         return f'{head} was {was} until {old.valid_to} → now "{_clip(new.object or new.text)}"'
     return f"{head} was {was} until {old.valid_to}"

@@ -233,6 +233,16 @@ def _determine_action(
     return "written"
 
 
+def _iso_date(value) -> str | None:
+    """``YYYY-MM-DD`` or ``None`` — a stated end is a date or it is nothing (G140 Q-R6)."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return date.fromisoformat(str(value).strip()[:10]).isoformat()
+    except ValueError:
+        return None
+
+
 def write_claim(
     memory_path: Path,
     subject: str,
@@ -252,6 +262,7 @@ def write_claim(
     evidence: list[dict] | None = None,
     authored_by: str | None = None,
     forbid_owner_observer: bool = False,
+    expected_end: str | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -288,8 +299,14 @@ def write_claim(
     observer that resolves to the owner, in any of its three spellings: a
     remote app may never record the person's own words as theirs.
 
+    ``expected_end`` (G140 Q-R6): the date the fact says it ends, as
+    YYYY-MM-DD; anything else is ignored — reported back, the claim still
+    written. Stored on ``Claim.expected_end``, never as a future ``valid_to``
+    (every reader takes a set ``valid_to`` to mean closed); Sleep's
+    ``claim_expiry`` closes the claim after that day.
+
     Returns ``{subject, entity_id, claim_id, action, observer, evidence, path,
-    page_created}`` on success (``path`` memory-relative, so the caller can
+    page_created, expected_end, expected_end_ignored}`` on success (``path`` memory-relative, so the caller can
     commit exactly the page it touched — G135 R-R11),
     or ``{subject, entity_id: None, claim_id: None, action: "error", observer,
     error}`` on any failure/bad input — the caller (MCP tool handler) can
@@ -393,6 +410,7 @@ def write_claim(
         )
 
         claim_id = _claim_id(entity_id, predicate_slug, object_raw, observer)
+        end = _iso_date(expected_end)
         spans = evidence_mod.verify_many(memory_path, evidence)
         if not spans:
             # R6: no citation → one `reasoning` entry on the source episode.
@@ -420,6 +438,7 @@ def write_claim(
             session_id=(session_id or "").strip() or None,
             evidence=spans,
             authored_by=(authored_by or "").strip() or None,
+            expected_end=end,
         )
 
         parsed = markdown_parser.parse(page)
@@ -484,6 +503,8 @@ def write_claim(
             # `entities/<id>.md`, so the page is always under `entities/`.
             "path": f"entities/{page.name}",
             "page_created": existing_page is None,
+            "expected_end": end,
+            "expected_end_ignored": bool(expected_end) and end is None,
         }
     except Exception as exc:  # never raise on a normal input
         logger.warning(

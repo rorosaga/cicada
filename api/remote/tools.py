@@ -107,7 +107,11 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                                         "description": "The episode id cicada_save_episode returned."},
                             "quote": {"type": "string",
                                       "description": "The exact words, copied verbatim (at most 240 characters)."},
-                        }}}},
+                        }}},
+           # G140 Q-R6: the same stated end the stdio server takes.
+           "expected_end": {"type": "string",
+                            "description": "Optional: the date this fact stops being true, if the person said "
+                                           "(YYYY-MM-DD)."}},
           ("subject", "predicate", "object"), read_only=False, idempotent=True),
     _tool("cicada_retract_claim",
           "Withdraw a fact this connection recorded earlier with cicada_write_claim and now knows is wrong. "

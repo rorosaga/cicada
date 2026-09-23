@@ -180,7 +180,8 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_write_claim": lambda c, a: mcp_tools.write_claim(
         c, str(a.get("subject") or ""), str(a.get("predicate") or ""), str(a.get("object") or ""),
         a.get("observer") or "agent", a.get("confidence"), a.get("context"), a.get("source_episode"),
-        bool(a.get("force_new_entity", False)), a.get("sources"), a.get("evidence")),
+        bool(a.get("force_new_entity", False)), a.get("sources"), a.get("evidence"),
+        expected_end=a.get("expected_end")),
     "cicada_retract_claim": lambda c, a: mcp_tools.retract_claim(
         c, str(a.get("subject") or ""), str(a.get("claim_id") or ""), str(a.get("reason") or ""),
         a.get("evidence")),
