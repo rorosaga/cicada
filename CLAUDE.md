@@ -359,13 +359,16 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`.
+`sleep/state`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`, `user/companion_app`,
+`mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
 
-- **`Cicada-Author:`** — *which agent authored this*. A model id for agent writes, the literal
-  **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits, and
-  **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
+- **`Cicada-Author:`** — *which agent authored this*. A model id for agent writes, **a harness
+  label** (`claude-code`, `claude-web`, `chatgpt`, …; `agent` when none was sent) for a write that
+  arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
+  literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
+  and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
   migrations, the split-out decay commit, the `State snapshot` commit). Built by
   `git_service.build_commit_message(...)`, parsed by `_parse_authors`. Powers `GET /contributors`.
 - **`Cicada-Engine:`** — exactly one per main commit (`claude-cli|ollama|litellm`), **omitted
@@ -697,6 +700,24 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   older plist needs the key added by hand.
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
   and injects fetchers instead.
+
+**The remote connector (G135) — the one way in from outside this Mac.** Off by default
+(`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
+(`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps
+through a tunnel **the person** runs (Tailscale Funnel or ngrok); **Cicada never starts, stops or
+reconfigures a tunnel** — `GET /remote/status` only detects one. Access is a per-connector
+capability token `cic_rc_<id>_<secret>`: shown once, only its sha256 stored in
+`~/.cicada/remote/connectors.db` (0600, never in a bank), scoped (`search`/`read`/`record` default;
+`sources`/`answer`/`ask` opt-in; `pending`, `mark_processed` and `repo_context` never), expiring
+(7/30/90 days) and revocable. It arrives as a secret link (`/c/<token>/mcp`) or a bearer header —
+one verifier. Tools outside a connector's scopes are absent from `tools/list`; any `Origin` header
+is refused; the listener has no access log (a secret link's path IS the token). Every remote write
+commits alone as `Cicada-Author: <app harness>`, `Cicada-Session: rc_…`, trigger
+`remote/<harness>`, no engine; a remote claim is `origin: remote:<id>` and can never be the
+person's own words. Each call leaves one ids-only `remote_call` ledger row, filed beside `read` in
+`reads-*.jsonl` so it never ticks the app's consumption domain. Every server-side fetch of someone
+else's URL goes through `net_guard` (`is_global`, never `is_private`, because tailnet addresses are
+neither; the name lookup runs off the event loop).
 
 **A failed poll is recorded, not raised** (`sync_state.record_error`) and surfaces per-channel as
 `lastError`; a gate-skipped poll is recorded distinctly (`record_skip`) so a skip never reads as a

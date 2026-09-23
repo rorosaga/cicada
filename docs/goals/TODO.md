@@ -94,6 +94,11 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
   260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
   16-cell grid (the spec said 40).
+- **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
+  Sleep cycle starting mid-remote-write can still sweep that file (R-R27); remote writes are
+  serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
+  race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
+  is saved with its URL-derived title and never fetched (R-R10).
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -334,6 +339,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #TBD): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
 | **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
 | **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
 | **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
