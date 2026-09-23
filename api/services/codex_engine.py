@@ -17,11 +17,25 @@ Invariants, each verified against codex-cli 0.154.0 (R2 §2, 2026-09-23):
 1. **The engine can never write into memory or read the person's Codex
    setup.** ``--ignore-user-config`` loads no ``config.toml`` (so none of the
    person's MCP servers — Cicada's own included — and no plugins); the
-   isolated home carries no skills, ``AGENTS.md`` or hooks; ``--disable
-   hooks`` plus ``CICADA_CAPTURE=off`` are two locks on the G105 Stop hook;
-   ``--disable memories`` keeps Codex's memory from learning the person's
-   episodes; ``-s read-only`` and ``--disable shell_tool|unified_exec`` in an
-   empty scratch cwd leave nothing to run and nowhere to write.
+   isolated home carries none of the person's skills, ``AGENTS.md`` or
+   hooks; ``--disable hooks`` plus ``CICADA_CAPTURE=off`` are two locks on
+   the G105 Stop hook; ``--disable memories`` keeps Codex's memory from
+   learning the person's episodes; ``-s read-only`` and ``--disable
+   shell_tool|unified_exec`` in an empty scratch cwd leave nothing to run
+   and nowhere to write.
+   **Not the same as no hidden context** (final review M4, measured
+   2026-09-23 by pointing a signed-out 0.154.0 run at a local capture
+   server, synthetic prompt): Codex unpacks its OWN bundled system skills
+   into ``<home>/skills/.system`` on first run and lists them in every
+   request (~10.8k chars) — turned off with ``skills.include_instructions=
+   false`` (plus ``include_permissions_instructions`` and
+   ``include_collaboration_mode_instructions`` for the notes that then take
+   its place). What still rides every call and has no working switch here:
+   the code-mode/collaboration tool namespace (~15k chars: ``exec``,
+   ``spawn_agent``… despite ``--disable multi_agent``), a
+   ``multi_agent_role`` note (~3.4k) and ``environment_context`` (~1k,
+   kept: it carries the date). Request body 31.8k → 21.0k bytes; the
+   signed-in token count is owed to the live check (G49).
 2. **``--ephemeral``** writes no rollout file and no history line (60→60
    session files, 260→260 history lines), so Cicada's own Codex capture can
    never ingest Sleep's prompts.
@@ -54,6 +68,12 @@ CODEX_PINNED: tuple[str, ...] = (
     "exec", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check",
     "-s", "read-only", "--json",
     "-c", 'web_search="disabled"',
+    # Final review M4: the isolated home still ships Codex's bundled system
+    # skills, and their listing rode every call (~10.8k chars); the sandbox
+    # and collaboration-mode notes that surface in its place (~2k, ~1.7k)
+    # are moot with no shell and no agents. All three measured off.
+    "-c", "skills.include_instructions=false", "-c", "include_permissions_instructions=false",
+    "-c", "include_collaboration_mode_instructions=false",
     "--disable", "memories", "--disable", "hooks", "--disable", "plugins", "--disable", "apps",
     "--disable", "multi_agent", "--disable", "shell_tool", "--disable", "unified_exec",
     "--disable", "image_generation", "--disable", "view_image",
@@ -300,7 +320,11 @@ async def preflight(*, snapshot_fn=None, probe_fn=None, now=None) -> tuple[bool,
         return ok, ("Signed in to ChatGPT (plan details unavailable right now)." if ok else detail), None
     if not snap.signed_in:
         return False, SIGNED_OUT, None
-    if snap.account_type != "chatgpt":
+    # Final review M3: a signed-in reply with no ``type`` is not proof of an
+    # API key — treating it as one aborted every ChatGPT-plan cycle while the
+    # card (``codex_cli.status``, same tolerance) read Connected. Only a type
+    # that is present and not ``chatgpt`` is refused.
+    if snap.account_type not in (None, "chatgpt"):
         return False, API_KEY_ACCOUNT, None
     stop = plan_limits.codex_stop(snap, now=now)
     if stop:

@@ -417,9 +417,15 @@ def resolve_llm_fn(
         remaining episode would otherwise spawn once and fail), and a stop
         the engine saw on a SUCCESSFUL call (``on_signals``) trips it after
         the answer is recorded. Both new trips apply only inside a workload
-        scope: the unscoped bucket Ask, MCP and the tail share is never
-        reset (``use_scope`` purges only its own), so a trip there would keep
-        Ask blocked after the window resets, until the backend restarts.
+        scope: the ``_unscoped`` bucket is never reset (``use_scope`` purges
+        only its own), so a trip there would outlive the window it measured,
+        until the backend restarts. Final review H1: a plain throttle still
+        trips in any scope, so every caller that resolves a plan through
+        Settings → Sleep runs in its own purging scope — Sleep
+        (``sleep:<id>``), each Ask call (``ask:<uuid>``) and each link
+        backfill, tail or on-demand (``links:<uuid>``). What still lands in
+        ``_unscoped`` reaches a plan only through an explicit
+        ``CICADA_LLM_MODE`` (e.g. the dedup sweep) — the pre-R-E23 status quo.
         """
         resolved_scope = scope or agent_engine.current_scope()
         in_workload = resolved_scope != agent_engine.DEFAULT_SCOPE

@@ -25,6 +25,17 @@ def test_parse_device_output():
     assert codex_cli.parse_device_output("nothing here") == (None, None)
 
 
+def test_parse_device_output_reads_the_coloured_prompt_codex_prints_when_piped():
+    """Final review H2: the shape captured from a piped codex 0.154.0
+    `login --device-auth` (code replaced) — ANSI colour on the URL and code."""
+    text = ("1. Open this link in your browser and sign in to your account\n"
+            "   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\n\n"
+            "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\n"
+            "   \x1b[94mABCD-EFGH\x1b[0m\n")
+    assert codex_cli.parse_device_output(text) == ("ABCD-EFGH", "https://auth.openai.com/codex/device")
+    assert "\x1b" not in codex_cli.strip_ansi(text)
+
+
 def test_begin_login_spawns_device_auth_and_tracks_session(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_cli.shutil, "which", lambda _: "/usr/local/bin/codex")
     spawned: list[list[str]] = []

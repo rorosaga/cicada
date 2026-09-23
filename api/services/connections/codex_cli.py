@@ -29,6 +29,16 @@ from api.services.connections.base import (
 
 _URL_RE = re.compile(r"https?://\S+")
 _CODE_RE = re.compile(r"\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b")
+# Final review H2: codex 0.154.0 colours the device-auth prompt even when
+# piped (captured 2026-09-23: `\x1b[94mhttps://…/codex/device\x1b[0m`, then
+# `\x1b[94m<code>\x1b[0m`). Left in, the escape glued `m` to the code so
+# `\b` never matched and the URL carried `\x1b[0m` — the in-app sign-in
+# never showed a code. Every CSI sequence is stripped before parsing/storing.
+_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    return _CSI_RE.sub("", text)
 _INSTALL_HINT = "Install Codex CLI (npm i -g @openai/codex), then Sign in with ChatGPT here."
 # R-E28: the sign-in is in-app now, so no line tells a person to open a
 # terminal — and "Connect" was never the button's name.
@@ -59,6 +69,7 @@ def codex_home_dir() -> Path:
 
 
 def parse_device_output(text: str) -> tuple[str | None, str | None]:
+    text = strip_ansi(text)
     url = _URL_RE.search(text)
     code = _CODE_RE.search(text)
     return (code.group(0) if code else None), (url.group(0).rstrip(".,") if url else None)
@@ -180,7 +191,9 @@ class CodexPlanAdapter:
                 line = await proc.stdout.readline()
                 if not line:
                     break
-                text = line.decode("utf-8", "replace")
+                # Stripped here too: `raw_output` is shown to a person as
+                # the fallback when no code parses (H2).
+                text = strip_ansi(line.decode("utf-8", "replace"))
                 sess.raw_output += text
                 if len(sess.raw_output) > RAW_OUTPUT_CAP:
                     sess.raw_output = sess.raw_output[-RAW_OUTPUT_CAP:]

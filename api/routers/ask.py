@@ -13,12 +13,14 @@ onto the wire schema.
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import AskCitation, AskRequest, AskResponse
-from api.services import ask_service, engine_select
+from api.services import agent_engine, ask_service, engine_select
 
 router = APIRouter()
 
@@ -35,7 +37,15 @@ async def ask(
     resolved, _why = await engine_select.resolve_settings(settings, user_triggered=True)
 
     def llm_fn(prompt: str) -> str:
-        return ask_service._default_llm_fn(resolved)(prompt)
+        # Final review H1: each Ask call runs in its OWN self-purging breaker
+        # scope. The shared ``_unscoped`` bucket is never reset, so once R-E23
+        # routed Ask onto a plan, one throttle there (Claude, a Codex usage
+        # limit) left every later Ask — and the link backfill sharing that
+        # bucket — failing fast without spawning until the backend restarted,
+        # even after the plan window reset. A throttle seen here still stops
+        # THIS call; ``use_scope`` purges the trip on exit.
+        with agent_engine.use_scope(f"ask:{uuid.uuid4().hex}"):
+            return ask_service._default_llm_fn(resolved)(prompt)
 
     # answer_query is synchronous (sqlite-vec lookup + a blocking LLM call),
     # so run it off the event loop to avoid stalling other requests.

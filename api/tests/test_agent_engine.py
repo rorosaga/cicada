@@ -505,6 +505,22 @@ def test_a_stop_on_a_failed_call_raises_the_right_error(agent_runner, claude_str
         agent_engine.complete(messages=msgs, model="sonnet", runner=agent_runner(five))
 
 
+def test_a_near_limit_stop_on_a_failed_call_keeps_the_failures_real_class(agent_runner, claude_stream):
+    """Final review H1: past 90% of the 5-hour window, an unrelated failure (a
+    bad model id) must not be re-raised as EngineThrottled — that would trip
+    the breaker for a throttle the plan never enforced. The stop still
+    reaches ``on_signals``."""
+    seen = {}
+    bad_model = CliResult(1, claude_stream("model_not_found", rate_limits=[
+        {"status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.95}]), "")
+    with pytest.raises(engine_errors.EngineError) as info:
+        agent_engine.complete(messages=[{"role": "user", "content": "x"}], model="sonnet",
+                              runner=agent_runner(bad_model),
+                              on_signals=lambda stream, stop: seen.update(stop=stop))
+    assert not isinstance(info.value, engine_errors.EngineThrottled)
+    assert seen["stop"].kind == "near_limit"
+
+
 def test_a_stop_on_a_successful_call_keeps_the_answer_and_reports_the_stop(agent_runner, claude_stream):
     seen = {}
     runner = agent_runner(CliResult(0, claude_stream("success", rate_limits=[

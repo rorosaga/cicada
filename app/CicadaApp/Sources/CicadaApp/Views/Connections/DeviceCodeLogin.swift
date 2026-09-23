@@ -40,6 +40,14 @@ enum DeviceCodeLogin {
         }
     }
 
+    /// What the sign-in printed, shown only while no code has parsed — the
+    /// safety net for a Codex release that words its prompt differently.
+    static func printedFallback(_ session: LoginSession) -> String? {
+        guard case .starting = phase(of: session) else { return nil }
+        let text = session.rawOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     /// The link to open automatically — once per sign-in, and only once the
     /// code is on screen to type into it.
     static func urlToOpen(_ session: LoginSession, alreadyOpened: String?) -> URL? {
@@ -69,6 +77,17 @@ struct DeviceCodePanel: View {
                     ProgressView().controlSize(.small)
                     Text(Copy.deviceCodeStarting)
                         .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+                // Final review H2: if Codex's wording ever changes so no code
+                // parses, its own words (already stripped of colour codes by
+                // the backend) still reach the person instead of a spinner.
+                if let printed = DeviceCodeLogin.printedFallback(session) {
+                    Text(Copy.deviceCodeRawFallback)
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(printed)
+                        .font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textSecondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             case let .showCode(code, url):
                 Text(Copy.deviceCodeInstructions)

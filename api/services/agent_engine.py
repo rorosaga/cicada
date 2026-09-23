@@ -691,7 +691,15 @@ def complete(
     if on_signals is not None:
         on_signals(stream, stop)
     failed = result.rc != 0 or stream.envelope is None or bool(stream.envelope.get("is_error"))
-    if stop is not None and failed and result.rc != 127:
+    # Final review H1: only a stop the plan actually ENFORCED (overage, a
+    # rejection) explains a failed call. A ``near_limit`` stop is Cicada's own
+    # 90%-of-window caution: raising it here turned every unrelated failure
+    # (a bad model id, a timeout) into EngineThrottled once the window passed
+    # 90%, tripping the breaker for a throttle that never happened. Such a
+    # failure keeps its real class; the near-limit stop still reaches the
+    # seam through ``on_signals``.
+    if (stop is not None and stop.kind in ("overage", "rejected")
+            and failed and result.rc != 127):
         raise _stop_error(stop)
     return parse_envelope(result, stream)
 

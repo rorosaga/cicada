@@ -33,6 +33,10 @@ def test_argv_is_exactly_the_verified_isolation_set(tmp_path):
     assert disabled == {"memories", "hooks", "plugins", "apps", "multi_agent", "shell_tool",
                         "unified_exec", "image_generation", "view_image"}
     assert argv[argv.index("-s") + 1] == "read-only" and 'web_search="disabled"' in argv
+    # Final review M4: Codex's bundled skills listing is kept off every call.
+    assert "skills.include_instructions=false" in argv
+    assert "include_permissions_instructions=false" in argv
+    assert "include_collaboration_mode_instructions=false" in argv
     assert argv[argv.index("-C") + 1] == str(tmp_path / "cwd")
     assert argv[argv.index("-m") + 1] == "gpt-5.6-luna" and 'model_reasoning_effort="low"' in argv
     assert f"model_instructions_file={json.dumps(str(tmp_path / 'i.md'))}" in argv
@@ -217,6 +221,13 @@ def test_preflight_refuses_signed_out_an_api_key_and_a_reached_limit():
     assert _preflight(_snap(account_type="apiKey"))[:2] == (False, codex_engine.API_KEY_ACCOUNT)
     ok, detail, _ = _preflight(_snap(limit_reached="rate_limit_reached"))
     assert not ok and detail.startswith("Your ChatGPT plan's Codex limit is used up")
+
+
+def test_preflight_trusts_a_signed_in_reply_with_no_account_type():
+    """Final review M3: the card (``codex_cli.status``) reads a type-less
+    signed-in reply as Connected; the cycle must agree, not call it a key."""
+    ok, detail, _ = _preflight(_snap(account_type=None))
+    assert ok and detail != codex_engine.API_KEY_ACCOUNT
 
 
 def test_preflight_degrades_to_login_status_when_the_app_server_is_unavailable():

@@ -5,12 +5,13 @@ import XCTest
 final class DeviceCodeLoginTests: XCTestCase {
     private func session(state: String = "pending", code: String? = "WXYZ-1234",
                          url: String? = "https://auth.openai.com/codex/device",
-                         detail: String? = nil) throws -> LoginSession {
+                         detail: String? = nil, rawOutput: String? = nil) throws -> LoginSession {
         var obj: [String: Any] = ["sessionId": "s1", "connectionId": "chatgpt-plan",
                                   "mode": "device-code", "state": state]
         if let code { obj["code"] = code }
         if let url { obj["url"] = url }
         if let detail { obj["detail"] = detail }
+        if let rawOutput { obj["rawOutput"] = rawOutput }
         return try JSONDecoder().decode(LoginSession.self, from: JSONSerialization.data(withJSONObject: obj))
     }
 
@@ -37,5 +38,15 @@ final class DeviceCodeLoginTests: XCTestCase {
         XCTAssertEqual(DeviceCodeLogin.phase(of: try session(state: "failed", detail: "Sign-in didn't finish (codex exited 1).")),
                        .failed("Sign-in didn't finish (codex exited 1)."))
         XCTAssertEqual(DeviceCodeLogin.phase(of: try session(state: "done")), .done)
+    }
+
+    /// Final review H2: with no parsed code, what the sign-in printed is shown
+    /// instead of a bare spinner — and never alongside a parsed code.
+    func testThePrintedOutputIsTheFallbackOnlyWhileNoCodeParsed() throws {
+        let printed = "Enter this one-time code\n   ABCD EFGH"
+        XCTAssertEqual(DeviceCodeLogin.printedFallback(try session(code: nil, rawOutput: printed)),
+                       "Enter this one-time code\n   ABCD EFGH")
+        XCTAssertNil(DeviceCodeLogin.printedFallback(try session(code: nil, rawOutput: "  \n")))
+        XCTAssertNil(DeviceCodeLogin.printedFallback(try session(rawOutput: printed)))
     }
 }

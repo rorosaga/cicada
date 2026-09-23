@@ -196,6 +196,7 @@ enum Copy {
     static let copied = "Copied"
     static let openSignInPage = "Open the sign-in page"
     static let deviceCodeStarting = "Getting a sign-in code from ChatGPT…"
+    static let deviceCodeRawFallback = "No code yet — here's what ChatGPT's sign-in said so far:"
     static let deviceCodeInstructions = "Enter this code on the ChatGPT page that just opened:"
     static let deviceCodeWaiting = "Waiting for you to finish signing in…"
     static let deviceCodeDone = "Signed in."
@@ -213,7 +214,7 @@ enum Copy {
         "Off: when your Claude plan's included usage runs out, Sleep stops and waits. "
         + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
     static let scheduledNeverSpendsPlans =
-        "Scheduled cycles never use your Claude or ChatGPT plan unless CICADA_LLM_MODE is set in api/.env."
+        "Scheduled cycles never use your Claude or ChatGPT plan — only a cycle you start yourself does."
     static let yourMaxTier = "Your Max tier"
 
     // MARK: Sleep control (cancel + episode cap)

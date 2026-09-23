@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -419,7 +420,7 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
     gated at all.
     """
     try:
-        from api.services import engine_select, link_enrichment
+        from api.services import agent_engine, engine_select, link_enrichment
         from api.services.connectors.base import network_allowed
         from api.services.link_recon import scan_recon
 
@@ -454,12 +455,17 @@ async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_
                 "Link backfill: page fetch skipped — CICADA_ALLOW_CONNECTOR_FETCH is off "
                 "(reuse + recon still run)"
             )
-        report = await link_enrichment.backfill(
-            memory_path, resolved, limit=per_cycle,
-            summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
-            fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
-            engine=engine,
-        )
+        # Final review H1: the tail runs after the cycle's own `sleep:<id>`
+        # scope has closed, so without this it would share the never-reset
+        # ``_unscoped`` bucket with Ask — one throttle there would block every
+        # later backfill until a restart. Its own scope purges on exit.
+        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
+            report = await link_enrichment.backfill(
+                memory_path, resolved, limit=per_cycle,
+                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                engine=engine,
+            )
         if report.selected or report.related or report.skipped:
             logger.info(
                 f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
