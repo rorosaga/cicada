@@ -578,21 +578,38 @@ class LocationListing(CamelModel):
 
 
 class EntitySource(CamelModel):
-    """One declared refresh source on an entity page's ``sources:`` key."""
+    """One declared refresh source on an entity page's ``sources:`` key.
+
+    G61 phase 2 S1 (plan R-AC27): ``access`` is the STORED statement — null when
+    nobody said, because the effective value is derived at read
+    (``fact_sources.effective_access``) and travels on ``InboxItem.check``
+    targets; ``accepted`` marks an agent-found source the person took;
+    ``only_me`` is the person's "Only I know" note. All additive: the app's
+    ``EntitySource`` decoder ignores keys it does not name.
+    """
 
     ref: str
-    kind: str = "note"          # url | path | note
+    kind: str = "note"          # url | path | note | app | repo
     predicate: Optional[str] = None
-    added_by: str = "user"      # model id, or "user"
+    access: Optional[str] = None  # public | signed_in | local | unknown, as stated; else null
+    added_by: str = "user"      # user | harness label | cicada | model id
     added_at: str = ""
+    accepted: bool = False
+    only_me: bool = False
 
 
 class EntitySourceCreate(CamelModel):
-    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted."""
+    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted.
+
+    G61 phase 2 S1: ``access``/``accepted``/``only_me`` are the person's to say;
+    on an existing ``(ref, predicate)`` they are applied to it (plan R-AC21)."""
 
     ref: str
     kind: Optional[str] = None
     predicate: Optional[str] = None
+    access: Optional[str] = None
+    accepted: Optional[bool] = None
+    only_me: Optional[bool] = None
 
 
 class EntitySourceList(CamelModel):

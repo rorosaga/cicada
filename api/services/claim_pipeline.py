@@ -105,6 +105,7 @@ def run_claim_pipeline(
 
     # ---- Stage 1: emit claims from extraction (+ any injected manual claims) ----
     incoming: list[Claim] = entities_to_claims(extracted, memory_path)
+    emitted_ids = {c.id for c in incoming}  # Stage-1 only — never the person's extra_claims
     if extra_claims:
         incoming = incoming + list(extra_claims)
 
@@ -132,6 +133,7 @@ def run_claim_pipeline(
     claims_written = 0
     subjects_written = 0
     subjects_skipped = 0
+    written_subjects: list[str] = []
     for subject, claims in reconciled.items():
         if not claims:
             continue
@@ -151,16 +153,37 @@ def run_claim_pipeline(
             if new_body != parsed.body:
                 markdown_parser.write(filepath, parsed.frontmatter, new_body)
             subjects_written += 1
+            written_subjects.append(subject)
             claims_written += len(claims)
         except Exception as e:  # never let a single bad page abort the cycle
             logger.warning(
                 f"claim write-back skipped for {subject}: {type(e).__name__}: {e}"
             )
 
+    # ---- G61 phase 2 S1 (spec §5.2, plan R-AC33): a link the cited words contain ----
+    # A URL sitting verbatim inside a newly written Stage-1 claim's evidence span
+    # is where that fact can be checked. Zero LLM, never a URL Stage 1 made up;
+    # only on a page this pass wrote, only for a world/artifact predicate. Its
+    # frontmatter write rides this stage's pages into `_finalize`'s commit, under
+    # the model that extracted it — the right author for it.
+    sources_attached = 0
+    if written_subjects:
+        try:
+            from api.services import fact_sources, predicates
+
+            locus_of = predicates.build_locus_fn(memory_path)
+            for subject in written_subjects:
+                for claim in reconciled.get(subject, []):
+                    if claim.id in emitted_ids and claim.valid_to is None:
+                        sources_attached += len(fact_sources.attach_cited_urls(memory_path, subject, claim, locus_of))
+        except Exception as e:  # a source is a convenience; it never costs the cycle
+            logger.warning(f"cited-link source attach skipped: {type(e).__name__}: {e}")
+
     logger.info(
         f"Claim pipeline: {len(incoming)} emitted, "
         f"{subjects_written} pages written ({claims_written} claims), "
         f"{subjects_skipped} subjects without a page, "
+        f"{sources_attached} cited links attached as sources, "
         f"{len(nudges)} claim nudges"
     )
 

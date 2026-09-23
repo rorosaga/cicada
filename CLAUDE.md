@@ -358,7 +358,16 @@ times.
   the MCP render and the lexical row), never stored since G61 phase 2 S0, and its voice follows
   `added_by`: "You said …" only when the person added it; "Claude Code added …", "Cicada found …",
   "An agent found …" otherwise, the ref always in the sentence. An older item whose sources no longer
-  match keeps its stored hint. Nothing is fetched.
+  match keeps its stored hint. Each entry is `{ref, kind: url|path|note|app|repo, predicate?, access?,
+  added_by, added_at, accepted?, only_me?}` (phase 2 S1): `access` (`public|signed_in|local|unknown`)
+  is stored only when stated, else inferred at read (`fact_sources.effective_access`: a refused or
+  login host is `signed_in`, a path or repo `local`, an app `signed_in`); `accepted` marks an
+  agent-found source the person took; `only_me` is the person's "Only I know" for one predicate —
+  never a hint. The person's repeat of an entry applies those three; an agent's never changes one.
+  Stage 5.56 attaches a URL found verbatim in a new Stage-1 claim's cited span as a source for that
+  predicate (`added_by: <model>`, zero LLM) when the predicate's `locus:` is `world` or `artifact` —
+  the vocabulary's where-the-truth-lives marking (seed + bank map, the most conservative winning:
+  `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
