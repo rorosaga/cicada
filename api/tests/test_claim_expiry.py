@@ -223,3 +223,101 @@ def test_history_says_a_fact_ended_at_its_stated_end(tmp_path):
     _page(memory, "alpha-project", [_c("exams", expected_end=ended, valid_from="2026-01-01", valid_to=ended)])
     lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}], date.today())
     assert lines == [f'- `alpha-project` has: "exams" ended {ended} (its stated end)']
+
+
+# --- Task 4 review round 1 -------------------------------------------------
+
+def _seed_second_page(memory: Path) -> None:
+    ended = (date.today() - timedelta(days=3)).isoformat()
+    _page(memory, "beta-project", [_c("gone", subject="beta-project", expected_end=ended, valid_from="2026-01-01")])
+    _git(memory, "add", "entities/beta-project.md")
+    _git(memory, "commit", "-q", "-m", "seed a second stated end")
+
+
+def _note_on(memory: Path, eid: str) -> Path:
+    path = memory / "entities" / f"{eid}.md"
+    path.write_text(path.read_text() + "\nA note the person has not committed yet.\n")
+    return path
+
+
+def test_a_dirty_page_is_left_alone_and_survives_a_failed_commit(tmp_path, monkeypatch):
+    memory = _git_bank(tmp_path)
+    _seed_second_page(memory)
+    dirty = _note_on(memory, "alpha-project")
+    before = dirty.read_text()
+
+    async def boom(*a, **k):
+        raise git_service.GitError("index.lock is held")
+
+    monkeypatch.setattr(git_service, "commit_paths", boom)
+    asyncio.run(sleep_cycle._expire_claims_safely(memory))
+    assert dirty.read_text() == before, "restore never checks out a page expiry did not write"
+    assert _claims(memory, "alpha-project")["gone"].valid_to is None, "re-derived on a later night"
+    assert _git(memory, "status", "--porcelain").strip() == "M entities/alpha-project.md"
+
+
+def test_the_expiry_commit_never_carries_a_dirty_page(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    memory = _git_bank(tmp_path)
+    _seed_second_page(memory)
+    dirty = _note_on(memory, "alpha-project")
+    before = dirty.read_text()
+    asyncio.run(sleep_cycle._expire_claims_safely(memory))
+    log = _git(memory, "log", "-1", "--format=%s%n%b", "--name-only")
+    assert log.startswith(f"Expiry {date.today().isoformat()}")
+    assert "entities/beta-project.md" in log and "entities/alpha-project.md" not in log
+    assert _claims(memory, "beta-project")["gone"].valid_to is not None
+    assert dirty.read_text() == before, "the person's edit stays theirs, uncommitted"
+
+
+def test_an_untracked_page_is_not_expired(tmp_path):
+    memory = _git_bank(tmp_path)
+    ended = (date.today() - timedelta(days=3)).isoformat()
+    _page(memory, "gamma-project", [_c("gone", subject="gamma-project", expected_end=ended, valid_from="2026-01-01")])
+    assert "entities/gamma-project.md" in asyncio.run(sleep_cycle._dirty_paths(memory))
+    asyncio.run(sleep_cycle._expire_claims_safely(memory))
+    assert _claims(memory, "gamma-project")["gone"].valid_to is None
+    assert _claims(memory, "alpha-project")["gone"].valid_to is not None, "the clean page still expires"
+
+
+def test_an_unreadable_tree_expires_nothing(tmp_path, monkeypatch):
+    memory = _git_bank(tmp_path)
+
+    async def unreadable(_path):
+        raise git_service.GitError("status failed")
+
+    monkeypatch.setattr(sleep_cycle, "_dirty_paths", unreadable)
+    asyncio.run(sleep_cycle._expire_claims_safely(memory))
+    assert _claims(memory, "alpha-project")["gone"].valid_to is None
+    assert _git(memory, "status", "--porcelain") == ""
+
+
+def test_expire_skips_the_paths_it_is_given(tmp_path):
+    memory = tmp_path / "m"
+    _page(memory, "alpha-project", [_c("gone", expected_end="2026-09-20")])
+    report = claim_expiry.expire(memory, TODAY, skip=frozenset({"entities/alpha-project.md"}))
+    assert report.paths == [] and _claims(memory, "alpha-project")["gone"].valid_to is None
+
+
+def test_a_claim_closed_before_its_stated_end_is_not_said_to_have_reached_it(tmp_path):
+    memory = tmp_path / "m"
+    closed = (date.today() - timedelta(days=2)).isoformat()
+    _page(memory, "alpha-project", [_c("launch", predicate="due", object="2099-12-01",
+                                       valid_from="2026-01-01", valid_to=closed)])
+    lines = mcp_tools._recent_changes(memory / "entities", [{"entity_id": "alpha-project"}], date.today())
+    assert lines == [f'- `alpha-project` due: was "2099-12-01" until {closed}']
+
+
+def test_closing_date_is_what_expire_writes():
+    assert claim_expiry.closing_date(_c("a", expected_end="2026-09-15", valid_from="2026-09-22")) == "2026-09-22"
+    assert claim_expiry.closing_date(_c("b", expected_end="2026-09-15", valid_from="undated")) == "2026-09-15"
+    assert claim_expiry.closing_date(_c("c")) is None
+
+
+def test_a_rejected_restatement_of_an_expired_fact_is_not_written():
+    from api.services.agentic_write import _determine_action
+
+    cid = "clm_alpha-project_has_1ca9406e"
+    closed = _c(cid, valid_to="2026-09-20", expected_end="2026-09-20")
+    assert _determine_action(cid, [closed], [], [{"dropped": cid}]) == "superseded"
+    assert _determine_action(cid, [closed, _c(cid, expected_end="2026-10-10")], [], []) == "written"

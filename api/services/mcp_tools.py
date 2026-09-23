@@ -1221,11 +1221,16 @@ def _is_record(claim) -> bool:
 
 
 def _ended_at_stated_end(claim) -> bool:
-    """Closed by ``claim_expiry`` (G140 Q-R7): no successor, and a stated end.
-    Nothing replaced it, so "was X until D" would read as a lost successor."""
+    """Closed by ``claim_expiry`` (G140 Q-R7): no successor, and a ``valid_to``
+    equal to what expiry writes. Nothing replaced it, so "was X until D" would
+    read as a lost successor. A stated end alone is not enough: the inbox
+    closes claims with no successor too ('neither', a pick with no claim), and
+    a ``due`` 2026-12-01 closed that way on 2026-09-20 did not reach its end
+    (Task 4 review round 1)."""
     from api.services import claim_expiry
 
-    return claim_expiry.stated_end(claim) is not None
+    closing = claim_expiry.closing_date(claim)
+    return closing is not None and str(claim.valid_to or "")[:10] == closing
 
 
 def _how_closed(old, page: list) -> str:

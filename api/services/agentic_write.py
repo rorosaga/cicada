@@ -219,8 +219,12 @@ def _determine_action(
       claim already tops it (REJECT) or the two are tied and need a human
       call (CONFLICT_NUDGE); the existing claim stands unchanged.
     """
+    # Open copies only: ids are deterministic per (subject, predicate, object,
+    # observer), so a fact restated after G140 expiry closed it leaves the
+    # closed copy on the page under the same id. Matching that one would
+    # report a rejected restatement as "written" (Task 4 review round 1).
     for c in reconciled_claims:
-        if c.id == claim_id:
+        if c.id == claim_id and c.valid_to is None:
             if getattr(c, "_status_note", None) == "shadowed_by_human":
                 return "coexist"
             return "written"

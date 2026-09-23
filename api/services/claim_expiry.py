@@ -53,22 +53,54 @@ def stated_end(claim: Claim) -> str | None:
     return None
 
 
+def closing_date(claim: Claim) -> str | None:
+    """The ``valid_to`` expiry writes for this claim, or ``None`` without a
+    stated end: the end, never earlier than ``valid_from`` (a window never
+    closes before it opens). ``valid_from`` is only trusted when it IS a date:
+    a hand-edited "undated" would win a string ``max`` and land in
+    ``valid_to``. One computation shared by ``expire`` and recall's history
+    line, so "ended at its stated end" is said only of a claim whose close
+    matches what expiry would have written — the inbox also closes claims
+    with no successor ('neither', a pick with no claim), and a ``due`` closed
+    that way before its date must not read as reaching it (Task 4 review
+    round 1)."""
+    end = stated_end(claim)
+    if end is None:
+        return None
+    try:
+        began = date.fromisoformat(str(claim.valid_from or "")[:10]).isoformat()
+    except ValueError:
+        began = end
+    return max(end, began)
+
+
 @dataclass
 class Report:
     paths: list[str] = field(default_factory=list)                 # memory-relative pages written
     claims: list[tuple[str, str]] = field(default_factory=list)    # (entity id, claim id) closed
 
 
-def expire(memory_path: Path, today: date) -> Report:
+def expire(memory_path: Path, today: date, *, skip: frozenset[str] = frozenset()) -> Report:
     """Close every open claim whose stated end has passed. Never raises on a
     normal bank; a page whose claims block is unreadable is skipped, never
-    rewritten (the strict-parse rule every read-modify-write path follows)."""
+    rewritten (the strict-parse rule every read-modify-write path follows).
+
+    ``skip`` holds memory-relative paths (``entities/<id>.md``) that were
+    already dirty before expiry ran — an uncommitted Obsidian or app edit.
+    Such a page is left alone and re-derived on a later night: expiry then
+    writes only pages that were clean at HEAD, so ``restore`` can undo only
+    expiry's own change and the ``cicada`` commit carries nothing else. A
+    dirty page rewritten here would lose the person's edit to ``git checkout``
+    on a failed commit, or land it under ``Cicada-Author: cicada`` on a good
+    one — the G85 smear (Task 4 review round 1)."""
     report = Report()
     entities = Path(memory_path) / "entities"
     if not entities.is_dir():
         return report
     day = today.isoformat()
     for path in sorted(entities.glob("*.md")):
+        if f"entities/{path.name}" in skip:
+            continue
         try:
             raw = path.read_text(encoding="utf-8")
         except OSError:
@@ -91,14 +123,7 @@ def expire(memory_path: Path, today: date) -> Report:
             end = stated_end(claim)
             if end is None or end >= day:
                 continue
-            # Never a window that closes before it opens. `valid_from` is only
-            # trusted when it IS a date: a hand-edited "undated" would win a
-            # string `max` and land in `valid_to`.
-            try:
-                began = date.fromisoformat(str(claim.valid_from or "")[:10]).isoformat()
-            except ValueError:
-                began = end
-            claim.valid_to = max(end, began)
+            claim.valid_to = closing_date(claim)
             closed.append(claim.id)
         if not closed:
             continue

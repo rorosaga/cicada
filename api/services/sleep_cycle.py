@@ -692,18 +692,57 @@ async def _refresh_state_safely(memory_path: Path, settings: Settings) -> None:
         logger.info(f"State snapshot: {result.get('reason', 'unchanged')}")
 
 
+async def _dirty_paths(memory_path: Path) -> frozenset[str]:
+    """Every path `git status` reports as changed or untracked, relative to the
+    bank root. `-z` so a name is never C-quoted; `--untracked-files=all` so a
+    new page is listed by name, not folded into its directory; a rename's
+    second record (its source) is kept too. Raises `GitError` rather than
+    `porcelain_status`'s empty string, so an unreadable tree never reads as a
+    clean one."""
+    out = await git_service._run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
+    records = out.split("\0")
+    dirty: set[str] = set()
+    i = 0
+    while i < len(records):
+        rec = records[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        dirty.add(rec[3:])
+        if rec[0] in "RC" or rec[1] in "RC":
+            if i < len(records) and records[i]:
+                dirty.add(records[i])
+            i += 1
+    return frozenset(dirty)
+
+
 async def _expire_claims_safely(memory_path: Path) -> None:
     """G140 Q-R7 (R3 P8) — close facts whose stated end has passed, in one
     `cicada` commit. Time-driven, not episode-driven, so it lives on the tail
     and runs on idle nights too. Only in the guarded branch: `commit_paths`
     stages whole files, and on a half-written cycle it would take Sleep's
     uncommitted hunks on the same page. A failed commit restores the pages
-    (see `claim_expiry.restore`). Never raises."""
+    (see `claim_expiry.restore`). Never raises.
+
+    Pages already dirty before expiry are skipped (Task 4 review round 1): the
+    guarded branch also runs on an idle night with a dirty tree, so a page can
+    carry an uncommitted Obsidian or app edit. Rewriting it would let
+    `restore`'s `git checkout` delete that edit on a failed commit (the stdio
+    MCP process commits outside `_lock`, so index.lock contention is real), or
+    commit it as `cicada` on a good one. If the tree cannot be read, nothing
+    is expired tonight — an end is re-derived, a lost edit is not."""
     from api.services import claim_expiry
 
     today = date.today()
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Claim expiry skipped: tree status unreadable ({type(exc).__name__})")
+            return
     try:
-        report = await asyncio.to_thread(claim_expiry.expire, memory_path, today)
+        report = await asyncio.to_thread(claim_expiry.expire, memory_path, today, skip=skip)
     except Exception as exc:
         logger.warning(f"Claim expiry failed: {type(exc).__name__}: {exc}")
         return
