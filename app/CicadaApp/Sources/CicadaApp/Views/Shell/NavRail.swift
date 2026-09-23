@@ -178,14 +178,14 @@ private struct RailFootGlyph: View {
     }
 }
 
-/// The gear (⌘,). Until Task 6 it is the `SettingsLink` into the scene — the measured reason is
-/// `SettingsEntryPointTests`' doc (a private selector is accepted and ignored on macOS 26).
+/// The gear (⌘,) opens the Settings panel through the one door (R-DS22).
 private struct RailGear: View {
     let needsAttention: Bool
     @State private var hovering = false
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
-        SettingsLink {
+        Button { router.openSettings() } label: {
             RailFootGlyph(systemName: "gearshape", hovering: hovering)
                 .overlay(alignment: .topTrailing) {
                     if needsAttention {

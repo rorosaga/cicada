@@ -48,7 +48,7 @@ final class EmptyStateViewTests: XCTestCase {
         })
         let text = try String(contentsOf: file, encoding: .utf8)
         XCTAssertTrue(text.contains(".buttonStyle(.cicadaPlain)"), "the quiet link lost its plain style")
-        XCTAssertTrue(text.contains(".foregroundStyle(CicadaTheme.accent)"), "the quiet link lost its accent text")
+        XCTAssertTrue(text.contains(".foregroundStyle(CicadaTheme.accentText)"), "the quiet link lost its link ink (DR-5)")
         XCTAssertTrue(text.contains(".primaryActionStyle()"), "the prominent link must go through primaryActionStyle()")
     }
 }

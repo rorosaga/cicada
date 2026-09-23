@@ -194,9 +194,9 @@ struct ConnectedChannelRow: View {
     /// else, so the item lied about what it did.
     ///
     /// A folder or Wispr Flow row gets no menu "Manage…": its settings are in
-    /// Settings → Integrations, which only a `SettingsLink` view can open
-    /// (`SettingsSectionLink`'s P5 ruling), not a menu item's closure. The row
-    /// itself is that link (L final review, finding 1).
+    /// Settings → Integrations, reached through the one door,
+    /// `SettingsSectionLink`, which the row itself is (L final review,
+    /// finding 1; R-DS22).
     static func menuActions(for channel: SourceChannel) -> [String] {
         let actions = channel.actions.filter { $0 != "manage" && $0 != "remove" }
         return ChannelActions.managesInIntegrations(channel.id) ? actions : actions + ["manage"]

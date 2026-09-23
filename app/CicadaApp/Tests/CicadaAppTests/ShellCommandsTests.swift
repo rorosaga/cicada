@@ -37,4 +37,17 @@ final class ShellCommandsTests: XCTestCase {
             }
         }
     }
+
+    /// R-DS23 — ⌘, has one home, the `HiddenShortcutLintTests` shape: a second `.keyboardShortcut(",")`
+    /// anywhere else would be a hidden way into Settings the menu does not show.
+    func testCommandCommaLivesOnlyInTheShellCommands() throws {
+        var offenders: [String] = []
+        for file in try ThemeTokenTests.swiftSources() where !file.path.hasSuffix("Support/ShellCommands.swift") {
+            for (i, line) in try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines).enumerated()
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && line.contains(#".keyboardShortcut(",""#) {
+                offenders.append("\(file.lastPathComponent):\(i + 1)")
+            }
+        }
+        XCTAssertEqual(offenders, [])
+    }
 }

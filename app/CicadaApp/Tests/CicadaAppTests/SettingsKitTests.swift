@@ -79,7 +79,7 @@ final class SettingsKitTests: XCTestCase {
     }
 
     func testTheSidebarGlyphsAcknowledgeHover() throws {
-        XCTAssertTrue(try source("Views/Settings/SettingsScene.swift").contains(".iconHover("))
+        XCTAssertTrue(try source("Views/Settings/SettingsPanel.swift").contains(".iconHover("))
     }
 
     func testSettingsContentNeverUsesGlass() throws {

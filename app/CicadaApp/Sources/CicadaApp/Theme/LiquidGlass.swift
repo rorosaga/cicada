@@ -243,7 +243,7 @@ extension View {
         modifier(LiquidGlassModifier(level: level, shape: shape))
     }
 
-    /// The prominent-action button style — for a `Button` or a `SettingsLink`
+    /// The prominent-action button style — for a `Button`
     /// (`SettingsSectionLink(prominent:)`). One per page. The caller's label
     /// uses `primaryActionInk()`, never a bare `onAccent`.
     @ViewBuilder

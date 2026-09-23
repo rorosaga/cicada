@@ -31,13 +31,14 @@ struct CicadaApp: App {
     /// observes this domain) — constructed bare, unlike every view model
     /// above it.
     @State private var sleepEngineVM = SleepEngineViewModel()
-    /// G126 R9 — the Feed hand-off. No `Store` dependency, same reasoning
-    /// as `sleepEngineVM` above: nothing but `FeedView`/`ContentView`
-    /// (main window) and `IntegrationsView` (Settings) observes this.
+    /// G126 R9 — the Feed hand-off, and since DR-33 the Settings panel's
+    /// open state (R-DS21 … R-DS24). No `Store` dependency, same reasoning as
+    /// `sleepEngineVM` above: nothing but the main window's views — the panel
+    /// included — and the menu commands observe this.
     @State private var appRouter = AppRouter()
     /// G118 slice 2 — the Reader's navigation and its in-memory payload
-    /// cache. Main window only: Settings never opens a Reader, and neither is
-    /// a Store domain (R-PB11), so neither needs the Store.
+    /// cache. Main window only: the Settings panel never opens a Reader, and
+    /// neither is a Store domain (R-PB11), so neither needs the Store.
     @State private var provenanceRouter = ProvenanceRouter()
     @State private var provenanceCache = ProvenanceCache()
     @State private var banksVM: BanksViewModel
@@ -136,8 +137,12 @@ struct CicadaApp: App {
                                                                               keepsRecents: false)))
     }
 
+    /// R-DS23 — ⌘, can reopen the one window: with the app living in the menu bar and no
+    /// window open, `ShellCommands` opens this one and the staged Settings request lands in it.
+    static let mainWindowID = "main"
+
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             ContentView()
                 .environment(graphVM)
                 .environment(inboxVM)
@@ -325,43 +330,15 @@ struct CicadaApp: App {
             }
             // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
             FindCommands(router: appRouter)
-            // DS-1 T3 (R-DS15) — View → Show labelled sidebar / Show icon rail (⌃⌘S).
-            ShellCommands()
+            // DS-1 T3 (R-DS15) — View → Show labelled sidebar / Show icon rail (⌃⌘S);
+            // DS-1 T6 (R-DS23) — Settings… ⌘, opens the in-app panel.
+            ShellCommands(router: appRouter)
             // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
             // of every drop (design §5.1).
             CommandGroup(after: .newItem) {
                 Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
                     .keyboardShortcut("i", modifiers: [.command, .shift])
             }
-        }
-
-        // ⌘, and the sidebar's footer gear. Gets the same environment as the
-        // main window — `ConnectionsView` is a projection over the same Store.
-        // `sleepVM` added for the Schedule tab (G106 amendment) — the SAME
-        // view model instance the main window's Sleep page uses, so a
-        // change made here (or a Pause tap over there) is visible in both
-        // without a refetch.
-        Settings {
-            SettingsScene()
-                .environment(localSources)
-                .environment(connectionsVM)
-                .environment(sleepVM)
-                .environment(sleepEngineVM)
-                .environment(appRouter)
-                .environment(store)
-                // Track I T1: Integrations' Sync now routes a watched browser
-                // through the watcher (consent), so it reads it from here;
-                // without this the Settings window would trap on that page.
-                .environment(browserWatcher)
-                // Track I part b — *Show setup checklist* (Settings → General)
-                // bumps the runner's revision so Home re-renders the card.
-                .environment(setupRunner)
-                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                // The `.id(colorSchemeRaw)` that used to be here is gone with
-                // its twin in `ContentView`: `CicadaTheme.mode` is observable
-                // now, so this window's own token reads repaint it on a theme
-                // flip. The comment it carried — "static reads SwiftUI doesn't
-                // track" — described the bug, not a rule.
         }
     }
 

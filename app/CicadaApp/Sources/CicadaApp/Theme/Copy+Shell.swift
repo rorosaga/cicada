@@ -35,4 +35,10 @@ extension Copy {
     static let renameMemoryBankFallback = "Renames the memory bank in place."
     static let memoryBankName = "Memory bank name"
     static let helpForThisPage = "Help for this page"
+
+    // Settings as a panel inside the app (DR-33, R-DS21).
+    static let settingsMenuItem = "Settings…"
+    static let closeSettings = "Close settings"
+    static let closeSettingsHelp = "Close (Esc)"
+    static let pressEscToClose = "Press Esc to close"
 }

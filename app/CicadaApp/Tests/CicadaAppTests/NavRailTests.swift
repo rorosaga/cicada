@@ -73,6 +73,7 @@ final class NavRailTests: XCTestCase {
                      "DR-64: no bounce on selection — a keyboard switch never animates")
         XCTAssertFalse(text.contains("Text(\"Cicada\")"), "DR-22: no wordmark")
         XCTAssertFalse(text.contains("withAnimation"), "DR-60/61: a page switch is instant")
+        XCTAssertTrue(text.contains("router.openSettings()"), "the gear opens the panel through the one door (R-DS22)")
     }
 
     func testTheSplitViewIsGone() throws {

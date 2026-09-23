@@ -30,6 +30,11 @@ struct CicadaSearchField: View {
     var onSubmit: () -> Void = {}
     var onMove: ((Int) -> Void)? = nil
     var onFocusChange: (Bool) -> Void = { _ in }
+    /// R-DS21 — a field inside a modal hands Esc to the modal's close instead of clearing, then
+    /// blurring, itself. The Settings panel's search field is the one caller: this field answers
+    /// Esc with `.handled`, and whether AppKit gives the key to it or to the panel's
+    /// `.cancelAction` first is not something a test can observe, so the field defers.
+    var onEscape: (() -> Void)? = nil
 
     @FocusState private var focused: Bool
     @Environment(FindPaletteModel.self) private var palette: FindPaletteModel?
@@ -49,6 +54,7 @@ struct CicadaSearchField: View {
                 .onKeyPress(.downArrow) { move(1) }
                 .onKeyPress(.upArrow) { move(-1) }
                 .onKeyPress(.escape) {
+                    if let onEscape { onEscape(); return .handled }
                     switch Self.escape(textIsEmpty: text.isEmpty) {
                     case .clear: text = ""
                     case .blur: focused = false

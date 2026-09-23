@@ -53,7 +53,7 @@ struct ContentView: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        windowLayers
+        overlayLayers
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
         // hydrates both from disk and refreshes them itself
@@ -106,23 +106,20 @@ struct ContentView: View {
             // alone; only its click-through history is cleared).
             graphVM.resetNavigationHistory()
         }
-        // G136 — ⌘K is a menu command (`FindCommands`, A6) that stages a
-        // request on the router, so it works from the Settings window too.
-        .overlay {
-            if paletteOpen {
-                FindPalette(model: find, open: openFind, close: closePalette)
-            }
-        }
         .onChange(of: router.pendingPalette) { _, _ in consumePaletteRequest() }
         // R-SU5 — the instant tier is rebuilt off the main actor whenever an
         // input moves, open or not, so the first ⌘K never waits on a build.
         .background { FindIndexTask() }
-        // G126 R9 — Integrations lives in the `Settings{}` scene, a
-        // separate window from this one, so it cannot just flip
-        // `selectedTab` itself; it stages a tab on the shared `AppRouter`
-        // instead and this view is the one that actually switches.
+        // G126 R9 — Integrations is a page of the Settings panel (DR-33), a
+        // view that cannot flip `selectedTab` itself; it stages a tab on the
+        // shared `AppRouter` and this view is the one that actually switches.
+        // Leaving for a page closes the panel first (R-DS24): General's *Show
+        // setup checklist* writes `pendingTab` directly, not through a router
+        // hand-off, and would otherwise change the page under a panel that
+        // stays up.
         .onChange(of: router.pendingTab) { _, newTab in
             guard let newTab else { return }
+            router.closeSettings()
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = newTab }
             router.pendingTab = nil
         }
@@ -132,10 +129,10 @@ struct ContentView: View {
             guard id != nil, let id = router.consumeRevealEntity() else { return }
             graphVM.revealEntity(id: id)
         }
-        // G117 — Settings → General's "Run setup again" hand-off. Settings
-        // is a separate window/scene (same reason `pendingTab` exists above
-        // for G126 R9's Feed hand-off) so it cannot flip `showFirstRun`
-        // directly; it stages this flag on the shared `AppRouter` instead.
+        // G117 — Settings → General's "Run setup again" hand-off. The panel's
+        // pages cannot flip `showFirstRun` themselves (same reason
+        // `pendingTab` exists above), so `requestFirstRun` closes the panel
+        // and stages this flag on the shared `AppRouter`.
         .onChange(of: router.pendingFirstRun) { _, isPending in
             guard isPending else { return }
             welcomeMode = .rerun
@@ -150,6 +147,28 @@ struct ContentView: View {
         .sheet(item: $previewItem) { item in
             FeedItemPreviewSheet(item: item)
         }
+    }
+
+    /// The two layers that cover the whole window — the ⌘K palette and the Settings panel
+    /// (DR-33) — split out of `body` for the reason `windowLayers` is: one modifier chain
+    /// holding both passed what the type checker solves in reasonable time.
+    private var overlayLayers: some View {
+        windowLayers
+        // G136 — ⌘K is a menu command (`FindCommands`, A6) that stages a
+        // request on the router; `PaletteToggle` ignores it while the Settings
+        // panel is up (R-DS21).
+        .overlay {
+            if paletteOpen {
+                FindPalette(model: find, open: openFind, close: closePalette)
+            }
+        }
+        // DR-33 — Settings is a panel inside this window, above every other layer; the shell
+        // under it is inert (R-DS21).
+        .overlay { if router.settingsOpen { SettingsPanel() } }
+        // R-DS24 — the palette never shares the window with the panel, and the intake's overlay
+        // (a drop, the Dock) takes the window back from it.
+        .onChange(of: router.settingsOpen) { _, open in if open && paletteOpen { closePalette() } }
+        .onChange(of: intake.isOverlayPresented) { _, shown in if shown { router.closeSettings() } }
     }
 
     /// The shell and its window-wide layers (the drop veil, the Welcome,
@@ -186,7 +205,8 @@ struct ContentView: View {
                 }
         }
         .toolbar {
-            ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab), chrome: ShellChrome(welcomeShowing: showFirstRun))
+            ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab),
+                         chrome: ShellChrome(welcomeShowing: showFirstRun, settingsOpen: router.settingsOpen))
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -200,8 +220,11 @@ struct ContentView: View {
         // swallows typing, Tab and VoiceOver reach the hidden rail and cards,
         // ⌘1–7 switch a hidden tab, and in rerun mode Home's Esc answers before
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
-        .disabled(showFirstRun)
-        .accessibilityHidden(showFirstRun)
+        // R-DS25 — the page under the Settings panel never answers ⌘F.
+        .environment(\.pageFindSuppressed, router.settingsOpen)
+        // R-DS21 — the Settings panel is modal the same way: ⌘1–7 and page controls are inert.
+        .disabled(showFirstRun || router.settingsOpen)
+        .accessibilityHidden(showFirstRun || router.settingsOpen)
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
         // while a file hovers, the overlay while the router shows it.
         .overlay { IntakeLayer(dropTargeted: dropTargeted && !showFirstRun) }
@@ -211,7 +234,8 @@ struct ContentView: View {
         // while it shows (R-IB15), and INSIDE the window's one drop target below:
         // a modifier's drop region is the view it wraps, so an overlay stacked
         // after `.onDrop` would take a drag over the Welcome without delivering it.
-        .overlay { welcomeLayer }
+        // A panel opened from the Welcome (`FoundRow`'s settings link) must own Esc alone.
+        .overlay { welcomeLayer.disabled(router.settingsOpen) }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             let origin: IntakeOrigin = showFirstRun ? .welcome : .windowDrop
             IntakeDrop.load(providers) { intake.accept(urls: $0, from: origin) }
@@ -263,7 +287,7 @@ struct ContentView: View {
     private func consumePaletteRequest() {
         guard let request = router.consumePalette() else { return }
         switch PaletteToggle.outcome(for: request, isOpen: paletteOpen, firstRunShowing: showFirstRun,
-                                     homeVisible: selectedTab == .home) {
+                                     homeVisible: selectedTab == .home, settingsOpen: router.settingsOpen) {
         case .open(let prefill, let mode):
             find.present(prefill: prefill, mode: mode)
             // DR-60: ⌘K never animates — the palette arrives in one frame (R-DS17).

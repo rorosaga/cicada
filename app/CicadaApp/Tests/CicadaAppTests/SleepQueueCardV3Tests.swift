@@ -132,22 +132,16 @@ final class SleepQueueCardV3Tests: XCTestCase {
         XCTAssertFalse(text.contains("sleepVM.triggerManually()"))
     }
 
-    /// P5 — **one writer**, deliberately not "one mention". The literal also
-    /// appears in `SettingsScene.swift` (the `@AppStorage` READER, which must
-    /// keep it) and in `SettingsSection.swift`'s doc comment, and both stay;
-    /// what must never fork is the code that WRITES the seed before a
-    /// `SettingsLink` opens the scene.
-    func test_exactlyOneFileWritesTheSettingsSectionSeed() throws {
-        let writers = try ThemeTokenTests.swiftSources()
-            .filter { try String(contentsOf: $0, encoding: .utf8).contains(#"forKey: "cicada.settingsSection""#) }
-            .map(\.lastPathComponent)
-            .sorted()
-        XCTAssertEqual(writers, ["SettingsSectionLink.swift"],
-                       "the section seed must be written in exactly one place (P5)")
-        let rowWriters = try ThemeTokenTests.swiftSources()
-            .filter { try String(contentsOf: $0, encoding: .utf8).contains(#"forKey: "cicada.settingsRowFocus""#) }
-            .map(\.lastPathComponent)
-        XCTAssertEqual(rowWriters, ["SettingsSectionLink.swift"], "the row seed has one writer too (G139)")
+    /// P5, re-seated by DR-33 (R-DS22): the seeds existed to cross a window, and there is no
+    /// second window. One door — `AppRouter.openSettings` — and the panel's own `@AppStorage`
+    /// is the only holder of the remembered section.
+    func test_settingsHasOneDoorAndNoSeeds() throws {
+        let sources = try ThemeTokenTests.swiftSources()
+        let sectionWriters = try sources.filter { try String(contentsOf: $0, encoding: .utf8).contains(#"forKey: "cicada.settingsSection""#) }
+        XCTAssertEqual(sectionWriters.map(\.lastPathComponent), [])
+        let rowSeed = try sources.filter { try String(contentsOf: $0, encoding: .utf8).contains("cicada.settingsRowFocus") }
+        XCTAssertEqual(rowSeed.map(\.lastPathComponent), [], "the cross-window row seed retired with the scene")
+        XCTAssertTrue(try source("Views/Common/SettingsSectionLink.swift").contains("router?.openSettings(section, row: row)"))
     }
 
     /// `EmptyStateView` adopted `SettingsSectionLink`, so the key must be gone

@@ -5,7 +5,7 @@ import XCTest
 /// border stroke, no divider, no bare rounded rectangle. The app-wide versions are page-track
 /// sweeps; new code starts clean.
 final class ShellElevationLintTests: XCTestCase {
-    static let scoped = ["/Views/Shell/", "/Views/Find/FindPalette.swift"]
+    static let scoped = ["/Views/Shell/", "/Views/Find/FindPalette.swift", "/Views/Settings/SettingsPanel.swift"]
     static let needles = [".shadow(", ".stroke(CicadaTheme.border", "Divider()", "RoundedRectangle(cornerRadius:"]
 
     func testTheShellDrawsDepthWithRings() throws {

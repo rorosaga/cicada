@@ -155,26 +155,6 @@ final class FixWaveTests: XCTestCase {
         XCTAssertFalse(UsageViewModel.showsProgress(isLoadingRange: false, isLoading: false))
     }
 
-    // MARK: M3 — Settings scene re-paints on theme toggle
-
-    /// `ContentView.swift` documents (and works around) the fact that
-    /// `CicadaTheme.*` are static reads SwiftUI doesn't track: it keys its
-    /// subtree on `.id(colorSchemeRaw)` alongside `.preferredColorScheme`.
-    /// The Settings scene needs the identical pairing or it keeps a stale
-    /// palette after a theme toggle while the window is open.
-    func testSettingsSceneIsKeyedOnTheColorScheme() throws {
-        let text = try sourceFile("CicadaApp.swift")
-        guard let settingsRange = text.range(of: "Settings {") else {
-            XCTFail("Settings scene not found in CicadaApp.swift")
-            return
-        }
-        let tail = String(text[settingsRange.lowerBound...])
-        XCTAssertTrue(tail.contains(".preferredColorScheme"),
-                      "precondition: the Settings scene still sets .preferredColorScheme")
-        XCTAssertTrue(tail.contains(".id(colorSchemeRaw)"),
-                      "Settings scene must key its subtree on colorSchemeRaw, matching ContentView's workaround")
-    }
-
     // MARK: Low — Feed sort picker accessibility label
 
     /// Every other segmented control on the restructured pages (Activity,

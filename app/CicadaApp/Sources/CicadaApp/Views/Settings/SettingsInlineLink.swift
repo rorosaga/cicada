@@ -1,9 +1,8 @@
 import SwiftUI
 
-/// A pointer to another Settings section. Inside the Settings window it
-/// navigates in place (and never through `UserDefaults` — that is the
-/// cross-window seed, design §2.4); outside it (an onboarding embed) it is the
-/// one cross-window entry point, `SettingsSectionLink`.
+/// A pointer to another Settings section. Inside the panel it navigates in
+/// place; outside it (an onboarding embed) it is `SettingsSectionLink`, the one
+/// door into the panel (R-DS22). Link ink is `accentText` (DR-5 use 5).
 struct SettingsInlineLink: View {
     let section: SettingsSection
     var row: SettingsRowID? = nil
@@ -14,7 +13,7 @@ struct SettingsInlineLink: View {
         if let focus {
             Button { focus.go(section, row: row) } label: { Text("\(label) ›") }
                 .buttonStyle(.cicadaPlain)
-                .foregroundStyle(CicadaTheme.accent)
+                .foregroundStyle(CicadaTheme.accentText)
         } else {
             SettingsSectionLink(section: section, row: row, label: label)
         }
