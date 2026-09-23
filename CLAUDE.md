@@ -281,6 +281,27 @@ is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an 
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
 
+**Reading provenance back (G118 slice 2, server half).** Three engine-free, bank-only reads, all
+built in `api/services/provenance.py` and fetched on demand — none is a Store domain, so each ETag
+serves the client's in-memory cache and there is no `VersionVector` mapping: `GET
+/episodes/{id}/text` (the whole evidence text, capped at 400,000 chars, with `turns[]` from the
+same marker lines `speaker_kind` reads and an asserted `start/end/hash` or derived
+`focus=<entity>`), `GET /entities/{id}/provenance` (contributors from claim `authored_by` plus one
+trailer-only `git log` of the page — ETag includes `git_head` — conversations grouped by
+`session_id`/`source_id`, the best quote per conversation, coverage over current claims), and `GET
+/episodes/{id}/citations` (every claim citing the document, by a raw-text prefilter over
+`entities/` — no index dependency). `/ask` citations also carry `claimId` + `evidence`, read from
+the cited page rather than the index. Every claim on the wire is built by one function,
+`transclusion_resolver.claim_to_model`, and carries `authorKind`/`authorProvider` from
+`git_service.author_identity`. **Freshness is one rule, `evidence.span_status`:** `current`,
+`grown` (an episode that was appended to after the span was minted — the Stop hook and G20 both
+rewrite that way — and a turn-boundary prefix still hashes to the stored value, so the offsets are
+exact) or `stale`. A stale span travels without wash offsets; a `derived` span (found by name,
+`inbox_context.locate_mention`) exists on read payloads only — never in `EVIDENCE_KINDS`, never
+written. The chat importer keeps each message's time as `turns: [{offset, ts, speaker}]` in
+frontmatter, outside `content_hash`; the Stop hook's `turns:` is still a count, and a reader treats
+any non-list as no times.
+
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
 - `repos:` — links a project/directory entity to local git checkouts. The page only ever *declares*
@@ -528,6 +549,23 @@ clips it to its own curvature instead, and `LogoAssetTests` names them so a four
 unnoticed. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
+
+**Meadow (round 3, G137).** The visual system: *nature is the ground, glass is the chrome.*
+Neutrals are a warm "day meadow" (`#F4F6F1`) and a blue-green "night meadow" (`#0D1216`); the
+nature tokens (`sky`, `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, and procedural
+day/dusk/night skies) are for washes and art only, **never a data encoding** — entity, state and
+context hues did not move and graph.js's painted twins are held to the theme by a test. **Liquid
+Glass lives in the chrome layer only** (sidebar, toolbar, floating controls, one prominent action
+per page) through `liquidGlass(_:in:)` in `Theme/LiquidGlass.swift`, gated on macOS 26 with a
+material fallback (opaque under Reduce Transparency); a lint fails the build on any glass API
+elsewhere, and `GlassCard` stays a standard material. **Painted art** (`Resources/art/`,
+`art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
+sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number,
+and text never sits directly on paint — enforced by an allowlist lint. **Type:** Instrument Serif
+(bundled OFL, registered at launch from `Bundle.cicadaResources`' bare `fonts` directory) through
+`displayFont(size:italic:)` at ≥ 22 pt, New York italic through `quoteFont`, SF for everything else.
+**Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside `SleepMotion` a
+duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs.
 
 **Video (Track V).** A saved video plays where the user already is — the Feed sheet, the entity
 Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is

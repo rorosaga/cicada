@@ -31,6 +31,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import json_parse, markdown_parser
+from api.services.claims import parse_claims
 
 RetrieveFn = Callable[[str, int], list[dict]]
 LlmFn = Callable[[str], str]
@@ -524,6 +525,18 @@ def answer_query(
     }
 
 
+def _claim_evidence(body: str, claim_id: str) -> list[dict]:
+    """G118 slice 2 (R-PB12): the spans behind a claim-first citation, read
+    from the page itself — the source of truth — not from the claims index,
+    whose metadata carries no evidence and is only as fresh as its last
+    rebuild. ``body`` is the one ``_load_entity`` already read, so this is a
+    ``parse_claims`` and no I/O. ``[]`` when the claim is gone or legacy."""
+    for claim in parse_claims(body or ""):
+        if claim.id == claim_id:
+            return [e.to_dict() for e in claim.evidence]
+    return []
+
+
 def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
     """Assemble entity-level citations for the given ids, preserving order."""
     by_id = {e["entity_id"]: e for e in entities}
@@ -546,5 +559,9 @@ def _citations_for(entities: list[dict], cite_ids: list[str]) -> list[dict]:
         prov = ent.get("claim_provenance")
         if prov:
             citation["claim_provenance"] = prov
+            claim_id = str(prov.get("claim_id") or "").strip()
+            if claim_id:
+                citation["claim_id"] = claim_id
+                citation["evidence"] = _claim_evidence(ent.get("body", ""), claim_id)
         citations.append(citation)
     return citations

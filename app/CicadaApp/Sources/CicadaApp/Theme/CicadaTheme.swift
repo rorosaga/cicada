@@ -1,4 +1,5 @@
 import Observation
+import AppKit
 import SwiftUI
 
 /// The two theme modes the SwiftUI chrome supports. Persisted via
@@ -129,6 +130,62 @@ enum CicadaTheme {
     /// surface it sits on, in both modes.
     static var codeBackground: Color { mode == .dark ? Dark.codeBackground : Light.codeBackground }
 
+    // MARK: - Text on the accent (G137, plan R-M11)
+    /// Ink for text drawn ON an accent fill — the sidebar badge, a prominent
+    /// button's label. The badge used a literal `.white`, which is 2.53:1 on
+    /// this dark accent (and ~3.9:1 on the old one at 80 %); the background
+    /// ink is 7.46:1 there, and white is 5.59:1 on the light accent
+    /// (ThemeTokenTests pins both).
+    static var onAccent: Color { mode == .dark ? Dark.onAccent : Light.onAccent }
+
+    // MARK: - Meadow nature tokens (G137, spec R-M2)
+    // Ambient ONLY: washes, art, onboarding / empty-state / header bands.
+    // NEVER a data encoding — a sunnier meadow must never mean "more
+    // memories" (R9 §7, G125's "art encodes state, never quantity"). The four
+    // text-safe tokens (sky, meadow, dandelion, bark) clear 4.5:1 on
+    // `background` in both modes; the washes, `dandelionFill`, `cloud` and
+    // `soil` are fills and imagery, never text.
+    static var sky: Color { mode == .dark ? Dark.sky : Light.sky }
+    static var skyWash: Color { mode == .dark ? Dark.skyWash : Light.skyWash }
+    static var meadow: Color { mode == .dark ? Dark.meadow : Light.meadow }
+    static var meadowWash: Color { mode == .dark ? Dark.meadowWash : Light.meadowWash }
+    static var dandelion: Color { mode == .dark ? Dark.dandelion : Light.dandelion }
+    /// A highlighter behind words, used at 35 % — textPrimary over that wash
+    /// is 7.18:1 in dark and 14.1:1 in light (ThemeTokenTests).
+    static var dandelionFill: Color { mode == .dark ? Dark.dandelionFill : Light.dandelionFill }
+    static var cloud: Color { mode == .dark ? Dark.cloud : Light.cloud }
+    static var bark: Color { mode == .dark ? Dark.bark : Light.bark }
+    static var soil: Color { mode == .dark ? Dark.soil : Light.soil }
+
+    /// The three procedural skies (R-M2): zero bytes, so night costs nothing.
+    /// Mode-INDEPENDENT on purpose — a caller may put a dusk band in a light
+    /// window — with `current` as the default that follows the theme.
+    enum SkyPhase: CaseIterable {
+        case day, dusk, night
+
+        /// Day in a light window, night in a dark one. Read in a `body`, this
+        /// subscribes the view to the theme like every other token.
+        static var current: SkyPhase { CicadaTheme.mode == .dark ? .night : .day }
+    }
+
+    /// Top-to-bottom stops. Text contrast on the extreme stops (measured):
+    /// light ink on day's top 11.2:1, moonlit ink on dusk's horizon 4.78:1,
+    /// on night ≥ 13:1.
+    static func skyGradient(_ phase: SkyPhase) -> [Color] {
+        switch phase {
+        case .day: [Color(hex: 0xB9D7F0), Color(hex: 0xE9F2F6)]
+        case .dusk: [Color(hex: 0x1C2344), Color(hex: 0x3A3A6A), Color(hex: 0x7A5E7E)]
+        case .night: [Color(hex: 0x0A0F1E), Color(hex: 0x172538)]
+        }
+    }
+
+    /// The window's AppKit background for `mode` — the one place `NSWindow`
+    /// gets a theme colour (R-M10). Takes the mode explicitly because
+    /// `syncWindowChrome` runs for the mode being switched TO.
+    static func windowBackground(for mode: AppColorScheme) -> NSColor {
+        NSColor(mode == .dark ? Dark.background : Light.background)
+    }
+
     /// Timeline dot hue per commit change type (entity History tab). Replaces
     /// `HistoryChangeType.color`, which returned a hex STRING that the view
     /// re-parsed — a model has no business naming a colour.
@@ -142,9 +199,10 @@ enum CicadaTheme {
 
     // MARK: - Entity Type Colors
     // Mirrors the `typeColors` map in graph.js so the SwiftUI chrome and the d3
-    // canvas agree on hue per type. Light mode reuses the same hue family, just
-    // deepened (Tailwind ~600 band) so each still clears ~4.5:1 on a near-white
-    // surface instead of the ~0.6:1 a pastel-on-white pairing would give.
+    // canvas agree on hue per type (GraphPaletteTwinTests holds the dark
+    // values). Light mode reuses the same hue family, deepened into the
+    // Tailwind ~600 band; which of those clear 4.5:1 as text and which are
+    // non-text only is measured in the Light palette's comment (G137).
     static func entityColor(for type: EntityType) -> Color {
         mode == .dark ? Dark.entityColor(for: type) : Light.entityColor(for: type)
     }
@@ -243,6 +301,28 @@ enum CicadaTheme {
     static var captionFont: Font { font(size: 11) }
     static var monoFont: Font { font(size: 12, design: .monospaced) }
 
+    // MARK: - Display + quote faces (G137, spec R-M3; plan R-M15)
+    /// Instrument Serif is a display cut: its hairlines break up under ~22 pt.
+    static let displayMinimumSize: CGFloat = 22
+
+    /// Page titles, onboarding headlines, empty-state titles — never a
+    /// number, never body text. Scaled by `uiScale` like every token, and
+    /// clamped to `displayMinimumSize` so a misuse degrades to legible, not
+    /// spindly (`FontLiteralLintTests` also fails a literal below it). The
+    /// ONE custom-font call in the app: the lint bans it everywhere else, so
+    /// a second face cannot arrive unnoticed. An unregistered face falls back
+    /// to SF (see `CicadaFonts`).
+    static func displayFont(size: CGFloat, italic: Bool = false) -> Font {
+        .custom(italic ? CicadaFonts.displayItalic : CicadaFonts.displayRegular,
+                size: scaled(max(size, displayMinimumSize)))
+    }
+
+    /// The person's own words — provenance excerpts and quoted snippets. New
+    /// York italic ships with macOS (zero bundle cost) and is optically sized
+    /// for text, where Instrument Serif is not.
+    static var quoteFont: Font { quoteFont(size: 13) }
+    static func quoteFont(size: CGFloat) -> Font { font(size: size, design: .serif).italic() }
+
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
     static var spacingXS: CGFloat { scaled(4) }
     static var spacingSM: CGFloat { scaled(8) }
@@ -254,6 +334,10 @@ enum CicadaTheme {
     // MARK: - Corner Radius
     static let cornerRadius: CGFloat = 12
     static let cornerRadiusSmall: CGFloat = 8
+    /// G137: chips.
+    static let radiusXS: CGFloat = 4
+    /// G137: sheets, panels, the empty state's card, art panels.
+    static let radiusLarge: CGFloat = 18
 
     // MARK: - Inbox Kind Colors
     // Leading-icon hue per inbox card kind. Decay amber, conflict red,
@@ -279,29 +363,35 @@ enum CicadaTheme {
 }
 
 // MARK: - Dark Palette
-// The app's original hand-tuned palette, unchanged. Radix-style 4-step
-// elevation ramp on a Catppuccin/Tokyo-Night cool near-black base with a
-// faint violet cast.
+// G137 "night meadow" (spec R-M1, R9 §5.1): the violet-cast near-black
+// (#0E0F14) became a blue-green ink of the same luminance class, so the graph
+// keeps its pop — the d3 page is transparent and every node sits directly on
+// `background`. Same Radix-style 4-step elevation ramp. Entity, state,
+// context, status and inbox hues are DATA and did not move; graph.js mirrors
+// them (GraphPaletteTwinTests).
 
 private extension CicadaTheme {
     enum Dark {
         // Darkening the canvas is the single biggest "pop" lever since the d3
         // graph is transparent and every node sits directly on `background`.
-        static let background = Color(hex: 0x0E0F14)
-        static let surface = Color(hex: 0x16171D)
-        static let surfaceHover = Color(hex: 0x1D1F26)
-        static let surfaceElevated = Color(hex: 0x23252E)
-        static let border = Color(hex: 0x262A33)
-        static let borderLight = Color(hex: 0x363B47)
+        static let background = Color(hex: 0x0D1216)
+        static let surface = Color(hex: 0x141A1F)
+        static let surfaceHover = Color(hex: 0x1A2227)
+        static let surfaceElevated = Color(hex: 0x20292F)
+        static let border = Color(hex: 0x25303A)
+        static let borderLight = Color(hex: 0x35424D)
 
-        // AA-checked against the darkest surface (#0E0F14). Primary ~16.5:1
-        // (AAA), secondary ~6.9:1 (AA), tertiary ~3.6:1 (decorative/large only).
-        static let textPrimary = Color(hex: 0xECEDF2)
-        static let textSecondary = Color(hex: 0x9BA1AE)
-        static let textTertiary = Color(hex: 0x6B7180)
+        // Measured on #0D1216 (ThemeTokenTests holds the bars): primary
+        // 15.99:1 (AAA), secondary 7.64:1, tertiary 4.21:1 (decorative/large).
+        static let textPrimary = Color(hex: 0xE8EEE9)
+        static let textSecondary = Color(hex: 0x9CA8A0)
+        static let textTertiary = Color(hex: 0x6E7A73)
 
-        // Periwinkle, nudged one notch brighter so it pops on the darker base.
-        static let accent = Color(hex: 0x8896FF)
+        // Cornflower, 7.46:1 on background (plan R-M8). The pre-G137 #8896FF
+        // survives only as frozen IDENTITY colours (the clarification inbox
+        // hue, graph.js's agent badge, the mascot's zZ) — never re-point them.
+        static let accent = Color(hex: 0x8C9CFF)
+        static let onAccent = background
 
         // State hues, Tailwind ~500 band — same brightness register as the
         // entity hues above so they read as one system on the near-black base.
@@ -309,7 +399,19 @@ private extension CicadaTheme {
         static let warning = Color(hex: 0xF59E0B)
         static let danger = Color(hex: 0xEF4444)
         static let info = Color(hex: 0x4A9EFF)
-        static let codeBackground = Color(hex: 0x0A0B0F)
+
+        static let codeBackground = Color(hex: 0x0A0E11)
+
+        // Nature (R-M2) — ambient only, never data.
+        static let sky = Color(hex: 0x8EC3F0)
+        static let skyWash = Color(hex: 0x1A2B3D)
+        static let meadow = Color(hex: 0x7FC98A)
+        static let meadowWash = Color(hex: 0x1B2B22)
+        static let dandelion = Color(hex: 0xF6CF5A)
+        static let dandelionFill = Color(hex: 0xD9A92E)
+        static let cloud = Color(hex: 0xC9D3DE)
+        static let bark = Color(hex: 0xB89C86)
+        static let soil = Color(hex: 0x2A221E)
 
         static func entityColor(for type: EntityType) -> Color {
             // Tailwind-400-band hues: each keeps its type identity but is pushed
@@ -393,34 +495,45 @@ private extension CicadaTheme {
 }
 
 // MARK: - Light Palette
-// Not a naive inversion of Dark: near-white surfaces with a faint cool cast
-// (mirrors the dark base's violet tint), dark ink text, and entity/status
-// hues deepened into the Tailwind ~600 band so they keep ~4.5:1+ contrast on
-// a near-white surface instead of the ~pastel-on-white pairing a straight
-// invert would give. Same hue family per type as Dark — only lightness/
-// saturation changed — so the two modes still "feel" like the same app.
+// G137 "day meadow" (spec R-M1): cloud-white surfaces on a faint green paper
+// (#F4F6F1), green-black ink text, and the same deepened entity/status hues
+// as before — data hues are untouched by the Meadow retune (graph.js mirrors
+// them).
+//
+// Measured, not assumed (WCAG 2.x, on #F4F6F1; the old #F5F6FA was within
+// 0.04 of every number, and there location sat at 4.52, just over the text
+// bar). Only person 4.82, project 4.97 and directory 4.91 clear
+// 4.5:1 and may be used as text. location 4.49, media 4.02, deadline 3.83,
+// hub 3.76, tool 3.44, concept 3.33 and company 3.32 clear only the 3:1
+// non-text bar — dots, rings and fills, not body text. skill (#B48A00) is
+// 2.93 and clears neither: never text, never an indicator without a label.
+// This comment used to promise ~4.5:1 for all of them.
+// `ThemeTokenTests.testLightEntityHueContrastIsWhatTheThemeCommentSays` now
+// holds it to the numbers. Deepening them is a separate data-colour decision
+// graph.js must match.
 
 private extension CicadaTheme {
     enum Light {
         // Same 4-step elevation ramp, running the opposite direction: the
         // canvas is the flattest step, cards/panels get progressively closer
         // to pure white as they "lift" off it.
-        static let background = Color(hex: 0xF5F6FA)
+        static let background = Color(hex: 0xF4F6F1)
         static let surface = Color(hex: 0xFFFFFF)
-        static let surfaceHover = Color(hex: 0xEDEEF3)
+        static let surfaceHover = Color(hex: 0xECF0E8)
         static let surfaceElevated = Color(hex: 0xFFFFFF)
-        static let border = Color(hex: 0xE3E5EC)
-        static let borderLight = Color(hex: 0xCACDD9)
+        static let border = Color(hex: 0xDFE4D9)
+        static let borderLight = Color(hex: 0xC5CCBC)
 
-        // AA-checked against the background (#F5F6FA). Primary ~16.8:1 (AAA),
-        // secondary ~7.3:1 (AA), tertiary ~4.0:1 (decorative/large only).
-        static let textPrimary = Color(hex: 0x14161C)
-        static let textSecondary = Color(hex: 0x51566A)
-        static let textTertiary = Color(hex: 0x82879A)
+        // Measured on #F4F6F1: primary 15.35:1 (AAA), secondary 7.15:1,
+        // tertiary 3.87:1 (decorative/large only, as before).
+        static let textPrimary = Color(hex: 0x1B1F1A)
+        static let textSecondary = Color(hex: 0x4C5548)
+        static let textTertiary = Color(hex: 0x767E70)
 
-        // Same periwinkle family, deepened for AA contrast on a near-white
-        // surface (~4.7:1 vs the dark mode value's ~1.7:1 on white).
-        static let accent = Color(hex: 0x5A62E0)
+        // 5.13:1 on the day-meadow paper; the pre-G137 #5A62E0 measured
+        // 4.53:1 there, one rounding step from failing AA (plan R-M8).
+        static let accent = Color(hex: 0x4A5BD6)
+        static let onAccent = Color(hex: 0xFFFFFF)
 
         // Same families, deepened into the Tailwind ~700 band so each clears
         // ~4.5:1 on the near-white surface instead of the ~1.8:1 the dark
@@ -429,7 +542,19 @@ private extension CicadaTheme {
         static let warning = Color(hex: 0xB45309)
         static let danger = Color(hex: 0xB91C1C)
         static let info = Color(hex: 0x1D4ED8)
-        static let codeBackground = Color(hex: 0xE7E9F0)
+
+        static let codeBackground = Color(hex: 0xE8ECE3)
+
+        // Nature (R-M2) — ambient only, never data.
+        static let sky = Color(hex: 0x3571B0)
+        static let skyWash = Color(hex: 0xD7E8F5)
+        static let meadow = Color(hex: 0x37753D)
+        static let meadowWash = Color(hex: 0xDCEBD6)
+        static let dandelion = Color(hex: 0x8A6400)
+        static let dandelionFill = Color(hex: 0xF5C542)
+        static let cloud = Color(hex: 0xFFFFFF)
+        static let bark = Color(hex: 0x6B5344)
+        static let soil = Color(hex: 0x3B2F2A)
 
         static func entityColor(for type: EntityType) -> Color {
             switch type {
@@ -511,6 +636,10 @@ private extension CicadaTheme {
 }
 
 // MARK: - Glass Card Modifier
+// A standard-MATERIAL content card, despite the name (G137 R-M5): the HIG
+// keeps Liquid Glass out of the content layer, so the 43 `.glassCard()` sites
+// stay what they are. Real glass lives in `Theme/LiquidGlass.swift`, in the
+// chrome layer only.
 
 struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat = CicadaTheme.cornerRadius
@@ -562,15 +691,17 @@ struct CicadaPlainButtonStyle: ButtonStyle {
     static let pressedScale: CGFloat = 0.97
     /// Opacity applied to the label while the button is pressed.
     static let pressedOpacity: Double = 0.85
-    /// Duration of the press/release transition.
-    static let pressAnimationDuration: Double = 0.12
+
+    /// G137 R-M4: the press dip is motion, so Reduce Motion drops it to the
+    /// end state; the scale/opacity change itself still reads.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? Self.pressedScale : 1.0)
             .opacity(configuration.isPressed ? Self.pressedOpacity : 1.0)
-            .animation(.easeOut(duration: Self.pressAnimationDuration), value: configuration.isPressed)
+            .animation(CicadaMotion.press(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 
@@ -601,13 +732,16 @@ extension ButtonStyle where Self == CicadaPlainButtonStyle {
 struct CicadaGlassButtonStyle: ButtonStyle {
     var cornerRadius: CGFloat = CicadaTheme.cornerRadius
 
+    /// G137 R-M4 — same switch as `CicadaPlainButtonStyle`.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .contentShape(Rectangle())
             .modifier(GlassCard(cornerRadius: cornerRadius))
             .scaleEffect(configuration.isPressed ? CicadaPlainButtonStyle.pressedScale : 1.0)
             .opacity(configuration.isPressed ? CicadaPlainButtonStyle.pressedOpacity : 1.0)
-            .animation(.easeOut(duration: CicadaPlainButtonStyle.pressAnimationDuration), value: configuration.isPressed)
+            .animation(CicadaMotion.press(reduceMotion: reduceMotion), value: configuration.isPressed)
     }
 }
 

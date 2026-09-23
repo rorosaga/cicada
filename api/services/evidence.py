@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -40,6 +41,9 @@ __all__ = [
     "EVIDENCE_KINDS", "MAX_QUOTE_CHARS", "body_hash", "is_episode_id", "source_path",
     "source_text", "locate", "speaker_kind", "reasoning", "verify", "verify_many",
     "attach_relationship_evidence",
+    # G118 slice 2
+    "SPAN_CURRENT", "SPAN_GROWN", "SPAN_STALE", "turn_starts", "span_status", "TurnSpan", "turns",
+    "turn_stamps", "source_document",
 ]
 
 # The longest quote a writer may cite. A longer one is clipped, not refused:
@@ -91,18 +95,28 @@ def source_path(memory_path: Path | None, doc_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def source_text(memory_path: Path | None, doc_id: str) -> str | None:
-    """The evidence text of a document (R1): the parsed body for an episode;
-    for an entity page, the body with the ```claims fence stripped — so the
-    claim that cites a page never stales its own span by being written."""
+def source_document(memory_path: Path | None, doc_id: str) -> tuple[dict, str] | None:
+    """``(frontmatter, evidence text)`` from ONE parse and the same resolver
+    as :func:`source_text`, so the Reader's header and its text can never
+    come from two different files (slice 2). ``None`` for an unknown or
+    non-bare id."""
     path = source_path(memory_path, doc_id)
     if path is None:
         return None
     try:
-        body = markdown_parser.parse(path).body
+        parsed = markdown_parser.parse(path)
     except Exception:
         return None
-    return body if is_episode_id(doc_id) else strip_claims_block(body)
+    body = parsed.body if is_episode_id(doc_id) else strip_claims_block(parsed.body)
+    return (parsed.frontmatter or {}), body
+
+
+def source_text(memory_path: Path | None, doc_id: str) -> str | None:
+    """The evidence text of a document (R1): the parsed body for an episode;
+    for an entity page, the body with the ```claims fence stripped — so the
+    claim that cites a page never stales its own span by being written."""
+    doc = source_document(memory_path, doc_id)
+    return None if doc is None else doc[1]
 
 
 def _pattern(quote: str, *, whole_word: bool, flags: int = 0) -> re.Pattern[str]:
@@ -184,6 +198,176 @@ def speaker_kind(text: str, start: int) -> str:
         if m:
             kind = "assistant" if m.group(1).lower() in _ASSISTANT_ROLES else "user"
     return kind
+
+
+def _marker_lines(text: str) -> list[tuple[int, str, int]]:
+    """``(line start, marker word, content start)`` for every turn-marker line.
+
+    The SAME lines :func:`speaker_kind` treats as turn boundaries — same
+    ``_TURN_RE``, same ``splitlines`` — so a turn's role and a span's kind can
+    never disagree (slice 2, R-PB3: one parser, server-side). ``content start``
+    skips the marker and the spaces after it, so no client runs a regex of its
+    own. Ascending by construction.
+    """
+    out: list[tuple[int, str, int]] = []
+    pos = 0
+    for line in (text or "").splitlines(keepends=True):
+        m = _TURN_RE.match(line)
+        if m:
+            content = m.end()
+            while content < len(line) and line[content] in " \t":
+                content += 1
+            out.append((pos, m.group(1).lower(), pos + content))
+        pos += len(line)
+    return out
+
+
+def turn_starts(text: str) -> list[int]:
+    """Offsets of every turn-marker line, ascending (R-PB3)."""
+    return [start for start, _marker, _content in _marker_lines(text)]
+
+
+@dataclass
+class TurnSpan:
+    """One turn of a document, as offsets into its evidence text (slice 2).
+
+    ``start`` is the first character of the turn's marker line (``user: …``),
+    or of the document for a block before any marker; ``content_start`` skips
+    the marker and the spaces after it; ``end`` is exclusive and stops before
+    the newline that separates it from the next turn. ``role`` is exactly what
+    :func:`speaker_kind` answers inside the turn (``user`` | ``assistant``), or
+    ``page`` for an entity page. ``marker`` is the word as written, lower-cased
+    — ``system``/``unknown`` count as the person under R4 and the Reader may
+    say so — and ``None`` for a block with no marker line. ``ts``/``speaker``
+    come only from a stored ``turns`` sidecar entry at exactly ``start``: a
+    time is never inferred (§4.4).
+    """
+
+    index: int
+    start: int
+    content_start: int
+    end: int
+    role: str
+    marker: str | None = None
+    ts: str | None = None
+    speaker: str | None = None
+
+
+def turns(text: str, *, page: bool = False, stamps: dict[int, dict] | None = None) -> list[TurnSpan]:
+    """The document as turns (R-PB3, R-PB5) — the marker lines
+    :func:`speaker_kind` reads, so a turn's ``role`` and a span's ``kind``
+    never disagree (``test_turns_agree_with_speaker_kind_at_every_offset``).
+
+    A page is one ``page`` block. An episode with no marker at all (a legacy
+    MCP note, a Telegram capture) is one ``user`` block — never an error — and
+    text before the first marker is its own block under R4's default.
+    """
+    text = text or ""
+    if not text:
+        return []
+    if page:
+        return [TurnSpan(index=1, start=0, content_start=0, end=len(text), role="page")]
+    stamps = stamps or {}
+    blocks: list[tuple[int, str | None, int]] = list(_marker_lines(text))
+    if not blocks or blocks[0][0] > 0:
+        blocks.insert(0, (0, None, 0))
+    out: list[TurnSpan] = []
+    for i, (start, marker, content_start) in enumerate(blocks):
+        nxt = blocks[i + 1][0] if i + 1 < len(blocks) else len(text)
+        end = start + len(text[start:nxt].rstrip("\r\n"))
+        stamp = stamps.get(start) or {}
+        out.append(TurnSpan(
+            index=i + 1, start=start, content_start=min(content_start, end), end=end,
+            role="assistant" if marker in _ASSISTANT_ROLES else "user",
+            marker=marker, ts=stamp.get("ts"), speaker=stamp.get("speaker"),
+        ))
+    return out
+
+
+def turn_stamps(frontmatter: dict | None) -> dict[int, dict]:
+    """The ``turns: [{offset, ts, speaker}]`` sidecar (R-PB4), keyed by offset.
+
+    Written by the chat importer (``conversations._turn_stamps``) and by the
+    Local-sources track's stager — the same key and shape, which IS the
+    coordination contract. Tolerant by design: the Stop hook's
+    ``turns: <count>`` (``transcript_capture``) is an int, not a sidecar, and
+    reads as no stamps; a malformed or duplicate entry is skipped, never
+    raised. ``ts``/``speaker`` pass through verbatim (``None`` when absent) —
+    nothing here infers a time.
+    """
+    raw = (frontmatter or {}).get("turns")
+    if not isinstance(raw, list):
+        return {}
+    out: dict[int, dict] = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            offset = int(entry.get("offset"))
+        except (TypeError, ValueError):
+            continue
+        if offset < 0 or offset in out:
+            continue
+        ts, speaker = entry.get("ts"), entry.get("speaker")
+        out[offset] = {
+            "ts": str(ts) if ts not in (None, "") else None,
+            "speaker": str(speaker) if speaker not in (None, "") else None,
+        }
+    return out
+
+
+# G118 slice 2 (design amendment A7) — what a stored span's hash says about the
+# text it is read against NOW. `grown` is exact: the offsets still index the
+# words that were cited, so it highlights; `stale` never does (§4.9).
+SPAN_CURRENT = "current"
+SPAN_GROWN = "grown"
+SPAN_STALE = "stale"
+
+
+def span_status(
+    text: str,
+    *,
+    end: int,
+    hash: str | None,  # noqa: A002 - the field's own name
+    appendable: bool = True,
+) -> str:
+    """A7 (amends slice-1 R2): is a span minted against ``hash`` still exact here?
+
+    Slice 1 compared the stored hash with the WHOLE current text, so every
+    span in a conversation that continued after Sleep read ``stale``: the Stop
+    hook rewrites a session's one episode in place with appended turns
+    (``transcript_capture.capture_transcript``), G20 rewrites a grown chat
+    export the same way, and ``transcript_extract.SESSION_CAP_CHARS`` is
+    head-stable precisely so those offsets do not move. So when the whole text
+    does not match, try every prefix that ends at the newline just before a
+    turn-marker line and still covers the span (``cut >= end``): if one hashes
+    to ``hash``, the cited text is byte-identical and the answer is ``grown``.
+
+    One incremental pass (``update`` + ``copy``), so it costs O(len) however
+    many turns there are. Exact — a 48-bit hash over a string that was once
+    the whole body — and never fuzzy. ``appendable=False`` for a ``page``
+    document: a description is rewritten, not appended, so a prefix match
+    there would be a coincidence. No ``hash`` means nothing to be stale
+    against: ``current`` (slice-1 R2).
+    """
+    if not hash:
+        return SPAN_CURRENT
+    text = text or ""
+    if body_hash(text) == hash:
+        return SPAN_CURRENT
+    if not appendable:
+        return SPAN_STALE
+    digest = hashlib.sha256()
+    pos = 0
+    for start in turn_starts(text):
+        cut = start - 1
+        if cut < 0 or text[cut] != "\n":
+            continue
+        digest.update(text[pos:cut].encode("utf-8"))
+        pos = cut
+        if cut >= end and digest.copy().hexdigest()[:12] == hash:
+            return SPAN_GROWN
+    return SPAN_STALE
 
 
 def reasoning(doc_id: str = "", *, hash: str = "") -> Evidence:  # noqa: A002 - the field's own name
