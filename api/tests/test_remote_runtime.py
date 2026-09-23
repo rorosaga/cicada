@@ -282,3 +282,94 @@ def test_the_remote_kinds_never_count_as_spend():
         assert kind in telemetry.KINDS and kind in telemetry.NON_SPEND_KINDS and kind not in telemetry.FEEDBACK_KINDS
     assert telemetry.ledger_file("2026-09", kind="remote_call").name == "reads-2026-09.jsonl"
     assert telemetry.ledger_file("2026-09", kind="connector_auth").name == "events-2026-09.jsonl"
+
+
+# --- Task 5 review round 1: a caller's id never walks out of the bank ---------
+
+SECRET = "SECRET-OUTSIDE-TEXT"
+
+
+@pytest.fixture
+def outside(memory):
+    """A private .md file beside the bank (never in it), shaped like an entity
+    page so a reader that reached it would render it — and whose own
+    `source_episodes` name a real episode, so `sources` would too."""
+    note = memory.parent / "outside" / "private-note.md"
+    note.parent.mkdir()
+    markdown_parser.write(note, {"name": "Private Note", "type": "concept",
+                                 "source_episodes": ["ep_2026-09-02_001"]},
+                          f"## Summary\n{SECRET}\n")
+    return note
+
+
+def _escapes(memory, outside):
+    return ["../../outside/private-note", str(outside.with_suffix("")),
+            "../episodes/ep_2026-09-02_001"]
+
+
+@pytest.mark.parametrize("tool, arg", [("cicada_recall_detail", "entity_id"), ("cicada_open_hub", "hub"),
+                                       ("cicada_get_perspective", "subject"), ("cicada_sources", "entity_id")])
+def test_a_crafted_id_never_reads_outside_its_folder(runtime, memory, outside, tool, arg):
+    c = _connector(scopes=set(catalog.SCOPES))
+    for bad in _escapes(memory, outside):
+        text, status = runtime.call(c, tool, {arg: bad})
+        assert status == "ok", (bad, text)
+        assert SECRET not in text and "Private Note" not in text and "ship alpha" not in text, (tool, bad, text)
+
+
+def test_a_read_only_connector_cannot_pull_a_raw_episode_through_recall_detail(runtime, memory):
+    """The reviewer's first reproduction: `read` without `sources` must never
+    see an episode body (R-R22)."""
+    text, _ = runtime.call(_connector(scopes={"read"}), "cicada_recall_detail",
+                           {"entity_id": "../episodes/ep_2026-09-02_001"})
+    assert "ship alpha" not in text and "not found" in text
+
+
+def test_a_seeded_source_episode_path_never_leaves_the_bank(runtime, memory, outside):
+    """A page's `source_episodes` can be seeded by a remote write_claim, so
+    `sources` guards the episode id too, not only the entity id."""
+    _entity(memory, "seeded", source_episodes=["../../outside/private-note", "ep_2026-09-02_001"])
+    text, _ = runtime.call(_connector(scopes={"sources"}), "cicada_sources", {"entity_id": "seeded"})
+    assert SECRET not in text and "ship alpha" in text
+
+
+def test_real_ids_and_display_names_still_resolve(runtime, memory):
+    c = _connector(scopes=set(catalog.SCOPES))
+    assert "Alpha Project" in runtime.call(c, "cicada_recall_detail", {"entity_id": "alpha-project"})[0]
+    # A display name with a slash is a NAME, not a path: sanitize_id still maps it.
+    assert "No subject" not in runtime.call(c, "cicada_get_perspective", {"subject": "Alpha/Project"})[0]
+
+
+def test_bank_file_accepts_one_segment_only(tmp_path):
+    from api.services.id_utils import bank_file
+
+    assert bank_file(tmp_path, "alpha-project") == tmp_path / "alpha-project.md"
+    for bad in ("", ".", "..", "../x", "a/b", "a\\b", "/etc/x", "a\x00b"):
+        assert bank_file(tmp_path, bad) is None, bad
+
+
+@pytest.mark.parametrize("bad", ["../../sources/save", "inbox-001/../../x", "inbox-1?x=1", "x", "inbox-"])
+def test_a_remote_inbox_id_must_have_the_schemas_shape(runtime, posts, bad):
+    text, _ = runtime.call(_connector(scopes={"read", "answer"}), "cicada_resolve_inbox",
+                           {"id": bad, "option_key": "keep"})
+    assert posts == [] and "inbox-001" in text
+
+
+def test_stdio_inbox_ids_are_not_reshaped(memory):
+    """The shape rule is remote-only: stdio keeps posting what it was given."""
+    sent = []
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="codex",
+                                post=lambda p, d: sent.append(p) or {"status": "resolved"})
+    mcp_tools.resolve_inbox(ctx, "nudge_005", "keep", None, False, None)
+    assert sent == ["/inbox/nudge_005/resolve"]
+
+
+@pytest.mark.parametrize("raw, expected", [(None, 6), (3, 3), (10_000, 12), (-5, 1), ("abc", 6), (1e400, 6)])
+def test_ask_top_k_is_clamped_before_either_path(runtime, monkeypatch, raw, expected):
+    seen = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(ask_service, "answer_query", lambda mp, q, top_k=6: seen.append(top_k) or {
+        "answer": "a", "confidence": 0.5, "citations": [], "gaps": [], "used_entities": []})
+    args = {"query": "q"} if raw is None else {"query": "q", "top_k": raw}
+    assert runtime.call(_connector(scopes={"ask"}, cid="as12cd34"), "cicada_ask", args)[1] == "ok"
+    assert seen == [expected]

@@ -17,8 +17,11 @@ Writes are serialised in this process (R-R28): the worker threads run tool
 bodies in parallel, and two concurrent saves would mint the same
 `episode_ids.next_episode_id` (max+1 is read-then-write; `markdown_parser.write`
 overwrites on a collision) and fight over git's `index.lock`. Reads stay
-parallel. A writer in ANOTHER process (the app's paste, a stdio agent) can
-still race one of these — G114's rule, unchanged.
+parallel. The lock covers remote writers only: the app's paste
+(`POST /sources/save`) runs in this same process on a different thread, and a
+stdio agent in another process — either can still race one of these, e.g. two
+load-then-save passes over `sources/url_index.json` losing one update (Task 5
+review r1; sharing a lock with the save path is Task 6's). G114's rule, unchanged.
 """
 from __future__ import annotations
 
@@ -149,6 +152,21 @@ def _backend_headers() -> dict[str, str]:
     return headers
 
 
+ASK_TOP_K_MAX = 12
+
+
+def _ask_top_k(raw) -> int:
+    """Task 5 review r1: the backend's AskRequest 422s a top_k above 50 and
+    `mcp_tools.ask` then falls back to `ask_service` with the raw value, so one
+    counted ask could pull unbounded context onto the person's plan. Clamp to
+    1..12, 6 when it is not a number."""
+    try:
+        value = int(raw) if raw is not None else 6
+    except (TypeError, ValueError, OverflowError):
+        value = 6
+    return max(1, min(value, ASK_TOP_K_MAX))
+
+
 _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_recall": lambda c, a: mcp_tools.recall(c, str(a.get("query") or "")),
     "cicada_open_hub": lambda c, a: mcp_tools.open_hub(c, str(a.get("hub") or "")),
@@ -166,7 +184,7 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, str(a.get("id") or ""), a.get("option_key"), None, bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False))),
-    "cicada_ask": lambda c, a: mcp_tools.ask(c, str(a.get("query") or ""), a.get("top_k", 6)),
+    "cicada_ask": lambda c, a: mcp_tools.ask(c, str(a.get("query") or ""), _ask_top_k(a.get("top_k"))),
 }
 
 

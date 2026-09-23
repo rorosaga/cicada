@@ -32,6 +32,26 @@ def sanitize_id(name: str) -> str:
     return safe or "unnamed"
 
 
+def bank_file(directory: Path, stem: str) -> Path | None:
+    """``<directory>/<stem>.md`` — or ``None`` when ``stem`` is not ONE path segment.
+
+    G135 Task 5 review (round 1, high): the readers that join a caller's id
+    onto a bank folder (``recall_detail``, ``open_hub``, ``get_perspective``,
+    ``sources``) took ``../episodes/ep_x``, ``../../outside/note`` or an
+    absolute path at its word, and pathlib lets an absolute right-hand side
+    replace the base outright — so a remote connector holding only ``read``
+    could pull a raw episode (the thing R-R22 keeps behind ``sources``) or
+    any ``.md`` file the backend can open. Every bank folder is flat
+    (``sanitize_id`` above exists to keep it so), so a stem with a separator
+    is never a real id and is refused lexically: no ``resolve()``, so a bank
+    that is itself a symlink, or a page that is one, still reads.
+    """
+    raw = str(stem or "")
+    if not raw or raw in (".", "..") or any(ch in raw for ch in ("/", "\\", "\x00")):
+        return None
+    return Path(directory) / f"{raw}.md"
+
+
 def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
     """Map an entity slug or display name to its markdown file, tolerantly.
 
@@ -50,8 +70,8 @@ def resolve_entity_file(memory_path: Path, name_or_slug: str) -> Path | None:
         return None
     entities_dir = Path(memory_path) / "entities"
 
-    direct = entities_dir / f"{raw}.md"
-    if direct.exists():
+    direct = bank_file(entities_dir, raw)  # never a path out of the bank
+    if direct is not None and direct.exists():
         return direct
 
     sanitized = entities_dir / f"{sanitize_id(raw)}.md"
@@ -135,8 +155,8 @@ def resolve_entity_id(
 
     # Fallback for files not covered by the index (e.g. a stem whose name
     # frontmatter is missing). Path.exists() is the last resort here.
-    direct = entities_dir / f"{raw}.md"
-    if direct.exists():
+    direct = bank_file(entities_dir, raw)
+    if direct is not None and direct.exists():
         return direct.stem
     sanitized = entities_dir / f"{sanitize_id(raw)}.md"
     if sanitized.exists():

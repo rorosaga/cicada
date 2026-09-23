@@ -429,7 +429,7 @@ def recall(ctx: ToolContext, query: str) -> str:
     # to suggest) does not consume it.
     state_hint = None if ctx.state_hint_sent else _state_hint(memory_path)
     hints_block = _hints_block(suggested, relevant_hub, hub_member_ids, state=state_hint,
-                               available=ctx.available)
+                               can_read_detail=ctx.can("cicada_recall_detail"))
     if hints_block:
         output_parts.append(hints_block)
         if state_hint is not None:
@@ -589,7 +589,7 @@ def _hints_block(
     relevant_hub: str | None,
     hub_members: list[str],
     state: dict | None = None,
-    available: frozenset[str] | None = None,
+    can_read_detail: bool = True,
 ) -> str:
     """Render the machine-parseable ``cicada-hints`` fenced JSON block.
 
@@ -600,15 +600,15 @@ def _hints_block(
     ``return ""`` when there is nothing to suggest is a kept contract: the
     cursor rides in a block that exists, never in a block of its own.
 
-    ``available`` (G135 R-R22) is the caller's tool set, ``None`` on stdio.
-    A remote connection holding ``search`` but not ``read`` has no
-    ``cicada_recall_detail``, and a hint naming it is G75 R12's bug; it is
-    pointed at ``cicada_open_hub`` instead, which shares recall's scope and so
-    is always present when recall is.
+    ``can_read_detail`` (G135 R-R22) is ``ctx.can("cicada_recall_detail")``
+    — always true on stdio. A remote connection holding ``search`` but not
+    ``read`` has no ``cicada_recall_detail``, and a hint naming it is G75
+    R12's bug; it is pointed at ``cicada_open_hub`` instead, which shares
+    recall's scope and so is always present when recall is.
     """
     if not suggested_entities and not relevant_hub:
         return ""
-    if available is None or "cicada_recall_detail" in available:
+    if can_read_detail:
         next_tool = "cicada_recall_detail"
         note = "Call cicada_recall_detail with each suggested_entity id for full pages, or cicada_open_hub with relevant_hub for a topic index."
     else:
@@ -666,10 +666,13 @@ def open_hub(ctx: ToolContext, hub: str) -> str:
     if raw.startswith("hub:"):
         raw = raw[len("hub:"):]
 
+    from api.services.id_utils import bank_file
+
     candidates = [raw, f"topic-{_mcp_sanitize_id(raw)}", _mcp_sanitize_id(raw)]
     for cand in candidates:
-        path = hubs_dir / f"{cand}.md"
-        if path.exists():
+        # Task 5 review r1: a hub id is one segment of hubs/, never a path out.
+        path = bank_file(hubs_dir, cand)
+        if path is not None and path.exists():
             _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
             return body or path.read_text(encoding="utf-8")
     return f"Hub '{hub}' not found."
@@ -688,9 +691,13 @@ def recall_detail(ctx: ToolContext, entity_id: str) -> str:
     if resolved and resolved != entity_id:
         candidate_ids.append(resolved)
 
+    from api.services.id_utils import bank_file
+
     for cid in candidate_ids:
-        path = entities_dir / f"{cid}.md"
-        if path.exists():
+        # Task 5 review r1: `../episodes/<id>` or an absolute path is refused
+        # here, not read — a raw episode is `sources`' to give (R-R22).
+        path = bank_file(entities_dir, cid)
+        if path is not None and path.exists():
             from api.services import telemetry  # G124 R11: ids only, never the page text
             telemetry.record_read(cid, surface=ctx.read_surface, bank=memory_path.name)
             return path.read_text(encoding="utf-8")
@@ -1325,6 +1332,11 @@ def resolve_inbox(
     item_id = (item_id or "").strip()
     if not item_id:
         return "Error: id is required (e.g. 'inbox-001')."
+    if ctx.is_remote and not _REMOTE_INBOX_ID_RE.match(item_id):
+        # Task 5 review r1: the id is spliced into a loopback URL that carries
+        # the backend's bearer token; a remote caller gets the schema's shape
+        # and nothing else, so it can never steer that request elsewhere.
+        return "Error: id must look like 'inbox-001'."
 
     if skip:
         ctx.skipped_inbox_ids.add(item_id)
@@ -1358,6 +1370,9 @@ def resolve_inbox(
     if status == "deferred":
         return f"Deferred {item_id} until {result.get('remindAfter', 'later')}."
     return f"Inbox item {item_id}: {status}."
+
+
+_REMOTE_INBOX_ID_RE = re.compile(r"^inbox-\d+$")
 
 
 def _relevant_inbox(memory_path: Path, query: str) -> list[str]:
