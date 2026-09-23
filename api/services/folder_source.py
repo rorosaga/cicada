@@ -16,7 +16,10 @@ episode per H2 section, so an edit re-reads one section (R-LS12).
 Authorship (R-F2): a per-folder glob list decides whose words a file holds.
 ``archive/**`` defaults to ``agent`` — dated research sweeps an agent wrote. An
 agent-written file is stored and searchable but never credited to the person
-(``evidence_kind: assistant``) and never queued for Sleep (R-LS10).
+(``evidence_kind: assistant``) and never queued for Sleep (R-LS10). A changed
+rule re-derives every existing episode of the folder in place
+(:func:`reapply_authorship`, F2-back R-B6), so the app never has to re-post a
+byte for it.
 
 Concurrency (Task 2 review, round 1): ``sync`` runs in the threadpool, and the
 watcher's batch can overlap a manual Sync. ``_LOCK`` is held across the whole
@@ -50,6 +53,8 @@ from api.services.id_utils import sanitize_id
 FOLDERS_FILENAME = "folders.json"
 ORIGIN = "folder"
 CHANNEL_PREFIX = "folder:"
+#: The commit trigger when saved rules relabel existing episodes (F2-back R-B6).
+AUTHORSHIP_TRIGGER = "folder/authorship"
 DEFAULT_INCLUDE = ("**/*.md", "**/*.markdown", "**/*.txt")
 DEFAULT_EXCLUDE = ("**/.git/**", "**/node_modules/**", "**/.obsidian/**", "**/.trash/**")
 DEFAULT_AUTHORSHIP = ({"glob": "archive/**", "authorship": "agent"},)
@@ -335,6 +340,43 @@ def live_file_count(memory_path: Path, folder_id: str) -> int:
     index, _ = episode_staging.scan(Path(memory_path) / "episodes")
     return sum(1 for entries in _by_relpath(index, folder_id).values()
                if any(not e.fm.get("source_deleted_at") for _, e in entries))
+
+
+def reapply_authorship(memory_path: Path, folder_id: str) -> dict:
+    """Re-derive whose words each existing episode of the folder holds, from the
+    folder's CURRENT rules (F2-back R-B6). Before this, a changed rule reached
+    only the files the app happened to re-post, and the owner's review found a
+    folder's episodes still labelled by the old rule.
+
+    Idempotent — an episode already matching its rule is not touched, so it runs
+    on every save that carries rules. Returns ``{"paths": [bank-relative
+    episodes written], "touched": {source_id: episode id — live ones, for the
+    paper step}, "to_owner": n, "to_agent": n}``. Holds ``_LOCK`` then (inside
+    ``reattribute``) ``STAGE_LOCK`` — the module's documented order."""
+    memory_path = Path(memory_path)
+    out: dict = {"paths": [], "touched": {}, "to_owner": 0, "to_agent": 0}
+    with _LOCK:
+        folder = get_folder(memory_path, folder_id)
+        if folder is None:
+            return out
+        rules = folder.get("authorship") or []
+        index, _ = episode_staging.scan(memory_path / "episodes")
+        for rel, entries in sorted(_by_relpath(index, folder_id).items()):
+            who = authorship_for(rel, rules)
+            kind = "user" if who == "user" else "assistant"
+            for sid, entry in entries:
+                if entry.fm.get("authorship") == who and entry.fm.get("evidence_kind") == kind:
+                    continue
+                if not episode_staging.reattribute(entry.path, extra={"authorship": who, "evidence_kind": kind},
+                                                   queue_for_sleep=who == "user"):
+                    continue
+                out["paths"].append(f"episodes/{entry.path.name}")
+                out["to_owner" if who == "user" else "to_agent"] += 1
+                # A deleted file's paper claims closed when it was tombstoned:
+                # only a live episode goes to the paper step (R-B7).
+                if not entry.fm.get("source_deleted_at"):
+                    out["touched"][sid] = entry.id
+    return out
 
 
 # --- Sync -------------------------------------------------------------------

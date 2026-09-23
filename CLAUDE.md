@@ -184,7 +184,10 @@ Six rails hold across all of them:
 - **A local source is read by the app and parsed by the backend** (G133/G134). A watched folder:
   security-scoped bookmark, FSEvents, an mtime+size+sha manifest, bytes posted with relative paths to
   `POST /sources/folders/{id}/sync`; files under an agent glob land as `evidence_kind: assistant`,
-  already processed, so an agent's sweep is never the owner's words. Wispr Flow: its SQLite opened
+  already processed, so an agent's sweep is never the owner's words. Saving new rules re-derives
+  every existing episode of the folder in place — frontmatter only, the hash unchanged; agent → owner
+  is queued, owner → agent is parked unless Sleep already read it — in one `user` commit (trigger
+  `folder/authorship`), and the papers' why-claims follow (F2-back R-B6, R-B7). Wispr Flow: its SQLite opened
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
