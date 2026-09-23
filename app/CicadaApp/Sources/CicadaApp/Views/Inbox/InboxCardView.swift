@@ -101,7 +101,7 @@ struct InboxCardView: View {
             Spacer()
 
             Text(item.kind.label)
-                .font(CicadaTheme.font(size: 10, weight: .medium, design: .monospaced))
+                .font(CicadaTheme.font(size: 10, weight: .medium))
                 .foregroundStyle(item.kind.color)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
@@ -287,7 +287,7 @@ struct InboxCardView: View {
                     Image(systemName: "checkmark.circle").font(CicadaTheme.font(size: 10)).foregroundStyle(CicadaTheme.textTertiary)
                     Text(option.label).font(CicadaTheme.font(size: 12)).foregroundStyle(CicadaTheme.textPrimary)
                     if let capsule = option.ageCapsule {
-                        Text(capsule).font(CicadaTheme.font(size: 10, design: .monospaced)).foregroundStyle(CicadaTheme.textTertiary)
+                        Text(capsule).font(CicadaTheme.font(size: 10).monospacedDigit()).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
             }
@@ -417,10 +417,7 @@ struct InboxCardView: View {
     /// non-survivor is shown as "→ merges into" the chosen canonical name.
     private var survivorPicker: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("KEEP AS CANONICAL")
-                .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.0)
+            SectionLabel("Keep as canonical")
 
             // R10: the two-column preview is the two NAMES with what each one
             // is under it — the extractor's suggested type for the mention, and

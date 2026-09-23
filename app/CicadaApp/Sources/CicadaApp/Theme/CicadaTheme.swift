@@ -133,21 +133,69 @@ enum CicadaTheme {
         }
     }
 
-    // MARK: - Background & Surface
-    static var background: Color { mode == .dark ? Dark.background : Light.background }
-    static var surface: Color { mode == .dark ? Dark.surface : Light.surface }
-    static var surfaceHover: Color { mode == .dark ? Dark.surfaceHover : Light.surfaceHover }
-    static var surfaceElevated: Color { mode == .dark ? Dark.surfaceElevated : Light.surfaceElevated }
+    // MARK: - Graphite neutrals (Direction D — DESIGN_RULES §3.1, DR-1, DR-72)
+    // One base and small lightness steps from it, chroma ≤ 4 (ThemeTokenTests measures each in
+    // CIE Lab). Hue is spent on data, never on chrome (P-c); the Meadow neutrals retired as a
+    // base (DR-13). The pre-D names below are ALIASES, so the hundreds of call sites that read
+    // `background` / `surface` / `surfaceHover` follow without being touched (R-DS2).
+    static var bgRail: Color { mode == .dark ? Dark.bgRail : Light.bgRail }
+    static var bgBase: Color { mode == .dark ? Dark.bgBase : Light.bgBase }
+    static var bgPane: Color { mode == .dark ? Dark.bgPane : Light.bgPane }
+    static var bgHover: Color { mode == .dark ? Dark.bgHover : Light.bgHover }
+    static var bgFocus: Color { mode == .dark ? Dark.bgFocus : Light.bgFocus }
+    static var bgOption: Color { mode == .dark ? Dark.bgOption : Light.bgOption }
+    static var bgButton: Color { mode == .dark ? Dark.bgButton : Light.bgButton }
+    static var bgButtonHover: Color { mode == .dark ? Dark.bgButtonHover : Light.bgButtonHover }
+    static var bgSelected: Color { mode == .dark ? Dark.bgSelected : Light.bgSelected }
+    static var bgMenu: Color { mode == .dark ? Dark.bgMenu : Light.bgMenu }
+    static var bgKey: Color { mode == .dark ? Dark.bgKey : Light.bgKey }
+    /// The keycap's glyph (DR-49) — text on `bgKey`, 5.4:1 / 5.6:1.
+    static var keyGlyph: Color { mode == .dark ? Dark.keyGlyph : Light.keyGlyph }
+    /// The rail's pending numeral (DR-22, DR-51) and the Projects band's unfilled track (§3.8).
+    static var bgBadge: Color { mode == .dark ? Dark.bgBadge : Light.bgBadge }
+    /// A hovered rail cell (R-DS13). Light cannot use `bgHover`: it IS `bgRail` (#EFEFEC), so
+    /// the hover would not show; `bgButtonHover`'s light step (#E3E3E0) is the mock's value.
+    static var bgRailHover: Color { mode == .dark ? Dark.bgHover : Light.bgButtonHover }
+    /// DR-23 — the command bar: `bgHover` in dark, `bgMenu` (with its ring) in light.
+    static var commandBarFill: Color { mode == .dark ? Dark.bgHover : Light.bgMenu }
+
+    // MARK: - Background & Surface (the pre-D names — aliases, R-DS2)
+    static var background: Color { bgBase }
+    /// The one pre-D name the rules' table does not rename. A card is the focus surface.
+    static var surface: Color { bgFocus }
+    static var surfaceHover: Color { bgHover }
+    static var surfaceElevated: Color { bgFocus }
+    /// The opaque twin of the resting ring (white 7 % / black 8 % over `bgBase`) — for AppKit
+    /// and graph.js, which need an opaque colour. New code draws the ring (`ringed`), never this.
     static var border: Color { mode == .dark ? Dark.border : Light.border }
+    /// The opaque twin of the input border (white 14 % / black 16 % over `bgBase`); graph.js's
+    /// edges (R-DS2).
     static var borderLight: Color { mode == .dark ? Dark.borderLight : Light.borderLight }
 
-    // MARK: - Text
+    // MARK: - Text (DR-2: four steps plus one fill variant)
     static var textPrimary: Color { mode == .dark ? Dark.textPrimary : Light.textPrimary }
     static var textSecondary: Color { mode == .dark ? Dark.textSecondary : Light.textSecondary }
     static var textTertiary: Color { mode == .dark ? Dark.textTertiary : Light.textTertiary }
+    /// Tertiary text ON a selected or hovered fill: light `textTertiary` is 4.33:1 on
+    /// `bgSelected`, under the 4.5:1 bar (DR-2). Dark's tertiary already clears it.
+    static var textTertiaryOnFill: Color { mode == .dark ? Dark.textTertiary : Light.textTertiaryOnFill }
+    /// Disabled states only (DR-3) — never the only cue, never text a reader needs.
+    static var textQuaternary: Color { mode == .dark ? Dark.textQuaternary : Light.textQuaternary }
 
-    // MARK: - Accent
-    static var accent: Color { mode == .dark ? Dark.accent : Light.accent }
+    // MARK: - Accent (DR-4 … DR-6)
+    /// DR-4 — one accent, and it is the Mac's. Native toggles, sliders, segmented controls and
+    /// `.borderedProminent` then match with no `.tint`, which removes the two-accent problem at
+    /// its root. Six uses only (DR-5): the focus ring, the one primary action, radio dots and the
+    /// highlighted option's ring, the cited span, links, "Recommended".
+    static var accent: Color { .accentColor }
+    /// Links and "Recommended" (DR-5 uses 5–6) — see `AccentInk` (R-DS4).
+    static var accentText: Color { mode == .dark ? AccentInk.textDark : AccentInk.textLight }
+    static var accentTextHover: Color { mode == .dark ? AccentInk.hoverDark : AccentInk.hoverLight }
+    /// The cited span's wash (DR-18) and the other spans' (`washSoft`).
+    static var wash: Color { accent.opacity(mode == .dark ? 0.18 : 0.10) }
+    static var washSoft: Color { accent.opacity(mode == .dark ? 0.08 : 0.07) }
+    /// Keyboard focus — 2 pt at 60 % (DR-5 use 1).
+    static var focusRing: Color { accent.opacity(0.6) }
 
     // MARK: - Semantic State Colors (G68)
     // Mode-aware success/warning/danger/info, following the `entityColor`
@@ -164,25 +212,44 @@ enum CicadaTheme {
 
     /// Plate behind a monospaced command/config snippet (`CommandBox`). The
     /// old flat `Color.black.opacity(0.35)` put near-black `textPrimary` on a
-    /// near-black plate in light mode; this is one step darker than the
-    /// surface it sits on, in both modes.
+    /// near-black plate in light mode. Direction D: the base itself, untinted
+    /// (the Meadow plate carried a green cast DR-1 retires) — a snippet sits on
+    /// a focus card, so `bgBase` is already the step below it in both modes.
     static var codeBackground: Color { mode == .dark ? Dark.codeBackground : Light.codeBackground }
 
-    // MARK: - Text on the accent (G137, plan R-M11)
-    /// Ink for text drawn ON an accent fill — the sidebar badge, a prominent
-    /// button's label. The badge used a literal `.white`, which is 2.53:1 on
-    /// this dark accent (and ~3.9:1 on the old one at 80 %); the background
-    /// ink is 7.46:1 there, and white is 5.59:1 on the light accent
-    /// (ThemeTokenTests pins both).
-    static var onAccent: Color { mode == .dark ? Dark.onAccent : Light.onAccent }
-    /// Track I T4 (design §7, D-4) — the ink on the one meadow pill: white on the
-    /// day meadow (#37753D, 5.56:1), night-meadow ink on the night meadow
-    /// (#7FC98A, ≈ 9.5:1). ThemeTokenTests holds both.
+    // MARK: - Text on a fill
+    /// Ink ON an accent fill: white in both modes (R-DS5) — the native prominent label. 3.6:1 /
+    /// 4.0:1 on the default blue, so it is legal only at ≥ 13 pt medium on the ONE primary
+    /// button (DR-6); `PrimaryActionInk` still swaps it for `textPrimary` in a window that is
+    /// not key, where the accent plate is gone.
+    static var onAccent: Color { .white }
+    /// Track I T4 (design §7, D-4) — the ink on the one meadow pill: white on the day meadow
+    /// (#37753D, 5.56:1), graphite ink on the night meadow (#7FC98A, 9.49:1).
     static var onMeadow: Color { mode == .dark ? Dark.onMeadow : Light.onMeadow }
-    /// The dim behind a modal overlay (the intake overlay, the drop veil). Was a
-    /// literal `Color.black.opacity(0.4)` in `UploadOverlay`; a token, so dark mode
-    /// can dim harder where 0.4 over a near-black window reads as nothing.
+    /// The dim behind the intake overlay and the drop veil.
     static var scrim: Color { mode == .dark ? Dark.scrim : Light.scrim }
+    /// DR-33 — the lighter dim behind the Settings panel and the palette: the page stays
+    /// legible behind a panel you opened on purpose.
+    static var scrimPanel: Color { mode == .dark ? Dark.scrimPanel : Light.scrimPanel }
+
+    // MARK: - Elevation (DESIGN_RULES §3.5 — `Theme/Elevation.swift` applies these)
+    enum Ring { case resting, strong, floating, input, edge }
+    /// Rings are translucent so one value works on every surface (DR-9).
+    static func ring(_ ring: Ring) -> Color {
+        let dark = mode == .dark
+        switch ring {
+        case .resting: return dark ? Color.white.opacity(0.07) : Color.black.opacity(0.08)
+        case .strong: return dark ? Color.white.opacity(0.12) : Color.black.opacity(0.12)
+        case .floating: return dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+        case .input: return dark ? Color.white.opacity(0.14) : Color.black.opacity(0.16)
+        case .edge: return dark ? Color.white.opacity(0.07) : Color.black.opacity(0.07)
+        }
+    }
+    /// DR-18 — the 2 pt rule a quote block is indented behind.
+    static var quoteRule: Color { mode == .dark ? Color.white.opacity(0.16) : Color.black.opacity(0.14) }
+
+    // MARK: - Progress (§3.8 — the Projects band; the one Meadow-derived data hue)
+    static var progressFill: Color { mode == .dark ? Dark.progressFill : Light.progressFill }
 
     // MARK: - Meadow nature tokens (G137, spec R-M2)
     // Ambient ONLY: washes, art, onboarding / empty-state / header bands.
@@ -234,7 +301,7 @@ enum CicadaTheme {
     /// gets a theme colour (R-M10). Takes the mode explicitly because
     /// `syncWindowChrome` runs for the mode being switched TO.
     static func windowBackground(for mode: AppColorScheme) -> NSColor {
-        NSColor(mode == .dark ? Dark.background : Light.background)
+        NSColor(mode == .dark ? Dark.bgBase : Light.bgBase)
     }
 
     /// Timeline dot hue per commit change type (entity History tab). Replaces
@@ -282,16 +349,21 @@ enum CicadaTheme {
 
     // MARK: - Usage heatmap (G51)
     /// Five-step sequential ramp for the usage heatmap (0 = empty cell).
-    /// Derived from `accent` so it follows the light/dark palette automatically.
+    /// R-DS6 — a data ramp, so it keeps the retired indigo when the chrome's
+    /// accent moves (DR-8): the Mac's accent is chrome, and a heatmap that
+    /// turned orange because someone picked orange in System Settings would
+    /// be encoding their preference, not their usage.
     static func heatRamp(level: Int) -> Color {
         switch max(0, min(4, level)) {
         case 0: surfaceElevated
-        case 1: accent.opacity(0.30)
-        case 2: accent.opacity(0.55)
-        case 3: accent.opacity(0.80)
-        default: accent
+        case 1: dataIndigo.opacity(0.30)
+        case 2: dataIndigo.opacity(0.55)
+        case 3: dataIndigo.opacity(0.80)
+        default: dataIndigo
         }
     }
+    /// R-DS6 — the pre-D accent, frozen as a data hue ("active" status, the heat ramp).
+    private static var dataIndigo: Color { mode == .dark ? Dark.dataIndigo : Light.dataIndigo }
 
     // MARK: - Zoom (G130: one persisted uiScale behind every theme token)
     /// Active app-wide scale. Stored in `ThemeStore`, same `@Observable`
@@ -350,29 +422,38 @@ enum CicadaTheme {
             : .system(size: resolved, weight: weight, design: design)
     }
 
+    // MARK: - The type ladder (DESIGN_RULES §4, DR-16). SF only (DR-15).
     static var titleFont: Font { font(size: 20, weight: .semibold) }
-    static var headingFont: Font { font(size: 16, weight: .medium) }
+    /// Error-card titles and panel headings: 17 semibold (DR-16; was 16 medium).
+    static var headingFont: Font { font(size: 17, weight: .semibold) }
+    /// 13 regular — body off detail surfaces, and the command bar's placeholder. R-DS9: a global
+    /// 14 would resize 136 bodies on list pages, where the ladder wants 13.
     static var bodyFont: Font { font(size: 13) }
+    /// 14 regular — body on a detail surface (the focus card, the Reader), adopted by DS-2.
+    static var detailBodyFont: Font { font(size: 14) }
+    /// A row's title, a list question: 13 medium.
+    static var rowFont: Font { font(size: 13, weight: .medium) }
+    /// Meta, the eyebrow, source lines: 12 regular; links and the eyebrow's medium: 12 medium.
+    static var metaFont: Font { font(size: 12) }
+    static var metaMediumFont: Font { font(size: 12, weight: .medium) }
     static var captionFont: Font { font(size: 11) }
+    /// DR-19 — only for what a person would copy (MonospaceLintTests holds the list).
     static var monoFont: Font { font(size: 12, design: .monospaced) }
-    /// The small uppercase group label (design §1.3; it was retyped by hand in
-    /// ~12 files as 10 pt monospaced semibold with 1.2 tracking).
-    static var labelFont: Font { font(size: 10, weight: .semibold, design: .monospaced) }
+    /// DR-20 — the one section label: 11 medium, sentence case, never mono, never tracked.
+    /// `SectionLabel` is its one reader (SectionLabelLintTests).
+    static var labelFont: Font { font(size: 11, weight: .medium) }
+    /// The rail's pending numeral: 10 semibold, tabular at the call site (DR-16, DR-22).
+    static var badgeFont: Font { font(size: 10, weight: .semibold) }
 
-    // MARK: - Display + quote faces (G137, spec R-M3; F1 R-FX12)
-    /// Display is a role, not a face: page titles, onboarding headlines,
-    /// empty-state titles — never a number, never body text. The floor keeps
-    /// the role honest (a 13 pt "display" title is a heading), and
-    /// `FontLiteralLintTests` fails a literal below it.
-    static let displayMinimumSize: CGFloat = 22
+    // MARK: - Display + quote (DR-15, DR-18)
+    /// Display is a role, not a face: page titles, the question H1, onboarding headlines,
+    /// empty-state titles — never a number, never body text. Floor 20 (DR-15; was 22): the
+    /// Reader title and an empty state's title are 20.
+    static let displayMinimumSize: CGFloat = 20
 
-    /// SF Pro Display — the system face at display sizes (macOS picks the
-    /// Display cut itself above 20 pt): semibold for a title, regular italic
-    /// for a headline's quieter second line. The owner found the bundled
-    /// Instrument Serif too ornate (2026-09-23: "Change it to something more
-    /// minimal"), so nothing is bundled or registered and the API every caller
-    /// used is unchanged. Scaled by `uiScale` like every token and clamped to
-    /// `displayMinimumSize`.
+    /// SF Pro Display — the system face at display sizes (macOS picks the Display cut itself
+    /// above 20 pt): semibold for a title, regular italic for a headline's quieter second line.
+    /// Instrument Serif and New York are retired (owner, 2026-09-23; DESIGN_RULES §9).
     static func displayFont(size: CGFloat, italic: Bool = false) -> Font {
         let resolved = scaled(max(size, displayMinimumSize))
         return italic
@@ -380,20 +461,38 @@ enum CicadaTheme {
             : Font.system(size: resolved, weight: .semibold, design: .default)
     }
 
-    /// A roman display title sits 2 % tighter than SF's own display spacing —
-    /// the difference between a system header and a set headline. `Font`
-    /// cannot carry tracking, so each roman call site pairs
-    /// `.font(displayFont(size: n))` with `.tracking(displayTracking(size: n))`;
-    /// `FontLiteralLintTests` counts the pairs. Italic keeps SF's spacing.
+    /// DR-15 — −0.3 at 20 pt, −0.4 at 22 pt and above, scaled with the face (uiScale). `Font`
+    /// cannot carry tracking, so each roman call site pairs `.font(displayFont(size: n))` with
+    /// `.tracking(displayTracking(size: n))`; FontLiteralLintTests counts the pairs.
     static func displayTracking(size: CGFloat) -> CGFloat {
-        -0.02 * scaled(max(size, displayMinimumSize))
+        (max(size, displayMinimumSize) >= 22 ? -0.4 : -0.3) * scale
     }
 
-    /// The person's own words — provenance excerpts and quoted snippets. New
-    /// York italic ships with macOS (zero bundle cost) and is optically sized
-    /// for text.
-    static var quoteFont: Font { quoteFont(size: 13) }
-    static func quoteFont(size: CGFloat) -> Font { font(size: size, design: .serif).italic() }
+    /// DR-18 — the person's own words and an agent's: SF 15 regular — not italic, not serif.
+    /// The cited span is washed and underlined (`CitedSpan`); inside a quote there is no bold
+    /// and no italic.
+    static var quoteFont: Font { quoteFont(size: 15) }
+    static func quoteFont(size: CGFloat) -> Font { font(size: size) }
+    /// A quote's line is 25 pt (DR-16): SF 15's natural line is 18 pt, so 7 pt of spacing.
+    static var quoteLineSpacing: CGFloat { scaled(7) }
+
+    // MARK: - Icons (DR-53)
+    enum IconRole {
+        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge
+        var points: CGFloat {
+            switch self {
+            case .rail: 18
+            case .railFoot: 17
+            case .titlebar, .sidebar: 16
+            case .list: 14
+            case .commandBar: 13
+            case .inline: 12
+            case .badge: 10
+            }
+        }
+    }
+    static func icon(_ role: IconRole) -> Font { font(size: role.points) }
+    static func iconPoints(_ role: IconRole) -> CGFloat { scaled(role.points) }
 
     // MARK: - Spacing (G130: derived from `uiScale` — the 551 call sites are untouched, R2)
     static var spacingXS: CGFloat { scaled(4) }
@@ -402,14 +501,24 @@ enum CicadaTheme {
     static var spacingLG: CGFloat { scaled(16) }
     static var spacingXL: CGFloat { scaled(24) }
     static var spacingXXL: CGFloat { scaled(32) }
+    /// DR-12 table — the focus card's padding, and the list/detail gutter.
+    static var spacingCard: CGFloat { scaled(28) }
+    static var spacingGutter: CGFloat { scaled(40) }
 
-    // MARK: - Corner Radius
-    static let cornerRadius: CGFloat = 12
-    static let cornerRadiusSmall: CGFloat = 8
-    /// G137: chips.
-    static let radiusXS: CGFloat = 4
-    /// G137: sheets, panels, the empty state's card, art panels.
-    static let radiusLarge: CGFloat = 18
+    // MARK: - Corner Radius (DR-12)
+    static let cornerRadius: CGFloat = 10          // the command bar, menus, popovers, the palette, grouped blocks
+    static let cornerRadiusSmall: CGFloat = 8      // rows, option rows, buttons, rail cells, tabs, fields
+    static let radiusXS: CGFloat = 4               // keycaps, the span wash
+    static let radiusLarge: CGFloat = 16           // the focus card, the Settings panel, error and empty cards
+
+    /// DR-12 — every rounded rectangle is continuous. New code draws through this; the
+    /// app-wide sweep of bare `RoundedRectangle(cornerRadius:` is a page-track job (R-DS8).
+    static func shape(_ radius: CGFloat) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+    }
+    /// DR-12 — a nested pair's outer radius. Padding scales with uiScale and radii do not, so
+    /// the pair is derived rather than spelled twice.
+    static func concentric(inner: CGFloat, padding: CGFloat) -> CGFloat { inner + padding }
 
     // MARK: - Inbox Kind Colors
     // Leading-icon hue per inbox card kind. Decay amber, conflict red,
@@ -435,37 +544,45 @@ enum CicadaTheme {
 }
 
 // MARK: - Dark Palette
-// G137 "night meadow" (spec R-M1, R9 §5.1): the violet-cast near-black
-// (#0E0F14) became a blue-green ink of the same luminance class, so the graph
-// keeps its pop — the d3 page is transparent and every node sits directly on
-// `background`. Same Radix-style 4-step elevation ramp. Entity, state,
-// context, status and inbox hues are DATA and did not move; graph.js mirrors
-// them (GraphPaletteTwinTests).
+// Direction D graphite (DESIGN_RULES §3.1): the Meadow "night meadow" ink
+// (#0D1216) retired as a base — its blue-green cast was hue spent on chrome
+// (DR-1). One near-black base with small lightness steps, chroma ≤ 4. Entity,
+// state, context, status and inbox hues are DATA and did not move (DR-8);
+// graph.js mirrors them (GraphPaletteTwinTests). Nature tokens stay, for art
+// and reward moments only (DR-13).
 
 private extension CicadaTheme {
     enum Dark {
-        // Darkening the canvas is the single biggest "pop" lever since the d3
-        // graph is transparent and every node sits directly on `background`.
-        static let background = Color(hex: 0x0D1216)
-        static let surface = Color(hex: 0x141A1F)
-        static let surfaceHover = Color(hex: 0x1A2227)
-        static let surfaceElevated = Color(hex: 0x20292F)
-        static let border = Color(hex: 0x25303A)
-        static let borderLight = Color(hex: 0x35424D)
+        static let bgRail = Color(hex: 0x0C0D0E)
+        static let bgBase = Color(hex: 0x111213)
+        static let bgPane = Color(hex: 0x141517)
+        static let bgHover = Color(hex: 0x1B1C1E)
+        static let bgFocus = Color(hex: 0x18191B)
+        static let bgOption = Color(hex: 0x1D1E21)
+        static let bgButton = Color(hex: 0x232427)
+        static let bgButtonHover = Color(hex: 0x2C2D30)
+        static let bgSelected = Color(hex: 0x222326)
+        static let bgMenu = Color(hex: 0x1B1C1E)
+        static let bgKey = Color(hex: 0x26272A)
+        static let keyGlyph = Color(hex: 0x9A9CA1)
+        static let bgBadge = Color(hex: 0x3A3B3F)
+        static let border = Color(hex: 0x222324)        // white 7 % over bgBase (R-DS2)
+        static let borderLight = Color(hex: 0x323334)   // white 14 % over bgBase
 
-        // Measured on #0D1216 (ThemeTokenTests holds the bars): primary
-        // 15.99:1 (AAA), secondary 7.64:1, tertiary 4.21:1 (decorative/large).
-        static let textPrimary = Color(hex: 0xE8EEE9)
-        static let textSecondary = Color(hex: 0x9CA8A0)
-        static let textTertiary = Color(hex: 0x6E7A73)
+        // Measured on #111213: primary 17.2:1, secondary 12.3:1, tertiary 5.8:1, quaternary
+        // 3.6:1 (disabled only). ThemeContrastTests holds every surface.
+        static let textPrimary = Color(hex: 0xF5F5F6)
+        static let textSecondary = Color(hex: 0xD0D1D4)
+        static let textTertiary = Color(hex: 0x8D8F94)
+        static let textQuaternary = Color(hex: 0x6A6C71)
 
-        // Cornflower, 7.46:1 on background (plan R-M8). The pre-G137 #8896FF
-        // survives only as frozen IDENTITY colours (the clarification inbox
-        // hue, graph.js's agent badge, the mascot's zZ) — never re-point them.
-        static let accent = Color(hex: 0x8C9CFF)
-        static let onAccent = background
-        static let onMeadow = background
+        /// R-DS6 — the pre-D accent, frozen as the "active" status hue and the heat ramp.
+        static let dataIndigo = Color(hex: 0x8C9CFF)
+        static let onMeadow = bgBase
         static let scrim = Color.black.opacity(0.55)
+        static let scrimPanel = Color.black.opacity(0.24)
+        static let codeBackground = bgBase
+        static let progressFill = Color(hex: 0x6FB57B)
 
         // State hues, Tailwind ~500 band — same brightness register as the
         // entity hues above so they read as one system on the near-black base.
@@ -473,8 +590,6 @@ private extension CicadaTheme {
         static let warning = Color(hex: 0xF59E0B)
         static let danger = Color(hex: 0xEF4444)
         static let info = Color(hex: 0x4A9EFF)
-
-        static let codeBackground = Color(hex: 0x0A0E11)
 
         // Nature (R-M2) — ambient only, never data.
         static let sky = Color(hex: 0x8EC3F0)
@@ -536,7 +651,7 @@ private extension CicadaTheme {
 
         static func statusColor(for status: EntityStatus) -> Color {
             switch status {
-            case .active: accent
+            case .active: dataIndigo
             case .decaying: Color(hex: 0xF5A93B)
             case .archived: Color(hex: 0x7A8290)
             case .dropped: Color(hex: 0xFF5C5C).opacity(0.6)
@@ -569,47 +684,54 @@ private extension CicadaTheme {
 }
 
 // MARK: - Light Palette
-// G137 "day meadow" (spec R-M1): cloud-white surfaces on a faint green paper
-// (#F4F6F1), green-black ink text, and the same deepened entity/status hues
-// as before — data hues are untouched by the Meadow retune (graph.js mirrors
-// them).
+// Direction D graphite (DESIGN_RULES §3.1): a warm near-white base (#F7F7F5)
+// with white focus surfaces and graphite ink; the Meadow "day meadow" paper
+// (#F4F6F1) and its green-black ink retired as a base (DR-1, DR-13). The
+// deepened entity/status hues are data and did not move (DR-8).
 //
-// Measured, not assumed (WCAG 2.x, on #F4F6F1; the old #F5F6FA was within
-// 0.04 of every number, and there location sat at 4.52, just over the text
-// bar). Only person 4.82, project 4.97 and directory 4.91 clear
-// 4.5:1 and may be used as text. location 4.49, media 4.02, deadline 3.83,
-// hub 3.76, tool 3.44, concept 3.33 and company 3.32 clear only the 3:1
-// non-text bar — dots, rings and fills, not body text. skill (#B48A00) is
-// 2.93 and clears neither: never text, never an indicator without a label.
-// This comment used to promise ~4.5:1 for all of them.
-// `ThemeTokenTests.testLightEntityHueContrastIsWhatTheThemeCommentSays` now
+// Measured, not assumed (WCAG 2.x, on #F7F7F5): person 4.89, project 5.04,
+// directory 4.98 and location 4.55 clear 4.5:1 and may be used as text
+// (location was 4.49 on the Meadow paper and crossed the bar with the new
+// base). media 4.08, deadline 3.89, hub 3.82, tool 3.49, concept 3.38 and
+// company 3.37 clear only the 3:1 non-text bar — dots, rings and fills, not
+// body text. skill (#B48A00) is 2.98 and clears neither: never text, never an
+// indicator without a label.
+// `ThemeTokenTests.testLightEntityHueContrastIsWhatTheThemeCommentSays`
 // holds it to the numbers. Deepening them is a separate data-colour decision
 // graph.js must match.
 
 private extension CicadaTheme {
     enum Light {
-        // Same 4-step elevation ramp, running the opposite direction: the
-        // canvas is the flattest step, cards/panels get progressively closer
-        // to pure white as they "lift" off it.
-        static let background = Color(hex: 0xF4F6F1)
-        static let surface = Color(hex: 0xFFFFFF)
-        static let surfaceHover = Color(hex: 0xECF0E8)
-        static let surfaceElevated = Color(hex: 0xFFFFFF)
-        static let border = Color(hex: 0xDFE4D9)
-        static let borderLight = Color(hex: 0xC5CCBC)
+        static let bgRail = Color(hex: 0xEFEFEC)
+        static let bgBase = Color(hex: 0xF7F7F5)
+        static let bgPane = Color(hex: 0xFBFBFA)
+        static let bgHover = Color(hex: 0xEFEFEC)
+        static let bgFocus = Color(hex: 0xFFFFFF)
+        static let bgOption = Color(hex: 0xF7F7F5)
+        static let bgButton = Color(hex: 0xF2F2F0)
+        static let bgButtonHover = Color(hex: 0xE3E3E0)
+        static let bgSelected = Color(hex: 0xE8E8E5)
+        static let bgMenu = Color(hex: 0xFFFFFF)
+        static let bgKey = Color(hex: 0xEAEAE7)
+        static let keyGlyph = Color(hex: 0x5A5B60)
+        static let bgBadge = Color(hex: 0xD9D9D6)
+        static let border = Color(hex: 0xE3E3E1)        // black 8 % over bgBase (R-DS2)
+        static let borderLight = Color(hex: 0xCFCFCE)   // black 16 % over bgBase
 
-        // Measured on #F4F6F1: primary 15.35:1 (AAA), secondary 7.15:1,
-        // tertiary 3.87:1 (decorative/large only, as before).
-        static let textPrimary = Color(hex: 0x1B1F1A)
-        static let textSecondary = Color(hex: 0x4C5548)
-        static let textTertiary = Color(hex: 0x767E70)
+        // Measured on #F7F7F5: primary 17.2:1, secondary 10.8:1, tertiary 5.0:1 (4.33:1 on
+        // bgSelected — hence textTertiaryOnFill, 5.2:1), quaternary 3.2:1 (disabled only).
+        static let textPrimary = Color(hex: 0x141415)
+        static let textSecondary = Color(hex: 0x38393C)
+        static let textTertiary = Color(hex: 0x6A6B70)
+        static let textTertiaryOnFill = Color(hex: 0x5E5F64)
+        static let textQuaternary = Color(hex: 0x8A8B90)
 
-        // 5.13:1 on the day-meadow paper; the pre-G137 #5A62E0 measured
-        // 4.53:1 there, one rounding step from failing AA (plan R-M8).
-        static let accent = Color(hex: 0x4A5BD6)
-        static let onAccent = Color(hex: 0xFFFFFF)
+        static let dataIndigo = Color(hex: 0x4A5BD6)
         static let onMeadow = Color(hex: 0xFFFFFF)
         static let scrim = Color.black.opacity(0.35)
+        static let scrimPanel = Color.black.opacity(0.12)
+        static let codeBackground = bgBase
+        static let progressFill = Color(hex: 0x37753D)
 
         // Same families, deepened into the Tailwind ~700 band so each clears
         // ~4.5:1 on the near-white surface instead of the ~1.8:1 the dark
@@ -618,8 +740,6 @@ private extension CicadaTheme {
         static let warning = Color(hex: 0xB45309)
         static let danger = Color(hex: 0xB91C1C)
         static let info = Color(hex: 0x1D4ED8)
-
-        static let codeBackground = Color(hex: 0xE8ECE3)
 
         // Nature (R-M2) — ambient only, never data.
         static let sky = Color(hex: 0x3571B0)
@@ -671,7 +791,7 @@ private extension CicadaTheme {
 
         static func statusColor(for status: EntityStatus) -> Color {
             switch status {
-            case .active: accent
+            case .active: dataIndigo
             case .decaying: Color(hex: 0xB9740A)
             case .archived: Color(hex: 0x5E6372)
             case .dropped: Color(hex: 0xE43D3D).opacity(0.6)
@@ -712,30 +832,17 @@ private extension CicadaTheme {
 }
 
 // MARK: - Glass Card Modifier
-// A standard-MATERIAL content card, despite the name (G137 R-M5): the HIG
-// keeps Liquid Glass out of the content layer, so the 43 `.glassCard()` sites
-// stay what they are. Real glass lives in `Theme/LiquidGlass.swift`, in the
-// chrome layer only.
-
+// Direction D (R-DS7; DR-9, DR-10, DR-14): a content card is the focus surface with a resting
+// ring — no material, no border stroke, no shadow. The name survives so the 37 `.glassCard()`
+// sites follow without a rename; Liquid Glass lives in `Theme/LiquidGlass.swift`, chrome only.
 struct GlassCard: ViewModifier {
     var cornerRadius: CGFloat = CicadaTheme.cornerRadius
 
     func body(content: Content) -> some View {
         content
-            .background {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(CicadaTheme.surface.opacity(0.6))
-            }
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(
-                // On the darker base a thin border reads crisper than a heavy
-                // glass blur (Linear/GitHub convention). Use the cool `border`
-                // token instead of a flat white stroke, and a tighter shadow.
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.3), radius: 14, y: 8)
+            .background(CicadaTheme.shape(cornerRadius).fill(CicadaTheme.surface))
+            .clipShape(CicadaTheme.shape(cornerRadius))
+            .ringed(.resting, in: CicadaTheme.shape(cornerRadius))
     }
 }
 

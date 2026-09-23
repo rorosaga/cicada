@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// The ⌘K palette's chrome (round-3 design §3.1): an overlay on
-/// `ContentView`'s root — not a sheet, which is modal to the title bar and
-/// cannot be glass (A11) — 640 pt wide, its top at 14 % of the window,
-/// Liquid Glass (`.control` = `Glass.regular`) around an opaque body (R-SU17),
-/// over a light click-outside scrim.
+/// The ⌘K palette's chrome (G136; DR-23, R-DS17): an overlay on `ContentView`'s root — 640 pt,
+/// `cornerRadius`, an opaque `bgMenu` floating surface (no glass: DR-14 does not list it), its top
+/// 4 pt under the titlebar so it reads as dropping from the command bar, over the panel scrim.
+/// It appears and leaves in one frame (DR-60).
 struct FindPalette: View {
     let model: FindPaletteModel
     let open: (FindDestination) -> Void
@@ -13,18 +12,17 @@ struct FindPalette: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color.black.opacity(0.12)
+                CicadaTheme.scrimPanel
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture(perform: close)
                     .accessibilityHidden(true)
                 FindPanelBody(model: model, placement: .palette, open: open, close: close)
-                    .frame(width: min(CicadaTheme.scaled(640), geo.size.width - CicadaTheme.spacingXL * 2),
-                           height: min(CicadaTheme.scaled(560), geo.size.height * 0.72))
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge))
-                    .liquidGlass(.control, in: RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge))
-                    .shadow(color: .black.opacity(0.25), radius: 24, y: 10)
-                    .padding(.top, geo.size.height * 0.14)
+                    .frame(width: FindPaletteLayout.width(container: geo.size.width),
+                           height: FindPaletteLayout.height(container: geo.size.height))
+                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+                    .floatingSurface(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+                    .padding(.top, FindPaletteLayout.top)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("Find in memory")
                     .accessibilityAddTraits(.isModal)
@@ -32,4 +30,18 @@ struct FindPalette: View {
             .frame(maxWidth: .infinity)
         }
     }
+}
+
+/// R-DS17 — the palette's geometry, pure.
+enum FindPaletteLayout {
+    static let width: CGFloat = 640
+    static let maxHeight: CGFloat = 560
+    static func width(container: CGFloat) -> CGFloat {
+        max(0, min(CicadaTheme.scaled(width), container - CicadaTheme.spacingXL * 2))
+    }
+    static func height(container: CGFloat) -> CGFloat {
+        max(0, min(CicadaTheme.scaled(maxHeight), container * 0.72))
+    }
+    /// The command bar lives in AppKit's titlebar; the palette starts just under it.
+    static var top: CGFloat { CicadaTheme.spacingXS }
 }

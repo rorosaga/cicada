@@ -141,10 +141,7 @@ private struct ConnectionCard: View {
             }
             if let powers = connection.powersLine {
                 HStack(spacing: CicadaTheme.spacingXS) {
-                    Text("POWERS")
-                        .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .tracking(1.1)
+                    SectionLabel("Powers")
                     Text(powers)
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)

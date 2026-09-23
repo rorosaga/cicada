@@ -92,11 +92,7 @@ struct SettingsGroupHeader: View {
     init(_ text: String) { self.text = text }
 
     var body: some View {
-        Text(text.uppercased())
-            .font(CicadaTheme.labelFont)
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .tracking(1.2)
-            .accessibilityAddTraits(.isHeader)
+        SectionLabel(text)
     }
 }
 
@@ -111,10 +107,11 @@ struct SettingsDivider: View {
 }
 
 extension View {
-    /// The Settings card surface — also used by a card that is not a group of
+    /// The Settings card surface: one group of rows on the focus surface with a
+    /// resting ring (DR-9, DR-37) — also used by a card that is not a group of
     /// rows (a Plans & keys connection, a recommended skill).
     func settingsCardSurface() -> some View {
-        background(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius).fill(CicadaTheme.surface))
-            .overlay(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius).stroke(CicadaTheme.border, lineWidth: 1))
+        background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+            .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 }

@@ -48,10 +48,7 @@ struct LampPopover: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text(Copy.whenIRead.uppercased())
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel(Copy.whenIRead)
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: page.lampLit ? "circle.fill" : "circle")
                     .font(CicadaTheme.font(size: 9))

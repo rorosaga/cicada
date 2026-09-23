@@ -1,52 +1,31 @@
 import SwiftUI
 
-/// "Open Settings, on this section" — the ONE way any surface in this app is
-/// allowed to send the reader into the Settings scene (G125 v3, P5).
+/// "Open Settings, on this section" — the ONE way any surface sends the reader into Settings
+/// (G125 v3 P5, re-seated by DR-33 / R-DS22).
 ///
-/// Two things are settled here, both of them measured rather than assumed:
+/// Settings is a panel in this window now, so the link is a plain `Button` that hands its
+/// section and row to `AppRouter.openSettings(_:row:)`. The two `UserDefaults` seeds it used to
+/// write before a `SettingsLink` opened the scene — and the nonce and freshness window the row
+/// seed needed to cross windows — are gone: nothing crosses a window any more. P5 survives in
+/// its real form, one door, which `SleepQueueCardV3Tests` holds. Fired while the panel is
+/// open, it re-lands in place.
 ///
-/// 1. **A plain closure cannot open Settings on this target OS.**
-///    `SidebarView.swift`'s `SettingsGearButton` docstring records the private
-///    AppKit window-opening selector being *accepted and silently ignored* on
-///    macOS 26 — `NSApp.sendAction` returns `true`, no window appears — which
-///    gives a caller no return value to check. `SettingsEntryPointTests`
-///    `.testNoPrivateSettingsSelector` fails the build on that literal
-///    reappearing anywhere under `Sources/`. `SettingsLink` is a `View`, not a
-///    callable action, so the entry point has to be a view too — hence this
-///    wrapper instead of a helper function.
-/// 2. **The section seed has exactly one writer.** `SettingsScene` restores
-///    which section to show from `@AppStorage("cicada.settingsSection")`, and
-///    a link that wants a specific section must seed that key BEFORE
-///    `SettingsLink`'s own built-in action runs. `.simultaneousGesture` runs
-///    alongside that action rather than instead of it, which is what makes the
-///    ordering work. The key literal is written HERE and nowhere else
-///    (`SleepQueueCardV3Tests.test_exactlyOneFileWritesTheSettingsSectionSeed`)
-///    — the reader in `SettingsScene.swift` stays where it is; what must never
-///    fork is the write, because a second copy-pasted writer with a typo'd key
-///    fails silently by opening Settings on the wrong section.
-///    The row seed (`cicada.settingsRowFocus`, G139) is written here too, in
-///    the same gesture, as `<row>@<unix ms>` — the nonce lets `SettingsScene`
-///    tell a new deep link from one it already consumed without ever clearing
-///    the key (clearing would be a second writer).
-///
-/// The label is generic so a whole row can be the link (L final review,
-/// finding 1: a folder or Wispr Flow row on the Feed strip has its settings in
-/// Integrations, and a closure-driven row `Button` cannot get there). The seed
-/// still has exactly one writer — this body.
+/// The label is generic so a whole row can be the link (L final review, finding 1: a folder or
+/// Wispr Flow row on the Feed strip has its settings in Integrations).
 struct SettingsSectionLink<Label: View>: View {
     let section: SettingsSection
-    /// G139 (R-O15) — land on (scroll to and briefly wash) this row once
-    /// Settings opens. Written in the SAME gesture as the section seed, in this
-    /// file only, so the P5 one-writer rule covers both keys.
+    /// G139 (R-O15) — land on (scroll to and briefly wash) this row once the panel shows it.
     let row: SettingsRowID?
     let accessibilityText: String
     let label: Label
-    /// G137 R-M18: an empty state's one action is the page's one prominent
-    /// action — same link, same seed write, drawn through
-    /// `primaryActionStyle()` (its label through `primaryActionInk()`) instead
-    /// of as accent text. Off by default, so every other caller (the Sleep
-    /// page's schedule link, a Feed-strip row) renders exactly as before.
+    /// G137 R-M18: an empty state's one action is the page's one prominent action — same
+    /// door, drawn through `primaryActionStyle()` (its label through `primaryActionInk()`)
+    /// instead of as link text. Off by default, so every other caller (the Sleep page's
+    /// schedule link, a Feed-strip row) renders as a quiet link.
     var prominent: Bool = false
+    /// Optional so a link rendered outside the main window's tree (a preview) draws without
+    /// trapping; in the app the router is always there.
+    @Environment(AppRouter.self) private var router: AppRouter?
 
     init(section: SettingsSection, row: SettingsRowID? = nil, accessibilityText: String,
          prominent: Bool = false, @ViewBuilder label: () -> Label) {
@@ -60,29 +39,25 @@ struct SettingsSectionLink<Label: View>: View {
     var body: some View {
         Group {
             if prominent {
-                SettingsLink { label.primaryActionInk() }
+                Button(action: open) { label.primaryActionInk() }
                     .primaryActionStyle()
             } else {
-                SettingsLink { label }
+                Button(action: open) { label }
                     .buttonStyle(.cicadaPlain)
             }
         }
-        .simultaneousGesture(TapGesture().onEnded {
-            UserDefaults.standard.set(section.rawValue, forKey: "cicada.settingsSection")
-            if let row {
-                UserDefaults.standard.set(SettingsRowFocusSeed.encode(row, at: Date()), forKey: "cicada.settingsRowFocus")
-            }
-        })
         .accessibilityLabel("\(accessibilityText), opens \(Copy.settings) — \(section.title)")
     }
+
+    private func open() { router?.openSettings(section, row: row) }
 }
 
 extension SettingsSectionLink where Label == Text {
-    /// The text link every earlier call site uses: accent-coloured text, or —
+    /// The text link every earlier call site uses: link ink (DR-5 use 5, `accentText`), or —
     /// `prominent` — the page's one prominent action (the body inks it).
     init(section: SettingsSection, row: SettingsRowID? = nil, label: String, prominent: Bool = false) {
         self.init(section: section, row: row, accessibilityText: label, prominent: prominent) {
-            prominent ? Text(label) : Text(label).foregroundStyle(CicadaTheme.accent)
+            prominent ? Text(label) : Text(label).foregroundStyle(CicadaTheme.accentText)
         }
     }
 }

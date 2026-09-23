@@ -130,10 +130,7 @@ struct AskPanel: View {
 
             if !answer.citations.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text("SOURCES")
-                        .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .tracking(1.2)
+                    SectionLabel("Sources")
 
                     AskChipFlowLayout(spacing: CicadaTheme.spacingSM) {
                         ForEach(answer.citationRows, id: \.id) { row in
@@ -177,7 +174,7 @@ struct AskPanel: View {
             HStack(spacing: 6) {
                 LogoImage(entityId: citation.entityId, name: citation.entityName, size: 20)
                 Text("[[\(citation.entityName)]]")
-                    .font(CicadaTheme.font(size: 12, weight: .medium, design: .monospaced))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
             }
             .padding(.leading, 4)
@@ -192,10 +189,7 @@ struct AskPanel: View {
 
     private func confidenceMeter(_ confidence: Double) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Text("CONFIDENCE")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Confidence")
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -208,7 +202,7 @@ struct AskPanel: View {
             .frame(height: 4)
 
             Text("\(Int(confidence * 100))%")
-                .font(CicadaTheme.font(size: 11, design: .monospaced))
+                .font(CicadaTheme.font(size: 11).monospacedDigit())
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
@@ -229,10 +223,7 @@ struct AskPanel: View {
 
     private func recentQuestions(_ vm: AskViewModel) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("RECENT")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Recent")
 
             ForEach(vm.history) { entry in
                 Button {

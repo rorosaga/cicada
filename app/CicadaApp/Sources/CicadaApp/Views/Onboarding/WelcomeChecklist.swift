@@ -64,12 +64,7 @@ struct WelcomeChecklist: View {
     /// the page it becomes read as one family.
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text(title.uppercased())
-                .font(CicadaTheme.font(size: 11, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityLabel(title)
+            SectionLabel(title)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

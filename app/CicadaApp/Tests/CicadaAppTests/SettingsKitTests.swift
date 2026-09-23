@@ -38,6 +38,23 @@ final class SettingsKitTests: XCTestCase {
 
     // MARK: Focus (R-O6, R-O7)
 
+    /// R-O5 — Esc backs out of an open sub-page before it closes the panel
+    /// (DS-1 final review: the ×'s `.cancelAction` pre-empted `.onExitCommand`).
+    @MainActor
+    func testEscapeGoesBackBeforeClosing() {
+        let focus = SettingsFocus()
+        var closed = 0, backs = 0
+        focus.escape { closed += 1 }
+        XCTAssertEqual(closed, 1, "a top-level page: Esc closes the panel")
+        focus.escapeBack = { backs += 1 }
+        focus.escape { closed += 1 }
+        XCTAssertEqual(backs, 1)
+        XCTAssertEqual(closed, 1, "an open sub-page: Esc goes back and the panel stays")
+        focus.escapeBack = nil
+        focus.escape { closed += 1 }
+        XCTAssertEqual(closed, 2)
+    }
+
     @MainActor
     func testGoStagesARequestWithAFreshNonce() {
         let focus = SettingsFocus()
@@ -79,7 +96,7 @@ final class SettingsKitTests: XCTestCase {
     }
 
     func testTheSidebarGlyphsAcknowledgeHover() throws {
-        XCTAssertTrue(try source("Views/Settings/SettingsScene.swift").contains(".iconHover("))
+        XCTAssertTrue(try source("Views/Settings/SettingsPanel.swift").contains(".iconHover("))
     }
 
     func testSettingsContentNeverUsesGlass() throws {

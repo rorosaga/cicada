@@ -5,7 +5,7 @@ import AppKit
 /// T3/T4 (R-L7) — the bundled brand marks are square, big enough, and
 /// transparent in the corners unless they are a declared opaque plate; every
 /// monochrome mark ships the `-dark` sibling that keeps it from disappearing on
-/// `CicadaTheme.surfaceElevated` (`#20292F` in dark mode).
+/// `CicadaTheme.surfaceElevated` (`#18191B` in dark mode).
 ///
 /// This is the test that would have caught `x.png` (white on opaque black) and
 /// `codex.png` (black on opaque white) shipping as opaque squares inside a

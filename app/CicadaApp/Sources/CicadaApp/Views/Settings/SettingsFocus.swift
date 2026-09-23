@@ -2,11 +2,11 @@ import AppKit
 import SwiftUI
 
 /// Landing on a row (G139, design §2.4): navigate, scroll, wash, announce —
-/// one object per Settings window, handed down the environment, so a row
+/// one object per Settings panel, handed down the environment, so a row
 /// anywhere can be reached without the page knowing who asked. Search hits,
-/// deep links (`SettingsSectionLink(section:row:)`) and in-window pointers
-/// (`SettingsInlineLink`) all end in `go(_:row:)`; the scene applies the
-/// section, then calls `land(on:…)`.
+/// deep links (`SettingsSectionLink(section:row:)`, through
+/// `AppRouter.openSettings`) and in-panel pointers (`SettingsInlineLink`) all
+/// end in `go(_:row:)`; the panel applies the section, then calls `land(on:…)`.
 @Observable
 @MainActor
 final class SettingsFocus {
@@ -26,6 +26,19 @@ final class SettingsFocus {
     private(set) var landedNonce = 0
     /// Rows matching an active query carry a steady 3 pt leading bar (§2.4).
     var matchedRows: Set<SettingsRowID> = []
+    /// A sub-page's "go back", taken by Esc before the panel's close (R-O5:
+    /// "⌘[ and Esc go back"; DS-1 final review). The panel's × carries a
+    /// window-wide `.cancelAction`, and AppKit resolves that key equivalent
+    /// before a view's `.onExitCommand` ever sees `cancelOperation:` — so a
+    /// sub-page's own exit command would never fire and Esc would close the
+    /// whole panel, losing the open detail. One owner of Esc, one check here.
+    var escapeBack: (() -> Void)?
+
+    /// What Esc (or the ×'s key equivalent) does right now: back out of an
+    /// open sub-page first, and only close the panel from a top-level page.
+    func escape(close: () -> Void) {
+        if let back = escapeBack { back() } else { close() }
+    }
 
     private var requests = 0
     private var fade: Task<Void, Never>?
@@ -71,19 +84,20 @@ struct SettingsRowAnchor: ViewModifier {
         content
             .background {
                 if focus?.highlighted == id {
-                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                        .fill(CicadaTheme.dandelionFill.opacity(0.35))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                                .stroke(contrast == .increased ? CicadaTheme.textPrimary : CicadaTheme.dandelion,
-                                        lineWidth: contrast == .increased ? 2 : 1)
-                        )
+                    // DR-33 / R-DS26 — a landed row: the selected fill and the focus ring (DR-5
+                    // use 1), never a nature wash on a row (DR-13).
+                    CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                        .fill(CicadaTheme.bgSelected)
+                        .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                            .strokeBorder(contrast == .increased ? CicadaTheme.textPrimary : CicadaTheme.focusRing,
+                                          lineWidth: 2))
                         .transition(.opacity)
                 }
             }
             .overlay(alignment: .leading) {
+                // A match is a neutral bar, not a colour (DR-13): the query already says why.
                 if focus?.matchedRows.contains(id) == true {
-                    Rectangle().fill(CicadaTheme.dandelion).frame(width: 3)
+                    Rectangle().fill(CicadaTheme.textTertiary).frame(width: 3)
                 }
             }
             .id(id)
@@ -117,34 +131,5 @@ struct SettingsScroll<Content: View>: View {
             proxy.scrollTo(target, anchor: .center)
             focus.consumeScroll()
         }
-    }
-}
-
-/// The row half of a deep link (R-O15): `"<row>@<unix ms>"`, written only by
-/// `SettingsSectionLink`, consumed by `SettingsScene` when it is new AND
-/// younger than `maxAge` — the key persists in UserDefaults, and a stale seed
-/// must never re-land on every launch. Split on the LAST `@`, so a row id
-/// that itself carries one (a catalog item's id) survives the round trip.
-enum SettingsRowFocusSeed {
-    static let maxAge: TimeInterval = 30
-
-    struct Seed: Equatable {
-        let row: SettingsRowID
-        let millis: Int64
-    }
-
-    static func encode(_ row: SettingsRowID, at date: Date) -> String {
-        "\(row.rawValue)@\(Int64(date.timeIntervalSince1970 * 1000))"
-    }
-
-    static func parse(_ raw: String) -> Seed? {
-        guard let at = raw.lastIndex(of: "@") else { return nil }
-        let row = String(raw[..<at])
-        guard !row.isEmpty, let millis = Int64(raw[raw.index(after: at)...]) else { return nil }
-        return Seed(row: SettingsRowID(row), millis: millis)
-    }
-
-    static func isFresh(_ seed: Seed, now: Date = Date()) -> Bool {
-        now.timeIntervalSince1970 * 1000 - Double(seed.millis) <= maxAge * 1000
     }
 }

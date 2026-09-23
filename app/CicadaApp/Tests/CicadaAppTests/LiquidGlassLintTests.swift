@@ -10,7 +10,7 @@ final class LiquidGlassLintTests: XCTestCase {
     static let home = "Theme/LiquidGlass.swift"
     static let needles = [".glassEffect(", "GlassEffectContainer", "glassEffectID(", "glassEffectUnion(",
                           ".glassProminent", ".buttonStyle(.glass)", ".buttonStyle(.glass(",
-                          ".backgroundExtensionEffect("]
+                          ".backgroundExtensionEffect(", ".sharedBackgroundVisibility("]
 
     func testGlassAPIsLiveInOneFile() throws {
         var offenders: [String] = []

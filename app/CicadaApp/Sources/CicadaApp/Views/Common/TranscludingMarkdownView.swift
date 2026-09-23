@@ -210,7 +210,7 @@ struct TransclusionCard: View {
             Spacer()
 
             Text("transcluded")
-                .font(CicadaTheme.font(size: 9, weight: .regular, design: .monospaced))
+                .font(CicadaTheme.font(size: 9))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
     }

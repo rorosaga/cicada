@@ -67,10 +67,7 @@ struct SourceCardGrid: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                     ForEach(SourceSections.group(rows), id: \.kind) { section in
                         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                            Text(section.title)
-                                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .tracking(1.2)
+                            SectionLabel(section.title)
                             LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingMD) {
                                 ForEach(section.rows) { row in
                                     SourceCardTile(source: row, today: today, onOpen: { onOpen(row) })

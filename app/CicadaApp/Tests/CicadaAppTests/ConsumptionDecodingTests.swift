@@ -69,7 +69,9 @@ final class ConsumptionDecodingTests: XCTestCase {
     func testHeatRampCoversTheFullRangeAndClampsOutOfBounds() {
         CicadaTheme.mode = .dark
         XCTAssertEqual(CicadaTheme.heatRamp(level: 0), CicadaTheme.surfaceElevated)
-        XCTAssertEqual(CicadaTheme.heatRamp(level: 4), CicadaTheme.accent)
+        // R-DS6 / DR-8: the ramp is a data hue, so its top step is the frozen indigo the
+        // "active" status reads, not the Mac's accent (which is now chrome only).
+        XCTAssertEqual(CicadaTheme.heatRamp(level: 4), CicadaTheme.statusColor(for: .active))
         XCTAssertEqual(CicadaTheme.heatRamp(level: -1), CicadaTheme.heatRamp(level: 0), "clamps below 0")
         XCTAssertEqual(CicadaTheme.heatRamp(level: 9), CicadaTheme.heatRamp(level: 4), "clamps above 4")
     }

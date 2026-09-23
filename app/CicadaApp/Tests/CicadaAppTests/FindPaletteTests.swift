@@ -146,4 +146,12 @@ final class FindPaletteTests: XCTestCase {
         XCTAssertEqual(ConversationSource.sourceId(harness: nil, origin: "chatgpt-export", rows: rows), "chat-export:chatgpt")
         XCTAssertNil(ConversationSource.sourceId(harness: "cursor", origin: nil, rows: rows), "never a guessed neighbour")
     }
+
+    /// R-DS21 — the Settings panel is modal: ⌘K waits until it closes.
+    func testCommandKIsIgnoredWhileTheSettingsPanelIsOpen() {
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(), isOpen: false, firstRunShowing: false,
+                                             settingsOpen: true), .ignore)
+        XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(prefill: "alpha"), isOpen: false, firstRunShowing: false,
+                                             homeVisible: true, settingsOpen: true), .ignore)
+    }
 }

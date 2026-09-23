@@ -9,9 +9,10 @@ import XCTest
 /// value — only by not using it.
 ///
 /// A source lint is a blunt instrument, but a window opening is not unit
-/// testable, and this encodes the one thing a future reader needs: the fix is
-/// `SettingsLink`, and reaching for the selector again reintroduces a dead
-/// button that looks fine in review.
+/// testable, and this encodes the one thing a future reader needs: reaching for
+/// the selector again reintroduces a dead button that looks fine in review.
+/// Since DR-33 there is no Settings window at all — the panel lives in the main
+/// window and every way in goes through `AppRouter.openSettings` (R-DS22).
 final class SettingsEntryPointTests: XCTestCase {
     private func sourceFiles() throws -> [URL] {
         // …/Tests/CicadaAppTests/<this file> → …/Sources/CicadaApp
@@ -34,18 +35,36 @@ final class SettingsEntryPointTests: XCTestCase {
                 XCTAssertFalse(
                     text.contains("Selector((\"\(selector)\""),
                     "\(file.lastPathComponent) sends the private selector \(selector). "
-                    + "It is accepted and ignored on macOS 26 — open the Settings scene with SettingsLink."
+                    + "It is accepted and ignored on macOS 26 — open Settings with AppRouter.openSettings."
                 )
             }
         }
     }
 
-    /// The gear is the only in-app way to reach Settings besides ⌘, so if this
-    /// disappears, the entry point is gone with it.
-    func testTheSidebarStillCarriesASettingsLink() throws {
-        let sidebar = try sourceFiles().first { $0.lastPathComponent == "SidebarView.swift" }
-        let text = try String(contentsOf: try XCTUnwrap(sidebar), encoding: .utf8)
-        XCTAssertTrue(text.contains("SettingsLink"), "the sidebar footer no longer opens Settings")
+    /// DR-33 — there is no Settings scene, so `SettingsLink` (which opens one) would open nothing.
+    /// Code lines only: the docstrings that record the retirement (`SettingsSectionLink`,
+    /// `SettingsPanel`) name it on purpose, the way the other source lints skip `//`.
+    func testNoSceneAndNoSettingsLink() throws {
+        func code(_ file: URL) throws -> [String] {
+            try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        }
+        for file in try sourceFiles() {
+            XCTAssertFalse(try code(file).contains { $0.contains("SettingsLink") }, file.lastPathComponent)
+        }
+        let app = try XCTUnwrap(sourceFiles().first { $0.lastPathComponent == "CicadaApp.swift" })
+        XCTAssertFalse(try code(app).contains { $0.contains("Settings {") })
+    }
+
+    /// R-DS23 — ⌘, is a menu command that opens the panel, and opens a window first when none is.
+    func testCommandCommaOpensThePanel() throws {
+        let text = try String(contentsOf: try XCTUnwrap(sourceFiles().first { $0.lastPathComponent == "ShellCommands.swift" }), encoding: .utf8)
+        XCTAssertTrue(text.contains("CommandGroup(replacing: .appSettings)"))
+        XCTAssertTrue(text.contains(#".keyboardShortcut(",", modifiers: .command)"#))
+        XCTAssertTrue(text.contains("router.openSettings()"))
+        XCTAssertTrue(text.contains("openWindow(id: CicadaApp.mainWindowID)"))
+        let rail = try String(contentsOf: try XCTUnwrap(sourceFiles().first { $0.lastPathComponent == "NavRail.swift" }), encoding: .utf8)
+        XCTAssertTrue(rail.contains("router.openSettings()"), "the gear is the other way in")
     }
 
     /// G130 R5: the View menu (Zoom In/Out/Actual Size) is a `CommandGroup`

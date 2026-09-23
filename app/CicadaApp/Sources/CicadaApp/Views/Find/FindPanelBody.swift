@@ -167,12 +167,10 @@ struct FindPanelBody: View {
             Image(systemName: section.group.glyph)
                 .font(CicadaTheme.font(size: 10, weight: .semibold))
                 .iconHover()
-            Text(section.group.title.uppercased())
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .tracking(1.2)
+            SectionLabel(section.group.title)
             Spacer()
             if let count = section.headerCount {
-                Text(count).font(CicadaTheme.font(size: 10, design: .monospaced))
+                Text(count).font(CicadaTheme.font(size: 10).monospacedDigit())
             }
         }
         .foregroundStyle(CicadaTheme.textTertiary)
@@ -219,7 +217,7 @@ struct FindPanelBody: View {
             Spacer()
             Text(model.mode == .find ? "↑↓ move · ⏎ open · ⌥⏎ more · ⌘⏎ ask · esc close"
                                      : "⏎ ask · esc back to find")
-                .font(CicadaTheme.font(size: 10, design: .monospaced))
+                .font(CicadaTheme.font(size: 10))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .accessibilityHidden(true)
         }

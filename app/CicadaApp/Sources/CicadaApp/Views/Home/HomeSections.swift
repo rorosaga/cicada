@@ -32,11 +32,7 @@ struct HomeCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(title.uppercased())
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .tracking(1.2)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .accessibilityAddTraits(.isHeader)
+            SectionLabel(title)
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)

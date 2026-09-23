@@ -41,7 +41,7 @@ final class LogoImageTests: XCTestCase {
     // MARK: - Dark-mode resolution (Track L, R-L5)
 
     /// R-L5 — a monochrome mark ships a `-dark` sibling and `LogoImage` picks
-    /// it under a dark theme. `CicadaTheme.surfaceElevated` is `#20292F` in
+    /// it under a dark theme. `CicadaTheme.surfaceElevated` is `#18191B` in
     /// dark, so a black-on-transparent ChatGPT mark is simply invisible there;
     /// the white plate `AgentTile` used to paper over this with is worse than
     /// the disease (it puts every COLOUR mark on a white chip).

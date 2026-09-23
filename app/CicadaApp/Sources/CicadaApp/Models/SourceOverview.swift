@@ -293,14 +293,14 @@ enum SourceItemsGrouping {
 /// correctly ordered grid.
 enum SourceSections {
     private static let titles: [SourceKind: String] = [
-        .harness: "CHAT & AGENTS",
-        .browser: "BROWSERS",
-        .social: "SOCIAL & SAVED",
-        .feed: "FEEDS & CALENDARS",
-        .messaging: "MESSAGING",
-        .voice: "VOICE & MEETINGS",
-        .import: "FILES & IMPORTS",
-        .unknown: "OTHER",
+        .harness: "Chat & agents",
+        .browser: "Browsers",
+        .social: "Social & saved",
+        .feed: "Feeds & calendars",
+        .messaging: "Messaging",
+        .voice: "Voice & meetings",
+        .import: "Files & imports",
+        .unknown: "Other",
     ]
 
     static func group(_ rows: [SourceOverview]) -> [(kind: SourceKind, title: String, rows: [SourceOverview])] {
@@ -308,7 +308,7 @@ enum SourceSections {
         return SourceKind.order.compactMap { kind in
             let inKind = ordered.filter { $0.kind == kind }
             guard !inKind.isEmpty else { return nil }
-            return (kind: kind, title: titles[kind] ?? kind.rawValue.uppercased(), rows: inKind)
+            return (kind: kind, title: titles[kind] ?? kind.rawValue.capitalized, rows: inKind)
         }
     }
 }

@@ -14,9 +14,9 @@ final class FeedChannelStripTests: XCTestCase {
     /// The count is the whole point of a strip that can be collapsed — it has
     /// to survive collapsing.
     func testStripTitleCarriesTheCountOnceThereIsOne() {
-        XCTAssertEqual(ConnectedChannelsStrip.stripTitle(connected: 0), "CONNECTED")
-        XCTAssertEqual(ConnectedChannelsStrip.stripTitle(connected: 1), "CONNECTED (1)")
-        XCTAssertEqual(ConnectedChannelsStrip.stripTitle(connected: 7), "CONNECTED (7)")
+        XCTAssertEqual(ConnectedChannelsStrip.stripTitle(connected: 0), "Connected")
+        XCTAssertEqual(ConnectedChannelsStrip.stripTitle(connected: 1), "Connected (1)")
+        XCTAssertEqual(ConnectedChannelsStrip.stripTitle(connected: 7), "Connected (7)")
     }
 
     /// The strip renders exactly what the old Capture card did: connected

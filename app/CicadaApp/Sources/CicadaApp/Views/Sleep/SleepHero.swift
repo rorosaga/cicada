@@ -266,10 +266,7 @@ struct SleepReadoutView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Text("READOUT")
-                .font(CicadaTheme.font(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Readout")
             if let meter = heroMeter(mood: mood, debt: debt, read: read, total: total) {
                 meterView(meter)
             } else {
@@ -327,10 +324,7 @@ struct SleepReadoutView: View {
     /// (Track Z Z3); the engine now wears its real mark (Z-P26).
     private func engineLine(_ engine: String, detail: String?) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
-            Text("ENGINE")
-                .font(CicadaTheme.font(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.1)
+            SectionLabel("Engine")
             EngineMark(engine: engine, size: 12)
             Text(Copy.engineLabel(engine))
                 .font(CicadaTheme.captionFont)
