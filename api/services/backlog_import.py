@@ -219,12 +219,52 @@ def import_markdown(memory_path: Path, *, project: str, text: str, prefix: str =
     return report
 
 
-def import_file(memory_path: Path, project: str, source: Path, *, prefix: str = "G") -> ImportReport:
+DEFAULT_BACKEND = "http://127.0.0.1:8000"
+SLEEP_REFUSAL = ("a Sleep cycle is running, and its commit would take these files under its own author; "
+                 "nothing was imported — run it again once the cycle ends")
+DEMO_REFUSAL = "that bank is the demo, which holds only made-up examples; nothing was imported"
+
+
+def _backend_headers() -> dict[str, str]:
+    """The bearer token, read and never minted: `auth.get_token` would write a
+    new `api_token` when none exists, and a script must not change the
+    machine's credentials just by asking whether Sleep runs."""
+    import os
+
+    token = (os.environ.get("CICADA_API_TOKEN") or "").strip()
+    if not token:
+        # `mcp/server.py::_backend_headers`'s read; `auth.cicada_home` would mkdir.
+        home = Path(os.environ.get("CICADA_HOME") or Path.home() / ".cicada").expanduser()
+        try:
+            token = (home / "api_token").read_text(encoding="utf-8").strip()
+        except OSError:
+            token = ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def import_file(memory_path: Path, project: str, source: Path, *, prefix: str = "G",
+                backend_url: str | None = None, sleep_running=None) -> ImportReport:
     """`scripts/import-backlog.sh`'s entry point: read, import, and commit what
-    was created in ONE `Backlog import` commit as the person — or none."""
-    from api.services import git_service, handshake, when
+    was created in ONE `Backlog import` commit as the person — or none.
+
+    It writes the named bank in-process, so it carries the two guards the
+    REST route gets from its dependencies (G150 final review, finding 3):
+    while the backend is mid-Sleep, `_finalize`'s `git add -A` would sweep
+    every imported file into the cycle's commit under a model's
+    `Cicada-Author` — the G85 smear R-B8 exists to prevent — so it refuses,
+    asking the backend the way a stdio MCP write does
+    (`mcp_tools._backend_sleep_running`: no backend is no cycle, a timeout is
+    a cycle); and a demo bank never takes real backlog rows (R-CS13).
+    `sleep_running` is the suite's seam — no test may reach a live backend."""
+    from api.services import demo_guard, git_service, handshake, mcp_tools, when
 
     memory_path = Path(memory_path)
+    if demo_guard.is_demo(memory_path):
+        return ImportReport(error=DEMO_REFUSAL)
+    probe = sleep_running or (lambda: mcp_tools._backend_sleep_running(
+        (backend_url or DEFAULT_BACKEND).rstrip("/"), _backend_headers()))
+    if probe():
+        return ImportReport(error=SLEEP_REFUSAL)
     report = import_markdown(memory_path, project=project, text=Path(source).read_text(encoding="utf-8"),
                              prefix=prefix)
     if report.paths and (memory_path / ".git").exists():

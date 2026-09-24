@@ -275,3 +275,39 @@ def test_a_hand_rename_that_keeps_the_mtime_moves_the_stamp(bank):
     path.rename(renamed)
     os.utime(renamed, ns=(kept, kept))
     assert backlog.stamp(bank) != before
+
+
+def test_keys_added_by_hand_survive_every_write(bank):
+    """G150 final review, finding 1: a key the module does not own (`tags:`,
+    `due:`, an Obsidian property) rides through a note, a move and a rename."""
+    item = _add(bank)["item"]
+    path = _file(bank, item.id)
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("added_by: claude-code\n", "added_by: claude-code\ntags:\n- perf\ndue: 2026-10-01\n"),
+                    encoding="utf-8")
+    assert _note(bank, item.id, "Measured it.", author="claude-code")["action"] == "updated"
+    assert backlog.update_item(bank, project="alpha-project", item=item.id, author="user", status="doing",
+                               title="Cache the timeline", now=NOW, tz_name="UTC")["action"] == "updated"
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["tags"] == ["perf"] and str(fm["due"]) == "2026-10-01"
+    assert list(fm)[-1] == "notes" and fm["title"] == "Cache the timeline"
+
+
+def test_a_note_inserted_by_hand_mid_list_keeps_its_own_author(bank):
+    """G150 final review, finding 2: the sidecar is matched by position only
+    while each entry fits its note's heading — a hand note between two signed
+    ones never takes the next one's author, and a write never saves it."""
+    item = _add(bank)["item"]
+    _note(bank, item.id, "First, from the agent.", author="claude-code")
+    _note(bank, item.id, "Second, from the agent.", author="claude-code")
+    path = _file(bank, item.id)
+    text = path.read_text(encoding="utf-8")
+    at = text.index("### ", text.index("First, from the agent."))
+    path.write_text(text[:at] + "### 2026-09-25 · You\n\nMine, in Obsidian.\n\n" + text[at:], encoding="utf-8")
+    got = backlog.get_item(bank, "alpha-project", item.id)
+    assert [n.text for n in got.notes] == ["First, from the agent.", "Mine, in Obsidian.", "Second, from the agent."]
+    assert [backlog.author_of(n) for n in got.notes] == ["claude-code", "user", "claude-code"]
+    assert got.notes[0].at and got.notes[1].by is None
+    _note(bank, item.id, "Third.", author="claude-code")
+    again = backlog.get_item(bank, "alpha-project", item.id)
+    assert [backlog.author_of(n) for n in again.notes] == ["claude-code", "user", "claude-code", "claude-code"]

@@ -102,6 +102,11 @@ class Item:
     session: str | None = None
     links: list[dict] = field(default_factory=list)
     order: int | None = None
+    # Every frontmatter key this module does not own (`tags:`, `due:`, an
+    # Obsidian property), carried through each rewrite untouched — markdown is
+    # the source of truth and the file is hand-editable (G150 final review,
+    # finding 1: one agent note used to erase them).
+    extra: dict = field(default_factory=dict)
     description: str = ""
     notes: list[Note] = field(default_factory=list)
     # From the sidecar when only the frontmatter was read (a list row).
@@ -424,8 +429,14 @@ def _sidecar(fm: dict | None) -> list[dict]:
     return out
 
 
+# The keys `_render` writes itself; anything else in a file is `Item.extra`.
+_KNOWN = frozenset({"id", "title", "project", "status", "triage", "paid", "created", "updated", "added_by",
+                    "session", "links", "order", "notes"})
+
+
 def _render(item: Item) -> str:
-    """R-B1's key order; empty keys omitted; the sidecar last, like `turns`."""
+    """R-B1's key order; empty keys omitted; a hand-added key after `order`
+    in its own order; the sidecar last, like `turns`."""
     fm: dict = {"id": item.id, "title": item.title, "project": item.project, "status": item.status}
     if item.triage:
         fm["triage"] = item.triage
@@ -440,6 +451,7 @@ def _render(item: Item) -> str:
         fm["links"] = item.links
     if item.order is not None:
         fm["order"] = item.order
+    fm.update({k: v for k, v in item.extra.items() if k not in _KNOWN})
     if item.notes:
         fm["notes"] = [{k: v for k, v in (("at", n.at), ("by", n.by), ("session", n.session)) if v}
                        for n in item.notes]
@@ -467,6 +479,7 @@ def _from_fm(fm: dict, path: Path, stem: str) -> Item:
         added_by=str(fm.get("added_by") or USER), session=str(fm.get("session") or "") or None,
         links=_clean_links(fm.get("links")),
         order=order if isinstance(order, int) and not isinstance(order, bool) else None,
+        extra={k: v for k, v in fm.items() if k not in _KNOWN},
         note_count=len(side), last_note_at=last.get("at"), last_note_by=last.get("by"))
 
 
@@ -481,6 +494,14 @@ def _read(path: Path, stem: str) -> Item | None:
     side = _sidecar(parsed.frontmatter)
     if len(side) > len(raw):
         side = []   # R-B4: a note deleted by hand — positions no longer mean anything
+    # Positions are trusted only while each entry's author reads as its note's
+    # heading. A note inserted by hand mid-list would otherwise take the next
+    # note's `by`/`at`/`session` — and the next write would save that wrong
+    # author for good (G150 final review, finding 2). From the first mismatch
+    # on, every note is read by its heading alone, like a deleted-note file.
+    fits = next((i for i, entry in enumerate(side[:len(raw)]) if who_label(entry.get("by")) != raw[i][1]),
+                min(len(side), len(raw)))
+    side = side[:fits]
     item.description = description
     item.notes = [Note(day=d, who=w, text=t, **(side[i] if i < len(side) else {}))
                   for i, (d, w, t) in enumerate(raw)]

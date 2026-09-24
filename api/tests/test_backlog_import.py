@@ -118,13 +118,13 @@ def test_import_file_commits_once_as_the_person(tmp_path):
     bank = _bank(tmp_path)                                                              # a git bank
     src = tmp_path / "backlog.md"
     src.write_text(SYNTHETIC, encoding="utf-8")
-    report = backlog_import.import_file(bank, "alpha-project", src)
+    report = backlog_import.import_file(bank, "alpha-project", src, sleep_running=lambda: False)
     log = _git(bank, "log", "-1", "--format=%B")
     assert log.startswith("Backlog import ") and "Cicada-Author: user" in log
     assert "trigger: user/backlog_import" in log
     assert sorted(_git(bank, "show", "--name-only", "--format=", "HEAD").split()) == sorted(report.paths)
     head = _git(bank, "rev-parse", "HEAD")
-    assert backlog_import.import_file(bank, "alpha-project", src).created == []
+    assert backlog_import.import_file(bank, "alpha-project", src, sleep_running=lambda: False).created == []
     assert _git(bank, "rev-parse", "HEAD") == head
 
 
@@ -133,7 +133,9 @@ def test_the_script_runs_twice_and_the_second_run_changes_nothing(tmp_path):
     src = tmp_path / "backlog.md"
     src.write_text(SYNTHETIC, encoding="utf-8")
     script = Path(__file__).resolve().parents[2] / "scripts" / "import-backlog.sh"
-    env = {**os.environ, "CICADA_TELEMETRY": "off", "CICADA_HOME": str(tmp_path / "home")}
+    # Port 9 refuses: no backend is no cycle, and the suite never asks a live one.
+    env = {**os.environ, "CICADA_TELEMETRY": "off", "CICADA_HOME": str(tmp_path / "home"),
+           "CICADA_BACKEND_URL": "http://127.0.0.1:9"}
 
     def run():
         done = subprocess.run(["bash", str(script), str(bank), "alpha-project", str(src)], capture_output=True,
@@ -145,3 +147,19 @@ def test_the_script_runs_twice_and_the_second_run_changes_nothing(tmp_path):
     head = _git(bank, "rev-parse", "HEAD")
     assert run() == {"created": 0, "skipped": 7, "failed": [], "error": None}
     assert _git(bank, "rev-parse", "HEAD") == head
+
+
+def test_import_file_refuses_while_sleep_runs_and_a_demo_bank(tmp_path):
+    """G150 final review, finding 3: the script writes a bank in-process, so a
+    running cycle's `git add -A` would take the files under a model's author
+    — it refuses and writes nothing; and a demo bank never takes real rows."""
+    bank = _bank(tmp_path)
+    src = tmp_path / "backlog.md"
+    src.write_text(SYNTHETIC, encoding="utf-8")
+    head = _git(bank, "rev-parse", "HEAD")
+    report = backlog_import.import_file(bank, "alpha-project", src, sleep_running=lambda: True)
+    assert report.error == backlog_import.SLEEP_REFUSAL and report.created == []
+    assert not (bank / "backlog").exists() and _git(bank, "rev-parse", "HEAD") == head
+    (bank / "_bank.yaml").write_text("kind: demo\n", encoding="utf-8")
+    report = backlog_import.import_file(bank, "alpha-project", src, sleep_running=lambda: False)
+    assert report.error == backlog_import.DEMO_REFUSAL and not (bank / "backlog").exists()

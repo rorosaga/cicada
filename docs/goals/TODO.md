@@ -10,7 +10,8 @@
 `2026-09-24-r4-backlog-in-memory.md`). A project's backlog is one markdown file per item in the bank, filed by agents
 over MCP (`cicada_add_backlog_item`, `cicada_add_backlog_note`, `cicada_backlog`) and by the person on the Projects
 page, found by ⌘K, every note signed; the primer tells an agent what to do when the person says "put it in the
-backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently —
+backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently
+(it refuses, writing nothing, while the backend runs a Sleep cycle and on a demo bank) —
 **importing the owner's real backlog into his bank waits for his OK** (the orchestrator runs it after merge). 27
 rulings (R-B1…R-B27), five dated in DESIGN_RULES §9. Merge notes: `CONTRACT_VERSION` 7 / remote 5, `_state.md` v4 and
 the FTS `SCHEMA_VERSION` "4" take the next number past any other round-4 bump; a note's `authorModel`/`authorEffort`
