@@ -1337,6 +1337,15 @@ async def commit_paths(memory_path: Path, message: str, paths: list[str]) -> Non
     await asyncio.to_thread(commit_paths_sync, memory_path, message, list(paths))
 
 
+async def is_tracked(memory_path: Path, rel: str) -> bool:
+    """Is `rel` in the bank's index? A read (R-B3). The picture writer stages a removal only for a file git knows:
+    `git add -- <path>` refuses a pathspec that matches nothing (G146 plan R-PE8)."""
+    try:
+        return bool((await _run_git(Path(memory_path), "ls-files", "--", rel)).strip())
+    except GitError:
+        return False
+
+
 async def porcelain_status(memory_path: Path) -> str:
     """Return ``git status --porcelain`` output (or empty on error)."""
     try:

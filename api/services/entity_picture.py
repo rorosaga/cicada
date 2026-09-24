@@ -25,10 +25,13 @@ import os
 import re
 import struct
 from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 from urllib.parse import quote
 
-from api.services import logo_service
+from loguru import logger
+
+from api.services import logo_service, markdown_parser
 
 #: R-PE1 — the person's pictures live in the bank, beside the pages that name them, so a handed-over bank keeps them.
 PICTURES_DIR = ("assets", "pictures")
@@ -242,3 +245,143 @@ def contacts_path(bank: str, entity_id: str) -> Path | None:
     base = (Path(raw).expanduser() / CONTACTS_DIR_NAME / (bank or "default")).resolve()
     path = (base / f"{entity_id}.jpg").resolve()
     return path if path.parent == base else None
+
+
+# --- the person's own picture (R-PE1, R-PE2, R-PE4, R-PE8) --------------------------------------------------------
+
+#: R-PE2 — the logo cache's own bounds: 512 KiB, and nothing under 16 px a side. The app sends ≤ 512 px.
+MAX_UPLOAD_BYTES = logo_service.MAX_BYTES
+MIN_SIDE = logo_service.MIN_PIXELS
+MAX_SIDE = 1024
+TRIGGER = "user/companion_app"
+
+
+class InvalidPicture(ValueError):
+    """An upload the server will not keep. The message is a sentence for the person — the app shows it as written —
+    and `status` the HTTP answer (413 only for size)."""
+
+    def __init__(self, message: str, *, status: int = 400):
+        super().__init__(message)
+        self.status = status
+
+
+def validate_upload(data: bytes) -> str:
+    """R-PE2 — the server never resizes (no Pillow; `logo_service`'s rule): it keeps a PNG or JPEG within the bounds,
+    by its header, and refuses everything else. Returns the extension to store it under."""
+    if not data:
+        raise InvalidPicture("That file is empty.")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise InvalidPicture("That picture is too large — Cicada keeps pictures under 512 KB.", status=413)
+    if logo_service.looks_like_svg(data):
+        raise InvalidPicture("Cicada keeps PNG or JPEG pictures, not SVG drawings.")
+    ext = sniff(data)
+    if ext is None:
+        raise InvalidPicture("Cicada keeps PNG or JPEG pictures.")
+    size = dimensions(data)
+    if size is None:
+        raise InvalidPicture("Cicada couldn't read that picture's size.")
+    if min(size) < MIN_SIDE:
+        raise InvalidPicture("That picture is too small to show.")
+    if max(size) > MAX_SIDE:
+        raise InvalidPicture("That picture is bigger than Cicada keeps — the app shrinks pictures first, so try again from the app.")
+    return ext
+
+
+@dataclass(frozen=True)
+class PictureWrite:
+    """What one write touched, for its commit (R-PE8)."""
+
+    page: str
+    subject: str
+    added: tuple[str, ...] = ()
+    removed: tuple[str, ...] = ()
+
+
+def _page(memory_path, entity_id: str) -> Path:
+    return Path(memory_path) / "entities" / f"{entity_id}.md"
+
+
+def _drop_uploads(memory_path, entity_id: str, *, keep: str | None = None) -> tuple[str, ...]:
+    """Remove every stored upload of this page but `keep`'s format; returns their bank-relative paths for the commit."""
+    removed = []
+    for ext in UPLOAD_EXTS:
+        if ext == keep:
+            continue
+        path = upload_path(memory_path, entity_id, ext)
+        if path is not None and path.is_file():
+            path.unlink()
+            removed.append(upload_rel(entity_id, ext))
+    return tuple(removed)
+
+
+def write_upload(memory_path, entity_id: str, data: bytes, ext: str, *, today: date) -> PictureWrite:
+    """Store the bytes (atomically), drop the other format, and mark the page (R-PE1). The caller validated them."""
+    path = upload_path(memory_path, entity_id, ext)
+    if path is None:
+        raise InvalidPicture("This page can't hold a picture.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+    removed = _drop_uploads(memory_path, entity_id, keep=ext)
+    page = _page(memory_path, entity_id)
+    parsed = markdown_parser.parse(page)
+    parsed.frontmatter["picture"] = {"kind": "upload", "sha": sha12(data), "ext": ext, "added": today.isoformat()}
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    return PictureWrite(page=f"entities/{entity_id}.md", subject="Set picture",
+                        added=(upload_rel(entity_id, ext),), removed=removed)
+
+
+def write_initials(memory_path, entity_id: str, *, today: date) -> PictureWrite:
+    """R-PE4 — "Use initials instead" is the person's choice, kept like an upload; any upload goes with it."""
+    removed = _drop_uploads(memory_path, entity_id)
+    page = _page(memory_path, entity_id)
+    parsed = markdown_parser.parse(page)
+    parsed.frontmatter["picture"] = {"kind": "initials", "added": today.isoformat()}
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    return PictureWrite(page=f"entities/{entity_id}.md", subject="Use initials", removed=removed)
+
+
+def write_clear(memory_path, entity_id: str) -> PictureWrite | None:
+    """R-PE4 — back to what was detected: the choice and its file go. None when there was nothing to clear."""
+    page = _page(memory_path, entity_id)
+    parsed = markdown_parser.parse(page)
+    removed = _drop_uploads(memory_path, entity_id)
+    if "picture" not in parsed.frontmatter and not removed:
+        return None
+    parsed.frontmatter.pop("picture", None)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    return PictureWrite(page=f"entities/{entity_id}.md", subject="Remove picture", removed=removed)
+
+
+def picture_file(memory_path, entity_id: str, fm: dict) -> tuple[Path, str] | None:
+    """What `GET /entities/{id}/picture` serves: the person's upload, else the Contacts photo — at a path derived from
+    the id, never one the page names (R-PE1), within the bound, and only if it sniffs as PNG or JPEG."""
+    resolved = resolve(entity_id, inputs_for(fm))
+    if resolved.source == "upload":
+        path = upload_path(memory_path, entity_id, fm["picture"]["ext"])
+    elif resolved.source == "contacts":
+        path = contacts_path(logo_service.bank_name(Path(memory_path)), entity_id)
+    else:
+        return None
+    if path is None or not path.is_file() or path.stat().st_size > MAX_UPLOAD_BYTES:
+        return None
+    ext = sniff(path.read_bytes()[:16])
+    return (path, MEDIA_TYPES[ext]) if ext else None
+
+
+async def commit(memory_path, write: PictureWrite) -> None:
+    """R-PE8 — alone, as the person: the page, the new file, and any removed file git tracks (`git add` refuses a
+    pathspec that matches nothing, so an untracked leftover is simply gone). A failed commit is logged and the write
+    stands — `projects._commit`'s precedent."""
+    from api.services import git_service   # the graph builder imports this module; git_service stays off that path
+
+    removed = [p for p in write.removed if await git_service.is_tracked(Path(memory_path), p)]
+    lines = [f"{write.page}: updated (trigger: {TRIGGER})"]
+    lines += [f"{p}: added (trigger: {TRIGGER})" for p in write.added]
+    lines += [f"{p}: removed (trigger: {TRIGGER})" for p in removed]
+    message = git_service.build_commit_message(f"{write.subject} {date.today().isoformat()}", lines, authors=["user"])
+    try:
+        await git_service.commit_paths(Path(memory_path), message, [write.page, *write.added, *removed])
+    except Exception as exc:  # noqa: BLE001 — the write stands; a later writer's commit picks it up
+        logger.warning(f"picture commit skipped: {type(exc).__name__}")

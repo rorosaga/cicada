@@ -469,6 +469,17 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
+- `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
+  picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
+  travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
+  for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
+  committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
+  it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
+  precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring
+  monogram), resolved at read onto `/graph` nodes and the entity; the app's `EntityPictureResolver` is its twin over
+  `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no service is sent a person's name (G159).
+- `contacts_photo:` (G154, read by G146) — `{sha}` on a `person` page Contacts matched; the thumbnail itself is a
+  cache at `$CICADA_HOME/contacts/<bank>/<id>.jpg`, never in a bank. Written by the Contacts sync only.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
