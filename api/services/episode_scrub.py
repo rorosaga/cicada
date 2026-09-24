@@ -36,6 +36,7 @@ REDACTED = "[redacted]"
 WRITERS = frozenset({
     "import", "folder", "wispr-flow", "telegram", "media", "apple-notes",
     "calendar", "mcp", "demo",
+    "backlog",  # G150 R-B10: a backlog item's title, description and notes
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered
