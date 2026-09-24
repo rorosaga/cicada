@@ -189,22 +189,23 @@ struct ContentView: View {
                 needsAttention: connectionsVM.needsAttention
             )
             .zIndex(1)
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(CicadaTheme.background)
-                // A rolled-back mutation (or a refresh that failed with
-                // nothing on screen) posts `store.toast`; show it at the
-                // bottom of whatever page is open (§5.4).
-                .overlay(alignment: .bottom) { toastBanner }
-                // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever
-                // is showing, never over it: the entity card stays up, so a
-                // belief and the sentence it came from are on screen together.
-                // Content, not chrome, so it is never glass (R-M5). DS-2 turns it into a column (DR-31).
-                .inspector(isPresented: Bindable(provenance).isPresented) {
-                    ReaderInspector()
-                        .inspectorColumnWidth(min: CicadaTheme.scaled(360), ideal: CicadaTheme.scaled(440),
-                                              max: CicadaTheme.scaled(560))
-                }
+            // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever is showing, never over
+            // it: the entity card stays up, so a belief and the sentence it came from are on screen
+            // together. Content, not chrome, so it is never glass (R-M5).
+            // DR-31 / R-DI6 — the Reader is a column beside whatever is open, sized first; the page gets
+            // the rest. It replaced a trailing `.inspector`, whose width was not the page's to give.
+            ShellReaderHost(showsReader: provenance.isPresented,
+                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) {
+                detailContent
+                    .background(CicadaTheme.background)
+                    // A rolled-back mutation (or a refresh that failed with
+                    // nothing on screen) posts `store.toast`; show it at the
+                    // bottom of whatever page is open (§5.4).
+                    .overlay(alignment: .bottom) { toastBanner }
+            } reader: {
+                ReaderColumn()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .toolbar {
             ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab),

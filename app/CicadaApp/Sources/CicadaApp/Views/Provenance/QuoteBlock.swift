@@ -45,7 +45,8 @@ struct QuoteBlock: View {
     }
 
     /// The span in `quoteFont`; the neighbourhood in `textTertiary`. The wash
-    /// is `dandelionFill` at 35% — emphasis, not encoding (K13).
+    /// is the accent `wash` (DR-18, R-DI11); the dandelion wash retired with
+    /// the Reader's margin bar (DR-13).
     static func attributed(before: String, span: String, after: String, style: Style) -> AttributedString {
         var head = AttributedString(before)
         head.foregroundColor = CicadaTheme.textTertiary
@@ -53,7 +54,7 @@ struct QuoteBlock: View {
         middle.font = CicadaTheme.quoteFont(size: 12)
         middle.foregroundColor = CicadaTheme.textPrimary
         switch style {
-        case .wash: middle.backgroundColor = CicadaTheme.dandelionFill.opacity(ReaderText.focusOpacity)
+        case .wash: middle.backgroundColor = CicadaTheme.wash
         case .bold: middle.inlinePresentationIntent = .stronglyEmphasized
         case .plain: break
         }

@@ -111,4 +111,19 @@ final class ThemeContrastTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, wash), 7, "\(mode.rawValue) highlighter wash")
         }
     }
+
+    /// DR-18 / R-DI11 — cited words stay primary-ink legible on the wash, on the Reader's pane and
+    /// on the focus card, in both themes. Measured on the rules' mocked system blue, like every accent
+    /// bar in this file (R-DS4): the live accent is whatever the test Mac's is.
+    func testPrimaryInkReadsOnTheCitedWash() {
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            let accent = Color(hex: mode == .dark ? 0x0A84FF : 0x007AFF)
+            let alpha = mode == .dark ? 0.18 : 0.10   // `CicadaTheme.wash`'s opacity
+            for surface in [CicadaTheme.bgPane, CicadaTheme.bgFocus] {
+                let wash = ThemeTokenTests.blend(accent, over: surface, alpha: alpha)
+                XCTAssertGreaterThanOrEqual(c(CicadaTheme.textPrimary, wash), 7, "\(mode.rawValue)")
+            }
+        }
+    }
 }

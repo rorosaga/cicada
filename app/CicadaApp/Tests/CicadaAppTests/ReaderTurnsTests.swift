@@ -269,6 +269,18 @@ final class ReaderTurnsTests: XCTestCase {
                                turns: [EpisodeTurn(index: 1, start: 0, contentStart: 0, end: 1, role: "page")])
         XCTAssertEqual(ReaderHeader.meta(page, locale: us, timeZone: utc), Copy.Provenance.fromThePage)
     }
+
+    /// R-DI11 — the washes become CitedSpan segments: the cited span current, the others soft, a
+    /// derived match a mention; a focus that starts where another span does wins; out of range is skipped.
+    func testWashesBecomeCitedSegments() {
+        let block = ReaderBlock(index: 1, chunk: 0, role: "user", speaker: "You", mark: nil, time: nil,
+                                text: "alpha beta gamma delta", contentStart: 0,
+                                washes: [ReaderWash(range: 6..<10, style: .other), ReaderWash(range: 6..<16, style: .focus),
+                                         ReaderWash(range: 17..<22, style: .mention), ReaderWash(range: 40..<50, style: .other)])
+        XCTAssertEqual(ReaderText.segments(block), [
+            .init(text: "alpha ", mark: .plain), .init(text: "beta gamma", mark: .current),
+            .init(text: " ", mark: .plain), .init(text: "delta", mark: .mention)])
+    }
 }
 
 private extension String {
