@@ -1134,8 +1134,10 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 32 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
-**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
-`GET /sources/connectors/{id}/callback` requires `Authorization: Bearer <token>`, from
+**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
+`GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
+`GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
+carried in the path, since OpenRouter appends only `code`; the PKCE verifier never leaves the backend) requires `Authorization: Bearer <token>`, from
 `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram
 webhook is exempt because Telegram's servers cannot send the header — today it is gated only by
 Telegram being configured, not by a per-request secret (**see G57**). Each OAuth callback lands in
@@ -1391,8 +1393,9 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
   through `link_enrichment.default_fetch`, the rail's reference transport — and paper details
   (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
-  A user-initiated `sync_now`, `POST /maintenance/enrich-links` and every OAuth
-  `authorize_url`/`exchange_code` call are **never** gated by it — they always need the network to
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, every OAuth
+  `authorize_url`/`exchange_code` call and OpenRouter's sign-in key exchange (`openrouter.ai/api/v1/auth/keys`,
+  R-AG10; the key lands only in `secrets.env`) are **never** gated by it — they always need the network to
   do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an

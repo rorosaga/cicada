@@ -19,7 +19,7 @@ from api.config import Settings
 from api.models.schemas import ConnectionStatus
 from api.services import engine_select
 from api.services.auth import cicada_home
-from api.services.connections import base, byok, claude_cli, codex_cli, ollama
+from api.services.connections import base, byok, claude_cli, codex_cli, ollama, openrouter
 
 PREFS_FILE_NAME = "connections.json"
 STATUS_TTL_SECONDS = 30
@@ -69,7 +69,9 @@ class Registry:
         return [
             claude_cli.ClaudePlanAdapter(runner=runner, tier=prefs.get("claude-plan", {}).get("tier")),
             codex_cli.CodexPlanAdapter(runner=runner, tier=prefs.get("chatgpt-plan", {}).get("tier")),
-            *[byok.ByokAdapter(p) for p in byok.BYOK_PROVIDERS],
+            # R-AG10: OpenRouter's card is the one key card that can also sign in.
+            *[openrouter.OpenRouterAdapter() if p.id == "openrouter" else byok.ByokAdapter(p.id)
+              for p in byok.PROVIDERS],
             ollama.OllamaAdapter(self._settings, fetch_tags=_ollama_fetch_tags),
         ]
 

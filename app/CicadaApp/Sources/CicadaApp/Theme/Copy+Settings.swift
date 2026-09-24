@@ -343,4 +343,9 @@ extension Copy {
             : "\(program) isn't installed on this Mac. Copy the command to run it where it is."
     }
     static let connectInYourAgent = "Connect it in your agent — it will ask you to sign in."
+
+    // MARK: Plans & keys — OpenRouter sign-in (R-AG10)
+    static let signInWithOpenRouter = "Sign in with OpenRouter"
+    static let openRouterFinishInBrowser = "Finish signing in in your browser — this card updates itself."
+    static let openRouterCouldNotOpen = "Couldn't open OpenRouter's sign-in page. Paste a key instead."
 }

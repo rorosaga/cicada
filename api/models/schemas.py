@@ -3011,7 +3011,7 @@ class ConnectionKind(str, Enum):
 
 
 class LoginHint(CamelModel):
-    mode: str  # terminal | device-code | key | none
+    mode: str  # terminal | device-code | key | oauth (R-AG10: a key card that also signs in) | none
     command: Optional[str] = None
 
 

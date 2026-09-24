@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -24,6 +25,8 @@ final class ConnectionsViewModel {
     var pendingLogin: LoginSession?
     /// Connection id whose Terminal hand-off is in progress (Claude).
     var awaitingTerminal: String?
+    /// Connection id whose browser sign-in is in progress (OpenRouter, R-AG10).
+    var awaitingBrowser: String?
 
     /// The device-code or terminal-hand-off poll spawned by `beginLogin`.
     /// `stopPolling()` cancels an in-flight login poll on page exit, instead
@@ -89,6 +92,16 @@ final class ConnectionsViewModel {
             case "terminal":
                 awaitingTerminal = id
                 loginTask = Task { [weak self] in await self?.pollUntilConnected(id) }
+            case "oauth":
+                // R-AG10: only the provider's own https page opens; the backend's callback stores the key and
+                // this poll sees the card turn connected.
+                guard let url = ConnectionLogin.browserURL(for: session) else {
+                    errorMessage = Copy.openRouterCouldNotOpen
+                    break
+                }
+                NSWorkspace.shared.open(url)
+                awaitingBrowser = id
+                loginTask = Task { [weak self] in await self?.pollUntilConnected(id) }
             default: break
             }
             return session
@@ -128,10 +141,12 @@ final class ConnectionsViewModel {
             if latest.connected {
                 await load()
                 awaitingTerminal = nil
+                awaitingBrowser = nil
                 return
             }
         }
         awaitingTerminal = nil
+        awaitingBrowser = nil
     }
 
     // MARK: Mutations (§5.4)
@@ -169,5 +184,17 @@ final class ConnectionsViewModel {
         } else {
             errorMessage = store.toast
         }
+    }
+}
+
+/// R-AG10 — the one URL off the wire the app opens for a sign-in: https, on the provider's own host. A session
+/// whose URL is anything else opens nothing.
+enum ConnectionLogin {
+    static let hosts: [String: String] = ["byok-openrouter": "openrouter.ai"]
+
+    static func browserURL(for session: LoginSession) -> URL? {
+        guard session.mode == "oauth", let raw = session.url, let url = URL(string: raw),
+              url.scheme == "https", let host = hosts[session.connectionId], url.host == host else { return nil }
+        return url
     }
 }
