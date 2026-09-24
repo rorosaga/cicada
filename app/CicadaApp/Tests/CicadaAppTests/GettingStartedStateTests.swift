@@ -46,4 +46,13 @@ final class GettingStartedStateTests: XCTestCase {
         XCTAssertEqual(a?.settled, [.agent("cursor")])
         XCTAssertEqual(a?.scheduleAsked, true)
     }
+
+    func testRemoveDropsOneRowAndNeverCreatesARecord() throws {
+        let d = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.gs.remove.\(UUID().uuidString)"))
+        GettingStartedState.remove(.browser("chrome-bookmarks"), bank: "b", defaults: d)
+        XCTAssertNil(GettingStartedState.load(bank: "b", defaults: d), "no card for a bank the flow never ran on")
+        GettingStartedState.record(bank: "b", enabled: [.browser("chrome-bookmarks"), .app("notes")], defaults: d)
+        GettingStartedState.remove(.browser("chrome-bookmarks"), bank: "b", defaults: d)
+        XCTAssertEqual(GettingStartedState.load(bank: "b", defaults: d)?.enabled, [.app("notes")])
+    }
 }

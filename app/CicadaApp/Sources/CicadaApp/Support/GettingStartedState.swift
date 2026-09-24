@@ -61,6 +61,13 @@ enum GettingStartedState {
         defaults.set(false, forKey: key(bank, "hidden"))
     }
 
+    /// R-OB8 — an untick in onboarding takes its row off the card rather than leaving it Off. A bank with no record
+    /// keeps none: an absent `enabled` key means "no card" (R-IB17), and writing `[]` would raise one.
+    static func remove(_ id: FoundItemID, bank: String, defaults: UserDefaults = .standard) {
+        guard let keys = defaults.stringArray(forKey: key(bank, "enabled")) else { return }
+        defaults.set(keys.filter { $0 != id.key }, forKey: key(bank, "enabled"))
+    }
+
     /// A drop is this session's result, so its ✕ is `SetupRunner.forget`, never a record.
     static func settle(_ id: FoundItemID, bank: String, defaults: UserDefaults = .standard) {
         if case .dropped = id { return }

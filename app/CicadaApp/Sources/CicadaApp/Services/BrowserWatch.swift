@@ -372,6 +372,15 @@ final class BrowserWatcher {
     /// recorded signature are untouched, so the next change (or launch) reads the file again.
     func cancel(_ channel: String) { running[channel]?.cancel() }
 
+    /// R-OB8 — an untick on the Import page: the run in flight stops (R-SR11) and the watch stops reading this
+    /// browser. What came in stays; a later Turn on or Sync now records consent again and reads.
+    func disable(_ channel: String) {
+        cancel(channel)
+        defaults.set(false, forKey: BrowserWatchPolicy.enabledKey(channel))
+        guard let file = channels.first(where: { $0.channel == channel })?.file else { return }
+        refreshState(channel: channel, file: file)
+    }
+
     /// Whether this channel is one the app can watch at all — a row for a
     /// channel that is not watched (iCloud tabs, Notes) must not claim a light.
     /// `nonisolated` because it answers from the static policy alone and is

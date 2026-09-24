@@ -437,4 +437,40 @@ final class IntakeRouterTests: XCTestCase {
         }
         XCTAssertEqual(panels, ["IntakeOverlay.swift"])
     }
+
+    /// R-OB10 — a staged export reports its progress where the Import row reads it, and offers no ×.
+    func testAStagedExportReportsItsProgressAndEndsItsRun() async throws {
+        let api = FakeIntakeAPI()
+        api.sniffs = ["conversations.json": chat("claude")]
+        api.imports = ["conversations.json": IntakeImportResponse(job: IntakeJobRef(id: "j1", total: 17))]
+        let half = IntakeJobStatus(id: "j1", total: 17, staged: 9)
+        let done = IntakeJobStatus(id: "j1", total: 17, staged: 17, created: 17, done: true)
+        api.jobPolls = [half, done, half, done]   // two for `commit`, two for `commitWelcomeDrop`
+        let router = IntakeRouter(api: api, sleep: { _ in })
+        let activity = SyncActivity()
+        router.attach(activity: activity)
+        router.welcomeActive = true
+        router.accept(urls: [try file("conversations.json")], from: .welcome)
+        try await eventually("staged") { router.welcomeDrops.count == 1 }
+        let id = router.welcomeDrops[0].id
+        var seen: [Int] = []
+        let outcome = await router.commit(router.welcomeDrops[0].preview, from: .welcome) { seen.append($0.staged) }
+        XCTAssertEqual(seen, [9, 17])
+        XCTAssertEqual(outcome.created, 17)
+        _ = await router.commitWelcomeDrop(id)
+        XCTAssertNil(activity.run(for: IntakeRouter.runKey(id)), "the run ends with the import")
+        XCTAssertEqual(IntakeRouter.runKey("abc"), "intake:abc")
+    }
+
+    /// The row's words and meter while the job runs — what `commitWelcomeDrop` hands `SyncActivity.progressed`.
+    func testADropsProgressIsTheJobsOwnCount() {
+        let en = Locale(identifier: "en_US")
+        let half = IntakeRouter.dropProgress(IntakeJobStatus(id: "j1", total: 17, staged: 9), vendor: "claude", locale: en)
+        XCTAssertEqual(half.detail, "Reading 9 of 17 conversations")
+        XCTAssertEqual(half.fraction ?? -1, 9.0 / 17.0, accuracy: 0.0001)
+        let gemini = IntakeRouter.dropProgress(IntakeJobStatus(id: "j2", total: 1, staged: 0), vendor: "gemini", locale: en)
+        XCTAssertEqual(gemini.detail, "Reading 0 of 1 prompt")
+        XCTAssertNil(IntakeRouter.dropProgress(IntakeJobStatus(id: "j3"), vendor: nil, locale: en).fraction,
+                     "no total yet, no meter (never a guessed number)")
+    }
 }

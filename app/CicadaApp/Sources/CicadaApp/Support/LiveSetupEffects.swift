@@ -68,6 +68,18 @@ struct LiveSetupEffects: SetupEffects {
 
     func turnOn(_ id: FoundItemID) async -> FoundTurnOnResult { await FoundTurnOn.run(id, deps: deps) }
 
+    /// R-OB8 — untick through the one turn-on's twin, so a browser, Calendar and Wispr Flow stop the same way from
+    /// every host.
+    func turnOff(_ id: FoundItemID) async { await FoundTurnOn.stop(id, deps: deps) }
+
+    func forgetRecord(_ id: FoundItemID) {
+        GettingStartedState.remove(id, bank: store.bank)
+        onChecklistChanged()
+    }
+
+    /// Seam 3 — onboarding's Open Cicada asks; T-Demo's Home offer answers once.
+    func requestTour() { TourOffer.request() }
+
     func settle(_ id: FoundItemID) {
         GettingStartedState.settle(id, bank: store.bank)
         onChecklistChanged()

@@ -248,6 +248,7 @@ struct CicadaApp: App {
                     // through its request counter, and the Dock's opens wait in
                     // `DockOpenQueue` until this line attaches it (R-IA25).
                     intakeRouter.attach(store: store)
+                    intakeRouter.attach(activity: syncActivity)
                     appDelegate.opens.attach { [intakeRouter, appRouter] urls in
                         appRouter.showMainWindow()
                         intakeRouter.accept(urls: urls, from: .dock)

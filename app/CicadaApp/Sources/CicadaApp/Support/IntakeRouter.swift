@@ -311,6 +311,14 @@ final class IntakeRouter {
     /// Strong, like `BrowserWatcher.store` — the app owns both for its lifetime.
     func attach(store: Store) { self.store = store }
 
+    /// R-OB10 — where a staged export's import reports in `SyncActivity`. Never cancellable: nothing can be
+    /// un-imported (`cancel()`'s rule), so its row shows progress and no ×.
+    nonisolated static func runKey(_ dropId: String) -> String { "intake:\(dropId)" }
+
+    @ObservationIgnored private var activity: SyncActivity?
+    /// The app's one registry of running syncs, so an Import row reads a drop's progress like any other run.
+    func attach(activity: SyncActivity) { self.activity = activity }
+
     var isImporting: Bool { if case .importing = phase { return true }; return false }
     var previewVendor: String? { sniffedPreview?.vendor }
 
@@ -495,12 +503,15 @@ final class IntakeRouter {
     /// The WHOLE loop is one tracked request: tracking each poll alone would drop
     /// `Store.intakeInFlight` for the second between polls and make the Sleep
     /// page's worm flicker in and out of `.reading`.
-    private func follow(_ job: IntakeJobRef, gen: Int) async throws -> IntakeJobStatus {
+    /// `progress` hears every poll (R-OB10: a staged export's Import row); the overlay passes none.
+    private func follow(_ job: IntakeJobRef, gen: Int,
+                        progress: (@MainActor (IntakeJobStatus) -> Void)? = nil) async throws -> IntakeJobStatus {
         try await tracked {
             var status = IntakeJobStatus(id: job.id, total: job.total)
             while !status.done {
                 try await self.sleep(Self.pollInterval)
                 status = try await self.api.intakeJob(id: job.id)
+                progress?(status)
                 if gen == self.generation, self.isImporting {
                     self.phase = .importing(IntakeProgress(total: status.total, staged: status.staged))
                 }
@@ -566,23 +577,44 @@ final class IntakeRouter {
     /// Start's path for a staged drop: commit it, then forget it — unless a file
     /// failed, so Getting started's Retry can commit it again (a re-commit of the
     /// files that did land reads as unchanged, G20).
+    ///
+    /// R-OB10 — while it runs, the drop reports its progress to `SyncActivity` under `runKey(id)`, with no cancel.
     func commitWelcomeDrop(_ id: String) async -> IntakeOutcome? {
         guard let drop = welcomeDrops.first(where: { $0.id == id }) else { return nil }
-        let outcome = await commit(drop.preview, from: .welcome)
+        let key = Self.runKey(id)
+        activity?.began(key, detail: Copy.gsBringingIn, cancel: nil)
+        defer { activity?.ended(key) }
+        let vendor = drop.preview.vendor
+        let outcome = await commit(drop.preview, from: .welcome) { [weak self] status in
+            let progress = IntakeRouter.dropProgress(status, vendor: vendor)
+            self?.activity?.progressed(key, detail: progress.detail, fraction: progress.fraction)
+        }
         if outcome.failures.isEmpty { removeWelcomeDrop(id) }
         return outcome
+    }
+
+    /// R-OB10 — a staged export's row while its job runs: the job's own count, never a guess ("Reading 9 of 17
+    /// conversations"), and a fraction only once the job has a total.
+    nonisolated static func dropProgress(_ status: IntakeJobStatus, vendor: String?,
+                                         locale: Locale = .autoupdatingCurrent) -> (detail: String, fraction: Double?) {
+        let noun = IntakeSummary.noun(vendor: vendor, count: status.total)
+        return (Copy.importReading(status.staged, of: status.total, noun: noun, locale: locale),
+                status.total > 0 ? Double(status.staged) / Double(status.total) : nil)
     }
 
     /// Chat files through `/intake/import` (a background job followed to its end),
     /// saved files through `/sources/upload` — the route that previewed them
     /// (R-IA32) — then one Store refresh. The counter owns the flag throughout.
-    func commit(_ preview: IntakePreview, from origin: IntakeOrigin) async -> IntakeOutcome {
+    ///
+    /// `progress` hears each poll of a background job (R-OB10); every other caller passes none.
+    func commit(_ preview: IntakePreview, from origin: IntakeOrigin,
+                progress: (@MainActor (IntakeJobStatus) -> Void)? = nil) async -> IntakeOutcome {
         var outcome = IntakeOutcome(vendor: preview.vendor, origin: preview.origin)
         for url in preview.chatFiles {
             do {
                 let r = try await tracked { try await api.importIntake(fileURL: url, bank: nil) }
                 if let job = r.job {
-                    let status = try await follow(job, gen: -1)
+                    let status = try await follow(job, gen: -1, progress: progress)
                     outcome.add(created: status.created, updated: status.updated, unchanged: status.skipped, response: r)
                 } else {
                     outcome.add(created: r.episodesStaged, updated: r.episodesUpdated, unchanged: r.duplicatesSkipped, response: r)
