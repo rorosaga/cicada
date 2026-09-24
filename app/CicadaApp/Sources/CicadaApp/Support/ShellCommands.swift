@@ -16,6 +16,9 @@ struct ShellCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // R-OB18 — the AppKit paths (menu bar, Dock opens, reminder taps) open the window through this action when
+        // none exists. A value handed over, not state: nothing observes it.
+        let _ = router.adoptOpenMainWindow { openWindow(id: CicadaApp.mainWindowID) }
         // R-DS23 — Settings… ⌘, opens the panel inside the main window. With no window open (the
         // app living in the menu bar) it opens one first; the staged request lands when it appears.
         CommandGroup(replacing: .appSettings) {

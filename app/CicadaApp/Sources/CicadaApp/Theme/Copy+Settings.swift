@@ -34,8 +34,11 @@ extension Copy {
     // MARK: General → In the background (round-4 D3, G143)
     // No price, token or cost words here (the 2026-09-03 ruling, DR-59).
     static let openAtLogin = "Open Cicada at login"
-    static let loginItemOff = "Cicada opens only when you open it."
-    static let loginItemOn = "Cicada opens when you log in, and keeps working with its window closed."
+    /// R-OB18 — the quiet login start, split by the menu-bar switch so the sentence is always true.
+    static func loginItemQuiet(menuBarVisible: Bool) -> String {
+        menuBarVisible ? "Starts quietly: no window, just the bookworm in the menu bar."
+                       : "Starts quietly: no window, just Cicada in the Dock."
+    }
     static let loginItemNeedsApproval = "Almost there — allow Cicada in System Settings → General → Login Items."
     /// R-FA7 — the person asked, macOS did not keep it: an ad-hoc-signed build may never be enabled, and the row
     /// must never pretend it was (D3).

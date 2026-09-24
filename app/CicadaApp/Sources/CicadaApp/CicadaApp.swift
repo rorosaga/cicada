@@ -120,7 +120,7 @@ struct CicadaApp: App {
         // responder — that's the "can't type in the search/clarification fields"
         // bug. Explicitly requesting .regular activation fixes it.
         NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        // Activation is the launch's: an interactive one activates in `LaunchState.record`, a login one stays quiet (R-OB18).
 
         // G139 final review: the System-appearance observer lives at app
         // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
@@ -248,8 +248,8 @@ struct CicadaApp: App {
                     // through its request counter, and the Dock's opens wait in
                     // `DockOpenQueue` until this line attaches it (R-IA25).
                     intakeRouter.attach(store: store)
-                    appDelegate.opens.attach { [intakeRouter] urls in
-                        NSApplication.shared.activate(ignoringOtherApps: true)
+                    appDelegate.opens.attach { [intakeRouter, appRouter] urls in
+                        appRouter.showMainWindow()
                         intakeRouter.accept(urls: urls, from: .dock)
                     }
                     localSources.start(store: store)
@@ -263,9 +263,8 @@ struct CicadaApp: App {
                     }
                     // A tapped reminder opens the one intake idle for that vendor —
                     // never a cycle (G125 R10). Queued until now on a cold launch.
-                    appDelegate.reminderTaps.attach { [intakeRouter] vendor in
-                        NSApplication.shared.activate(ignoringOtherApps: true)
-                        NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                    appDelegate.reminderTaps.attach { [intakeRouter, appRouter] vendor in
+                        appRouter.showMainWindow()
                         intakeRouter.present(from: .reminder(vendor))
                     }
                     // When SleepViewModel observes a cycle finish (running ->
@@ -292,19 +291,22 @@ struct CicadaApp: App {
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: appColorScheme)
                         enableFirstMouseAcceptance(for: window)
-                        window.makeKeyAndOrderFront(nil)
+                        switch LaunchState.shared.firstWindowAction() {
+                        case .show:
+                            window.makeKeyAndOrderFront(nil)
+                        case .close:
+                            // R-OB18 — a login start: everything above ran (backend, watchers, menu bar, sync engine
+                            // — all app-level), so the window can go the way a closed last window goes.
+                            window.orderOut(nil)
+                            DispatchQueue.main.async { window.close() }
+                        }
                     }
                     // Read as the menu opens, so "requested 2 hours ago" is true then.
                     menuBarManager.exportWaitLines = { [exportWaits, store] in
                         exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
                     menuBarManager.setup(
-                        onOpenApp: {
-                            NSApplication.shared.activate(ignoringOtherApps: true)
-                            if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                                window.makeKeyAndOrderFront(nil)
-                            }
-                        },
+                        onOpenApp: { [appRouter] in appRouter.showMainWindow() },
                         onRunSleep: {
                             await sleepVM.triggerManually()
                             await menuBarManager.refreshAfterAction()
@@ -314,9 +316,8 @@ struct CicadaApp: App {
                         },
                         // R-IA26 — "Import a file…": bring the window forward and
                         // open the intake idle, like File → Import….
-                        onImportFile: { [intakeRouter] in
-                            NSApplication.shared.activate(ignoringOtherApps: true)
-                            NSApplication.shared.windows.first(where: { $0.canBecomeKey })?.makeKeyAndOrderFront(nil)
+                        onImportFile: { [intakeRouter, appRouter] in
+                            appRouter.showMainWindow()
                             intakeRouter.present(from: .menuBar)
                         }
                     )

@@ -57,11 +57,16 @@ final class SettingsGeneralF10Tests: XCTestCase {
         XCTAssertTrue(app.contains("menuBarManager.setVisible(menuBarVisible)"))
     }
 
-    /// R-HO16 — the rows never promise what the app does not do (R-FA7).
+    /// R-HO16 kept its rule — the rows never promise what the app does not do (R-FA7) — and R-OB18 made the quiet
+    /// start true, so the login row now says it, split by the menu-bar switch.
     func testStartupWordsStayHonest() {
-        for text in [Copy.loginItemOn, Copy.loginItemOff, Copy.showInMenuBarDetail] {
-            XCTAssertFalse(text.lowercased().contains("no window"), text)
-        }
+        XCTAssertTrue(Copy.loginItemQuiet(menuBarVisible: true).contains("no window"))
+        XCTAssertTrue(Copy.loginItemQuiet(menuBarVisible: true).contains("menu bar"))
+        XCTAssertFalse(Copy.loginItemQuiet(menuBarVisible: false).contains("menu bar"),
+                       "with the bookworm hidden the Dock is what is left")
+        XCTAssertEqual(LoginItemState.on.detail(menuBarVisible: true), Copy.loginItemQuiet(menuBarVisible: true))
+        XCTAssertEqual(LoginItemState.needsApproval.detail(menuBarVisible: true), Copy.loginItemNeedsApproval)
+        XCTAssertFalse(Copy.showInMenuBarDetail.lowercased().contains("no window"), Copy.showInMenuBarDetail)
         XCTAssertFalse(Copy.backgroundDetail(.running).lowercased().contains("calendar"), "the Calendar read is app-side (D2)")
         XCTAssertTrue(Copy.backgroundDetail(.running).contains("agents"))
     }

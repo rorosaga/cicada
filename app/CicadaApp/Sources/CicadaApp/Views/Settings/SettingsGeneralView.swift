@@ -19,8 +19,8 @@ import SwiftUI
 /// clock paints now beside its title and F-10's two lines under it. Text size stays in Look — F-10 omits it, and removing
 /// a working control needs the owner's word. Show in menu bar (`MenuBarPreference`) hides the bookworm without tearing
 /// it down; the app keeps its Dock icon, so hiding it never strands Cicada. The rows never promise what the app does not
-/// do (R-FA7): F-10's "no window, just the bookworm" and "calendar polls keep going" are not used — Cicada opens its
-/// window at login, and the Calendar read is app-side (D2).
+/// do (R-FA7): the login row says the quiet start R-OB18 built, and 'calendar polls keep going' is not used — the
+/// Calendar read is app-side (D2).
 ///
 /// Startup and When Cicada is closed (round-4 D3, G143): Open Cicada at login (`LoginItemService` over `SMAppService.mainApp` —
 /// the switch shows the person's intent, the sentence under it macOS's answer, so an unsigned build macOS never
@@ -106,7 +106,8 @@ struct SettingsGeneralView: View {
             }
             // F-10 — Startup: onboarding's F-06 switches, reversible here (decision 6).
             SettingsGroupCard(header: Copy.startupGroup) {
-                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.detail) {
+                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.detail(
+                    menuBarVisible: showsMenuBar)) {
                     Toggle(Copy.openAtLogin, isOn: Binding(get: { loginItems.requested },
                                                            set: { loginItems.setEnabled($0) }))
                         .toggleStyle(.switch)

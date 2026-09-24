@@ -143,6 +143,22 @@ final class AppRouter {
         return target != nil
     }
 
+    /// SwiftUI's own `openWindow(id: CicadaApp.mainWindowID)`, handed over by `ShellCommands` — the one SwiftUI
+    /// context that exists with no window open (R-DS23 already opens the window from there for ⌘,).
+    @ObservationIgnored private var openMainWindowAction: (@MainActor () -> Void)?
+
+    func adoptOpenMainWindow(_ action: @escaping @MainActor () -> Void) { openMainWindowAction = action }
+
+    /// R-OB18 — the menu bar's Open Cicada, a Dock open and a reminder tap: the window forward, or a new one when a
+    /// quiet login start (or the person) closed it. Marks the person's ask first, so a login record that lands late
+    /// never closes the window they just asked for.
+    /// `nil` means `LaunchState.shared`, resolved inside: a `.shared` default argument is evaluated in a
+    /// nonisolated context, which Swift 6 refuses for a main-actor static.
+    func showMainWindow(launch: LaunchState? = nil) {
+        (launch ?? .shared).userAskedForWindow()
+        if !activateMainWindow() { openMainWindowAction?() }
+    }
+
     /// Pure so it can be tested — an `NSWindow` cannot be stood up in the
     /// XCTest target. SwiftUI stamped its old Settings scene's window with the
     /// `com_apple_SwiftUI_Settings_window` identifier and the localised title
