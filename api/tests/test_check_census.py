@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,9 +21,12 @@ SCRIPT = REPO / "scripts" / "check-census.sh"
 
 @pytest.fixture
 def demo(tmp_path):
+    """The scenario's census, pinned before round 4's showcase added a removal, a divergence, a normalization and a
+    served merge (T-Demo): those are `test_demo_showcase.py`'s to hold, so this coverage gate keeps its numbers."""
     bank_dir = tmp_path / "demo"
     bank_registry.scaffold_bank(bank_dir)
-    demo_bank.populate(bank_dir)
+    with mock.patch.object(demo_bank, "_write_showcase", lambda *a, **k: None):
+        demo_bank.populate(bank_dir)
     bank_index.invalidate()
     return bank_dir
 

@@ -36,8 +36,8 @@ import subprocess
 from datetime import date, timedelta
 from pathlib import Path
 
-from api.services import (decay_policy, demo_guard, entity_body, episode_ids, episode_scrub, episode_staging,
-                          fact_sources, git_service, markdown_parser, owner_identity)
+from api.services import (decay_policy, demo_guard, demo_showcase, entity_body, episode_ids, episode_scrub,
+                          episode_staging, fact_sources, git_service, markdown_parser, owner_identity)
 from api.services.agentic_write import write_claim
 
 # --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
@@ -104,8 +104,9 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     items, the placeholder owner, a handful of evidenced claims, and real git
     history. Idempotent only in the trivial sense that every write here is a
     fresh-file write — calling this twice on the same dir just re-stamps the
-    same content (the router's ``POST /banks/demo`` refuses a second call by
-    checking bank existence first, so this never needs to guard itself).
+    same content (the router's ``POST /banks/demo`` never calls this for a
+    bank that exists — it re-opens a generated demo and refuses a real bank
+    named ``demo``, round 4 T-Demo — so this never needs to guard itself).
 
     ``today`` (G141 R-PJB7) pins every relative date, ``recorded_at`` included.
 
@@ -128,6 +129,14 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _write_scenario_events(bank_dir, today, scenario)
     _write_scenario_person(bank_dir, today)
     _write_scenario_followups(bank_dir, today)
+    _write_showcase(bank_dir, today)   # round 4 T-Demo — last, so no id or byte the scenario tests pin moves
+
+
+def _write_showcase(bank_dir: Path, today: date) -> None:
+    """Round 4 (T-Demo): one of every thing a viewer should meet — pictures, a video, an article, a paper, a calendar
+    day, a tab group, signed beliefs, every inbox kind (`demo_showcase`). A step of its own so the scenario tests turn
+    it off by name (`_demo_scenario._STEPS`), as they do the G141 steps."""
+    demo_showcase.write(bank_dir, today, commit=_run_commit)
 
 
 def _write_entities(bank_dir: Path, day: date) -> None:

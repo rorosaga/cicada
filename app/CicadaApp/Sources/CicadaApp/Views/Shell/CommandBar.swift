@@ -13,6 +13,7 @@ import SwiftUI
 struct CommandBar: View {
     @Environment(AppRouter.self) private var router
     @Environment(BanksViewModel.self) private var banksVM
+    @Environment(TourController.self) private var tour
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -56,5 +57,15 @@ struct CommandBar: View {
         .frame(width: CicadaTheme.scaled(ShellMetrics.commandBarWidth), height: CicadaTheme.scaled(ShellMetrics.commandBarHeight))
         .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.commandBarFill))
         .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        // G152 — the tour's first stop: the bar lives in the titlebar, out of the scrim's reach, so it draws the
+        // focus ring itself (DR-5's first use) while the coach mark sits under it.
+        .overlay {
+            if tour.spotlights(.commandBar) {
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
+                    .strokeBorder(CicadaTheme.focusRing, lineWidth: 2)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 }

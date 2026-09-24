@@ -9,7 +9,7 @@ from _demo_scenario import T, d, day_one, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, bank_registry, claim_contexts, demo_bank, markdown_parser
+from api.services import bank_index, bank_registry, claim_contexts, demo_bank, demo_showcase, markdown_parser
 from api.services.claims import parse_claims
 
 _URL = re.compile(r"https?://[^\s)\"'>\]]+")
@@ -32,8 +32,9 @@ def test_populate_writes_the_expected_counts(tmp_path):
     demo_bank.populate(bank_dir)
     assert len(list((bank_dir / "entities").glob("*.md"))) >= 60
     assert len(list((bank_dir / "episodes").glob("*.md"))) >= 40
-    # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately.
-    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 7
+    # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately; then round 4's showcase adds the three kinds
+    # DS-2 found missing (R-DI21): a removal, a divergence and a normalization.
+    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 10
     assert (bank_dir / "entities" / "bob-example.md").exists()  # placeholder owner (R7)
 
 
@@ -43,7 +44,9 @@ def test_populate_is_only_placeholder_names(tmp_path):
     demo_bank.populate(bank_dir)
     text = "\n".join(p.read_text() for p in bank_dir.rglob("*.md"))
     urls = _URL.findall(text)
-    assert urls and all("://example.com" in u or ".example.com" in u for u in urls), urls  # EVERY url (spec §12)
+    # EVERY url (spec §12) — or one of the showcase's four public items, each with its licence (round 4 T-Demo).
+    assert urls and all("://example.com" in u or ".example.com" in u or u in demo_showcase.PUBLIC_URLS
+                        for u in urls), urls
     assert "rodrigo" not in text.lower()
     for p in (bank_dir / "entities").glob("*.md"):
         fm = markdown_parser.parse(p).frontmatter
@@ -122,10 +125,16 @@ def test_endpoint_creates_and_activates(tmp_path, monkeypatch):
     assert client.get("/sources/overview").status_code == 200
 
 
-def test_endpoint_is_409_if_demo_already_exists(tmp_path, monkeypatch):
+def test_endpoint_reopens_the_demo_it_made(tmp_path, monkeypatch):
+    """Round 4 (T-Demo): a second *Try the demo* (or Settings → General's *Explore the demo*) opens the demo that is
+    there — never a 409, never a re-populate over its edits. `test_demo_mode_routes.py` holds the name rule."""
     client, _ = _client(tmp_path, monkeypatch)
-    assert client.post("/banks/demo").status_code == 200
-    assert client.post("/banks/demo").status_code == 409
+    first = client.post("/banks/demo").json()
+    client.post("/banks/default/activate")
+    again = client.post("/banks/demo")
+    assert again.status_code == 200 and again.json()["active"] == "demo"
+    count = {b["name"]: b["entityCount"] for b in first["banks"]}["demo"]
+    assert {b["name"]: b["entityCount"] for b in again.json()["banks"]}["demo"] == count
 
 
 def test_the_event_commits_are_authored_by_who_wrote_them_and_store_nothing_relative(tmp_path):

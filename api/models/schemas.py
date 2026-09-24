@@ -2348,6 +2348,9 @@ class BankInfo(CamelModel):
     # G139 R-O18 — the in-place bank that IS the memory folder; the app hides
     # it from Delete (the server refuses it too, 409).
     legacy: bool = False
+    # G117 round 4 (T-Demo) — `demo_guard.is_demo`: the demo banner and the
+    # tour's demo stops read it; never inferred from the name (R-CS10).
+    demo: bool = False
 
 
 class BankListResponse(CamelModel):

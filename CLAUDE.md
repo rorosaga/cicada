@@ -1158,6 +1158,23 @@ logged or sent anywhere but `/search` and `/conversations/recent?q=`. `FindPanel
 body (Home). Settings' pages and every static row are in the palette from `SettingsIndex` (one index,
 one ranker); ⏎ lands on the row through `AppRouter.openSettings(_:row:)` (DS-3b).
 
+**The demo and the guided tour (G117 round 4, G152).** The demo bank shows every page with something in it:
+`demo_showcase.write`, called last by `demo_bank.populate`, adds people and a company with pictures (the C11 upload
+rung; pastel avatars drawn in code by `demo_pictures`, never a photo), a saved NASA video and an article with a
+public-domain preview, an arXiv paper with its CC0 details, a calendar day, an open Chrome tab group, beliefs Claude Code
+wrote over MCP that the card signs with the model and effort of their turn, and every inbox kind — each in its live
+writer's shape and committed as that writer commits, with `today` pinned; the only URLs off example.com are
+`demo_showcase.PUBLIC_URLS`, each with its licence. `/banks` rows carry `demo` (`demo_guard`, never the name);
+`POST /banks/demo` re-opens a demo that exists and `POST /banks/leave-demo` returns to the real bank left most recently
+(else `default`, else a new "My memory"). While the demo is active, `DemoBanner` — a floating bar laid out under the
+page area, never over a row — offers *Restart tour* and *Finish setting up →*, which leaves the demo and opens onboarding
+through the one door (`OnboardingState.reset(bank:)` + `AppRouter.requestFirstRun()`). The guided tour (`TourController`,
+`TourLayer`) is six coach marks — the command bar, Home, the Inbox, a person card, Projects, Sleep — on floating
+surfaces over a scrim on the page area; Next (⏎) · Back (←) · Skip tour (Esc); it navigates through `AppRouter` and never
+acts (`TourLintTests`), opening `DemoShowcase`'s person and project only in the demo. It starts by itself on the demo's
+first visit, is offered once on Home after onboarding (`TourOffer`), and replays from Settings → General, every `?` and
+the banner; finishing or skipping is remembered per viewer (`cicada.tour.done`).
+
 **Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
 **installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
 Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol); every other mark
@@ -1303,6 +1320,9 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
   `_QUERY_PATHS` in `api/main.py`.
 - `POST /conversations/{id}/resume` returns a validated descriptor — **transcripts are never read,
   `isfile()` only**.
+- `POST /banks/demo` re-opens a demo bank that exists (200, never re-populated); a real bank that happens to be called
+  `demo` still answers **409**. `POST /banks/leave-demo` activates the real bank left most recently (else `default`, else
+  a new `my-memory`) and changes nothing outside the demo.
 - `POST /maintenance/enrich-links` returns `409` both while a Sleep cycle runs and while another
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).

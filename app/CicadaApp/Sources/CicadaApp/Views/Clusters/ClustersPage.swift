@@ -85,6 +85,7 @@ struct ClustersPage: View {
                                  },
                                  escape: { escape() })
                     .focused($focus, equals: .list)
+                    .tourAnchor(.clusters)
             } else {
                 let lines = ClustersModel.lines(groups: groups, tab: tab, matches: found, expandAll: expandAll,
                                                 cap: ClustersModel.cap(for: plan.listStyle))
@@ -98,6 +99,9 @@ struct ClustersPage: View {
                     focusDetail: { focus = .detail }, escape: { escape() },
                     showEverything: { labels = []; graphVM.filter.types = Set(EntityType.selectableCases) })
                     .focused($focus, equals: .list)
+                    // G152 — this list replaces the cards whenever a card or find is open; without its own anchor
+                    // the person stop would lose its hole in a real bank.
+                    .tourAnchor(.clusters)
             }
         } detail: { plan in
             if let entity = open {
@@ -106,6 +110,7 @@ struct ClustersPage: View {
                                    onShowList: { showList() }, onClose: { closeCard() }, onEscape: { escape() })
                     .id(entity.id)
                     .focused($focus, equals: .detail)
+                    .tourAnchor(.personCard)
             }
         } trailing: { _ in
             ReaderColumn().focused($focus, equals: .reader)
