@@ -96,31 +96,30 @@ final class InboxQuestionTests: XCTestCase {
 
     // MARK: - Mutation
 
-    func testResolvePassesOptionKeyAndRemindDaysThrough() async throws {
+    private func heldStore() throws -> (Store, FakeSyncAPI, InboxViewModel, InboxItem) {
         let api = FakeSyncAPI()
         let store = Store(cache: SnapshotCache(
             root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         ), api: api)
         api.replies[.inbox] = .notModified
+        let item = try decode(#"{"id":"inbox-001","kind":"conflict","requiredInput":"choice","title":"t","options":[{"key":"b","label":"B"}]}"#)
+        store.inbox.value = [item]
+        return (store, api, InboxViewModel(store: store), item)
+    }
 
-        let vm = InboxViewModel(store: store)
-        let ok = await vm.resolve(id: "inbox-001", action: "resolve", optionKey: "b")
-
-        XCTAssertTrue(ok)
+    func testAnswerPassesOptionKeyThroughWhenTheWindowCloses() async throws {
+        let (store, api, vm, item) = try heldStore()
+        vm.answer(item, QuestionResolution(action: "resolve", optionKey: "b"))
+        XCTAssertEqual(api.writes, [], "held for its Undo window (DR-42)")
+        await store.flushHeld()
         XCTAssertTrue(api.writes.contains("resolveInbox:inbox-001:resolve:b:nil"))
     }
 
-    func testDeferPassesRemindDaysAndHidesTheCard() async throws {
-        let api = FakeSyncAPI()
-        let store = Store(cache: SnapshotCache(
-            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        ), api: api)
-        api.replies[.inbox] = .notModified
-
-        let vm = InboxViewModel(store: store)
-        let ok = await vm.resolve(id: "inbox-001", action: "defer", remindDays: 14)
-
-        XCTAssertTrue(ok)
+    func testDeferPassesRemindDaysThroughWhenTheWindowCloses() async throws {
+        let (store, api, vm, item) = try heldStore()
+        vm.answer(item, QuestionResolution(action: "defer", remindDays: 14))
+        XCTAssertEqual(store.visibleInbox.map(\.id), [], "a deferred question leaves the list on the tap")
+        await store.flushHeld()
         XCTAssertTrue(api.writes.contains("resolveInbox:inbox-001:defer:nil:14"))
     }
 }

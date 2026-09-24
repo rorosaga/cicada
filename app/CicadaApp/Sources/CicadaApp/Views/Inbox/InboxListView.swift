@@ -54,15 +54,8 @@ struct InboxListView: View {
                         LazyVStack(spacing: CicadaTheme.spacingSM) {
                             ForEach(visibleItems) { item in
                                 InboxCardView(item: item, startsExpanded: item.id == focusedItem) { resolution in
-                                    await viewModel.resolve(
-                                        id: item.id,
-                                        action: resolution.action,
-                                        answer: resolution.answer,
-                                        optionKey: resolution.optionKey,
-                                        remindDays: resolution.remindDays,
-                                        mergeTarget: resolution.mergeTarget,
-                                        mergeSurvivor: resolution.mergeSurvivor
-                                    )
+                                    viewModel.answer(item, resolution)
+                                    return true
                                 }
                                 .id(item.id)
                                 .transition(.asymmetric(

@@ -117,7 +117,7 @@ struct ChannelSourceView: View {
         .buttonStyle(.bordered).controlSize(.small).disabled(busy)
     }
 
-    /// One write path (`InboxViewModel.resolve` → `POST /inbox/{id}/resolve`),
+    /// One write path (`InboxViewModel.answer` → the held `POST /inbox/{id}/resolve`, DR-42),
     /// two views: the unified Inbox and this page render the identical
     /// `InboxCardView` for the identical open items.
     private var deletionsSection: some View {
@@ -127,11 +127,8 @@ struct ChannelSourceView: View {
             VStack(spacing: CicadaTheme.spacingSM) {
                 ForEach(removals) { item in
                     InboxCardView(item: item) { resolution in
-                        await inboxVM.resolve(
-                            id: item.id, action: resolution.action, answer: resolution.answer,
-                            optionKey: resolution.optionKey, remindDays: resolution.remindDays,
-                            mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor
-                        )
+                        inboxVM.answer(item, resolution)
+                        return true
                     }
                 }
             }

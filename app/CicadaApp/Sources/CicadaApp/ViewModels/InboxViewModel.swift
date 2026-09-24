@@ -3,10 +3,11 @@ import Observation
 
 /// Single ViewModel backing the unified Inbox tab. Thin projection over
 /// `Store.inbox` (§5.5): `items` reads straight from the snapshot so a tab
-/// switch renders whatever the Store already has, instantly. Resolutions go
-/// through `Store.perform(InboxResolve)` (§5.4), which hides the card
-/// optimistically, sends `POST /inbox/{id}/resolve`, refreshes `.inbox`, and
-/// rolls the card back with a toast if the request never landed.
+/// switch renders whatever the Store already has, instantly. An answer is
+/// HELD for its Undo window (DR-42, `Store.hold`): the question leaves every
+/// list on the tap, and only when the window closes does the ordinary
+/// `Store.perform(InboxResolve)` (§5.4) send `POST /inbox/{id}/resolve`,
+/// refresh `.inbox`, and roll the card back with a toast if it never landed.
 @Observable
 @MainActor
 final class InboxViewModel {
@@ -21,6 +22,8 @@ final class InboxViewModel {
 
     init(store: Store) {
         self.store = store
+        // The menu-bar badge follows the SEND, not the tap: the POST is what changes the server's count.
+        store.onHeldResolveSent = { [weak self] in await self?.onResolved?() }
     }
 
     /// Straight projection over the Store, minus anything an optimistic
@@ -56,37 +59,23 @@ final class InboxViewModel {
         }
     }
 
-    /// Resolve one item, optimistically (§5.4): every action except `skip`
-    /// hides the card the instant it is clicked, and a failed request puts it
-    /// back at its original position with a toast. `skip` keeps the item in
-    /// the queue, so nothing is hidden — the refresh just picks up any
-    /// organic change.
-    ///
-    /// Returns whether the resolve succeeded, so callers (`InboxCardView` via
-    /// `InboxListView`) can reset UI state — e.g. the card's `resolving` dim
-    /// — on failure instead of leaving it frozen forever.
+    /// DR-42 — the one tap. The answer is held (`Store.hold`) and its question leaves every list at
+    /// once; the POST waits for the Undo window (R-DI2). Nothing to await: there is no request yet.
+    func answer(_ item: InboxItem, _ resolution: QuestionResolution) {
+        let words = UndoLabel.of(resolution, item: item)
+        store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
+                                optionKey: resolution.optionKey, remindDays: resolution.remindDays,
+                                mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor),
+                   label: words.full, shortLabel: words.short, question: item.questionText,
+                   kind: item.kind, channel: item.channel)
+    }
+
+    /// DR-42 — Undo: the held answer is dropped unsent. Returns the question so the page can reopen
+    /// it; `reopen: false` is the Sources page's, which has no columns (R-DI16). The flag is carried
+    /// now so the columns (Task 5) need no signature change.
     @discardableResult
-    func resolve(
-        id: String,
-        action: String,
-        answer: String? = nil,
-        optionKey: String? = nil,
-        remindDays: Int? = nil,
-        mergeTarget: String? = nil,
-        mergeSurvivor: String? = nil
-    ) async -> Bool {
-        errorMessage = nil
-        let ok = await store.perform(InboxResolve(
-            id: id, action: action, answer: answer,
-            optionKey: optionKey, remindDays: remindDays,
-            mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor
-        ))
-        if ok {
-            // Keep the menu-bar badge in lockstep with the resolve.
-            await onResolved?()
-        } else {
-            errorMessage = store.toast
-        }
-        return ok
+    func undo(reopen: Bool = true) -> InboxItem? {
+        guard let id = store.undoHeld() else { return nil }
+        return store.inbox.value?.first { $0.id == id }
     }
 }

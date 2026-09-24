@@ -74,6 +74,8 @@ struct ContentView: View {
             evaluateFirstRun()
             intake.welcomeActive = showFirstRun
         }
+        // DR-42 (R-DI3) — the window closing sends a held answer now; the app lives on in the menu bar.
+        .onDisappear { Task { await store.flushHeld() } }
         // R-IB15 — while the Welcome shows, every arrival is staged on it.
         .onChange(of: showFirstRun) { _, showing in intake.welcomeActive = showing }
         // The roster resolving the active bank, and the graph snapshot landing

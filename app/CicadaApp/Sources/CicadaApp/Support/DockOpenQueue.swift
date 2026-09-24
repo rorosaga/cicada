@@ -36,6 +36,21 @@ final class CicadaAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
         opens.receive(urls)
     }
 
+    /// DR-42 (R-DI3) — set by `CicadaApp` once the Store exists.
+    var heldAnswer: () -> Bool = { false }
+    var sendHeldAnswer: (@MainActor () async -> Void)?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard QuitFlush.reply(hasHeld: heldAnswer()) == .terminateLater, let send = sendHeldAnswer else {
+            return .terminateNow
+        }
+        Task { @MainActor in
+            _ = await QuitFlush.run(send, limit: .seconds(CicadaTiming.quitFlushLimit))
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     /// Only inside a real `.app`: `UNUserNotificationCenter.current()` raises in a
     /// process with no bundle proxy (`swift test`, a bare `swift run`).
     func applicationDidFinishLaunching(_ notification: Notification) {
