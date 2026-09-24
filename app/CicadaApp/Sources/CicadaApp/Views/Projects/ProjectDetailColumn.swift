@@ -34,14 +34,27 @@ struct ProjectDetailColumn: View {
     @FocusState private var bandFocused: Bool
     /// R-PP21 — the Log field; L focuses it.
     @FocusState private var logFocused: Bool
-    /// Bumped by M, the menu and "No plan yet — Add a milestone" to open the Plan's add field.
-    @State private var addRequest = 0
+    /// Set by M, the menu and "No plan yet — Add a milestone" to open the Plan's add field; the Plan clears it once
+    /// the field is open. A flag, not a counter: the story is a lazy stack (R-FA3), so a Plan below a long Lately is
+    /// often built only after the request, with the request already in its initial value, and a counter's
+    /// `.onChange` never fires then — the section reads the flag on appear too (final review, finding 1).
+    @State private var addPending = false
     /// A scroll target that is not a selection (the Plan's section, for M).
     @State private var pendingScroll: String?
     /// R-PP23 — the Plan's Rename or Add field is open, so a letter is typing, not a key.
     @State private var planEditing = false
     /// G150 — the backlog's add fields are open, so a letter is typing, not a key.
     @State private var backlogEditing = false
+    /// R-FA2 — the story's derivation, built off the main actor. The last value for the same project keeps painting
+    /// while a newer one builds (never blank); the skeleton shows only before the first one.
+    @State private var derived: ProjectDerived?
+    /// R-PP26 — Resume's view model, one for the column now that Lately's rows are separate lazy children (R-FA3).
+    @State private var conversations = ConversationsViewModel()
+
+    /// R-FA2 — the column re-derives exactly when the project, the viewer's day or the cached payload moved.
+    private var deriveKey: ProjectDerived.Key {
+        .init(projectId: projectId, today: today, revision: cache.revision(projectId))
+    }
 
     /// R-PP20 — Sleep is writing: every write control waits, its reason in `.help` (DR-41).
     private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
@@ -60,8 +73,13 @@ struct ProjectDetailColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let t = cache.display(projectId) {
-                content(t)
+            if let t = cache.display(projectId), let d = derived, d.key.projectId == projectId {
+                content(t, d)
+            } else if cache.display(projectId) != nil {
+                // A timeline is here but its first derivation is still building (R-FA2): the first-open skeleton.
+                header(name: row?.name ?? "", oneLiner: row?.oneLiner ?? "", parent: row?.parent)
+                ListSkeleton(message: Copy.Projects.reading).padding(.top, CicadaTheme.spacingLG)
+                Spacer(minLength: 0)
             } else {
                 header(name: row?.name ?? "", oneLiner: row?.oneLiner ?? "", parent: row?.parent)
                 switch cache.phase(projectId) {
@@ -107,90 +125,136 @@ struct ProjectDetailColumn: View {
             // so the section's own `.task` never runs while it is folded.
             await backlogCache.refreshList(projectId)
         }
+        // R-FA2 — derive off the main actor, only when the project, the day or the cached payload moved.
+        .task(id: deriveKey) {
+            guard let t = cache.display(projectId) else { return }
+            let key = deriveKey
+            let value = await ProjectDerived.make(t, key: key)
+            guard !Task.isCancelled else { return }
+            derived = value
+        }
     }
 
     @ViewBuilder
-    private func content(_ t: ProjectTimeline) -> some View {
-        let state = ProjectState.state(ProjectState.Input(t), today: today)
+    private func content(_ t: ProjectTimeline, _ d: ProjectDerived) -> some View {
+        let state = d.state
+        // R-FA2's one exception: the band depends on its measured width and scales with its marks, never with
+        // participants, so it stays here rather than re-deriving off-main on every resize.
         let band = BandLayout.make(t, state: state, width: max(bandWidth - 2 * CicadaTheme.scaled(BandLayout.inset), 1),
                                    today: today)
+        let names = store.entityNames
+        let readerEpisode = provenance.isPresented ? provenance.current?.episode : nil
+        let sectionGap = CicadaTheme.scaled(26)
         header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent)
         bandHeader(band, progress: state.progress)
         bandView(band, t)
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(26)) {
+                // R-FA3 — one lazy stack whose children are every section AND every Lately label and row, so a long
+                // story builds only what is on screen; the gaps the nested stacks gave ride on each child's padding.
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ProjectLogField(projectName: t.project.name, today: today, blocked: blocked, focus: $logFocused,
                                     save: { text, status, when in await write(.log(text: text, status: status, when: when)) },
                                     undo: { claimId in _ = await write(.withdraw(claimId: claimId)) })
                         .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
-                    sections(t, state: state)
+                    section(.now, title: Copy.Projects.now, meta: Copy.Projects.inMotionCount(t.now.threads.count)) {
+                        ProjectNowSection(timeline: t, state: state, today: today, selection: selection,
+                                          followups: ProjectStory.followups(store.visibleInbox),
+                                          pick: { pickRow($0, in: t) }, openEntity: openEntity,
+                                          showSource: { show($0, in: t) },
+                                          openInbox: { router.routeToInboxItem($0) },
+                                          settle: { id, status in Task { await write(.settle(claimId: id, status: status)) } },
+                                          writesBlocked: blocked)
+                    }
+                    .padding(.top, sectionGap)
+                    let latelyOpen = !collapsed.contains(.lately)
+                    ProjectSectionHeader(title: Copy.Projects.lately, meta: Copy.Projects.happeningsCount(d.happenings),
+                                         isOpen: latelyOpen) { setOpen(.lately, !latelyOpen) }
+                        .padding(.top, sectionGap)
+                    if latelyOpen {
+                        ForEach(ProjectStory.latelyEntries(d.groups)) { entry in
+                            latelyEntry(entry, t: t, state: state, names: names, readerEpisode: readerEpisode)
+                                .padding(.top, entry.topPadding)
+                        }
+                        if let foot = ProjectStory.createdLine(t.items, today: today) {
+                            ProjectLatelyFoot(text: foot).padding(.top, CicadaTheme.spacingMD)
+                        }
+                    }
+                    section(.plan, title: Copy.Projects.plan,
+                            meta: state.planned ? Copy.Projects.doneOf(state.progress) : Copy.Projects.noPlanYet) {
+                        ProjectPlanSection(timeline: t, today: today, selection: selection, names: names,
+                                           pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
+                                           markDone: { slug in
+                                               Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(status: "done"))) }
+                                           },
+                                           rename: { slug, name in
+                                               Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(name: name))) }
+                                           },
+                                           add: { name, target in Task { await write(.addMilestone(name: name, target: target)) } },
+                                           addPending: $addPending, writesBlocked: blocked,
+                                           onEditingChange: { planEditing = $0 })
+                    }
+                    .padding(.top, sectionGap)
+                    .id(ProjectScroll.planSection)
+                    // G150 (R-B19) — after Plan: the plan is what is dated, the backlog what is kept for later.
+                    section(.backlog, title: Copy.Projects.Backlog.title,
+                            meta: backlogCache.list(projectId)
+                                .map { Copy.Projects.Backlog.openCount(BacklogModel.openCount($0)) } ?? "") {
+                        ProjectBacklogSection(projectId: projectId, today: today, openItem: openBacklogItem,
+                                              writesBlocked: blocked, open: openItem,
+                                              onEditingChange: { backlogEditing = $0 })
+                    }
+                    .padding(.top, sectionGap)
+                    .id("section.backlog")
+                    if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
+                        section(.around, title: Copy.Projects.around, meta: "") {
+                            ProjectAroundSection(cluster: t.cluster, today: today, partial: t.partial, openCard: openCard,
+                                                 openEntity: openEntity, openProject: openProject,
+                                                 openSource: { provenance.open($0) })
+                        }
+                        .padding(.top, sectionGap)
+                    }
                 }
                 .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
                 .padding(.top, CicadaTheme.spacingSM)
                 .padding(.bottom, CicadaTheme.scaled(72))
                 // Every chip below names its conversation's agent ("Claude Code replied") with no fetch per chip.
-                .environment(\.evidenceDocIndex, ProjectSource.docIndex(t))
+                .environment(\.evidenceDocIndex, d.docIndex)
             }
             .onChange(of: scrollToken) { _, _ in
                 let target = pendingScroll ?? selection?.id
                 pendingScroll = nil
                 guard let target else { return }
-                Instant.run { proxy.scrollTo(target, anchor: .center) }
+                let steps = ProjectScroll.steps(to: target)
+                guard steps.count > 1 else {
+                    Instant.run { proxy.scrollTo(target, anchor: .center) }
+                    return
+                }
+                // A milestone: land the Plan first so the lazy stack builds it, then centre the row a turn later.
+                Instant.run { proxy.scrollTo(steps[0], anchor: .top) }
+                Task { @MainActor in
+                    await Task.yield()
+                    Instant.run { proxy.scrollTo(target, anchor: .center) }
+                }
             }
         }
     }
 
+    /// R-FA3 — one Lately entry: a day label, or a row whose id IS its scroll id (`ProjectKey.item`), so a band pick
+    /// lands on a row the lazy stack has not built yet.
     @ViewBuilder
-    private func sections(_ t: ProjectTimeline, state: ProjectState.Output) -> some View {
-        let names = store.entityNames
-        let readerEpisode = provenance.isPresented ? provenance.current?.episode : nil
-        section(.now, title: Copy.Projects.now, meta: Copy.Projects.inMotionCount(t.now.threads.count)) {
-            ProjectNowSection(timeline: t, state: state, today: today, selection: selection,
-                              followups: ProjectStory.followups(store.visibleInbox),
-                              pick: { pickRow($0, in: t) }, openEntity: openEntity, showSource: { show($0, in: t) },
-                              openInbox: { router.routeToInboxItem($0) },
-                              settle: { id, status in Task { await write(.settle(claimId: id, status: status)) } },
-                              writesBlocked: blocked)
-        }
-        section(.lately, title: Copy.Projects.lately,
-                meta: Copy.Projects.happeningsCount(t.items.filter { $0.kind != "created" }.count)) {
-            ProjectLatelySection(timeline: t, state: state, today: today, selection: selection,
-                                 readerEpisode: readerEpisode, names: names, pick: { pickRow($0, in: t) },
-                                 openEntity: openEntity, showSource: { show($0, in: t) },
-                                 closeReader: { provenance.close() },
-                                 withdraw: { id in Task { await write(.withdraw(claimId: id)) } },
-                                 writesBlocked: blocked)
-        }
-        section(.plan, title: Copy.Projects.plan,
-                meta: state.planned ? Copy.Projects.doneOf(state.progress) : Copy.Projects.noPlanYet) {
-            ProjectPlanSection(timeline: t, today: today, selection: selection, names: names,
-                               pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
-                               markDone: { slug in
-                                   Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(status: "done"))) }
-                               },
-                               rename: { slug, name in
-                                   Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(name: name))) }
-                               },
-                               add: { name, target in Task { await write(.addMilestone(name: name, target: target)) } },
-                               addRequest: addRequest, writesBlocked: blocked,
-                               onEditingChange: { planEditing = $0 })
-        }
-        .id("section.plan")
-        // G150 (R-B19) — after Plan: the plan is what is dated, the backlog what is kept for later.
-        section(.backlog, title: Copy.Projects.Backlog.title,
-                meta: backlogCache.list(projectId).map { Copy.Projects.Backlog.openCount(BacklogModel.openCount($0)) }
-                    ?? "") {
-            ProjectBacklogSection(projectId: projectId, today: today, openItem: openBacklogItem, writesBlocked: blocked,
-                                  open: openItem, onEditingChange: { backlogEditing = $0 })
-        }
-        .id("section.backlog")
-        if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
-            section(.around, title: Copy.Projects.around, meta: "") {
-                ProjectAroundSection(cluster: t.cluster, today: today, partial: t.partial, openCard: openCard,
-                                     openEntity: openEntity, openProject: openProject,
-                                     openSource: { provenance.open($0) })
-            }
+    private func latelyEntry(_ entry: ProjectStory.LatelyEntry, t: ProjectTimeline, state: ProjectState.Output,
+                             names: EntityNames, readerEpisode: String?) -> some View {
+        switch entry {
+        case .label(let group, _):
+            ProjectLatelyLabel(group: group)
+        case .item(let item):
+            ProjectLatelyRow(item: item, timeline: t, state: state, today: today, selection: selection,
+                             readerEpisode: readerEpisode, names: names, pick: { pickRow($0, in: t) },
+                             openEntity: openEntity, showSource: { show($0, in: t) },
+                             closeReader: { provenance.close() },
+                             withdraw: { id in Task { await write(.withdraw(claimId: id)) } },
+                             writesBlocked: blocked, conversations: conversations)
         }
     }
 
@@ -291,13 +355,12 @@ struct ProjectDetailColumn: View {
     }
 
     /// M, the menu and "No plan yet — Add a milestone": open the Plan and its field, and bring it into view.
-    /// A collapsed Plan is built in this same update with the already-bumped `addRequest`, so its `.onChange` would
-    /// never fire and the field would stay shut; bump on the next turn, once the section exists (final review).
+    /// Whether the Plan is collapsed, already built, or not yet built by the lazy stack, it opens the field from
+    /// `addPending` on appear or on change, so no next-turn special case is needed.
     private func requestAdd() {
-        let wasClosed = collapsed.contains(.plan)
         setOpen(.plan, true)
-        if wasClosed { DispatchQueue.main.async { addRequest &+= 1 } } else { addRequest &+= 1 }
-        pendingScroll = "section.plan"
+        addPending = true
+        pendingScroll = ProjectScroll.planSection
         scrollToken &+= 1
     }
 

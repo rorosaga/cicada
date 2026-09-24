@@ -18,4 +18,7 @@ enum CicadaTiming {
     static let undoWindow: TimeInterval = 5
     /// R-DI3 — how long quit waits for a held answer to land before the app closes anyway.
     static let quitFlushLimit: TimeInterval = 3
+    /// Round-4 D5 — how long a Copy button reads "Copied" before it reads Copy again (`CommandBox`'s 1.5 s). A
+    /// confirmation's dwell, not motion, so Reduce Motion leaves it alone.
+    static let copiedConfirmation: TimeInterval = 1.5
 }

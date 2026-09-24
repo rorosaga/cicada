@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shlex
+import time
 from pathlib import Path
 
 from api import config
@@ -130,3 +132,108 @@ def test_the_route_serves_the_probe(tmp_path, monkeypatch):
     r = TestClient(main.app).get("/agents/wiring")
     assert r.status_code == 200 and r.json()["memory"] == str(tmp_path)
     config.get_settings.cache_clear()
+
+
+RECALL_CMD = f'"{PY}" "{REPO}/api/hooks/recall.py" --harness claude-code'
+
+
+def _recall_on(settings: Path, command: str = RECALL_CMD, events=("SessionStart", "UserPromptSubmit")):
+    for ev in events:
+        hook_registry.install(settings, event=ev, command=command)
+
+
+def test_recall_is_its_own_two_steps_and_connect_is_unchanged(tmp_path):
+    row = _row(_probe(tmp_path), "claude-code")
+    settings = str(tmp_path / ".claude/settings.json")
+    assert row["autorecall"] == "off" and row["autorecall_off"] == []
+    assert [s["argv"] for s in row["autorecall_on"]] == [
+        [PY, f"{REPO}/api/hooks/registry.py", "install", "--settings", settings, "--event", ev, "--command", RECALL_CMD]
+        for ev in ("SessionStart", "UserPromptSubmit")]
+    for step in row["autorecall_on"]:
+        assert step["step"] == "autorecall" and step["display"] == shlex.join(step["argv"])
+        assert step["touches"] == ["~/.claude/settings.json"]
+    assert [s["step"] for s in row["connect"]] == ["mcp", "hook"], "R-H11: onboarding's Turn on runs what it ran"
+
+
+def test_recall_on_offers_only_turn_off(tmp_path):
+    _recall_on(tmp_path / ".claude/settings.json")
+    row = _row(_probe(tmp_path), "claude-code")
+    assert (row["autorecall"], row["autorecall_on"]) == ("on", [])
+    assert [s["argv"] for s in row["autorecall_off"]] == [
+        [PY, f"{REPO}/api/hooks/registry.py", "uninstall", "--settings", str(tmp_path / ".claude/settings.json"),
+         "--hook", "recall"]]
+
+
+def test_half_registered_or_moved_recall_is_stale_and_offers_both(tmp_path):
+    _recall_on(tmp_path / ".claude/settings.json", events=("SessionStart",))
+    row = _row(_probe(tmp_path), "claude-code")
+    assert row["autorecall"] == "stale" and len(row["autorecall_on"]) == 2 and len(row["autorecall_off"]) == 1
+    _recall_on(tmp_path / ".codex/hooks.json", command='"/old/python" "/old/api/hooks/recall.py" --harness codex')
+    assert _row(_probe(tmp_path), "codex")["autorecall"] == "stale"
+
+
+def test_an_unparseable_settings_file_offers_no_recall_step(tmp_path):
+    settings = tmp_path / ".codex/hooks.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("{not json", encoding="utf-8")
+    row = _row(_probe(tmp_path), "codex")
+    assert (row["autorecall"], row["autorecall_on"], row["autorecall_off"]) == ("invalid", [], [])
+
+
+def test_a_missing_binary_carries_no_recall_fields(tmp_path):
+    for row in _probe(tmp_path, resolve=lambda name: None)["agents"]:
+        assert "autorecall" not in row, "the schema's default (n/a) speaks for it"
+
+
+def test_install_sh_and_the_wiring_spell_the_recall_command_identically():
+    text = (Path(agent_wiring.__file__).resolve().parents[2] / "install.sh").read_text(encoding="utf-8")
+    fmt = re.search(r"recall_command\(\) \{ printf '([^']+)' ", text).group(1)
+    assert fmt % (PY, f"{REPO}/api/hooks/recall.py", "claude-code") == RECALL_CMD
+    assert 'RECALL_SCRIPT="$REPO/api/hooks/recall.py"' in text
+
+
+def test_the_shared_autorecall_fixture_matches():
+    """AutoRecallTests.swift reads the same file: the argv the backend serves
+    and the argv the app's allowlist runs cannot drift apart."""
+    fixture = json.loads((Path(__file__).parent / "fixtures/agent_autorecall_argv.json").read_text())
+    root, home = Path(fixture["root"]), Path(fixture["home"])
+    python = f"{fixture['root']}/api/.venv/bin/python"
+    by_id = {h.id: h for h in agent_wiring.HARNESSES}
+    for case in fixture["cases"]:
+        argv = agent_wiring.autorecall_argv(by_id[case["agent"]], home=home, repo=root, python=python)
+        assert [s["argv"] for s in argv[case["list"]]][case["index"]] == case["argv"], case
+
+
+def test_the_route_serves_the_recall_fields_in_camel_case(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from api import main
+
+    step = {"step": "autorecall", "display": "x", "argv": ["x"], "touches": []}
+
+    async def fake_probe(*, home, memory_root):
+        return {"agents": [{"id": "codex", "installed": True, "autorecall": "off", "autorecall_on": [step]}],
+                "python": PY, "repo": str(REPO), "memory": str(memory_root)}
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(agent_wiring, "probe", fake_probe)
+    agent = TestClient(main.app).get("/agents/wiring").json()["agents"][0]
+    config.get_settings.cache_clear()
+    assert agent["autorecall"] == "off" and agent["autorecallOn"][0]["step"] == "autorecall"
+    assert agent["autorecallOff"] == []
+
+def test_the_probes_run_side_by_side_on_a_six_second_budget(tmp_path):
+    """R4B-12: the live Welcome read Claude Code as 'couldn't check in time' at
+    2 s — `claude mcp get` starts the server to health-check it."""
+    assert agent_wiring.PROBE_TIMEOUT_S == 6.0
+
+    async def slow(argv, *, timeout):
+        assert timeout == 6.0
+        await asyncio.sleep(0.4)
+        return base.CliResult(0, "", "")
+
+    started = time.perf_counter()
+    asyncio.run(agent_wiring.probe(home=tmp_path, memory_root=MEM, repo=REPO, python=PY, runner=slow,
+                                   resolve=lambda name: name))
+    # Two 0.4 s probes at once (~0.4 s), never 0.8 s in a row; the margin absorbs a loaded CI box.
+    assert time.perf_counter() - started < 0.7

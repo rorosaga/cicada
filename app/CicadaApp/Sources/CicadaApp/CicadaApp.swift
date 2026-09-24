@@ -58,7 +58,11 @@ struct CicadaApp: App {
     /// what was left typed on Home.
     @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
-    @State private var backend = BackendProcess()
+    @State private var backend: BackendProcess
+    /// Round-4 D3 (G143) — Settings → General → In the background. App-lifetime so the
+    /// login item's remembered intent and the service probe are one instance per app.
+    @State private var loginItems = LoginItemService()
+    @State private var backendAgent: BackendAgentService
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
@@ -66,6 +70,9 @@ struct CicadaApp: App {
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
+    /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
+    /// Settings → Integrations, and posted to the backend (R-FA11).
+    @State private var calendarReader = CalendarReader()
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -114,6 +121,8 @@ struct CicadaApp: App {
         // G139 final review: the System-appearance observer lives at app
         // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
         ThemeStore.shared.observeSystemAppearance()
+        // Round-4 D4 — the hero's clock, app scope like the appearance observer.
+        SceneStore.shared.start()
 
         // Build the Store as a plain local value first — referencing `self`
         // (which `store` would, via the property wrapper) isn't allowed yet
@@ -123,6 +132,11 @@ struct CicadaApp: App {
         // independently.
         let store = Store()
         _store = State(initialValue: store)
+        // R-FA8 — once the background service is installed, the app hands launchd :8000 by
+        // stopping only the uvicorn child it spawned itself (never a developer's).
+        let backend = BackendProcess()
+        _backend = State(initialValue: backend)
+        _backendAgent = State(initialValue: BackendAgentService(onInstalled: { [backend] in backend.stopSpawnedChild() }))
         let lights = BrowserWatcher()
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
@@ -167,6 +181,9 @@ struct CicadaApp: App {
                 .environment(homeSearch)
                 .environment(browserWatcher)
                 .environment(localSources)
+                .environment(calendarReader)
+                .environment(loginItems)
+                .environment(backendAgent)
                 .environment(intakeRouter)
                 .environment(setupRunner)
                 .environment(inventory)
@@ -189,6 +206,8 @@ struct CicadaApp: App {
                 // bank switch re-reads them and re-arms the watches.
                 .onChange(of: store.bank) { _, _ in
                     Task { await localSources.reload() }
+                    // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
+                    Task { await calendarReader.bankChanged() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -226,6 +245,9 @@ struct CicadaApp: App {
                         intakeRouter.accept(urls: urls, from: .dock)
                     }
                     localSources.start(store: store)
+                    // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
+                    // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
+                    calendarReader.start()
                     // R-IB22 — the export someone was waiting for arrived (a sniff
                     // recognised its vendor): its wait, in the active memory, is done.
                     intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in

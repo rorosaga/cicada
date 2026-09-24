@@ -27,6 +27,12 @@ final class ProjectsCache {
     /// R-PP19 — writes painted over `timelines` until the server's answer holds them (Task 5).
     private(set) var overlays: [String: [ProjectOverlay]] = [:]
 
+    /// R-FA2 — changes whenever what `display(id)` returns may change (a fresh answer, a 404, an overlay added or
+    /// removed), and only then, so the column re-derives off the main actor exactly when it must. One global
+    /// counter, never reset, so a revision handed out before a bank switch can never match one after it.
+    private(set) var revisions: [String: Int] = [:]
+    @ObservationIgnored private var nextRevision = 1
+
     @ObservationIgnored private let api: any ProjectsAPI
     @ObservationIgnored private var listETag: String?
     @ObservationIgnored private var timelineETags: [String: String] = [:]
@@ -36,6 +42,13 @@ final class ProjectsCache {
     init(api: any ProjectsAPI = APIClient.shared) { self.api = api }
 
     func phase(_ id: String) -> Phase { timelinePhases[id] ?? .idle }
+
+    func revision(_ id: String) -> Int { revisions[id] ?? 0 }
+
+    private func bump(_ id: String) {
+        revisions[id] = nextRevision
+        nextRevision &+= 1
+    }
 
     /// What the page draws for a project: the server's answer with every pending write painted over it (R-PP19).
     func display(_ id: String) -> ProjectTimeline? {
@@ -53,6 +66,7 @@ final class ProjectsCache {
         timelineETags = [:]
         recent = []
         overlays = [:]
+        revisions = [:]   // `nextRevision` runs on: a revision from before the switch never matches one after it.
     }
 
     func refreshList() async {
@@ -88,6 +102,7 @@ final class ProjectsCache {
             timelines[id] = nil
             timelineETags[id] = nil
             timelinePhases[id] = .gone
+            bump(id)
         } catch {
             guard started == epoch else { return }
             timelinePhases[id] = timelines[id] == nil ? .failed(Copy.Projects.loadFailed(error)) : .loaded
@@ -97,6 +112,7 @@ final class ProjectsCache {
     private func store(_ value: ProjectTimeline, etag: String?, for id: String) {
         timelines[id] = value
         timelineETags[id] = etag
+        bump(id)
         recent.removeAll { $0 == id }
         recent.append(id)
         while recent.count > Self.timelineCapacity {
@@ -104,15 +120,23 @@ final class ProjectsCache {
             timelines[old] = nil
             timelineETags[old] = nil
             timelinePhases[old] = nil
+            bump(old)
         }
     }
 
     // MARK: - Optimistic writes (R-PP19)
 
-    func add(_ overlay: ProjectOverlay) { overlays[overlay.projectId, default: []].append(overlay) }
+    func add(_ overlay: ProjectOverlay) {
+        overlays[overlay.projectId, default: []].append(overlay)
+        bump(overlay.projectId)
+    }
 
     func remove(overlayId: UUID) {
-        for key in overlays.keys { overlays[key]?.removeAll { $0.id == overlayId } }
+        for key in Array(overlays.keys) {
+            let before = overlays[key]?.count ?? 0
+            overlays[key]?.removeAll { $0.id == overlayId }
+            if (overlays[key]?.count ?? 0) != before { bump(key) }
+        }
     }
 
     /// The server accepted it: the paint stays until the next fresh answer, which holds the write.

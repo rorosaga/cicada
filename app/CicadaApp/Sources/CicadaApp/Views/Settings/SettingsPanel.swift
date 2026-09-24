@@ -26,6 +26,8 @@ import SwiftUI
 struct SettingsPanel: View {
     @AppStorage("cicada.settingsSection") private var sectionRaw = SettingsSection.general.rawValue
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw = AppearancePreference.dark.rawValue
+    /// Round-4 D4 — the Scene row's live value in search results.
+    @AppStorage(HeroScenePreference.defaultsKey) private var heroSceneRaw = HeroScenePreference.automatic.rawValue
     @State private var selection: SettingsSection = .general
     @State private var focus = SettingsFocus()
     /// Skills' data (G138) lives here, not in the page, so search can index the recommended
@@ -58,6 +60,7 @@ struct SettingsPanel: View {
         var inputs = SettingsLiveValue.Inputs()
         inputs.scheduleMode = sleepVM.schedule.mode
         inputs.appearance = AppearancePreference.stored(appearanceRaw)
+        inputs.heroScene = .stored(heroSceneRaw)
         inputs.uiScale = CicadaTheme.uiScale
         inputs.connections = store.connections.value ?? []
         return inputs

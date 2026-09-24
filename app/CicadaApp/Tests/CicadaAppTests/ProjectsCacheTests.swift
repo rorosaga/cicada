@@ -110,6 +110,32 @@ final class ProjectsCacheTests: XCTestCase {
         XCTAssertNotNil(cache.display("p\(ProjectsCache.timelineCapacity)"))
     }
 
+    /// R-FA2 — the column re-derives off the main actor exactly when what it shows may change.
+    func testTheRevisionMovesOnlyWhenWhatTheColumnShowsCanChange() async throws {
+        let t = try ProjectFixtures.timeline("rover-arm-project")
+        let api = FakeProjectsAPI()
+        api.timelineReplies[t.project.id] = [fresh(t, "e1"), notModified("e1"), fresh(t, "e2")]
+        let cache = ProjectsCache(api: api)
+        let r0 = cache.revision(t.project.id)
+        await cache.refreshTimeline(t.project.id)
+        let r1 = cache.revision(t.project.id)
+        XCTAssertNotEqual(r0, r1)
+        await cache.refreshTimeline(t.project.id)
+        XCTAssertEqual(cache.revision(t.project.id), r1, "a 304 changes nothing")
+        let overlay = ProjectOverlay(id: UUID(), projectId: t.project.id, change: .milestoneAdded(name: "x", target: nil),
+                                     day: ProjectFixtures.today)
+        cache.add(overlay)
+        let r2 = cache.revision(t.project.id)
+        XCTAssertNotEqual(r2, r1)
+        cache.remove(overlayId: overlay.id)
+        let r3 = cache.revision(t.project.id)
+        XCTAssertNotEqual(r3, r2)
+        cache.reset()
+        XCTAssertEqual(cache.revision(t.project.id), 0)
+        await cache.refreshTimeline(t.project.id)
+        XCTAssertFalse([r1, r2, r3].contains(cache.revision(t.project.id)), "never reused across a bank switch")
+    }
+
     /// The page asks again only when a component both ETags fold moved (R-PJ7) — never on a Sleep tick alone.
     func testRevalidationFollowsTheComponentsTheETagsFold() {
         let a = VersionVector(version: "1", components: ["entities": "1", "episodes": "1", "inbox": "1", "sleep": "1"])

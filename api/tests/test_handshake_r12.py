@@ -96,3 +96,16 @@ def test_the_project_sentences_appear_only_with_their_tool(scopes, tool):
     tools = catalog.tool_names_for(scopes)
     text = handshake.build_remote(None, tools=tools, bank="memory")
     assert (f"{tool}(" in text) == (tool in tools)
+
+
+def test_every_argument_the_recall_note_names_is_in_the_schema():
+    """G149: the hook's note names tools too, so R12 holds it (R-H13)."""
+    from api.services import hook_recall, recall_text
+
+    schemas = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in stdio_server().TOOLS}
+    page = hook_recall.PageNote("alpha-project", "Alpha Project", "project", "A summary.",
+                                (("A claim.", "2026-09-01"),))
+    text = hook_recall.compose([page], recall_text.question_line("Alpha Project", "inbox-001", "alpha-project",
+                                                                 "Still on?"))
+    assert "`cicada_check_nudges(" in text and "`cicada_recall_detail(" in text
+    _check(text, schemas)

@@ -12,6 +12,7 @@ struct ChannelSourceView: View {
     let source: SourceOverview
 
     @Environment(Store.self) private var store
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     @Environment(InboxViewModel.self) private var inboxVM
@@ -83,7 +84,7 @@ struct ChannelSourceView: View {
                 }
                 Spacer()
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
                 }
                 if channel.actions.contains("poll") {
                     actionButton("Poll now") { try await ChannelActions.poll(channel.id) }

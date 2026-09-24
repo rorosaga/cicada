@@ -69,13 +69,14 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .textSize, .runSetup,
+        .appearance, .heroScene, .textSize, .runSetup, .openAtLogin, .backgroundService,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchIndex, .enrichLinks,
+        .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
-        .agentsInstall, .agentsCloud, .agentsSkill,
+        .calendarApp,
+        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
@@ -86,8 +87,11 @@ enum SettingsIndex {
     static let staticEntries: [SettingsEntry] = [
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
+        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset"], detail: Copy.sceneDetail),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
+        SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
+        SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
         // You
         SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),
         SettingsEntry(.ownerHandle, .you, Copy.ownerHandleTitle, keywords: ["github", "avatar", "picture", "username"], detail: Copy.ownerHandleDetail),
@@ -108,15 +112,24 @@ enum SettingsIndex {
         // Memory
         SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
         SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
+        SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
+                      keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
+                      detail: Copy.fadePaceDetail),
         // Sleep
         SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when"]),
         SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),
         SettingsEntry(.sleepInterval, .sleep, Copy.runsEvery, keywords: ["hours", "how often", "interval"]),
         SettingsEntry(.sleepEngine, .sleep, Copy.sleepEngineRowTitle, keywords: ["model", "who runs"]),
+        // Integrations — round-4 D2: the one row the app owns there (R-FA13); every other row is a channel.
+        SettingsEntry(.calendarApp, .integrations, Copy.calendarAppTitle,
+                      keywords: ["calendar", "events", "meetings", "icloud", "google calendar", "exchange", "schedule"]),
         // Agents
         SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
         SettingsEntry(.agentsSkill, .agents, Copy.agentsSkillTitle, keywords: ["skill", "SKILL.md", "claude code"]),
+        SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
+                      keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
+                      detail: Copy.autoRecallDetail),
         // Cicada's own skills (G138) — per-item ids, so outside the bare-name lint
         SettingsEntry(.skill(CicadaSkillBundle.cicada.rawValue), .skills, CicadaSkillBundle.cicada.title,
                       keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),
@@ -158,7 +171,8 @@ enum SettingsIndex {
                                exportOnly: [AddSourceTile], connections: [ConnectionStatus],
                                agents: [AgentSetup], skills: [RecommendedSkill] = []) -> [SettingsEntry] {
         var out: [SettingsEntry] = []
-        out += channels.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
+        // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry.
+        out += channels.filter { $0.id != CalendarRow.channelId }.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
                                             keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title]) }
         out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
                                                keywords: ["agent", "conversations"]) }
@@ -231,6 +245,8 @@ enum SettingsLiveValue {
     struct Inputs {
         var scheduleMode: String?
         var appearance: AppearancePreference = .dark
+        /// Round-4 D4 — Settings → General → Scene.
+        var heroScene: HeroScenePreference = .automatic
         var uiScale: Double = 1.0
         var connections: [ConnectionStatus] = []
     }
@@ -245,6 +261,8 @@ enum SettingsLiveValue {
             return SleepScheduleText.modes.first { $0.value == inputs.scheduleMode }?.label
         case .appearance:
             return inputs.appearance.label
+        case .heroScene:
+            return inputs.heroScene.label
         case .textSize:
             return "\(Int((inputs.uiScale * 100).rounded()))%"
         default:

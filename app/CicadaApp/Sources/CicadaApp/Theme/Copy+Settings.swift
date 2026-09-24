@@ -15,12 +15,58 @@ extension Copy {
     static let appearanceSystem = "System"
     static let appearanceLight = "Light"
     static let appearanceDark = "Dark"
+    // Round-4 D4 (G144) — Settings → General → Scene: Home's painting by the clock, never by location.
+    static let scene = "Scene"
+    static let sceneDetail = "Home's painting follows sunrise and sunset in your Mac's time zone. No location is used."
+    static let sceneAutomatic = "Automatic"
+    static let sceneAlwaysDay = "Always day"
+    static let sceneAlwaysNight = "Always night"
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."
     static let actualSize = "Actual size"
     static let setup = "Setup"
     static let runSetupAgain = "Run setup again"
     static let runSetupDetail = "Walk through the first steps for this memory again."
+
+    // MARK: General → In the background (round-4 D3, G143)
+    // No price, token or cost words here (the 2026-09-03 ruling, DR-59).
+    static let backgroundGroup = "In the background"
+    static let openAtLogin = "Open Cicada at login"
+    static let loginItemOff = "Cicada opens only when you open it."
+    static let loginItemOn = "Cicada opens when you log in, and keeps working with its window closed."
+    static let loginItemNeedsApproval = "Almost there — allow Cicada in System Settings → General → Login Items."
+    /// R-FA7 — the person asked, macOS did not keep it: an ad-hoc-signed build may never be enabled, and the row
+    /// must never pretend it was (D3).
+    static let loginItemNotKept = "macOS isn't opening Cicada at login. If you didn't turn it off there, "
+        + "this copy of Cicada may need adding by hand in Login Items."
+    static func loginItemFailed(_ why: String) -> String { "macOS didn't accept this: \(why)" }
+    static let openLoginItems = "Open Login Items"
+    static let openLoginItemsHelp = "Opens System Settings → General → Login Items"
+    static let keepMemoryWorking = "Keep memory working when Cicada is closed"
+    /// R-FA9 — "On" means launchd holds the agent (loaded, KeepAlive on), which is exactly what the sentence says.
+    static func backgroundDetail(_ state: BackendAgentState) -> String {
+        switch state {
+        case .running: "On — Cicada's memory keeps working in the background."
+        case .stopped: "Installed, but not running. Install again to restart it."
+        case .missing: "Off — memory only updates while Cicada is open."
+        case .checking: "Checking…"
+        case .installing: "Installing…"
+        case .unknown: "Couldn't check the background service."
+        case .failed(let why): why
+        }
+    }
+    static let backgroundInstall = "Install"
+    static let backgroundInstallHelp = "Runs the command below from your Cicada folder"
+    static let backgroundNoPython = "Cicada's Python environment is missing — run the one-time install under Agents first."
+    static let backgroundLaunchdRefused = "macOS wouldn't start the background service. The log in your Cicada folder says why."
+    static let backgroundRefused = "Cicada only runs its own install script."
+    /// Finding 5 — neither the running backend nor api/.env named the memory folder; guessing one would point the
+    /// always-on service at an empty folder with no error (the bank split-brain class).
+    static let backgroundNeedsBackend = "Cicada couldn't tell which memory folder to use. Open Cicada so its backend is running, then Install again."
+    /// Finding 6 — installing hands the port to launchd and stops the app's own backend, which would cut a cycle short.
+    static let backgroundWaitForSleep = "Wait for Sleep to finish reading — installing restarts Cicada's backend."
+    /// Never `Copy.intakeFailed` ("The import didn't finish.") — that is `AgentConnect`'s import sentence.
+    static let backgroundInstallFailed = "Cicada couldn't set up the background service. Try again in a moment."
 
     // MARK: Engines (A3, R-O8)
     static let engines = "Engines"
@@ -59,6 +105,76 @@ extension Copy {
     static let agentsOnThisMacGroup = "Agents on this Mac"
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
+
+    // MARK: Remembers automatically (G149) — plain words; no prices, no token counts (DR-59)
+    static let autoRecallGroup = "Remembers automatically"
+    static let autoRecallTitle = "Add what Cicada knows to your chats"
+    static let autoRecallDetail = "Before your agent answers, Cicada adds a short note about the people and projects you mention, so it doesn't have to think to ask. It only reads your memory and never saves anything."
+    static let autoRecallChecking = "Checking the agents on this Mac…"
+    // Names no agent: a service named in the UI wears its mark, and this line has none.
+    static let autoRecallNone = "None of the agents on this Mac can do this yet."
+    static let autoRecallOn = "On. Your agent sees a short note when you mention something Cicada remembers."
+    static let autoRecallOff = "Off. Your agent only sees your memory when it asks for it."
+    static let autoRecallStale = "Needs an update, because Cicada moved since this was set up."
+    static let autoRecallUnreadable = "Its settings file can't be read, so Cicada won't touch it."
+    static let autoRecallTurnOn = "Turn on"
+    static let autoRecallTurnOff = "Turn off"
+    static let autoRecallUpdate = "Update"
+    static let autoRecallWorking = "Working…"
+    static let autoRecallWorkingHelp = "Cicada is changing this agent's settings."
+    static let autoRecallCodexTrust = "The next time you open Codex, it asks whether to trust Cicada's hooks. Choose to trust them, or Codex won't run them."
+    static func autoRecallChanges(_ files: [String]) -> String { "Changes " + files.joined(separator: ", ") }
+
+    // MARK: Agents → one-click setup (round-4 D5, R-FA15)
+    static let agentConnectForMe = "Connect for me"
+    static let agentConnecting = "Connecting…"
+    static let agentConnectHow = "Cicada runs exactly these commands, then new sessions pick it up."
+    static let agentConnected = "Connected — new sessions pick Cicada up."
+    static let agentRefused = "Cicada didn't run these: they aren't the commands it expects. Copy them from below instead."
+    static let agentCopyPrompt = "Copy setup prompt"
+    static let agentCopied = "Copied"
+    static func agentPromptHow(_ name: String) -> String {
+        "Paste this into \(name) — it runs the commands the prompt names itself and changes nothing else."
+    }
+    static let agentOpenInCursor = "Open in Cursor"
+    static let agentOpenInCursorHow = "Cursor asks before it adds Cicada."
+    static let agentSetUpClaude = "Set up Claude"
+    static let agentSetUpClaudeHow = "Adds Cicada to Claude's settings and keeps everything else. Your old file is saved beside it first."
+    static let agentClaudeDone = "Done — quit and reopen Claude to finish."
+    static let agentClaudeAlready = "Claude is already set up — quit and reopen it if the tools don't show."
+    static let agentClaudeNotSetUp = "Open Claude once, then try again."
+    static let agentClaudeUnreadable = "Cicada couldn't read Claude's settings file, so it left it untouched. Add the snippet below by hand."
+
+    // MARK: Integrations → Calendar on this Mac (round-4 D2, R-FA11 … R-FA13)
+    /// Never "Calendar": that is the ICS feed row's label (`calendar` channel), and the two sit in one section.
+    static let calendarAppTitle = "Calendar on this Mac"
+    /// Never "Nothing leaves this Mac": events become episodes, and Sleep, Ask or a remote connector can send those to
+    /// a cloud engine — that sentence is Ollama's alone (`honestyOllama`). Final review of round 4, finding 4.
+    static let calendarOff = "Not connected — Connect asks macOS to share your calendars with Cicada."
+    static let calendarDenied = "Calendar access is off for Cicada — turn it on in System Settings → Privacy & Security → Calendars, then Connect again."
+    static let calendarSyncing = "Syncing…"
+    /// DR-21 — the count through `UsageFormat.count`, in the locale the row was asked for.
+    static func calendarSynced(_ when: String, events: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Synced \(when) · \(events == 1 ? "1 event" : "\(UsageFormat.count(events, locale: locale)) events")"
+    }
+    static let calendarNeedsUpdate = "This version of Cicada's background service can't read calendars yet — update Cicada."
+    static let calendarBackendDown = "Cicada's background service isn't answering."
+    static let calendarSyncFailed = "Couldn't sync your calendars. Cicada will try again."
+    static let calendarNotReady = "Your calendars aren't ready to read yet — Cicada will try again."
+    /// Sync now on the `calendar-local` card before Calendar was connected (G142): the app reads EventKit only after
+    /// the person's own Connect, so a Sources card never starts that first read.
+    static let calendarConnectFirst = "Connect Calendar in Settings → Integrations first — Cicada reads it only after you do."
+    static func calendarSyncedSummary(_ events: Int?, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let events else { return "Calendar synced" }
+        return "Calendar synced · \(UsageFormat.count(events, locale: locale)) \(events == 1 ? "event" : "events")"
+    }
+    static let calendarConnect = "Connect"
+    static let calendarSyncNow = "Sync now"
+    static let calendarDisconnect = "Disconnect"
+    static let openPrivacySettings = "Open Privacy Settings"
+    static let calendarStopTitle = "Stop reading your calendars?"
+    static let calendarStopDetail = "Events already in your memory stay there."
+    static let calendarStop = "Stop reading"
 
     // MARK: Search (design §2.4)
     static let searchSettings = "Search settings"
@@ -159,6 +275,16 @@ extension Copy {
     static let fetchNow = "Fetch now"
     static let sleepIsRunning = "Sleep is running — try again when it finishes."
     static let alreadyRunning = "Already running — try again when it finishes."
+    // G147 — How things fade
+    static let fadeHeader = "How things fade"
+    static let fadePaceTitle = "Learns from your answers"
+    static let fadePaceDetail = "Pages that come up across many weeks fade more slowly. After you answer “Still tracking…?” about a few pages of one kind, Cicada may suggest a different pace for that kind here."
+    static let fadeApply = "Apply"
+    static let fadeNotNow = "Not now"
+    static let fadeReset = "Reset"
+    static let fadeBusyHelp = "Saving your last change…"
+    static let fadeLoadFailed = "Couldn't read your answers just now — open this page again to retry."
+    static let fadeSaveFailed = "Couldn't save that — try again."
 
     // MARK: Advanced
     static let advanced = "Advanced"

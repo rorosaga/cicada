@@ -169,6 +169,15 @@ class Settings(BaseSettings):
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
 
+    # G147 — spacing-aware decay. A page's weekly rate is its class's (or its
+    # explicit `decay_rate:`) x max(floor, 1 / (1 + alpha·ln w)), w = the
+    # distinct ISO weeks it came up in — fifty mentions in one afternoon are one
+    # week. 0.6 / 0.25 is the ruled curve (plan R-FD1: floor reached near 148
+    # weeks); `decay_policy.spacing_params` clamps both so a mis-set value can
+    # never freeze decay.
+    decay_spacing_alpha: float = 0.6     # CICADA_DECAY_SPACING_ALPHA
+    decay_spacing_floor: float = 0.25    # CICADA_DECAY_SPACING_FLOOR
+
     # Sleep-control episode cap — one cycle spawns roughly one LLM call chain
     # per episode across Stages 1-4 (the agent rung's own measurement is
     # ~200-350 subprocess calls for a 20-episode cycle, ~90% serialized on

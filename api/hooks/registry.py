@@ -13,10 +13,15 @@ moved UPDATES the path rather than adding a second hook (portability: the
 registered command embeds the venv and repo paths, both of which move with
 the checkout).
 
+G149 adds the recall hook (``api/hooks/recall.py``, registered under
+``SessionStart`` and ``UserPromptSubmit``). Each script is owned by its own
+marker (:data:`MARKERS`), so installing one never collapses the other, and
+``uninstall --hook recall`` removes only the recall entries.
+
 Stdlib only; run by path (no ``api.*`` import).
 
     registry.py install   --settings <file> --event Stop --command "<cmd>"
-    registry.py uninstall --settings <file>
+    registry.py uninstall --settings <file> [--hook capture|recall]
     registry.py status    --settings <file> --event Stop --command "<cmd>"
         exit 0 present · 1 absent · 2 stale (present with another command)
 """
@@ -31,6 +36,9 @@ import tempfile
 from pathlib import Path
 
 MARKER = "api/hooks/capture.py"
+RECALL_MARKER = "api/hooks/recall.py"
+#: Every script Cicada registers, by the name ``uninstall --hook`` takes (G149).
+MARKERS = {"capture": MARKER, "recall": RECALL_MARKER}
 DEFAULT_TIMEOUT_S = 5
 
 
@@ -68,8 +76,16 @@ def _save(path: Path, data: dict) -> None:
         raise
 
 
-def _ours(hook: dict) -> bool:
-    return isinstance(hook, dict) and MARKER in str(hook.get("command") or "")
+def _markers_for(command: str) -> tuple[str, ...]:
+    """The marker a command carries. An entry is "ours" for an install or a
+    status only when it carries the SAME marker, so the recall hook and the
+    Stop hook never collapse each other (G149)."""
+    found = tuple(m for m in MARKERS.values() if m in command)
+    return found or (MARKER,)
+
+
+def _ours(hook: dict, markers: tuple[str, ...] = tuple(MARKERS.values())) -> bool:
+    return isinstance(hook, dict) and any(m in str(hook.get("command") or "") for m in markers)
 
 
 def _entries(data: dict, event: str) -> list:
@@ -85,7 +101,8 @@ def _entries(data: dict, event: str) -> list:
 def install(path: Path, *, event: str, command: str, timeout: int = DEFAULT_TIMEOUT_S) -> str:
     data = load(path)
     entries = _entries(data, event)
-    found = [h for e in entries if isinstance(e, dict) for h in (e.get("hooks") or []) if _ours(h)]
+    mine = _markers_for(command)
+    found = [h for e in entries if isinstance(e, dict) for h in (e.get("hooks") or []) if _ours(h, mine)]
     if found:
         if all(h.get("command") == command for h in found) and len(found) == 1:
             return "present"
@@ -93,7 +110,7 @@ def install(path: Path, *, event: str, command: str, timeout: int = DEFAULT_TIME
         # duplicate from an older installer).
         for e in entries:
             if isinstance(e, dict):
-                e["hooks"] = [h for h in (e.get("hooks") or []) if not _ours(h)]
+                e["hooks"] = [h for h in (e.get("hooks") or []) if not _ours(h, mine)]
         _prune(data, event)
         _entries(data, event).append({"hooks": [{"type": "command", "command": command, "timeout": timeout}]})
         _save(path, data)
@@ -120,7 +137,11 @@ def _prune(data: dict, event: str | None = None) -> None:
         del data["hooks"]
 
 
-def uninstall(path: Path) -> int:
+def uninstall(path: Path, *, hook: str | None = None) -> int:
+    """Remove Cicada's entries from every event: both scripts', or only
+    ``hook``'s (``capture`` | ``recall``), so turning recall off never touches
+    the Stop hook (G149 R-H11)."""
+    markers = (MARKERS[hook],) if hook else tuple(MARKERS.values())
     if not path.exists():
         return 0
     data = load(path)
@@ -133,7 +154,7 @@ def uninstall(path: Path) -> int:
             continue
         for e in entries:
             if isinstance(e, dict) and isinstance(e.get("hooks"), list):
-                keep = [h for h in e["hooks"] if not _ours(h)]
+                keep = [h for h in e["hooks"] if not _ours(h, markers)]
                 removed += len(e["hooks"]) - len(keep)
                 e["hooks"] = keep
     if removed:
@@ -148,7 +169,8 @@ def status(path: Path, *, event: str, command: str) -> str:
     except RegistryError:
         return "absent"
     entries = data.get("hooks", {}).get(event, []) if isinstance(data.get("hooks"), dict) else []
-    ours = [h for e in entries if isinstance(e, dict) for h in (e.get("hooks") or []) if _ours(h)]
+    ours = [h for e in entries if isinstance(e, dict) for h in (e.get("hooks") or [])
+            if _ours(h, _markers_for(command))]
     if not ours:
         return "absent"
     return "present" if any(h.get("command") == command for h in ours) else "stale"
@@ -161,6 +183,7 @@ def main(argv=None) -> int:
     ap.add_argument("--event", default="Stop")
     ap.add_argument("--command", default="")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_S)
+    ap.add_argument("--hook", choices=tuple(MARKERS), default=None)
     args = ap.parse_args(argv)
     path = Path(args.settings).expanduser()
     try:
@@ -170,7 +193,7 @@ def main(argv=None) -> int:
             print(f"{install(path, event=args.event, command=args.command, timeout=args.timeout)}: {path}")
             return 0
         if args.action == "uninstall":
-            print(f"removed {uninstall(path)} hook(s): {path}")
+            print(f"removed {uninstall(path, hook=args.hook)} hook(s): {path}")
             return 0
         state = status(path, event=args.event, command=args.command)
         print(f"{state}: {path}")

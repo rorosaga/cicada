@@ -423,7 +423,7 @@ def record_happening(memory_path: Path, *, subject: str, text: str, status: str,
                      session_id: str | None = None, settles: str | None = None,
                      source_episode: str | None = None, day: date | None = None,
                      date_basis: str | None = None, today: date | None = None, now: datetime | None = None,
-                     tz_name: str | None = None) -> dict:
+                     tz_name: str | None = None, recorded_ts: str | None = None) -> dict:
     """Record one thing that happened (or is under way) on `subject`.
 
     Validated first, written second: a bad status, a relative word in the
@@ -484,7 +484,8 @@ def record_happening(memory_path: Path, *, subject: str, text: str, status: str,
             confidence=0.8, valid_from=valid_from, recorded_at=today.isoformat(),
             source_episodes=episodes, origin=origin, authored_by=(authored_by or "").strip() or None,
             session_id=(session_id or "").strip() or None, evidence=spans, status=status,
-            participants=_participants(memory_path, participants, text), date_basis=basis)
+            participants=_participants(memory_path, participants, text), date_basis=basis,
+            recorded_ts=(recorded_ts or "").strip() or None)
         if settles:
             setattr(claim, "_settles", settles)
         claims, _, audit, inbox_paths = _reconcile_write(memory_path, page, entity_id, parsed, existing, claim, today)
@@ -507,7 +508,8 @@ def record_happening(memory_path: Path, *, subject: str, text: str, status: str,
 def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | None = None,
                   status: str = "planned", slug: str | None = None, on: date | None = None, observer: str,
                   origin: str, authored_by: str, session_id: str | None = None, evidence=None,
-                  date_basis: str | None = None, today: date | None = None, tz_name: str | None = None) -> dict:
+                  date_basis: str | None = None, today: date | None = None, tz_name: str | None = None,
+                  recorded_ts: str | None = None) -> dict:
     """Open a new milestone slot on `subject` (R-PJ4). The slot's key is its
     slug — the `object`, never the `context` — `-2`, `-3` … when an open slot
     already holds that name, so two plans that share a name stay two plans."""
@@ -543,7 +545,8 @@ def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | N
             source_episodes=list(dict.fromkeys(e.episode for e in spans if e.episode)), origin=origin,
             authored_by=(authored_by or "").strip() or None, session_id=(session_id or "").strip() or None,
             evidence=spans, status=status, target=tgt,
-            date_basis=date_basis or ("stated" if tgt else "written"))
+            date_basis=date_basis or ("stated" if tgt else "written"),
+            recorded_ts=(recorded_ts or "").strip() or None)
         claims, _, audit, inbox_paths = _reconcile_write(memory_path, page, entity_id, parsed, existing, claim, today)
         bumped = _bump(memory_path, [entity_id], valid_from)
         return {"action": _outcome(claim, claims, audit), "entity_id": entity_id,
@@ -557,7 +560,7 @@ def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | N
 def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = None, on: date | None = None,
             target: str | None = None, observer: str, origin: str, authored_by: str,
             session_id: str | None = None, evidence=None, date_basis: str = "person",
-            today: date | None = None, tz_name: str | None = None) -> dict:
+            today: date | None = None, tz_name: str | None = None, recorded_ts: str | None = None) -> dict:
     """A milestone's new state or date — a NEW claim in its slot (R-PJ4: the
     state is as of `valid_from`, so a change is never an in-place edit).
     `reconcile_events` decides who may close the head (R-PJB27). A read-compat
@@ -592,7 +595,7 @@ def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = 
                 source_episodes=list(dict.fromkeys(e.episode for e in spans if e.episode)), origin=origin,
                 authored_by=(authored_by or "").strip() or None,
                 session_id=(session_id or "").strip() or None, evidence=spans, status=new_status,
-                target=new_target, date_basis=date_basis)
+                target=new_target, date_basis=date_basis, recorded_ts=(recorded_ts or "").strip() or None)
 
         head = _open_head(existing, slug)
         if head is not None:
@@ -665,7 +668,8 @@ def rename_milestone(memory_path: Path, *, subject: str, slug: str, name: str) -
 
 
 def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, reason: str, origin: str,
-             session_id: str | None = None, evidence=None, today: date | None = None) -> dict:
+             session_id: str | None = None, evidence=None, today: date | None = None,
+             recorded_ts: str | None = None) -> dict:
     """Take an event back, keeping it as history (G140 Q-R5's record).
 
     Ownership is the CALLER's check (the MCP wrapper through
@@ -698,7 +702,8 @@ def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, rea
         day = (today or date.today()).isoformat()
         spans = evidence_mod.verify_many(memory_path, evidence) or [evidence_mod.reasoning("")]
         record = _withdrawal_record(target, claims, reason=reason, author=author, origin=origin,
-                                    session_id=session_id, spans=spans, day=day, fallback_subject=entity_id)
+                                    session_id=session_id, spans=spans, day=day, fallback_subject=entity_id,
+                                    recorded_ts=recorded_ts)
         if target.valid_to is None:
             target.valid_to = max(day, (target.valid_from or "")[:10] or day)
         target.superseded_by = record.id

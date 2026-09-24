@@ -109,7 +109,7 @@ def test_the_stdio_server_dispatches_the_three_tools(bank, monkeypatch):
 
 
 def test_the_primer_says_what_to_do_and_counts_open_items(bank):
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (7, 5)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (8, 5)  # 8: merged past G149's 7 (R-H13)
     backlog.add_item(bank, project="alpha-project", title="One", author="user")
     backlog.add_item(bank, project="alpha-project", title="Two", author="user")
     state_dictionary.refresh(bank, _settings(bank), force=True, repo_resolver=_ok_repo)

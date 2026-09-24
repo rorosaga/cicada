@@ -129,6 +129,11 @@ struct Claim: Identifiable, Codable, Hashable {
     /// where `ContributorIdentity.kind(author:)` falls back to the author id.
     let authorKind: String?
     let authorProvider: String?
+    /// Round-4 C3 (D1) — the model and effort of the agent turn a harness write
+    /// happened in, joined at read; nil for a Sleep claim (its model is
+    /// `authoredBy`), a person's, or a write from before D1.
+    let authorModel: String?
+    let authorEffort: String?
 
     var isValid: Bool { validTo == nil }
 
@@ -137,6 +142,7 @@ struct Claim: Identifiable, Codable, Hashable {
         case epistemic, sourceTrust, confidence, validFrom, validTo
         case supersededBy, supersedes, sourceEpisodes, premises, authoredBy
         case evidence, sessionIds, origin, recordedAt, authorKind, authorProvider
+        case authorModel, authorEffort
     }
 
     init(from c: Decoder) throws {
@@ -168,6 +174,10 @@ struct Claim: Identifiable, Codable, Hashable {
         // answer, not a gap.
         authorKind = try k.decodeIfPresent(String.self, forKey: .authorKind)
         authorProvider = try k.decodeIfPresent(String.self, forKey: .authorProvider)
+        // `try?`, not `try`: one mistyped optional field from a backend a shape
+        // ahead must never fail the whole claim (round-4 decode tolerance).
+        authorModel = (try? k.decodeIfPresent(String.self, forKey: .authorModel)) ?? nil
+        authorEffort = (try? k.decodeIfPresent(String.self, forKey: .authorEffort)) ?? nil
     }
 }
 

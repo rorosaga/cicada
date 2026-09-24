@@ -33,6 +33,7 @@ from pathlib import Path
 
 from api.models.schemas import (
     EntityProvenance,
+    EpisodeAgent,
     EpisodeCitation,
     EpisodeCitationEntity,
     EpisodeCitations,
@@ -42,11 +43,21 @@ from api.models.schemas import (
     EvidenceModel,
     ProvenanceContributor,
     ProvenanceConversation,
+    ProvenanceModel,
     ProvenancePage,
     ProvenanceSpan,
     ProvenanceTotals,
 )
-from api.services import bank_index, episode_ids, evidence, git_service, inbox_context, markdown_parser
+from api.services import (
+    agent_turns,
+    bank_index,
+    episode_ids,
+    evidence,
+    git_service,
+    inbox_context,
+    markdown_parser,
+    turn_authorship,
+)
 from api.services.claims import Claim, Evidence, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
 
@@ -127,6 +138,15 @@ def episode_document(
     stamps = evidence.turn_stamps(fm) if is_episode else {}
     override = (str(fm.get("evidence_kind") or "") or None) if is_episode else None
     spans = evidence.turns(text, page=not is_episode, stamps=stamps, override=override)
+    # Round 4 C4: an agent turn's model/effort is its sidecar entry at exactly
+    # the turn's start (the entry the capture wrote); never on a person's turn.
+    agents = {s.offset: s for s in agent_turns.stamps(fm) if s.speaker == "assistant"} if is_episode else {}
+    # R4B-15: `agent` is the most recent agent turn's — of the WHOLE document,
+    # read before the Reader's cut — and null when that turn names neither; an
+    # older turn's model never stands in for it (D1: never guessed).
+    last = next((t for t in reversed(spans) if t.role == "assistant"), None)
+    stamp = agents.get(last.start) if last is not None else None
+    agent = EpisodeAgent(model=stamp.model, effort=stamp.effort) if stamp and (stamp.model or stamp.effort) else None
     truncated = length > MAX_TEXT_CHARS
     if truncated:
         spans = [
@@ -141,6 +161,11 @@ def episode_document(
     elif focus:
         focus_model = _derived_focus(memory_path, text, focus)
 
+    turn_models: list[EpisodeTurn] = []
+    for t in spans:
+        s = agents.get(t.start) if t.role == "assistant" else None
+        turn_models.append(EpisodeTurn(**asdict(t), model=s.model if s else None, effort=s.effort if s else None))
+
     return EpisodeText(
         episode=doc_id,
         kind="episode" if is_episode else "page",
@@ -154,8 +179,9 @@ def episode_document(
         origin=_opt(fm.get("origin")) or _opt(fm.get("source")),
         conversation_id=_opt(fm.get("session_id")) or _opt(fm.get("source_id")),
         capture_kind=_opt(fm.get("capture_kind")),
-        turns=[EpisodeTurn(**asdict(t)) for t in spans],
+        turns=turn_models,
         focus=focus_model,
+        agent=agent,
     )
 
 
@@ -276,6 +302,15 @@ def entity_provenance(
     current = [c for c in parse_claims(parsed.body) if _current(c)]
     commit_authors = commit_authors or {}
     docs = _Episodes(memory_path)
+    # Round 4 C4: a harness contributor's models, joined per current claim
+    # (R4B-6); a Sleep author is a model already and is never joined.
+    turns = turn_authorship.TurnAuthorship(memory_path, text=docs.body)
+    models: dict[str, Counter] = {}
+    for c in current:
+        author = git_service.canonical_author(c.authored_by)
+        model, effort = turns.for_claim(c, git_service.author_identity(author)[0])
+        if model:
+            models.setdefault(author, Counter())[(model, effort)] += 1
 
     claim_authors = Counter(git_service.canonical_author(c.authored_by) for c in current)
     contributors: list[ProvenanceContributor] = []
@@ -284,6 +319,8 @@ def entity_provenance(
         contributors.append(ProvenanceContributor(
             author=author, kind=kind, provider=provider,
             claims=claim_authors.get(author, 0), commits=commit_authors.get(author, 0),
+            models=[ProvenanceModel(model=m, effort=e, beliefs=n) for (m, e), n in
+                    sorted((models.get(author) or Counter()).items(), key=lambda kv: (-kv[1], kv[0][0], kv[0][1] or ""))],
         ))
     contributors.sort(key=lambda c: (-(c.claims + c.commits), c.author))
 
@@ -415,9 +452,14 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
     doc = evidence.source_document(memory_path, doc_id)
     if doc is None:
         return None
-    _fm, text = doc
+    fm, text = doc
     is_episode = evidence.is_episode_id(doc_id)
     pages, partial = _candidate_pages(memory_path, doc_id)
+    # Round 4 C3 (R4B-7): every span on this route points into `doc_id`, whose
+    # frontmatter and text are already read above — the join reuses both, never
+    # a second body read nor a scan of every episode's frontmatter.
+    turns = turn_authorship.TurnAuthorship(memory_path, text=lambda ep: text if ep == doc_id else None,
+                                           frontmatter=lambda ep: (fm or {}) if ep == doc_id else None)
     rows: list[EpisodeCitation] = []
     entities: list[EpisodeCitationEntity] = []
     for path in pages:
@@ -455,7 +497,7 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                 status = evidence.span_status(text, end=ev.end, hash=ev.hash, appendable=is_episode)
                 stale = status == evidence.SPAN_STALE or ev.end > len(text)
                 rows.append(EpisodeCitation(
-                    **base, evidence=EvidenceModel(**ev.to_dict()), kind=ev.kind,
+                    **base, evidence=turn_authorship.evidence_model(ev, turns), kind=ev.kind,
                     start=None if stale else ev.start, end=None if stale else ev.end,
                     stale=stale, grown=not stale and status == evidence.SPAN_GROWN,
                 ))

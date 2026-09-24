@@ -52,6 +52,10 @@ struct Evidence: Codable, Hashable {
     let end: Int
     let kind: EvidenceKind
     let hash: String
+    /// Round-4 C3 (D1) — on an `assistant` span, the model and effort of the
+    /// agent turn it cites, when capture recorded them. Absent everywhere else.
+    let model: String?
+    let effort: String?
 
     /// A span the Reader can land on and wash. Never true for `reasoning`
     /// (design §4.10) — offsets of -1 are "no sentence", not "sentence zero".
@@ -60,15 +64,18 @@ struct Evidence: Codable, Hashable {
     /// `ep_*` → an episode (a conversation); anything else → a page.
     var isEpisode: Bool { episode.hasPrefix("ep_") }
 
-    init(episode: String, start: Int, end: Int, kind: EvidenceKind, hash: String = "") {
+    init(episode: String, start: Int, end: Int, kind: EvidenceKind, hash: String = "",
+         model: String? = nil, effort: String? = nil) {
         self.episode = episode
         self.start = start
         self.end = end
         self.kind = kind
         self.hash = hash
+        self.model = model
+        self.effort = effort
     }
 
-    enum CodingKeys: String, CodingKey { case episode, start, end, kind, hash }
+    enum CodingKeys: String, CodingKey { case episode, start, end, kind, hash, model, effort }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -79,6 +86,9 @@ struct Evidence: Codable, Hashable {
         // entry that names no kind makes no claim about whose words these are.
         kind = try c.decodeIfPresent(EvidenceKind.self, forKey: .kind) ?? .reasoning
         hash = try c.decodeIfPresent(String.self, forKey: .hash) ?? ""
+        // `try?`: a mistyped optional must never drop the whole span (C3).
+        model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? nil
+        effort = (try? c.decodeIfPresent(String.self, forKey: .effort)) ?? nil
     }
 }
 
@@ -154,11 +164,16 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
     let marker: String?
     let speaker: String?
     let ts: String?
+    /// Round-4 C4 (D1) — on an assistant turn, the model and effort capture
+    /// recorded for it; nil for every other role and before D1.
+    let model: String?
+    let effort: String?
 
     var id: Int { index }
 
     init(index: Int, start: Int, contentStart: Int, end: Int, role: String = "user",
-         marker: String? = nil, speaker: String? = nil, ts: String? = nil) {
+         marker: String? = nil, speaker: String? = nil, ts: String? = nil,
+         model: String? = nil, effort: String? = nil) {
         self.index = index
         self.start = start
         self.contentStart = contentStart
@@ -167,9 +182,11 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         self.marker = marker
         self.speaker = speaker
         self.ts = ts
+        self.model = model
+        self.effort = effort
     }
 
-    enum CodingKeys: String, CodingKey { case index, start, contentStart, end, role, marker, speaker, ts }
+    enum CodingKeys: String, CodingKey { case index, start, contentStart, end, role, marker, speaker, ts, model, effort }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -181,6 +198,8 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         marker = try c.decodeIfPresent(String.self, forKey: .marker)
         speaker = try c.decodeIfPresent(String.self, forKey: .speaker)
         ts = try c.decodeIfPresent(String.self, forKey: .ts)
+        model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? nil
+        effort = (try? c.decodeIfPresent(String.self, forKey: .effort)) ?? nil
     }
 }
 
@@ -224,6 +243,26 @@ struct EpisodeFocus: Codable, Hashable {
     }
 }
 
+/// Round-4 C4 (D1) — the document's most recent agent turn's model and effort,
+/// for the Reader's meta line. Both optional: capture may know neither.
+struct EpisodeAgent: Codable, Hashable {
+    let model: String?
+    let effort: String?
+
+    init(model: String? = nil, effort: String? = nil) {
+        self.model = model
+        self.effort = effort
+    }
+
+    enum CodingKeys: String, CodingKey { case model, effort }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? nil
+        effort = (try? c.decodeIfPresent(String.self, forKey: .effort)) ?? nil
+    }
+}
+
 /// `EpisodeText` — a whole stored document for the Reader. `text` is capped
 /// at 400,000 characters server-side (`truncated`, R-PB5); `length` and
 /// `hash` always describe the WHOLE text. `conversationId` is the stamped
@@ -245,13 +284,16 @@ struct EpisodeText: Codable, Hashable {
     let captureKind: String?
     let turns: [EpisodeTurn]
     let focus: EpisodeFocus?
+    /// Round-4 C4 — nil against a backend before D1 and for a harness that never
+    /// tells its model.
+    let agent: EpisodeAgent?
 
     var isPage: Bool { kind == "page" }
 
     init(episode: String, kind: String = "episode", text: String, length: Int? = nil, hash: String = "",
          truncated: Bool = false, title: String = "", timestamp: String? = nil, harness: String? = nil,
          origin: String? = nil, conversationId: String? = nil, captureKind: String? = nil,
-         turns: [EpisodeTurn] = [], focus: EpisodeFocus? = nil) {
+         turns: [EpisodeTurn] = [], focus: EpisodeFocus? = nil, agent: EpisodeAgent? = nil) {
         self.episode = episode
         self.kind = kind
         self.text = text
@@ -266,11 +308,12 @@ struct EpisodeText: Codable, Hashable {
         self.captureKind = captureKind
         self.turns = turns
         self.focus = focus
+        self.agent = agent
     }
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus
+        case conversationId, captureKind, turns, focus, agent
     }
 
     init(from decoder: Decoder) throws {
@@ -289,5 +332,6 @@ struct EpisodeText: Codable, Hashable {
         captureKind = try c.decodeIfPresent(String.self, forKey: .captureKind)
         turns = try c.decodeIfPresent([EpisodeTurn].self, forKey: .turns) ?? []
         focus = try c.decodeIfPresent(EpisodeFocus.self, forKey: .focus)
+        agent = (try? c.decodeIfPresent(EpisodeAgent.self, forKey: .agent)) ?? nil
     }
 }

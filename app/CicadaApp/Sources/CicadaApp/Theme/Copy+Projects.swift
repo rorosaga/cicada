@@ -136,6 +136,12 @@ extension Copy {
         static func statusOngoingUntil(_ day: String) -> String { "Ongoing until \(day)" }
         static func moreFacts(_ n: Int) -> String { "+\(UsageFormat.count(n)) \(n == 1 ? "fact" : "facts")" }
         static func via(_ name: String) -> String { "via \(name)" }
+        /// Round-4 D6 (R-FA1) — a sentence draws at most eight page chips; the rest fold behind one button.
+        static func moreParticipants(_ n: Int) -> String { "+\(UsageFormat.count(n)) more" }
+        static let moreParticipantsHelp = "Show everyone this sentence names"
+        static func notListed(_ n: Int) -> String { "\(UsageFormat.count(n)) more not listed here" }
+        static let notListedHelp = "The rest are under Around this project"
+        static let fewerParticipants = "Show fewer"
         static func onProject(_ name: String) -> String { "on \(name)" }
         static let showInConversation = "Show in conversation ›"
         static let hideConversation = "Hide conversation"

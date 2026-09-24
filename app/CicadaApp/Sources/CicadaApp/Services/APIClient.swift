@@ -1760,6 +1760,12 @@ actor APIClient {
         try await postData("/capture/local-source/wispr-flow", json: json)
     }
 
+    /// `POST /sources/calendar-local/sync` (round-4 D2, C6) — the Calendar app's events in the window, read by the
+    /// app through EventKit (`CalendarReader`); the backend stages, scrubs and tombstones them like any source.
+    func syncLocalCalendar(_ payload: CalendarSyncPayload) async throws -> CalendarSyncResult {
+        try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")
@@ -2107,6 +2113,18 @@ actor APIClient {
     /// `GET /maintenance/search-index` — asking may start the catch-up (it is
     /// the same `ensure_fresh` every read path calls).
     func fetchSearchIndexStatus() async throws -> SearchIndexStatus { try await get("/maintenance/search-index") }
+
+    /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
+    /// already chosen. Not a Store domain, no ETag.
+    func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
+
+    /// `PUT /memory/decay-tuning` (G147) — `nil` clears a kind back to the usual pace. 409
+    /// while Sleep runs; 422 with a plain sentence for a pace outside what the server allows.
+    func setDecayTuning(_ changes: [String: Double?]) async throws -> DecayTuningResponse {
+        var body: [String: Any] = [:]
+        for (type, value) in changes { body[type] = value.map { $0 as Any } ?? NSNull() }
+        return try await put("/memory/decay-tuning", body: body)
+    }
 
     /// 409 while Sleep or another rebuild runs; 503 with a plain sentence if
     /// the rebuild fails. The rebuild itself is CPU on the backend's side,
@@ -2577,6 +2595,16 @@ extension APIClient: IntakeAPI {
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
     /// and the exact argv `AgentConnect` may run after the person's click.
     func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
+
+    /// Round-4 D5 (C5) — `GET /agents/setup?harness=<id>`: the prompt a person pastes into their agent so it
+    /// installs Cicada itself. A 404 (an unknown harness, or a backend from before C5) throws, and the caller
+    /// shows nothing new. The id is escaped like `fetchRecentConversations`' filters, so no value can smuggle a
+    /// second query key.
+    func fetchAgentSetup(harness: String) async throws -> AgentSetupPrompt {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        return try await get("/agents/setup?harness=\(harness.addingPercentEncoding(withAllowedCharacters: allowed) ?? harness)")
+    }
 }
 
 /// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.

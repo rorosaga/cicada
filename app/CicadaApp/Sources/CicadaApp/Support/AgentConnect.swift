@@ -72,11 +72,13 @@ enum AgentConnectOutcome: Equatable {
     case failed(String)
 }
 
-/// Track I T7 (R-IA28) — the only two command shapes the app will run, pinned to
-/// the checkout the app itself was built from (`BackendProcess.installRoot()`).
-/// The backend hands the argv over (`GET /agents/wiring`), but a response the app
-/// cannot vouch for — another checkout, another verb, one extra token — runs
-/// nothing.
+/// Track I T7 (R-IA28) — the only command shapes the app will run: `mcp add`,
+/// a hook install (the Stop hook's command under `Stop`, the recall hook's
+/// under `SessionStart` / `UserPromptSubmit`, G149), and removing only the
+/// recall hook — each pinned to the checkout the app itself was built from
+/// (`BackendProcess.installRoot()`). The backend hands the argv over
+/// (`GET /agents/wiring`), but a response the app cannot vouch for — another
+/// checkout, another verb, one extra token — runs nothing.
 enum AgentConnectPolicy {
     /// Each harness's Stop-hook settings file and the harness id install.sh's
     /// `hook_command` names for it (`install.sh:312, 318`).
@@ -84,6 +86,8 @@ enum AgentConnectPolicy {
         ("/.claude/settings.json", "claude-code"),
         ("/.codex/hooks.json", "codex"),
     ]
+    /// G149 — the events the recall hook is registered under (R-H11: one command for both).
+    static let recallEvents: Set<String> = ["SessionStart", "UserPromptSubmit"]
 
     static func isAllowed(_ argv: [String], installRoot: URL, binaries: Set<String>) -> Bool {
         let root = installRoot.standardizedFileURL.path
@@ -95,14 +99,24 @@ enum AgentConnectPolicy {
                   Array(argv[(dashes + 1)...]) == [python, root + "/mcp/server.py"] else { return false }
             return argv[4..<dashes].allSatisfy { ["--scope", "user", "--env"].contains($0) || $0.hasPrefix("CICADA_MEMORY_PATH=") }
         }
-        guard argv.count == 9, head == python, argv[1] == root + "/api/hooks/registry.py", argv[2] == "install",
-              argv[3] == "--settings", !argv[4].contains("/../"),
+        guard head == python, argv.count >= 2, argv[1] == root + "/api/hooks/registry.py" else { return false }
+        // G149 — remove only Cicada's recall entries (`--hook recall`) from a harness settings file.
+        if argv.count == 7, argv[2] == "uninstall" {
+            return argv[3] == "--settings" && !argv[4].contains("/../")
+                && hookHarnesses.contains { argv[4].hasSuffix($0.settingsSuffix) }
+                && Array(argv[5...6]) == ["--hook", "recall"]
+        }
+        guard argv.count == 9, argv[2] == "install", argv[3] == "--settings", !argv[4].contains("/../"),
               let harness = hookHarnesses.first(where: { argv[4].hasSuffix($0.settingsSuffix) })?.harness,
-              Array(argv[5...6]) == ["--event", "Stop"], argv[7] == "--command" else { return false }
-        // The command runs on every agent turn, so it is install.sh's
-        // `hook_command` byte for byte — a substring check would let an
-        // appended `; curl … | sh` through.
-        return argv[8] == "\"\(python)\" \"\(root)/api/hooks/capture.py\" --harness \(harness)"
+              argv[5] == "--event", argv[7] == "--command" else { return false }
+        // The command runs on every agent turn, so it is install.sh's command
+        // byte for byte, for the event it belongs to — a substring check would
+        // let an appended `; curl … | sh` through.
+        if argv[6] == "Stop" {
+            return argv[8] == "\"\(python)\" \"\(root)/api/hooks/capture.py\" --harness \(harness)"
+        }
+        return recallEvents.contains(argv[6])
+            && argv[8] == "\"\(python)\" \"\(root)/api/hooks/recall.py\" --harness \(harness)"
     }
 }
 

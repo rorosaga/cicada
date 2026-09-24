@@ -12,8 +12,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
 
     // General (Task 1)
     static let appearance = SettingsRowID("appearance")
+    static let heroScene = SettingsRowID("heroScene")
     static let textSize = SettingsRowID("textSize")
     static let runSetup = SettingsRowID("runSetup")
+    // General → In the background (round-4 D3, G143)
+    static let openAtLogin = SettingsRowID("openAtLogin")
+    static let backgroundService = SettingsRowID("backgroundService")
     // Sleep (Task 2)
     static let sleepRuns = SettingsRowID("sleepRuns")
     static let sleepTime = SettingsRowID("sleepTime")
@@ -26,11 +30,15 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let enginePreview = SettingsRowID("enginePreview")
     static let engineAsk = SettingsRowID("engineAsk")
     static let engineAutoClaude = SettingsRowID("engineAutoClaude")
+    // Integrations (round-4 D2)
+    static let calendarApp = SettingsRowID("calendarApp")
     // Agents and From anywhere (Task 3)
     static let agentsInstall = SettingsRowID("agentsInstall")
     static let agentsCloud = SettingsRowID("agentsCloud")
     // Agents' pointer to Skills (Task 8)
     static let agentsSkill = SettingsRowID("agentsSkill")
+    // Agents' Remembers automatically (G149)
+    static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
     static let remoteSwitch = SettingsRowID("remoteSwitch")
     static let remoteReach = SettingsRowID("remoteReach")
     static let remoteNew = SettingsRowID("remoteNew")
@@ -54,6 +62,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Memory (Task 6)
     static let searchIndex = SettingsRowID("searchIndex")
     static let enrichLinks = SettingsRowID("enrichLinks")
+    static let fadePace = SettingsRowID("fadePace")
     // Advanced (Task 6)
     static let backendStatus = SettingsRowID("backendStatus")
     static let mcpCommand = SettingsRowID("mcpCommand")
@@ -68,6 +77,9 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static func connection(_ id: String) -> SettingsRowID { SettingsRowID("connection:\(id)") }
     static func agent(_ id: String) -> SettingsRowID { SettingsRowID("agent:\(id)") }
     static func skill(_ id: String) -> SettingsRowID { SettingsRowID("skill:\(id)") }
+    static func autoRecall(_ id: String) -> SettingsRowID { SettingsRowID("autoRecall:\(id)") }
+    /// G147 — one row per kind of page under "How things fade" (a suggestion or a chosen pace).
+    static func fadeType(_ type: String) -> SettingsRowID { SettingsRowID("fadeType:\(type)") }
 
     /// The item id after `<kind>:`, when this row is one of that kind.
     func item(of kind: String) -> String? {

@@ -7,7 +7,8 @@ Registered by ``install.sh`` under ``hooks.Stop`` in ``~/.claude/settings.json``
     "<venv python>" "<repo>/api/hooks/capture.py" --harness claude-code
 
 The harness pipes its hook JSON to stdin (``session_id``, ``transcript_path``,
-``cwd``, ``hook_event_name``); this script POSTs exactly those fields to
+``cwd``, ``hook_event_name``); this script POSTs exactly those fields — and,
+when the harness sends one, ``effort.level`` as ``effort`` (round 4 C1) — to
 ``POST /capture/transcript`` and exits 0 — always, within 3 s, printing
 nothing to stdout (a Stop hook's stdout is parsed by the harness). It never
 opens the transcript: the backend validates the path against the harness
@@ -135,13 +136,21 @@ def main(argv=None, *, stdin=None, environ=None, post=None, log_path=None, token
             return 0
         port = str(environ.get("CICADA_PORT") or "8000")
         url = f"http://127.0.0.1:{port}/capture/transcript"
-        body = json.dumps({
+        fields = {
             "harness": harness,
             "session_id": session_id,
             "transcript_path": str(transcript_path),
             "cwd": payload.get("cwd"),
             "hook_event": payload.get("hook_event_name"),
-        }).encode("utf-8")
+        }
+        effort = payload.get("effort")
+        level = effort.get("level") if isinstance(effort, dict) else None
+        if isinstance(level, str) and level.strip():
+            # Round 4 D1 (C1): the reasoning effort of the reply this Stop fired
+            # after, so the last turn has it even when its transcript line does
+            # not. Only this one field is added; the backend validates it.
+            fields["effort"] = level.strip()[:32]
+        body = json.dumps(fields).encode("utf-8")
         status, text = post(url, body, token, TIMEOUT_S)
         outcome = ""
         try:

@@ -228,6 +228,11 @@ def _happening_line(timeline, item, *, memory_path: Path, today: date, raw: bool
     for p in item.participants:
         if p.role == "document" and p.url:
             line += f" <{p.url}>"
+    # Round 4 D6: the wire carries the first 12 participants; say how many the
+    # sentence also named instead of printing every document's URL.
+    hidden = item.participants_total - len(item.participants)
+    if hidden > 0:
+        line += f" (+{hidden} more)"
     quote = _quote_text(item, memory_path, texts) if raw else None
     if quote:
         line += f' · "{quote}"'

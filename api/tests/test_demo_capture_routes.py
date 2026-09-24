@@ -34,6 +34,7 @@ GATED = {
     ("POST", "/sources/folders"): "/sources/folders",
     ("PUT", "/sources/folders/{folder_id}"): "/sources/folders/f1",
     ("POST", "/sources/folders/{folder_id}/sync"): "/sources/folders/f1/sync",
+    ("POST", "/sources/calendar-local/sync"): "/sources/calendar-local/sync",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",
@@ -44,6 +45,9 @@ GATED = {
 HANDLED_ELSEWHERE = {
     ("POST", "/capture/transcript"): "redirects to the real bank left last (test_demo_capture.py)",
     ("POST", "/capture/telegram"): "answers 200 with a reply so Telegram never retries (test_demo_capture.py)",
+    ("POST", "/capture/hook-context"):
+        "reads only, from bank_registry.capture_bank — the real bank left last while the demo is open "
+        "(test_hook_context_route.py)",
     ("POST", "/intake/import"): "checks its TARGET bank in intake.resolve_target",
     ("POST", "/intake/sniff"): "stages nothing; a chat export's TARGET bank is checked in intake.resolve_target",
     ("PUT", "/sources/connectors/{connector_id}/credentials"):

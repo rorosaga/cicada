@@ -15,6 +15,11 @@ The RULING (G105, 2026-09-03) is implemented literally:
   last ``tool_use`` and before the next boundary; interstitial narration,
   every ``tool_use`` / ``tool_result`` / ``thinking`` block and every file
   dump are skipped by construction, not by heuristics;
+* from (b)'s lines, exactly two more facts and nothing else of them (round 4
+  D1, C1): the model id and the reasoning effort — Claude Code's
+  ``message.model`` and top-level ``effort``, Codex's ``turn_context.payload.model``
+  and ``.effort`` — cleaned by ``agent_turns`` (unknown values dropped) and
+  carried on the agent turn only;
 * on what survives: fenced code stripped, secrets scrubbed, a per-turn cap
   and a head-stable session cap (R6);
 * ``keep_assistant=False`` drops (b) — the owner's fallback if the assistant
@@ -23,6 +28,11 @@ The RULING (G105, 2026-09-03) is implemented literally:
 The G48 rail is restated, not removed: tool output, code and secrets never
 enter a bank. This module never opens a file — it takes lines — so the
 only transcript read stays where R2 puts it (``transcript_capture``).
+
+A note Cicada's own recall hook added (G149) is never the person's words,
+whatever shape the harness stores it in (``recall_text.is_injection``,
+``_HOOK_OUTPUT_RE``): captured as "the person said", it would hand Sleep its
+own memory as new evidence (R-H12).
 
 Pure: no bank state, no LLM, no I/O. ``summary`` carries counts only so it
 can go straight into the ledger (R10).
@@ -36,7 +46,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from api.services import recall_text
 from api.services.episode_scrub import REDACTED, scrub as _scrub  # R-LS6: one rule set
+from api.services.agent_turns import clean_effort, clean_model  # round 4 C1: one vocabulary
 
 HARNESSES = ("claude-code", "codex")
 
@@ -57,6 +69,10 @@ CLAUDE_HARNESS_TAGS = frozenset({
     "task-notification", "command-name", "command-message", "command-args",
     "command-stdout", "local-command-stdout", "local-command-caveat",
     "system-reminder", "ide_opened_file", "ide_selection", "ide_diagnostics",
+    # G149 R-H12: tag names hook output could arrive under. Unverified here (no
+    # transcript is read, R2); a person never types them, so dropping them
+    # costs nothing.
+    "user-prompt-submit-hook", "session-start-hook",
 })
 CODEX_HARNESS_TAGS = frozenset({
     "environment_context", "user_instructions", "permissions",
@@ -65,6 +81,10 @@ CODEX_HARNESS_TAGS = frozenset({
 })
 
 _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+# G149 R-H12: the same tags as a SPAN, stripped wherever it sits in a block,
+# like a system reminder. `_first_tag` reads only a block's first tag, so hook
+# output a harness appended after the person's prompt would otherwise be kept.
+_HOOK_OUTPUT_RE = re.compile(r"<(user-prompt-submit-hook|session-start-hook)>.*?</\1>", re.DOTALL)
 _LEADING_TAG_RE = re.compile(r"^\s*<([A-Za-z_][A-Za-z0-9_-]*)")
 _FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _OPEN_FENCE_RE = re.compile(r"```.*\Z", re.DOTALL)
@@ -78,6 +98,10 @@ class Turn:
     role: str  # "user" | "assistant"
     text: str
     ts: str | None
+    # Round 4 C1: set on an agent turn only — what the harness recorded for the
+    # kept reply's line; never inferred (R4B-2).
+    model: str | None = None
+    effort: str | None = None
 
 
 @dataclass
@@ -138,7 +162,7 @@ class _Builder:
         self.turn_cap = turn_cap
         self.session_cap = session_cap
         self.turns: list[Turn] = []
-        self.pending: list[tuple[str, str | None]] = []
+        self.pending: list[tuple[str, str | None, str | None, str | None]] = []
         self.kept: Counter = Counter()
         self.dropped_blocks: Counter = Counter()
         self.dropped_messages: Counter = Counter()
@@ -161,9 +185,9 @@ class _Builder:
         self.boundary()
         self._add("user", text, ts)
 
-    def assistant_text(self, text: str, ts: str | None) -> None:
+    def assistant_text(self, text: str, ts: str | None, model=None, effort=None) -> None:
         if text and text.strip():
-            self.pending.append((text, ts))
+            self.pending.append((text, ts, clean_model(model), clean_effort(effort)))
 
     def assistant_tool_call(self) -> None:
         """A tool call means everything the agent said so far this turn was
@@ -174,15 +198,19 @@ class _Builder:
     def boundary(self) -> None:
         if not self.pending:
             return
-        joined = "\n\n".join(t for t, _ in self.pending)
+        joined = "\n\n".join(p[0] for p in self.pending)
         ts = self.pending[-1][1]
+        # R4B-2: the last line of the kept reply that names one — the line whose
+        # `ts` the turn already takes; narration before a tool was dropped with it.
+        model = next((p[2] for p in reversed(self.pending) if p[2]), None)
+        effort = next((p[3] for p in reversed(self.pending) if p[3]), None)
         self.pending = []
         if not self.keep_assistant:
             self.count_msg("assistant_by_flag")
             return
-        self._add("assistant", joined, ts)
+        self._add("assistant", joined, ts, model=model, effort=effort)
 
-    def _add(self, role: str, text: str, ts: str | None) -> None:
+    def _add(self, role: str, text: str, ts: str | None, *, model=None, effort=None) -> None:
         cleaned = strip_code_fences(text)
         cleaned, n = scrub_secrets(cleaned)
         self.scrubbed += n
@@ -196,7 +224,7 @@ class _Builder:
         if self.total_chars + len(cleaned) > self.session_cap:
             self.session_cap_hit = True
             return
-        self.turns.append(Turn(role=role, text=cleaned, ts=ts))
+        self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
         self.total_chars += len(cleaned)
         self.kept[role] += 1
         if ts:
@@ -294,9 +322,9 @@ def extract_claude_code(
             for bk in blocks:
                 if bk.get("type") != "text":
                     continue
-                text = _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or ""))
+                text = _HOOK_OUTPUT_RE.sub("", _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or "")))
                 tag = _first_tag(text)
-                if tag in CLAUDE_HARNESS_TAGS:
+                if tag in CLAUDE_HARNESS_TAGS or recall_text.is_injection(text):
                     tagged += 1
                     continue
                 if text.strip():
@@ -309,10 +337,17 @@ def extract_claude_code(
             if obj.get("isApiErrorMessage"):
                 b.count_msg("api_error")
                 continue
+            # Round 4 D1 (C1): exactly two keys of an agent line — `message.model`
+            # and the top-level `effort` (a `{level}` object is read the same way).
+            # Thinking, usage and every other key stay unread (G105).
+            model = msg.get("model")
+            effort = obj.get("effort")
+            if isinstance(effort, dict):
+                effort = effort.get("level")
             for bk in blocks:
                 k = str(bk.get("type") or "")
                 if k == "text":
-                    b.assistant_text(str(bk.get("text") or ""), ts)
+                    b.assistant_text(str(bk.get("text") or ""), ts, model, effort)
                 elif k == "tool_use":
                     b.count_block("tool_use")
                     b.assistant_tool_call()
@@ -343,6 +378,7 @@ def extract_codex(
     b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap, session_cap=session_cap)
     session_id: str | None = None
     cwd: str | None = None
+    ctx_model = ctx_effort = None
     for raw in lines:
         raw = raw.strip()
         if not raw:
@@ -357,6 +393,14 @@ def extract_codex(
             session_id = session_id or (str(payload.get("id") or "") or None)
             cwd = cwd or (str(payload.get("cwd") or "") or None)
             continue
+        if typ == "turn_context":
+            # Round 4 D1 (C1): the model and reasoning effort for the agent turns
+            # that follow, until the next turn_context — these two payload keys
+            # only; instructions, policies and summaries are never read. Counted
+            # as before, so the ledger's counts do not move.
+            ctx_model, ctx_effort = payload.get("model"), payload.get("effort")
+            b.count_msg("other_type")
+            continue
         if typ != "response_item":
             b.count_msg("other_type")
             continue
@@ -370,13 +414,14 @@ def extract_codex(
             ]
             if role == "user":
                 b.boundary()
-                kept = [t for t in texts if _first_tag(t) not in CODEX_HARNESS_TAGS and t.strip()]
+                kept = [t for t in texts
+                        if _first_tag(t) not in CODEX_HARNESS_TAGS and not recall_text.is_injection(t) and t.strip()]
                 if not kept:
                     b.count_msg("harness_tag" if texts else "empty")
                     continue
                 b.user("\n".join(kept), ts)
             elif role == "assistant":
-                b.assistant_text("\n".join(texts), ts)
+                b.assistant_text("\n".join(texts), ts, ctx_model, ctx_effort)
             else:
                 b.count_msg("developer")
         elif ptype == "function_call":
