@@ -8,7 +8,7 @@ extension Copy {
         static let bannerTitle = "You're exploring a demo"
         /// F-08 said "nothing you do here is kept"; the demo keeps its own edits until it is deleted, so the sentence
         /// says what is true instead: none of it reaches the person's own memory (capture is refused into it, R-CS10).
-        static let bannerLine = "Made-up memories, with pictures and videos on every page. Nothing here is yours, "
+        static let bannerLine = "Made-up memories, with pictures, a video and a project to open. Nothing here is yours, "
             + "and nothing you do here reaches your own memory."
         static let restartTour = "Restart tour"
         static let restartTourHelp = "Walk through the pages again, from the search bar"
@@ -19,7 +19,7 @@ extension Copy {
         // Settings → General.
         static let settingsGroup = "Getting to know Cicada"
         static let demoTitle = "Demo memory"
-        static let demoDetail = "Made-up memories with pictures and videos on every page, to try things safely. "
+        static let demoDetail = "Made-up memories with pictures, a video and a project, to try things safely. "
             + "Your own memory stays exactly as it is."
         static let demoActiveDetail = "You're in the demo now."
         static let exploreDemo = "Explore the demo"

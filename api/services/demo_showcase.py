@@ -31,7 +31,7 @@ from typing import Callable
 
 from api.services import (calendar_local, decay_policy, demo_pictures, entity_body, entity_picture, episode_ids,
                           episode_scrub, episode_staging, git_service, markdown_parser, media_ingestor, owner_identity,
-                          paper_metadata, papers, sync_state)
+                          paper_metadata, papers, sync_state, tab_groups)
 from api.services.agentic_write import write_claim
 
 Commit = Callable[[Path, str, list[str]], None]
@@ -110,10 +110,9 @@ _EVENTS = (
     ("dentist", "Dentist", "17:30", 30, "demo-home", "Example Street 12", [], None),
 )
 
-#: Round 4 Sources part 2's tab-group snapshot (`tab_groups.sync`, landing in parallel on feat/r4-sources2): one
-#: episode per open group, keyed `tab-group:<browser>:<profile>:<identity>`, `source: tab-group`, origin
-#: `chrome-tab-group`, the colour in `tab_group_color`. Written here in that shape directly — swap to
-#: `tab_groups.body_for` once it is on dev (r4-research2/tab-groups.md §4).
+#: Round 4 Sources part 2's tab-group snapshot (`tab_groups.sync`, #114): one episode per open group, keyed
+#: `tab-group:<browser>:<profile>:<identity>`, `source: tab-group`, the colour in `tab_group_color`. The body and
+#: origin come from `tab_groups` itself, so the demo's episode can never drift from what a real sync writes.
 _TAB_GROUP = {"identity": "saved:demo-robot-learning", "title": "Robot learning", "color": "blue",
               "tabs": (("Diffusion Policy reading notes", "https://example.com/notes/diffusion-policy"),
                        ("Teleoperation tips", "https://example.com/guides/teleoperation"),
@@ -343,12 +342,10 @@ def _write_calendar(bank_dir: Path, today: date) -> list[str]:
 
 def _write_tab_group(bank_dir: Path, today: date) -> list[str]:
     group = _TAB_GROUP
-    lines = [f"# Tab group: {group['title']}", "", "**Browser:** Chrome", f"**Colour:** {group['color']}",
-             f"**Open tabs:** {len(group['tabs'])}", ""]
-    lines += [f"- {name} — {url}" for name, url in group["tabs"]]
+    body = tab_groups.body_for(group["title"], group["color"], "chrome", list(group["tabs"]), total=len(group["tabs"]))
     draft = episode_staging.EpisodeDraft(
-        title=f"Tab group: {group['title']}", source_id=f"tab-group:chrome:Default:{group['identity']}",
-        source="tab-group", origin="chrome-tab-group", body="\n".join(lines), timestamp=f"{today}T08:00:00+00:00",
+        title=f"Tab group: {group['title']}", source_id=f"{tab_groups.SOURCE_PREFIX}chrome:Default:{group['identity']}",
+        source="tab-group", origin=tab_groups.origin_for("chrome"), body=body, timestamp=f"{today}T08:00:00+00:00",
         original_date=str(today), extra={"browser": "chrome", "profile": "Default", "tab_group_color": group["color"]},
         writer="demo")
     return list(episode_staging.stage([draft], bank_dir / "episodes", bank=bank_dir.name).paths)
