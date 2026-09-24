@@ -625,6 +625,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "garden-sensor-project",
      "quote": {
       "end": 78,
@@ -678,6 +679,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "garden-sensor-project",
      "quote": {
       "end": 55,
@@ -751,6 +753,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 2,
      "project": null,
      "quote": {
       "end": 58,
@@ -775,6 +778,7 @@
      "kind": "created",
      "moreFacts": 0,
      "participants": [],
+     "participantsTotal": 0,
      "project": "garden-sensor-project",
      "quote": null,
      "state": null,
@@ -832,6 +836,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "garden-sensor-project",
      "quote": {
       "end": 78,
@@ -1101,6 +1106,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 3,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 241,
@@ -1240,6 +1246,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 4,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 180,
@@ -1313,6 +1320,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": null,
      "quote": {
       "end": 59,
@@ -1376,6 +1384,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 2,
      "project": null,
      "quote": {
       "end": 72,
@@ -1439,6 +1448,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 2,
      "project": null,
      "quote": {
       "end": 89,
@@ -1492,6 +1502,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 69,
@@ -1516,6 +1527,7 @@
      "kind": "created",
      "moreFacts": 0,
      "participants": [],
+     "participantsTotal": 0,
      "project": "pick-and-place-demo",
      "quote": null,
      "state": null,
@@ -1573,6 +1585,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 2,
      "project": null,
      "quote": {
       "end": 84,
@@ -1646,6 +1659,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 131,
@@ -1854,6 +1868,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 4,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 180,
@@ -2255,6 +2270,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 3,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 241,
@@ -2394,6 +2410,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 4,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 180,
@@ -2477,6 +2494,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 2,
      "project": null,
      "quote": {
       "end": 59,
@@ -2530,6 +2548,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "rover-arm-project",
      "quote": {
       "end": 72,
@@ -2619,6 +2638,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "rover-arm-project",
      "quote": {
       "end": 69,
@@ -2672,6 +2692,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 69,
@@ -2743,6 +2764,7 @@
      "kind": "happening",
      "moreFacts": 0,
      "participants": [],
+     "participantsTotal": 0,
      "project": "rover-arm-project",
      "quote": {
       "end": 57,
@@ -2816,6 +2838,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "rover-arm-project",
      "quote": {
       "end": 131,
@@ -2905,6 +2928,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 1,
      "project": "rover-arm-project",
      "quote": {
       "end": 41,
@@ -2929,6 +2953,7 @@
      "kind": "created",
      "moreFacts": 0,
      "participants": [],
+     "participantsTotal": 0,
      "project": "rover-arm-project",
      "quote": null,
      "state": null,
@@ -3372,6 +3397,7 @@
        "url": null
       }
      ],
+     "participantsTotal": 4,
      "project": "pick-and-place-demo",
      "quote": {
       "end": 180,

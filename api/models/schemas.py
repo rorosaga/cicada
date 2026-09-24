@@ -1093,6 +1093,10 @@ class TimelineItem(CamelModel):
     facts: list[TimelineFact] = []
     more_facts: int = 0
     participants: list[TimelineParticipant] = []
+    # Round 4 D6: `participants` is the first `PARTICIPANTS_SHOWN` in the claim's
+    # own order; the whole count rides here, always present (0 for a history row),
+    # so the app's "+N more" never guesses and a 622-paper happening stays small.
+    participants_total: int = 0
     quote: Optional[TimelineQuote] = None
     conversation: Optional[TimelineConversation] = None
     claim: Optional[ClaimModel] = None
