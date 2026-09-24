@@ -27,8 +27,8 @@ FOLLOWUP_KEYS = ("id", "kind", "requiredInput", "status", "title", "entityId", "
                  "createdDate")
 
 
-def _wire(tmp_path, monkeypatch) -> dict:
-    bank = demo(tmp_path)
+def _wire(tmp_path, monkeypatch, *, showcase: bool = False) -> dict:
+    bank = demo(tmp_path, showcase=showcase)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
     monkeypatch.setenv("CICADA_API_AUTH", "off")
     monkeypatch.setattr(handshake, "local_timezone", lambda: "UTC")
@@ -54,6 +54,14 @@ def test_the_app_fixture_is_the_demo_wire(tmp_path, monkeypatch):
         FIXTURE.write_text(text, encoding="utf-8")
     assert FIXTURE.read_text(encoding="utf-8") == text, (
         "the app's fixture drifted from the demo wire — rerun with CICADA_WRITE_APP_FIXTURE=1 after a deliberate change")
+
+
+def test_the_showcase_leaves_the_projects_wire_alone(tmp_path, monkeypatch):
+    """Round 4 (T-Demo): the showcase is written into the same demo, so the fixture is only the demo's wire if the
+    showcase never touches it — nothing it writes names the scenario's projects or their people. If this fails, change
+    the showcase, never the fixture."""
+    text = json.dumps(_wire(tmp_path, monkeypatch, showcase=True), indent=1, sort_keys=True, ensure_ascii=False) + "\n"
+    assert FIXTURE.read_text(encoding="utf-8") == text
 
 
 def test_the_fixture_is_synthetic():

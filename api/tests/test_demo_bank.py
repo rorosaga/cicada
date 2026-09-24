@@ -9,7 +9,7 @@ from _demo_scenario import T, d, day_one, demo
 from fastapi.testclient import TestClient
 
 from api import config, main
-from api.services import bank_index, bank_registry, claim_contexts, demo_bank, markdown_parser
+from api.services import bank_index, bank_registry, claim_contexts, demo_bank, demo_showcase, markdown_parser
 from api.services.claims import parse_claims
 
 _URL = re.compile(r"https?://[^\s)\"'>\]]+")
@@ -32,8 +32,9 @@ def test_populate_writes_the_expected_counts(tmp_path):
     demo_bank.populate(bank_dir)
     assert len(list((bank_dir / "entities").glob("*.md"))) >= 60
     assert len(list((bank_dir / "episodes").glob("*.md"))) >= 40
-    # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately.
-    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 7
+    # PJ-6: the quiet camera thread's follow-up (spec §12), deliberately; then round 4's showcase adds the three kinds
+    # DS-2 found missing (R-DI21): a removal, a divergence and a normalization.
+    assert len(list((bank_dir / "inbox").glob("inbox-*.md"))) == 10
     assert (bank_dir / "entities" / "bob-example.md").exists()  # placeholder owner (R7)
 
 
@@ -43,7 +44,9 @@ def test_populate_is_only_placeholder_names(tmp_path):
     demo_bank.populate(bank_dir)
     text = "\n".join(p.read_text() for p in bank_dir.rglob("*.md"))
     urls = _URL.findall(text)
-    assert urls and all("://example.com" in u or ".example.com" in u for u in urls), urls  # EVERY url (spec §12)
+    # EVERY url (spec §12) — or one of the showcase's four public items, each with its licence (round 4 T-Demo).
+    assert urls and all("://example.com" in u or ".example.com" in u or u in demo_showcase.PUBLIC_URLS
+                        for u in urls), urls
     assert "rodrigo" not in text.lower()
     for p in (bank_dir / "entities").glob("*.md"):
         fm = markdown_parser.parse(p).frontmatter
