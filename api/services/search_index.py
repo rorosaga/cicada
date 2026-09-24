@@ -66,7 +66,9 @@ DB_FILE = "search_index.db"
 # "1" stops surfacing without anyone deleting the file (final review).
 # "3": G141 — `status` in the claim payload so an event hit renders as a dated
 # happening (R-PJB11); the bump rebuilds every index once (TODO ruling 3).
-SCHEMA_VERSION = "3"
+# "4": G150 — backlog items are their own kind (`blg`); the bump rebuilds
+# every index once (TODO ruling 3).
+SCHEMA_VERSION = "4"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over
@@ -84,6 +86,10 @@ INLINE_REFRESH_LIMIT = 64
 ROW_BITS = 16
 MAX_ROWS_PER_DOC = (1 << ROW_BITS) - 1
 INDEXED_SUBDIRS = ("entities", "inbox", "episodes")
+# G150 (R-B25): one folder per project under `backlog/`, one file per item —
+# ordered after everything else, so a full build hands items the largest ids.
+BACKLOG_SUBDIR = "backlog"
+_ORDER = (*INDEXED_SUBDIRS, BACKLOG_SUBDIR)
 
 # Column layout per table. `bm25()` weights are positional over ALL columns,
 # UNINDEXED ones included — `WEIGHTS` is the one place they are written, and
@@ -96,6 +102,7 @@ _FTS_COLUMNS = {
     "epi": "title, keywords",
     "pas": "body, s UNINDEXED, e UNINDEXED",
     "inb": "title, aliases, keywords, body",
+    "blg": "title, aliases, keywords, body",
 }
 WEIGHTS = {
     "ent": "10.0, 9.0, 7.0, 4.0",
@@ -104,6 +111,7 @@ WEIGHTS = {
     "epi": "10.0, 7.0",
     "pas": "4.0, 0.0, 0.0",
     "inb": "10.0, 9.0, 7.0, 4.0",
+    "blg": "10.0, 9.0, 7.0, 4.0",
 }
 
 _FTS5: bool | None = None
@@ -232,6 +240,11 @@ def _scan(memory_path: Path) -> dict[str, bank_index.IndexedFile]:
             if subdir == "inbox" and not f.path.name.startswith("inbox-"):
                 continue
             out[f"{subdir}/{f.path.name}"] = f
+    root = Path(memory_path) / BACKLOG_SUBDIR
+    if root.is_dir():
+        for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+            for f in bank_index.files(memory_path, f"{BACKLOG_SUBDIR}/{folder.name}"):
+                out[f"{BACKLOG_SUBDIR}/{folder.name}/{f.path.name}"] = f
     return out
 
 
@@ -250,7 +263,7 @@ def _ordered(files: dict[str, bank_index.IndexedFile]) -> list[tuple[str, bank_i
         doc_key, f = item
         subdir = doc_key.split("/", 1)[0]
         ts = episode_ids.timestamp_sort_key(f.frontmatter.get("timestamp")) if subdir == "episodes" else ""
-        return (INDEXED_SUBDIRS.index(subdir), ts, doc_key)
+        return (_ORDER.index(subdir), ts, doc_key)
 
     return sorted(files.items(), key=key)
 
@@ -488,7 +501,29 @@ def _index_inbox(conn, doc_key: str, f, fm: dict, body: str) -> None:
     )
 
 
-_INDEXERS = {"entities": _index_entity, "episodes": _index_episode, "inbox": _index_inbox}
+def _index_backlog(conn, doc_key: str, f, fm: dict, body: str) -> None:
+    """G150 (R-B25): an item is found by its title, by its id (so "RAP3" or
+    "G13" lands on it), by its project, state and triage, and by the words of
+    its description and notes. `ref` is `<project>/<id>` — the address the
+    palette opens."""
+    from api.services import backlog
+
+    project, iid = doc_key.split("/")[1], f.path.stem
+    meta = {"id": iid, "project": project, "title": str(fm.get("title") or iid),
+            "status": str(fm.get("status") or "open"), "triage": str(fm.get("triage") or "") or None,
+            "updated": str(fm.get("updated") or fm.get("created") or "")[:10] or None}
+    description, notes = backlog.parse_body(body)
+    text = "\n".join([description, *(n[2] for n in notes)])[:BODY_CHARS]
+    doc_id = _insert_doc(conn, doc_key, "backlog", f"{project}/{iid}", f, meta)
+    conn.execute(
+        "INSERT INTO blg(rowid, title, aliases, keywords, body) VALUES (?, ?, ?, ?, ?)",
+        (doc_id << ROW_BITS, meta["title"], iid,
+         " ".join(x for x in (project, meta["status"], meta["triage"]) if x), text),
+    )
+
+
+_INDEXERS = {"entities": _index_entity, "episodes": _index_episode, "inbox": _index_inbox,
+             "backlog": _index_backlog}
 
 
 def _index_doc(conn, doc_key: str, f) -> None:

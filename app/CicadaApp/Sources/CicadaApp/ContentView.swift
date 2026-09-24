@@ -359,6 +359,8 @@ struct ContentView: View {
         case .inbox(let id):
             router.pendingInboxItem = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .inbox }
+        case .backlogItem(let project, let id):
+            router.routeToBacklogItem(project: project, item: id)
         case .tab(let tab):
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
         case .action(let action):

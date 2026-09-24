@@ -230,6 +230,10 @@ struct ProjectsPage: View {
                 tabChosen = true
             }
             columns.open(id)
+            // G150 (R-B25) — a ⌘K backlog landing opens its item through `openItem`, so a Reader left open steps
+            // aside (R-B21: the Reader otherwise wins the slot and the landed item would not show); any other
+            // project landing closes a stale item or card.
+            if let item = router.consumeBacklogItem() { openItem(item) } else { trailing = nil }
         }
     }
 

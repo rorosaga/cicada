@@ -2,8 +2,9 @@ import Foundation
 
 /// Server hits → palette rows (G136 S4; round-3 design §3.3). Pure.
 enum FindServerRows {
-    /// R-SU14 — Pass A's and Pass B's kinds; `inbox` is the local tier's already.
-    static let kinds = ["entity", "claim", "episode", "media"]
+    /// R-SU14 — Pass A's and Pass B's kinds; `inbox` is the local tier's already; `backlog` (G150) has no local
+    /// tier — it is not a Store domain — so the server is its only tier.
+    static let kinds = ["entity", "claim", "episode", "media", "backlog"]
 
     static func group(forKind kind: String) -> FindGroupID? {
         switch kind {
@@ -11,6 +12,7 @@ enum FindServerRows {
         case "episode": .conversations
         case "claim": .beliefs
         case "media": .sources
+        case "backlog": .backlog
         default: nil
         }
     }
@@ -26,6 +28,8 @@ enum FindServerRows {
         /// A saved item's URL from the Feed snapshot the app holds — a hit carries none.
         var mediaURL: (String) -> String? = { _ in nil }
         var readerAvailable = FindReaderSeam.isAvailable
+        /// G150 — a project's name for a backlog row's detail line (the Store's entity names).
+        var projectName: (String) -> String? = { _ in nil }
     }
 
     static func rows(_ response: MemorySearchResponse, query: String, context: Context) -> [FindRow] {
@@ -90,6 +94,17 @@ enum FindServerRows {
                                     trailing: date(hit.timestamp), speaker: speaker(hit.evidenceKind), score: hit.score,
                                     destination: .conversation(target),
                                     secondary: .conversations(harness: hit.harness, origin: hit.origin, query: nil)))
+            case "backlog":
+                // G150 (R-B25) — the id is the item's address (R-B24); the row lands on Projects with the item open.
+                let project = hit.subjectId ?? ""
+                let state = BacklogModel.statusLabel(BacklogStatus(rawValue: hit.status) ?? .open)
+                rows.append(FindRow(key: FindRowKey(kind: .backlog, id: "\(project)/\(hit.id)"), group: .backlog,
+                                    title: hit.name, titleRanges: bold(hit.name),
+                                    detail: [hit.id, context.projectName(project) ?? project, state]
+                                        .joined(separator: " · "),
+                                    badge: BacklogModel.triageLabel(hit.type), mark: .symbol("checklist"),
+                                    trailing: date(hit.timestamp), score: hit.score,
+                                    destination: .backlogItem(project: project, id: hit.id)))
             default:
                 continue
             }

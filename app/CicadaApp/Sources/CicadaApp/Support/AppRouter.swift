@@ -91,6 +91,22 @@ final class AppRouter {
         return pendingProject
     }
 
+    /// G150 (R-B25) — a backlog item opened from ⌘K: Projects, its project open, the item in the third column. The
+    /// item is set before the project, so the page's `pendingProject` observer finds both.
+    var pendingBacklogItem: String?
+
+    func routeToBacklogItem(project: String, item: String) {
+        pendingBacklogItem = item
+        routeToProject(project)
+    }
+
+    /// Read-then-clear, `consumeProject`'s reason.
+    @discardableResult
+    func consumeBacklogItem() -> String? {
+        defer { pendingBacklogItem = nil }
+        return pendingBacklogItem
+    }
+
     /// R-PP18 — a quiet thread's "How did it go? ›" opens its follow-up's card in the Inbox; the Inbox owns answering
     /// and its Undo (DR-42). The tab and the item move together.
     func routeToInboxItem(_ id: String) {
