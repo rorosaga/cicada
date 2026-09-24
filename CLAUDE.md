@@ -811,7 +811,9 @@ announces the row (G139). `SettingsSection` raw values did not move. General's a
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
 Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
-menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays) and Keep memory working when
+menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays); a login launch opens no
+window — the bookworm waits in the menu bar, and the Dock icon brings the window (`LaunchKind` from the 'oapp' event,
+`LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
 `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
 launchd the port). ⌘K and ⌘F are
@@ -853,25 +855,31 @@ sits on paint — then the palette's own `FindPanelBody` in `.page` placement in
 captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
 question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
 pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
-Consolidate. Right after the Welcome's Start, *Make it yours* (Appearance and Scene; `AppearanceTipPolicy`, per
+Consolidate. Right after onboarding ends (Open Cicada or *Set up later*), *Make it yours* (Appearance and Scene; `AppearanceTipPolicy`, per
 viewer) sits beside the column where it fits, else atop it; once hidden it lives only in Settings.
 
-**Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
-`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero` = `PaintedScene(.fullBleed)`,
-Home's living painting and scene rule — G144), the headline on the card that rises into it, what Cicada found on this
-Mac as a checklist whose ticks are the consent (own acts, no new permission prompt, no other app — `FoundPolicy`), a
-chat-export drop zone that stages rows and
-imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
-blocking — an untouched choice keeps the install's configured engine, and Getting started asks
-"who reads" only if that cannot run), and one meadow pill whose text twin says exactly what it
-will do. A browser's bookmarks are neither counted nor read before its tick. Start is `SetupRunner`:
-the owner PUT first and alone, then Home, then every ticked row side by side, each failure on its
-own row. Getting started continues on Home — rows from the machine's own state, the first read
-(*Read now*, G125 R10's second narrow amendment, only inside the card), and "Keep reading on its
-own?" asked once of a person still on `manual`, its options gated by ruling 4. *Set up later*,
-*Try the demo instead* and Settings → General's *Run setup again* / *Show setup checklist* remain.
-Export reminders (`ExportWaits`) ask for notification permission only when the person chooses a
-delay; the Feed strip, the menu bar and the card say the same with notifications off.
+**Onboarding (G145, round 4 phase B).** Six pages in one full-window layer, raised by the unchanged `FirstRunGate`
+(unknown is never empty) or by the one door, `OnboardingState.reset` + `AppRouter.requestFirstRun` (Settings →
+General's *Run setup again*, the demo's *Finish setting up*): Welcome and You're set on the full living painting
+with a card (`WelcomeHero`); Import, Agents, Who reads and Keep it running in a split frame — the page's pane
+painting (`OnboardingPane`, 540 pt, which gives way before the column does), the column with "Step n of 6 · k still
+coming in", Back and one primary (⏎ never animates). Get started is the owner PUT, alone and first; after it **a
+tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-side sources register an
+`AppSourceDriver`), an untick stops it keeping up and keeps what came in, and × shows only where a run can stop
+(a browser's; a chat export shows its progress and never an ×). Nothing is pre-ticked and nothing is read before a
+tick. The Import rows are one table (`ImportCatalog`: supported installed browsers, Calendar, Apple Notes — a
+one-time read — Wispr Flow when present, the chat drop zone and *See how* per provider, a drawn walkthrough over
+`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`); Contacts and Chrome's open tab groups join as one
+entry and one driver each. Every row, the topbar's count, You're set and Home's Getting started read one projection,
+`SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
+`AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
+automatically* (its commands shown first; Settings → Agents keeps it its own click). Who reads is `EngineChooser`,
+writing only on a click; Keep it running holds the same switches as Settings → General and turns none on. You're
+set shows one public-domain quote (`MemoryQuotes`, G153, kept per install) and Open Cicada marks the bank, records
+the connected agents, asks `TourOffer` and lands on Home. *Set up later* and *Try the demo* (`SetupRunner.demoPlan`)
+remain; export reminders (`ExportWaits`) ask for notification permission only when a delay is chosen. Getting started
+continues on Home — the first read (*Read now*, G125 R10's second narrow amendment, only inside the card) and "Keep
+reading on its own?" asked once of a person still on `manual`, its options gated by ruling 4.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
 Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
@@ -1173,8 +1181,8 @@ DR-5 allows it six uses, and the pre-D call sites that still read `CicadaTheme.a
 state dot among them changes hue on a red or orange Mac) are swept by each page's DS track. `accentText` derives from it — exactly the rules' values for the default blue, pushed to ≥ 4.5:1 for
 any other (`AccentInk`). The retired indigo survives only as a data hue (the "active" status, the heat ramp). Depth is
 an inset ring, never a shadow in dark and one soft shadow on a light floating surface (`ringed`, `floatingSurface`,
-`Theme/Elevation.swift`; `ElevationLintTests`) — the target; the three sites that lint still allowlists
-(`MediaPreview`, `HeroPreview`, `WelcomeView`) shadow until their tracks; `GlassCard` is a `bgFocus` card with a ring. The nature tokens (`sky`,
+`Theme/Elevation.swift`; `ElevationLintTests`) — the target; the two sites that lint still allowlists
+(`MediaPreview`, `HeroPreview`) shadow until their tracks; `GlassCard` is a `bgFocus` card with a ring. The nature tokens (`sky`,
 `meadow`, `dandelion`, `cloud`, `bark`, `soil`, their washes, the procedural skies) are for art and reward moments
 only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
 **Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
