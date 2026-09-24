@@ -179,6 +179,14 @@ def _demo_refusal(memory_path: Path) -> str | None:
     return demo_guard.AGENT_REFUSAL if demo_guard.is_demo(memory_path) else None
 
 
+def _now_ts() -> str:
+    """The second an agent's write lands (round 4 C2) — one clock for every MCP
+    write tool, stdio and remote alike, patchable in tests like `_now_in`.
+    Only this seam stamps `recorded_ts` (R4B-5/R4B-16): an in-process writer
+    has no captured turn to join, and the demo's wire must not drift."""
+    return episode_ids.utc_now_seconds()
+
+
 def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
     """Answer a NL question over memory with citations + explicit gaps.
 
@@ -414,7 +422,7 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
     r = watch_record.record(
         memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
         session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
-        origin=ctx.claim_origin or watch_record.ORIGIN,
+        origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
     )
     if r.get("error"):
         return f"Could not record the watch: {r['error']}"
@@ -1031,7 +1039,8 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
     now = _now_in(machine_tz)
     today = now.date()
     common = dict(observer="agent", origin=ctx.claim_origin or "mcp", authored_by=ctx.author,
-                  session_id=ctx.session_id, evidence=evidence, today=today, tz_name=machine_tz)
+                  session_id=ctx.session_id, evidence=evidence, today=today, tz_name=machine_tz,
+                  recorded_ts=_now_ts())
     slug = None
     on_day = None
     if kind != HAPPENED and when is not None and str(when).strip():
@@ -1173,6 +1182,8 @@ def write_claim(
         origin=ctx.claim_origin,
         forbid_owner_observer=ctx.is_remote,
         expected_end=expected_end,
+        # Round 4 C2: the second it landed, for the turn join (R4B-5).
+        recorded_ts=_now_ts(),
     )
 
     if result.get("action") == "ambiguous_subject":
@@ -1311,13 +1322,13 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
         else:
             result = progress.withdraw(memory_path, subject=stem, claim_id=claim.id, author=ctx.author,
                                        reason=reason, origin=ctx.claim_origin, session_id=ctx.session_id,
-                                       evidence=evidence)
+                                       evidence=evidence, recorded_ts=_now_ts())
             if result.get("paths"):
                 result["path"] = result["paths"][0]
     else:
         result = agentic_write.retract_claim(
             memory_path, subject, (claim_id or "").strip(), reason=reason, author=ctx.author,
-            origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence,
+            origin=ctx.claim_origin, session_id=ctx.session_id, evidence=evidence, recorded_ts=_now_ts(),
         )
     action = result.get("action")
     if action == "already_closed":
