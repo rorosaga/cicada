@@ -34,13 +34,21 @@ MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 async def resolve_and_prune(
-    resolved: list[dict], existing: list[dict], settings: Settings, *, now: datetime | None = None
+    resolved: list[dict],
+    existing: list[dict],
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    tuning: dict[str, float] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
 
     ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
     ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
     can simulate elapsed time without monkeypatching the stdlib clock.
+
+    ``tuning``: the per-type pace (G147, ``{type: multiplier}``); ``None``
+    means none yet.
     """
     changes: list[dict] = list(resolved)
 
@@ -140,9 +148,14 @@ async def resolve_and_prune(
 
     progress.close()
 
-    # Temporal decay for unreferenced entities. The per-week rate and the class
-    # both come from `decay_policy.resolve` — evergreen entities are skipped.
+    # Temporal decay for unreferenced entities (G147). The weekly rate is
+    # `decay_policy.effective`: the class's (or explicit) rate x the spacing
+    # factor over distinct mention weeks x the per-type pace the person chose —
+    # the SAME function `GET /entities/{id}` serves, so the card's pace is the
+    # pace charged. Evergreen entities are skipped.
     now = now or datetime.now()
+    alpha, floor = decay_policy.spacing_params(settings)
+    tuning = tuning or {}
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -165,7 +178,8 @@ async def resolve_and_prune(
             continue
 
         confidence = fm.get("confidence", 0.5)
-        decay_class, decay_rate = decay_policy.resolve(fm)
+        effective = decay_policy.effective(fm, alpha=alpha, floor=floor, tuning=tuning)
+        decay_class, decay_rate = effective.decay_class, effective.rate
         if decay_class is DecayClass.evergreen:
             # An artifact, not a belief: it does not become less true by going
             # unmentioned. No decay math, no decay nudge, never auto-archived.
