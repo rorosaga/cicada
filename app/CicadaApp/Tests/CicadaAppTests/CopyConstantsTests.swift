@@ -151,4 +151,16 @@ final class CopyConstantsTests: XCTestCase {
             XCTAssertFalse(text.lowercased().contains("token"), text)
         }
     }
+
+    /// Round-4 phase B — the onboarding's words: short labels, plain sentences, no price, no token, no jargon.
+    func testOnboardingCopyIsShortPlainAndPriceless() {
+        XCTAssertGreaterThan(Copy.onboardingLabels.count, 20, "a lint over nothing passes vacuously")
+        for label in Copy.onboardingLabels { XCTAssertLessThanOrEqual(label.count, 60, label) }
+        for text in Copy.onboardingLabels + Copy.onboardingSentences + ExportWalkthrough.allCaptions {
+            for banned in ["claim", "episode", "token", "price"] {
+                XCTAssertFalse(text.lowercased().contains(banned), "\(banned) in \(text)")
+            }
+            for banned in ["$", "MCP"] { XCTAssertFalse(text.contains(banned), "\(banned) in \(text)") }
+        }
+    }
 }
