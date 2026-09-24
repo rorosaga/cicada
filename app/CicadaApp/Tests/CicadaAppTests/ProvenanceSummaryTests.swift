@@ -117,6 +117,33 @@ final class ProvenanceSummaryTests: XCTestCase {
         XCTAssertEqual(ProvenanceSummary.episodeByConversation(nil), [:])
     }
 
+    // MARK: Models (round-4 C4, R-FA14)
+
+    func testAHarnessChipNamesItsModels() throws {
+        let c = try JSONDecoder().decode(ProvenanceContributor.self, from: Data(#"""
+            {"author":"claude-code","kind":"harness","claims":3,"models":[{"model":"claude-opus-5-5","effort":"high","beliefs":2},{"model":"claude-sonnet-5","beliefs":1}]}
+            """#.utf8))
+        XCTAssertEqual(ProvenanceSummary.modelsLine(c), "Opus 5.5 · high effort, Sonnet 5")
+        XCTAssertEqual(ProvenanceSummary.modelsHelp(c), ["Opus 5.5 · high effort — 2 beliefs", "Sonnet 5 — 1 belief"])
+
+        let three = ProvenanceContributor(author: "codex", kind: "harness", claims: 6, models: [
+            ContributorModel(model: "gpt-5.5-codex", beliefs: 1),
+            ContributorModel(model: "claude-opus-5-5", effort: "max", beliefs: 3),
+            ContributorModel(model: "claude-sonnet-5", beliefs: 2),
+        ])
+        XCTAssertEqual(ProvenanceSummary.modelsLine(three), "Opus 5.5 · max effort, Sonnet 5, +1 more")
+    }
+
+    func testAHarnessWithNoModelsSaysOnlyWhatIsTrue() {
+        XCTAssertEqual(ProvenanceSummary.modelsLine(ProvenanceContributor(author: "claude-desktop", kind: "harness")),
+                       "model not shared by this app")
+        XCTAssertNil(ProvenanceSummary.modelsLine(ProvenanceContributor(author: "claude-code", kind: "harness")),
+                     "a write from before D1: nothing added")
+        XCTAssertNil(ProvenanceSummary.modelsLine(ProvenanceContributor(author: "gpt-5.4-mini", kind: "model")))
+        XCTAssertNil(ProvenanceSummary.modelsLine(ProvenanceContributor(author: "user", kind: "user")))
+        XCTAssertEqual(ProvenanceSummary.modelsHelp(ProvenanceContributor(author: "claude-desktop", kind: "harness")), [])
+    }
+
     func testVendorNamesOnlyForProvidersWeCanName() {
         XCTAssertEqual(ContributorIdentity.vendorName(provider: "anthropic"), "Claude")
         XCTAssertEqual(ContributorIdentity.vendorName(provider: "openai"), "OpenAI")

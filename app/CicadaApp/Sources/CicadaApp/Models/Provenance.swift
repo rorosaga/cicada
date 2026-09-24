@@ -75,18 +75,24 @@ struct ProvenanceContributor: Codable, Hashable, Identifiable {
     let provider: String?
     let claims: Int
     let commits: Int
+    /// Round-4 C4 (D1) — on a `harness` contributor, the models its beliefs were
+    /// written with, joined to their turns at read. `[]` for every other kind,
+    /// before D1, and for an app that never tells its model.
+    let models: [ContributorModel]
 
     var id: String { author }
 
-    init(author: String, kind: String, provider: String? = nil, claims: Int = 0, commits: Int = 0) {
+    init(author: String, kind: String, provider: String? = nil, claims: Int = 0, commits: Int = 0,
+         models: [ContributorModel] = []) {
         self.author = author
         self.kind = kind
         self.provider = provider
         self.claims = claims
         self.commits = commits
+        self.models = models
     }
 
-    enum CodingKeys: String, CodingKey { case author, kind, provider, claims, commits }
+    enum CodingKeys: String, CodingKey { case author, kind, provider, claims, commits, models }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -95,6 +101,32 @@ struct ProvenanceContributor: Codable, Hashable, Identifiable {
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         claims = try c.decodeIfPresent(Int.self, forKey: .claims) ?? 0
         commits = try c.decodeIfPresent(Int.self, forKey: .commits) ?? 0
+        // `try?`: a mistyped list from a backend a shape ahead must not drop the
+        // whole contributor row (round-4 decode tolerance).
+        models = (try? c.decodeIfPresent([ContributorModel].self, forKey: .models)) ?? []
+    }
+}
+
+/// One model a harness contributor wrote with (C4) — `beliefs` is how many of
+/// its current beliefs on this page came from turns with that model.
+struct ContributorModel: Codable, Hashable {
+    let model: String
+    let effort: String?
+    let beliefs: Int
+
+    init(model: String, effort: String? = nil, beliefs: Int = 0) {
+        self.model = model
+        self.effort = effort
+        self.beliefs = beliefs
+    }
+
+    enum CodingKeys: String, CodingKey { case model, effort, beliefs }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? ""
+        effort = (try? c.decodeIfPresent(String.self, forKey: .effort)) ?? nil
+        beliefs = (try? c.decodeIfPresent(Int.self, forKey: .beliefs)) ?? 0
     }
 }
 

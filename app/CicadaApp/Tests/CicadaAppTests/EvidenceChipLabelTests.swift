@@ -48,6 +48,28 @@ final class EvidenceChipLabelTests: XCTestCase {
         XCTAssertEqual(EvidenceLabel.chipText(page, meta: nil, locale: us, timeZone: utc), "From the page")
     }
 
+    /// Round-4 C3 (R-FA14, DR-57 §9) — an agent span whose turn carries a model reads as the agent line.
+    func testAnAgentChipWithAModelSaysTheAgentLine() {
+        let meta = EvidenceDocMeta(title: nil, harness: "claude-code", origin: nil)
+        let withModel = EvidenceChipModel(source: .stored(Evidence(episode: "ep_2026-09-24_001", start: 0, end: 5,
+                                                                   kind: .assistant, model: "claude-opus-5-5",
+                                                                   effort: "high")))
+        XCTAssertEqual(EvidenceLabel.chipText(withModel, meta: meta, locale: us, timeZone: utc),
+                       "Claude Code · Opus 5.5 · high effort · Sep 24")
+        XCTAssertEqual(EvidenceLabel.chipText(withModel, meta: nil, locale: us, timeZone: utc),
+                       "The agent · Opus 5.5 · high effort · Sep 24")
+        let noModel = EvidenceChipModel(source: .stored(Evidence(episode: "ep_2026-09-24_001", start: 0, end: 5,
+                                                                 kind: .assistant)))
+        XCTAssertEqual(EvidenceLabel.chipText(noModel, meta: meta, locale: us, timeZone: utc),
+                       "Claude Code replied · Sep 24", "without a model the chip is byte-for-byte today's")
+        let user = EvidenceChipModel(source: .stored(Evidence(episode: "ep_2026-09-24_001", start: 0, end: 5,
+                                                              kind: .user, model: "claude-opus-5-5")))
+        XCTAssertEqual(EvidenceLabel.chipText(user, meta: meta, locale: us, timeZone: utc), "You said · Sep 24",
+                       "a model on the person's span is ignored — it is not who spoke")
+        XCTAssertTrue(EvidenceLabel.accessibility(withModel, meta: meta, opens: false, locale: us, timeZone: utc)
+            .hasPrefix("Claude Code · Opus 5.5 · high effort, September 24"))
+    }
+
     func testTheAccessibilityLabelIsASentence() {
         let chip = EvidenceChipModel(source: .stored(Evidence(episode: "ep_2026-09-03_004", start: 1, end: 5,
                                                               kind: .user)))
