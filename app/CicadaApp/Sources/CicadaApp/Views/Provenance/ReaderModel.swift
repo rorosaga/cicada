@@ -145,13 +145,19 @@ enum ReaderTime {
 /// accent underline, DR-18), another span the same entity cites `.other` (`washSoft`), a derived
 /// match `.mention` (semibold, never washed, DR-57). Scalar offsets, as `ReaderLayout` computes them;
 /// a wash that does not fit, or starts inside an earlier one, is skipped — never trapped on. At one
-/// offset the cited span wins over a soft one.
+/// offset the cited span wins over a soft one. R-DL3: markup stripped, washes mapped.
 enum ReaderText {
     static func segments(_ block: ReaderBlock) -> [CitedSpan.Segment] {
-        let text = ScalarText(block.text)
+        // R-DL3 — the turn keeps its lines ("•" for a bullet, numbering stays); emphasis, headings and quote
+        // markers go, and each wash is mapped through the same cut, so a cited span still covers its words.
+        let rawCount = ScalarText(block.text).count
+        let stripped = ExcerptText.stripMarkup(block.text, keepLines: true)
+        let text = ScalarText(stripped.text)
         func rank(_ s: ReaderWash.Style) -> Int { s == .other ? 1 : 0 }
         let washes = block.washes
-            .filter { $0.range.lowerBound >= 0 && $0.range.upperBound <= text.count && !$0.range.isEmpty }
+            .filter { $0.range.lowerBound >= 0 && $0.range.upperBound <= rawCount && !$0.range.isEmpty }
+            .map { ReaderWash(range: stripped.map($0.range), style: $0.style) }
+            .filter { !$0.range.isEmpty }
             .sorted { ($0.range.lowerBound, rank($0.style)) < ($1.range.lowerBound, rank($1.style)) }
         var out: [CitedSpan.Segment] = []
         var cursor = 0

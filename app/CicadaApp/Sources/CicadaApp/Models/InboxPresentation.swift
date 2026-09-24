@@ -270,7 +270,10 @@ extension ExcerptText {
 enum QuoteSegments {
     static func of(_ item: InboxItem) -> [CitedSpan.Segment]? {
         guard item.hasCause, let cause = item.cause, !cause.excerpt.isEmpty else { return nil }
-        let parts = QuoteBlock.parts(excerpt: cause.excerpt, mentionOffsets: cause.mentionOffsets)
+        let raw = QuoteBlock.parts(excerpt: cause.excerpt, mentionOffsets: cause.mentionOffsets)
+        // R-DL2 — markup and role labels leave the WHOLE excerpt first, the mention mapped through the cut, so a
+        // `**` around it is paired and the wash covers exactly the words; `clean` then does wikilinks and spacing.
+        let parts = ExcerptText.quoteParts(before: raw.before, span: raw.span, after: raw.after)
         let mark: CitedSpan.Mark = cause.spanKind == "asserted" ? .current : .mention
         let pieces: [(String, CitedSpan.Mark)] = [(parts.before, .plain), (parts.span, mark), (parts.after, .plain)]
         // Only `before` opens on a real line start; the span and the rest begin mid-line (R-DI22).
