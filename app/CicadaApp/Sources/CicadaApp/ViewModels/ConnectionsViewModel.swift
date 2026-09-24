@@ -77,11 +77,36 @@ final class ConnectionsViewModel {
         }
     }
 
+    /// Cancelling a poll also clears what it was waiting for (Round 4 final review): the poll's own
+    /// cancellation exits return early, so a page closed mid-sign-in used to leave `awaitingBrowser` set —
+    /// the Sign in button disabled and "this card updates itself" shown for the rest of the session, with
+    /// nothing polling.
     func stopPolling() {
         loginTask?.cancel(); loginTask = nil
+        awaitingBrowser = nil
+        awaitingTerminal = nil
+    }
+
+    /// Re-reads, fresh, only the rows a browser sign-in completes (`signsIn` — OpenRouter today), so a key
+    /// the backend's callback saved while this page was closed shows on the next visit (Round 4 final
+    /// review). `/connections` is not a sync component, and a whole-registry `fresh` re-probe would shell out
+    /// to every plan's CLI on each visit; one key row is a secrets lookup. Never blanks: a failed read keeps
+    /// the last-known row.
+    func refreshBrowserSignInRows() async {
+        guard let rows = store.connections.value else { return }
+        for id in rows.filter(\.signsIn).map(\.id) where awaitingBrowser != id {
+            guard let latest = try? await APIClient.shared.fetchConnection(id, fresh: true),
+                  var current = store.connections.value,
+                  let idx = current.firstIndex(where: { $0.id == id }),
+                  current[idx] != latest else { continue }
+            current[idx] = latest
+            setConnections(current)
+        }
     }
 
     func beginLogin(_ id: String) async -> LoginSession? {
+        awaitingBrowser = nil
+        awaitingTerminal = nil
         do {
             let session = try await APIClient.shared.beginLogin(id)
             loginTask?.cancel()

@@ -14,8 +14,8 @@ extension Copy {
     static let agentRunsInCloud = "Runs in the cloud and reaches this Mac through From anywhere."
     static let agentConnectedBadge = "Connected"
     static func agentStepSend(_ name: String) -> String { "Copy and send this to \(name)" }
-    static func agentStepSendRuns(_ name: String) -> String { "\(name) runs the setup itself and asks you to approve one command." }
-    static func agentStepSendConfig(_ name: String) -> String { "\(name) adds Cicada to its own settings and asks before changing anything." }
+    static func agentStepSendRuns(_ name: String) -> String { "\(name) runs the setup itself and asks you to approve its commands." }
+    static func agentStepSendConfig(_ name: String) -> String { "\(name) adds Cicada to its own settings and changes nothing else." }
     static let agentStepPreparing = "Getting the setup ready…"
     static let agentStepOpenCursor = "Open in Cursor"
     static let agentStepCursorHow = "Cursor asks you to confirm. Then open a new chat."

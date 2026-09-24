@@ -27,7 +27,7 @@ final class AgentStepsTests: XCTestCase {
     func testAPromptAgentIsCopyThenConfirm() throws {
         let s = steps("opencode", setups: ["opencode": try prompt("opencode")])
         XCTAssertEqual(s.map(\.title), ["Copy and send this to OpenCode", "Confirm"])
-        XCTAssertEqual(s[0].detail, "OpenCode adds Cicada to its own settings and asks before changing anything.")
+        XCTAssertEqual(s[0].detail, "OpenCode adds Cicada to its own settings and changes nothing else.")
         XCTAssertEqual(s[0].actions, [.copy("Please connect Cicada…")])
         XCTAssertEqual(s[0].snippet, "Please connect Cicada…")
         XCTAssertEqual(s[1].trailing, "Waiting for OpenCode…")
@@ -39,7 +39,7 @@ final class AgentStepsTests: XCTestCase {
         let wiring = AgentWiring(id: "claude-code", installed: true, binary: "/x/claude", recall: "off",
                                  autosave: "off", connect: [step], detail: nil)
         let s = steps("claude-code", setups: ["claude-code": try prompt("claude-code")], wiring: wiring)
-        XCTAssertEqual(s[0].detail, "Claude Code runs the setup itself and asks you to approve one command.")
+        XCTAssertEqual(s[0].detail, "Claude Code runs the setup itself and asks you to approve its commands.")
         XCTAssertEqual(s[0].actions, [.connectForMe([step]), .copy("Please connect Cicada…")])
     }
 

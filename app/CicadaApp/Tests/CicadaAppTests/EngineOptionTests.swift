@@ -99,4 +99,13 @@ final class EngineOptionTests: XCTestCase {
         XCTAssertEqual(EngineOption.providerWrite(groq, selectedCard: "agent", currentModel: "sonnet"),
                        EngineWrite(mode: "byok", model: "groq/openai/gpt-oss-120b"), "picking selects the key card")
     }
+
+    /// Round 4 final review: an id pasted from OpenRouter's own site (no `openrouter/` prefix) must still
+    /// run on OpenRouter, never be routed by LiteLLM straight to that provider's key.
+    func testTheOpenRouterFieldAlwaysWritesAnOpenRouterId() {
+        XCTAssertEqual(EngineOption.openRouterModelID("anthropic/claude-sonnet-4.5"), "openrouter/anthropic/claude-sonnet-4.5")
+        XCTAssertEqual(EngineOption.openRouterModelID("  openrouter/~openai/gpt-mini-latest "), "openrouter/~openai/gpt-mini-latest")
+        XCTAssertEqual(EngineOption.openRouterModelID("   "), "", "an empty field writes nothing")
+        XCTAssertTrue(EngineOption.runsOnOpenRouter(EngineOption.openRouterModelID("mistralai/mistral-large")))
+    }
 }

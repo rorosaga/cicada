@@ -192,7 +192,16 @@ def powered_connection_id(settings, registry, connected_ids) -> str | None:
         return CLAUDE_CONNECTION_ID
     from api.services import telemetry
 
-    key_card, _billing = telemetry.connection_for_model(str(getattr(settings, "litellm_model", "") or ""))
+    # Round 4 final review: the OpenRouter card and the key-provider picker
+    # write the byok pref's model, and a Sleep you start runs THAT model
+    # (``resolve_settings`` applies ``_model_overrides``), so the card it
+    # bills is read from the same slot before the env default. Reading only
+    # ``settings.litellm_model`` named the env model's card (or none) once
+    # OpenRouter was chosen. ``_model_overrides`` is ``{}`` unless the stored
+    # pref was written for byok, so a stale plan model never leaks in here.
+    model = _model_overrides(registry, "byok").get("litellm_model") if registry is not None else None
+    model = model or getattr(settings, "litellm_model", "") or ""
+    key_card, _billing = telemetry.connection_for_model(str(model))
     return key_card if key_card in connected else None
 
 

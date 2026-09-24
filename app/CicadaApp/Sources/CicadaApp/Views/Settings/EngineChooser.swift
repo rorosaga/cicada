@@ -300,7 +300,8 @@ struct EngineChooser: View {
                 .textFieldStyle(.roundedBorder)
                 .font(CicadaTheme.captionFont)
                 .onSubmit {
-                    if let write = EngineWrite.model(selectedModel, mode: "byok", current: vm.response?.model ?? "") {
+                    let id = EngineOption.openRouterModelID(selectedModel)
+                    if let write = EngineWrite.model(id, mode: "byok", current: vm.response?.model ?? "") {
                         commit(write)
                     }
                 }

@@ -45,6 +45,9 @@ struct ConnectionsView: View {
         // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
         // over `Store.connections`, already hydrated + kept live by the
         // Store — this section renders instantly from the snapshot on revisit.
+        // …except a browser sign-in's row (OpenRouter): its callback can save the key while this page is
+        // closed, and `/connections` is not a sync component, so that one row is re-read on each visit.
+        .task { await viewModel.refreshBrowserSignInRows() }
         .onDisappear { viewModel.stopPolling() }
         // R-E28: signing out of ChatGPT runs `codex logout` in Cicada's own
         // Codex home only, so the dialog says the terminal's Codex is untouched.

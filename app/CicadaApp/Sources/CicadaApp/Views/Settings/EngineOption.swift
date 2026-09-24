@@ -85,6 +85,16 @@ enum EngineOption {
         (model ?? "").hasPrefix("openrouter/")
     }
 
+    /// What the OpenRouter card's Model field writes (Round 4 final review): OpenRouter's own site lists ids
+    /// without the `openrouter/` prefix (`anthropic/claude-sonnet-4.5`), and a pasted one is a valid LiteLLM
+    /// id that routes straight to that provider — billing a different key, or failing Sleep with none. So the
+    /// prefix is added unless it is already there; an empty field stays empty (no write).
+    static func openRouterModelID(_ typed: String) -> String {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !runsOnOpenRouter(trimmed) else { return trimmed }
+        return "openrouter/" + trimmed
+    }
+
     /// The engine word a preview line prints: exactly `Copy.engineLabel`, except a key run through
     /// OpenRouter, which reads "OpenRouter" — "API key · openrouter/…" named the wrong card (R-AG12).
     static func previewName(engine: String, model: String?) -> String {
