@@ -29,7 +29,7 @@ from api.models.schemas import (
     BankTrashResponse,
 )
 from api.routers import intake
-from api.services import bank_index, bank_registry, search_index, sync_service
+from api.services import bank_index, bank_registry, demo_guard, search_index, sync_service
 from api.services.bank_migrations import run_bank_migrations
 from api.services.graph_builder import file_mtime
 
@@ -41,7 +41,7 @@ router = APIRouter()
 #: miss once. Without it the app keeps the body it cached under that ETag on
 #: every 304, and a pre-`legacy` body offers the memory folder itself for
 #: deletion until some capture happens to move a stamp.
-_BANKS_BODY_SHAPE = "2"
+_BANKS_BODY_SHAPE = "3"   # G117 round 4 (T-Demo): rows gained `demo`
 
 
 @router.get("/banks", response_model=BankListResponse)
@@ -245,8 +245,20 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
     placed as its own function rather than folded into it: the population
     step below is demo-specific and unrelated to the general "make an empty
     bank" contract `create_bank` gives every other caller.
+
+    Round 4: an existing generated demo is re-opened (200), never
+    re-populated; a real bank called `demo` is still 409.
     """
     root = settings.memory_root
+    # G117 round 4 (T-Demo): a demo that already exists is OPENED, never re-populated — the reason for the 409
+    # below was "someone's edited copy", and switching to it keeps that copy. Settings → General's *Explore the
+    # demo* and a second *Try the demo* both land here (seam 2). A real bank that happens to be called "demo" is
+    # still refused: `demo_guard` decides, never the name (R-CS10).
+    if "demo" in (bank_registry.load_registry(root).get("banks", {}) or {}):
+        path = bank_registry.bank_dir(root, "demo")
+        if not demo_guard.is_demo(path):
+            raise HTTPException(409, "Bank 'demo' already exists")
+        return await _activated(root, "demo")
     try:
         slug = bank_registry.create_bank(root, "demo", "Synthetic demo bank — try Cicada risk-free.")
     except ValueError as e:
@@ -265,6 +277,31 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
         banks=[BankInfo(**b) for b in data["banks"]],
         active=data["active"],
     )
+
+
+@router.post("/banks/leave-demo", response_model=BankListResponse)
+async def leave_demo_bank(settings: Settings = Depends(get_settings)) -> BankListResponse:
+    """G117 round 4 (T-Demo, F-08) — the demo banner's *Finish setting up*: back to the person's own memory — the real
+    bank left most recently, else the default one, else a new one (``bank_registry.leave_demo_target``). The app then
+    opens onboarding for the bank this answers with (seam 1). Outside the demo nothing moves and the roster is echoed,
+    so a second click is harmless. Not a capture route: nothing is written into any bank but the registry."""
+    root = settings.memory_root
+    target = await run_in_threadpool(bank_registry.leave_demo_target, root)
+    if target is None:
+        data = bank_registry.list_banks(root)
+        return BankListResponse(banks=[BankInfo(**b) for b in data["banks"]], active=data["active"])
+    return await _activated(root, target)
+
+
+async def _activated(root, name: str) -> BankListResponse:
+    """`activate_bank`'s route body, shared by the demo's two doors: switch (stamping the bank left, R-CS11), run the
+    same one-shot migrations a boot-time bank gets, warm its search index, and echo the roster."""
+    bank_registry.activate_bank(root, name)
+    path = bank_registry.bank_dir(root, name)
+    await run_in_threadpool(run_bank_migrations, path)
+    search_index.warm_in_background(path)
+    data = bank_registry.list_banks(root)
+    return BankListResponse(banks=[BankInfo(**b) for b in data["banks"]], active=data["active"])
 
 
 @router.post("/banks/{name}/import", response_model=BankImportResponse)

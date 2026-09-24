@@ -104,8 +104,9 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     items, the placeholder owner, a handful of evidenced claims, and real git
     history. Idempotent only in the trivial sense that every write here is a
     fresh-file write — calling this twice on the same dir just re-stamps the
-    same content (the router's ``POST /banks/demo`` refuses a second call by
-    checking bank existence first, so this never needs to guard itself).
+    same content (the router's ``POST /banks/demo`` never calls this for a
+    bank that exists — it re-opens a generated demo and refuses a real bank
+    named ``demo``, round 4 T-Demo — so this never needs to guard itself).
 
     ``today`` (G141 R-PJB7) pins every relative date, ``recorded_at`` included.
 

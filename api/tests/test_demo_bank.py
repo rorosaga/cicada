@@ -125,10 +125,16 @@ def test_endpoint_creates_and_activates(tmp_path, monkeypatch):
     assert client.get("/sources/overview").status_code == 200
 
 
-def test_endpoint_is_409_if_demo_already_exists(tmp_path, monkeypatch):
+def test_endpoint_reopens_the_demo_it_made(tmp_path, monkeypatch):
+    """Round 4 (T-Demo): a second *Try the demo* (or Settings → General's *Explore the demo*) opens the demo that is
+    there — never a 409, never a re-populate over its edits. `test_demo_mode_routes.py` holds the name rule."""
     client, _ = _client(tmp_path, monkeypatch)
-    assert client.post("/banks/demo").status_code == 200
-    assert client.post("/banks/demo").status_code == 409
+    first = client.post("/banks/demo").json()
+    client.post("/banks/default/activate")
+    again = client.post("/banks/demo")
+    assert again.status_code == 200 and again.json()["active"] == "demo"
+    count = {b["name"]: b["entityCount"] for b in first["banks"]}["demo"]
+    assert {b["name"]: b["entityCount"] for b in again.json()["banks"]}["demo"] == count
 
 
 def test_the_event_commits_are_authored_by_who_wrote_them_and_store_nothing_relative(tmp_path):

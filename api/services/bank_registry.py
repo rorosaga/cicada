@@ -412,6 +412,10 @@ def list_banks(root: Path) -> dict[str, Any]:
                 # G139 R-O18: the bank that IS the memory folder — never
                 # offered for deletion (trash_bank refuses it too).
                 "legacy": bool(record.get("legacy")),
+                # G117 round 4 (T-Demo): the app's banner and tour key off the
+                # demo_guard answer — the manifest or the generator's identity,
+                # never the name (R-CS10). One small read per bank.
+                "demo": demo_guard.is_demo(path),
             }
         )
     return {"banks": banks, "active": active}
@@ -491,6 +495,38 @@ def most_recent_real_bank(root: Path) -> str | None:
     if stamped:
         return max(stamped)[1]
     return candidates[0][1] if len(candidates) == 1 else None
+
+
+#: Where "Finish setting up" lands when there is no real memory at all (G117 round 4, T-Demo).
+NEW_MEMORY_NAME = "My memory"
+
+
+def leave_demo_target(root: Path) -> str | None:
+    """The real bank the demo banner's *Finish setting up* returns to (G117 round 4, F-08), or None when the active
+    bank is not a demo (nothing to leave). Resolved per call from ``banks.yaml`` (the split-brain rule):
+
+    1. the real bank left most recently — :func:`most_recent_real_bank`, the capture fallback's own answer; entering
+       the demo stamped the bank it left (R-CS11), so this is where the person came from;
+    2. else, when several real banks carry no stamp, the legacy ``default`` if it is real, then the oldest created —
+       the capture rule never guesses which memory a *conversation* belongs to, but here the person asked to leave,
+       and the Welcome that follows names the memory it opened (ruling R-DT3);
+    3. else a new, empty bank named :data:`NEW_MEMORY_NAME` — the brief: "or creates one when there is none".
+    """
+    root = Path(root)
+    registry = load_registry(root)
+    active = registry.get("active")
+    if not active or not demo_guard.is_demo(bank_dir(root, active)):
+        return None
+    target = most_recent_real_bank(root)
+    if target is not None:
+        return target
+    real = [(str((record or {}).get("created") or ""), name)
+            for name, record in (registry.get("banks", {}) or {}).items()
+            if name != active and bank_dir(root, name).is_dir() and not demo_guard.is_demo(bank_dir(root, name))]
+    if real:
+        names = {name for _, name in real}
+        return DEFAULT_BANK if DEFAULT_BANK in names else min(real)[1]
+    return create_bank(root, NEW_MEMORY_NAME, "Your own memory.")
 
 
 @dataclass(frozen=True)
