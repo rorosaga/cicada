@@ -292,3 +292,32 @@ def test_no_time_left_means_no_rerank(five, monkeypatch):
     monkeypatch.setitem(providers._EMBED_CACHE, MODEL, (_one_hot, MODEL))
     result = hook_recall.prompt_context(five, "alpha k5", deadline=0.1, clock=lambda: 0.0)
     assert result.injected == ("alpha-one", "alpha-two", "alpha-three")
+
+
+def _crowded(tmp_path, n, etype="concept", status="active"):
+    memory = tmp_path / "memory"
+    for sub in ("entities", "episodes", "inbox"):
+        (memory / sub).mkdir(parents=True)
+    for i in range(n):
+        _page(memory, f"word{i:02d}", f"Word{i:02d}", etype, status=status, summary="A one-word page.")
+    _page(memory, "bob-example", "Bob Example", "person", aliases=["Bobby"], summary="Designer on the alpha project.")
+    _index(memory)
+    return memory, " ".join(f"word{i:02d}" for i in range(n))
+
+
+def test_one_word_pages_never_crowd_out_the_page_the_message_names(tmp_path):
+    """Final review: 45 one-word concepts matched the prompt and won on bm25,
+    so the 40-row cut dropped the person the message also named."""
+    memory, words = _crowded(tmp_path, 45)
+    result = hook_recall.prompt_context(memory, f"Ask Bobby about {words}")
+    assert result.reason == "injected" and result.injected == ("bob-example",)
+
+
+def test_pages_that_can_never_be_named_are_cut_before_the_limit(tmp_path):
+    memory, words = _crowded(tmp_path, 45, etype="project", status="archived")
+    with search_index.Reader(memory) as reader:
+        rows = reader.name_candidates(["bobby", *words.split()], 5, statuses=hook_recall.LIVE_STATUSES,
+                                      skip_types=hook_recall.SKIP_TYPES)
+        refs = {d.ref for d in reader.docs([d for d, _ in rows]).values()}
+    assert refs == {"bob-example"}, "archived pages filtered in SQL, before the LIMIT"
+    assert hook_recall.prompt_context(memory, f"Ask Bobby about {words}").injected == ("bob-example",)

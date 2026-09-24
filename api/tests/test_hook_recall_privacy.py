@@ -45,7 +45,7 @@ def test_the_prompt_never_reaches_a_log_the_ledger_or_the_bank(bank, monkeypatch
                            json={**body, "prompt": f"{SENTINEL} nothing named"}).json()["reason"] == "no_match"
         client.post("/capture/hook-context", json={**body, "event": "session_start", "prompt": None})
 
-        def fail(self, terms, limit):
+        def fail(self, terms, limit, **_filters):
             raise sqlite3.OperationalError(f'fts5: syntax error near "{SENTINEL}"')
 
         monkeypatch.setattr(search_index.Reader, "name_candidates", fail)

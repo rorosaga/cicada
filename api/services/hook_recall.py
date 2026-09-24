@@ -55,7 +55,12 @@ PROMPT_MAX_CHARS = 20_000
 HEAD_CHARS = 6_000
 TAIL_CHARS = 2_000
 MAX_TERMS = 48
-CANDIDATES = 40
+# The candidate cut (G149 final review). Eligibility is applied in SQL before
+# it, but eligible pages that can never count as named — one-word concepts and
+# skills — still compete on bm25, and short titles win: at 40 a prompt naming
+# 45 of them crowded out the person it also named. `docs()` is one IN query and
+# `mention_strength` a dict lookup per row, so 400 keeps the p95 (latency test).
+CANDIDATES = 400
 MAX_NAME_WORDS = 8
 MIN_WORD_CHARS = 3
 # The floor (R-H2).
@@ -353,7 +358,8 @@ def prompt_context(memory_path: Path, prompt: str, *, recent: frozenset[str] = f
     for i, w in enumerate(words):
         positions.setdefault(w, []).append(i)
     with search_index.Reader(memory_path) as reader:
-        rows = reader.name_candidates(terms, CANDIDATES)
+        rows = reader.name_candidates(terms, CANDIDATES, statuses=LIVE_STATUSES, skip_types=SKIP_TYPES,
+                                       exclude_ref=owner)
         docs = reader.docs([d for d, _ in rows])
         ranked: list[tuple[tuple, int, search_index.Doc]] = []
         for doc_id, bm25 in rows:

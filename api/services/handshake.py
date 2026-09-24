@@ -53,8 +53,13 @@ from api.services.auth import cicada_home
 # G140's 3 at the merge, so neither side's cached 3 is ever served.
 # 5: G141 — cicada_project named; project rows carry now/next.
 # 6: G141 PJ-3a — item 3 names cicada_note_progress.
-# 7: G149 — item 8, what a "From Cicada" note is (the recall hooks).
-CONTRACT_VERSION = 7
+# 7: taken by BOTH round-4 tracks — G149 (item 8, what a "From Cicada" note
+# is; the recall hooks) and G150 (item 3 names cicada_add_backlog_item,
+# cicada_add_backlog_note and cicada_backlog; item 7 adds backlog/ to what is
+# never edited directly). A primer cached by either single-branch build under 7
+# lacks the other's text, so 7 is never reused (R-H13).
+# 8: G149 + G150 merged — past both 7s (G149 final review).
+CONTRACT_VERSION = 8
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 

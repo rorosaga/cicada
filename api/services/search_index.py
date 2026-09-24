@@ -879,7 +879,9 @@ class Reader:
         rows = self.conn.execute(f"SELECT id, kind, ref, meta FROM docs WHERE id IN ({marks})", list(ids))
         return {int(i): Doc(int(i), k, r, json.loads(m or "{}")) for i, k, r, m in rows}
 
-    def name_candidates(self, terms: list[str], limit: int) -> list[tuple[int, float]]:
+    def name_candidates(self, terms: list[str], limit: int, *, statuses: frozenset[str] | None = None,
+                        skip_types: frozenset[str] = frozenset(),
+                        exclude_ref: str | None = None) -> list[tuple[int, float]]:
         """``[(doc_id, bm25)]`` of entity pages whose name or an alias holds one
         of ``terms`` as a WHOLE word, best first (G149 R-H3).
 
@@ -888,13 +890,36 @@ class Reader:
         prose, so ``match_expression``'s implicit AND would ask every word of it
         to match, and a prefix OR ("the"*) would match half the graph. ``terms``
         come from ``text_fold.words`` (alphanumeric) and are quoted, so FTS5
-        reads an ``OR`` or ``NEAR`` in a prompt as a word, never an operator."""
+        reads an ``OR`` or ``NEAR`` in a prompt as a word, never an operator.
+
+        ``statuses``, ``skip_types`` and ``exclude_ref`` filter on the docs row
+        BEFORE the ``LIMIT`` (G149 final review): an archived page, a directory
+        or the owner's own page can never count as named, and with a short
+        one-word title it wins on bm25 — filtered after the cut, such pages
+        took the slots and pushed the page the message did name out of it.
+        A missing ``status``/``type`` reads as ``active``/``concept``, as
+        ``_index_entity`` and the caller's own ``_eligible`` do."""
         if not terms:
             return []
         expr = "{title aliases} : (" + " OR ".join(f'"{t}"' for t in terms) + ")"
-        sql = (f"SELECT rowid >> {ROW_BITS}, bm25(ent, {WEIGHTS['ent']}) AS r "
-               "FROM ent WHERE ent MATCH ? ORDER BY r LIMIT ?")
-        return [(int(i), float(r)) for i, r in self.conn.execute(sql, (expr, int(limit)))]
+        where = ["ent MATCH ?"]
+        params: list = [expr]
+        if statuses is not None:
+            where.append("COALESCE(json_extract(docs.meta, '$.status'), 'active') IN (%s)"
+                         % ",".join("?" * len(statuses)))
+            params.extend(sorted(statuses))
+        if skip_types:
+            where.append("COALESCE(json_extract(docs.meta, '$.type'), 'concept') NOT IN (%s)"
+                         % ",".join("?" * len(skip_types)))
+            params.extend(sorted(skip_types))
+        if exclude_ref is not None:
+            where.append("docs.ref != ?")
+            params.append(exclude_ref)
+        sql = (f"SELECT ent.rowid >> {ROW_BITS}, bm25(ent, {WEIGHTS['ent']}) AS r "
+               f"FROM ent JOIN docs ON docs.id = (ent.rowid >> {ROW_BITS}) "
+               f"WHERE {' AND '.join(where)} AND docs.kind = 'entity' ORDER BY r LIMIT ?")
+        params.append(int(limit))
+        return [(int(i), float(r)) for i, r in self.conn.execute(sql, params)]
 
     def claims_of(self, doc_id: int) -> list[tuple[str, dict]]:
         """One page's indexed claims in fence order, ``[(text, payload)]``,
