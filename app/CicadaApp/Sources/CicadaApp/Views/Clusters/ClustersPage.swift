@@ -97,7 +97,10 @@ struct ClustersPage: View {
         }
         .background(CicadaTheme.bgBase)
         // DR-46 — the page opens its find row on ⌘F; once open, the field takes ⌘F itself (one publisher, R-SU10).
-        .publishesPageFind(enabled: !findOpen) { findOpen = true }
+        // Published from a leaf, never the page: `PageFindPublisher` is an if/else, so on the page it rebuilt the whole
+        // column tree on every flip of `findOpen` — the open card's trail and body, the Reader, the scroll position and
+        // a landing's scroll-to all lost (DS-3c final review).
+        .background { Color.clear.publishesPageFind(enabled: !findOpen) { findOpen = true } }
         .onChange(of: findOpen) { _, isOpen in if !isOpen { query = "" } }
         .onAppear { openPendingEntity(); arrive() }
         .onChange(of: router.pendingClustersEntity) { _, _ in openPendingEntity() }

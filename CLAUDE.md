@@ -789,8 +789,8 @@ documents stays off until something says who wrote a document (F2-back R-B14).
 **Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).
-`ListColumns<ID>` holds the open row: a row that leaves the data closes the detail, and one that a tab or find
-hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
+`ListColumns<ID>` holds the open row: a row that leaves the data, or that the chosen tab does not show, closes the
+detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
 the page's find row.
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three

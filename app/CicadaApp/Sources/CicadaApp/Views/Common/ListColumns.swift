@@ -3,9 +3,10 @@ import SwiftUI
 /// §5.3 for the browse pages — Clusters, the Feed, Sources (R-DL6): which row is open, pure. The Inbox keeps
 /// `InboxColumns`: answering, Undo and kind filters are its own, and DS-2's reducer ships untouched.
 ///
-/// A row that leaves the DATA closes the detail — a browse page has no next answer to hand the column to, and a card
-/// that silently became another entity would be a lie. A row the find field or a tab merely hides stays open:
-/// narrowing the list is not closing the card.
+/// A row that leaves the DATA, or that the chosen tab does not show, closes the detail — a browse page has no next
+/// answer to hand the column to, a card that silently became another entity would be a lie, and a tab is navigation
+/// (Clusters' `tabSelection` and `FeedViewModel.setKind` call `close()`; FeedListTests pins it). A row that find (or
+/// Clusters' View menu) merely hides stays open: narrowing the list is not closing the card.
 struct ListColumns<ID: Hashable>: Equatable {
     private(set) var openId: ID?
 

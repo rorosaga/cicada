@@ -76,14 +76,22 @@ struct FeedPage: View {
             ReaderColumn().focused($focus, equals: .reader)
         }
         .background(CicadaTheme.bgBase)
-        .publishesPageFind(enabled: !findOpen) { findOpen = true }
+        // From a leaf, not the page (DS-3c final review): the publisher's if/else on the page rebuilt every column on each
+        // flip of `findOpen`, so a playing video stopped and the scroll, the Reader and the card's tab were lost.
+        .background { Color.clear.publishesPageFind(enabled: !findOpen) { findOpen = true } }
         .onChange(of: findOpen) { _, isOpen in if !isOpen { viewModel.searchText = "" } }
         .sheet(isPresented: $showAddSheet) {
             AddSourceSheet(initialTile: sheetTile) { showAddSheet = false }
         }
         // A hand-off can arrive while the Feed is on screen (`onChange`) or as it appears (`onAppear`); each consumer
         // reads then clears, so a second firing is a no-op.
-        .onAppear { consumePendingAddSource(); consumeLanding(); viewModel.reconcile(); arrive() }
+        // `findOpen` is page state and is always false here, but the view model outlives the page: a search left from
+        // the last visit would keep filtering with no field on screen, and a zero-match list would leave the column
+        // blank (§5.5). Clear it on the way in (DS-3c final review).
+        .onAppear {
+            viewModel.searchText = ""
+            consumePendingAddSource(); consumeLanding(); viewModel.reconcile(); arrive()
+        }
         .onChange(of: router.pendingAddSource) { _, _ in consumePendingAddSource() }
         .onChange(of: router.pendingFeedItem) { _, _ in consumeLanding() }
         .onChange(of: viewModel.items.map(\.id)) { _, _ in viewModel.reconcile() }
