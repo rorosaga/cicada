@@ -46,8 +46,13 @@ enum DemoMode {
     /// so every domain hydrates that bank; then onboarding opens through the ONE door, seam 1 —
     /// `OnboardingState.reset(bank:)` + `AppRouter.requestFirstRun()` — for the bank the server landed on, never the
     /// demo's name (the flag is per bank, and resetting the demo's would reopen nothing).
+    ///
+    /// `openSetup: false` is Settings → General's *Back to your memory*: the same switch, but it neither clears the
+    /// landing bank's `cicada.hasOnboarded` flag nor opens the Welcome. That door is reached from a set-up install, and
+    /// sending it into setup broke the label's promise — and a quit partway through reopened the person's own bank on
+    /// the Welcome (r4-demo final review, finding 2). A bank that was never set up still meets `FirstRunGate`.
     @MainActor
-    static func leave(_ fx: ExitEffects) async -> ExitOutcome {
+    static func leave(_ fx: ExitEffects, openSetup: Bool = true) async -> ExitOutcome {
         await fx.flushHeld()
         let roster: BanksResponse
         do {
@@ -57,8 +62,10 @@ enum DemoMode {
         }
         guard let bank = roster.active, !isActive(roster) else { return .stayed }
         await fx.refreshBanks()
-        fx.resetOnboarding(bank)
-        fx.openOnboarding()
+        if openSetup {
+            fx.resetOnboarding(bank)
+            fx.openOnboarding()
+        }
         return .left(bank)
     }
 

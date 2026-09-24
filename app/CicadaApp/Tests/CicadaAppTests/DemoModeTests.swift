@@ -50,6 +50,20 @@ final class DemoModeTests: XCTestCase {
                        "seam 1 — reset the bank the server landed on, never the demo's, then the one door")
     }
 
+    /// Settings' *Back to your memory* switches back without touching the landing bank's setup flag (final review 2).
+    func testBackToYourMemoryLeavesWithoutReopeningSetup() async {
+        var calls: [String] = []
+        let home = roster(active: "default")
+        let outcome = await DemoMode.leave(DemoMode.ExitEffects(
+            flushHeld: { calls.append("flush") },
+            leaveDemo: { calls.append("leave"); return home },
+            refreshBanks: { calls.append("refresh") },
+            resetOnboarding: { calls.append("reset:\($0)") },
+            openOnboarding: { calls.append("open") }), openSetup: false)
+        XCTAssertEqual(outcome, .left("default"))
+        XCTAssertEqual(calls, ["flush", "leave", "refresh"], "a set-up bank's flag is never cleared by this door")
+    }
+
     func testAFailedLeaveOpensNothingAndSaysWhy() async {
         struct Refused: LocalizedError { var errorDescription: String? { "The service is not running" } }
         var calls: [String] = []

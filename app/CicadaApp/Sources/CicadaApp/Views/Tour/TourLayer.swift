@@ -78,7 +78,12 @@ struct TourLayer: View {
         return nil
     }
 
+    /// Also where Home's one-time offer (seam 3) is picked up once the page area is uncovered: Home stays mounted
+    /// under the Welcome, so its `.onAppear` ran at launch — before F-07's `.offerTour` step called
+    /// `TourOffer.request()` — and closing the Welcome never fires it again (`selectedTab` is already `.home`).
+    /// Without this the first Home after onboarding showed no offer (r4-demo final review, finding 1).
     private func evaluate() {
+        if !hidden { tour.adoptOffer() }
         switch TourTrigger.decide(pendingStart: tour.pendingStart, hidden: hidden, demoActive: demoActive,
                                   demoStarted: tour.demoStarted, tourActive: tour.isActive) {
         case .start: tour.start(bank: store.bank)

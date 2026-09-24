@@ -57,12 +57,15 @@ struct SettingsDemoTourGroup: View {
         }
     }
 
-    /// The tour belongs to the demo it was showing, so it ends first — the banner's *Finish setting up* rule.
+    /// The tour belongs to the demo it was showing, so it ends first — the banner's *Finish setting up* rule. Unlike
+    /// the banner, this door does what its label says — back to the person's memory, never into setup (`openSetup:
+    /// false`; r4-demo final review, finding 2).
     private func leave() {
         busy = true
         tour.interrupt()
         Task {
-            let outcome = await DemoMode.leave(DemoMode.liveExit(store: store, router: router, graph: graphVM))
+            let outcome = await DemoMode.leave(DemoMode.liveExit(store: store, router: router, graph: graphVM),
+                                               openSetup: false)
             if case .failed = outcome { store.toast = Copy.Demo.leaveFailed }
             busy = false
         }
