@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, engine_errors, entity_body, json_parse, markdown_parser
+from api.services import decay_policy, decay_tuning, engine_errors, entity_body, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -48,7 +48,8 @@ async def resolve_and_prune(
     can simulate elapsed time without monkeypatching the stdlib clock.
 
     ``tuning``: the per-type pace (G147, ``{type: multiplier}``); ``None``
-    means none yet.
+    reads the bank's ``_decay_tuning.yaml`` (``decay_tuning.load``), so a test
+    can inject a pace without writing the file.
     """
     changes: list[dict] = list(resolved)
 
@@ -155,7 +156,12 @@ async def resolve_and_prune(
     # pace charged. Evergreen entities are skipped.
     now = now or datetime.now()
     alpha, floor = decay_policy.spacing_params(settings)
-    tuning = tuning or {}
+    if tuning is None:
+        # G147: the per-type pace the person approved in Settings → Memory. One
+        # small file read per cycle; a demo or test settings object without a
+        # bank path has none.
+        memory_path = getattr(settings, "memory_path", None)
+        tuning = decay_tuning.load(memory_path) if memory_path else {}
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),

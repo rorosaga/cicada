@@ -30,6 +30,7 @@ from api.routers import (
     local_refs,
     local_sources,
     maintenance,
+    memory,
     nudges,
     origins,
     projects,
@@ -223,6 +224,7 @@ app.include_router(local_sources.router, tags=["local-sources"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])
 app.include_router(maintenance.router, tags=["maintenance"])
+app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])

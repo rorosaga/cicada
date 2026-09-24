@@ -542,6 +542,28 @@ class EntityDecayUpdate(CamelModel):
     decay_class: DecayClass
 
 
+class DecaySuggestion(CamelModel):
+    """G147 — one per-type pace suggestion. A type and counts only — never a
+    page id or name (the payload of a Settings page, not of the graph)."""
+
+    type: str
+    direction: Literal["slower", "faster"]
+    multiplier: float
+    kept: int
+    archived: int
+    answers: int
+
+
+class DecayTuningResponse(CamelModel):
+    """``GET /memory/decay-suggestions`` and ``PUT /memory/decay-tuning`` (G147).
+    Not a Store domain — fetched when Settings → Memory opens — so no ETag."""
+
+    bank: str
+    window_days: int
+    tuning: dict[str, float] = {}
+    suggestions: list[DecaySuggestion] = []
+
+
 # --- Location listing (#7 — show a location entity's directory contents) ---
 
 
