@@ -70,9 +70,8 @@ struct BankSwitcher: View {
                 .disabled(banksVM.activeName == nil)
             }
         } label: {
+            // Decision 11 (R-HO17) — the bank's name and its chevron; no stack glyph.
             HStack(spacing: CicadaTheme.scaled(5)) {
-                Image(systemName: "square.stack.3d.up")
-                    .font(CicadaTheme.icon(.commandBar))
                 Text(displayName)
                     .font(CicadaTheme.metaMediumFont)
                     .lineLimit(1)

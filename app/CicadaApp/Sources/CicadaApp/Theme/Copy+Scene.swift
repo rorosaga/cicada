@@ -32,7 +32,32 @@ extension Copy {
     static let tipFindIt = "— find it in"
     static let tipDismiss = "Hide this card"
 
+    // MARK: Settings → General (F-10, R-HO16)
+    static let lookGroup = "Look"
+    static let startupGroup = "Startup"
+    static let whenClosedGroup = "When Cicada is closed"
+    static let appearanceDetail = "Follows your Mac, or pick one"
+    static let sceneAutomaticExplainer = "Automatic follows your sunrise and sunset from your time zone — no location needed."
+    static let sceneCrossfadeExplainer = "Switching crossfades over about a second: the same meadow, in a different light. "
+        + "Scene is separate from Appearance, so a light window can show the night meadow."
+    static let showInMenuBar = "Show in menu bar"
+    /// R-HO16 — never F-10's "no window, just the bookworm": Cicada opens its window at login today (R-FA7).
+    static let showInMenuBarDetail = "Sleep and your Inbox at a glance. Closing the window never stops Cicada."
+
+    /// What the clock paints right now, beside the Scene row's title (F-10) — whatever is picked.
+    static func sceneNow(_ time: SceneTime) -> String {
+        switch time {
+        case .day: "Day now"
+        case .afternoon: "Afternoon now"
+        case .night: "Night now"
+        }
+    }
+
     static let sceneLabels: [String] = [homeOpenInbox, homeMostly, homeNeedsYouCount(3), homeOriginCount("Chrome", 2_104),
-                                        tipTitle, tipHide, tipFindIt, tipDismiss]
-    static let sceneSentences: [String] = [homeTodayAccessibility(2_540, origins: [("Chrome", 2_104)])]
+                                        tipTitle, tipHide, tipFindIt, tipDismiss,
+                                        lookGroup, startupGroup, whenClosedGroup, appearanceDetail, showInMenuBar,
+                                        sceneNow(.day), sceneNow(.afternoon), sceneNow(.night)]
+    // `showInMenuBarDetail` is 71 characters — a sentence, not a label, so it is held to the sentence rules only.
+    static let sceneSentences: [String] = [homeTodayAccessibility(2_540, origins: [("Chrome", 2_104)]),
+                                           sceneAutomaticExplainer, sceneCrossfadeExplainer, showInMenuBarDetail]
 }

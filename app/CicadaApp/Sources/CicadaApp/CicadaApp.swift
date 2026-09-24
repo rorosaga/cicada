@@ -101,6 +101,8 @@ struct CicadaApp: App {
     // doesn't pick up from SwiftUI state automatically — see
     // `syncWindowChrome` below.
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    /// Round-4 decision 6 (R-HO16) — Settings → General → Show in menu bar, per viewer, on by default.
+    @AppStorage(MenuBarPreference.defaultsKey) private var menuBarVisible = true
     /// R-O4 — the preference resolved against the system appearance
     /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
     private var appColorScheme: AppColorScheme {
@@ -190,6 +192,7 @@ struct CicadaApp: App {
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
+                .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
                 .onReceive(DistributedNotificationCenter.default()
                     .publisher(for: AppearancePreference.systemChangedNotification)
                     .receive(on: RunLoop.main)) { _ in
@@ -309,6 +312,8 @@ struct CicadaApp: App {
                             intakeRouter.present(from: .menuBar)
                         }
                     )
+                    // R-HO16 — the switch, applied at launch too.
+                    menuBarManager.setVisible(menuBarVisible)
 
                     // Drive the menu-bar bookworm's stage dots live during a
                     // running cycle (1s cadence), separate from the coarse 30s
