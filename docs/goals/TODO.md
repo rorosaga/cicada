@@ -790,6 +790,10 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 22a. **G117** first-run onboarding in the app — **release blocker**: a three-step first-run sheet
     (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
     demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
+22b. **G148** memory benchmark pass (LongMemEval_S + LoCoMo, hooks vs tools modes, throwaway banks, never the
+    owner's) — first fix the `benchmarks/` `Settings` path bug, a benchmark-only Sleep clock (expiry and decay run on today's date), the engine pin — then **G149**
+    implicit recall (SessionStart primer + UserPromptSubmit injection), measured by G148's hooks mode —
+    `docs/research/2026-09-24-memory-benchmarks-and-implicit-recall.md` — M each, G148 💸
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
 24. **G72** skills manager *(owner 2026-09-03: two halves — skills Cicada compiled about you (G112) and the
     harness skills you actually use, ranked by the harness's own usage counters, adoptable into memory)* · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
