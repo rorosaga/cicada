@@ -48,6 +48,9 @@ enum SourceDisplayName {
         "vivaldi-bookmarks": "Vivaldi",
         "comet-bookmarks": "Comet",
         "dia-bookmarks": "Dia",
+        // Round 4 (G160). Not "Chrome tab groups": 17 characters breaks the one-line cap; the card's Chrome mark
+        // says whose groups they are.
+        "chrome-tab-groups": "Tab groups",
         "safari-tabs": "Safari tabs",
         "pinterest": "Pinterest",
         "reddit": "Reddit",

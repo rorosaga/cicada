@@ -37,6 +37,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let engineAutoClaude = SettingsRowID("engineAutoClaude")
     // Integrations (round-4 D2)
     static let calendarApp = SettingsRowID("calendarApp")
+    // Integrations (round 4, G154)
+    static let contactsApp = SettingsRowID("contactsApp")
     // Agents and From anywhere (Task 3)
     static let agentsInstall = SettingsRowID("agentsInstall")
     static let agentsCloud = SettingsRowID("agentsCloud")

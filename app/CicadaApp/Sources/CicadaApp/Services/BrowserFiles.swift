@@ -17,6 +17,9 @@ enum BrowserFile: CaseIterable {
     /// Round 4 (C9, R-SR1): the Chromium family beyond Chrome — each browser's default-profile `Bookmarks` JSON.
     /// The default profile only, like Chrome's: reading every `Profile N` would bring in a profile nobody ticked.
     case braveBookmarks, vivaldiBookmarks, cometBookmarks, diaBookmarks
+    /// Round 4 (G160): Chrome's default-profile `Sessions/` directory — a folder, read by `ChromiumSessionFiles`,
+    /// never by `BrowserFileReader.read`. The default profile only (R-SR1) and Chrome only (R-SR3).
+    case chromeSessions
 
     /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
     static func bookmarks(forBrowser id: String) -> BrowserFile? {
@@ -61,6 +64,8 @@ enum BrowserFile: CaseIterable {
             return [appSupport.appendingPathComponent("Comet/Default/Bookmarks")]
         case .diaBookmarks:
             return [appSupport.appendingPathComponent("Dia/User Data/Default/Bookmarks")]
+        case .chromeSessions:
+            return [appSupport.appendingPathComponent("Google/Chrome/Default/Sessions")]
         }
     }
 
@@ -74,6 +79,7 @@ enum BrowserFile: CaseIterable {
         case .vivaldiBookmarks: "Vivaldi bookmarks"
         case .cometBookmarks: "Comet bookmarks"
         case .diaBookmarks: "Dia bookmarks"
+        case .chromeSessions: "Chrome's open tabs"
         }
     }
 
@@ -139,6 +145,8 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "Wispr Flow isn't on this Mac yet, or hasn't recorded anything."
             case .braveBookmarks, .vivaldiBookmarks, .cometBookmarks, .diaBookmarks:
                 return "\(file.browserName ?? file.displayName) isn't installed, or has no bookmarks in its main profile yet."
+            case .chromeSessions:
+                return "Chrome hasn't saved any open windows on this Mac yet."
             }
         }
     }

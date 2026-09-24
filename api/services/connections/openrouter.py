@@ -40,13 +40,25 @@ CONNECTION_ID = "byok-openrouter"
 OAUTH_CONNECTION_IDS = frozenset({CONNECTION_ID})
 AUTH_URL = "https://openrouter.ai/auth"
 KEYS_URL = "https://openrouter.ai/api/v1/auth/keys"
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_BASE_URL = "http://localhost:8000"
 KEY_LABEL = "Cicada"   # what the person sees on openrouter.ai/settings/keys, to revoke it there
 NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{32}$")   # secrets.token_urlsafe(24)
 TTL_SECONDS = 600
 EXCHANGE_TIMEOUT_S = 10.0
 
 PostJson = Callable[[str, dict], Awaitable[dict]]
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "0.0.0.0"})
+
+
+def callback_base(host: str, port: int) -> str:
+    """Where OpenRouter's consent page sends the browser back to. OpenRouter documents localhost callbacks as
+    ``http://localhost:<any port>``, and a numeric loopback address is not what it names, so a loopback bind is
+    spelled ``localhost`` (the browser still reaches the 127.0.0.1 listener). Found by the round-4 orchestrator
+    live pass, which could not confirm a ``127.0.0.1`` callback against the live consent page."""
+    host = (host or "").strip().strip("[]").lower()
+    return f"http://{'localhost' if host in _LOOPBACK_HOSTS else host}:{port}"
+
 
 
 class InvalidState(Exception):

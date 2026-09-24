@@ -43,7 +43,7 @@ struct BrowserInventory: Equatable, Sendable {
     /// verified is not listed at all — never guessed (R-SR2).
     static let catalog: [BrowserSpec] = [
         BrowserSpec(id: "chrome", name: "Chrome", bundleId: "com.google.Chrome", engine: .chromium, supported: true,
-                    reads: [.bookmarks], logo: "chrome"),
+                    reads: [.bookmarks, .tabGroups], logo: "chrome"),
         BrowserSpec(id: "safari", name: "Safari", bundleId: "com.apple.Safari", engine: .safari, supported: true,
                     reads: [.bookmarks, .readingList, .favorites, .recentlySaved], symbol: "safari"),
         BrowserSpec(id: "brave", name: "Brave", bundleId: "com.brave.Browser", engine: .chromium, supported: true,

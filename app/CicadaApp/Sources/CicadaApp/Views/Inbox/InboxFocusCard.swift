@@ -286,18 +286,19 @@ struct InboxFocusCard: View {
         if let hint = item.hint, !hint.isEmpty {
             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.scaled(6)) {
                 Image(systemName: "link").font(CicadaTheme.icon(.inline))
-                Text(hint).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                Text(HintLink.displayText(hint)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 if let url = HintLink.firstURL(in: hint) {
                     Button { NSWorkspace.shared.open(url) } label: {
                         HStack(spacing: CicadaTheme.scaled(3)) {
-                            Text(Copy.Inbox.openSource)
+                            Text(HintLink.isContacts(url) ? Copy.Inbox.openInContacts : Copy.Inbox.openSource)
                             Image(systemName: "arrow.up.right").font(CicadaTheme.icon(.inline))
                         }
                     }
                     .buttonStyle(.cicadaPlain)
                     .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.accentText)
-                    .help(Copy.Inbox.openSourceHelp(url.host ?? url.absoluteString))
+                    .help(HintLink.isContacts(url) ? Copy.Inbox.openInContactsHelp
+                                                   : Copy.Inbox.openSourceHelp(url.host ?? url.absoluteString))
                 }
             }
             .font(CicadaTheme.metaFont)

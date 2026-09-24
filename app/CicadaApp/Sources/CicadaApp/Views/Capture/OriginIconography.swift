@@ -41,6 +41,10 @@ enum OriginIconography {
         "calendar-local",
         // Round 4 (C9): the Chromium family, each its own origin (`bookmark_sync.origin_for`).
         "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark",
+        // Round 4 (G160): Chrome's open tab groups (`tab_groups.origin_for`).
+        "chrome-tab-group",
+        // Round 4 (G154): the Mac's address book — no episode carries it; its Integrations row does.
+        "contacts-local",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -70,6 +74,7 @@ enum OriginIconography {
         case "vivaldi-bookmark": "Vivaldi"
         case "comet-bookmark": "Comet"
         case "dia-bookmark": "Dia"
+        case "chrome-tab-group": "Chrome tab groups"
         // R3 — iCloud tabs are their own origin so a tab and a bookmark from
         // the same browser stay distinguishable in the origins strip.
         case "safari-tab": "Safari tab"
@@ -83,6 +88,7 @@ enum OriginIconography {
         case "rss": "RSS"
         case "calendar": "Calendar"
         case "calendar-local": "Calendar"
+        case "contacts-local": "Contacts"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
@@ -137,12 +143,14 @@ enum OriginIconography {
         switch origin {
         case "mcp", "claude-code", "cursor", "codex", "claude-desktop": "bubble.left.and.bubble.right"
         case "chrome-bookmark", "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark": "globe"
+        case "chrome-tab-group": "square.stack"
         case "safari-bookmark", "safari-tab": "safari"
         case "telegram": "paperplane.fill"
         case "claude-export", "chatgpt-export", "gemini-export": "square.and.arrow.down"
         case "rss": "dot.radiowaves.up.forward"
         // `calendar-local` too, else the Sources grid (which passes a channel id through) draws a tray.
         case "calendar", "calendar-local": "calendar"
+        case "contacts-local": "person.crop.circle"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
@@ -239,7 +247,7 @@ enum OriginIconography {
         case "openclaw": "openclaw"
         case "chatgpt-export": "chatgpt"
         case "gemini-export": "gemini"
-        case "chrome-bookmark": "chrome"
+        case "chrome-bookmark", "chrome-tab-group": "chrome"
         // Round 4 (C9): the one Chromium-family mark Track L bundled (G119 reserved it); the others show their
         // installed icon and then a globe.
         case "brave-bookmark": "brave"
@@ -278,7 +286,7 @@ enum OriginIconography {
     static func appBundleId(for origin: String) -> String? {
         switch origin {
         case "safari-bookmark", "safari-tab": "com.apple.Safari"
-        case "chrome-bookmark": "com.google.Chrome"
+        case "chrome-bookmark", "chrome-tab-group": "com.google.Chrome"
         // Round 4 (C9) — Cicada reads each browser's own files, so the app is here (`BrowserInventory.catalog`).
         case "brave-bookmark": "com.brave.Browser"
         case "vivaldi-bookmark": "com.vivaldi.Vivaldi"
@@ -292,6 +300,9 @@ enum OriginIconography {
         // Round-4 D2 — Cicada reads the Calendar app's own store, so the app is here; its icon is the only mark
         // (Apple's are never committed, Track L).
         case "calendar-local": "com.apple.iCal"
+        // Round 4 (G154) — Cicada reads the Contacts app's own store, so the app is here; Apple's marks are never
+        // committed (Track L).
+        case "contacts-local": "com.apple.AddressBook"
         default: nil
         }
     }

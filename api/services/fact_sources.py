@@ -259,6 +259,10 @@ def voiced_hint(source: dict) -> str:
     a hand-written entry means.
     """
     ref = str(source.get("ref") or "").strip()
+    # Round 4 (G154, R-SR16): a Contacts card is said as one, in words; the ref stays in the sentence (the app's
+    # "Open source ↗" scans the hint for it).
+    if ref.startswith("addressbook://"):
+        return f"Their card in your Contacts ({ref}) is where to check this"
     who = str(source.get("added_by") or USER).strip() or USER
     if who == USER:
         return f"You said {ref} is where to check this"

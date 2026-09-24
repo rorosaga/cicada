@@ -10,7 +10,11 @@ struct BrowsersSection: View {
 
     /// The channels this section draws itself; the rest of the category (Safari's iCloud tabs) stays an ordinary
     /// channel row.
-    static func owns(_ channelId: String) -> Bool { BrowserInventory.spec(forBookmarksChannel: channelId) != nil }
+    /// Also claims Chrome's tab-group channel (G160), so the generic loop in `IntegrationsView` never draws it a
+    /// second time; its sub-row sits under Chrome's own.
+    static func owns(_ channelId: String) -> Bool {
+        BrowserInventory.spec(forBookmarksChannel: channelId) != nil || channelId == TabGroupWatcher.channel
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
@@ -18,6 +22,9 @@ struct BrowsersSection: View {
                 ForEach(BrowserRows.shown(inventory: inventory, channels: channels)) { spec in
                     BrowserSourceRow(spec: spec, channel: channels.first { $0.id == spec.bookmarksChannel },
                                      now: context.date)
+                    if spec.tabGroupsChannel != nil {
+                        TabGroupRow(channel: channels.first { $0.id == TabGroupWatcher.channel }, now: context.date)
+                    }
                 }
             }
         }

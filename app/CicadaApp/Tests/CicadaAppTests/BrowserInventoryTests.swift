@@ -46,6 +46,14 @@ final class BrowserInventoryTests: XCTestCase {
         }
     }
 
+    /// R-SR3 — tab groups are Chrome's alone until G160 checks the others' session code on a real install.
+    func testOnlyChromeReadsOpenTabGroups() {
+        XCTAssertEqual(BrowserInventory.spec(id: "chrome")?.tabGroupsChannel, "chrome-tab-groups")
+        for spec in BrowserInventory.catalog where spec.id != "chrome" {
+            XCTAssertNil(spec.tabGroupsChannel, spec.id)
+        }
+    }
+
     func testTheProfilePathsAreTheDefaultOnes() {
         func path(_ id: String) -> String { BrowserFile.bookmarks(forBrowser: id)!.candidatePaths[0].path }
         XCTAssertTrue(path("brave").hasSuffix("Library/Application Support/BraveSoftware/Brave-Browser/Default/Bookmarks"))
