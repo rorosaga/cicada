@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/graph.png" alt="Cicada's graph explorer on a demo bank" width="920" />
+  <img src="docs/screenshots/home.png" alt="Cicada's Home page on a demo bank" width="920" />
 </p>
 
 Cicada captures what you read, save, decide and talk about, consolidates it overnight into a
@@ -91,7 +91,13 @@ agent can reason over the record structurally instead of re-reading prose. Every
 
 All screenshots come from a synthetic demo bank. Nothing in them is real.
 
-| Inbox — questions Sleep left for you | Sleep — the study room, the queue and past cycles |
+Home (above) — what was captured today, what needs you, and what the last Sleep read.
+
+| Graph — every entity, clustered; pick one to see what Cicada knows and where it came from | Projects — a project's timeline: a green band that fills up to today, with every moment clickable |
+|---|---|
+| ![Graph](docs/screenshots/graph.png) | ![Projects](docs/screenshots/projects.png) |
+
+| Inbox — a question Sleep left for you, with the conversation it came from open beside it | Sleep — the study room, what's waiting, and the readout |
 |---|---|
 | ![Inbox](docs/screenshots/inbox.png) | ![Sleep](docs/screenshots/sleep.png) |
 
