@@ -645,6 +645,14 @@ struct EntityDetailCard: View {
 
     private var shownDecayClass: DecayClass { pendingDecayClass ?? entity.decayClass }
 
+    /// G147 (R-FD10) — the value is the pace Sleep actually charges ("Slowly — mentioned across
+    /// 12 weeks"), not only the class word; while an override is in flight it shows the chosen
+    /// class's own words until the reload lands (the optimistic flip).
+    private var fadesLabel: String {
+        if let pendingDecayClass { return DetailsWords.fades(pendingDecayClass) }
+        return FadeWords.detail(entity.decay, fallback: entity.decayClass)
+    }
+
     private var fadesMenu: some View {
         Menu {
             ForEach(DecayClass.allCases) { option in
@@ -655,7 +663,7 @@ struct EntityDetailCard: View {
             }
         } label: {
             HStack(spacing: CicadaTheme.scaled(6)) {
-                Text(DetailsWords.fades(shownDecayClass))
+                Text(fadesLabel)
                 Image(systemName: "chevron.down").font(CicadaTheme.font(size: 9, weight: .semibold))
             }
             .font(CicadaTheme.font(size: 13))
@@ -665,7 +673,7 @@ struct EntityDetailCard: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(Copy.Graph.fadesHelp)
-        .accessibilityLabel("\(Copy.Graph.fades): \(DetailsWords.fades(shownDecayClass))")
+        .accessibilityLabel("\(Copy.Graph.fades): \(fadesLabel)")
     }
 
     private func setDecay(_ option: DecayClass) {

@@ -243,10 +243,26 @@ the rest counted) and releases them onto the page, first and through Stage 3, in
 gives the name one — a holding line leaves the store only then.
 
 ### Temporal decay
-Absence of mention IS a signal. Every entity carries `last_referenced` and `decay_rate`; Sleep drops
-confidence proportional to how frequently it *used* to be referenced. Below 0.2 → `archive/`; below
-0.4 → a decay nudge. Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen
-entities skip all decay math.
+Absence of mention IS a signal, and **how often something came up sets how fast its absence
+counts** (G147). Each Sleep cycle charges an unreferenced page at most one week
+(`MAX_DECAY_DAYS_PER_CYCLE`, measured from `max(last_referenced, decayed_through)` — TODO ruling 1)
+at **base × f(w) × the bank's per-type pace**: the base is the decay class's rate or an explicit
+`decay_rate:` (G66); `w` is the number of distinct ISO weeks among the page's `source_episodes`
+dates plus the weeks the person answered *keep* to a decay question (`kept_on`; every unparseable id
+together counts once); `f(w) = max(0.25, 1 / (1 + 0.6·ln w))` (`decay_spacing_alpha` /
+`decay_spacing_floor`) — fifty mentions in one afternoon are one week, and a page that came up across
+twelve weeks fades about 2.5× slower. The per-type pace comes from `<bank>/_decay_tuning.yaml`,
+written only when the person applies a suggestion in Settings → Memory; suggestions are derived from
+the bank's own decay answers in git history (`GET /memory/decay-suggestions`) and never applied on
+their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
+`decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's
+episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
+count). Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
+Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen entities skip all
+decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
+by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
+confidence should weigh in is a question for G148's benchmark pass to measure before anything
+changes.
 
 ---
 
@@ -295,7 +311,7 @@ One resolver, `api/services/decay_policy.py`. `resolve(fm)` returns `(class, rat
 active) so legacy pages keep working. An explicit numeric `decay_rate:` still wins for the three
 decaying classes; `evergreen` pins its rate to `0.0` unconditionally.
 
-| Class | Entity rate/wk | Claim multiplier | Meaning |
+| Class | Base entity rate/wk | Claim multiplier | Meaning |
 |---|---|---|---|
 | `evergreen` | 0.0 | 0.0 | Never fades. Artifacts (media/bookmarks) + anything the user pins. |
 | `durable` | 0.02 | 0.5 | Stable preferences, skills, long-lived concepts. |
@@ -310,7 +326,8 @@ so an over-eager extractor can never stop the graph from archiving.
 **Both engines honor it.** `conflict_resolver.resolve_and_prune` skips evergreen entities outright —
 no decay math, no nudge, never auto-archived, so a bookmark can't generate a "still interested?"
 question. `claim_reconciler._decay_claims` multiplies its per-epistemic × source_trust rate by the
-SUBJECT's class multiplier.
+SUBJECT's class multiplier. Since G147 the class rate is the *base*: both engines multiply it by the
+spacing factor and the per-type pace (see Temporal decay).
 
 ### Claims, evidence and provenance
 
@@ -414,6 +431,9 @@ older Stop-hook episode's count — as no times.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
+- `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
+  mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
+  capped at 52. Not an episode id and never read as one.
 - `paths:` (G133) — on a `project` page a watched folder anchors: `[{path, device}]`, where that
   folder lives on which Mac. For display and relink only; the backend never opens it.
 - `media.kind: paper` + `paper:` (G133) — a paper page: `arxiv_id`, `doi`, `authors`, `published`,
@@ -665,7 +685,9 @@ scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`Setting
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
 switches banks (that is the command bar's); Memory has no "Look for duplicates" until the dedup endpoint stops
-blocking the event loop and commits what it merges (R-O17). Search is `SettingsIndex` over `QuickMatch` — the
+blocking the event loop and commits what it merges (R-O17). Memory also holds
+G147's *How things fade*: pace suggestions from the person's own "Still tracking…?" answers
+(Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). ⌘K and ⌘F are
@@ -1007,7 +1029,7 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 
 ## API Design
 
-31 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+32 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
@@ -1069,6 +1091,10 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
 - `POST /conversations/upload` is a deprecated shim over the one intake — new callers use
   `POST /intake/import`; its `turns` sidecar is a list, as on Stop-hook episodes since G141 PJ-4 —
   only a Stop-hook episode written before PJ-4 holds an **integer count**, so a reader checks the type.
+- `GET /memory/decay-suggestions` / `PUT /memory/decay-tuning` (G147) are not Store domains and carry
+  no ETag; both answer one shape (`bank`, `windowDays`, `tuning`, `suggestions` — types and counts,
+  never a page id). The PUT merges `{type: multiplier | null}` within [0.25, 3.0], answers **409**
+  while Sleep runs, and commits `_decay_tuning.yaml` alone as `Cicada-Author: user`.
 
 ---
 
