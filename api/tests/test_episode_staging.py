@@ -35,7 +35,7 @@ def test_turns_render_the_g20_body_and_stamp_every_timed_turn(tmp_path):
     assert stamps == [{"offset": 0, "ts": "2026-09-01T10:00:00+00:00", "speaker": "user"},
                       {"offset": 21, "ts": "2026-09-01T10:00:05+00:00", "speaker": "assistant"}]
     for entry in stamps:
-        assert set(entry) == set(st.TURN_STAMP_KEYS)
+        assert tuple(entry)[:3] == st.TURN_STAMP_REQUIRED and set(entry) <= set(st.TURN_STAMP_KEYS)
         assert parsed.body[entry["offset"]:].startswith(f"{entry['speaker']}: ")
     assert list(parsed.frontmatter)[-1] == "turns"
     assert "turn_index" not in parsed.frontmatter
