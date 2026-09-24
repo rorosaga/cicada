@@ -189,6 +189,8 @@ final class BrowserWatcher {
     private var pending: [String: Task<Void, Never>] = [:]
     private var lastSyncStarted: [String: ContinuousClock.Instant] = [:]
     private var syncing: Set<String> = []
+    /// R-SR11 — the read-and-post in flight per channel, so × can stop it.
+    private var running: [String: Task<String, Error>] = [:]
 
     /// Strong, deliberately. A `weak` reference here made every sync a silent
     /// no-op the moment nothing else held the store — no error, no state
@@ -201,6 +203,9 @@ final class BrowserWatcher {
     private let paths: (BrowserFile) -> [URL]
     private let debounce: Duration
     private let minimumInterval: Duration
+    /// Round 4 (R-SR17) — where a running sync is announced, so every `SourceRow` can say "Syncing now" with an ×.
+    /// Optional: a watcher built without one (older tests) simply reports nowhere.
+    private let activity: SyncActivity?
     /// Injected so tests drive the watcher without touching a real browser.
     private let performSync: @MainActor (String, Store) async throws -> String
 
@@ -214,6 +219,7 @@ final class BrowserWatcher {
         paths: @escaping (BrowserFile) -> [URL] = { $0.candidatePaths },
         debounce: Duration = BrowserWatchPolicy.debounce,
         minimumInterval: Duration = BrowserWatchPolicy.minimumInterval,
+        activity: SyncActivity? = nil,
         performSync: @escaping @MainActor (String, Store) async throws -> String = {
             try await BrowserImportActions.syncChannel($0, store: $1)
         }
@@ -223,6 +229,7 @@ final class BrowserWatcher {
         self.paths = paths
         self.debounce = debounce
         self.minimumInterval = minimumInterval
+        self.activity = activity
         self.performSync = performSync
     }
 
@@ -318,6 +325,10 @@ final class BrowserWatcher {
         }
     }
 
+    /// R-SR11 — × on a browser row: cancels the in-flight read-and-post. The watch, the consent and the last
+    /// recorded signature are untouched, so the next change (or launch) reads the file again.
+    func cancel(_ channel: String) { running[channel]?.cancel() }
+
     /// Whether this channel is one the app can watch at all — a row for a
     /// channel that is not watched (iCloud tabs, Notes) must not claim a light.
     /// `nonisolated` because it answers from the static policy alone and is
@@ -402,13 +413,21 @@ final class BrowserWatcher {
         lastSyncStarted[channel] = ContinuousClock.now
         refreshState(channel: channel, file: file)
 
+        // R-SR11 — the read-and-post runs as its own task so × (`cancel`) can stop it; awaiting it inline left
+        // nothing to cancel.
+        let work = Task { @MainActor [performSync] in try await performSync(channel, store) }
+        running[channel] = work
+        activity?.began(channel, cancel: { [weak self] in self?.cancel(channel) })
         let result: Result<String, Error>
         do {
-            let line = try await performSync(channel, store)
+            let line = try await work.value
             errors[channel] = nil
             failedChannels.remove(channel)
             if let before { record(before, for: channel) }
             result = .success(line)
+        } catch let error where SyncCancellation.isCancellation(error) {
+            // R-SR11: stopped, not failed — no light, no error, and no signature recorded.
+            result = .failure(CancellationError())
         } catch let error as BrowserFileError {
             errors[channel] = error
             if case .notReadable = error {} else { failedChannels.insert(channel) }
@@ -417,6 +436,8 @@ final class BrowserWatcher {
             failedChannels.insert(channel)
             result = .failure(error)
         }
+        running[channel] = nil
+        activity?.ended(channel)
         syncing.remove(channel)
         refreshState(channel: channel, file: file)
         return result

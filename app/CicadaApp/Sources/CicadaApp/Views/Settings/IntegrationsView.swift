@@ -202,8 +202,9 @@ struct IntegrationsView: View {
     }
 }
 
-/// One real, backend-tracked channel: a 28pt mark, its label, the R8 state
-/// line, and at most one trailing action.
+/// One real, backend-tracked channel, drawn as a `SourceRow` (round 4): its
+/// mark, its label, what came in, "Last synced …" on the right, and at most
+/// one trailing action.
 ///
 /// `@State` can only live on a `View`, so this is its own child view rather
 /// than inline state inside `IntegrationsView`'s `ForEach` — neither
@@ -219,6 +220,8 @@ private struct IntegrationChannelRow: View {
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
+    /// Round 4 (R-SR17) — where a running sync says it is running and can be stopped.
+    @Environment(SyncActivity.self) private var activity
     @State private var vendor: WalkthroughVendor = .claude
     @State private var showConnector = false
     @State private var busy = false
@@ -228,18 +231,10 @@ private struct IntegrationChannelRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: CicadaTheme.spacingMD) {
-                mark
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(channel.label)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(IntegrationRowState.line(channel))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(channel.lastError != nil ? CicadaTheme.danger : CicadaTheme.textSecondary)
-                }
-                Spacer()
-                trailingAction
+            // Round 4 (decision 3, R-SR12) — the one `SourceRow`: bare mark, what came in, "Last synced …" or
+            // "Syncing now" with an × (DR-34 height, DR-52 mark, DR-58 relative words re-read every 30 s).
+            TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+                SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) { trailingAction }
             }
             // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
             .sheet(isPresented: $showConnector) {
@@ -253,30 +248,14 @@ private struct IntegrationChannelRow: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
         .settingsRow(.channel(channel.id))
     }
 
-    @ViewBuilder
-    private var mark: some View {
-        // R6 — one precedence, three surfaces. A channel with no bundled PNG
-        // but an installed app (Safari, Apple Notes — R2 forbids their PNGs)
-        // must still reach `PlatformTile`, or this page draws a tint circle
-        // where the Sleep desk draws the app's own icon. Keying the branch on
-        // `logoName` alone was the bug that let this page disagree.
-        let logoName = ConnectedChannelRow.logoName(for: channel.id)
-        let bundleId = OriginIconography.appBundleId(for: ConnectedChannelRow.origin(forChannel: channel.id))
-        if logoName != nil || bundleId != nil {
-            LogoImage.platformTile(name: logoName ?? "", bundleId: bundleId, size: CicadaTheme.scaled(28),
-                                   systemFallback: ConnectedChannelRow.icon(for: channel.id))
-        } else {
-            // DR-52 — a mark never sits on a tinted tile; with no mark, the bare symbol.
-            Image(systemName: ConnectedChannelRow.icon(for: channel.id))
-                .font(CicadaTheme.font(size: 18))
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
-        }
+    private var model: SourceRowModel {
+        SourceRowModel(id: channel.id, origin: ConnectedChannelRow.origin(forChannel: channel.id), title: channel.label,
+                       line: channel.connected ? SourceRowText.countLine(channel) : Copy.sourceNotConnected,
+                       status: SourceRowText.status(channel: channel, watch: watcher.state(for: channel.id),
+                                                    run: activity.run(for: channel.id)))
     }
 
     /// Controls over `channel.actions`, in priority order below: "connect"
@@ -303,15 +282,13 @@ private struct IntegrationChannelRow: View {
     @ViewBuilder
     private var trailingAction: some View {
         if channel.actions.contains("connect") {
-            Button("Connect") { showConnector = true }
-                .buttonStyle(.bordered)
+            NeutralButton(title: "Connect", size: .compact) { showConnector = true }
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
                     actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
                 }
-                Button("Manage") { showConnector = true }
-                    .buttonStyle(.bordered)
+                NeutralButton(title: "Manage", size: .compact) { showConnector = true }
             }
         } else if channel.actions.contains("sync") {
             actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
@@ -321,7 +298,7 @@ private struct IntegrationChannelRow: View {
     }
 
     private func actionButton(_ title: String, _ work: @escaping () async throws -> String) -> some View {
-        Button(title) {
+        NeutralButton(title: title, size: .compact, isDisabled: busy) {
             Task {
                 busy = true
                 defer { busy = false }
@@ -332,8 +309,6 @@ private struct IntegrationChannelRow: View {
                 }
             }
         }
-        .buttonStyle(.bordered)
-        .disabled(busy)
     }
 }
 

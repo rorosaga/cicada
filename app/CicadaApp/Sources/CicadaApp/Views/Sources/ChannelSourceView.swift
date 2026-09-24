@@ -15,6 +15,8 @@ struct ChannelSourceView: View {
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
+    /// Round 4 (R-SR17) — the running sync and its ×.
+    @Environment(SyncActivity.self) private var activity
     @Environment(InboxViewModel.self) private var inboxVM
     @Environment(AppRouter.self) private var router
     @State private var busy = false
@@ -70,34 +72,27 @@ struct ChannelSourceView: View {
         }
     }
 
+    /// Round 4 (decision 3) — the channel's state as one `SourceRow`: what came in, "Last synced …" or "Syncing
+    /// now" with an × (R-SR11/R-SR12); a failure is the row's `.problem`, so the old red line is gone.
     private func stateCard(_ channel: SourceChannel) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(alignment: .top) {
-                // A watched browser reports what its watch is doing (G129); a
-                // channel with no watch keeps the plain connected/not line,
-                // because a light nobody updates is worse than no light.
-                if let watchState = watcher.state(for: channel.id) {
-                    BrowserStatusLight(state: watchState, error: watcher.error(for: channel.id), channelId: channel.id)
-                } else {
-                    Text(channel.connected ? "Connected" : "Not connected")
-                        .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
-                }
-                Spacer()
-                if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
-                }
-                if channel.actions.contains("poll") {
-                    actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
+        let watch = watcher.state(for: channel.id)
+        let model = SourceRowModel(id: channel.id, origin: source.mark, title: SourceDisplayName.of(source),
+                                   line: SourceRowText.countLine(channel) ?? ChannelDetailLine.text(channel),
+                                   status: SourceRowText.status(channel: channel, watch: watch,
+                                                                run: activity.run(for: channel.id)))
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+                SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) {
+                    if channel.actions.contains("sync") {
+                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
+                    }
+                    if channel.actions.contains("poll") {
+                        actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
+                    }
                 }
             }
-            // R-S5 — the count no longer arrives pre-formatted inside
-            // `detail`; one composer puts it back in the reader's locale.
-            if let detail = ChannelDetailLine.text(channel) {
-                Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-            }
-            if let error = channel.lastError, !error.isEmpty {
-                Text(error).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.danger)
-            }
+            // R-D6 kept: the Full Disk Access fix is shown exactly where the read failed.
+            if watch == .blocked, let error = watcher.error(for: channel.id) { FullDiskAccessHint(error: error) }
             if let feedback {
                 Text(feedback.text).font(CicadaTheme.captionFont)
                     .foregroundStyle(feedback.isError ? CicadaTheme.danger : CicadaTheme.success)
@@ -114,7 +109,7 @@ struct ChannelSourceView: View {
     /// domains: the card's counts and `connected` dot come from
     /// `/sources/overview`, not from `/sources/channels`.
     private func actionButton(_ title: String, _ work: @escaping () async throws -> String) -> some View {
-        Button(title) {
+        NeutralButton(title: title, size: .compact, isDisabled: busy) {   // DR-40
             Task {
                 busy = true
                 do { feedback = ChannelFeedback(text: try await work(), isError: false) }
@@ -123,7 +118,6 @@ struct ChannelSourceView: View {
                 await store.refresh([.channels, .sources, .sourcesOverview, .status])
             }
         }
-        .buttonStyle(.bordered).controlSize(.small).disabled(busy)
     }
 
     /// One write path (`InboxViewModel.answer` → the held `POST /inbox/{id}/resolve`, DR-42),

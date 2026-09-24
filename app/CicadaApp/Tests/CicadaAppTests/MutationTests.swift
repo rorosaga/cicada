@@ -421,4 +421,18 @@ final class MutationTests: XCTestCase {
         XCTAssertNil(mutation.result, "a failed sync leaves no result to show")
         XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — the Feed shows what landed")
     }
+
+    /// R-SR11 — a request the person stopped is not a failure: no toast.
+    func testACancelledRequestRaisesNoToast() async {
+        struct Stopped: Mutation {
+            func optimistic(_ store: Store) async {}
+            func request(_ api: any SyncAPI) async throws { throw CancellationError() }
+            func rollback(_ store: Store) async {}
+            var failureMessage: String { "must not show" }
+        }
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        let ok = await store.perform(Stopped())
+        XCTAssertFalse(ok)
+        XCTAssertNil(store.toast)
+    }
 }

@@ -231,3 +231,34 @@ enum ScheduleChoice {
         return next
     }
 }
+
+/// Round 4 (T-Sources, decision 3; the plan's coordination note: T-Home owns the card) — a Getting started row as a `SourceRow`: a
+/// browser row says when it last synced and can be stopped while it runs; every other row keeps its own words and
+/// state. Pure, so the card only renders it.
+enum GettingStartedSourceRows {
+    static func channelId(_ id: FoundItemID) -> String? {
+        if case .browser(let channel) = id { return channel }
+        return nil
+    }
+
+    static func model(_ row: GettingStartedRow, origin: String, channel: SourceChannel?, watch: BrowserWatchState?,
+                      run: SyncActivity.Run?) -> SourceRowModel {
+        let status: SourceRowStatus
+        switch row.state {
+        case .working(let text) where channelId(row.id) == nil && run == nil:
+            // An agent being connected is not a sync: its own words ("Connecting Codex…") are the line, and
+            // `GettingStartedRowAction` draws the spinner — never "Syncing now".
+            return SourceRowModel(id: row.id.key, origin: origin, title: row.title, line: text, status: .idle)
+        case .working(let text):
+            status = .syncing(detail: run?.detail ?? text, fraction: run?.fraction, cancellable: run?.cancellable ?? false)
+        case .failed(let why):
+            status = .problem(why)
+        case .off, .needsAction:
+            status = run.map { .syncing(detail: $0.detail, fraction: $0.fraction, cancellable: $0.cancellable) } ?? .idle
+        case .on:
+            status = channelId(row.id) == nil ? .idle : SourceRowText.status(channel: channel, watch: watch, run: run)
+        }
+        let line = channel.flatMap { SourceRowText.countLine($0) } ?? (row.detail.isEmpty ? nil : row.detail)
+        return SourceRowModel(id: row.id.key, origin: origin, title: row.title, line: line, status: status)
+    }
+}

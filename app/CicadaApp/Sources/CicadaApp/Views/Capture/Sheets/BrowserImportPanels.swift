@@ -4,7 +4,9 @@ import SwiftUI
 /// Shared by the Safari/Chrome flows and the Feed strip's "Sync now" (R1):
 /// read the file(s) off-main, POST bytes through `Store.perform`, return the
 /// honest one-line result. Throws `BrowserFileError` (with the fix) or the
-/// API error.
+/// API error. A request the person stopped (R-SR11, the row's ×) surfaces as a
+/// cancellation — `Task.checkCancellation()` before the failure — never as
+/// "Sync failed".
 ///
 /// `@MainActor` because `Store` is, and — unlike the panels below, which
 /// inherit it from `View` — a bare enum gets no isolation inference: without
@@ -19,17 +21,17 @@ enum BrowserImportActions {
             let db = try await BrowserFileReader.read(.safariTabsDb)
             let wal = try await BrowserFileReader.readIfPresent(.safariTabsWal)
             let m = SyncSafariTabs(db: db, wal: wal, devices: nil)
-            guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.tabs(r)
         case "safari-bookmarks":
             let data = try await BrowserFileReader.read(.safariBookmarks)
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
-            guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
             let data = try await BrowserFileReader.read(.chromeBookmarks)
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
-            guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.bookmarks(r)
         default:
             // Only `ChannelActions.syncRoute`'s `.browserFile` ids arrive here; an

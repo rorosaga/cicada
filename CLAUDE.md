@@ -916,6 +916,13 @@ documents stays off until something says who wrote a document (F2-back R-B14).
   remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
   eyebrow row, which reads "Sources · n connected".
 
+**Source rows and last sync (round 4).** Every source that keeps up renders one `SourceRow`
+(`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
+(`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'
+with an × or 'Last synced 2 minutes ago' (the persisted `lastSync`, re-read every 30 s; an import says 'Imported …').
+`SyncActivity` is the one registry of running syncs; × cancels the run only (R-SR11). Sources' detail column, every
+Integrations channel row and Home's Getting started rows use it.
+
 **Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).

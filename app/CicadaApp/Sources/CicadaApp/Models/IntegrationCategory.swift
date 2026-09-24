@@ -115,9 +115,9 @@ enum IntegrationRowState {
 
         var parts: [String] = []
         if let date = channel.lastSyncDate {
-            let fmt = RelativeDateTimeFormatter()
-            fmt.unitsStyle = .abbreviated
-            parts.append(fmt.localizedString(for: date, relativeTo: now))
+            // Round 4 (R-SR12) — the source rows' own words ("Last synced 2 minutes ago"), not the abbreviated
+            // "2 min. ago", so a folder or Wispr Flow row says its last sync the way every other row does.
+            parts.append(SourceRowText.lastSynced(date, now: now, locale: locale))
         }
         if channel.count > 0 {
             // R-S5 — this was a bare `\(channel.count)`, which in a

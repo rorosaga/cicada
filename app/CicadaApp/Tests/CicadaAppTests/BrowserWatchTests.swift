@@ -302,4 +302,26 @@ final class BrowserWatcherTests: XCTestCase {
         try await eventually("enable's catch-up") { synced == ["chrome-bookmarks"] }
         watcher.stop()
     }
+
+    /// R-SR11 — × stops the run: no failure light, no error, and no signature, so the next save reads it again.
+    func testCancelStopsTheRunWithoutAFailureAndWithoutRecordingTheFile() async throws {
+        try atomicallyReplace(with: "{}")
+        let activity = SyncActivity()
+        let watcher = BrowserWatcher(
+            defaults: defaults, channels: [("chrome-bookmarks", .chromeBookmarks)],
+            paths: { [dir] _ in [dir!.appendingPathComponent("Bookmarks")] },
+            debounce: .milliseconds(60), minimumInterval: .milliseconds(1), activity: activity,
+            performSync: { _, _ in try await Task.sleep(for: .seconds(30)); return "never" })
+        watcher.start(store: store)
+        let running = Task { try await watcher.syncNow("chrome-bookmarks") }
+        try await eventually("the run to register") { activity.run(for: "chrome-bookmarks")?.cancellable == true }
+        activity.cancel("chrome-bookmarks")
+        do { _ = try await running.value; XCTFail("a cancelled sync must not report a line") }
+        catch { XCTAssertTrue(SyncCancellation.isCancellation(error), "\(error)") }
+        XCTAssertNil(activity.run(for: "chrome-bookmarks"))
+        XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .failed)
+        XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
+        XCTAssertNil(defaults.data(forKey: "cicada.browserWatch.chrome-bookmarks"), "no signature: the next change re-reads")
+        watcher.stop()
+    }
 }
