@@ -71,8 +71,9 @@ struct BrowserInventory: Equatable, Sendable {
         BrowserInventory(installed: catalog.filter { isInstalled($0.bundleId) })
     }
 
-    @MainActor
-    static func live() -> BrowserInventory {
+    /// Off the main actor on purpose (task 3 review, round 1): ten Launch Services lookups each time Integrations
+    /// appears. `urlForApplication(withBundleIdentifier:)` is safe from any thread; the caller hops back to assign.
+    nonisolated static func live() -> BrowserInventory {
         detect { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil }
     }
 
@@ -92,7 +93,10 @@ struct BrowserInventory: Equatable, Sendable {
 
 /// A browser as a `SourceRow` — pure (R-S19's rule: one projection, many renderings).
 enum BrowserRows {
-    enum Action: Equatable { case turnOn, allow, syncNow, none }
+    /// `tryAgain` is the blocked row's one button: the Full Disk Access fix is the hint's own button under the row
+    /// (R-D6), so the row offers the retry that hint cannot (task 3 review, round 1 — two buttons that both opened
+    /// Settings left no way to re-read after granting access).
+    enum Action: Equatable { case turnOn, tryAgain, syncNow, none }
 
     /// Installed supported browsers in catalog order, plus a supported one that already synced (its history stays
     /// visible after an uninstall). An unsupported browser is never a row.
@@ -108,7 +112,7 @@ enum BrowserRows {
                       run: SyncActivity.Run?) -> SourceRowModel {
         let line: String?
         switch watch {
-        case .absent?: line = Copy.browserNothingYet(spec.name)
+        case .absent?: line = spec.engine == .safari ? Copy.safariNothingYet : Copy.browserNothingYet(spec.name)
         case .off?: line = Copy.browserOffLine
         default: line = channel.flatMap { SourceRowText.countLine($0) }
         }
@@ -119,11 +123,16 @@ enum BrowserRows {
                               status: quiet ? .idle : SourceRowText.status(channel: channel, watch: watch, run: run))
     }
 
-    static func action(watch: BrowserWatchState?) -> Action {
+    /// Safari is on every Mac, so an absent Safari file is far likelier to be one macOS hid than one that is not
+    /// there: its absent row still offers Turn on, whose read either finds the file or lands on `.notReadable` and
+    /// shows the Full Disk Access fix (task 3 review, round 1 — the row it replaced always had Sync now). The open
+    /// probe (`BrowserFileAccess`) usually says blocked first; this is the path when it cannot tell.
+    static func action(watch: BrowserWatchState?, engine: BrowserSpec.Engine? = nil) -> Action {
         switch watch {
         case .off?: .turnOn
-        case .blocked?: .allow
-        case .absent?, .syncing?: .none
+        case .blocked?: .tryAgain
+        case .absent?: engine == .safari ? .turnOn : .none
+        case .syncing?: .none
         default: .syncNow
         }
     }

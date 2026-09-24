@@ -83,6 +83,34 @@ enum BrowserWatchState: String, Sendable, CaseIterable {
     var isHealthy: Bool { self == .watching || self == .syncing || self == .absent || self == .off }
 }
 
+/// Round 4 review (task 3, round 1) — is a browser file here, refused, or not here? One answer for the watch's light
+/// and `LocalInventory`'s Welcome row, so the two never disagree.
+///
+/// **Why an open and not a stat.** Without Full Disk Access, macOS answers a stat of a protected file as "no such
+/// file" (`BrowserFileReader.readIfPresent`'s L2 note), so a signature-only light turned a blocked Safari into an
+/// absent one: the row had no button and said Safari had no bookmarks — on the usual fresh install. `isReadableFile`
+/// is no better (it says yes to a file TCC refuses). Only an open's errno tells the three apart. Nothing is read —
+/// the descriptor closes at once — so this needs no consent and prompts for nothing (Track I T1 still holds).
+enum BrowserFileAccess: Equatable, Sendable {
+    case present
+    /// The path whose open was refused, for the Full Disk Access sentence.
+    case blocked(String)
+    case absent
+
+    static func probe(_ urls: [URL]) -> BrowserFileAccess {
+        var refused: String?
+        for url in urls {
+            let fd = open(url.path, O_RDONLY)
+            if fd >= 0 {
+                close(fd)
+                return .present
+            }
+            if errno != ENOENT && errno != ENOTDIR, refused == nil { refused = url.path }
+        }
+        return refused.map(BrowserFileAccess.blocked) ?? .absent
+    }
+}
+
 enum BrowserWatchPolicy {
     /// The channels this watcher covers, in display order, each with the file
     /// whose changes mean "the user saved something". Generalised over
@@ -279,7 +307,13 @@ final class BrowserWatcher {
     // MARK: State
 
     func state(for channel: String) -> BrowserWatchState? { states[channel] ?? externalStates[channel] }
-    func error(for channel: String) -> BrowserFileError? { errors[channel] ?? externalErrors[channel] }
+    func error(for channel: String) -> BrowserFileError? {
+        errors[channel] ?? externalErrors[channel] ?? refused[channel]
+    }
+
+    /// What the open probe found when no signature could be taken (`BrowserFileAccess`) — kept apart from `errors`
+    /// because it is re-derived on every refresh, while a failed read's error stays until a sync succeeds.
+    private var refused: [String: BrowserFileError] = [:]
 
     /// R-LS26 — a local source the app reads (a watched folder, Wispr Flow;
     /// `LocalSourceWatcher`) lights the same four views through the same two
@@ -348,8 +382,16 @@ final class BrowserWatcher {
 
     private func refreshState(channel: String, file: BrowserFile) {
         let current = signature(of: file)
+        // Task 3 review, round 1: a missing signature may be TCC's "no such file" — ask an open which it is, so a
+        // blocked Safari offers its fix instead of reading as absent. Recomputed on every refresh (never sticky), so
+        // granting access and pressing Try again clears it.
+        if current == nil, case .blocked(let path) = BrowserFileAccess.probe(paths(file)) {
+            refused[channel] = .notReadable(file, path)
+        } else {
+            refused[channel] = nil
+        }
         let blocked: Bool
-        if case .notReadable = errors[channel] { blocked = true } else { blocked = false }
+        if case .notReadable = error(for: channel) { blocked = true } else { blocked = false }
         states[channel] = BrowserWatchPolicy.state(
             fileExists: current != nil,
             enabled: isEnabled(channel),

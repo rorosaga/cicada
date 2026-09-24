@@ -44,7 +44,9 @@ extension Copy {
     static let browserOffLine = "Found on this Mac — turn it on to bring your bookmarks in"
     static func browserNothingYet(_ name: String) -> String { "\(name) has no bookmarks in its main profile yet" }
     static let browserTurnOn = "Turn on"
-    static let browserAllow = "Allow…"
+    /// Not "main profile": a Safari that looks empty is usually one macOS is hiding until Full Disk Access is on.
+    static let safariNothingYet = "Nothing from Safari yet — turn it on to bring your bookmarks in"
+    static let browserTryAgain = "Try again"
     static let browserSyncNow = "Sync now"
     static func browsersUnsupported(_ names: [String]) -> String {
         switch names.count {

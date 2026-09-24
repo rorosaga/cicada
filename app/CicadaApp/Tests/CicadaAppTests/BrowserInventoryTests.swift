@@ -73,8 +73,9 @@ final class BrowserInventoryTests: XCTestCase {
         XCTAssertEqual(off.line, Copy.browserOffLine)
         XCTAssertEqual(off.status, .idle)
         XCTAssertEqual(BrowserRows.action(watch: .off), .turnOn)
-        XCTAssertEqual(BrowserRows.action(watch: .blocked), .allow)
+        XCTAssertEqual(BrowserRows.action(watch: .blocked), .tryAgain)
         XCTAssertEqual(BrowserRows.action(watch: .absent), .none)
+        XCTAssertEqual(BrowserRows.action(watch: .absent, engine: .chromium), .none)
         XCTAssertEqual(BrowserRows.action(watch: .watching), .syncNow)
         let synced = SourceChannel(id: "safari-bookmarks", label: "Safari bookmarks", connected: true, count: 412,
                                    lastSync: "2026-09-24T21:34:00Z", countNoun: "bookmark", actions: ["sync"],
@@ -82,6 +83,20 @@ final class BrowserInventoryTests: XCTestCase {
         let model = BrowserRows.model(safari, channel: synced, watch: .watching, run: nil)
         XCTAssertEqual(model.line, "412 bookmarks · Reading List 36 · Favorites 12")
         XCTAssertEqual(model.origin, "safari-bookmark")
+    }
+
+    /// Task 3 review, round 1: without Full Disk Access macOS answers Safari's stat as "no such file". The absent
+    /// Safari row must still have a button — its read is what reaches the Full Disk Access fix — and must not claim
+    /// Safari has nothing in a "main profile".
+    func testAnAbsentSafariStillOffersTurnOnAndDoesNotBlameItsProfile() {
+        let safari = BrowserInventory.spec(id: "safari")!
+        XCTAssertEqual(BrowserRows.action(watch: .absent, engine: safari.engine), .turnOn)
+        let model = BrowserRows.model(safari, channel: nil, watch: .absent, run: nil)
+        XCTAssertEqual(model.line, Copy.safariNothingYet)
+        XCTAssertFalse(model.line?.contains("profile") ?? true)
+        XCTAssertEqual(model.status, .idle)
+        let brave = BrowserRows.model(BrowserInventory.spec(id: "brave")!, channel: nil, watch: .absent, run: nil)
+        XCTAssertEqual(brave.line, Copy.browserNothingYet("Brave"))
     }
 
     // MARK: Safari's source page (R-SR13)

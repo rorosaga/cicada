@@ -236,6 +236,40 @@ final class BrowserWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    /// Task 3 review, round 1: a file the app may not open (Full Disk Access missing) stats as absent, so the light
+    /// asks an open instead — blocked, with the fix's error, and not sticky: once access is back, Try again (a Sync
+    /// now) reads it and the light moves on.
+    func testARefusedFileReadsBlockedNotAbsentAndRecoversOnTryAgain() async throws {
+        try atomicallyReplace(with: "{}")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        guard case .notReadable? = watcher.error(for: "chrome-bookmarks") else {
+            return XCTFail("a blocked row needs the Full Disk Access error for its hint")
+        }
+        XCTAssertTrue(synced.isEmpty, "the probe reads nothing")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+        _ = try await watcher.syncNow("chrome-bookmarks")
+        XCTAssertEqual(synced, ["chrome-bookmarks"])
+        XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
+        XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        watcher.stop()
+    }
+
+    func testTheOpenProbeTellsPresentBlockedAndAbsentApart() throws {
+        XCTAssertEqual(BrowserFileAccess.probe([dir.appendingPathComponent("nope")]), .absent)
+        try atomicallyReplace(with: "{}")
+        XCTAssertEqual(BrowserFileAccess.probe([dir.appendingPathComponent("nope"), bookmarks]), .present)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        XCTAssertEqual(BrowserFileAccess.probe([bookmarks]), .blocked(bookmarks.path))
+    }
+
     /// F1, end to end: the file exists, nobody turned the browser on, the app
     /// launches and the file changes — nothing is read, and the light says Off.
     func testFirstLaunchReadsNoBrowserBeforeConsent() async throws {

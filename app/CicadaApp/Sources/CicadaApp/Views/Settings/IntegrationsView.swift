@@ -112,10 +112,8 @@ struct IntegrationsView: View {
             .padding(CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.background)
-        .onAppear {
-            obsidianInstalled = AddFolderRow.isObsidianInstalled()
-            browsers = BrowserInventory.live()
-        }
+        .onAppear { obsidianInstalled = AddFolderRow.isObsidianInstalled() }
+        .task { browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value }
     }
 
     /// Rows a category renders beyond its channels — the informational harness

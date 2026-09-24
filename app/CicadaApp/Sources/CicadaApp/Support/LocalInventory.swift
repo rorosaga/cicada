@@ -107,22 +107,12 @@ final class LocalInventory {
             isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil },
             browserPresence: { channel in
                 guard let file = BrowserWatchPolicy.file(for: channel) else { return .absent }
-                // Open, never `fileExists` first: a stat TCC refuses answers "no
-                // such file" (`BrowserFileReader.readIfPresent`'s L2 note), which
-                // would turn a blocked Safari into an absent one and hide its
-                // Allow… row; `isReadableFile` says yes to a Full-Disk-Access file
-                // the app cannot read. Only the errno of an open tells the three
-                // apart. Nothing is read — the descriptor closes at once.
-                var blocked = false
-                for url in file.candidatePaths {
-                    let fd = open(url.path, O_RDONLY)
-                    if fd >= 0 {
-                        close(fd)
-                        return watcher.isEnabled(channel) ? .on : .off
-                    }
-                    if errno != ENOENT && errno != ENOTDIR { blocked = true }
+                // Open, never `fileExists` first — `BrowserFileAccess` says why; the watch's light asks the same.
+                switch BrowserFileAccess.probe(file.candidatePaths) {
+                case .present: return watcher.isEnabled(channel) ? .on : .off
+                case .blocked: return .blocked
+                case .absent: return .absent
                 }
-                return blocked ? .blocked : .absent
             },
             claudeDesktopHasCicada: {
                 let url = FileManager.default.homeDirectoryForCurrentUser

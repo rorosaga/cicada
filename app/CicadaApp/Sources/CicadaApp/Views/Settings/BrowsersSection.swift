@@ -61,7 +61,7 @@ private struct BrowserSourceRow: View {
         VStack(alignment: .leading, spacing: 2) {
             SourceRow(model: BrowserRows.model(spec, channel: channel, watch: watch, run: activity.run(for: channelId)),
                       now: now, onCancel: { activity.cancel(channelId) }) {
-                action(BrowserRows.action(watch: watch))
+                action(BrowserRows.action(watch: watch, engine: spec.engine))
             }
             // R-D6 kept: the Full Disk Access fix sits where the read failed (Safari).
             if watch == .blocked, let error = watcher.error(for: channelId) { FullDiskAccessHint(error: error) }
@@ -77,10 +77,7 @@ private struct BrowserSourceRow: View {
         switch action {
         case .turnOn: NeutralButton(title: Copy.browserTurnOn, size: .compact, isDisabled: busy) { run() }
         case .syncNow: NeutralButton(title: Copy.browserSyncNow, size: .compact, isDisabled: busy) { run() }
-        case .allow:
-            NeutralButton(title: Copy.browserAllow, size: .compact) {
-                NSWorkspace.shared.open(BrowserFileError.fullDiskAccessURL)
-            }
+        case .tryAgain: NeutralButton(title: Copy.browserTryAgain, size: .compact, isDisabled: busy) { run() }
         case .none: EmptyView()
         }
     }
@@ -92,6 +89,8 @@ private struct BrowserSourceRow: View {
             defer { busy = false }
             do { feedback = try await watcher.syncNow(channelId) }
             catch let error where SyncCancellation.isCancellation(error) { feedback = Copy.syncStopped }
+            // A refused read already shows its fix under the row (FullDiskAccessHint); saying it twice helps no one.
+            catch BrowserFileError.notReadable { feedback = nil }
             catch { feedback = AddSourceSheet.friendlyError(error) }
         }
     }
