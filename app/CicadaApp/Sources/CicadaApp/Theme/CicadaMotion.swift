@@ -215,6 +215,19 @@ extension CicadaMotion {
     }
 }
 
+// MARK: - The guided tour (G152)
+
+/// F-08's motion for the coach mark: on its first appearance it rises 6 pt over 240 ms with the scrim fading in
+/// beside it; under Reduce Motion both only fade (DR-66). A step change is instant, pointer or key (DR-60): the mark
+/// swaps in place, never travels.
+extension CicadaMotion {
+    static let coachMarkDuration: TimeInterval = 0.24
+    static let coachMarkRise: CGFloat = 6
+    static func coachMark(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(coachMarkDuration)
+    }
+}
+
 /// DR-62 — the four curves, with the approved mocks' control points: `out` is their
 /// `cubic-bezier(.23,1,.32,1)`, `drawer` is the drawer curve columns open on, `ease` is CSS `ease`.
 /// `.easeIn` never appears.
