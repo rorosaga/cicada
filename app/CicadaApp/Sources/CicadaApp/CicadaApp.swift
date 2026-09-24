@@ -78,6 +78,9 @@ struct CicadaApp: App {
     /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
     /// person turns on their own switch (R-SR3), and posted per memory.
     @State private var tabGroups: TabGroupWatcher
+    /// Round 4 (G154): the Mac's address book, read by the app only after Connect in Settings → Integrations and
+    /// posted per memory, where it enriches the people Cicada already knows (R-SR8, R-SR10).
+    @State private var contactsReader: ContactsReader
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -148,6 +151,7 @@ struct CicadaApp: App {
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
         _tabGroups = State(initialValue: TabGroupWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
+        _contactsReader = State(initialValue: ContactsReader(activity: activity, bank: { [store] in store.bank }))
         _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
@@ -192,6 +196,7 @@ struct CicadaApp: App {
                 .environment(localSources)
                 .environment(calendarReader)
                 .environment(tabGroups)
+                .environment(contactsReader)
                 .environment(loginItems)
                 .environment(backendAgent)
                 .environment(intakeRouter)
@@ -220,6 +225,8 @@ struct CicadaApp: App {
                     Task { await calendarReader.bankChanged() }
                     // G160 — the new memory gets the open groups too (its digest is its own).
                     Task { await tabGroups.bankChanged() }
+                    // G154 (R-SR10) — the new memory's people get their Contacts sources too.
+                    Task { await contactsReader.bankChanged() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -262,6 +269,8 @@ struct CicadaApp: App {
                     calendarReader.start()
                     // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
                     tabGroups.start()
+                    // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
+                    contactsReader.start()
                     // R-IB22 — the export someone was waiting for arrived (a sniff
                     // recognised its vendor): its wait, in the active memory, is done.
                     intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in

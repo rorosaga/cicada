@@ -14,6 +14,7 @@ struct ChannelSourceView: View {
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     /// Round 4 (R-SR17) — the running sync and its ×.
@@ -123,7 +124,7 @@ struct ChannelSourceView: View {
             TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                 SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) {
                     if channel.actions.contains("sync") {
-                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups) }
+                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts) }
                     }
                     if channel.actions.contains("poll") {
                         actionButton("Poll now") { try await ChannelActions.poll(channel.id) }

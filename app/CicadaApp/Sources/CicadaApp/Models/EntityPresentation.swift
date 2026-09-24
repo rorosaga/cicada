@@ -131,7 +131,9 @@ enum FactSourceWords {
         let who = addedBy(s.addedBy)
         let words = EntityDates.shortDay(s.addedAt, locale: locale).map { "\(who.words) · \($0)" } ?? who.words
         let rawShown = who.origin != nil || who.words != Copy.Graph.foundByAnAgent
-        return Line(ref: s.ref, isLink: s.url != nil, forFact: forFact(s.predicate),
+        // G154 (R-SR16) — a Contacts card is named as one; its `addressbook://` id is only ever in the tooltip.
+        let shown = s.ref.hasPrefix("addressbook://") ? Copy.contactsCardRef : s.ref
+        return Line(ref: shown, isLink: s.url != nil, forFact: forFact(s.predicate),
                     readBy: readBy(access: s.access, kind: s.kind), addedBy: words, addedByOrigin: who.origin,
                     note: note(accepted: s.accepted, onlyMe: s.onlyMe),
                     help: rawShown ? s.ref : "\(s.ref)\n\(Copy.Graph.addedByRaw(s.addedBy))")

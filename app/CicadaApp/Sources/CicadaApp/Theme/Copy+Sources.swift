@@ -85,4 +85,27 @@ extension Copy {
     static let tabGroupUnnamed = "Unnamed group"
     static let sourceBackendDown = "Cicada's background service isn't answering."
     static let sourceNeedsUpdate = "This version of Cicada's background service can't read this yet — update Cicada."
+
+    // MARK: Contacts (G154)
+    static let contactsTitle = "Contacts"
+    static let contactsMeta = "Enriches people Cicada already knows"
+    static let contactsOff = "Not connected — Connect asks macOS to share your contacts. Nobody new is ever added."
+    static let contactsDenied = "Contacts access is off for Cicada — turn it on in System Settings → Privacy & Security → Contacts, then Connect again."
+    static let contactsEmpty = "No contacts to read yet"
+    static let contactsReading = "Reading your contacts"
+    static func contactsMatching(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Matching \(UsageFormat.count(n, locale: locale)) \(n == 1 ? "contact" : "contacts")"
+    }
+    static func contactsSyncedSummary(contacts: Int, people: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(contacts, locale: locale)) \(contacts == 1 ? "contact" : "contacts") · " + matchedPeople(people, locale: locale)
+    }
+    static let contactsConnect = "Connect"
+    static let contactsSyncNow = "Sync now"
+    static let contactsDisconnect = "Disconnect"
+    static let contactsStopTitle = "Stop reading your contacts?"
+    static let contactsStopDetail = "What Cicada already learned about people stays."
+    static let contactsStop = "Stop reading"
+    static let contactsConnectFirst = "Connect Contacts in Settings → Integrations first — Cicada reads them only after you do."
+    static let contactsSyncFailed = "Couldn't sync your contacts. Cicada will try again."
+    static let contactsCardRef = "Their card in Contacts"
 }

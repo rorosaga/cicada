@@ -30,7 +30,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case .chatAndAgents: "Chat & agents"
         case .browsers: "Browsers"
         case .socialAndSaved: "Social & saved"
-        case .feedsAndCalendars: "Feeds & calendars"
+        // Round 4 (G154): Contacts joins the Calendar app here — both app-owned rows.
+        case .feedsAndCalendars: "Calendars, contacts & feeds"
         case .messaging: "Messaging"
         // G133 / G134 (R-LS25): where notes live and where voices are captured.
         case .notesAndFiles: "Notes & files"
@@ -52,7 +53,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case "pinterest", "reddit", "x":
             return .socialAndSaved
         // Round-4 D2 (C6, R-FA13): `calendar-local` is the Calendar app read on this Mac, drawn by `CalendarRow`.
-        case "rss", "calendar", "calendar-local":
+        // Round 4 (G154): `contacts-local` is the Mac's address book, drawn by `ContactsRow` beside the calendar.
+        case "rss", "calendar", "calendar-local", "contacts-local":
             return .feedsAndCalendars
         case "telegram":
             return .messaging

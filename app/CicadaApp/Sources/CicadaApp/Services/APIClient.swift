@@ -1778,6 +1778,11 @@ actor APIClient {
         try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// G154: the whole address book, as names and which facts each card holds (never a value).
+    func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
+        try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
     /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
     func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
         try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))

@@ -43,6 +43,8 @@ enum OriginIconography {
         "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark",
         // Round 4 (G160): Chrome's open tab groups (`tab_groups.origin_for`).
         "chrome-tab-group",
+        // Round 4 (G154): the Mac's address book — no episode carries it; its Integrations row does.
+        "contacts-local",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -82,6 +84,7 @@ enum OriginIconography {
         case "rss": "RSS"
         case "calendar": "Calendar"
         case "calendar-local": "Calendar"
+        case "contacts-local": "Contacts"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
@@ -138,6 +141,7 @@ enum OriginIconography {
         case "rss": "dot.radiowaves.up.forward"
         // `calendar-local` too, else the Sources grid (which passes a channel id through) draws a tray.
         case "calendar", "calendar-local": "calendar"
+        case "contacts-local": "person.crop.circle"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
@@ -282,6 +286,9 @@ enum OriginIconography {
         // Round-4 D2 — Cicada reads the Calendar app's own store, so the app is here; its icon is the only mark
         // (Apple's are never committed, Track L).
         case "calendar-local": "com.apple.iCal"
+        // Round 4 (G154) — Cicada reads the Contacts app's own store, so the app is here; Apple's marks are never
+        // committed (Track L).
+        case "contacts-local": "com.apple.AddressBook"
         default: nil
         }
     }

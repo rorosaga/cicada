@@ -75,7 +75,7 @@ enum SettingsIndex {
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
-        .calendarApp,
+        .calendarApp, .contactsApp,
         .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
@@ -123,6 +123,9 @@ enum SettingsIndex {
         // Integrations — round-4 D2: the one row the app owns there (R-FA13); every other row is a channel.
         SettingsEntry(.calendarApp, .integrations, Copy.calendarAppTitle,
                       keywords: ["calendar", "events", "meetings", "icloud", "google calendar", "exchange", "schedule"]),
+        // Round 4 (G154): Contacts, the second row the app owns there.
+        SettingsEntry(.contactsApp, .integrations, Copy.contactsTitle,
+                      keywords: ["contacts", "address book", "people", "photos", "birthday"]),
         // Agents
         SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
@@ -171,8 +174,9 @@ enum SettingsIndex {
                                exportOnly: [AddSourceTile], connections: [ConnectionStatus],
                                agents: [AgentSetup], skills: [RecommendedSkill] = []) -> [SettingsEntry] {
         var out: [SettingsEntry] = []
-        // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry.
-        out += channels.filter { $0.id != CalendarRow.channelId }.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
+        // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry; `contacts-local` is
+        // `.contactsApp`'s (G154).
+        out += channels.filter { $0.id != CalendarRow.channelId && $0.id != ContactsReader.channel }.map { SettingsEntry(.channel($0.id), .integrations, $0.label,
                                             keywords: [$0.id, IntegrationCategory.of(channelId: $0.id).title]) }
         out += harnessRows.map { SettingsEntry(.harness($0.harness ?? $0.id), .integrations, $0.label,
                                                keywords: ["agent", "conversations"]) }

@@ -154,7 +154,8 @@ Seven rails hold across all of them:
   Vivaldi, Comet and Dia — each read from its default profile only (`<browser>-bookmarks`, the
   Chromium `Bookmarks` JSON through one parser); Safari's Reading List keeps its added date and
   Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
-  counts as the channel's `parts`.
+  counts as the channel's `parts`. Safari's excerpt is scrubbed, capped at 500 characters and used
+  only when the page gave no description of its own.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
@@ -230,6 +231,16 @@ Seven rails hold across all of them:
   `POST /sources/tab-groups/sync` stages one snapshot episode per group keyed
   `tab-group:<browser>:<profile>:<saved guid | title+colour | session token>`, `http(s)` tabs only (query kept and
   scrubbed, fragment dropped), tombstoned per browser and profile, one `user` commit per sync (`capture/tab-groups`).
+  macOS Contacts (G154): the app reads the address book through the Contacts framework after one prompt
+  (`NSContactsUsageDescription`) and posts the whole book — names and booleans for which facts a card holds, a
+  thumbnail ≤ 64 KB; never an address, a number or the notes field — to `POST /sources/contacts-local/sync`, on
+  Connect, on launch when `currentHistoryToken` moved or a day passed, on `CNContactStoreDidChange` (debounced) and on
+  a bank switch; an empty read is never posted. `contacts_local.py` matches exactly one `person` page by folded full
+  name or alias and never creates one; matched facts become `sources:` entries `{ref: addressbook://<id>, kind: app,
+  predicate, added_by: cicada}` the sync alone reconciles; the photo is cached at
+  `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>` — `contacts_local.photo_path(bank, id, ext)`, the one path
+  T-People's picture ladder reads — and marked `contacts_photo: {sha, ext}`; 409 while Sleep runs; one `user` commit
+  per sync (`capture/contacts`).
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
@@ -478,7 +489,9 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   Stage 5.56 attaches a URL found verbatim in a new Stage-1 claim's cited span as a source for that
   predicate (`added_by: <model>`, zero LLM) when the predicate's `locus:` is `world` or `artifact` —
   the vocabulary's where-the-truth-lives marking (seed + bank map, the most conservative winning:
-  `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched.
+  `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched. An `addressbook://` ref reads
+  'Their card in your Contacts (…)' (R-SR16), and the entity card names it "Their card in Contacts", the id only in
+  the tooltip (DR-54).
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
@@ -625,7 +638,7 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `sleep/expiry`, `sleep/followup`, `capture/calendar`, `capture/tab-groups`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`sleep/state`, `sleep/expiry`, `sleep/followup`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
 `Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
 importer),
@@ -895,10 +908,12 @@ Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never po
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
 (`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b). **Browsers (round 4, C9)** are drawn
 from `BrowserInventory` — the browsers on this Mac by bundle id, each with its installed icon: Chrome,
-Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, the Full Disk Access fix under
-Safari when needed, 'Last synced …'), and the ones Cicada cannot sync yet (Arc, Firefox, Edge, Opera)
-named once in the header, never as a row. Safari's source page groups its items as Recently saved ·
-Favorites · Other bookmarks.
+Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, or Try again with the
+Full Disk Access fix under Safari when a read was refused, 'Last synced …'); under Chrome, *Open tab groups* is a
+sub-row with its own switch and the open groups as tags in Chrome's colours (G160); and the ones Cicada cannot sync
+yet (Arc, Firefox, Edge, Opera) named once in the header, never as a row. Safari's source page groups its items as
+Recently saved · Favorites · Other bookmarks. **Calendars, contacts & feeds** offers Calendar on this Mac and
+Contacts (G154), both app-owned rows.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s
@@ -964,8 +979,9 @@ documents stays off until something says who wrote a document (F2-back R-B14).
 (`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
 (`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'
 with an × or 'Last synced 2 minutes ago' (the persisted `lastSync`, re-read every 30 s; an import says 'Imported …').
-`SyncActivity` is the one registry of running syncs; × cancels the run only (R-SR11). Sources' detail column, every
-Integrations channel row and Home's Getting started rows use it.
+× cancels the run only (R-SR11). Sources' detail column, the browser, tab-group and Contacts rows in Integrations, and
+Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `ContactsReader` report their runs into
+`SyncActivity`; `LocalSourceWatcher` and `CalendarReader` keep their own lights (R-SR17).
 
 **Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a

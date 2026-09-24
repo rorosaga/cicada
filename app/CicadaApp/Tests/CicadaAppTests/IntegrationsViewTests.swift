@@ -35,6 +35,8 @@ final class IntegrationsViewTests: XCTestCase {
             ("rss", .feedsAndCalendars), ("calendar", .feedsAndCalendars),
             // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac, rendered by `CalendarRow`.
             ("calendar-local", .feedsAndCalendars),
+            // Round 4 (G154): the Mac's address book, rendered by `ContactsRow` beside the Calendar app.
+            ("contacts-local", .feedsAndCalendars),
             ("pinterest", .socialAndSaved), ("reddit", .socialAndSaved), ("x", .socialAndSaved),
             ("telegram", .messaging), ("files", .filesAndImports),
         ]

@@ -24,6 +24,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
         // Round 4 (G160): Chrome's open tab groups, emitted once synced (R-SR15).
         "chrome-tab-groups",
+        // Round 4 (G154): the Mac's address book, always listed so Integrations can offer Connect (R-SR15).
+        "contacts-local",
     ]
 
     func testEverySyncIdTheRegistryEmitsHasAHandler() {
@@ -45,6 +47,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
                        "Sync now on the Calendar card runs the app's EventKit reader (G142)")
         XCTAssertEqual(ChannelActions.syncRoute(for: "chrome-tab-groups"), .tabGroups,
                        "Sync now on the tab-groups card runs the app's session reader (G160)")
+        XCTAssertEqual(ChannelActions.syncRoute(for: "contacts-local"), .contactsLocal,
+                       "Sync now on Contacts runs the app's address-book reader (G154)")
         XCTAssertNil(ChannelActions.syncRoute(for: "folder:"), "an empty folder id is not a folder")
         XCTAssertNil(ChannelActions.syncRoute(for: "rss"), "rss polls; it has no sync")
     }
@@ -61,6 +65,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         XCTAssertFalse(ChannelActions.managesInIntegrations("safari-tabs"))
         XCTAssertTrue(ChannelActions.managesInIntegrations("chrome-tab-groups"),
                       "its switch lives in Integrations — the consent (R-SR3)")
+        XCTAssertTrue(ChannelActions.managesInIntegrations("contacts-local"),
+                      "Connect lives in Integrations — the consent (G154)")
         XCTAssertNil(AddSourceTile.forChannel(folder.id), "why the add-source sheet was the wrong answer")
         XCTAssertEqual(ConnectedChannelRow.menuActions(for: folder), ["sync"])
     }
@@ -133,6 +139,24 @@ final class ChannelSyncRoutingTests: XCTestCase {
             XCTFail("an unconnected calendar must not sync")
         } catch {
             XCTAssertEqual(error.localizedDescription, Copy.calendarConnectFirst)
+        }
+    }
+
+    /// G154: Sync now on a Contacts card never starts the first address-book read — Connect in Settings does.
+    func testContactsSyncNowBeforeConnectSaysSoInWords() async {
+        let suite = "ChannelSyncRoutingTests.contacts.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChannelSyncRouting-contacts-\(UUID().uuidString)")
+        let reader = ContactsReader(store: FakeContactStore(), api: FakeContactsAPI(), defaults: defaults)
+        let store = Store(cache: SnapshotCache(root: root.appendingPathComponent("cache")), api: FakeSyncAPI())
+        do {
+            _ = try await ChannelActions.sync("contacts-local", store: store,
+                                              local: makeWatcher(FakeLocalSourcesAPI(folders: []), root: root, defaults: defaults),
+                                              contacts: reader)
+            XCTFail("an unconnected address book must not sync")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, Copy.contactsConnectFirst)
         }
     }
 }
