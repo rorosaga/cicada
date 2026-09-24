@@ -247,6 +247,13 @@ def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
     return rows
 
 
+#: Per-turn receipts: one row per reply of every session (G105's `capture`) or
+#: per prompt (G149's `hook_recall`). Counting them charts the person's chat
+#: cadence, not Cicada's work (G105 final review F1), and `read_events` reads
+#: the sibling file `hook_recall` is filed in, so filing it apart is not enough.
+PER_TURN_KINDS = frozenset({"capture", telemetry.HOOK_RECALL_KIND})
+
+
 def _activity(events: list[UsageEvent]) -> list[UsageEvent]:
     """G105 final review F1: a ``capture`` row is a Stop-hook receipt — one per
     reply of every Claude Code/Codex session, zero tokens, zero invocations.
@@ -254,8 +261,9 @@ def _activity(events: list[UsageEvent]) -> list[UsageEvent]:
     series, per-bank invocations and (via ``stage=<harness>``) a spurious
     ``by_stage`` row track the person's chat cadence instead of Cicada's own
     work. Feedback kinds (G113 R7) stay — a ``feedback`` stage row is a real
-    user action on the graph; a capture row is not an action on anything."""
-    return [e for e in events if e.kind != "capture"]
+    user action on the graph; a capture row is not an action on anything.
+    G149's `hook_recall` row (one per prompt) is the same class."""
+    return [e for e in events if e.kind not in PER_TURN_KINDS]
 
 
 async def stats(memory_path: Path, *, range_: str, today: date) -> dict:

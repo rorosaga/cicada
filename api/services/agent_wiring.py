@@ -16,6 +16,11 @@ health-check it, ~1.3 s warm and longer cold. The only ``~/.claude`` read is
 ``settings.json`` through ``api/hooks/registry.py`` — ``~/.claude/projects`` is
 never opened (CLAUDE.md, transcripts rail).
 
+G149 adds *auto-recall*: the SessionStart + UserPromptSubmit recall hooks' state
+and argv (``autorecall``, ``autorecall_on``, ``autorecall_off``), kept apart from
+``connect``, which onboarding runs, so turning recall on stays its own click
+(R-H11).
+
 ``setup`` (round 4 D5, C5; G76's in-app half) serves what to hand an agent
 instead of running anything: a prompt that names exactly the commands this
 module's step builders produce, Cursor's install link, or a config merge the app
@@ -184,6 +189,56 @@ def _autosave(path: Path, command: str) -> str:
     return {"present": "on", "absent": "off", "stale": "stale"}[state]
 
 
+RECALL_EVENTS = ("SessionStart", "UserPromptSubmit")
+
+
+def recall_hook_command(python: str, repo: Path, harness: str) -> str:
+    """install.sh's ``recall_command``, character for character (G149), for the
+    same reason this module's ``hook_command`` mirrors install.sh's
+    ``hook_command``: ``registry.status`` compares bytes (R-IA15)."""
+    return f'"{python}" "{repo}/api/hooks/recall.py" --harness {harness}'
+
+
+def autorecall_argv(h: Harness, *, home: Path, repo: Path, python: str) -> dict[str, list[dict]]:
+    """Both of the recall hook's command sets for one harness, whatever its
+    state. ``on`` registers SessionStart and UserPromptSubmit; it is idempotent
+    (``install`` answers ``present`` for an event already right, and updates a
+    stale one). ``off`` removes Cicada's recall entries and nothing else
+    (``--hook recall``): the Stop hook stays."""
+    settings = str(home / h.settings)
+    registry = str(repo / "api" / "hooks" / "registry.py")
+    command = recall_hook_command(python, repo, h.id)
+    touches = [f"~/{h.settings}"]
+    return {
+        "on": [_step("autorecall", [python, registry, "install", "--settings", settings, "--event", event,
+                                    "--command", command], touches) for event in RECALL_EVENTS],
+        "off": [_step("autorecall-off", [python, registry, "uninstall", "--settings", settings, "--hook", "recall"],
+                      touches)],
+    }
+
+
+def _autorecall(path: Path, command: str) -> str:
+    try:
+        hook_registry.load(path)
+    except hook_registry.RegistryError:
+        return "invalid"
+    states = {hook_registry.status(path, event=event, command=command) for event in RECALL_EVENTS}
+    return "on" if states == {"present"} else "off" if states == {"absent"} else "stale"
+
+
+def autorecall_fields(h: Harness, *, home: Path, repo: Path, python: str) -> dict:
+    """``GET /agents/wiring``'s G149 half for one installed harness. It is
+    additive: ``connect`` (what onboarding and the C5 setup prompt run) is
+    untouched, so turning recall on stays its own click (R-H11). A half
+    registered or moved hook is ``stale`` and offers both lists; an unparseable
+    file offers nothing."""
+    state = _autorecall(home / h.settings, recall_hook_command(python, repo, h.id))
+    argv = autorecall_argv(h, home=home, repo=repo, python=python)
+    return {"autorecall": state,
+            "autorecall_on": argv["on"] if state in ("off", "stale") else [],
+            "autorecall_off": argv["off"] if state in ("on", "stale") else []}
+
+
 async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, python: str,
                    runner: Runner, resolve) -> dict:
     binary = resolve(h.binary)
@@ -233,5 +288,10 @@ async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python
     rows = await asyncio.gather(*(
         _harness(h, home=home, memory_root=memory_root, repo=repo, python=python, runner=runner, resolve=resolve)
         for h in HARNESSES))
+    # G149, additive: each installed harness row gains its recall hooks' state
+    # and argv; a harness that is not installed keeps the schema's "n/a".
+    by_id = {h.id: h for h in HARNESSES}
+    rows = [{**row, **autorecall_fields(by_id[row["id"]], home=home, repo=repo, python=python)}
+            if row["installed"] else row for row in rows]
     return {"agents": [*rows, _gemini_cli(home, resolve)], "python": python,
             "repo": str(repo), "memory": str(memory_root)}

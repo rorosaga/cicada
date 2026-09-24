@@ -37,6 +37,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let agentsCloud = SettingsRowID("agentsCloud")
     // Agents' pointer to Skills (Task 8)
     static let agentsSkill = SettingsRowID("agentsSkill")
+    // Agents' Remembers automatically (G149)
+    static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
     static let remoteSwitch = SettingsRowID("remoteSwitch")
     static let remoteReach = SettingsRowID("remoteReach")
     static let remoteNew = SettingsRowID("remoteNew")
@@ -75,6 +77,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static func connection(_ id: String) -> SettingsRowID { SettingsRowID("connection:\(id)") }
     static func agent(_ id: String) -> SettingsRowID { SettingsRowID("agent:\(id)") }
     static func skill(_ id: String) -> SettingsRowID { SettingsRowID("skill:\(id)") }
+    static func autoRecall(_ id: String) -> SettingsRowID { SettingsRowID("autoRecall:\(id)") }
     /// G147 — one row per kind of page under "How things fade" (a suggestion or a chosen pace).
     static func fadeType(_ type: String) -> SettingsRowID { SettingsRowID("fadeType:\(type)") }
 

@@ -1,16 +1,18 @@
 """Inbound capture connectors — webhooks that stage episodes/media without
 going through MCP or the companion app's own upload flow.
 
-Two today: the Telegram webhook (parse+route logic in
+Three today: the Telegram webhook (parse+route logic in
 ``api/services/telegram_capture.py``; this router is only the token gate +
-HTTP surface) and the G105 session-capture endpoint the harness's Stop hook
+HTTP surface), the G105 session-capture endpoint the harness's Stop hook
 posts to (``api/services/transcript_capture.py`` does the validation, the
-extraction and the write).
+extraction and the write), and the G149 recall hooks' read,
+``POST /capture/hook-context`` (``api/services/hook_recall.py``).
 """
 
 import asyncio
 import os
 import secrets as _secrets_mod
+import time
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -18,7 +20,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, demo_guard
+from api.services import bank_registry, demo_guard, hook_recall
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -218,3 +220,54 @@ async def capture_transcript_endpoint(
         "bank": target.name,
         "redirectedFrom": target.redirected_from,
     }
+
+
+class HookContextRequest(BaseModel):
+    """What the recall hook forwards (G149): the harness's own stdin fields.
+    Snake_case like ``TranscriptCaptureRequest``, because the sender is a stdlib
+    script. The prompt rides in this JSON body and nowhere else, never a query
+    string, so uvicorn's access line can never hold it (G136 R22, R-H1).
+    ``cwd`` is accepted and unused (R-H17)."""
+
+    event: Literal["session_start", "user_prompt_submit"]
+    harness: Literal["claude-code", "codex"]
+    session_id: str = Field(..., min_length=1, max_length=200)
+    cwd: str | None = Field(None, max_length=4096)
+    prompt: str | None = Field(None, max_length=hook_recall.PROMPT_MAX_CHARS)
+    model: str | None = Field(None, max_length=200)
+
+
+@router.post("/capture/hook-context")
+async def hook_context_endpoint(req: HookContextRequest, settings: Settings = Depends(get_settings)):
+    """G149: what a harness's SessionStart / UserPromptSubmit hook puts in front
+    of the model. Engine-free and read-only; ``additionalContext: null`` when
+    there is nothing worth saying, so a miss costs zero tokens.
+
+    Bearer-authed like ``/capture/transcript``. Never gated by
+    ``refuse_capture_into_demo``: it writes nothing, and it reads the bank a
+    capture would write into (``bank_registry.capture_bank``), the real bank
+    left most recently while the demo is open, nothing when there is none
+    (R-H16). The work runs off the event loop under a hard budget, 300 ms for a
+    prompt and 800 ms for the primer; past it the answer is ``timeout`` with no
+    note (R-H6). The session's window is updated only when an answer actually
+    came back (R-H7). Nothing here logs the prompt: a failure is logged by its
+    class name alone (K9, R-H10)."""
+    started = time.perf_counter()
+    budget = hook_recall.PRIMER_BUDGET_S if req.event == "session_start" else hook_recall.PROMPT_BUDGET_S
+    deadline = time.monotonic() + budget
+    bank = None
+    try:
+        result, bank = await asyncio.wait_for(asyncio.to_thread(
+            hook_recall.respond, settings.memory_root, event=req.event, harness=req.harness,
+            session_id=req.session_id, prompt=req.prompt or "", deadline=deadline), timeout=budget)
+        if req.event == "user_prompt_submit":
+            hook_recall.RECENT.remember(req.session_id, result.injected)
+    except TimeoutError:
+        result = hook_recall.Injection.none("timeout")
+    except Exception as exc:  # noqa: BLE001 — K9: the class, never the message or a traceback
+        logger.warning(f"hook-context: failed ({type(exc).__name__})")
+        result = hook_recall.Injection.none("error")
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    hook_recall.record(req.event, req.harness, result, latency_ms=latency_ms, model=req.model, bank=bank)
+    return {"additionalContext": result.text, "injected": list(result.injected),
+            "reason": result.reason, "latencyMs": latency_ms}

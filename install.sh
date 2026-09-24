@@ -16,6 +16,8 @@
 #   hooks.Stop in ~/.claude/settings.json (and ~/.codex/hooks.json when the
 #   codex CLI is present) — merged in, never clobbering other hooks; re-run
 #   after moving the repo. --uninstall removes it.
+#   It also registers the G149 recall hooks (hooks.SessionStart + hooks.UserPromptSubmit →
+#   api/hooks/recall.py) the same way; CICADA_RECALL=off skips them.
 #
 # Test/override env vars (default to real locations):
 #   CICADA_MEMORY_PATH   memory dir            (default: ~/cicada/memory)
@@ -25,6 +27,7 @@
 #   CLAUDE_CLI           claude binary name    (default: claude)
 #   CLAUDE_SETTINGS      Claude Code settings  (default: ~/.claude/settings.json)
 #   CODEX_HOOKS          Codex hooks file      (default: ~/.codex/hooks.json)
+#   CICADA_RECALL        off = don't register the recall hooks (G149)
 #
 set -euo pipefail
 
@@ -54,6 +57,9 @@ HOOKS_REGISTRY="$REPO/api/hooks/registry.py"
 # The registered command, quoted per path so a space in $HOME survives the
 # harness's `sh -c`. One function so install, uninstall and doctor agree.
 hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1"; }
+RECALL_SCRIPT="$REPO/api/hooks/recall.py"
+# G149: the recall hook's command — `agent_wiring.recall_hook_command`, character for character.
+recall_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$RECALL_SCRIPT" "$1"; }
 PLIST_LABEL="com.cicada.backend"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/$PLIST_LABEL.plist"
 PORT=8000
@@ -68,7 +74,7 @@ for arg in "$@"; do
     --skill)     DO_SKILL=1 ;;
     --uninstall) DO_UNINSTALL=1 ;;
     -h|--help)
-      sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown flag: $arg (try --help)" >&2; exit 2 ;;
   esac
@@ -120,12 +126,12 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
   fi
 
   if [ -x "$VENV_PY" ]; then
-    step "Removing the session-capture hook"
+    step "Removing the session-capture and recall hooks"
     run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS" || true
     [ -f "$CODEX_HOOKS" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CODEX_HOOKS" || true; }
-    ok "Capture hook removed (if it existed)"
+    ok "Capture and recall hooks removed (if they existed)"
   else
-    warn "venv missing — remove the api/hooks/capture.py entry from $CLAUDE_SETTINGS by hand"
+    warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
   fi
 
   ok "Memory dir left intact: $MEMORY_PATH"
@@ -323,6 +329,33 @@ if command -v codex >/dev/null 2>&1; then
   fi
 fi
 
+# --- 5c. Implicit recall hooks (G149) ---
+# SessionStart sends the primer and UserPromptSubmit a short note of what memory
+# holds about names in the message, so recall no longer depends on a model
+# choosing to call cicada_recall. Read-only; the prompt is never logged.
+hdr "5c. Implicit recall hooks"
+if [ "$(printf '%s' "${CICADA_RECALL:-}" | tr '[:upper:]' '[:lower:]')" = "off" ]; then
+  ok "CICADA_RECALL=off — recall hooks not registered (Settings → Agents turns them on)"
+else
+  for ev in SessionStart UserPromptSubmit; do
+    if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event "$ev" --command "$(recall_command claude-code)"; then
+      ok "Claude Code $ev recall hook registered in $CLAUDE_SETTINGS (idempotent)"
+    else
+      warn "Could not register the $ev recall hook in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
+    fi
+  done
+  if command -v codex >/dev/null 2>&1; then
+    for ev in SessionStart UserPromptSubmit; do
+      if run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CODEX_HOOKS" --event "$ev" --command "$(recall_command codex)"; then
+        ok "Codex $ev recall hook registered in $CODEX_HOOKS"
+      else
+        warn "Could not register the Codex $ev recall hook in $CODEX_HOOKS"
+      fi
+    done
+    warn "Codex runs a new hook only once you trust it: at its next start choose \"Trust all and continue\" (or /hooks)"
+  fi
+fi
+
 # --- 6. launchd backend ---
 hdr "6. Backend service (launchd)"
 if backend_healthy; then
@@ -366,6 +399,7 @@ else
   echo "  MCP:           manual JSON snippet printed above"
 fi
 echo "  capture hook:  $CLAUDE_SETTINGS (hooks.Stop → api/hooks/capture.py)"
+echo "  recall hooks:  $CLAUDE_SETTINGS (hooks.SessionStart + hooks.UserPromptSubmit → api/hooks/recall.py)"
 echo "  launchd:       $PLIST_PATH"
 [ "$DO_SKILL" -eq 1 ] && echo "  skill:         $CLAUDE_SKILLS_DIR/cicada/SKILL.md"
 echo "  API token:     ${CICADA_HOME:-$HOME/.cicada}/api_token (the app and MCP server read it automatically)"

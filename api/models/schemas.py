@@ -2349,7 +2349,7 @@ class AgentWiringStep(CamelModel):
     ``display == shlex.join(argv)`` so the disclosure can never show one thing
     and run another; ``touches`` are ``~/``-relative (R-IA15)."""
 
-    step: Literal["mcp", "hook"]
+    step: Literal["mcp", "hook", "autorecall", "autorecall-off"]
     display: str
     argv: list[str]
     touches: list[str] = []
@@ -2359,7 +2359,9 @@ class AgentWiringRow(CamelModel):
     """One harness. ``recall: unknown`` is a probe that timed out or could not
     run — never ``off``, or the app would offer an ``mcp add`` that fails on a
     registered server. ``autosave: invalid`` is a settings file that does not
-    parse (F8: ``registry.status`` alone would have said ``absent``)."""
+    parse (F8: ``registry.status`` alone would have said ``absent``).
+    ``autorecall`` (G149) is the recall hooks' state; ``autorecall_on``/
+    ``autorecall_off`` are what Settings → Agents runs, apart from ``connect``."""
 
     id: str
     installed: bool = False
@@ -2368,6 +2370,9 @@ class AgentWiringRow(CamelModel):
     autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
     connect: list[AgentWiringStep] = []
     detail: Optional[str] = None
+    autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    autorecall_on: list[AgentWiringStep] = []
+    autorecall_off: list[AgentWiringStep] = []
 
 
 class AgentWiringResponse(CamelModel):

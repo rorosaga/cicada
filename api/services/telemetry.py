@@ -22,8 +22,12 @@ from api.services.auth import cicada_home
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
     "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
-    "remote_call", "connector_auth",
+    "remote_call", "connector_auth", "hook_recall",
 )
+# G149: one row per recall-hook firing — harness, event, reason enum, the page
+# ids shown and their count, token and latency buckets, the model id when the
+# harness sent one (D7: an id is an enum). Never the prompt (R-H9, R-H10).
+HOOK_RECALL_KIND = "hook_recall"
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
 # or an answer string (the ledger is machine-global and outside the bank).
@@ -39,8 +43,10 @@ FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # in being excluded from connection/cost rollups so they never surface as an
 # "unknown" connection. G135: a remote call and a connector
 # create/rotate/revoke/deny event are ids and enums with no spend and no
-# connection, the same class.
-NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth")
+# connection, the same class. G149: a ``hook_recall`` row is a per-prompt
+# receipt with no spend and no connection.
+NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth",
+                                    HOOK_RECALL_KIND)
 
 
 def now_iso() -> str:
@@ -148,8 +154,9 @@ READS_KIND = "read"
 # G135 R-R36: a `remote_call` row is written on EVERY remote tool call, reads
 # included, so it is filed beside `read` for the reason above (G124 M2): a row
 # in the events file ticks the app's consumption domain and refetches every
-# `/consumption/*` endpoint.
-SIBLING_KINDS = frozenset({READS_KIND, "remote_call"})
+# `/consumption/*` endpoint. G149 R-H9: a hook row fires on every prompt, so
+# it is filed here for the same reason.
+SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND})
 _PREFIX_EVENTS = "events"
 _PREFIX_READS = "reads"
 

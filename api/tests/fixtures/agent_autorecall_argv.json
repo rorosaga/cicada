@@ -1,0 +1,28 @@
+{
+  "root": "/R/cicada",
+  "home": "/H",
+  "cases": [
+    {"agent": "claude-code", "list": "on", "index": 0,
+     "argv": ["/R/cicada/api/.venv/bin/python", "/R/cicada/api/hooks/registry.py", "install", "--settings",
+              "/H/.claude/settings.json", "--event", "SessionStart", "--command",
+              "\"/R/cicada/api/.venv/bin/python\" \"/R/cicada/api/hooks/recall.py\" --harness claude-code"]},
+    {"agent": "claude-code", "list": "on", "index": 1,
+     "argv": ["/R/cicada/api/.venv/bin/python", "/R/cicada/api/hooks/registry.py", "install", "--settings",
+              "/H/.claude/settings.json", "--event", "UserPromptSubmit", "--command",
+              "\"/R/cicada/api/.venv/bin/python\" \"/R/cicada/api/hooks/recall.py\" --harness claude-code"]},
+    {"agent": "claude-code", "list": "off", "index": 0,
+     "argv": ["/R/cicada/api/.venv/bin/python", "/R/cicada/api/hooks/registry.py", "uninstall", "--settings",
+              "/H/.claude/settings.json", "--hook", "recall"]},
+    {"agent": "codex", "list": "on", "index": 0,
+     "argv": ["/R/cicada/api/.venv/bin/python", "/R/cicada/api/hooks/registry.py", "install", "--settings",
+              "/H/.codex/hooks.json", "--event", "SessionStart", "--command",
+              "\"/R/cicada/api/.venv/bin/python\" \"/R/cicada/api/hooks/recall.py\" --harness codex"]},
+    {"agent": "codex", "list": "on", "index": 1,
+     "argv": ["/R/cicada/api/.venv/bin/python", "/R/cicada/api/hooks/registry.py", "install", "--settings",
+              "/H/.codex/hooks.json", "--event", "UserPromptSubmit", "--command",
+              "\"/R/cicada/api/.venv/bin/python\" \"/R/cicada/api/hooks/recall.py\" --harness codex"]},
+    {"agent": "codex", "list": "off", "index": 0,
+     "argv": ["/R/cicada/api/.venv/bin/python", "/R/cicada/api/hooks/registry.py", "uninstall", "--settings",
+              "/H/.codex/hooks.json", "--hook", "recall"]}
+  ]
+}

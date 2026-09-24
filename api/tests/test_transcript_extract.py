@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from api.services import recall_text
 from api.services import transcript_extract as tx
 
 SID = "11111111-2222-4333-8444-555555555555"
@@ -304,3 +305,30 @@ def test_extract_dispatch_and_unknown_harness():
     assert tx.extract("claude-code", [user("hi")]).turns[0].text == "hi"
     with pytest.raises(ValueError):
         tx.extract("cursor", [])
+
+
+def test_a_cicada_note_is_never_captured_as_the_persons_words():
+    """G149 R-H12: whatever shape Claude Code stores hook context in, a note
+    Cicada recalled never becomes 'the person said'."""
+    note = recall_text.RECALL_HEADER + "\n- Alpha Project (project, `alpha-project`): x"
+    lines = [
+        user("How is the Alpha Project going?"),
+        user(note),
+        user_blocks([{"type": "text", "text": "  " + note}, {"type": "text", "text": "and Bob?"}]),
+        user(f"<system-reminder>{note}</system-reminder>What changed?"),
+        user(f"<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"),
+        user(f"And the budget?\n<user-prompt-submit-hook>{note}</user-prompt-submit-hook>"),
+        user(f"<session-start-hook>{note}"),                       # an unclosed tag still opens the block
+        asst_text("It is on track."),
+    ]
+    conv = tx.extract_claude_code(lines)
+    assert all("From Cicada" not in t.text for t in conv.turns)
+    assert [t.text for t in conv.turns if t.role == "user"] == ["How is the Alpha Project going?", "and Bob?",
+                                                                 "What changed?", "And the budget?"]
+
+
+def test_codex_keeps_hook_context_out_even_under_the_user_role():
+    note = recall_text.PRIMER_HEADER + "\n\n# Cicada — personal memory for this person"
+    lines = [cx_msg("developer", [note]), cx_msg("user", [note, "Rename alpha-project?"]), cx_msg("assistant", ["Yes."])]
+    assert [(t.role, t.text) for t in tx.extract_codex(lines).turns] == [
+        ("user", "Rename alpha-project?"), ("assistant", "Yes.")]

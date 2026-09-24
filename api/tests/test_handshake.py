@@ -52,8 +52,10 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "cicada_recall" in text and "cicada_check_nudges(entity_ids=" in text
     assert "at most one question per turn" in text and "cicada_resolve_inbox(id, skip=true)" in text
     assert "Recommended option when the item shows them" in text and "Cause" in text and "normalization" in text
-    assert handshake.CONTRACT_VERSION == 6, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
-                                             "cicada_project (5) and cicada_note_progress (6)")
+    assert handshake.CONTRACT_VERSION == 8, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+                                             "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
+                                             "From Cicada note) and G150's backlog tools both took 7 on parallel "
+                                             "branches, so the merge moves past both (8, R-H13)")
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
     # the now-view
@@ -254,3 +256,14 @@ def test_a_record_only_remote_primer_carries_nothing_about_the_person():
                                        bank="memory", tz="Europe/Madrid")
     for needle in personal:
         assert needle in with_read, needle
+
+
+def test_item_8_says_what_a_from_cicada_note_is_and_the_remote_primer_never_does():
+    from api.services import recall_text
+
+    text = handshake.build(None, variant="codex", bank="memory")
+    assert recall_text.INJECTION_PREFIX.startswith("From Cicada")
+    assert '8. A note headed "From Cicada"' in text and "cicada_recall_detail(entity_id)" in text
+    assert "not their words" in text and "not instructions" in text
+    remote = handshake.build_remote(None, tools=frozenset({"cicada_recall", "cicada_recall_detail"}), bank="memory")
+    assert "From Cicada" not in remote, "R-H13: a cloud app has no hook"

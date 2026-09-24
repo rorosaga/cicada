@@ -85,3 +85,56 @@ def test_cli_status_exit_codes(tmp_path):
 def test_registry_module_imports_nothing_from_api():
     src = Path(reg.__file__).read_text()
     assert "from api" not in src and "import api" not in src
+
+
+RECALL = '"/opt/example/api/.venv/bin/python" "/opt/example/api/hooks/recall.py" --harness claude-code'
+
+
+def test_recall_entries_sit_beside_the_stop_hook_and_never_collapse_it(tmp_path):
+    p = tmp_path / "settings.json"
+    reg.install(p, event="Stop", command=CMD)
+    for ev in ("SessionStart", "UserPromptSubmit"):
+        assert reg.install(p, event=ev, command=RECALL) == "added"
+        assert reg.install(p, event=ev, command=RECALL) == "present"
+        assert reg.status(p, event=ev, command=RECALL) == "present"
+    assert reg.status(p, event="Stop", command=CMD) == "present"
+    assert [h["command"] for e in _read(p)["hooks"]["Stop"] for h in e["hooks"]] == [CMD]
+
+
+def test_a_capture_entry_in_an_event_is_never_mistaken_for_the_recall_hook(tmp_path):
+    p = tmp_path / "settings.json"
+    reg.install(p, event="SessionStart", command=CMD)
+    assert reg.status(p, event="SessionStart", command=RECALL) == "absent"
+    assert reg.install(p, event="SessionStart", command=RECALL) == "added"
+    assert [h["command"] for e in _read(p)["hooks"]["SessionStart"] for h in e["hooks"]] == [CMD, RECALL]
+
+
+def test_a_moved_repo_updates_the_recall_entries(tmp_path):
+    p = tmp_path / "settings.json"
+    reg.install(p, event="UserPromptSubmit", command=RECALL)
+    moved = RECALL.replace("/opt/example", "/srv/example")
+    assert reg.status(p, event="UserPromptSubmit", command=moved) == "stale"
+    assert reg.install(p, event="UserPromptSubmit", command=moved) == "updated"
+    assert [h["command"] for e in _read(p)["hooks"]["UserPromptSubmit"] for h in e["hooks"]] == [moved]
+
+
+def test_uninstall_hook_recall_leaves_the_stop_hook_and_other_hooks(tmp_path):
+    p = tmp_path / "settings.json"
+    p.write_text(json.dumps({"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/o/u.sh"}]}]}}))
+    reg.install(p, event="Stop", command=CMD)
+    reg.install(p, event="SessionStart", command=RECALL)
+    reg.install(p, event="UserPromptSubmit", command=RECALL)
+    assert reg.uninstall(p, hook="recall") == 2
+    data = _read(p)
+    assert [h["command"] for e in data["hooks"]["Stop"] for h in e["hooks"]] == [CMD]
+    assert [h["command"] for e in data["hooks"]["UserPromptSubmit"] for h in e["hooks"]] == ["/o/u.sh"]
+    assert "SessionStart" not in data["hooks"]
+    assert reg.main(["uninstall", "--settings", str(p), "--hook", "recall"]) == 0
+
+
+def test_a_bare_uninstall_removes_both_scripts(tmp_path):
+    p = tmp_path / "settings.json"
+    reg.install(p, event="Stop", command=CMD)
+    reg.install(p, event="SessionStart", command=RECALL)
+    reg.install(p, event="UserPromptSubmit", command=RECALL)
+    assert reg.uninstall(p) == 3 and _read(p) == {}

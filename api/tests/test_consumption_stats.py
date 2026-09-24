@@ -155,3 +155,24 @@ def test_capture_rows_are_not_activity(env):
     assert after["first_event"] == before["first_event"]
     cal_after = asyncio.run(cs.calendar(env, weeks=2, today=TODAY))
     assert cal_after == cal_before
+
+
+def test_hook_recall_rows_are_not_activity(env):
+    """G149 R-H9: the recall hook fires on every prompt of every session, the
+    same cadence as a Stop-hook `capture` row (G105 final review F1), and
+    `read_events` reads the sibling file it is filed in. Its row must not
+    reach any Usage view either: no `by_stage` row, no per-bank count, no
+    hour-histogram bar, no daily series point, no calendar event."""
+    before = asyncio.run(cs.stats(env, range_="all", today=TODAY))
+    cal_before = asyncio.run(cs.calendar(env, weeks=2, today=TODAY))
+    for i in range(5):
+        tm.record(tm.UsageEvent(ts=f"2026-08-26T1{i}:00:00.000Z", kind=tm.HOOK_RECALL_KIND, stage="hook_recall",
+                                bank="test-bank", billing="free", invocations=0,
+                                refs={"harness": "claude-code", "event": "user_prompt_submit", "reason": "no_match"}))
+    assert len([e for e in tm.read_events() if e.kind == tm.HOOK_RECALL_KIND]) == 5, "the rows were written"
+    after = asyncio.run(cs.stats(env, range_="all", today=TODAY))
+    assert "hook_recall" not in {s["stage"] for s in after["by_stage"]}
+    assert "test-bank" not in {b["bank"] for b in after["by_bank"]}
+    assert after["hour_histogram"] == before["hour_histogram"] and after["series"] == before["series"]
+    assert after["first_event"] == before["first_event"]
+    assert asyncio.run(cs.calendar(env, weeks=2, today=TODAY)) == cal_before
