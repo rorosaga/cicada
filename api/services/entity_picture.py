@@ -6,8 +6,9 @@ both are held to `api/tests/fixtures/entity_picture.json`, so a rung added on on
 
 1. **the person's own choice** — a picture they uploaded, or "use initials" — on any page (round-4 decision 9: "the
    ability to add a picture like upload it manually maybe as a pfp");
-2. **a Contacts photo**, `person` pages only (G154). T-Sources writes the optional `contacts_photo: {sha}` key and the
-   bytes under `$CICADA_HOME/contacts/<bank>/`; until it lands no page carries the key and the rung never fires (R-PE7);
+2. **a Contacts photo**, `person` pages only (G154). T-Sources writes the optional `contacts_photo: {sha, ext}` key and
+   the bytes at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>` (its R-SR9); until it lands no page carries the key
+   and the rung never fires (R-PE7);
 3. **the domain logo** (G59's ladder), never for a `person` or a `media` page: eligible for `company`/`tool` or a page
    whose own `logo:` names a domain, available when cached or not yet known to miss (R-PE9);
 4. **the saved thumbnail**, `media` pages only, never a paper's (G133 fetches no arXiv page);
@@ -39,8 +40,10 @@ UPLOAD_EXTS = ("jpg", "png")
 MEDIA_TYPES = {"jpg": "image/jpeg", "png": "image/png"}
 #: G59's brand types: the only ones whose logo is looked for without the page naming a domain (R-PE9).
 LOGO_TYPES = frozenset(logo_service.GUESSABLE_TYPES)
-#: R-PE7 — T-Sources' Contacts thumbnails: `$CICADA_HOME/contacts/<bank>/<id>.jpg`, outside every bank.
-CONTACTS_DIR_NAME = "contacts"
+#: R-PE7 — T-Sources' Contacts thumbnails, laid out by ITS R-SR9 (it owns the seam):
+#: `$CICADA_HOME/pictures/<bank>/contacts/<id>.<jpg|png>`, outside every bank. Final review, finding 1: this side first
+#: read `$CICADA_HOME/contacts/<bank>/<id>.jpg`, so a matched person resolved to `contacts` and its picture 404'd.
+CONTACTS_DIR = ("pictures", "contacts")
 #: `papers.KIND`, spelled here so `graph_builder`'s import of this module stays light; a test pins the two equal.
 PAPER_KIND = "paper"
 SOURCES = ("upload", "initials", "contacts", "logo", "thumbnail")
@@ -143,7 +146,10 @@ def inputs_for(fm: dict, *, logo_available: bool = False) -> PictureInputs:
         elif picture.get("kind") == "initials":
             choice = "initials"
     contacts = fm.get("contacts_photo")
-    contacts_sha = contacts["sha"] if isinstance(contacts, dict) and _sha(contacts.get("sha")) else None
+    # R-SR9's `{sha, ext}`: an ext the seam cannot serve never claims the rung, or the card would say "from your
+    # Contacts" over a monogram (final review, finding 1).
+    contacts_sha = (contacts["sha"] if isinstance(contacts, dict) and _sha(contacts.get("sha"))
+                    and contacts.get("ext", "jpg") in UPLOAD_EXTS else None)
     thumbnail = None
     media = fm.get("media")
     if kind == "media" and isinstance(media, dict) and media.get("kind") != PAPER_KIND and _https(media.get("thumbnail")):
@@ -238,12 +244,18 @@ def upload_path(memory_path, entity_id: str, ext: str) -> Path | None:
     return path if path.parent == base else None
 
 
-def contacts_path(bank: str, entity_id: str) -> Path | None:
-    """R-PE7 — where T-Sources keeps this page's Contacts thumbnail. Never creates anything: `auth.cicada_home` mkdirs,
-    and a read must not conjure a folder (`logo_service.meta_path`'s rule)."""
+def contacts_path(bank: str, entity_id: str, ext: str | None = None) -> Path | None:
+    """R-PE7 — where T-Sources keeps this page's Contacts thumbnail (its R-SR9 layout; swap for
+    `contacts_local.photo_path` once that lands). `ext` is the page's `contacts_photo.ext` — jpg or png, jpg when
+    missing, None for anything else. Never creates anything: `auth.cicada_home` mkdirs, and a read must not conjure a
+    folder (`logo_service.meta_path`'s rule)."""
+    ext = ext or "jpg"
+    if ext not in UPLOAD_EXTS:
+        return None
     raw = os.environ.get("CICADA_HOME") or str(Path.home() / ".cicada")
-    base = (Path(raw).expanduser() / CONTACTS_DIR_NAME / (bank or "default")).resolve()
-    path = (base / f"{entity_id}.jpg").resolve()
+    root = Path(raw).expanduser()
+    base = (root / CONTACTS_DIR[0] / (bank or "default") / CONTACTS_DIR[1]).resolve()
+    path = (base / f"{entity_id}.{ext}").resolve()
     return path if path.parent == base else None
 
 
@@ -361,7 +373,9 @@ def picture_file(memory_path, entity_id: str, fm: dict) -> tuple[Path, str] | No
     if resolved.source == "upload":
         path = upload_path(memory_path, entity_id, fm["picture"]["ext"])
     elif resolved.source == "contacts":
-        path = contacts_path(logo_service.bank_name(Path(memory_path)), entity_id)
+        contacts = fm.get("contacts_photo")
+        path = contacts_path(logo_service.bank_name(Path(memory_path)), entity_id,
+                             contacts.get("ext") if isinstance(contacts, dict) else None)
     else:
         return None
     if path is None or not path.is_file() or path.stat().st_size > MAX_UPLOAD_BYTES:

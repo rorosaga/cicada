@@ -107,6 +107,10 @@ def test_paths_are_derived_from_the_id_and_never_leave_their_folder(tmp_path, mo
     assert entity_picture.upload_path(tmp_path, "bob-example", "gif") is None
     assert entity_picture.upload_path(tmp_path, "../escape", "png") is None
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    seam = (tmp_path / "home" / "contacts" / "work" / "bob-example.jpg").resolve()
-    assert entity_picture.contacts_path("work", "bob-example") == seam
+    # T-Sources' R-SR9 layout (final review, finding 1): pictures/<bank>/contacts/<id>.<ext>, jpg by default.
+    folder = (tmp_path / "home" / "pictures" / "work" / "contacts").resolve()
+    assert entity_picture.contacts_path("work", "bob-example") == folder / "bob-example.jpg"
+    assert entity_picture.contacts_path("work", "bob-example", "png") == folder / "bob-example.png"
+    assert entity_picture.contacts_path("work", "bob-example", "gif") is None
+    assert entity_picture.contacts_path("work", "../escape") is None
     assert not (tmp_path / "home").exists(), "reading the seam never creates anything"

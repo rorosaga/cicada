@@ -192,8 +192,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     )
         except Exception:
             pass
-        picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
-                                                 cached=logo_ids, missed=logo_misses)
+        # One malformed page must never cost the whole graph its answer (final review, finding 2): no picture, a ring.
+        try:
+            picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
+                                                     cached=logo_ids, missed=logo_misses)
+        except Exception:
+            picture = entity_picture.NOTHING
         nodes.append(
             GraphNode(
                 id=eid,

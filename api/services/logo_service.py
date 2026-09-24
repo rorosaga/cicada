@@ -206,7 +206,12 @@ def _first_source_url(frontmatter: dict) -> str | None:
     host taken from conversation text (G61 final review, finding 1). A source
     with no ``added_by`` is the person's, as ``EntitySource.added_by`` defaults.
     """
-    for entry in frontmatter.get("sources") or []:
+    sources = frontmatter.get("sources")
+    # A hand-edited scalar (`sources: 5`) is not a list of sources; iterating it 500'd all of `GET /graph` once the
+    # picture resolver started asking for a domain (r4-people final review, finding 2).
+    if not isinstance(sources, list):
+        return None
+    for entry in sources:
         if not isinstance(entry, dict):
             continue
         added_by = str(entry.get("added_by") or "user").strip() or "user"

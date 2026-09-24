@@ -478,8 +478,9 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring
   monogram), resolved at read onto `/graph` nodes and the entity; the app's `EntityPictureResolver` is its twin over
   `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no service is sent a person's name (G159).
-- `contacts_photo:` (G154, read by G146) — `{sha}` on a `person` page Contacts matched; the thumbnail itself is a
-  cache at `$CICADA_HOME/contacts/<bank>/<id>.jpg`, never in a bank. Written by the Contacts sync only.
+- `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
+  absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
+  Written by the Contacts sync only.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.

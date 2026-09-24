@@ -171,7 +171,7 @@ def test_the_contacts_seam_is_read_and_served_but_never_written(client, tmp_path
     fm = markdown_parser.parse(page).frontmatter
     fm["contacts_photo"] = {"sha": entity_picture.sha12(photo)}
     markdown_parser.write(page, fm, "## Summary\nRuns the lab.\n")
-    folder = tmp_path / "home" / "contacts" / "work"
+    folder = tmp_path / "home" / "pictures" / "work" / "contacts"
     folder.mkdir(parents=True)
     (folder / "bob-example.jpg").write_bytes(photo)
     body = c.get("/entities/bob-example").json()
@@ -182,6 +182,38 @@ def test_the_contacts_seam_is_read_and_served_but_never_written(client, tmp_path
     assert up["pictureSource"] == "upload", "the person's own picture outranks Contacts"
     assert c.get(up["picture"]).content == png_bytes(64, 64)
     assert (folder / "bob-example.jpg").read_bytes() == photo, "the Contacts file is T-Sources' — never touched"
+
+
+def test_a_contacts_png_is_found_where_t_sources_writes_it(client, tmp_path):
+    """Final review, finding 1 — written the way T-Sources' R-SR9 writes it: `contacts_photo: {sha, ext}` on the page,
+    the bytes at `$CICADA_HOME/pictures/<bank>/contacts/<id>.png`. A mismatch here is a card saying 'Photo from your
+    Contacts' over a monogram."""
+    c, bank = client
+    photo = png_bytes(96, 96)
+    page = bank / "entities" / "bob-example.md"
+    fm = markdown_parser.parse(page).frontmatter
+    fm["contacts_photo"] = {"sha": entity_picture.sha12(photo), "ext": "png"}
+    markdown_parser.write(page, fm, "## Summary\nRuns the lab.\n")
+    folder = tmp_path / "home" / "pictures" / "work" / "contacts"
+    folder.mkdir(parents=True)
+    (folder / "bob-example.png").write_bytes(photo)
+    body = c.get("/entities/bob-example").json()
+    assert body["pictureSource"] == "contacts"
+    served = c.get(body["picture"])
+    assert served.status_code == 200 and served.content == photo and served.headers["content-type"] == "image/png"
+    fm["contacts_photo"] = {"sha": entity_picture.sha12(photo), "ext": "gif"}
+    markdown_parser.write(page, fm, "## Summary\nRuns the lab.\n")
+    assert c.get("/entities/bob-example").json()["pictureSource"] != "contacts", "an ext the seam can't serve never claims the rung"
+
+
+def test_a_scalar_sources_value_never_breaks_the_graph_or_the_card(client):
+    """Final review, finding 2 — `sources: 5` on one page 500'd all of `GET /graph` through the logo domain walk."""
+    c, bank = client
+    # Not in the cached logo set, so the resolver walks the page for a domain — where the scalar used to raise.
+    markdown_parser.write(bank / "entities" / "globex.md", {"name": "Globex", "type": "company", "sources": 5},
+                          "## Summary\nA company.\n")
+    assert c.get("/graph").status_code == 200
+    assert c.get("/entities/globex").status_code == 200
 
 
 def test_a_new_bank_has_a_home_for_pictures_and_git_says_what_it_tracks(tmp_path):
