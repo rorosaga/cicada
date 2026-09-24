@@ -83,4 +83,12 @@ final class HomeFiguresTests: XCTestCase {
         XCTAssertEqual(chips.shown.map(\.id), ["alpha-project", "bob-example", "gamma"])
         XCTAssertEqual(chips.more, 1, "a deleted page is never a chip, and a repeat counts once")
     }
+
+    /// R-HS6 — a Last read chip carries its page's type, for the `Tag`'s dot (DR-44).
+    func testAChipCarriesItsPagesType() throws {
+        let e = try entry("s1", files: ["entities/bob-example.md", "entities/alpha-project.md"])
+        let nodes = [FindFixtures.node("alpha-project", "alpha-project"),
+                     FindFixtures.node("bob-example", "bob-example", type: .person)]
+        XCTAssertEqual(HomeFigures.chips(e, nodes: nodes).shown.first?.type, .person)
+    }
 }

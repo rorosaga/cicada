@@ -53,6 +53,28 @@ words, the Reader as a column (`ReaderColumn`, hosted by `ShellReaderHost` on pa
 same card. 26 rulings (R-DI1…R-DI26), eleven of them dated in DESIGN_RULES §9. No backend change. Measured on the
 branch: Swift **1815 executed, 0 failures**, graph node tests **7 passed**.
 
+**Round 3, Direction D — DS-3b (2026-09-24, `feat/d-home-sleep-settings`, plan `2026-09-24-d-home-sleep-settings.md`).**
+Four areas. **Home** is the D-Home mock: the painted `hero-day` band, the one-line headline on the row under it, the
+palette's field in a 640 pt block, and labelled blocks of 36 pt rows (Getting started, Today, Needs you as the Inbox's
+own rows, Last read), each number once and a link, no Consolidate (G125 R10). **The Sleep page's quick engine menu**
+(the owner's 2026-09-23 request) sits beside Consolidate: a neutral button naming what a cycle you start would run,
+opening the five engines with their real marks, the chosen engine's model and both ruling-4 previews, over the same
+`SleepEngineViewModel` and write rule (`EngineWrite`) as Settings → Engines, with one preview wording app-wide.
+**Details** move to D's list grammar ("Rested" a sentence, the readout as key–value rows). **The Settings panel**: the
+add-folder sheet labels its fields and asks for agent-written subfolders as a checklist, harness rows wear real marks,
+Manage and Connect are sheets, and every static Settings row is in ⌘K with ⏎ landing on it through
+`AppRouter.openSettings`. 22 rulings (R-HS1…R-HS22), nine of them dated in DESIGN_RULES §9. No backend change.
+Measured on the branch: Swift **1856 executed, 0 failures**, graph node tests **7 passed**.
+
+**Round 3, Direction D — DS-3a (2026-09-24, `feat/d-graph`, plan `2026-09-24-d-graph.md`).** The Graph page and the
+entity card: one quiet floating group (whose-beliefs tabs · Legend · − + fit · pan) instead of four islands; the Legend
+as the context legend, the filters and a key in one; ⌘F finds on the canvas; the entity card as the right-hand column
+beside the Reader (no scrim), closed by × or a click on empty canvas; status and confidence in words; Content, Look it
+up at (G61's fields in words, no check line until S3), Details, belief rows, History's Show in conversation, the Belief
+Timeline inline. graph.js gained `backgroundClicked`, `escape` and `setSelectedNode`, tested alpha-free. 25 rulings
+(R-DG1…R-DG25), six dated in DESIGN_RULES §9. No backend change; one gap reported: `effectiveAccess` on
+`GET /entities/{id}/sources`. Measured on the branch: Swift **1863 executed, 0 failures**, graph node tests **8 passed**.
+
 **Round 3, Direction D — DS-3c (2026-09-24, `feat/d-lists`, plan `2026-09-24-d-lists.md`).** Clusters in progressive
 columns: one View menu (the Graph's own types, labels, a remembered *Expand all*), type tabs as navigation, the Graph's
 `EntityDetailCard` unchanged as the detail column. The Feed in progressive columns: sort and kind tabs, 56 pt rows with
@@ -319,9 +341,11 @@ any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 fr
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
 
-**Direction D, next (after DS-2 merges):** the page tracks adopt `ProgressiveColumns` and retire their use of the
-shell's trailing Reader (`ShellReaderHost`) — ~~**Clusters**, **Feed**, **Sources**~~ (DS-3c) and **Projects** (G141
-PJ-5), each per DESIGN_RULES §10 and each updating its CLAUDE.md page paragraph in the same PR.
+**Direction D, next (after DS-3b merges):** Home, Sleep and the Settings panel are done. The remaining page tracks
+adopt `ProgressiveColumns` and retire their use of the shell's trailing Reader (`ShellReaderHost`) — **Graph and the
+entity card** (DS-3a restyled both; the Graph still takes its Reader from `ShellReaderHost`), ~~**Clusters**, **Feed**,
+**Sources**~~ (DS-3c) and **Projects** (G141 PJ-5), each per DESIGN_RULES §10 and each updating its CLAUDE.md page
+paragraph in the same PR.
 
 **Filed 2026-09-23 — G141 project timelines.** The spec is committed
 (`docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`). Three backend tracks can start
@@ -775,6 +799,10 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   to `graph.NODE_SHAPE` and the node's hash, per the ETag rail — XS, backend only
 - **`/sources` items carry their saving episode (DS-3c R-DL15)** — for the Feed detail's "Show in conversation" — XS,
   backend only
+- **Home's "Recently learned" (DS-3b R-HS3)** — the history detail (`GET /sleep/history/{commit}`) lists the pages a
+  cycle changed but not the claims it wrote with their evidence spans; a claims list on it (claim ids + spans, no claim
+  text in the commit) would let Home show what a cycle learned with its source lines, as DESIGN_RULES §10 first
+  sketched — S, backend then app
 - **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Sources
   entity chips through `revealEntity` so they land on the node too — XS
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this

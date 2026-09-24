@@ -16,6 +16,11 @@ struct NeutralButton: View {
 
     let title: String
     var systemImage: String? = nil
+    /// A mark before the title — the Sleep page's engine menu wears its engine's (R-HS8). `AnyView?`
+    /// so every existing call site stays source-compatible (`PageHeader.leading`'s precedent).
+    var leading: AnyView? = nil
+    /// A disclosure glyph after the title — a button that opens a menu says so (R-HS10).
+    var trailingSystemImage: String? = nil
     var size: Size = .regular
     /// DR-49 — the key that acts, shown where it acts ("⏎" on Submit).
     var keyHint: String? = nil
@@ -31,11 +36,18 @@ struct NeutralButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.spacingSM) {
+                if let leading { leading }
                 if let systemImage {
                     Image(systemName: systemImage).font(CicadaTheme.icon(.inline))
                 }
-                Text(title)
+                // A fixed-height button never wraps: a long engine and model truncates instead.
+                Text(title).lineLimit(1).truncationMode(.tail)
                 if let keyHint { KeyHint(keyHint) }
+                if let trailingSystemImage {
+                    Image(systemName: trailingSystemImage)
+                        .font(CicadaTheme.icon(.inline))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
             }
             .font(CicadaTheme.font(size: size == .compact ? 12 : 13, weight: .medium))
             .foregroundStyle(CicadaTheme.textPrimary)

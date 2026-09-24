@@ -31,7 +31,8 @@ final class CountLiteralLintTests: XCTestCase {
     /// `Views/Shell/` (DS-1 T3): the rail's Inbox numeral and its "6 pending" label —
     /// and the two list-header components (DS-1 T5, DR-25/DR-45): a tab's count and
     /// the eyebrow's "6 pending" are the numbers every list page will show first — and the Inbox's
-    /// columns and the Reader (DS-2, R-DI23): positions, counts and ages on every row — and the D list
+    /// columns and the Reader (DS-2, R-DI23): positions, counts and ages on every row — and the Graph's
+    /// views (DS-3a): the Legend's counts and the entity column's tab counts — and the D list
     /// pages (DS-3c): Clusters' counts and the list pages' words.
     static let scope = [
         "/Views/Sources/",
@@ -45,6 +46,7 @@ final class CountLiteralLintTests: XCTestCase {
         "/Views/Common/EyebrowRow.swift",
         "/Views/Inbox/",
         "/Views/Provenance/ReaderColumn.swift",
+        "/Views/Graph/",
         "/Views/Clusters/",
         "/Views/Feed/",
         "/Theme/Copy+Lists.swift",

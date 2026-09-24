@@ -38,7 +38,9 @@ struct SleepDetails: View {
     var room: RoomModel? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+        // R-HS15 — 28 pt between sections, the D-Sleep mock's gap: sections are labels over rows
+        // now, so the space between them is what separates them (DR-37).
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
             if lastCycleSectionIsVisible(pageError: pageError, cancelled: page.cancelled,
                                          capped: page.capped, indexWarning: page.indexWarning) {
                 LastCycleSection(pageError: pageError, status: status, cancelled: page.cancelled,
@@ -62,9 +64,72 @@ struct SleepDetails: View {
     }
 }
 
-/// Details › Last cycle — today's four banners, moved verbatim from
-/// `SleepView` (Track Z §4.2): the error (`pageError`), the cancel, the episode
-/// cap and the index warning, at full contrast (R-A12).
+/// DR-20, DR-37, DR-47 — one Details section in D's list grammar (R-HS15): its `SectionLabel` over
+/// rows, no card. Details was four glass cards with their labels inside; §10 (Sleep) asks for "rows
+/// and section labels, no bordered cards".
+struct SleepDetailsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            SectionLabel(title)
+                .padding(.horizontal, CicadaTheme.scaled(10))
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One line of Details › Last cycle (R-HS15): what happened, in the words the banners said, and a
+/// glyph that says whether it needs the person — a failure or a warning in `warning`, a cancel or a
+/// cap in `textTertiary`. The filled banners (`danger`/`accent`/`warning` at 10–12 %) retired: DR-7
+/// keeps `danger` for destructive actions, and a row never sits on a tint.
+struct LastCycleRow: Equatable, Identifiable {
+    enum Kind: String, Equatable { case failed, cancelled, capped, warning }
+
+    let kind: Kind
+    let title: String
+    let text: String
+    var id: String { kind.rawValue }
+    var needsYou: Bool { kind == .failed || kind == .warning }
+    var glyph: String {
+        switch kind {
+        case .failed, .warning: "exclamationmark.triangle"
+        case .cancelled: "stop.circle"
+        case .capped: "tray.and.arrow.down"
+        }
+    }
+
+    /// The four conditions `lastCycleSectionIsVisible` reads, in the page's order. The cap's numbers
+    /// come from the status itself, as the banner's did (L1/L4).
+    static func rows(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?,
+                     status: SleepStatusResponse?, locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
+        var rows: [LastCycleRow] = []
+        if let pageError {
+            rows.append(LastCycleRow(kind: .failed, title: Copy.SleepDetailsWords.failedTitle, text: pageError))
+        }
+        if cancelled {
+            rows.append(LastCycleRow(kind: .cancelled, title: Copy.SleepDetailsWords.cancelledTitle,
+                                     text: Copy.SleepDetailsWords.cancelledText))
+        }
+        if capped, let s = status {
+            rows.append(LastCycleRow(kind: .capped, title: Copy.SleepDetailsWords.capTitle(s.episodeCap, locale: locale),
+                                     text: Copy.SleepDetailsWords.capText(processed: s.episodesTotal,
+                                                                          queued: s.episodesQueued, locale: locale)))
+        }
+        // Non-fatal warnings (e.g. the episode index rebuild failed even though entity writes and
+        // the commit succeeded), so a "completed with warnings" cycle never looks like a clean pass.
+        if let warning = indexWarning, !warning.isEmpty {
+            rows.append(LastCycleRow(kind: .warning, title: Copy.SleepDetailsWords.warningTitle, text: warning))
+        }
+        return rows
+    }
+}
+
+/// Details › Last cycle — the error (`pageError`), the cancel, the episode cap and the index warning,
+/// at full contrast (R-A12). Moved from `SleepView` (Track Z §4.2); R-HS15 turned its four filled
+/// banners into `LastCycleRow`s under the section's label.
 ///
 /// Review fix L1/L4 still holds: `cancelled`/`episodeCap`/`episodesQueued`
 /// were decoded but read by no view — only the free-text `progress` sentence
@@ -80,131 +145,31 @@ struct LastCycleSection: View {
     let indexWarning: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel("Last cycle")
-            if let error = pageError {
-                errorBanner(error)
-            }
-            if cancelled {
-                cancelledBanner
-            }
-            if capped, let s = status {
-                capBanner(processed: s.episodesTotal, queued: s.episodesQueued, cap: s.episodeCap)
-            }
-            // Non-fatal warnings (e.g. LEANN episode index rebuild failed
-            // even though entity writes + commit succeeded). Surfaced so a
-            // "completed with warnings" cycle never looks like a clean pass.
-            if let warning = indexWarning {
-                warningBanner(warning)
+        SleepDetailsSection(title: "Last cycle") {
+            ForEach(LastCycleRow.rows(pageError: pageError, cancelled: cancelled, capped: capped,
+                                      indexWarning: indexWarning, status: status)) { row in
+                HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
+                    Image(systemName: row.glyph)
+                        .font(CicadaTheme.icon(.list))
+                        .foregroundStyle(row.needsYou ? CicadaTheme.warning : CicadaTheme.textTertiary)
+                        .padding(.top, CicadaTheme.scaled(2))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                        Text(row.title)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        Text(row.text)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .padding(.vertical, CicadaTheme.spacingSM)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(row.needsYou ? .isStaticText : [])
             }
         }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    // MARK: Error banner
-
-    private func errorBanner(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(CicadaTheme.font(size: 13))
-                .foregroundStyle(CicadaTheme.danger)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Sleep cycle error")
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(text)
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingMD)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.danger.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    // MARK: Cancelled banner
-
-    /// The last cycle stopped early because of a `/sleep/cancel` request
-    /// (as opposed to completing normally, or a cancel that arrived too
-    /// late to matter — see `sleep_cycle._cycle_cancelled`). Informational
-    /// tone, matching `Copy.cancelSleepExplainer`'s own promise: nothing
-    /// was lost.
-    private var cancelledBanner: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "xmark.circle")
-                .font(CicadaTheme.font(size: 12))
-                .foregroundStyle(CicadaTheme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Cancelled")
-                    .font(CicadaTheme.font(size: 11, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Stopped cleanly before any writes — nothing was lost.")
-                    .font(CicadaTheme.font(size: 10))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    // MARK: Cap banner
-
-    /// "Episode cap reached" — informational, not a warning: the cap is a
-    /// deliberate safety feature (spec: bound one cycle's wall-clock instead
-    /// of an unbounded first run), and the remaining episodes are simply
-    /// picked up next cycle, nothing lost.
-    private func capBanner(processed: Int, queued: Int, cap: Int) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(CicadaTheme.font(size: 12))
-                .foregroundStyle(CicadaTheme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Episode cap reached (\(cap))")
-                    .font(CicadaTheme.font(size: 11, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("\(processed) of \(queued) processed — the rest stay queued for the next cycle.")
-                    .font(CicadaTheme.font(size: 10))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    // MARK: Warning banner
-
-    private func warningBanner(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(CicadaTheme.font(size: 12))
-                .foregroundStyle(CicadaTheme.warning)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Completed with warnings")
-                    .font(CicadaTheme.font(size: 11, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(text)
-                    .font(CicadaTheme.font(size: 10))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.warning.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 }

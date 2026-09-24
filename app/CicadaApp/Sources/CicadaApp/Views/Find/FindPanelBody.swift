@@ -134,10 +134,6 @@ struct FindPanelBody: View {
                         .padding(.horizontal, CicadaTheme.spacingMD)
                         .help("Also find things that mean the same, not only the same words")
                     }
-                    if let hint = model.hint {
-                        Text(hint).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                            .padding(.horizontal, CicadaTheme.spacingMD)
-                    }
                 }
                 .padding(CicadaTheme.spacingSM)
             }
@@ -193,15 +189,8 @@ struct FindPanelBody: View {
 
     @ViewBuilder
     private func menu(for row: FindRow) -> some View {
-        if case .settings(let section) = row.destination {
-            // A menu item that promised Settings and only set the hint was a
-            // lie (final review, finding 2): the one view that opens the
-            // scene is the item here.
-            SettingsSectionLink(section: section, label: "Open in Settings")
-        } else {
-            Button(FindRowText.primaryVerb(row.destination)) {
-                if let destination = model.activate(row.key) { run(destination) }
-            }
+        Button(FindRowText.primaryVerb(row.destination)) {
+            if let destination = model.activate(row.key) { run(destination) }
         }
         if let verb = FindRowText.secondaryVerb(row.secondary) {
             Button(verb) { if let destination = model.activate(row.key, secondary: true) { run(destination) } }

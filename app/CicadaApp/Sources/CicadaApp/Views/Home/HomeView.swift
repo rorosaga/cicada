@@ -1,11 +1,13 @@
 import SwiftUI
 
 /// Home — the front door at ⌘1 (G108, ruled 2026-09-23 as spec decision 12;
-/// design §6). Search first: the palette's own field (`FindPanelBody` in
-/// `.page` placement, R-IB6), then Today / Needs you / Last read — every number
-/// once, each a link to the page that owns it (R-IB9). The first keystroke
-/// replaces the cards with results (design H2); Esc clears the field and
-/// brings them back.
+/// design §6), drawn in Direction D as the approved D-Home mock (DS-3b, R-HS2):
+/// the painted band, the headline on the window under it, the palette's own
+/// field (`FindPanelBody` in `.page` placement, R-IB6), then Today / Needs you /
+/// Last read as labelled blocks — every number once, each a link to the page
+/// that owns it (R-IB9). There is no Consolidate here: one Consolidate, on the
+/// Sleep page (G125 R10, R-HS3). The first keystroke replaces the blocks with
+/// results (design H2); Esc clears the field and brings them back.
 ///
 /// Rebuilt on every tab switch, unlike the graph (R-IB3): a SwiftUI tree is
 /// cheap where a `WKWebView` re-layout is not (G109). What must survive — the
@@ -35,31 +37,48 @@ struct HomeView: View {
         // (`HomeLayout`, every number once).
         let gettingStartedVisible = GettingStartedProgress.visible(record: GettingStartedState.load(bank: store.bank))
             || runner.sawDoneThisSession
-        VStack(spacing: 0) {
-            band
-            VStack(spacing: CicadaTheme.spacingLG) {
-                fieldColumn(showsResults: showsResults)
-                if !showsResults {
-                    ScrollView {
-                        VStack(spacing: CicadaTheme.spacingLG) {
-                            // Between the field and TODAY, and only while the cards
-                            // show (R-IB6): the first keystroke replaces it too.
-                            GettingStartedCard(selectedTab: $selectedTab)
-                            HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
-                                         selectedTab: $selectedTab)
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`).
+                HomeHeroBand()
+                    .frame(height: CicadaTheme.scaled(HomeBandLayout.bandHeight))
+                VStack(spacing: 0) {
+                    // R-HS2 — the headline is the row under the band, on the window (DR-50), in the
+                    // room pages' title (DR-17): one line, the mock's words.
+                    PageTitle(Copy.homeHeadline)
+                        .multilineTextAlignment(.center)
+                        .accessibilityAddTraits(.isHeader)
+                        .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
+                        .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
+                    fieldColumn(showsResults: showsResults)
+                        .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
+                    if !showsResults {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
+                                // Between the field and TODAY, and only while the blocks show
+                                // (R-IB6): the first keystroke replaces it too.
+                                GettingStartedCard(selectedTab: $selectedTab)
+                                HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
+                                             needsYouSlots: HomeLayout.needsYouSlots(
+                                                 pageWidth: geo.size.width, scale: CGFloat(CicadaTheme.uiScale)),
+                                             selectedTab: $selectedTab)
+                            }
+                            .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
+                            .padding(.top, CicadaTheme.spacingCard)
+                            .padding(.bottom, CicadaTheme.scaled(HomeLayout.bottomPadding))
+                            .frame(maxWidth: .infinity)
                         }
-                        .padding(.bottom, CicadaTheme.spacingXL)
+                        .scrollIndicators(.automatic)
+                        .transition(.opacity)
                     }
-                    .scrollIndicators(.automatic)
-                    .transition(.opacity)
                 }
+                .padding(.horizontal, CicadaTheme.spacingGutter)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .animation(CicadaMotion.morph(reduceMotion: reduceMotion), value: showsResults)
             }
-            .frame(maxWidth: CicadaTheme.scaled(720), maxHeight: .infinity, alignment: .top)
-            .padding(.horizontal, CicadaTheme.spacingXL)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .animation(CicadaMotion.morph(reduceMotion: reduceMotion), value: showsResults)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
-        .background(CicadaTheme.background)
+        .background(CicadaTheme.bgBase)
         // Sleep history is not disk-cached (design §6.3): fetch it on every
         // arrival so LAST READ is "—" only until it lands, never a stale read.
         // A load whose schedule fetch failed is retried here too, or Getting
@@ -69,38 +88,10 @@ struct HomeView: View {
         }
     }
 
-    // MARK: The band
-
-    /// A procedural sky and one cloud (`HomeSkyBand`, R-IB10); the headline sits
-    /// on the gradient — never on paint — inside `HomeBandLayout.headlineFrame`,
-    /// the rectangle the layout test proves the drifting cloud never crosses.
-    private var band: some View {
-        ZStack {
-            HomeSkyBand()
-            GeometryReader { geo in
-                let frame = HomeBandLayout.headlineFrame(width: geo.size.width, scale: CicadaTheme.uiScale)
-                VStack(spacing: 0) {
-                    Text(Copy.homeHeadline)
-                        .font(CicadaTheme.displayFont(size: HomeBandLayout.headlineSize))
-                        .tracking(CicadaTheme.displayTracking(size: HomeBandLayout.headlineSize))
-                    Text(Copy.homeHeadlineItalic)
-                        .font(CicadaTheme.displayFont(size: HomeBandLayout.headlineSize, italic: true))
-                }
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .frame(width: frame.width, height: frame.height)
-                .position(x: frame.midX, y: frame.midY)
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.isHeader)
-            }
-        }
-        .frame(height: CicadaTheme.scaled(HomeBandLayout.bandHeight))
-    }
-
     // MARK: The field
 
+    /// The palette's own body in `.page` placement (R-IB6), unchanged, in D's grouped-block
+    /// material: `bgFocus`, `cornerRadius`, a resting ring (`glassCard()` — the mock's 10 pt block).
     @ViewBuilder
     private func fieldColumn(showsResults: Bool) -> some View {
         VStack(spacing: CicadaTheme.spacingSM) {
@@ -114,10 +105,9 @@ struct HomeView: View {
                               save(url)
                               return true
                           })
-                .glassCard(cornerRadius: CicadaTheme.radiusLarge)   // a standard material: content (R-M5)
+                .glassCard()
                 .frame(maxHeight: showsResults ? .infinity : nil)
         }
-        .padding(.top, CicadaTheme.spacingLG)
         .frame(maxHeight: showsResults ? .infinity : nil, alignment: .top)
     }
 
@@ -125,22 +115,20 @@ struct HomeView: View {
     private func saveLinkRow(_ url: URL) -> some View {
         Button { save(url) } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
+                // DR-5 has no "decorative glyph" use: the glyph is neutral.
                 Image(systemName: "link")
-                    .foregroundStyle(CicadaTheme.accent)
+                    .foregroundStyle(CicadaTheme.textTertiary)
                     .accessibilityHidden(true)
                 Text(Copy.homeSaveLinkRow(LinkPaste.host(url)))
-                    .font(CicadaTheme.bodyFont)
+                    .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
                 Spacer(minLength: CicadaTheme.spacingSM)
-                Text(verbatim: "⏎")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .accessibilityHidden(true)
+                KeyHint("⏎")   // DR-49 — the key that acts, shown where it acts
             }
-            .padding(.horizontal, CicadaTheme.spacingLG)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .background(CicadaTheme.surface, in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius))
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .glassCard()
         }
         .buttonStyle(.cicadaPlain)
     }

@@ -62,6 +62,18 @@ enum EngineOption {
         }
     }
 
+    /// The card a preview's engine belongs to — `previewMark`'s inverse — so a line that names what
+    /// will run uses the card's own label ("Claude plan"), never a fresh coinage (R-HS8).
+    static func candidateId(forEngine engine: String) -> String? {
+        switch engine {
+        case "claude-cli": "agent"
+        case "codex-cli": "codex"
+        case "ollama": "local"
+        case "litellm": "byok"
+        default: nil
+        }
+    }
+
     static func symbol(for candidateId: String) -> String {
         switch candidateId {
         case "auto": "sparkles"
@@ -117,5 +129,28 @@ enum EngineOption {
         if let pick { return pick }
         if case .ready(let id) = readiness { return id }
         return nil
+    }
+}
+
+/// R-HS7 — what a tap writes, as one rule shared by `EngineChooser`'s cards and the Sleep page's
+/// quick menu, so the two surfaces can never write different things for the same tap.
+struct EngineWrite: Equatable {
+    let mode: String
+    let model: String?
+
+    /// A tap on another selectable engine writes it with its first model — the plan's own default
+    /// first (R-E17); `nil` when it lists none (an API key's model lives on Plans & keys). A tap on
+    /// the current engine, or on a plan that is not signed in (R-E25), writes nothing.
+    static func choosing(_ candidate: SleepEngineCandidate, current: String) -> EngineWrite? {
+        guard candidate.id != current, EngineOption.isSelectable(candidate, selectedMode: current) else { return nil }
+        let first = candidate.models.first ?? ""
+        return EngineWrite(mode: candidate.id, model: first.isEmpty ? nil : first)
+    }
+
+    /// A model pick on the chosen engine. The same model again, or a blank one, writes nothing.
+    static func model(_ model: String, mode: String, current: String) -> EngineWrite? {
+        let trimmed = model.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != current else { return nil }
+        return EngineWrite(mode: mode, model: trimmed)
     }
 }

@@ -194,14 +194,22 @@ extension QuickIndex {
         }
     }
 
-    /// R-SU12 — one row per Settings section, whatever sections exist.
+    /// R-SU12, amended by DS-3b (R-HS19…R-HS21): every Settings page AND every row, from Settings'
+    /// own index, so a setting is found from ⌘K by what it is called ("text size", "extra usage") and
+    /// ranked by the same words the panel's field uses (`SettingsEntry.fields`, one `QuickMatch`).
+    /// ⏎ lands on the row through the one door, `AppRouter.openSettings(_:row:)`. A page keeps its old
+    /// key, `section.rawValue`, so a recent survives; a row is keyed by its row id. The dynamic per-item
+    /// rows (channels, harnesses, connections, agents, recommended skills) stay in the panel: the Sources
+    /// group already names channels and harnesses (DR-38), and the rest are not palette inputs.
     static func settingsDocs() -> [Doc] {
-        SettingsSection.allCases.enumerated().map { i, section in
-            let row = FindRow(key: FindRowKey(kind: .setting, id: section.rawValue), group: .settings,
-                              title: section.title, detail: Copy.settings, mark: .symbol(section.icon),
-                              tieBreak: -Double(i), destination: .settings(section))
-            return Doc(row: row, fields: [QuickMatch.Field(section.title, weight: QuickMatch.Weight.name),
-                                          QuickMatch.Field(Copy.settings, weight: QuickMatch.Weight.keyword)])
+        (SettingsIndex.pageEntries + SettingsIndex.staticEntries).enumerated().map { i, entry in
+            let isPage = entry.id == .page(entry.section)
+            let row = FindRow(key: FindRowKey(kind: .setting, id: isPage ? entry.section.rawValue : entry.id.rawValue),
+                              group: .settings, title: entry.title,
+                              detail: isPage ? Copy.settings : Copy.PaletteSettings.detail(entry.section.title),
+                              mark: .symbol(entry.section.icon), tieBreak: -Double(i),
+                              destination: .settings(entry.section, row: isPage ? nil : entry.anchor))
+            return Doc(row: row, fields: entry.fields + [QuickMatch.Field(Copy.settings, weight: QuickMatch.Weight.keyword)])
         }
     }
 

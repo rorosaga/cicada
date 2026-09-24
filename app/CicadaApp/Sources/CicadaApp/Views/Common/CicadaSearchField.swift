@@ -27,7 +27,8 @@ struct CicadaSearchField: View {
     var style: Style = .content
     var findEnabled = true
     var width: CGFloat? = nil
-    /// DR-46 — a find row opened by ⌘F or its magnifier (`PageFindRow`) takes the keys as it appears.
+    /// DR-46 — a field that exists only because ⌘F (or its magnifier) opened it takes the keys as it appears: a
+    /// list page's find row (`PageFindRow`) and the Graph's find overlay (R-DG5). One mechanism for both, below.
     var autofocus = false
     var onSubmit: () -> Void = {}
     var onMove: ((Int) -> Void)? = nil

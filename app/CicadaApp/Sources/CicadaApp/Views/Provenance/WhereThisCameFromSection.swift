@@ -35,6 +35,8 @@ struct WhereThisCameFromSection: View {
 
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
     @State private var showAll = false
+    /// Rows hover by fill, never a lift (DR-48, DS-3a).
+    @State private var hoveredRow: String?
 
     var body: some View {
         switch state {
@@ -42,10 +44,7 @@ struct WhereThisCameFromSection: View {
             EmptyView()
         default:
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Text(Copy.Provenance.whereThisCameFrom)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .accessibilityAddTraits(.isHeader)
+                SectionLabel(Copy.Provenance.whereThisCameFrom)
                 content
             }
         }
@@ -191,13 +190,13 @@ struct WhereThisCameFromSection: View {
             }
             .padding(CicadaTheme.spacingSM)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CicadaTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .fill(hoveredRow == row.id ? CicadaTheme.bgHover : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
+        .onHover { inside in hoveredRow = inside ? row.id : (hoveredRow == row.id ? nil : hoveredRow) }
         .disabled(!row.available || router == nil)
-        .hoverLift(scale: 1.005, lift: 1)
         .accessibilityLabel([title, ProvenanceSummary.placeName(harness: row.harness, origin: row.origin),
                              day ?? "", Copy.Provenance.beliefs(row.claimCount)]
                                 .filter { !$0.isEmpty }.joined(separator: ", ")

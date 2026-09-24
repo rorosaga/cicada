@@ -147,11 +147,10 @@ enum FindRowText {
         case .source, .conversations: "Open in Sources"
         case .conversation, .evidence: FindReaderSeam.isAvailable ? "Open conversation" : "Open in Sources"
         case .inbox: "Answer"
-        // R-SU12: ⏎ on a Settings row only explains (no closure can open the
-        // Settings scene — `SettingsSectionLink`), so its verb says that; the
-        // row's own Open link and its context-menu item are what open it
-        // (final review, finding 2).
-        case .settings: "Show how to open"
+        // R-HS20: ⏎ opens it, through `AppRouter.openSettings`. R-SU12's
+        // explain-only verb existed because no closure could open the
+        // `Settings{}` scene; DS-1 replaced the scene with the in-window panel.
+        case .settings: "Open in Settings"
         case .tab: "Go"
         case .action: "Run"
         case .bank: "Switch"

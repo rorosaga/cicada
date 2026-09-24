@@ -68,7 +68,9 @@ final class CommandBarTests: XCTestCase {
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
         // R-DI17 — the Inbox's `?` answers for the Inbox (its subtitle and key map).
         XCTAssertEqual(HelpContent.page(.inbox), .inbox)
-        for tab in AppTab.allCases where ![.sleep, .inbox, .clusters, .feed, .sources].contains(tab) {
+        // R-DG6 — the Graph's `?` answers for the Graph (its keys and gestures).
+        XCTAssertEqual(HelpContent.page(.graph), .graph)
+        for tab in AppTab.allCases where ![.sleep, .inbox, .graph, .clusters, .feed, .sources].contains(tab) {
             XCTAssertEqual(HelpContent.page(tab), .aboutCicada, tab.rawValue)
         }
     }

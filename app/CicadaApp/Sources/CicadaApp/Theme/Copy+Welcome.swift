@@ -12,8 +12,8 @@ import Foundation
 /// string joins one of them, or the lint does not see it.
 extension Copy {
     // MARK: Home (Task 1, design §6)
-    static let homeHeadline = "What would you like"
-    static let homeHeadlineItalic = "to remember?"
+    /// One line under the band, never on it (R-HS2, DR-13).
+    static let homeHeadline = "What would you like to remember?"
     static let homeFieldPrompt = "Search, paste a link, or drop a file"
     static let homeToday = "Today"
     static let homeNeedsYou = "Needs you"
@@ -27,6 +27,8 @@ extension Copy {
     static let homeNothingNeedsYou = "Nothing needs you right now."
     static let homeNothingReadYet = "Nothing read yet"
     static let homeNothingChanged = "nothing changed"
+    /// A Last read chip's hover (DR-69): where the click goes.
+    static func homeShowOnGraph(_ name: String) -> String { "Show \(name) on the graph" }
     /// A link to the Sleep page, never a trigger (G125 R10 in steady state).
     static let homeOpenSleep = "Sleep ›"
     static let homeSaveLink = "Save this link"
@@ -155,9 +157,9 @@ extension Copy {
     }
 
     static let welcomeHomeLabels: [String] = [
-        homeHeadline, homeHeadlineItalic, homeFieldPrompt, homeToday, homeNeedsYou, homeLastRead,
+        homeHeadline, homeFieldPrompt, homeToday, homeNeedsYou, homeLastRead,
         homeCapturedHelp, homeLoading, homeNothingCapturedToday, homeNothingWaiting, homeNothingNeedsYou,
-        homeNothingReadYet, homeNothingChanged, homeOpenSleep, homeSaveLink,
+        homeNothingReadYet, homeNothingChanged, homeShowOnGraph("alpha-project"), homeOpenSleep, homeSaveLink,
         costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, welcomeWillRead,
         welcomeNotChosen, welcomeProviderLine, welcomePickSaved("ChatGPT plan"), gsBringingIn, gsEngineFailed,
         gsTitle, gsHide, gsDone, gsAgentOn, gsAgentGone, gsFinishInIntegrations, gsChatHistory, gsChatDrop,

@@ -8,11 +8,13 @@ import SwiftUI
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
 /// on. The Sleep page keeps its own page-specific explainer (G125 R10); the list pages answer for
 /// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed, then Sources — with their subtitle and key map,
-/// since the eyebrow row that replaced each page header has no room for either.
+/// since the eyebrow row that replaced each page header has no room for either; and the Graph its keys and gestures
+/// (R-DG6), which nothing on a canvas explains otherwise.
 enum HelpContent: Equatable {
     case aboutCicada
     case howSleepWorks
     case inbox
+    case graph
     case clusters
     case feed
     case sources
@@ -21,6 +23,7 @@ enum HelpContent: Equatable {
         switch tab {
         case .sleep: .howSleepWorks
         case .inbox: .inbox
+        case .graph: .graph
         case .clusters: .clusters
         case .feed: .feed
         case .sources: .sources
@@ -43,6 +46,7 @@ struct TitlebarHelpButton: View {
                 case .aboutCicada: AboutCicadaPopover()
                 case .howSleepWorks: HowSleepWorksContent()
                 case .inbox: InboxHelpPopover()
+                case .graph: GraphHelpPopover()
                 case .clusters: ListHelpPopover(page: ListHelp.clusters)
                 case .feed: ListHelpPopover(page: ListHelp.feed)
                 case .sources: ListHelpPopover(page: ListHelp.sources)
@@ -208,5 +212,47 @@ struct AboutCicadaPopover: View {
         .padding(CicadaTheme.spacingLG)
         .frame(width: 340)
         .background(CicadaTheme.surface)
+    }
+}
+
+// MARK: - The Graph's ?
+
+/// R-DG6 — the canvas's keys and gestures in words (DR-69): nothing on a canvas explains itself.
+enum GraphHelp {
+    struct Key: Equatable { let key: String; let does: String }
+    static let keys: [Key] = [
+        .init(key: "⌘F", does: "Find a node on the canvas"),
+        .init(key: "⌘K", does: "Search all of your memory"),
+        .init(key: "Esc", does: "Close find, the legend, the conversation, then the page — one at a time"),
+        .init(key: "⌘[", does: "Back to the page you came from"),
+        .init(key: "Shift", does: "Hold to pan, or turn on the pan button"),
+    ]
+    static let gestures: [Key] = [
+        .init(key: "Double-click", does: "Focus a node and its neighbours"),
+        .init(key: "Click empty space", does: "Close the page that's open"),
+    ]
+}
+
+struct GraphHelpPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            SectionLabel(Copy.Graph.helpTitle)
+            ForEach(GraphHelp.keys, id: \.key) { k in
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    KeyHint(k.key).frame(minWidth: CicadaTheme.scaled(44), alignment: .leading)
+                    Text(k.does).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+            ForEach(GraphHelp.gestures, id: \.key) { g in
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                    Text(g.key).font(CicadaTheme.metaMediumFont).foregroundStyle(CicadaTheme.textPrimary)
+                        .frame(minWidth: CicadaTheme.scaled(44), alignment: .leading)
+                    Text(g.does).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(width: CicadaTheme.scaled(360))
+        .background(CicadaTheme.bgMenu)
     }
 }

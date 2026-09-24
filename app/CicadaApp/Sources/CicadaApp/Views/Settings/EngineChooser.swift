@@ -104,12 +104,13 @@ struct EngineChooser: View {
         }
     }
 
+    /// R-HS7 — the write rule is `EngineWrite`, shared with the Sleep page's quick menu, so a tap
+    /// on either surface writes the same thing.
     private func select(_ candidate: SleepEngineCandidate) {
-        guard candidate.id != selectedMode else { return }
-        selectedMode = candidate.id
-        let defaultModel = candidate.models.first ?? ""
-        selectedModel = defaultModel
-        commit(mode: candidate.id, model: defaultModel.isEmpty ? nil : defaultModel)
+        guard let write = EngineWrite.choosing(candidate, current: selectedMode) else { return }
+        selectedMode = write.mode
+        selectedModel = write.model ?? ""
+        commit(write)
     }
 
     /// R-E13: off by default; only the switch sends `allowOverage`, so a mode
@@ -163,7 +164,7 @@ struct EngineChooser: View {
                 TextField("Model id", text: freeTextModelBinding(for: candidate))
                     .textFieldStyle(.roundedBorder)
                     .font(CicadaTheme.captionFont)
-                    .onSubmit { commit(mode: candidate.id, model: selectedModel) }
+                    .onSubmit { commit(EngineWrite(mode: candidate.id, model: selectedModel)) }
             }
         case "local":
             let guideState = OllamaGuideState.from(candidate: candidate)
@@ -193,8 +194,9 @@ struct EngineChooser: View {
         Binding(
             get: { selectedModel },
             set: { newValue in
+                let write = EngineWrite.model(newValue, mode: candidate.id, current: selectedModel)
                 selectedModel = newValue
-                commit(mode: candidate.id, model: newValue)
+                if let write { commit(write) }
             }
         )
     }
@@ -206,8 +208,10 @@ struct EngineChooser: View {
     @ViewBuilder
     private func previewSection(_ preview: SleepEnginePreviews) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Self.previewRow(preview.manual, label: "Next cycle you start")
-            Self.previewRow(preview.scheduled, label: "Nightly schedule")
+            // R-HS11 — one pair of labels app-wide: this chooser, Settings → Sleep and the Sleep
+            // page's quick menu said the same two facts two ways before DS-3b.
+            Self.previewRow(preview.manual, label: Copy.EngineMenu.whenYouStart)
+            Self.previewRow(preview.scheduled, label: Copy.EngineMenu.scheduledCycles)
             // Ruling 4 stays binding and VISIBLE: a scheduled cycle never
             // spends plan quota. The caption only earns its place when the
             // two previews actually diverge — an `auto`/`byok` choice that
@@ -235,9 +239,9 @@ struct EngineChooser: View {
         }
     }
 
-    private func commit(mode: String, model: String?) {
+    private func commit(_ write: EngineWrite) {
         Task { @MainActor in
-            await vm.set(mode: mode, model: model, disambiguationModel: nil)
+            await vm.apply(write)
             // R-E24: POWERS follow the chosen engine — refresh that one domain
             // now (the same call `ConnectionsViewModel` makes after a change).
             await store.refresh([.connections])
