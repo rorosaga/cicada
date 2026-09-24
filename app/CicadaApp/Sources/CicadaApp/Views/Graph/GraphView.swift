@@ -48,7 +48,7 @@ struct GraphView: NSViewRepresentable {
             webView.evaluateJavaScript("setPanToggle(\(viewModel.panModeOn))", completionHandler: nil)
         }
 
-        // Quiet the hover highlight while the entity detail card is open.
+        // Quiet the hover highlight while the entity column is open (the owner's 2026-09-03 rule; R-DG10).
         let cardOpen = viewModel.selectedEntity != nil
         if viewModel.isGraphReady, context.coordinator.lastHoverSuppressed != cardOpen {
             context.coordinator.lastHoverSuppressed = cardOpen

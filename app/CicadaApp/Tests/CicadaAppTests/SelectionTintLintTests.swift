@@ -6,7 +6,7 @@ import XCTest
 final class SelectionTintLintTests: XCTestCase {
     static let scoped = ["Views/Shell/NavRail.swift", "Views/Common/TextTabs.swift", "Views/Settings/SettingsPanel.swift",
                          "Views/Inbox/InboxQuestionList.swift", "Views/Graph/GraphControlGroup.swift",
-                         "Views/Graph/GraphFindOverlay.swift"]
+                         "Views/Graph/GraphFindOverlay.swift", "Views/Graph/EntityCardHeader.swift"]
     static let needles = ["CicadaTheme.accent", "CicadaTheme.wash", "CicadaTheme.onAccent", "accentColor"]
 
     func testNavigationAndTabStateNeverSpendTheAccent() throws {

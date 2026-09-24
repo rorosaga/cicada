@@ -4,8 +4,8 @@ import Foundation
 /// the cause line, the age phrase (same wording as the server's
 /// `inbox_questions.humanize_age`), the bolded excerpt, and the collapse rule.
 enum InboxAge {
-    /// Whole days between an ISO date/timestamp and `now`; `nil` if unparseable.
-    static func days(since iso: String?, now: Date) -> Int? {
+    /// The instant an ISO date or timestamp names; `nil` if unparseable. A bare day is UTC midnight.
+    static func date(_ iso: String?) -> Date? {
         guard let iso, !iso.isEmpty else { return nil }
         let full = ISO8601DateFormatter()
         full.formatOptions = [.withInternetDateTime]
@@ -14,8 +14,12 @@ enum InboxAge {
         let dayOnly = DateFormatter()
         dayOnly.dateFormat = "yyyy-MM-dd"
         dayOnly.timeZone = TimeZone(identifier: "UTC")
-        let then = full.date(from: iso) ?? fractional.date(from: iso) ?? dayOnly.date(from: String(iso.prefix(10)))
-        guard let then else { return nil }
+        return full.date(from: iso) ?? fractional.date(from: iso) ?? dayOnly.date(from: String(iso.prefix(10)))
+    }
+
+    /// Whole days between an ISO date/timestamp and `now`; `nil` if unparseable.
+    static func days(since iso: String?, now: Date) -> Int? {
+        guard let then = date(iso) else { return nil }
         return max(0, Int(now.timeIntervalSince(then) / 86_400))
     }
 

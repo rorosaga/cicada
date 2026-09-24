@@ -36,7 +36,7 @@ struct EntityDetailCard: View {
     /// `nil` (the default) means "use `graphVM`'s own history" — see
     /// `EntityCardNavigation` above.
     let navigation: EntityCardNavigation?
-    @State private var selectedTab: DetailTab = .content
+    @State private var selectedTab: EntityCardTab = .content
     @State private var showRawMarkdown: Bool
 
     // Claim-layer state (§3b perspectives, §4 timeline). Loaded lazily on tab
@@ -44,7 +44,7 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
-    @State private var timelineKey: TimelineKey?
+    @State private var timelineKey: BeliefKey?
 
     // Location listing (issue #7). Loaded lazily on appear for `.location`
     // entities; nil while loading or when no path/endpoint is available.
@@ -116,31 +116,32 @@ struct EntityDetailCard: View {
         DiffCacheKey(entityId: entity.id, commitHash: commitHash)
     }
 
-    struct TimelineKey: Identifiable, Hashable {
-        let predicate: String
-        let context: String
-        var id: String { "\(predicate)|\(context)" }
-    }
-
-    enum DetailTab {
-        case content, history, perspectives, timeline
-    }
-
     /// Whether to show the card's own close (✕) button. The Clusters detail
     /// embeds this card inside a view that already provides a Back button, so
     /// it passes `false` — the card's ✕ only drives `graphVM.clearSelection()`,
     /// which is a no-op (dead button) outside the graph's selection context.
     let showsCloseButton: Bool
+    /// R-DG13 — `.column` on the Graph, `.card` in Clusters (its page frame is DS-3b's).
+    let style: EntityCardStyle
+    /// The column's × — the page closes the column and its Reader together (R-DG7). Nil: `clearSelection()`.
+    let onClose: (() -> Void)?
+    /// DR-28 — the page decides what Esc closes (the Reader first). Clusters passes none, so Esc there no longer
+    /// clears the Graph's selection behind it.
+    let onEscape: (() -> Void)?
 
     /// `defaultRaw` opens the card on the verbatim Source view — used by the
     /// graph's click-to-preview overlay so a node tap shows raw markdown first.
     init(
         entity: Entity, defaultRaw: Bool = false, showsCloseButton: Bool = true,
-        navigation: EntityCardNavigation? = nil
+        navigation: EntityCardNavigation? = nil, style: EntityCardStyle = .card,
+        onClose: (() -> Void)? = nil, onEscape: (() -> Void)? = nil
     ) {
         self.entity = entity
         self.showsCloseButton = showsCloseButton
         self.navigation = navigation
+        self.style = style
+        self.onClose = onClose
+        self.onEscape = onEscape
         _showRawMarkdown = State(initialValue: defaultRaw)
     }
 
@@ -159,31 +160,50 @@ struct EntityDetailCard: View {
         if let navigation { navigation.navigate(id) } else { graphVM.pushEntity(id: id) }
     }
 
+    private var isStub: Bool { entity.rawMarkdown.isEmpty }
+
+    private func close() {
+        if let onClose { onClose() } else { graphVM.clearSelection() }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().background(CicadaTheme.border)
-            tabSwitcher
-            Divider().background(CicadaTheme.border)
-
+            EntityCardHeader(
+                entity: entity,
+                summary: EntityHeaderWords.summary(markdown: entity.markdownContent, isStub: isStub),
+                isStub: isStub,
+                canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
+                showsClose: showsCloseButton, onClose: close,
+                tabs: EntityTabs.tabs(claims: claimsLoaded ? claims : nil,
+                                      historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory)),
+                selection: $selectedTab,
+                inset: style.inset)
             ScrollView {
                 switch selectedTab {
                 case .content: contentTab
-                case .history: historyTab
                 case .perspectives: perspectivesTab
+                case .history: historyTab
                 case .timeline: timelineTab
                 }
             }
         }
         .frame(maxHeight: .infinity)
-        .glassCard()
-        .onKeyPress(.escape) {
-            graphVM.clearSelection()
-            return .handled
+        .modifier(EntityCardChrome(style: style))
+        // R-DG11 — focus inside the column still reaches the page's Esc order.
+        .focusable()
+        .focusEffectDisabled()
+        .onExitCommand { onEscape?() }
+        // R-DG16 — a tab loads what it shows; the counts were loaded when the column opened.
+        .onChange(of: selectedTab) { _, tab in
+            switch tab {
+            case .history: Task { await loadHistoryIfNeeded() }
+            case .perspectives, .timeline: Task { await loadClaimsIfNeeded() }
+            case .content: break
+            }
         }
         // Installed ONCE here, before `.sheet` below so the Belief Timeline
         // sheet's `ClaimChip`s inherit it too — see `View.wikilinkNavigation`
-        // in MarkdownBody.swift. Covers the summary box, the rendered body,
+        // in MarkdownBody.swift. Covers the header's Summary, the rendered body,
         // transcluded embeds, and every claim chip in Perspectives/Timeline.
         .wikilinkNavigation(onSelect: navigate)
         .sheet(item: $timelineKey) { key in
@@ -196,6 +216,9 @@ struct EntityDetailCard: View {
         // Outermost on purpose: the Belief Timeline sheet's chips read it too.
         .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
         .task(id: entity.id) { await loadProvenance() }
+        // R-DG16 — the tab counts need the claims when the column opens, not when a tab is tapped. At the
+        // card's level: a tab switch removes `contentTab` and would cancel a task hung there.
+        .task(id: entity.id) { await loadClaimsIfNeeded() }
     }
 
     /// One `/provenance` per entity (ETag-revalidated by the cache). A 404 —
@@ -211,139 +234,6 @@ struct EntityDetailCard: View {
         // for the old one must not land under the new name.
         guard !Task.isCancelled else { return }
         provenanceState = ProvenanceSectionState(result)
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            // Back — bug 3 / G108: only shown once the user has actually
-            // navigated deeper (a wikilink/transclusion/claim tap), and
-            // labeled with what it goes back TO rather than a bare
-            // "Back", following the "< Clusters" precedent
-            // (`TopicsView.TopicDetailView`'s own Back button).
-            if canGoBack {
-                HStack {
-                    Button(action: goBack) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Image(systemName: "chevron.left")
-                                .font(CicadaTheme.font(size: 11, weight: .semibold))
-                            Text(backTargetName.map { "Back to \($0)" } ?? "Back")
-                                .font(CicadaTheme.font(size: 11, weight: .medium))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                    .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
-                    .keyboardShortcut("[", modifiers: .command)
-                    .help((backTargetName.map { "Back to \($0)" } ?? "Back") + " (⌘[)")
-                    .frame(maxWidth: 220, alignment: .leading)
-
-                    Spacer()
-                }
-            }
-
-            HStack {
-                // Type badge
-                Label(entity.type.label, systemImage: entity.type.icon)
-                    .font(CicadaTheme.font(size: 11, weight: .medium))
-                    .foregroundStyle(CicadaTheme.entityColor(for: entity.type))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(CicadaTheme.entityColor(for: entity.type).opacity(0.15))
-                    .clipShape(Capsule())
-
-                // Status badge
-                Text(entity.status.label)
-                    .font(CicadaTheme.font(size: 11, weight: .medium))
-                    .foregroundStyle(CicadaTheme.statusColor(for: entity.status))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(CicadaTheme.statusColor(for: entity.status).opacity(0.15))
-                    .clipShape(Capsule())
-
-                Spacer()
-
-                // Close button — only when this card owns dismissal (graph
-                // overlay). Suppressed in Clusters, which has its own Back button.
-                if showsCloseButton {
-                    Button {
-                        graphVM.clearSelection()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(CicadaTheme.font(size: 12, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .background(CicadaTheme.surfaceHover)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.cicadaPlain)
-                }
-            }
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 40)
-                // G117 — the owner's own page/node is marked `owner: true` in
-                // frontmatter; render it distinctly rather than leaving the
-                // person to infer it from the observer badges alone.
-                Text(entity.isOwner ? "\(entity.name) (you)" : entity.name)
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-            }
-
-            // Confidence bar
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Text("Confidence")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(CicadaTheme.border)
-                            .frame(height: 4)
-
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(CicadaTheme.statusColor(for: entity.status))
-                            .frame(width: geo.size.width * entity.confidence, height: 4)
-                    }
-                }
-                .frame(height: 4)
-
-                Text(String(format: "%.0f%%", entity.confidence * 100))
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: 36, alignment: .trailing)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-    }
-
-    // MARK: - Tab Switcher
-
-    private var tabSwitcher: some View {
-        HStack(spacing: CicadaTheme.spacingLG) {
-            Spacer()
-            TabButton(title: "Content", isSelected: selectedTab == .content) {
-                selectedTab = .content
-            }
-            TabButton(title: "History", isSelected: selectedTab == .history) {
-                selectedTab = .history
-                Task { await loadHistoryIfNeeded() }
-            }
-            TabButton(title: "Perspectives", isSelected: selectedTab == .perspectives) {
-                selectedTab = .perspectives
-                Task { await loadClaimsIfNeeded() }
-            }
-            TabButton(title: "Timeline", isSelected: selectedTab == .timeline) {
-                selectedTab = .timeline
-                Task { await loadClaimsIfNeeded() }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, CicadaTheme.spacingLG)
-        .padding(.vertical, CicadaTheme.spacingSM)
     }
 
     // MARK: - Content Tab
@@ -395,7 +285,7 @@ struct EntityDetailCard: View {
                 renderedMarkdownView
                 if showsBeliefs, !validClaims.isEmpty {
                     WhatCicadaKnowsSection(claims: validClaims) { claim in
-                        timelineKey = TimelineKey(predicate: claim.predicate, context: claim.context)
+                        timelineKey = BeliefKey(claim)
                     }
                 }
             }
@@ -419,7 +309,7 @@ struct EntityDetailCard: View {
             Divider().background(CicadaTheme.border)
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
         .task(id: entity.id) {
             // G124 R11 — a card open is a read. Fire-and-forget on its own
             // Task so a slow ledger never delays the sources fetch below.
@@ -463,11 +353,6 @@ struct EntityDetailCard: View {
             if entity.type == .project || entity.type == .directory {
                 repoContexts = (try? await APIClient.shared.fetchEntityRepos(entityId: entity.id)) ?? []
             }
-        }
-        // R-FX11 — flips true once the full entity has replaced the stub, so
-        // the graph-node stub never fetches; `loadClaimsIfNeeded` is guarded.
-        .task(id: showsBeliefs) {
-            if showsBeliefs { await loadClaimsIfNeeded() }
         }
     }
 
@@ -853,23 +738,15 @@ struct EntityDetailCard: View {
     // rule that strips the claims fence before any section is read.
 
     /// The entity body with the sections that already render in their own
-    /// dedicated chrome (`## Summary` → SummaryBox, `## Description` → media
+    /// dedicated chrome (`## Summary` → the header, R-DG15; `## Description` → media
     /// hero/website card) removed, so the rendered markdown view below doesn't
     /// show them a second time. The claims fence goes first (R-FX8).
     private var bodyForRendering: String {
+        // R-DG15 — a stub's markdown IS the preview the header already shows.
+        guard !isStub else { return "" }
         let prose = EntityProse.stripClaimsFence(entity.markdownContent)
         return EntityProse.stripSection(named: "## Description",
                                         from: EntityProse.stripSection(named: "## Summary", from: prose))
-    }
-
-    /// G24: the entity's `## Summary` section text, for the summary box atop
-    /// the rendered markdown preview. Nil when no Summary section is present
-    /// — the box renders nothing rather than showing empty chrome — and nil
-    /// for `agentic_write`'s old placeholder line, which says nothing (R-FX11).
-    private var summaryText: String? {
-        guard let text = EntityProse.section(named: "## Summary", in: entity.markdownContent),
-              !EntityProse.isPlaceholderSummary(text) else { return nil }
-        return text
     }
 
     /// R-FX11 — media pages have their own card (a paper's lists its why).
@@ -889,17 +766,11 @@ struct EntityDetailCard: View {
                 HeroPreview(entity: entity)
             }
 
-            // G24: fast human-readable gist, shown once at the very top of the
-            // preview, before the rest of the body.
-            if let summary = summaryText {
-                SummaryBox(text: summary)
-            }
-
             // Inline transclusion (§1): tokenize the body into text/embed segments
             // and render `![[…]]` embeds as nested collapsible cards. Falls back to
             // plain wikilink rendering for bodies with no embeds. Summary /
             // Description are stripped here — they already render in their own
-            // chrome above (SummaryBox / media hero) and would otherwise double.
+            // chrome (the header, R-DG15 / media hero) and would otherwise double.
             TranscludingMarkdownView(body: bodyForRendering)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1146,7 +1017,7 @@ struct EntityDetailCard: View {
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
     }
 
     private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
@@ -1283,14 +1154,14 @@ struct EntityDetailCard: View {
                         }
                         ForEach(group) { claim in
                             ClaimChip(claim: claim, onOpenTimeline: {
-                                timelineKey = TimelineKey(predicate: claim.predicate, context: claim.context)
+                                timelineKey = BeliefKey(claim)
                             })
                         }
                     }
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
     }
 
     // MARK: - Timeline Tab (§4)
@@ -1346,10 +1217,10 @@ struct EntityDetailCard: View {
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
     }
 
-    private func beliefTimelineSheet(_ key: TimelineKey) -> some View {
+    private func beliefTimelineSheet(_ key: BeliefKey) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Spacer()
@@ -1464,15 +1335,15 @@ struct EntityDetailCard: View {
     }
 
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
-    private var contestedKeys: [TimelineKey] {
-        let byKey = Dictionary(grouping: claims, by: { TimelineKey(predicate: $0.predicate, context: $0.context) })
-        return byKey.filter { $0.value.count >= 2 }.keys.sorted { $0.id < $1.id }
-    }
+    private var contestedKeys: [BeliefKey] { EntityTabs.contested(claims) }
 
     private func loadClaimsIfNeeded() async {
         guard !claimsLoaded else { return }
         // Include superseded so the timeline tab can detect contested keys.
-        claims = (try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)) ?? []
+        let fetched = try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)
+        // DS-3a — a load cancelled by a swap or a close must not read as "no beliefs" (R-DG16's counts).
+        guard !Task.isCancelled else { return }
+        claims = fetched ?? []
         claimsLoaded = true
     }
 
@@ -1524,49 +1395,6 @@ struct EntityDetailCard: View {
     }
 }
 
-// MARK: - Summary Box (G24)
-//
-// A visually distinct card rendered atop the entity's markdown preview,
-// surfacing the `## Summary` section's text so the user can read the gist
-// fast without scanning the full body. Mirrors TransclusionCard's accent-bar
-// treatment (left accent stripe + surface background + hairline border) so
-// it reads as "part of this app's card language" rather than a one-off.
-
-private struct SummaryBox: View {
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Rectangle()
-                .fill(CicadaTheme.accent.opacity(0.7))
-                .frame(width: 3)
-
-            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "sparkles")
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
-                    .foregroundStyle(CicadaTheme.accent)
-
-                // Routed through `MarkdownBody.inlineAttributed` — the same
-                // wikilink-rewrite path every other prose surface uses —
-                // rather than a plain `Text(text)`, which rendered
-                // `[[Entity Name]]` verbatim instead of as a link.
-                Text(MarkdownBody.inlineAttributed(text))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(CicadaTheme.spacingMD)
-        }
-        .background(CicadaTheme.surface.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
-    }
-}
-
 // MARK: - View Mode Button (Rendered / Source)
 
 private struct ViewModeButton: View {
@@ -1594,26 +1422,48 @@ private struct ViewModeButton: View {
     }
 }
 
-// MARK: - Tab Button
+// MARK: - Style (R-DG13)
 
-private struct TabButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
+/// One card, two hosts: the Graph's detail column and Clusters' card.
+enum EntityCardStyle {
+    /// Clusters' detail page — the card on its block, until DS-3b restyles that page.
+    case card
+    /// The Graph's detail column (§5.3): no card chrome, `bgBase`, the column's leading edge (DR-11).
+    case column
 
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+    /// Leading inset in units: the mock's 28 in the column, the card's 16.
+    var inset: CGFloat { self == .column ? 28 : 16 }
+}
 
-                Rectangle()
-                    .fill(isSelected ? CicadaTheme.accent : .clear)
-                    .frame(height: 2)
-            }
+private struct EntityCardChrome: ViewModifier {
+    let style: EntityCardStyle
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .card: content.glassCard()
+        case .column: content.background(CicadaTheme.bgBase).columnEdge()
         }
-        .buttonStyle(.cicadaPlain)
+    }
+}
+
+/// The tab bodies' insets: the column's (28 leading, 20 trailing, room to scroll past the last row) or the
+/// card's 16 all round.
+private struct EntityTabInsets: ViewModifier {
+    let style: EntityCardStyle
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .card:
+            content.padding(CicadaTheme.spacingLG)
+        case .column:
+            content
+                .padding(.leading, CicadaTheme.scaled(style.inset))
+                .padding(.trailing, CicadaTheme.scaled(20))
+                .padding(.top, CicadaTheme.scaled(18))
+                .padding(.bottom, CicadaTheme.scaled(72))
+        }
     }
 }
 

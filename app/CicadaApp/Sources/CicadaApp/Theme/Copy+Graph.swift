@@ -44,3 +44,18 @@ extension Copy {
         static let helpTitle = "How the graph works"
     }
 }
+
+// Task 3 — the entity column's header and tabs (R-DG14 … R-DG16)
+extension Copy.Graph {
+    static func confidenceOutOf100(_ n: Int) -> String { "Confidence \(n) out of 100" }
+    static let fadingReason = " · not mentioned lately, so it is fading"
+    /// G117 — the owner's own page.
+    static func ownerName(_ name: String) -> String { "\(name) (you)" }
+    static func backTo(_ name: String?) -> String { name.map { "‹ Back to \($0)" } ?? "‹ Back" }
+    static func backHelp(_ name: String?) -> String { (name.map { "Back to \($0)" } ?? "Back") + " (⌘[)" }
+    static func closeHelp(_ name: String) -> String { "Close \(name) (Esc)" }
+    static let tabContent = "Content"
+    static let tabPerspectives = "Perspectives"
+    static let tabHistory = "History"
+    static let tabTimeline = "Timeline"
+}

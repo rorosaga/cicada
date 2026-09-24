@@ -5,6 +5,9 @@ import SwiftUI
 /// this view mounted under every other tab (opacity 0, no hit testing) so the `WKWebView` — and the zoom the
 /// person left it at — survive a tab switch (owner, 2026-09-03).
 ///
+/// A node opens its entity card as the right-hand column (`GraphColumns`, R-DG12) — no scrim; a click on empty
+/// canvas or × closes it with its Reader (R-DG7).
+///
 /// It answers graph.js's page events (R-DG8, R-DG11) through `GraphDismiss`: Esc closes one thing per press and
 /// never animates (DR-60); a click on empty canvas is a pointer path.
 struct GraphPage: View {
@@ -27,12 +30,25 @@ struct GraphPage: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                canvas(width: geo.size.width, height: geo.size.height)
-                modalCard   // Task 3 replaces this with the entity column
+            let plan = GraphColumns.plan(pageWidth: geo.size.width, scale: CGFloat(CicadaTheme.uiScale),
+                                         entityOpen: graphVM.selectedEntity != nil, readerOpen: provenance.isPresented)
+            HStack(spacing: 0) {
+                canvas(width: plan.canvas, height: geo.size.height)
+                // §5.3 — the entity card is the detail column; its evidence opens the Reader beside it (the
+                // shell's trailing column, `ShellReaderHost`, which sized itself before this page).
+                if let entity = graphVM.selectedEntity {
+                    EntityDetailCard(entity: entity, style: .column, onClose: { close() }, onEscape: { escape() })
+                        // One card identity per entity: following a wikilink must not reuse A's state under B's name.
+                        .id(entity.id)
+                        .frame(width: plan.entity, height: geo.size.height)
+                        .transition(.opacity)
+                }
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
-        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: graphVM.selectedEntity?.id)
+        // DR-61 — opening and closing move the canvas's width on the drawer curve; a swap changes neither, so it
+        // is instant (DR-29), and Esc runs inside `Instant.run`, whose transaction disables this (DR-60).
+        .animation(CicadaMotion.columns(reduceMotion: reduceMotion), value: graphVM.selectedEntity == nil)
         // R-DG5 / R-SU10 — the page takes ⌘F while find is closed; the overlay's field takes it while open.
         .publishesPageFind(enabled: isVisible && !findOpen && !(palette?.isPresented ?? false)) { openFind() }
         .onChange(of: graphVM.canvasEventCount) { _, _ in handle(graphVM.canvasEvent) }
@@ -87,27 +103,18 @@ struct GraphPage: View {
         .clipped()
     }
 
-    /// The pre-D modal, moved here unchanged; Task 3 replaces it with the entity column.
-    @ViewBuilder
-    private var modalCard: some View {
-        if let entity = graphVM.selectedEntity {
-            Color.black.opacity(0.45)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { graphVM.clearSelection() }
-                .transition(.opacity)
-            EntityDetailCard(entity: entity, defaultRaw: false)
-                .id(entity.id)
-                .frame(maxWidth: 620, maxHeight: 680)
-                .padding(CicadaTheme.spacingXL)
-                .transition(.scale(scale: 0.97).combined(with: .opacity))
-        }
-    }
-
     // MARK: - Paths (a pointer path may animate; a keyboard path never does — DR-60)
 
     /// ⌘F — a keyboard path.
     private func openFind() { Instant.run { legendOpen = false; findOpen = true } }
+
+    /// The column's × — a pointer path: the whole detail closes on the drawer curve (R-DG7).
+    private func close() {
+        withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { apply(GraphDismiss.close(dismissState)) }
+    }
+
+    /// Esc with focus inside the column — the same order as the canvas's (DR-28), never animated.
+    private func escape() { Instant.run { apply(GraphDismiss.escape(dismissState)) } }
 
     /// The Legend button — a pointer path; the find overlay steps aside.
     private func toggleLegend() {

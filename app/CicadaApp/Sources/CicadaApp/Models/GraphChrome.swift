@@ -162,3 +162,30 @@ enum GraphFind {
     /// The mock lists six; the palette (⌘K) is where "everything" lives.
     static let hitLimit = 6
 }
+
+/// R-DG12 — the canvas and the entity column. The canvas is the flexible column (the list's role in §5.3), so
+/// the Graph does not reuse `ColumnLayout`, whose flexible column is the detail. Widths are units (÷ uiScale,
+/// DR-70), and the two always sum to the page, so nothing is ever pushed off-window (DR-31).
+enum GraphColumns {
+    /// DR-27's floor for the detail column.
+    static let entityMin: CGFloat = 440
+    /// The approved mock: 560 with nothing beside it, 480 beside the Reader (440 once the page is narrower).
+    static let entityMax: CGFloat = 560
+    static let entityMaxBesideReader: CGFloat = 480
+
+    struct Plan: Equatable {
+        var canvas: CGFloat
+        var entity: CGFloat
+    }
+
+    static func plan(pageWidth: CGFloat, scale: CGFloat, entityOpen: Bool, readerOpen: Bool) -> Plan {
+        let page = max(pageWidth, 0)
+        guard entityOpen else { return Plan(canvas: page, entity: 0) }
+        let s = max(scale, 0.1)
+        let units = page / s
+        let ceiling = readerOpen ? entityMaxBesideReader : entityMax
+        let entityUnits = min(min(max(units / 2, entityMin), ceiling), units)
+        let entity = min((entityUnits * s).rounded(), page)
+        return Plan(canvas: page - entity, entity: entity)
+    }
+}
