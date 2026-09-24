@@ -727,7 +727,7 @@ struct EntityDetailCard: View {
     }
 
     /// G68 — newest first. R-DG24: a neutral ring per change (hue is for data identity, P-c), the change in words,
-    /// the day and who wrote it; the commit's sentence; then "Show in conversation" and "What changed" (G67). The
+    /// the day and who wrote it (the commit's own line only as help); then "Show in conversation" and "What changed" (G67). The
     /// two links are siblings, never one inside the other's label (the PR #20 round-2 rule that pulled
     /// `FromConversationButton` out of the expand button).
     private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
@@ -740,19 +740,20 @@ struct EntityDetailCard: View {
                         .padding(.top, CicadaTheme.scaled(5))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        // DR-54/DR-58 (final review): the commit line (`entities/<id>.md: updated (source: ep_…,
+                        // trigger: sleep/…)`) is a path, an episode id and a trigger slug, so it is never on the
+                        // row — the change is already in words — and stays reachable as the change line's help.
                         HStack(spacing: CicadaTheme.spacingSM) {
                             Text(HistoryWords.change(entry.changeType))
                                 .font(CicadaTheme.rowFont)
                                 .foregroundStyle(CicadaTheme.textPrimary)
-                            Text(entry.date).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                            Text(EntityDates.shortDay(entry.date) ?? entry.date)
+                                .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                             if !entry.author.isEmpty {
                                 AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
                             }
                         }
-                        Text(entry.description)
-                            .font(CicadaTheme.bodyFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        .help(entry.description)
                         HStack(spacing: CicadaTheme.scaled(14)) {
                             ShowInConversationLink(sessionIds: entry.sessions,
                                                    openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))

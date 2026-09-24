@@ -25,27 +25,47 @@ function emptyPoint() {
     throw new Error("no empty canvas point found");
 }
 
-// 1. A click on empty canvas posts backgroundClicked, once — the window listener's second
-//    mouseup is a no-op.
+// 1. A click on empty canvas posts backgroundClicked, once, and only through d3-zoom's gesture end.
+//    In WebKit d3-zoom's window capture-phase mouseup stops the release before onMouseUp can run
+//    (final review), so onMouseUp alone must post nothing and the zoom's `end.background` listener
+//    — taken from the same makeZoom() init() calls — must answer. The harness never runs init(),
+//    so the zoom is built here exactly as init() builds it.
+get("currentZoom = makeZoom()");
+const zoomEnd = get("currentZoom").on("end.background");
+assert.strictEqual(typeof zoomEnd, "function", "init()'s zoom answers its own gesture end");
+const release = (x, y) => zoomEnd({ sourceEvent: { type: "mouseup", clientX: x, clientY: y } });
 const [ex, ey] = emptyPoint();
 sandbox.onMouseDown({ clientX: ex, clientY: ey, stopImmediatePropagation: noop });
 sandbox.onMouseUp({});
-sandbox.onMouseUp({});
+assert.deepStrictEqual(posted, [], "the mouseup listener never answers an empty-canvas click");
+sandbox.onMouseDown({ clientX: ex, clientY: ey, stopImmediatePropagation: noop });
+release(ex + 1, ey + 1);
+release(ex + 1, ey + 1);
 assert.deepStrictEqual(posted.map((m) => m.type), ["backgroundClicked"], "one click on empty canvas, one message");
 
-// 2. A drag on empty canvas is a pan (d3-zoom's), never a close (R-DG8).
+// 2. A drag on empty canvas is a pan (d3-zoom's), never a close (R-DG8). d3-zoom swallows the
+//    mousemoves too, so the distance is read off the release, not off pressStart.moved.
 posted.length = 0;
 sandbox.onMouseDown({ clientX: ex, clientY: ey, stopImmediatePropagation: noop });
-sandbox.onMouseMove({ clientX: ex + 30, clientY: ey + 30 });
-sandbox.onMouseUp({});
+release(ex + 30, ey + 30);
 assert.deepStrictEqual(posted, [], "a pan is not a click");
 
-// 3. In pan mode every press is a pan.
+// 3. In pan mode (or with shift held) every press is a pan; a wheel zoom's end and a stray
+//    release with no press close nothing either.
 sandbox.setPanToggle(true);
 sandbox.onMouseDown({ clientX: ex, clientY: ey, stopImmediatePropagation: noop });
-sandbox.onMouseUp({});
+release(ex, ey);
 sandbox.setPanToggle(false);
-assert.deepStrictEqual(posted, [], "pan mode never closes the column");
+sandbox.onMouseDown({ clientX: ex, clientY: ey, shiftKey: true, stopImmediatePropagation: noop });
+release(ex, ey);
+sandbox.onMouseUp({});
+zoomEnd({ sourceEvent: { type: "wheel", clientX: ex, clientY: ey } });
+zoomEnd({ sourceEvent: null });
+release(ex, ey);
+assert.deepStrictEqual(posted, [], "pan mode, shift, a wheel and a stray release never close the column");
+// The stub canvas is no DOM element d3 can transition, and parts 6-7 pin the headless path that sets
+// the transform directly when no zoom is attached — so the zoom goes back to what the harness had.
+get("currentZoom = undefined");
 
 // 4. A click on a node is still nodeClicked, never backgroundClicked. The node farthest from the
 //    origin is the least likely to overlap another under the pointer (graph-pan-mode.test.js).

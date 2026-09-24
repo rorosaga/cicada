@@ -524,12 +524,7 @@ function init() {
     // in a local transform object; draw() applies that transform manually
     // in world space via ctx.translate/scale. We do NOT set a DOM transform
     // attribute anymore — there is no DOM tree under the canvas to move.
-    currentZoom = d3.zoom()
-        .scaleExtent([MIN_ZOOM, MAX_ZOOM])
-        .on("zoom", (event) => {
-            transform = event.transform;
-            scheduleRedraw();
-        });
+    currentZoom = makeZoom();
     d3.select(canvas).call(currentZoom);
 
     // Initial centering transform — put origin in the middle of the canvas
@@ -1708,6 +1703,34 @@ function screenToWorld(sx, sy) {
     return [(sx - transform.x) / transform.k, (sy - transform.y) / transform.k];
 }
 
+// The canvas's d3.zoom, built in one place so the tests exercise the same wiring init() does.
+function makeZoom() {
+    return d3.zoom()
+        .scaleExtent([MIN_ZOOM, MAX_ZOOM])
+        .on("zoom", (event) => {
+            transform = event.transform;
+            scheduleRedraw();
+        })
+        .on("end.background", onZoomGestureEnd);
+}
+
+// DS-3a R-DG8 — a click on EMPTY canvas: Swift closes a floating panel, else the entity column.
+// Answered from d3-zoom's own gesture end, not from onMouseUp: on empty canvas d3-zoom claims the
+// press, and its `mouseup.zoom` listener (window, capture phase) calls stopImmediatePropagation, so
+// neither the canvas's nor the window's mouseup listener ever sees the release (final review,
+// reproduced in headless Chromium). A drag past DRAG_CLICK_THRESHOLD is a pan and closes nothing;
+// pan mode's every press is a pan; a press on a node never reaches here as a click (onMouseDown
+// claims it); a wheel zoom's end carries a wheel sourceEvent, not a mouseup.
+function onZoomGestureEnd(e) {
+    const s = e && e.sourceEvent;
+    if (!s || s.type !== "mouseup" || !pressStart || pressStart.onNode || pressStart.pan) return;
+    const [sx, sy] = eventScreenXY(s);
+    if (Math.hypot(sx - pressStart.x, sy - pressStart.y) <= DRAG_CLICK_THRESHOLD) {
+        postToSwift({ type: "backgroundClicked" });
+    }
+    pressStart = null;
+}
+
 function eventScreenXY(event) {
     const rect = canvas.getBoundingClientRect();
     return [event.clientX - rect.left, event.clientY - rect.top];
@@ -1897,11 +1920,9 @@ function onMouseUp(event) {
         if (wasClick) {
             handleNodeClick(clickedId);
         }
-    } else if (pressStart && !pressStart.moved && !pressStart.onNode && !pressStart.pan) {
-        // DS-3a R-DG8 — a click on EMPTY canvas: Swift closes a floating panel, else the entity column.
-        // A drag is d3-zoom's pan (moved), and pan mode's every press is a pan, so neither closes anything.
-        postToSwift({ type: "backgroundClicked" });
     }
+    // An empty-canvas click is NOT answered here: d3-zoom owns that press and its window
+    // capture-phase mouseup stops the event before this listener runs. See onZoomGestureEnd.
 
     pressStart = null;
 }
