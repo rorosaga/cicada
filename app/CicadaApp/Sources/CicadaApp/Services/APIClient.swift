@@ -2108,6 +2108,18 @@ actor APIClient {
     /// the same `ensure_fresh` every read path calls).
     func fetchSearchIndexStatus() async throws -> SearchIndexStatus { try await get("/maintenance/search-index") }
 
+    /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
+    /// already chosen. Not a Store domain, no ETag.
+    func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
+
+    /// `PUT /memory/decay-tuning` (G147) — `nil` clears a kind back to the usual pace. 409
+    /// while Sleep runs; 422 with a plain sentence for a pace outside what the server allows.
+    func setDecayTuning(_ changes: [String: Double?]) async throws -> DecayTuningResponse {
+        var body: [String: Any] = [:]
+        for (type, value) in changes { body[type] = value.map { $0 as Any } ?? NSNull() }
+        return try await put("/memory/decay-tuning", body: body)
+    }
+
     /// 409 while Sleep or another rebuild runs; 503 with a plain sentence if
     /// the rebuild fails. The rebuild itself is CPU on the backend's side,
     /// which can outlast the default 60 s on a large bank — a timeout here

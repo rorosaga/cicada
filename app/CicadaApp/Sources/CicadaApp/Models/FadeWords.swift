@@ -51,4 +51,59 @@ enum FadeWords {
             return "\(pace.word) — mentioned across \(UsageFormat.count(decay.mentionWeeks, locale: locale)) weeks"
         }
     }
+
+    // MARK: Settings → Memory (G147, plan R-FD6)
+
+    /// The plain noun for a kind of page — "people", not "persons"; "ideas" for concepts.
+    static func noun(_ type: String, count: Int) -> String {
+        let pair: (one: String, many: String)
+        switch EntityType(rawValue: type) ?? .unknown {
+        case .person: pair = ("person", "people")
+        case .project: pair = ("project", "projects")
+        case .company: pair = ("company", "companies")
+        case .concept: pair = ("idea", "ideas")
+        case .tool: pair = ("tool", "tools")
+        case .deadline: pair = ("deadline", "deadlines")
+        case .skill: pair = ("skill", "skills")
+        case .location: pair = ("place", "places")
+        case .media: pair = ("saved item", "saved items")
+        case .directory: pair = ("folder", "folders")
+        case .hub, .unknown: pair = ("page", "pages")
+        }
+        return count == 1 ? pair.one : pair.many
+    }
+
+    private static func pluralNoun(_ type: String) -> String { noun(type, count: 2) }
+
+    private static func speed(_ slower: Bool) -> String { slower ? "more slowly" : "more quickly" }
+
+    /// "Let people fade more slowly?" — the question, stated once (DR-59).
+    static func suggestionTitle(_ s: DecaySuggestion) -> String {
+        "Let \(pluralNoun(s.type)) fade \(speed(s.direction == .slower))?"
+    }
+
+    /// "You kept 9 of the 10 people Cicada asked about." Each number once, through
+    /// UsageFormat (DR-21); a suggestion against a pace already chosen says so, so Apply
+    /// never reads as a no-op.
+    static func suggestionDetail(_ s: DecaySuggestion, current: Double?,
+                                 locale: Locale = .autoupdatingCurrent) -> String {
+        let slower = s.direction == .slower
+        let verb = slower ? "kept" : "archived"
+        let part = slower ? s.kept : s.archived
+        let nouns = noun(s.type, count: s.answers)
+        let total = UsageFormat.count(s.answers, locale: locale)
+        var text = part == s.answers
+            ? "You \(verb) all \(total) \(nouns) Cicada asked about."
+            : "You \(verb) \(UsageFormat.count(part, locale: locale)) of the \(total) \(nouns) Cicada asked about."
+        if let current { text += " Right now they fade \(speed(current < 1))." }
+        return text
+    }
+
+    /// "People fade more slowly" — a pace the person chose.
+    static func tunedTitle(type: String, multiplier: Double) -> String {
+        let nouns = pluralNoun(type)
+        return nouns.prefix(1).uppercased() + nouns.dropFirst() + " fade " + speed(multiplier < 1)
+    }
+
+    static let tunedDetail = "You chose this. Reset to go back to the usual pace."
 }
