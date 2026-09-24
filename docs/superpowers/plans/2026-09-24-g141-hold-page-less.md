@@ -138,13 +138,13 @@ the idempotency test fails when the `on_page` guard in `_releases` is removed, a
 
 ## Global Constraints
 
-- **Where to work.** Work ONLY in `<worktree>` = `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b`,
-  branch `feat/g141-hold-page-less`, based on `dev` @ `1eb3cf5`.
-  - Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && <cmd>`. zoxide
+- **Where to work.** Work ONLY in `<worktree>`, the track's worktree `.worktrees/pj0b` under the repo (branch
+  `feat/g141-hold-page-less`, based on `dev` @ `1eb3cf5`).
+  - Every shell command is `cd <worktree> && <cmd>`, with the absolute path substituted. zoxide
     hijacks a relative `cd`; ignore its stderr warning.
   - Never pass an unquoted `--include=*.ext` to grep (zsh globs it). Grep directories and filter with
     `grep "\.py:"`.
-- **Never read a real bank.** NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank),
+- **Never read a real bank.** NEVER read `<repo>/memory` (any bank),
   `~/.cicada`, `~/Library` or `~/.claude/projects`.
   - Every fixture is synthetic: `Zed Unknown`, `Delta Unknown`, `Echo Unknown`, `Echo Example`,
     `Gamma Board`, `Alpha Lab`, `Beta Lab`, `Zed Example`, `The User`, `Lab Cluster Example`,
@@ -583,7 +583,7 @@ def test_vector_index_still_exports_the_store_names():
 
 - [ ] **Step 2: Run them. They fail** because `api.services.pending_store` does not exist (ImportError).
 
-`cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_pending_store.py -q -p no:cacheprovider`
+`cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_pending_store.py -q -p no:cacheprovider`
 
 - [ ] **Step 3: Create `api/services/pending_store.py`.**
 
@@ -1022,14 +1022,14 @@ from api.services.pending_store import PENDING_STORE_FILE, PendingEntity  # noqa
 
 - [ ] **Step 5: Run the new tests and the store's existing callers. All pass.**
 
-`cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_pending_store.py api/tests/test_vector_index.py api/tests/test_entity_resolver_transactional.py api/tests/test_link_recon.py -q -p no:cacheprovider`
+`cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_pending_store.py api/tests/test_vector_index.py api/tests/test_entity_resolver_transactional.py api/tests/test_link_recon.py -q -p no:cacheprovider`
 
-- [ ] **Step 6: Full suite.** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` must report 0 failures.
+- [ ] **Step 6: Full suite.** `cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` must report 0 failures.
 
 - [ ] **Step 7: Commit.**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && git add api/services/pending_store.py api/services/vector_index.py api/tests/test_pending_store.py && git commit -F - <<'EOF'
+cd <worktree> && git add api/services/pending_store.py api/services/vector_index.py api/tests/test_pending_store.py && git commit -F - <<'EOF'
 feat(g141): PJ-0b — the pending store can hold claims, and only a release lets them go
 
 pending_entities.jsonl gets one owner module, api/services/pending_store.py;
@@ -1394,7 +1394,7 @@ def test_a_subject_with_no_pending_line_is_offered_to_the_hold_and_nothing_is_wr
   onto the page, or a missing log phrase or source. The rewritten seam test fails with a `TypeError` from the old
   three-argument signature. Every other test in `test_claim_pipeline_subjects.py` still passes.
 
-`cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_claim_pipeline_hold.py api/tests/test_claim_pipeline_subjects.py -q -p no:cacheprovider`
+`cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_claim_pipeline_hold.py api/tests/test_claim_pipeline_subjects.py -q -p no:cacheprovider`
 
 - [ ] **Step 3: Implement in `api/services/claim_pipeline.py`.**
 
@@ -1743,14 +1743,14 @@ Check before moving on:
 - [ ] **Step 4: Run the new tests, the rewritten seam test and every other `run_claim_pipeline` caller. All
   pass.**
 
-`cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_claim_pipeline_hold.py api/tests/test_claim_pipeline_subjects.py api/tests/test_claim_pipeline.py api/tests/test_claims_corruption_guard.py api/tests/test_progress_writes.py api/tests/test_extraction_source_attach.py api/tests/test_sleep_cycle_claims_wired.py api/tests/test_pending_store.py -q -p no:cacheprovider`
+`cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_claim_pipeline_hold.py api/tests/test_claim_pipeline_subjects.py api/tests/test_claim_pipeline.py api/tests/test_claims_corruption_guard.py api/tests/test_progress_writes.py api/tests/test_extraction_source_attach.py api/tests/test_sleep_cycle_claims_wired.py api/tests/test_pending_store.py -q -p no:cacheprovider`
 
-- [ ] **Step 5: Full suite.** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` must report 0 failures.
+- [ ] **Step 5: Full suite.** `cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` must report 0 failures.
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && git add api/services/claim_pipeline.py api/tests/test_claim_pipeline_hold.py api/tests/test_claim_pipeline_subjects.py && git commit -F - <<'EOF'
+cd <worktree> && git add api/services/claim_pipeline.py api/tests/test_claim_pipeline_hold.py api/tests/test_claim_pipeline_subjects.py && git commit -F - <<'EOF'
 feat(g141): PJ-0b — Sleep holds a page-less subject's claims with its pending entity and writes them on promotion
 
 Stage 5.56 holds this cycle's page-less Stage-1 claims on the pending line
@@ -1957,7 +1957,7 @@ def test_the_sleep_run_row_carries_the_hold_counts(tmp_path, monkeypatch):
 - [ ] **Step 2: Run them. They fail.** The acceptance test fails with `AttributeError: 'SleepState' object has no
   attribute 'claims_held'`. The ledger test fails at `monkeypatch.setattr` (the attribute does not exist).
 
-`cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_sleep_cycle_hold.py -q -p no:cacheprovider`
+`cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_sleep_cycle_hold.py -q -p no:cacheprovider`
 
 - [ ] **Step 3: Implement in `api/services/sleep_cycle.py`.**
 
@@ -2028,14 +2028,14 @@ The `sleep_run` refs (`:2128-2130`) become:
 
 - [ ] **Step 4: Run the new tests and PJ-0's Sleep tests. All pass.**
 
-`cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_sleep_cycle_hold.py api/tests/test_claim_pipeline_subjects.py api/tests/test_sleep_cycle_claims_wired.py -q -p no:cacheprovider`
+`cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_sleep_cycle_hold.py api/tests/test_claim_pipeline_subjects.py api/tests/test_sleep_cycle_claims_wired.py -q -p no:cacheprovider`
 
-- [ ] **Step 5: Full suite.** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` must report 0 failures.
+- [ ] **Step 5: Full suite.** `cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider` must report 0 failures.
 
 - [ ] **Step 6: Commit.**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && git add api/services/sleep_cycle.py api/tests/test_sleep_cycle_hold.py && git commit -F - <<'EOF'
+cd <worktree> && git add api/services/sleep_cycle.py api/tests/test_sleep_cycle_hold.py && git commit -F - <<'EOF'
 feat(g141): PJ-0b — the hold's counts on the Sleep state and the sleep_run row, and the two-conversation acceptance
 
 SleepState gains claims_held / claims_released / claims_hold_capped /
@@ -2111,14 +2111,14 @@ EOF
     >   would no longer promote. It is research R7's "decay-pruned candidates" and decision D2's question, so it
     >   is the owner's. Until then `claims_waiting` on the `sleep_run` row shows how much is waiting.
 
-- [ ] **Step 4: Privacy check.** Run `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && git diff -- CLAUDE.md docs/goals/`
+- [ ] **Step 4: Privacy check.** Run `cd <worktree> && git diff -- CLAUDE.md docs/goals/`
   and read it. It must contain no real name, no episode or inbox title, and no claim or conversation text; only
   placeholders and code identifiers.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md docs/superpowers/plans/2026-09-24-g141-hold-page-less.md && git commit -F - <<'EOF'
+cd <worktree> && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md docs/superpowers/plans/2026-09-24-g141-hold-page-less.md && git commit -F - <<'EOF'
 docs(g141): PJ-0b — the hold in CLAUDE.md, the G141 row and TODO
 
 Entity promotion gains the hold sentence; the G141 row records PJ-0b as built
@@ -2172,19 +2172,19 @@ pre-existing behaviour this slice discloses without changing.
 
 ## Verification the orchestrator runs at the end
 
-1. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`
+1. `cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`
    reports **0 failures** (3769 passed + 1 skipped, as measured in the plan's dry run). If
    `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` is the only red,
    re-run it alone and report both results.
 2. The acceptance test runs alone and passes:
-   `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && api/.venv/bin/python -m pytest api/tests/test_sleep_cycle_hold.py -q -p no:cacheprovider -k two_conversations`.
+   `cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_sleep_cycle_hold.py -q -p no:cacheprovider -k two_conversations`.
 3. The acceptance test fails when the fix is taken out. Temporarily make `claim_pipeline._releases` return
    `([], [], {})` at its top; the acceptance test must FAIL (no claim on the page). Revert and confirm green. A
    test that has never failed is not known to work.
-4. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && git diff --stat dev -- app/ mcp/ api/routers/`
+4. `cd <worktree> && git diff --stat dev -- app/ mcp/ api/routers/`
    prints nothing. `git diff --stat dev` lists only the files in the File map.
 5. The store has one writer.
-   `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/pj0b && grep -rn "pending_entities.jsonl\|PENDING_STORE_FILE =" api mcp | grep "\.py:" | grep -v "/tests/"`
+   `cd <worktree> && grep -rn "pending_entities.jsonl\|PENDING_STORE_FILE =" api mcp | grep "\.py:" | grep -v "/tests/"`
    shows only `api/services/pending_store.py`. `grep -n "write_text\|\.write(" api/services/pending_store.py`
    shows only `fh.write(text)` inside `save`: every write goes through its temp-file-then-replace.
 6. Logs never carry a name. `test_the_hold_and_the_release_are_logged_as_counts_never_as_a_name` passes, and a
