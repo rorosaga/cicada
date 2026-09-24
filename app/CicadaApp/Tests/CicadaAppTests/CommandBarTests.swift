@@ -66,7 +66,11 @@ final class CommandBarTests: XCTestCase {
         XCTAssertEqual(floating, [])
         XCTAssertEqual(titlebar, 1)
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
-        for tab in AppTab.allCases where tab != .sleep { XCTAssertEqual(HelpContent.page(tab), .aboutCicada, tab.rawValue) }
+        // R-DI17 — the Inbox's `?` answers for the Inbox (its subtitle and key map).
+        XCTAssertEqual(HelpContent.page(.inbox), .inbox)
+        for tab in AppTab.allCases where tab != .sleep && tab != .inbox {
+            XCTAssertEqual(HelpContent.page(tab), .aboutCicada, tab.rawValue)
+        }
     }
 
     /// DR-46 — the command bar is the global search; the Graph's own Search button retired.

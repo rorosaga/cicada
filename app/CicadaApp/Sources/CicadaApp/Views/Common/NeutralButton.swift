@@ -3,8 +3,8 @@ import SwiftUI
 /// DR-40 — the neutral button: `bgButton` plus a resting ring, `textPrimary` in 13 medium (12 compact),
 /// 28 or 32 pt, `cornerRadiusSmall`. Resume, Retry, Submit, Merge, Got it, Keep, Archive, Undo. The
 /// Inbox has no primary action, so every answer control that is a button is this one (DR-7: "Keep",
-/// "Got it", "Archive" are neutral). It replaces `InboxActionButton`, whose `color` parameter was
-/// the P2 problem in one argument.
+/// "Got it", "Archive" are neutral). It replaces the pre-DS-2 Inbox action button, whose `color`
+/// parameter was the P2 problem in one argument.
 struct NeutralButton: View {
     enum Size {
         case compact, regular

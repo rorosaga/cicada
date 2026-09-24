@@ -274,7 +274,7 @@ struct InboxItem: Identifiable, Codable {
         entityName.isEmpty ? title : entityName
     }
 
-    /// What `QuestionView` shows as the question line.
+    /// What the focus card shows as its H1, and a row as its question.
     var questionText: String {
         if let question, !question.isEmpty { return question }
         return title.isEmpty ? body : title

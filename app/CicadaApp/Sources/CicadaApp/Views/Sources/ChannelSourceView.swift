@@ -42,7 +42,8 @@ struct ChannelSourceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
                 if let channel { stateCard(channel) }
-                if !removals.isEmpty { deletionsSection }
+                // The held answer's own Undo row keeps the section up after its last removal (R-DI16).
+                if !removals.isEmpty || inboxVM.heldRemoval(channel: source.channelId) != nil { deletionsSection }
                 let groups = SourceItemsGrouping.folders(items)
                 if groups.count > 1 || (groups.first?.folder != SourceItemsGrouping.noFolder) {
                     folderCounts(groups)
@@ -118,18 +119,20 @@ struct ChannelSourceView: View {
     }
 
     /// One write path (`InboxViewModel.answer` → the held `POST /inbox/{id}/resolve`, DR-42),
-    /// two views: the unified Inbox and this page render the identical
-    /// `InboxCardView` for the identical open items.
+    /// two views: the unified Inbox and this page render the identical focus card and the
+    /// identical Undo row (R-DI16).
     private var deletionsSection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text("Removed from \(source.label)")  // count-lint:ok — a source name, not a count
                 .font(CicadaTheme.headingFont).foregroundStyle(CicadaTheme.textPrimary)
             VStack(spacing: CicadaTheme.spacingSM) {
-                ForEach(removals) { item in
-                    InboxCardView(item: item) { resolution in
-                        inboxVM.answer(item, resolution)
-                        return true
+                if let pending = inboxVM.heldRemoval(channel: source.channelId) {
+                    InboxUndoRow(held: pending.held, item: pending.item, style: .wide, shortcutEnabled: true) {
+                        inboxVM.undo(reopen: false)
                     }
+                }
+                ForEach(removals) { item in
+                    InboxFocusCard(item: item, padding: CicadaTheme.spacingLG) { inboxVM.answer(item, $0) }
                 }
             }
         }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure keyboard-navigation model for `QuestionView` (G60 §2.6, extended by
+/// Pure keyboard-navigation model for `InboxFocusCard` (G60 §2.6, extended by
 /// G115 Phase 1 with `1–4`, `Esc` and the recommended-first highlight).
 ///
 /// Rows are the options, followed by the "Other…" row when `allowOther`.

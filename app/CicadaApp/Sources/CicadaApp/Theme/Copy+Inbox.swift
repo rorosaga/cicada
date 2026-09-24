@@ -70,5 +70,21 @@ extension Copy {
         static let showFewer = "Show fewer"
         static func showAll(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
         static let openQuestion = "Open this question"
+
+        // The columns (Task 5 — DR-43, DR-50, R-DI10): the page states keep their pre-DS-2 words.
+        static let dot = "·"
+        /// VoiceOver hears the kind, the question, and whether it is the one open beside the list.
+        static func rowAccessibility(kind: String, question: String, open: Bool) -> String {
+            (open ? "Open: " : "") + kind + " — " + question
+        }
+        static let checking = "Checking what needs you…"
+        static let loadFailed = "Couldn't load the inbox"
+        static let retry = "Retry"
+        static let nothingPending = "Nothing pending"
+        static func lastSleep(_ phrase: String) -> String { "Last Sleep cycle \(phrase)." }
+        static let sleepNotRun = "Sleep has not run yet, so nothing has been asked."
+        static func waiting(_ n: Int) -> String {
+            "\(UsageFormat.count(n)) episode\(n == 1 ? "" : "s") waiting for the next cycle."
+        }
     }
 }

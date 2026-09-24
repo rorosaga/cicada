@@ -123,7 +123,7 @@ struct InboxFocusCard: View {
             return .handled
         }
         // DR-28 — an open Other… closes in ONE press (the field loses focus and the row folds; the
-        // pre-DS-2 lesson in `QuestionView`: closing only the field left a second Esc doing nothing),
+        // pre-DS-2 lesson in the old question view: closing only the field left a second Esc doing nothing),
         // then another focused field, then the page's own Esc (the Reader, then the question). A
         // keyboard action never animates (DR-60): the page's Esc is `Instant.run`.
         .onKeyPress(.escape) {

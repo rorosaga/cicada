@@ -86,9 +86,11 @@ struct ContentView: View {
         // episode ids restart every day in every bank, so a switch closes the
         // Reader and forgets every cached document rather than show another
         // bank's conversation under this one.
+        // R-DI19 — and the Inbox's open question and tab go with it: ids repeat across banks.
         .onChange(of: store.bank) { _, _ in
             provenance.close()
             provenanceCache.reset()
+            inboxVM.resetColumns()
         }
         // A cached hover preview has no validator, so any change to the
         // bank's episodes or entities forgets them (final review): `/inbox`
@@ -194,7 +196,8 @@ struct ContentView: View {
             // together. Content, not chrome, so it is never glass (R-M5).
             // DR-31 / R-DI6 — the Reader is a column beside whatever is open, sized first; the page gets
             // the rest. It replaced a trailing `.inspector`, whose width was not the page's to give.
-            ShellReaderHost(showsReader: provenance.isPresented,
+            // The Inbox hosts its own Reader, as its third progressive column (R-DI6, §5.3).
+            ShellReaderHost(showsReader: provenance.isPresented && selectedTab != .inbox,
                             navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) {
                 detailContent
                     .background(CicadaTheme.background)
@@ -443,7 +446,7 @@ struct ContentView: View {
                 graphVM.revealEntity(id: entityId)
             }
         case .inbox:
-            InboxListView()
+            InboxPage()
         case .sources:
             // An entity chip on a source page's conversation row navigates the
             // same way an Ask citation does (G123): land on the node, then

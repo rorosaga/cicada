@@ -41,26 +41,6 @@ final class InboxPresentationTests: XCTestCase {
         XCTAssertNil(legacy.recommendedIndex)
     }
 
-    func testCauseLineReadsFromTitleHarnessAndAge() throws {
-        let item = try decode("""
-        {"id":"i","kind":"conflict","requiredInput":"choice","title":"t","body":"b",
-         "cause":{"conversationTitle":"Parser planning","harness":"claude-code",
-                  "timestamp":"2026-08-20T10:00:00+00:00","excerpt":"x","tier":"item"}}
-        """)
-        let now = ISO8601DateFormatter().date(from: "2026-08-30T10:00:00Z")!
-        XCTAssertEqual(item.causeLine(now: now), "From “Parser planning” · claude-code · 10 days ago")
-        let none = try decode("""
-        {"id":"j","kind":"decay","requiredInput":"choice","title":"t","body":"b",
-         "cause":{"excerpt":"[ no source recorded ]","tier":"none"}}
-        """)
-        XCTAssertEqual(none.causeLine(now: now), "[ no source recorded ]")
-        XCTAssertFalse(none.hasCause)
-        let missing = try decode("""
-        {"id":"k","kind":"decay","requiredInput":"choice","title":"t","body":"b"}
-        """)
-        XCTAssertEqual(missing.causeLine(now: now), "[ no source recorded ]")
-    }
-
     func testAgePhraseMatchesTheServer() {
         XCTAssertEqual(InboxAge.phrase(days: nil), "unknown")
         XCTAssertEqual(InboxAge.phrase(days: 0), "today")

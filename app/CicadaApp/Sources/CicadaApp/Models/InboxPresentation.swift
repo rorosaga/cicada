@@ -91,22 +91,6 @@ extension InboxItem {
     /// A cause that actually resolved to an episode.
     var hasCause: Bool { (cause?.tier ?? "none") != "none" }
 
-    /// Line 2 of the card: `From “Title” · harness · age`, or the literal
-    /// `[ no source recorded ]` — provenance is stated, never blank (G97).
-    func causeLine(now: Date = .now) -> String {
-        guard let cause, hasCause else { return "[ no source recorded ]" }
-        var parts: [String] = []
-        if let title = cause.conversationTitle, !title.isEmpty {
-            parts.append("From “\(title)”")
-        } else if let ep = cause.episodeId {
-            parts.append("From \(ep)")
-        }
-        if let h = cause.harness ?? cause.origin, !h.isEmpty { parts.append(h) }
-        let age = InboxAge.phrase(days: InboxAge.days(since: cause.timestamp, now: now))
-        if age != "unknown" { parts.append(age) }
-        return parts.joined(separator: " · ")
-    }
-
     /// Index of the `(Recommended)` option in `options`, if any.
     var recommendedIndex: Int? {
         options.firstIndex(where: \.recommended)
@@ -174,8 +158,8 @@ enum InboxRowAge {
 }
 
 /// DR-54 / R-DI12 — a source named the way a person would: the app, the conversation's title, the
-/// day. Ids and slugs never reach body weight; the episode id lives in `.help` only. Replaces
-/// `causeLine()`, which printed the raw harness slug.
+/// day. Ids and slugs never reach body weight; the episode id lives in `.help` only. Replaces the
+/// pre-DS-2 cause line, which printed the raw harness slug.
 enum InboxSourceLine {
     /// G115 / DR-55 — served exactly as written, never louder than a real source line.
     static let noSource = "[ no source recorded ]"
