@@ -93,6 +93,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("vivaldi-bookmarks", "Vivaldi bookmarks", "browser", "vivaldi-bookmark", ("vivaldi-bookmark",), "vivaldi-bookmarks"),
     SourceSpec("comet-bookmarks", "Comet bookmarks", "browser", "comet-bookmark", ("comet-bookmark",), "comet-bookmarks"),
     SourceSpec("dia-bookmarks", "Dia bookmarks", "browser", "dia-bookmark", ("dia-bookmark",), "dia-bookmarks"),
+    # Round 4 (G160 first slice): Chrome's open tab groups — one snapshot episode per group.
+    SourceSpec("chrome-tab-groups", "Chrome tab groups", "browser", "chrome-tab-group", ("chrome-tab-group",), "chrome-tab-groups"),
     SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest",), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
     SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks",), "x"),

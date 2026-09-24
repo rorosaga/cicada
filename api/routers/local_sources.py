@@ -7,6 +7,9 @@ the API; none is on the Telegram / OAuth-callback exemption list.
 
 Apple Calendar (G142): EventKit is read by the app; the window's events are
 posted here.
+
+Chrome's open tab groups (round 4, G160): the app reads the profile's session
+file; one snapshot per group is posted here.
 """
 
 from __future__ import annotations
@@ -25,11 +28,22 @@ from api.models.schemas import (
     FolderSyncRequest,
     FolderSyncResponse,
     FolderUpdateRequest,
+    TabGroupsSyncRequest,
+    TabGroupsSyncResponse,
     WisprFlowCaptureResponse,
     WisprFlowPayload,
     WisprFlowSettings,
 )
-from api.services import calendar_local, folder_source, local_refs, paper_metadata, papers, sync_state, wispr_flow
+from api.services import (
+    calendar_local,
+    folder_source,
+    local_refs,
+    paper_metadata,
+    papers,
+    sync_state,
+    tab_groups,
+    wispr_flow,
+)
 from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter()
@@ -274,3 +288,23 @@ async def sync_calendar_local(req: CalendarLocalSyncRequest, settings: Settings 
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Calendar sync",
                                          trigger="capture/calendar", channel=calendar_local.CHANNEL_ID)
     return CalendarLocalSyncResponse(**out, bank=memory_path.name)
+
+
+@router.post("/sources/tab-groups/sync", response_model=TabGroupsSyncResponse, dependencies=_DEMO_GATE)
+async def sync_tab_groups(req: TabGroupsSyncRequest, settings: Settings = Depends(get_settings)):
+    """Round 4 (G160 first slice): stage one browser profile's open tab groups, read by the app. 413 above
+    ``tab_groups.MAX_GROUPS`` groups or ``MAX_TABS_PER_REQUEST`` tabs; 422 for a browser or profile the backend does
+    not read; nothing staged either way. One ``user`` commit per sync (trigger ``capture/tab-groups``), scoped to the
+    episodes it wrote — an unchanged snapshot commits nothing."""
+    memory_path = settings.memory_path
+    if len(req.groups) > tab_groups.MAX_GROUPS or sum(len(g.tabs) for g in req.groups) > tab_groups.MAX_TABS_PER_REQUEST:
+        raise HTTPException(413, "too many tab groups in one request")
+    try:
+        out = await run_in_threadpool(tab_groups.sync, memory_path, req.model_dump(by_alias=False), bank=memory_path.name)
+    except tab_groups.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    channel = tab_groups.channel_id(req.browser.strip().lower())
+    sync_state.record_sync(memory_path, channel, count=out["groups"], extra={"tabs": out["tabs"]})
+    await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Tab groups sync",
+                                         trigger="capture/tab-groups", channel=channel)
+    return TabGroupsSyncResponse(**out, bank=memory_path.name)

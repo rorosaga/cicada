@@ -3051,6 +3051,41 @@ class CalendarLocalSyncResponse(CamelModel):
     bank: str = ""
 
 
+class TabGroupTab(CamelModel):
+    title: str = ""
+    url: str = ""
+
+
+class TabGroupRecord(CamelModel):
+    """One open tab group the app read from Chrome's session file (round 4, G160). ``key`` is Chrome's per-session
+    token (hex); ``saved_guid`` only when the person saved the group."""
+
+    key: str = ""
+    title: str = ""
+    color: str = "grey"
+    collapsed: bool = False
+    saved_guid: Optional[str] = None
+    tabs: list[TabGroupTab] = []
+
+
+class TabGroupsSyncRequest(CamelModel):
+    """``POST /sources/tab-groups/sync`` — one browser profile's WHOLE set of open groups (a tombstone needs it)."""
+
+    browser: str
+    profile: str = "Default"
+    groups: list[TabGroupRecord] = []
+
+
+class TabGroupsSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    groups: int = 0
+    tabs: int = 0
+    bank: str = ""
+
+
 # --- Saved-content connectors (G71 §2) ---
 
 
