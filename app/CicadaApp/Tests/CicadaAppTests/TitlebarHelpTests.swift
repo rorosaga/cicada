@@ -43,7 +43,7 @@ final class TitlebarHelpTests: XCTestCase {
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
         XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(HelpContent.page(.projects), .projects)
-        XCTAssertEqual(ListHelp.projects.keys.map(\.key), ["⌘F", "↑ ↓", "⏎", "Esc"])
+        XCTAssertEqual(ListHelp.projects.keys.map(\.key), ["⌘F", "↑ ↓", "⏎", "← →", "Esc"])
         XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])
         // R-DG6 — the Graph's `?` says its keys and gestures in words.
         XCTAssertEqual(GraphHelp.keys.map(\.key), ["⌘F", "⌘K", "Esc", "⌘[", "Shift"])

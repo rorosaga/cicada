@@ -18,6 +18,11 @@ struct ProjectDetailColumn: View {
     let openProject: (String) -> Void
 
     @Environment(ProjectsCache.self) private var cache
+    @Environment(ProvenanceRouter.self) private var provenance
+    /// R-PP11 — one selection for the band and (Task 4) the sections.
+    @State private var selection: ProjectKey?
+    @State private var bandWidth: CGFloat = 0
+    @FocusState private var bandFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -48,15 +53,59 @@ struct ProjectDetailColumn: View {
         .focusable()
         .focusEffectDisabled()
         .onExitCommand { onEscape() }
-        .task(id: projectId) { await cache.refreshTimeline(projectId) }
+        .task(id: projectId) {
+            selection = nil
+            await cache.refreshTimeline(projectId)
+        }
     }
 
     @ViewBuilder
     private func content(_ t: ProjectTimeline) -> some View {
         let state = ProjectState.state(ProjectState.Input(t), today: today)
+        let band = BandLayout.make(t, state: state, width: max(bandWidth - 2 * CicadaTheme.scaled(BandLayout.inset), 1),
+                                   today: today)
         header(name: t.project.name, oneLiner: t.project.oneLiner, parent: t.project.parent)
-        bandHeader(t, state: state)
+        bandHeader(band, progress: state.progress)
+        ProjectBandView(layout: band, selected: selection, isFocused: bandFocused) { pick($0, in: t) }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background { GeometryReader { geo in Color.clear.onAppear { bandWidth = geo.size.width }
+                .onChange(of: geo.size.width) { _, w in bandWidth = w } } }
+            .padding(.top, CicadaTheme.scaled(6))
+            .focusable()
+            .focused($bandFocused)
+            .focusEffectDisabled()
+            // DR-68 — ← / → step along the band; ⏎ opens the selection's words in the Reader. Keys never animate.
+            .onMoveCommand { direction in
+                switch direction {
+                case .left: Instant.run { selection = band.step(from: selection, delta: -1) }
+                case .right: Instant.run { selection = band.step(from: selection, delta: 1) }
+                default: break
+                }
+            }
+            .onKeyPress(.return) {
+                guard let key = selection, let target = ProjectSource.target(for: key, in: t, projectId: projectId) else {
+                    return .ignored
+                }
+                Instant.run { provenance.open(target) }
+                return .handled
+            }
         Spacer(minLength: 0)
+    }
+
+    /// R-PP11 — a pick rings the mark (a second pick clears it) and gives the band the keys (R-PP23). With the Reader
+    /// open, a pick that cites the same conversation re-lands it in place; any other closes it (DR-29).
+    private func pick(_ key: ProjectKey, in t: ProjectTimeline) {
+        bandFocused = true
+        Instant.run {
+            selection = selection == key ? nil : key
+            guard provenance.isPresented, let chosen = selection else { return }
+            if let target = ProjectSource.target(for: chosen, in: t, projectId: projectId),
+               target.episode == provenance.current?.episode {
+                provenance.refocus(target)
+            } else {
+                provenance.close()
+            }
+        }
     }
 
     private func header(name: String, oneLiner: String, parent: String?) -> some View {
@@ -92,17 +141,22 @@ struct ProjectDetailColumn: View {
     }
 
     /// The band's header line (the mock): where the green starts, and "N of M done" in words (R-PJ11: never a
-    /// percentage) — or "No plan yet", which Task 5 follows with "Add a milestone".
-    private func bandHeader(_ t: ProjectTimeline, state: ProjectState.Output) -> some View {
-        let span = ProjectsModel.span(t, planned: state.planned, today: today)
-        return HStack(spacing: CicadaTheme.scaled(6)) {
-            Text(Copy.Projects.since(RelativeDay.absolute(span.start, today: today)))
-                .foregroundStyle(CicadaTheme.textTertiary)
+    /// percentage) — or "No plan yet", which Task 5 follows with "Add a milestone". It reads its words from the band,
+    /// so the header line and the bar can never disagree (R-PP9).
+    private func bandHeader(_ band: BandLayout, progress: ProjectProgress) -> some View {
+        HStack(spacing: CicadaTheme.scaled(6)) {
+            Text(band.since).foregroundStyle(CicadaTheme.textTertiary)
             Spacer(minLength: 0)
-            Text(state.planned ? Copy.Projects.doneOf(state.progress) : Copy.Projects.noPlanYet)
-                .fontWeight(state.planned ? .medium : .regular)
-                .foregroundStyle(state.planned ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
-                .help(Copy.Projects.barHelp(planned: state.planned, progress: state.progress))
+            if let words = band.progressWords {
+                Text(words)
+                    .fontWeight(.medium)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .help(Copy.Projects.barHelp(planned: true, progress: progress))
+            } else {
+                Text(Copy.Projects.noPlanYet)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(Copy.Projects.barHelp(planned: false, progress: progress))
+            }
         }
         .font(CicadaTheme.metaFont)
         .monospacedDigit()

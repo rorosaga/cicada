@@ -143,11 +143,12 @@ enum ListHelp {
     /// Task 5 the Log's, each with the code that answers them.
     static let projects = Page(
         title: "How Projects works",
-        subtitle: "Where each project stands today: a green bar that fills up to today, what's in motion, what happened lately and what's planned. Open a project to see the rest.",
+        subtitle: "Where each project stands today: a green bar that fills up to today, what's in motion, what happened lately and what's planned. Open a project to see the rest. Every mark on the bar opens what it stands for.",
         keys: [
             .init(key: "⌘F", does: "Find on this page"),
             .init(key: "↑ ↓", does: "Move through projects"),
             .init(key: "⏎", does: "Step into the project"),
+            .init(key: "← →", does: "Step along the bar; ⏎ shows it in the conversation"),
             .init(key: "Esc", does: "Close the rightmost column"),
         ])
 }
