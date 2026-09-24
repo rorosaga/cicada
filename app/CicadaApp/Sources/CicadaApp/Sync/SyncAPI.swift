@@ -117,6 +117,11 @@ protocol SyncAPI: Sendable {
     func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse
     func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse
     func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse
+    /// C11 (G146) — the three picture writes (`routers/entities.py`): each answers the page's picture after it and the
+    /// inputs the twin re-resolves from; each answers 409 while Sleep runs.
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer
 
     /// `GET /sync/version` — the current version vector.
     func fetchSyncVersion() async throws -> VersionVector

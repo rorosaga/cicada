@@ -122,3 +122,30 @@ enum PictureURL: Hashable, Sendable {
         }
     }
 }
+
+/// What every picture write answers (C11): the page's picture after it, and its inputs.
+struct EntityPictureAnswer: Decodable, Equatable, Sendable {
+    var entityId: String
+    var picture: String?
+    var pictureSource: String?
+    var pictureInputs: PictureInputs?
+
+    var ref: EntityPictureRef? { EntityPictureRef.wire(url: picture, source: pictureSource) }
+
+    init(entityId: String, picture: String?, pictureSource: String?, pictureInputs: PictureInputs?) {
+        self.entityId = entityId
+        self.picture = picture
+        self.pictureSource = pictureSource
+        self.pictureInputs = pictureInputs
+    }
+
+    enum CodingKeys: String, CodingKey { case entityId, picture, pictureSource, pictureInputs }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entityId = (try? c.decodeIfPresent(String.self, forKey: .entityId)) ?? ""
+        picture = (try? c.decodeIfPresent(String.self, forKey: .picture)) ?? nil
+        pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
+        pictureInputs = (try? c.decodeIfPresent(PictureInputs.self, forKey: .pictureInputs)) ?? nil
+    }
+}

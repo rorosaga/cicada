@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// C11 (G146; F-11, F-12) — the one entity avatar. It draws what the picture precedence answered
 /// (`Store.picture(for:held:)`: a write in flight, else the graph node's, else the page the surface holds) at 20–88 pt,
@@ -23,6 +24,11 @@ struct EntityPicture: View {
 
     @Environment(Store.self) private var store
     @State private var image: NSImage?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+    @State private var dropTargeted = false
+
+    private var editable: Bool { editing != .none && PictureActions.canEdit(type) }
 
     private var units: CGFloat { EntityPictureLayout.clamp(size) }
     private var frame: CGSize { EntityPictureLayout.frame(type, size: CicadaTheme.scaled(units)) }
@@ -30,11 +36,56 @@ struct EntityPicture: View {
     private var loadKey: String { "\(store.bank)|\(id)|\(picture?.source.rawValue ?? "-")|\(picture?.url ?? "-")" }
 
     var body: some View {
-        surface
+        content
             .task(id: loadKey) { image = await load() }
-            .help(Copy.People.sourceLine(picture?.source))
+            .help(editable ? Copy.People.changeHelp(name) : Copy.People.sourceLine(picture?.source))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(name)
+            .accessibilityValue(Copy.People.sourceLine(picture?.source))
+            .accessibilityActions {
+                if editable { Button(Copy.People.changePicture) { change() } }
+            }
+    }
+
+    /// R-PE15 — a click opens the picker, a hover dims under a camera, a dropped image uploads, a right-click offers the
+    /// rest. A drag that is not an image passes through to the window's intake drop (`ContentView`).
+    @ViewBuilder
+    private var content: some View {
+        if editable {
+            Button(action: change) {
+                surface.overlay {
+                    if hovering || dropTargeted {
+                        EntityPictureVeil(showsWord: editing == .hero, units: units)
+                            .clipShape(EntityPictureLayout.clip(type, height: frame.height))
+                            .transition(.opacity)
+                    }
+                }
+            }
+            .buttonStyle(.cicadaPlain)
+            .onHover { hovering = $0 }
+            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering || dropTargeted)
+            .onDrop(of: [UTType.image], isTargeted: $dropTargeted, perform: drop)
+            .contextMenu { PictureMenuItems(id: id, name: name, type: type, held: held, heldInputs: heldInputs) }
+        } else {
+            surface
+        }
+    }
+
+    private func change() {
+        PictureActions.change(id: id, name: name, type: type, store: store,
+                              inputs: store.pictureInputs(for: id, held: heldInputs))
+    }
+
+    private func drop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) })
+        else { return false }
+        let (id, type, store) = (self.id, self.type, self.store)
+        let inputs = store.pictureInputs(for: id, held: heldInputs)
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+            guard let data else { return }
+            Task { @MainActor in await PictureActions.upload(data: data, id: id, type: type, store: store, inputs: inputs) }
+        }
+        return true
     }
 
     var surface: some View {

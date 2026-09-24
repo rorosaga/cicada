@@ -212,6 +212,27 @@ final class FakeSyncAPI: SyncAPI {
         try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
     }
 
+    // MARK: Entity pictures (C11)
+
+    var pictureAnswer = EntityPictureAnswer(entityId: "bob-example", picture: nil, pictureSource: nil, pictureInputs: nil)
+    var pictureError: (any Error)?
+
+    private func pictureWrite(_ what: String) async throws -> EntityPictureAnswer {
+        try await record(what)
+        if let pictureError { throw pictureError }
+        return pictureAnswer
+    }
+
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("setEntityPicture:\(entityId):\(ext):\(data.count)")
+    }
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("useEntityInitials:\(entityId)")
+    }
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("clearEntityPicture:\(entityId)")
+    }
+
     private func connectionFixture(id: String) throws -> ConnectionStatus {
         ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
                          connected: true, plan: "max", planLabel: nil, tier: nil,

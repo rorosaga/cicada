@@ -1228,6 +1228,38 @@ actor APIClient {
         return data
     }
 
+    /// C11 — `POST /entities/{id}/picture`: bytes `PictureImport` already shrank, as multipart `file`.
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        var request = makeRequest("/entities/\(encodedID(entityId))/picture", method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"picture.\(ext)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(ext == "png" ? "image/png" : "image/jpeg")\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return try decoder.decode(EntityPictureAnswer.self, from: reply)
+    }
+
+    /// C11 / F-12 — "Use initials instead" (plan R-PE4).
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await post("/entities/\(encodedID(entityId))/picture/initials")
+    }
+
+    /// C11 — back to what was detected.
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        let data = try await delete("/entities/\(encodedID(entityId))/picture")
+        return try decoder.decode(EntityPictureAnswer.self, from: data)
+    }
+
     func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
