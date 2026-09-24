@@ -195,7 +195,10 @@ Seven rails hold across all of them:
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
-  names.
+  names. The Calendar app (round-4 D2): `CalendarReader` reads every calendar on the Mac through EventKit, only after
+  Connect and macOS's full-access prompt, 30 days back to 60 ahead, and posts `POST /sources/calendar-local/sync` on
+  launch, on `EKEventStoreChanged` (debounced), every 3 hours, after a bank switch and on Sync now; Disconnect stops it
+  and deletes nothing. ICS subscriptions are unchanged.
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
@@ -668,7 +671,11 @@ switches banks (that is the command bar's); Memory has no "Look for duplicates" 
 blocking the event loop and commits what it merges (R-O17). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). ⌘K and ⌘F are
+follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General also
+holds Scene, Open Cicada at login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does
+not keep says so) and Keep memory working when Cicada is closed (`BackendAgentService`: a read-only `launchctl print`,
+and Install runs `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`,
+then hands launchd the port). ⌘K and ⌘F are
 menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
@@ -692,7 +699,10 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band
+**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band — its
+`-dark` sibling at dusk and night by the clock (`SceneClock`: NOAA's sun over the Mac's time zone's tzdb point, no
+location; `SceneStore` re-checks at each crossing, on a time-zone change and on wake) and Settings → General → Scene
+(Automatic · Always day · Always night), never the theme (G144; DESIGN_RULES §9 2026-09-24) —
 (`HomeHeroBand`, paint only, 120 pt, faded into the window), "What would you like to remember?" as a
 `PageTitle` on the row under it — text never sits on paint — then the palette's own `FindPanelBody` in
 `.page` placement in a 640 pt block: a second `FindPaletteModel` sharing the one Ask and keeping no
@@ -703,7 +713,8 @@ STATE 1) and Last read (the newest Sleep commit, its pages as `Tag`s) — each n
 (`InlineLink`) to the page that owns it; the waiting count links to Sleep, never a Consolidate.
 
 **Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
-`FirstRunGate` (unknown is never empty): the hero meadow as its band, the headline on the card that
+`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero`, the same scene rule as Home's:
+day or its `-dark` sibling by the clock and Settings → General → Scene, never the theme — G144), the headline on the card that
 rises into it, what Cicada found on this Mac as a checklist whose ticks are the consent (own acts, no
 new permission prompt, no other app — `FoundPolicy`), a chat-export drop zone that stages rows and
 imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
@@ -757,7 +768,11 @@ each, a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hook
 unparseable settings file is `invalid`, never `off`), plus the exact argv install.sh would run. The
 **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
-harness root.
+harness root. Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `AgentConnect.run`), Copy
+setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
+Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
+desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
+the value itself).
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
@@ -821,7 +836,9 @@ write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a b
 `VersionVector` mapping, nothing on disk). The wire decodes leniently into local `Project*` types (the shared `Claim` is
 untouched); derived state is `ProjectState`, the Swift twin of `project_state.timeline_state`, running the same
 `api/tests/fixtures/timeline_state.json`; every relative word comes from `RelativeDay` over `ISODay` in the viewer's
-calendar (a lint keeps the day words there), and midnight re-derives the page with no network. Every Swift test reads
+calendar (a lint keeps the day words there), and midnight re-derives the page with no network. The story is derived off the main actor (`ProjectDerived`, keyed
+by project, day and cache revision; the last value stays up while the next builds) and Lately is one lazy list, so a
+project whose happenings cite hundreds of pages opens at once (round-4 D6). Every Swift test reads
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
 - **The list:** text tabs Active · Quiet · All (resting projects only under All); sub-projects indented under a shown
@@ -836,7 +853,8 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
 - **The story:** Log progress (⏎ done, ⌘⏎ still going; the server dates it from the words, else the date chip, else
   today, and the page says which and how, with Undo = withdraw); Now (the threads; a quiet one whose follow-up waits in
   the Inbox links to that card); Lately (Today · Yesterday · This week · Earlier — one sentence per happening, every
-  participant a chip that opens its card, the owner as the sentence's own word with a "you" tag; a status word; a
+  participant a chip that opens its card, at most eight per sentence with a '+N more' that opens that row (round-4
+  D6; the server sends the first 12 and `participantsTotal`), the owner as the sentence's own word with a "you" tag; a status word; a
   source line with the origin's mark and "Show in conversation ›"; Resume where resumable; Not right); Plan (Add with
   an optional picked date, Mark done, Rename, "moved once ›"); Around this project (People · Tools & infrastructure, a
   tool unfolding its specs · Documents & links · Ideas · Parts of this project). The Reader or an entity card is the
@@ -980,7 +998,9 @@ needs rewriting to teach the app a new one.
 
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
-for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
+for a legacy claim's name match found at read) — an agent's chip names its model when capture recorded one ("Claude
+Code · Opus 5.5 · high effort", `ModelNames`; round-4 C3/C4), as do the hover, the Reader's meta line and turn labels,
+"Where this came from" and a belief's help; an app with no capture says "model not shared by this app" — hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
 (`ReaderColumn`): the third progressive column on the list pages that host it (the Inbox, Clusters, the Feed,
 Sources and Projects — `AppTab.hostsOwnReader`), and on every other page the shell's trailing column (`ShellReaderHost`),
@@ -1331,3 +1351,7 @@ provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the olde
 ## Installation & Setup
 
 `install.sh` is the source of truth; the paste-prompt install story is G76 in the backlog.
+`scripts/install-backend-agent.sh` is the one source of the `com.cicada.backend` plist; `install.sh` step 6 calls it
+behind its healthy-skip guard, and the app runs it from Settings → General (G143). `BackendProcess` spawns
+`python -m uvicorn`, never the venv's `uvicorn` script. `make login-item` is the old developer path; the app's switch
+is the supported one.
