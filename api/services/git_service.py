@@ -1387,3 +1387,53 @@ async def commit_resolution(
     # An inbox resolution is a user/companion-app action -> attribute to "user".
     message = build_commit_message(subject, body_lines, authors=["user"])
     await commit_changes(memory_path, message)
+
+
+# G147 — the manifest line `commit_resolution` writes for a decay answer. Its
+# parser lives HERE, beside its producer, so the two cannot drift.
+_DECAY_VERDICT_RE = re.compile(
+    r"^entities/(?P<id>[^\s/]+)\.md: [^\n]*"
+    r"\(trigger: inbox/decay/resolved:(?P<label>archive|keep_active)\)\s*$",
+    re.MULTILINE,
+)
+_decay_verdict_cache: dict[tuple[str, str, str], dict[str, str]] = {}
+
+
+async def decay_verdicts(memory_path: Path, *, since: date) -> dict[str, str]:
+    """``{entity_id: label}`` — each page's LATEST decay answer committed since
+    ``since`` (G147, plan R-FD6). ``archive`` / ``keep_active`` only: a
+    ``remind_later`` is a deferral (``inbox/deferred``), never a verdict.
+
+    Git's own ``--grep`` filters, as in :func:`get_sleep_history` — a bounded
+    window that is not a matching window is a wrong answer, not a cheap one —
+    and the body never leaves this function. Newest first, so the first line
+    seen per page wins. ``--since`` ends the walk at the first commit older
+    than the cutoff, so a clock-skewed old commit near HEAD would hide answers
+    behind it — the same answer ``git log --since`` gives anywhere, accepted
+    rather than walking all history. Cached per (bank, HEAD, since); the cache
+    grows one entry per HEAD per day at most, the `_history_cache` trade-off.
+    """
+    from api.services import sync_service
+
+    head = sync_service.git_head(memory_path)
+    key = (str(memory_path), head, since.isoformat())
+    # An empty HEAD (no commit yet, or a worktree/submodule bank whose `.git`
+    # is a file `git_head` does not follow) cannot key a cache: it would
+    # never move, and an answer given later today would stay invisible.
+    cached = _decay_verdict_cache.get(key) if head else None
+    if cached is not None:
+        return dict(cached)
+    try:
+        output = await _run_git(
+            memory_path, "log", f"--since={since.isoformat()}T00:00:00",
+            "--fixed-strings", "--grep=inbox/decay/resolved:", "--format=%x1e%B",
+        )
+    except GitError:
+        return {}
+    latest: dict[str, str] = {}
+    for record in output.split("\x1e"):
+        for match in _DECAY_VERDICT_RE.finditer(record):
+            latest.setdefault(match.group("id"), match.group("label"))
+    if head:
+        _decay_verdict_cache[key] = latest
+    return dict(latest)

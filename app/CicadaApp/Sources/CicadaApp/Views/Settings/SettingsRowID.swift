@@ -56,6 +56,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Memory (Task 6)
     static let searchIndex = SettingsRowID("searchIndex")
     static let enrichLinks = SettingsRowID("enrichLinks")
+    static let fadePace = SettingsRowID("fadePace")
     // Advanced (Task 6)
     static let backendStatus = SettingsRowID("backendStatus")
     static let mcpCommand = SettingsRowID("mcpCommand")
@@ -71,6 +72,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static func agent(_ id: String) -> SettingsRowID { SettingsRowID("agent:\(id)") }
     static func skill(_ id: String) -> SettingsRowID { SettingsRowID("skill:\(id)") }
     static func autoRecall(_ id: String) -> SettingsRowID { SettingsRowID("autoRecall:\(id)") }
+    /// G147 — one row per kind of page under "How things fade" (a suggestion or a chosen pace).
+    static func fadeType(_ type: String) -> SettingsRowID { SettingsRowID("fadeType:\(type)") }
 
     /// The item id after `<kind>:`, when this row is one of that kind.
     func item(of kind: String) -> String? {
