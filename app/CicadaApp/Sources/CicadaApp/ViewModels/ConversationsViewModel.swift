@@ -171,8 +171,7 @@ final class ConversationsViewModel {
     func copyCommand(for id: String) async -> ResumeOutcome {
         do {
             let descriptor = try await api.resumeConversation(id: id)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(descriptor.displayCommand, forType: .string)
+            AppPasteboard.copy(descriptor.displayCommand)
             return .copied(descriptor.displayCommand)
         } catch APIError.httpError(409, _) {
             return .gone
