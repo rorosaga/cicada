@@ -33,6 +33,8 @@ struct EntityDetailCard: View {
 
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
     /// `nil` (the default) means "use `graphVM`'s own history" — see
     /// `EntityCardNavigation` above.
     let navigation: EntityCardNavigation?
@@ -165,6 +167,21 @@ struct EntityDetailCard: View {
 
     private var isStub: Bool { entity.rawMarkdown.isEmpty }
 
+    /// F-12 (R-PE16) — a person's facts, derived from what the card already loaded; nothing for any other type.
+    private var personFacts: [PersonFact] {
+        guard entity.type == .person else { return [] }
+        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? claims : [], provenance: provenanceState.value,
+                                 names: store.entityNames, typeOf: { id in graphVM.nodes.first { $0.id == id }?.type },
+                                 picture: store.picture(for: entity.id, held: entity.pictureRef),
+                                 docs: EvidenceDocIndex.from(provenanceState.value), today: ISODay.today())
+    }
+
+    /// F-12's graph glyph — the Graph tab, with this node revealed (the Reader's "Show on graph" path).
+    private func showOnGraph() {
+        router.pendingTab = .graph
+        graphVM.revealEntity(id: entity.id)
+    }
+
     private func close() {
         if let onClose { onClose() } else { graphVM.clearSelection() }
     }
@@ -180,7 +197,10 @@ struct EntityDetailCard: View {
                 tabs: EntityTabs.tabs(claims: claimsLoaded ? claims : nil,
                                       historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory)),
                 selection: $selectedTab,
-                inset: style.inset)
+                inset: style.inset,
+                facts: personFacts, pictureInputs: entity.pictureInputs,
+                onShowOnGraph: style == .card ? showOnGraph : nil,
+                onOpenEntity: { navigate(to: $0) })
             ScrollView {
                 switch selectedTab {
                 case .content: contentTab

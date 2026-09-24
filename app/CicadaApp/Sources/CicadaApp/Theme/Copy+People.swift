@@ -19,6 +19,32 @@ extension Copy {
         static func showAllHelp(_ group: String) -> String { "Show every one of your \(group.lowercased())" }
         static let recencySuffix = "· recently mentioned first"
 
+        // The person card (F-12)
+        static let worksAt = "Works at"
+        static let role = "Role"
+        static let knownSince = "Known since"
+        static let lastMentioned = "Last mentioned"
+        static let conversations = "Conversations"
+        static let contacts = "Contacts"
+        static let matched = "Matched"
+        static let photoMatched = "photo"
+        static let dot = "·"
+        static let showOnGraphHelp = "Show on the graph"
+        static func firstIn(_ app: String) -> String { "first in \(app)" }
+        static func pages(_ n: Int) -> String { n == 1 ? "1 page" : "\(UsageFormat.count(n)) pages" }
+        static func openHelp(_ name: String) -> String { "Open \(name)" }
+
+        /// How long someone has been in memory — a span in plain units, never a day word (those are `RelativeDay`'s).
+        static func span(days: Int) -> String {
+            func unit(_ n: Int, _ one: String, _ many: String) -> String {
+                n == 1 ? "1 \(one)" : "\(UsageFormat.count(n)) \(many)"
+            }
+            if days < 14 { return unit(max(days, 0), "day", "days") }
+            if days < 60 { return unit(days / 7, "week", "weeks") }
+            if days < 365 { return unit(days / 30, "month", "months") }
+            return unit(days / 365, "year", "years")
+        }
+
         static func useDetected(_ source: PictureSource) -> String {
             switch source {
             case .contacts: "Use the photo from Contacts"
