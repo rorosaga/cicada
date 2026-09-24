@@ -184,6 +184,7 @@ It is never used for selection, nav, badges, tabs or chips. `[lint]` An allowlis
 | Token | Dark | Light | Use |
 |---|---|---|---|
 | `progressFill` (new) | `#6FB57B` | `#37753D` | the Projects band's fill, from the project's first moment up to Today, and the list row's mini bar; solid, never a gradient |
+| `progressOpenEnd` (new) | white 22 % | black 22 % | an unplanned project's open end, on the band and the list row's mini bar — drawn only past Today, never a remainder |
 | track (existing `bgBadge`) | `#3A3B3F` | `#D9D9D6` | the unfilled part of the same bar |
 
 Both values come from the Meadow `meadow` hue (H ≈ 130). Light is `meadow` itself. Dark is `meadow` (`#7FC98A`) with less lightness and chroma, so it sits calmly on graphite instead of glowing. Contrast, measured as a graphical object (≥ 3:1):
@@ -287,7 +288,7 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 
 **DR-24. There is one bank selector, and it lives in the command bar.** `BankSwitcher` moves there from the Graph overlay, and the command bar is the only place a bank switch can happen. A second switcher would reintroduce the split-brain bug class. Settings never switches banks. `[test]` `SingleBankSwitcherTests`.
 
-**DR-25. List pages have no page-title band.** Inbox, Clusters, Feed and Sources open straight into an **eyebrow row**: at least 28 pt tall, 20 pt below the titlebar. `[test]`
+**DR-25. List pages have no page-title band.** Inbox, Clusters, Feed, Sources and Projects open straight into an **eyebrow row**: at least 28 pt tall, 20 pt below the titlebar. `[test]`
 - **Left:** the eyebrow, in `metaFont` medium, `textTertiary`, tabular. It reads "Inbox · 6 pending", or "Inbox · 1 of 6 · Conflict" when a question is open.
 - **Right:** text tabs with counts (DR-45).
 - **The old subtitle** moves into the `?` popover and the empty state.
@@ -298,7 +299,7 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 
 | Type | Anatomy |
 |---|---|
-| List page (Inbox, Clusters, Feed, Sources) | eyebrow row, then progressive columns (§5.3) |
+| List page (Inbox, Clusters, Feed, Sources, Projects) | eyebrow row, then progressive columns (§5.3) |
 | Canvas (Graph) | full-bleed; chrome only as floating overlays (§10) |
 | Room (Sleep, Home) | one 760 pt column; a `PageTitle` or the room sentence; details as a list |
 | Panel (Settings) | in-app panel (DR-33) |
@@ -538,6 +539,7 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 
 **DR-57. Evidence chips say who spoke:** "You said", "<agent> replied", "From the page", "Inferred", "Mentioned here". `[test]`
 - The hover preview shows the words washed when quoted, bold when derived, and plain when stale.
+- **One source-line label joins them on the Projects page (G141 PJ-5):** "Set by you in Cicada", for an event the person wrote in the app with no sentence behind it. It is a source line, never a chip — it opens nothing.
 - A chip is a `Tag` with the speaker's mark, never a coloured pill.
 
 **DR-58. Relative dates are computed when read, never stored.** `[test]`
@@ -707,8 +709,17 @@ Each ruling is dated. A new ruling is added as a new line, and old lines are nev
 - **2026-09-24: A Sources tile's live dot keeps `success` (R-DL20, DR-7).** This departs from DR-7's list, as the approved mock draws it: it is state, shown once per tile. Failures speak in `warning`, never `danger`.
 - **2026-09-24: A contributor's drill-down is a detail column, not a sheet (R-DL22, DR-31).** The sheet hid the Reader its "from conversation" opens.
 - **2026-09-24: Text tabs give way rather than overflow the eyebrow row (R-DL25, DR-45).** They drop their counts first, then fold into a menu, so a tab is never clipped at a narrow width or a large zoom.
+- **2026-09-24: PJ-5 ships without the `cicada.design.focus` flag (R-PP1, DR-73).** R-DS1's reasons hold unchanged; comparison is the installed build against the branch on a freshly generated demo bank.
+- **2026-09-24: The open end of an unplanned bar is `progressOpenEnd` (R-PP9, §3.8).** §3.8 asks for "a dashed open end" and named no token; the approved mock's dash (white 22 % / black 22 %) joins the table.
+- **2026-09-24: A band pick scrolls its row into view; the sections above do not fold (R-PP11, DR-30).** The mock folded them; a folded story hides the context a reader came for.
+- **2026-09-24: The band's label is "Progress of …", never "Timeline" (R-PP12, G141 R-PJ22).** The entity card's Timeline tab (contested beliefs) can share the screen in the third column; a lint holds the page's strings to it.
+- **2026-09-24: The owner reads as the sentence's own word with a small "you" tag, and opens nothing (R-PP15, DR-44).** A literal "You" would break the sentence; the tag sits on `bgBase` because `Tag`'s `bgSelected` would vanish on the chip's own fill.
+- **2026-09-24: "Set by you in Cicada" is DR-57's sixth label, as a source line (R-PP16).** `EvidenceChip` keeps its five: an app-written event has no sentence to open.
+- **2026-09-24: A quiet thread's follow-up links to its Inbox card; it is not answered inline (R-PP18, DR-42, DR-59).** The brief asks for the link; the Inbox owns answering and its Undo, and a question is stated once. The mock's inline options are not built.
+- **2026-09-24: The Log's Undo withdraws what the server wrote; it is not DR-42's send delay (R-PP21).** The day comes back from the server (`when.py`) and is shown before Undo; the note keeps the person's words.
+- **2026-09-24: A milestone's date comes from a native date picker, never typed words (R-PP22, G141 R-PJ6).** Python decides every date from words; a second date grammar in the app would drift. There is no Move yet; a moved milestone's chain still shows.
 
-This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. As of DS-3b, DS-3a and DS-3c (2026-09-24), CLAUDE.md's Inbox paragraph (Features §2/3, "The page"), its "Provenance viewer" paragraph, its Home paragraph, the Sleep page's control row and Details, the Settings panel's Integrations and search, its Graph Explorer and entity-card paragraphs (Features §1), and its Clusters, Feed and Sources paragraphs describe D as it ships; every other page paragraph keeps describing what ships until that page's DS track lands. That track updates each paragraph in the same PR that changes the code.
+This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. As of DS-3b, DS-3a and DS-3c (2026-09-24), CLAUDE.md's Inbox paragraph (Features §2/3, "The page"), its "Provenance viewer" paragraph, its Home paragraph, the Sleep page's control row and Details, the Settings panel's Integrations and search, its Graph Explorer and entity-card paragraphs (Features §1), its Clusters, Feed and Sources paragraphs, and (PJ-5) its Projects paragraph describe D as it ships; every other page paragraph keeps describing what ships until that page's DS track lands. That track updates each paragraph in the same PR that changes the code.
 
 ---
 
