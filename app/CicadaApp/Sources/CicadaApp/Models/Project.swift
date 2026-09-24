@@ -209,14 +209,17 @@ struct ProjectItem: Decodable, Equatable, Identifiable, Sendable {
     var facts: [ProjectFact]
     var moreFacts: Int
     var participants: [ProjectParticipant]
+    /// D6 — how many participants the happening has when the server sent only the first 12 (D6's cap); nil from a
+    /// backend that sends them all.
+    var participantsTotal: Int?
     var quote: ProjectQuote?
     var conversation: ProjectConversation?
     var claim: ProjectClaim?
     var verbatim: Bool
 
     enum CodingKeys: String, CodingKey {
-        case kind, id, day, at, dateBasis, state, via, project, text, facts, moreFacts, participants, quote
-        case conversation, claim, verbatim
+        case kind, id, day, at, dateBasis, state, via, project, text, facts, moreFacts, participants, participantsTotal
+        case quote, conversation, claim, verbatim
     }
 
     init(from decoder: Decoder) throws {
@@ -233,6 +236,7 @@ struct ProjectItem: Decodable, Equatable, Identifiable, Sendable {
         facts = c.lenient(.facts, [])
         moreFacts = c.lenient(.moreFacts, 0)
         participants = c.lenient(.participants, [])
+        participantsTotal = c.lenient(.participantsTotal)
         quote = c.lenient(.quote)
         conversation = c.lenient(.conversation)
         claim = c.lenient(.claim)

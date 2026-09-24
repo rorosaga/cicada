@@ -77,7 +77,8 @@ struct ProjectNowSection: View {
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 StoryGlyph(glyph: .ongoing).padding(.top, CicadaTheme.scaled(6))
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
-                    StorySentence(text: thread.text, participants: item?.participants ?? [], openEntity: openEntity)
+                    StorySentence(text: thread.text, participants: item?.participants ?? [], total: item?.participantsTotal,
+                                  openEntity: openEntity)
                     Text(ProjectStory.threadMeta(thread, state: state, today: today))
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
@@ -120,10 +121,32 @@ struct ProjectNowSection: View {
     }
 }
 
+extension ProjectStory.LatelyEntry {
+    /// R-FA3 — the gaps the nested stacks used to give: header → first label `spacingSM`, between groups
+    /// `spacingMD`, between rows `spacingXS`.
+    var topPadding: CGFloat {
+        switch self {
+        case .label(_, let first): first ? CicadaTheme.spacingSM : CicadaTheme.spacingMD
+        case .item: CicadaTheme.spacingXS
+        }
+    }
+}
+
+/// Lately's day label (Today · Yesterday · This week · Earlier) — a direct child of the column's lazy stack (R-FA3).
+struct ProjectLatelyLabel: View {
+    let group: RelativeDay.Group
+
+    var body: some View {
+        SectionLabel(RelativeDay.title(group)).padding(.horizontal, CicadaTheme.spacingMD)
+    }
+}
+
 /// Lately (the brief): Today · Yesterday · This week · Earlier — each happening ONE sentence with its participants as
 /// chips, a status word and its date, and its source line; selected, its words, how it was dated, Resume where
-/// resumable (R-PP26) and — Task 5 — "Not right". `created` is the foot line.
-struct ProjectLatelySection: View {
+/// resumable (R-PP26) and — Task 5 — "Not right". One row, a direct child of the column's lazy stack (R-FA3), so a
+/// long story builds only the rows on screen; `created` is `ProjectLatelyFoot`.
+struct ProjectLatelyRow: View {
+    let item: ProjectItem
     let timeline: ProjectTimeline
     let state: ProjectState.Output
     let today: ISODay
@@ -136,31 +159,12 @@ struct ProjectLatelySection: View {
     let closeReader: () -> Void
     var withdraw: ((String) -> Void)? = nil
     var writesBlocked = false
+    /// Owned by the column (one for every row), so Resume keeps one view model however many rows are built.
+    let conversations: ConversationsViewModel
 
     @Environment(Store.self) private var store
-    @State private var conversations = ConversationsViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            ForEach(ProjectStory.groups(timeline.items, today: today)) { group in
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    SectionLabel(RelativeDay.title(group.group)).padding(.horizontal, CicadaTheme.spacingMD)
-                    ForEach(group.items) { item in row(item).id(ProjectKey.item(item.id).id) }
-                }
-            }
-            if let foot = ProjectStory.createdLine(timeline.items, today: today) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    StoryGlyph(glyph: .history)
-                    Text(foot)
-                }
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .padding(.horizontal, CicadaTheme.spacingMD)
-            }
-        }
-    }
-
-    private func row(_ item: ProjectItem) -> some View {
         let key = ProjectKey.item(item.id)
         let selected = selection == key
         let evidence = ProjectSource.evidence(item)
@@ -170,8 +174,8 @@ struct ProjectLatelySection: View {
         return HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             StoryGlyph(glyph: ProjectStory.glyph(item)).padding(.top, CicadaTheme.scaled(6))
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                StorySentence(text: item.text, participants: item.participants, lead: item.kind == "happening",
-                              openEntity: openEntity)
+                StorySentence(text: item.text, participants: item.participants, total: item.participantsTotal,
+                              lead: item.kind == "happening", openEntity: openEntity)
                 if let facts = ProjectStory.factsLine(item, names: names) {
                     Text(facts).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
@@ -180,7 +184,7 @@ struct ProjectLatelySection: View {
                     if let basis = ProjectStory.basis(item.dateBasis) {
                         Text(basis).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
-                    actions(item)
+                    actions
                 }
                 ProjectSourceLineView(line: ProjectSource.line(item), evidence: evidence,
                                       subjectId: item.claim?.subject ?? timeline.project.id, showing: showing,
@@ -205,7 +209,7 @@ struct ProjectLatelySection: View {
     }
 
     @ViewBuilder
-    private func actions(_ item: ProjectItem) -> some View {
+    private var actions: some View {
         let resumable = item.conversation.flatMap { c in c.resumable ? c.id : nil }
         // "Not right" only where the server can find the claim (`ProjectTimeline.holds`): an owner-page event that
         // names the project is shown here but lives outside the tree.
@@ -227,6 +231,21 @@ struct ProjectLatelySection: View {
                 }
             }
         }
+    }
+}
+
+/// Lately's foot: "Cicada started tracking this" — the `created` item, never a row.
+struct ProjectLatelyFoot: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            StoryGlyph(glyph: .history)
+            Text(text)
+        }
+        .font(CicadaTheme.metaFont)
+        .foregroundStyle(CicadaTheme.textTertiary)
+        .padding(.horizontal, CicadaTheme.spacingMD)
     }
 }
 

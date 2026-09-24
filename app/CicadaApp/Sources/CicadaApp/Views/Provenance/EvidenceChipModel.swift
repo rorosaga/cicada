@@ -11,13 +11,13 @@ import SwiftUI
 /// cause. `/span` carries no title or harness, and fetching `/text` per chip
 /// just to name the agent would be N whole documents per card, so a chip
 /// with no entry here says "The agent replied" and stays honest.
-struct EvidenceDocMeta: Hashable {
+struct EvidenceDocMeta: Hashable, Sendable {
     var title: String?
     var harness: String?
     var origin: String?
 }
 
-struct EvidenceDocIndex: Hashable {
+struct EvidenceDocIndex: Hashable, Sendable {
     var byEpisode: [String: EvidenceDocMeta] = [:]
 
     static let empty = EvidenceDocIndex()
