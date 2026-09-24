@@ -91,6 +91,11 @@ enum BrowserWatchPolicy {
     static let watched: [(channel: String, file: BrowserFile)] = [
         ("chrome-bookmarks", .chromeBookmarks),
         ("safari-bookmarks", .safariBookmarks),
+        // Round 4 (C9): the Chromium family — read only once turned on (Track I T1), through the same watch and gate.
+        ("brave-bookmarks", .braveBookmarks),
+        ("vivaldi-bookmarks", .vivaldiBookmarks),
+        ("comet-bookmarks", .cometBookmarks),
+        ("dia-bookmarks", .diaBookmarks),
     ]
 
     static func file(for channel: String) -> BrowserFile? {
@@ -305,6 +310,9 @@ final class BrowserWatcher {
     func enable(_ channel: String) {
         guard let file = channels.first(where: { $0.channel == channel })?.file else { return }
         defaults.set(true, forKey: BrowserWatchPolicy.enabledKey(channel))
+        // Round 4 (C9): a browser installed while the app ran had no directory to watch at launch; arm it now that
+        // it is turned on (`arm` leaves an already-armed channel be).
+        arm(channel: channel, file: file)
         refreshState(channel: channel, file: file)
         Task { await syncIfChanged(channel: channel, file: file) }
     }
@@ -318,6 +326,7 @@ final class BrowserWatcher {
             throw BrowserImportActions.ImportActionError.failed("Unknown channel \(channel)")
         }
         defaults.set(true, forKey: BrowserWatchPolicy.enabledKey(channel))
+        arm(channel: channel, file: file)
         switch await sync(channel: channel, file: file) {
         case .success(let line)?: return line
         case .failure(let error)?: throw error

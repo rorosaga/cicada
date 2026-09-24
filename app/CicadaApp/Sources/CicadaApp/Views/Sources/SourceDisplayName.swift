@@ -43,6 +43,11 @@ enum SourceDisplayName {
         "chat-export:gemini": "Gemini export",
         "chrome-bookmarks": "Chrome",
         "safari-bookmarks": "Safari",
+        // Round 4 (C9): the Chromium family (`source_overview.CATALOG`'s round-4 rows).
+        "brave-bookmarks": "Brave",
+        "vivaldi-bookmarks": "Vivaldi",
+        "comet-bookmarks": "Comet",
+        "dia-bookmarks": "Dia",
         "safari-tabs": "Safari tabs",
         "pinterest": "Pinterest",
         "reddit": "Reddit",

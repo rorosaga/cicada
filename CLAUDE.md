@@ -854,7 +854,12 @@ Mac) — both standing connections, so both live here; their marks are the insta
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
-(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b).
+(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b). **Browsers (round 4, C9)** are drawn
+from `BrowserInventory` — the browsers on this Mac by bundle id, each with its installed icon: Chrome,
+Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, the Full Disk Access fix under
+Safari when needed, 'Last synced …'), and the ones Cicada cannot sync yet (Arc, Firefox, Edge, Opera)
+named once in the header, never as a row. Safari's source page groups its items as Recently saved ·
+Favorites · Other bookmarks.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s

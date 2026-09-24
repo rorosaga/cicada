@@ -173,6 +173,10 @@ final class FakeSyncAPI: SyncAPI {
         try await record("syncBookmarks:\(folders?.count ?? 0)")
         return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
     }
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
+        try await record("syncChromiumBookmarks:\(browser)")
+        return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
+    }
     func activateBank(name: String) async throws {
         try await record("activateBank:\(name)")
     }

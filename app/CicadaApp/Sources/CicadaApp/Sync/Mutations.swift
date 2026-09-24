@@ -553,3 +553,20 @@ struct SyncBrowserBookmarks: Mutation {
     // the instant this mutation completes.
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status, .inbox] }
 }
+
+/// Round 4 (C9): one Chromium-family browser beyond Chrome, posted as `chromium: [{browser, dataB64}]` — the same
+/// endpoint, parser and removal diff as Chrome's, so its failure words and refreshed domains are Chrome's too.
+struct SyncChromiumBookmarks: Mutation {
+    let browser: String
+    let data: Data
+    private let memo = MutationMemo<BookmarkSyncResult>()
+
+    init(browser: String, data: Data) { self.browser = browser; self.data = data }
+
+    var result: BookmarkSyncResult? { memo.value }
+    func optimistic(_ store: Store) async {}
+    func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncChromiumBookmarks(browser: browser, data: data) }
+    func rollback(_ store: Store) async {}
+    var failureMessage: String { "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
+    var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status, .inbox] }
+}

@@ -55,6 +55,21 @@ struct ChannelSourceView: View {
                 if items.isEmpty {
                     Text("No saved items from this source yet.")
                         .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                } else if source.id == "safari-bookmarks" {
+                    // R-SR13 — Safari's own shape: Recently saved · Favorites · Other bookmarks, each item once (DR-38).
+                    let now = Date.now
+                    ForEach(SafariSections.groups(items), id: \.title) { group in
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            SectionLabel(group.title)
+                            VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                                ForEach(group.items) { item in
+                                    FeedListRow(item: item, style: .triage, selected: false, now: now) {
+                                        router.routeToFeedItem(item.mediaEntityId)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     // R-DL16 — a source's saved item opens in the Feed's detail column ("Open in the Feed").
                     let now = Date.now
@@ -150,7 +165,8 @@ struct ChannelSourceView: View {
                 .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             FlowLayout(spacing: 6) {
                 ForEach(groups, id: \.folder) { g in
-                    Text("\(g.folder) · \(UsageFormat.count(g.count))")
+                    // R-SR13: Safari's internal keys in Safari's words ("Favorites/AI", not `BookmarksBar/AI`).
+                    Text("\(SafariSections.displayFolder(g.folder)) · \(UsageFormat.count(g.count))")
                         .font(CicadaTheme.font(size: 11)).padding(.horizontal, 8).padding(.vertical, 3)
                         .background(CicadaTheme.surfaceHover).clipShape(Capsule())
                 }

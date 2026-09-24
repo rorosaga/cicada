@@ -18,6 +18,9 @@ struct IntegrationsView: View {
     /// Re-checked on every appearance so installing Obsidian while the app
     /// runs shows the row the next time the page opens.
     @State private var obsidianInstalled = false
+    /// Round 4 (C9) — the browsers on this Mac, by bundle id; looked up on appearance like Obsidian (a Launch
+    /// Services call per catalog row, never per body evaluation).
+    @State private var browsers = BrowserInventory.empty
 
     /// One row per export-only social platform: no persisted backend
     /// channel exists for these (`AddSourceTile.channelIds` is `[]` for all
@@ -109,7 +112,10 @@ struct IntegrationsView: View {
             .padding(CicadaTheme.spacingXL)
         }
         .background(CicadaTheme.background)
-        .onAppear { obsidianInstalled = AddFolderRow.isObsidianInstalled() }
+        .onAppear {
+            obsidianInstalled = AddFolderRow.isObsidianInstalled()
+            browsers = BrowserInventory.live()
+        }
     }
 
     /// Rows a category renders beyond its channels — the informational harness
@@ -123,6 +129,8 @@ struct IntegrationsView: View {
         // Round-4 D2 (R-FA13): "Calendar on this Mac" is always offered — Connect is how it starts.
         case .feedsAndCalendars: 1
         case .voiceAndMeetings: showsWispr(rows) ? 1 : 0
+        // Round 4 (C9): an installed browser is offered before its first sync (R-SR15).
+        case .browsers: BrowserRows.shown(inventory: browsers, channels: rows).count
         default: 0
         }
     }
@@ -156,7 +164,16 @@ struct IntegrationsView: View {
     @ViewBuilder
     private func categorySection(_ category: IntegrationCategory, rows: [SourceChannel]) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            SectionLabel(category.title)
+            if category == .browsers {
+                // The F-02 header: the section's name, and the browsers Cicada can't sync named once (decision 2).
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    SectionLabel(category.title)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    BrowsersUnsupportedNote(inventory: browsers)
+                }
+            } else {
+                SectionLabel(category.title)
+            }
 
             VStack(spacing: 2) {
                 // Chat & agents also carries the informational harness rows
@@ -169,7 +186,10 @@ struct IntegrationsView: View {
                         IntegrationHarnessRow(source: row)
                     }
                 }
-                ForEach(rows) { channel in
+                if category == .browsers {
+                    BrowsersSection(channels: rows, inventory: browsers)
+                }
+                ForEach(rows.filter { !BrowsersSection.owns($0.id) }) { channel in
                     if channel.id.hasPrefix("folder:") {
                         FolderChannelRow(channel: channel)
                     } else if channel.id != LocalSourceWatcher.wisprChannel,

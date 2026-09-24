@@ -107,6 +107,8 @@ protocol SyncAPI: Sendable {
     /// is the honest result the panel shows.
     func syncSafariTabs(db: Data, wal: Data?, devices: [String]?) async throws -> SafariTabsSyncResult
     func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult
+    /// Round 4 (C9) — one Chromium-family browser beyond Chrome, posted as `chromium: [{browser, dataB64}]`.
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult
     func activateBank(name: String) async throws
     func triggerSleep() async throws -> SleepTriggerResponse
     /// G141 PJ-5 (R-PP19) — the Projects page's five writes (`routers/projects.py`), each answering the claim it wrote,

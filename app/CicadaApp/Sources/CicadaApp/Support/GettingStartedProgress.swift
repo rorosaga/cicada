@@ -34,9 +34,12 @@ struct GettingStartedInputs {
 enum GettingStartedProgress {
     /// A row whose item the probe no longer lists (an agent uninstalled, a
     /// browser absent) still needs a name; these are the names the Welcome used.
-    static let fallbackTitles = ["agent:claude-code": "Claude Code", "agent:codex": "Codex", "agent:cursor": "Cursor",
-                                 "agent:claude-desktop": "Claude", "browser:chrome-bookmarks": "Chrome",
-                                 "browser:safari-bookmarks": "Safari"]
+    /// Round 4 (C9): every supported browser's name comes from `BrowserInventory.catalog`.
+    static let fallbackTitles: [String: String] = ["agent:claude-code": "Claude Code", "agent:codex": "Codex",
+                                                   "agent:cursor": "Cursor", "agent:claude-desktop": "Claude"]
+        .merging(Dictionary(uniqueKeysWithValues: BrowserInventory.catalog.compactMap { spec in
+            spec.bookmarksChannel.map { ("browser:\($0)", spec.name) }
+        })) { first, _ in first }
 
     static func rows(_ i: GettingStartedInputs) -> [GettingStartedRow] {
         // A dropped export lives only in this session's runner (R-IB17), after

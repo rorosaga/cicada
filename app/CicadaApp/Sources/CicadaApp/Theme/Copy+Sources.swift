@@ -30,4 +30,30 @@ extension Copy {
     static func matchedPeople(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "matched to \(UsageFormat.count(n, locale: locale)) \(n == 1 ? "person" : "people") Cicada knows"
     }
+
+    // MARK: Browsers (C9)
+    static func browserReads(_ what: BrowserReadable) -> String {
+        switch what {
+        case .bookmarks: "Bookmarks"
+        case .readingList: "Reading List"
+        case .favorites: "Favorites"
+        case .recentlySaved: "recently saved first"
+        case .tabGroups: "open tab groups"
+        }
+    }
+    static let browserOffLine = "Found on this Mac — turn it on to bring your bookmarks in"
+    static func browserNothingYet(_ name: String) -> String { "\(name) has no bookmarks in its main profile yet" }
+    static let browserTurnOn = "Turn on"
+    static let browserAllow = "Allow…"
+    static let browserSyncNow = "Sync now"
+    static func browsersUnsupported(_ names: [String]) -> String {
+        switch names.count {
+        case 0: ""
+        case 1: "\(names[0]) isn't supported yet"
+        default: "\(names.dropLast().joined(separator: ", ")) and \(names[names.count - 1]) aren't supported yet"
+        }
+    }
+    static let safariRecentlySaved = "Recently saved"
+    static let safariFavorites = "Favorites"
+    static let safariOtherBookmarks = "Other bookmarks"
 }

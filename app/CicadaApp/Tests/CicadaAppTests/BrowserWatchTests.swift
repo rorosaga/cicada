@@ -56,7 +56,8 @@ final class BrowserWatchPolicyTests: XCTestCase {
     /// stream. A bookmark is an intentional act; an open tab is not.
     func testOnlyBookmarksAreWatched() {
         let watched = BrowserWatchPolicy.watched.map(\.channel)
-        XCTAssertEqual(watched, ["chrome-bookmarks", "safari-bookmarks"])
+        XCTAssertEqual(watched, ["chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks",
+                                 "comet-bookmarks", "dia-bookmarks"])
         XCTAssertFalse(BrowserWatcher.isWatched("safari-tabs"))
         XCTAssertFalse(BrowserWatcher.isWatched("notes"))
         XCTAssertTrue(BrowserWatcher.isWatched("chrome-bookmarks"))

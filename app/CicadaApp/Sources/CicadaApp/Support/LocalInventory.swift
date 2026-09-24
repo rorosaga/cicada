@@ -82,7 +82,10 @@ final class LocalInventory {
                                  content: .ownIntentionalAct,
                                  readiness: s.claudeDesktopHasCicada == true ? .alreadyOn : .ready, opensAnotherApp: true))
         }
-        for (channel, title) in [("chrome-bookmarks", "Chrome"), ("safari-bookmarks", "Safari")] {
+        // Round 4 (C9): every supported browser in `BrowserInventory.catalog` order, found by the same presence probe
+        // as Chrome and named by its catalog row.
+        for spec in BrowserInventory.catalog where spec.supported {
+            guard let channel = spec.bookmarksChannel else { continue }
             let readiness: FoundItem.Readiness
             switch s.browsers[channel] ?? .absent {
             case .absent: continue
@@ -90,7 +93,7 @@ final class LocalInventory {
             case .off: readiness = .ready
             case .on: readiness = .alreadyOn
             }
-            out.append(FoundItem(id: .browser(channel), group: .browsers, title: title, isPresent: true,
+            out.append(FoundItem(id: .browser(channel), group: .browsers, title: spec.name, isPresent: true,
                                  content: .ownIntentionalAct, readiness: readiness, opensAnotherApp: false))
         }
         return out

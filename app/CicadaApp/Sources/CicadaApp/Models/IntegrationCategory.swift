@@ -43,7 +43,9 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         switch channelId {
         case "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini":
             return .chatAndAgents
-        case "chrome-bookmarks", "safari-bookmarks", "safari-tabs":
+        // Round 4 (C9): the Chromium family beside Chrome and Safari.
+        case "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
+             "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks":
             return .browsers
         case "pinterest", "reddit", "x":
             return .socialAndSaved

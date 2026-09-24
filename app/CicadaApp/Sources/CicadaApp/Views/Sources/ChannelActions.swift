@@ -35,8 +35,9 @@ enum ChannelActions {
         case calendarLocal
     }
 
-    /// The browser rows whose files the app reads and posts (R1).
-    static let browserFileChannels: Set<String> = ["safari-tabs", "safari-bookmarks", "chrome-bookmarks"]
+    /// The browser rows whose files the app reads and posts (R1): iCloud tabs, then every supported browser's
+    /// bookmarks from `BrowserInventory` (round 4, C9) — one catalog, so a browser added there is routed here too.
+    static let browserFileChannels: Set<String> = Set(["safari-tabs"] + BrowserInventory.catalog.compactMap(\.bookmarksChannel))
     /// `api/services/connectors/__init__.py::ADAPTERS`.
     static let connectorChannels: Set<String> = ["pinterest", "reddit", "x"]
     static let folderPrefix = "folder:"

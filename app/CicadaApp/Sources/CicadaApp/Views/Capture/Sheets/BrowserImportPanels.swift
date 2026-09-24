@@ -34,9 +34,20 @@ enum BrowserImportActions {
             guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.bookmarks(r)
         default:
-            // Only `ChannelActions.syncRoute`'s `.browserFile` ids arrive here; an
-            // internal id never belongs in the person's copy (L final review, finding 1).
-            throw ImportActionError.failed("This source can't be synced from here.")
+            // Round 4 (C9): a Chromium-family browser beyond Chrome — the same read, its own entry on the wire.
+            guard let spec = BrowserInventory.spec(forBookmarksChannel: id), spec.engine == .chromium, spec.id != "chrome",
+                  let file = BrowserFile.bookmarks(forBrowser: spec.id) else {
+                // Only `ChannelActions.syncRoute`'s `.browserFile` ids arrive here; an
+                // internal id never belongs in the person's copy (L final review, finding 1).
+                throw ImportActionError.failed("This source can't be synced from here.")
+            }
+            let data = try await BrowserFileReader.read(file)
+            let m = SyncChromiumBookmarks(browser: spec.id, data: data)
+            guard await store.perform(m), let r = m.result else {
+                try Task.checkCancellation()
+                throw ImportActionError.failed(store.toast ?? "Sync failed")
+            }
+            return BrowserImportSummary.bookmarks(r)
         }
     }
 
