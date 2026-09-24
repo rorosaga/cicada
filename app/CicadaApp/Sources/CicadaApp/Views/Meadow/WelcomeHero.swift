@@ -12,7 +12,7 @@ import SwiftUI
 struct WelcomeHero: View {
     @AppStorage(HeroScenePreference.defaultsKey) private var sceneRaw = HeroScenePreference.automatic.rawValue
 
-    private var scene: CicadaTheme.SkyPhase { HeroScenePreference.stored(sceneRaw).scene(clock: SceneStore.shared.phase) }
+    private var scene: SceneTime { HeroScenePreference.stored(sceneRaw).time(clock: SceneStore.shared.time) }
 
     var body: some View {
         GeometryReader { geo in

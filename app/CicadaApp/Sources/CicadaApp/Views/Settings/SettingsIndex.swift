@@ -87,7 +87,7 @@ enum SettingsIndex {
     static let staticEntries: [SettingsEntry] = [
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
-        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset"], detail: Copy.sceneDetail),
+        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),

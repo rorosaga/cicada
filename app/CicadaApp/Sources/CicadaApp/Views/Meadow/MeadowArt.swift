@@ -36,9 +36,10 @@ enum MeadowArt: String, CaseIterable {
         mode == .dark ? art.rawValue + darkSuffix : art.rawValue
     }
 
-    /// Round-4 D4 (R-FA4) — the hero follows the scene, not the theme: day paints the day file, dusk and night its
-    /// `-dark` sibling ("painted as dusk or night"). Every other painting keeps following the theme.
-    static func heroMode(for scene: CicadaTheme.SkyPhase) -> AppColorScheme { scene == .day ? .light : .dark }
+    /// Round-4 D4 (R-FA4) — the hero follows the scene, not the theme; every other painting keeps following the theme.
+    /// Task 1 interim (round-4 T-Home, R-HO1) — the afternoon paints the day file until the three-scene set lands;
+    /// night paints the `-dark` sibling.
+    static func heroMode(for scene: SceneTime) -> AppColorScheme { scene == .night ? .dark : .light }
 
     /// The theme's painting, falling back to the light one — `ArtAssetTests`
     /// guarantees the sibling exists, so the fallback only guards a bundle

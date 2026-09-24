@@ -44,6 +44,105 @@ final class SceneClockTests: XCTestCase {
                        "dawn's twilight is the dusk phase — SkyPhase has no dawn (R-FA4)")
     }
 
+    // MARK: The afternoon (round-4 T-Home, R-HO1)
+
+    func testTheAfternoonIsTheLastTwoHoursOfSunThroughCivilDusk() {
+        let ny = TimeZone(identifier: "America/New_York")!
+        func at(_ h: Int, _ m: Int) -> SceneTime {
+            SceneClock.time(at: date(2026, 6, 21, h, m, "America/New_York"), timeZone: ny)
+        }
+        // Sunset 20:31, so golden hour starts ~18:31; evening civil twilight ends ~21:04.
+        XCTAssertEqual(at(12, 0), .day)
+        XCTAssertEqual(at(18, 15), .day)
+        XCTAssertEqual(at(18, 45), .afternoon)
+        XCTAssertEqual(at(20, 50), .afternoon, "the afterglow keeps the golden painting until civil dusk")
+        XCTAssertEqual(at(21, 30), .night)
+        XCTAssertEqual(at(5, 5), .night, "dawn's twilight is night: there is no dawn painting")
+        XCTAssertEqual(at(6, 0), .day)
+    }
+
+    /// R-HO1 — never before solar noon, so a short winter day keeps its morning.
+    func testAShortDayKeepsItsMorning() {
+        let rise = Date(timeIntervalSince1970: 1_800_000_000)
+        let set = rise.addingTimeInterval(2 * 3600)
+        let sun = SceneClock.SunTimes(horizon: .times(rise: rise, set: set),
+                                      twilight: .times(rise: rise.addingTimeInterval(-1800),
+                                                       set: set.addingTimeInterval(1800)),
+                                      estimated: false)
+        XCTAssertEqual(SceneClock.afternoonStart(rise: rise, set: set), rise.addingTimeInterval(3600))
+        XCTAssertEqual(SceneClock.time(at: rise.addingTimeInterval(1800), sun: sun), .day)
+        XCTAssertEqual(SceneClock.time(at: rise.addingTimeInterval(4000), sun: sun), .afternoon)
+        XCTAssertEqual(SceneClock.time(at: set.addingTimeInterval(1000), sun: sun), .afternoon)
+        XCTAssertEqual(SceneClock.time(at: set.addingTimeInterval(2000), sun: sun), .night)
+    }
+
+    /// R-HO1 — a white night (the sun sets, civil twilight never ends) keeps the afterglow until local midnight.
+    func testAWhiteNightKeepsTheAfterglow() {
+        let rise = Date(timeIntervalSince1970: 1_800_000_000)
+        let set = rise.addingTimeInterval(20 * 3600)
+        let sun = SceneClock.SunTimes(horizon: .times(rise: rise, set: set), twilight: .alwaysAbove, estimated: false)
+        XCTAssertEqual(SceneClock.time(at: set.addingTimeInterval(1800), sun: sun), .afternoon)
+        XCTAssertEqual(SceneClock.time(at: rise.addingTimeInterval(-600), sun: sun), .night)
+    }
+
+    func testPolarDayHasNoAfternoonAndPolarNightIsNight() {
+        let svalbard = TimeZone(identifier: "Arctic/Longyearbyen")!
+        XCTAssertEqual(SceneClock.time(at: date(2026, 6, 21, 18, 0, "Arctic/Longyearbyen"), timeZone: svalbard), .day)
+        XCTAssertEqual(SceneClock.time(at: date(2026, 12, 21, 12, 0, "Arctic/Longyearbyen"), timeZone: svalbard), .night)
+    }
+
+    func testAZoneWithNoPointUsesThePlainClock() {
+        let ny = TimeZone(identifier: "America/New_York")!
+        func at(_ h: Int, _ m: Int) -> SceneTime {
+            SceneClock.time(at: date(2026, 6, 21, h, m, "America/New_York"), timeZone: ny, table: [:])
+        }
+        XCTAssertEqual(at(16, 30), .day)
+        XCTAssertEqual(at(17, 30), .afternoon)
+        XCTAssertEqual(at(19, 45), .night)
+    }
+
+    func testTheNextLookIncludesTheStartOfTheAfternoon() {
+        let ny = TimeZone(identifier: "America/New_York")!
+        let next = SceneClock.nextBoundary(after: date(2026, 6, 21, 17, 0, "America/New_York"), timeZone: ny)
+        XCTAssertLessThanOrEqual(abs(next.timeIntervalSince(date(2026, 6, 21, 18, 31, "America/New_York"))), 5 * 60)
+    }
+
+    @MainActor
+    func testTheStoreCarriesTheClocksSceneAndThePowerState() {
+        let ny = TimeZone(identifier: "America/New_York")!
+        let seven = date(2026, 6, 21, 19, 0, "America/New_York")
+        let store = SceneStore(now: { seven }, timeZone: { ny }, lowPower: { true })
+        XCTAssertEqual(store.time, .afternoon)
+        XCTAssertEqual(store.phase, .day, "C7's phase is unchanged: to the sky the afternoon is still day")
+        XCTAssertTrue(store.lowPower)
+    }
+
+    func testThePreferenceOverridesTheClock() {
+        XCTAssertEqual(HeroScenePreference.stored(nil), .automatic)
+        XCTAssertEqual(HeroScenePreference.stored("sunset"), .automatic, "an unknown value is Automatic")
+        XCTAssertEqual(HeroScenePreference.stored("night"), .night)
+        XCTAssertEqual(HeroScenePreference.stored("afternoon"), .afternoon)
+        XCTAssertEqual(HeroScenePreference.automatic.time(clock: .afternoon), .afternoon)
+        XCTAssertEqual(HeroScenePreference.day.time(clock: .night), .day)
+        XCTAssertEqual(HeroScenePreference.afternoon.time(clock: .day), .afternoon)
+        XCTAssertEqual(HeroScenePreference.night.time(clock: .day), .night)
+        XCTAssertEqual(HeroScenePreference.defaultsKey, "cicada.heroScene")
+        XCTAssertEqual(HeroScenePreference.allCases.map(\.label), ["Automatic", "Day", "Afternoon", "Night"],
+                       "F-10's words (round-4 decision 8)")
+    }
+
+    func testASurfaceWithNoSceneFollowsTheTheme() {
+        XCTAssertEqual(SceneTime.forTheme(.light), .day)
+        XCTAssertEqual(SceneTime.forTheme(.dark), .night)
+    }
+
+    /// Task 1 only — until the three-scene set lands (Task 2) the afternoon paints the day file.
+    func testTheHeroPicksItsPaintingByTheScene() {
+        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .day)), "hero-day")
+        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .afternoon)), "hero-day")
+        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .night)), "hero-day-dark")
+    }
+
     func testPolarDayAndNightFallBackSanely() {
         let svalbard = TimeZone(identifier: "Arctic/Longyearbyen")!
         XCTAssertEqual(SceneClock.phase(at: date(2026, 6, 21, 0, 30, "Arctic/Longyearbyen"), timeZone: svalbard), .day)
@@ -104,23 +203,6 @@ final class SceneClockTests: XCTestCase {
             !["GMT", "UTC"].contains($0) && TimeZoneCoordinates.point(for: $0) == nil
         }
         XCTAssertEqual(missing, [], "re-run scripts/gen-tz-coordinates.py")
-    }
-
-    func testThePreferenceOverridesTheClock() {
-        XCTAssertEqual(HeroScenePreference.stored(nil), .automatic)
-        XCTAssertEqual(HeroScenePreference.stored("sunset"), .automatic, "an unknown value is Automatic")
-        XCTAssertEqual(HeroScenePreference.stored("night"), .night)
-        XCTAssertEqual(HeroScenePreference.automatic.scene(clock: .dusk), .dusk)
-        XCTAssertEqual(HeroScenePreference.day.scene(clock: .night), .day)
-        XCTAssertEqual(HeroScenePreference.night.scene(clock: .day), .night)
-        XCTAssertEqual(HeroScenePreference.defaultsKey, "cicada.heroScene")
-    }
-
-    /// R-FA4 — day paints hero-day; dusk and night its -dark sibling, whatever the theme.
-    func testTheHeroPicksItsPaintingByTheScene() {
-        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .day)), "hero-day")
-        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .dusk)), "hero-day-dark")
-        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .night)), "hero-day-dark")
     }
 
     /// R-FA6 — the store looks again at the next boundary, or within the hour.
