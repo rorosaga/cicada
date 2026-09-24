@@ -9,6 +9,18 @@ enum ResumeOutcome: Equatable {
     case failed(String)
 }
 
+extension ResumeOutcome {
+    /// R-PP26 — one sentence per outcome, so the Reader and the Projects page's Resume never word it two ways.
+    var toast: String {
+        switch self {
+        case .launched(let app): "Reopening in \(app)…"
+        case .copied(let command): "Copied “\(command)”"
+        case .gone: "That conversation's transcript is gone — nothing to resume"
+        case .failed(let message): message
+        }
+    }
+}
+
 /// G48 §4 — the Conversations section's state. On-demand fetch: no Store
 /// domain and no SnapshotCache entry, following `/contributors/commits`.
 @MainActor

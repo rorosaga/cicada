@@ -130,12 +130,7 @@ struct ReaderColumn: View {
     private var conversationId: String? { loadedDoc?.conversationId }
 
     private func act(_ outcome: ResumeOutcome) async {
-        switch outcome {
-        case .launched(let app): store.toast = "Reopening in \(app)…"
-        case .copied(let command): store.toast = "Copied “\(command)”"
-        case .gone: store.toast = "That conversation's transcript is gone — nothing to resume"
-        case .failed(let message): store.toast = message
-        }
+        store.toast = outcome.toast
     }
 
     // MARK: Body

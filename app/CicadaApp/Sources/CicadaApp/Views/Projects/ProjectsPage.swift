@@ -21,6 +21,8 @@ struct ProjectsPage: View {
     /// R-PP5 — the viewer's today; `.NSCalendarDayChanged` moves it and every word re-derives with no network.
     @State private var today = ISODay.today()
     @FocusState private var focus: ListFocus?
+    /// R-PP17 — an entity's card in the third column; the Reader wins the slot.
+    @State private var card: String?
 
     private var rows: [ProjectRow] { cache.list?.projects ?? [] }
 
@@ -42,7 +44,7 @@ struct ProjectsPage: View {
         let lines = ProjectsModel.lines(rows, tab: tab, query: findOpen ? query : "", today: today)
         let people = ProjectsModel.peopleIndex(store.graph.value)
         let openId = columns.openId
-        ProgressiveColumns(hasDetail: openId != nil, hasTrailing: provenance.isPresented,
+        ProgressiveColumns(hasDetail: openId != nil, hasTrailing: provenance.isPresented || card != nil,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
             EyebrowRow(eyebrow: eyebrow(lines),
                        horizontalPadding: openId == nil && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
@@ -69,14 +71,21 @@ struct ProjectsPage: View {
                 let row = rows.first { $0.id == id }
                 ProjectDetailColumn(
                     projectId: id, row: row, parentName: parentName(of: row?.parent), today: today, gutter: plan.gutter,
-                    hiddenListCount: plan.listHidden ? lines.count : nil,
+                    hiddenListCount: plan.listHidden ? lines.count : nil, openCard: card,
                     onShowList: { showList() }, onClose: { closeProject() }, onEscape: { escape() },
-                    openProject: { openProject($0) })
+                    openProject: { openProject($0) }, openEntity: { openCard($0) })
                     .id(id)
                     .focused($focus, equals: .detail)
             }
         } trailing: { _ in
-            ReaderColumn().focused($focus, equals: .reader)
+            if provenance.isPresented {
+                ReaderColumn().focused($focus, equals: .reader)
+            } else if let card {
+                ProjectEntityColumn(entityId: card, openProject: { openProject($0) }, onClose: { closeCard() },
+                                    onEscape: { escape() })
+                    .id(card)
+                    .focused($focus, equals: .reader)
+            }
         }
         .background(CicadaTheme.bgBase)
         // DR-46 — ⌘F opens the find row; published from a leaf (Clusters' reason: an if/else on the page rebuilt it).
@@ -97,6 +106,11 @@ struct ProjectsPage: View {
                 await cache.refreshList()
                 if let id = columns.openId { await cache.refreshTimeline(id) }
             }
+        }
+        // A bank switch forgets the card and the open project: ids repeat across banks.
+        .onChange(of: store.bank) { _, _ in
+            card = nil
+            columns.close()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = ISODay.today() }
     }
@@ -122,6 +136,7 @@ struct ProjectsPage: View {
     private func openProject(_ id: String) {
         let change = {
             columns.open(id)
+            card = nil
             if provenance.isPresented { provenance.close() }
         }
         if columns.openId == nil {
@@ -136,19 +151,21 @@ struct ProjectsPage: View {
         Instant.run {
             guard let next = columns.neighbour(delta, in: lines.map(\.id)) else { return }
             columns.open(next)
+            card = nil
             if provenance.isPresented { provenance.close() }
         }
     }
 
-    /// DR-28 — Esc closes the rightmost open thing.
+    /// DR-28 — Esc closes the rightmost open thing: the Reader, then the card, then the project.
     private func escape() {
         Instant.run {
-            switch columns.escape(readerOpen: provenance.isPresented) {
-            case .closeReader: provenance.close()
-            case .closeDetail:
+            if provenance.isPresented {
+                provenance.close()
+            } else if card != nil {
+                card = nil
+            } else if columns.openId != nil {
                 columns.close()
                 focus = .list
-            case .none: break
             }
         }
     }
@@ -156,15 +173,26 @@ struct ProjectsPage: View {
     private func closeProject() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
             provenance.close()
+            card = nil
             columns.close()
         }
         focus = .list
     }
 
-    /// DR-27 — "‹ N projects" brings the list back by closing the Reader, else the project.
+    /// R-PP17 — a chip or a member opens its card beside the project; the Reader steps aside (one slot). A Reader
+    /// opened from inside the card returns to it on close.
+    private func openCard(_ id: String) {
+        card = id
+        if provenance.isPresented { provenance.close() }
+    }
+
+    private func closeCard() { card = nil }
+
+    /// DR-27 — "‹ N projects" brings the list back by closing the rightmost thing: the Reader, else the card, else
+    /// the project.
     private func showList() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
-            if provenance.isPresented { provenance.close() } else { columns.close() }
+            if provenance.isPresented { provenance.close() } else if card != nil { card = nil } else { columns.close() }
         }
     }
 
