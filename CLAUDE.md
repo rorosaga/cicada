@@ -869,7 +869,8 @@ is the binding target for every UI change: graphite neutrals, the system accent,
 command bar holding the bank selector and search, and progressive columns (the list alone → list + detail → list + detail +
 Reader). Rules are numbered `DR-n` and a UI PR cites the ids it applies; a departure needs a dated ruling in its §9. The owner
 chose D from three mocked directions (the Inbox and the Reader). DS-1 shipped the tokens, the type, the shell and the
-Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column. Every other
+Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column. DS-3a (2026-09-24) shipped the Graph
+page and the entity card. Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
@@ -919,11 +920,11 @@ and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **ne
 so there is no `VersionVector` mapping — slices every offset as a Unicode scalar through one
 `ScalarText`, shows a time only when the episode stores one, and says stale / grown / derived /
 inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
-stale too, never "couldn't open". The entity card's "Where this came from" (bottom of Content) reads
+stale too, never "couldn't open". The entity card's "Where this came from" (Content, after the page and its beliefs) reads
 `/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
 and cache as optional environment values, so a chip outside the main window renders without a
-click-through rather than trapping; the Ask and Belief Timeline sheets step aside when the Reader
-opens, and a bank switch closes it and empties the cache (episode ids repeat across banks).
+click-through rather than trapping; the Ask sheet steps aside when the Reader
+opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).
 
 ---
 
@@ -999,6 +1000,31 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
 ### 1. Graph Explorer
 Force-directed d3 graph: node color by type, size by confidence, edge labels, cluster detection,
 decay/clarification indicators. Open ideas live in the backlog.
+
+**The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one
+floating group at the bottom-left — the whose-beliefs text tabs (only with more than one observer; they move
+into the Legend under 640 units), Legend, − + fit and the pan toggle — an opaque floating surface, never glass
+over the canvas until the G109 frame-time check has run (R-DG2). The Legend is the context legend, the filters
+and a key in one: a context click shows only that context, confidence is words, Show logos is a switch. ⌘F
+opens find on the canvas as an overlay (⌘K searches everything); the page's own field is gone. A node opens
+its entity card as the right-hand column (`GraphColumns`: 560 alone, 480 beside the Reader, never under 440;
+the canvas takes the rest and keeps the open node in view by panning, never zooming), and its evidence opens
+the Reader beside it. × or a click on empty canvas closes the column with its Reader; Esc closes one thing at
+a time — find, Legend, Reader, column; another node swaps the column in place and keeps the Reader. graph.js
+posts `backgroundClicked` and `escape` and takes `setSelectedNode` (a neutral ring), read and spelled in one
+place (`GraphMessage`, `GraphJS`) and tested on both sides — none of them touches the simulation.
+
+**The entity card (DS-3a).** One component, `EntityDetailCard` — the Graph's column, Clusters' card. Header:
+the type as a `Tag`, status and confidence in words ("Active · very confident", the number in `.help`), the
+name, the page's Summary, Back ⌘[ and ×; text tabs Content · Perspectives · History · Timeline with counts once
+known. Content: Rendered/Source and Copy; the page; its folder or repository in words; What Cicada knows (R-FX11
+pages); Where this came from; Look it up at — each G61 source's fact ("For uses"), how it can be read (the
+stated `access`, else a path or repo is "A file on this Mac" and an app "An app"; `effective_access` is not on
+this endpoint), who added it with their mark, "You chose to use this" / "Only you know this", no check line
+until G61 S3 serves one, and the page's open inbox question with Open in Inbox; Details (collapsed, remembered):
+tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
+`.help`. History: Show in conversation (straight to the Reader when one conversation maps here) and What
+changed. Timeline: contested beliefs inline; a belief's clock opens its own.
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`
