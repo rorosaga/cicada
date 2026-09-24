@@ -172,7 +172,8 @@ struct AskPanel: View {
             onSelectEntity(citation.entityId)
         } label: {
             HStack(spacing: 6) {
-                LogoImage(entityId: citation.entityId, name: citation.entityName, size: 20)
+                EntityPicture(id: citation.entityId, name: citation.entityName,
+                              type: graphVM.nodes.first { $0.id == citation.entityId }?.type ?? .concept, size: 20)
                 Text("[[\(citation.entityName)]]")
                     .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)

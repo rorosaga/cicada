@@ -43,7 +43,7 @@ struct EntityCardHeader: View {
             }
             .frame(minHeight: CicadaTheme.scaled(28))
             HStack(alignment: .center, spacing: CicadaTheme.scaled(10)) {
-                LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: CicadaTheme.scaled(28))
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 28, held: entity.pictureRef)
                 Text(entity.isOwner ? Copy.Graph.ownerName(entity.name) : entity.name)
                     .font(CicadaTheme.displayFont(size: 22))
                     .tracking(CicadaTheme.displayTracking(size: 22))

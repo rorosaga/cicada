@@ -702,6 +702,13 @@ struct Entity: Identifiable, Codable {
     /// the detail response, so `EntityDetailCard` can render "Name (you)"
     /// without a second lookup against `/graph`. Additive/decode-tolerant.
     var isOwner: Bool = false
+    /// C11 (G146) — the page's picture as `GET /entities/{id}` resolved it (raw; `pictureRef` reads it) and the rung
+    /// inputs the twin re-resolves from (R-PE10). Nil for a graph stub until the page lands, and from an older backend.
+    var pictureURL: String? = nil
+    var pictureSource: String? = nil
+    var pictureInputs: PictureInputs? = nil
+
+    var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: pictureURL, source: pictureSource) }
 
     init(
         id: String, name: String, type: EntityType, status: EntityStatus,
@@ -709,7 +716,7 @@ struct Entity: Identifiable, Codable {
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
         history: [EntityHistoryEntry], decayClass: DecayClass = .active,
-        isOwner: Bool = false
+        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -727,12 +734,15 @@ struct Entity: Identifiable, Codable {
         self.markdownContent = markdownContent
         self.history = history
         self.isOwner = isOwner
+        self.pictureURL = pictureURL
+        self.pictureSource = pictureSource
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
         case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, path, media, history, isOwner
+        case pictureURL = "picture", pictureSource, pictureInputs
     }
 
     init(from decoder: Decoder) throws {
@@ -768,6 +778,9 @@ struct Entity: Identifiable, Codable {
         }
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
         isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+        pictureURL = (try? c.decodeIfPresent(String.self, forKey: .pictureURL)) ?? nil
+        pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
+        pictureInputs = (try? c.decodeIfPresent(PictureInputs.self, forKey: .pictureInputs)) ?? nil
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't
@@ -950,12 +963,21 @@ struct GraphNode: Codable, Sendable {
     /// and the graph typeahead. Decode-tolerant: an older backend and an
     /// on-disk cache omit it.
     let aliases: [String]
+    /// C11 (G146) — the page's resolved picture (`entity_picture.resolve`) and its rung, raw; both absent when there is
+    /// none (the server omits them, plan R-PE5). Read through `pictureRef`.
+    let picture: String?
+    let pictureSource: String?
+    /// C11 — the day the page was last mentioned: Clusters' recency order and F-12's row ages (R-PE13).
+    let lastReferenced: String?
+
+    var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: picture, source: pictureSource) }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
         case summary, contentHash, hasLogo, decayClass, isOwner, aliases
+        case picture, pictureSource, lastReferenced
     }
 
     init(
@@ -966,7 +988,8 @@ struct GraphNode: Codable, Sendable {
         isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
         decayClass: DecayClass = .active, isOwner: Bool = false,
-        aliases: [String] = []
+        aliases: [String] = [], picture: String? = nil,
+        pictureSource: String? = nil, lastReferenced: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -990,6 +1013,9 @@ struct GraphNode: Codable, Sendable {
         self.decayClass = decayClass
         self.isOwner = isOwner
         self.aliases = aliases
+        self.picture = picture
+        self.pictureSource = pictureSource
+        self.lastReferenced = lastReferenced
     }
 
     init(from decoder: Decoder) throws {
@@ -1021,5 +1047,8 @@ struct GraphNode: Codable, Sendable {
         decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
         isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
         aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        picture = (try? c.decodeIfPresent(String.self, forKey: .picture)) ?? nil
+        pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
+        lastReferenced = (try? c.decodeIfPresent(String.self, forKey: .lastReferenced)) ?? nil
     }
 }
