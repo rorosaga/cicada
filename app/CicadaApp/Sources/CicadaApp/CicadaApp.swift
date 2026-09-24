@@ -43,6 +43,8 @@ struct CicadaApp: App {
     @State private var provenanceCache = ProvenanceCache()
     /// G141 PJ-5 (R-PP3) — the Projects page's in-memory cache; app-level so a tab switch keeps what was read.
     @State private var projectsCache = ProjectsCache()
+    /// G150 (R-B18) — the Backlog section's in-memory cache; app-level for ProjectsCache's reason.
+    @State private var backlogCache = BacklogCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -168,6 +170,7 @@ struct CicadaApp: App {
                 .environment(provenanceRouter)
                 .environment(provenanceCache)
                 .environment(projectsCache)
+                .environment(backlogCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)

@@ -148,6 +148,32 @@ final class FindServerTests: XCTestCase {
             .searchMemory("sqlite vec&more", kinds: FindServerRows.kinds, mode: "prefix", perKind: 5)
         XCTAssertEqual(result.indexState, "ready")
     }
+
+    /// G150 (R-B25) — a backlog hit is a row of its own group that lands on Projects with the item open.
+    func testABacklogHitLandsOnProjectsWithTheItemOpen() {
+        let response = FakeFindSearch.decode(#"""
+        {"results": [{"id": "RAP3", "name": "Swap the gripper camera for a global-shutter one", "type": "research",
+          "status": "open", "confidence": 0, "score": 3, "snippet": "", "kind": "backlog",
+          "subjectId": "rover-arm-project", "timestamp": "2026-09-20"}],
+         "totals": {"backlog": 1}, "mode": "prefix", "indexState": "ready"}
+        """#)
+        var c = context
+        c.projectName = { $0 == "rover-arm-project" ? "Rover Arm Project" : nil }
+        let rows = FindServerRows.rows(response, query: "camera", context: c)
+        XCTAssertEqual(rows.count, 1)
+        let row = rows[0]
+        XCTAssertEqual(row.group, .backlog)
+        XCTAssertEqual(row.key, FindRowKey(kind: .backlog, id: "rover-arm-project/RAP3"))
+        XCTAssertEqual(row.detail, "RAP3 · Rover Arm Project · Open")
+        XCTAssertEqual(row.badge, "Research")
+        XCTAssertEqual(row.destination, .backlogItem(project: "rover-arm-project", id: "RAP3"))
+        XCTAssertEqual(FindServerRows.totals(response, rows: rows, kinds: FindServerRows.kinds, perKind: 5)[.backlog],
+                       .exact(1))
+        XCTAssertTrue(FindServerRows.kinds.contains("backlog"))
+        XCTAssertTrue(FindGroupID.inbox < FindGroupID.backlog && FindGroupID.backlog < FindGroupID.settings)
+        XCTAssertEqual(FindRowText.primaryVerb(row.destination), "Open in Projects")
+        XCTAssertEqual(FindRowText.kindLabel(row), "Backlog item")
+    }
 }
 
 /// The debounced passes against a fake (design §3.10 `PaletteDebounceTests`).

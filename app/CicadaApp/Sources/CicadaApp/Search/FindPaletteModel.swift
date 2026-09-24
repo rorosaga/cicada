@@ -238,6 +238,8 @@ final class FindPaletteModel {
             let feed = store.sources.value ?? []
             var context = FindServerRows.Context()
             context.mediaURL = { id in feed.first { $0.mediaEntityId == id }?.url }
+            let names = store.entityNames
+            context.projectName = { names.name(for: $0) }
             let rows = FindServerRows.rows(response, query: q, context: context)
             let totals = FindServerRows.totals(response, rows: rows, kinds: kinds, perKind: perKind)
             results = FindMerge.append(rows, totals: totals, to: results)

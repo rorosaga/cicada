@@ -484,11 +484,37 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
 
+### Backlogs (G150)
+
+A project's backlog is memory, not a table in some repository: **one markdown file per item** at
+`<bank>/backlog/<project-id>/<item-id>.md`. Frontmatter: `id`, `title` (the brief task), `project`, `status`
+(`open | doing | done | dropped`), `triage` (`apply | research | decide`, optional), `paid` (the 💸 flag), `created` /
+`updated` (the machine zone's days), `added_by` (`user` | a harness label | `cicada`), `session`, `links: [{kind:
+pr|commit|url|doc|entity, ref}]`, `order` (hand-set), and last a `notes: [{at, by, session}]` sidecar. Body:
+`## Description` (the reasoning) then `## Notes`, append-only `### <day> · <who>` entries — a status move is itself a
+signed note, and a note is edited only through git history; any heading inside a text is demoted so it can never forge
+a note. **Never an entity page**: Stage 1 never extracts one, it never decays, and the writer never touches
+`entities/`. Ids are `<PREFIX><n>` like G-ids — the project page's `backlog_prefix:`, else the prefix most of its items
+share (an imported G-row list continues its sequence), else the name's initials (`Orchard` → `ORC`) — max+1, claimed by
+an exclusive create (the backend and every stdio MCP process mint in one folder). **One writer**,
+`api/services/backlog.py`, behind every door: REST (`routers/backlog.py` — `GET/POST /projects/{id}/backlog`,
+`POST /projects/{id}/backlog/import`, `GET/PATCH /backlog/{project}/{item}`, `POST /backlog/{project}/{item}/notes`;
+409 while Sleep runs; each write commits alone as `Backlog update <day>`, `Cicada-Author: user`, trigger
+`user/companion_app`, an import as `Backlog import <day>`, `user/backlog_import`), MCP (`cicada_backlog` read;
+`cicada_add_backlog_item` and `cicada_add_backlog_note` record — the harness as author and the conversation as
+`Cicada-Session:`, refused while Sleep runs and in a demo bank; a remote connection without `sources` is told the
+person's own words exist, never shown them), the importer (`backlog_import.py`, `scripts/import-backlog.sh`: G-row
+tables and `### G<n>` sections, ids and statuses kept, an id already filed skipped) and the demo. Every text is
+scrubbed (writer `backlog`), and an open item whose title matches a new one exactly refuses the new one — one row per
+idea, later findings are notes. Both reads ETag over the `backlog` sync component (a stat walk) and `entities`; neither
+is a Store domain (`BacklogCache` in the app, like `ProjectsCache`). A note's model and effort are joined to its turn at
+read once round 4's per-turn join lands; until then a note names its harness.
+
 ### Live state + handshake (G53 / G75)
 
 **`<bank>/_state.md` is a *cursor* into the graph, never a copy of it** — YAML frontmatter plus a
 short wikilinked body, ≤ 6 KB, zero LLM, deterministic. Written only by
-`state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank` sync components is
+`state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank`/`backlog` sync components is
 stored as `inputs_version`; unchanged inputs mean no write. **Never `git_head`** — its own
 `State snapshot` commit would self-invalidate.
 
@@ -503,7 +529,9 @@ every day and made every idle night commit.
 and, once happenings exist, `now: {claim, text ≤ 80, since, verbatim?}` — the first claim text the
 file holds; `verbatim` marks the person's own Log sentence, which a remote primer shows as 'a note of
 yours' without `sources`. Neither field depends on today, and `_fit` drops every `now` before it
-drops a project.
+drops a project. **v4 (G150)** adds `backlog_open` (items open or doing) to a project row that has any, and
+`backlog` joins the input components; the primer's Current row says "backlog: n open" under the same gate as
+`now`/`next`. Contract item 3 names the backlog tools (CONTRACT_VERSION 8 with G149's item 8; each branch alone had taken 7).
 
 **The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
@@ -532,8 +560,8 @@ markdown, safe to delete at any time.
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
 inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode
-titles + 600-character passages that tile the evidence text exactly, media/paper metadata and inbox
-questions, in six per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
+titles + 600-character passages that tile the evidence text exactly, media/paper metadata, inbox
+questions and backlog items (G150), in seven per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
 `doc_id << 16 | n`). `dropped` pages are never indexed. **Derived and disposable** (TODO ruling 3):
 deleting it costs a few seconds of CPU and never a fact; a missing, corrupt or schema-mismatched file is
 rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_excluded` writes
@@ -587,7 +615,8 @@ Cicada-Session: <id>
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
 `sleep/state`, `sleep/expiry`, `sleep/followup`, `capture/calendar`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
-`Cicada-Author: user`),
+`Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
+importer),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
@@ -668,6 +697,8 @@ fact can be checked when there is no claim to write — only a source the person
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
+**`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
+project's backlog — see Backlogs.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -962,7 +993,11 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   source line with the origin's mark and "Show in conversation ›"; Resume where resumable; Not right); Plan (Add with
   an optional picked date, Mark done, Rename, "moved once ›"); Around this project (People · Tools & infrastructure, a
   tool unfolding its specs · Documents & links · Ideas · Parts of this project). The Reader or an entity card is the
-  third column; Esc closes the Reader, then the card, then the project.
+  third column; Esc closes the Reader, then the item or card, then the project.
+- **Backlog (G150):** after Plan, text tabs Open · Doing · Done · All (a dropped item only under All); rows with the
+  id, the title, a triage tag and the age of the last note; Add to backlog. A row opens the item as the third column
+  — the title as the heading, the moves, the description and every note as page prose signed with its author's mark,
+  the links, Add a note. The third column is one slot: the Reader, else a backlog item, else an entity's card.
 - **Writes** are `ProjectWrite` mutations through `Store.perform`: painted where the answer is known (a thread settled
   or restated, a milestone done, renamed or added, a withdrawal), rolled back with the server's own 409/422 sentence
   (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
@@ -1035,7 +1070,8 @@ reaches only the visible page's field. The palette is an overlay anchored 4 pt u
 pt, an opaque `bgMenu` floating surface over the panel scrim — that appears and leaves in one frame
 (DR-60); its instant tier (`QuickIndex`) is rebuilt off the main actor from the Store's snapshots and
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
-conversations, beliefs (superseded ones as history) and whatever the local tier missed — a shown row
+conversations, beliefs (superseded ones as history), backlog items (G150; the server tier only) and whatever
+the local tier missed — a shown row
 never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
 folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
 Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,

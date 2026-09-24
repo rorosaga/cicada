@@ -101,6 +101,7 @@ enum FindRowText {
         case .media: "Saved item"
         case .source: "Source"
         case .inbox: "Question"
+        case .backlog: "Backlog item"
         case .setting: "Setting"
         case .action: "Action"
         case .bank: "Memory bank"
@@ -147,6 +148,7 @@ enum FindRowText {
         case .source, .conversations: "Open in Sources"
         case .conversation, .evidence: FindReaderSeam.isAvailable ? "Open conversation" : "Open in Sources"
         case .inbox: "Answer"
+        case .backlogItem: "Open in Projects"
         // R-HS20: ⏎ opens it, through `AppRouter.openSettings`. R-SU12's
         // explain-only verb existed because no closure could open the
         // `Settings{}` scene; DS-1 replaced the scene with the in-window panel.

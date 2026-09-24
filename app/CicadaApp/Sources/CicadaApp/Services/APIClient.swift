@@ -2663,3 +2663,23 @@ extension APIClient {
         }
     }
 }
+
+// MARK: - Backlog (G150) — the person's three writes
+
+extension APIClient {
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
+        var body: [String: Any] = ["title": title]
+        if !description.isEmpty { body["description"] = description }
+        return try await post(Self.projectPath(project, "backlog"), body: body)
+    }
+
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
+        var body: [String: Any] = ["note": note]
+        if let status { body["status"] = status }
+        return try await post(Self.backlogPath(project, item, "notes"), body: body)
+    }
+
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem {
+        try await patch(Self.backlogPath(project, item), body: change.body)
+    }
+}

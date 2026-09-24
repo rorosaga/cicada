@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import bank_index, logo_service, markdown_parser, telemetry
+from api.services import backlog, bank_index, logo_service, markdown_parser, telemetry
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -152,6 +152,10 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         "hubs": f"{dir_mtime(mp / 'hubs'):.6f}",
         "inbox": inbox_component,
         "episodes": f"{ep_count}:{ep_max}",
+        # G150 R-B16: every backlog item's stamp (a stat walk, no parse) — the
+        # Projects page's backlog reads and `_state.md`'s `backlog_open` move
+        # on it; nothing in `entities`/`episodes` notices a backlog write.
+        "backlog": backlog.stamp(mp),
         # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
         # ride the `sources` component: subscribing or unsubscribing changes
         # neither the sources dir nor the url index, so without them the app's
