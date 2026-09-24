@@ -190,6 +190,27 @@ else
   note "run ./install.sh to register it — sessions are not captured until then"
 fi
 
+# 13. Implicit recall hooks (G149). Registered by install.sh unless CICADA_RECALL=off, and turned
+#     on or off in Settings → Agents. Absent is a choice, not a failure; half-registered or stale
+#     (a moved repo) is a failure, like the Stop hook's.
+RECALL_CMD=$(printf '"%s" "%s" --harness claude-code' "$VENV_PY" "$REPO/api/hooks/recall.py")
+S1=1; S2=1
+if [ -x "$VENV_PY" ]; then
+  "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event SessionStart \
+    --command "$RECALL_CMD" >/dev/null 2>&1 && S1=0 || S1=$?
+  "$VENV_PY" "$REPO/api/hooks/registry.py" status --settings "$CLAUDE_SETTINGS" --event UserPromptSubmit \
+    --command "$RECALL_CMD" >/dev/null 2>&1 && S2=0 || S2=$?
+fi
+if [ "$S1" -eq 0 ] && [ "$S2" -eq 0 ]; then
+  pass "Recall hooks registered in $CLAUDE_SETTINGS (Claude Code remembers automatically)"
+elif [ "$S1" -eq 1 ] && [ "$S2" -eq 1 ]; then
+  pass "Recall hooks are off for Claude Code"
+  note "Settings → Agents → Remembers automatically turns them on"
+else
+  fail "Recall hooks half-registered or stale in $CLAUDE_SETTINGS"
+  note "run ./install.sh (or Settings → Agents → Update) to fix them"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   printf '\033[32m%s\033[0m\n' "All checks passed."

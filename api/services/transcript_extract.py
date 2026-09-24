@@ -24,6 +24,11 @@ The G48 rail is restated, not removed: tool output, code and secrets never
 enter a bank. This module never opens a file — it takes lines — so the
 only transcript read stays where R2 puts it (``transcript_capture``).
 
+A note Cicada's own recall hook added (G149) is never the person's words,
+whatever shape the harness stores it in (``recall_text.is_injection``,
+``_HOOK_OUTPUT_RE``): captured as "the person said", it would hand Sleep its
+own memory as new evidence (R-H12).
+
 Pure: no bank state, no LLM, no I/O. ``summary`` carries counts only so it
 can go straight into the ledger (R10).
 """
@@ -36,6 +41,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from api.services import recall_text
 from api.services.episode_scrub import REDACTED, scrub as _scrub  # R-LS6: one rule set
 
 HARNESSES = ("claude-code", "codex")
@@ -57,6 +63,10 @@ CLAUDE_HARNESS_TAGS = frozenset({
     "task-notification", "command-name", "command-message", "command-args",
     "command-stdout", "local-command-stdout", "local-command-caveat",
     "system-reminder", "ide_opened_file", "ide_selection", "ide_diagnostics",
+    # G149 R-H12: tag names hook output could arrive under. Unverified here (no
+    # transcript is read, R2); a person never types them, so dropping them
+    # costs nothing.
+    "user-prompt-submit-hook", "session-start-hook",
 })
 CODEX_HARNESS_TAGS = frozenset({
     "environment_context", "user_instructions", "permissions",
@@ -65,6 +75,10 @@ CODEX_HARNESS_TAGS = frozenset({
 })
 
 _SYSTEM_REMINDER_RE = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+# G149 R-H12: the same tags as a SPAN, stripped wherever it sits in a block,
+# like a system reminder. `_first_tag` reads only a block's first tag, so hook
+# output a harness appended after the person's prompt would otherwise be kept.
+_HOOK_OUTPUT_RE = re.compile(r"<(user-prompt-submit-hook|session-start-hook)>.*?</\1>", re.DOTALL)
 _LEADING_TAG_RE = re.compile(r"^\s*<([A-Za-z_][A-Za-z0-9_-]*)")
 _FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _OPEN_FENCE_RE = re.compile(r"```.*\Z", re.DOTALL)
@@ -294,9 +308,9 @@ def extract_claude_code(
             for bk in blocks:
                 if bk.get("type") != "text":
                     continue
-                text = _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or ""))
+                text = _HOOK_OUTPUT_RE.sub("", _SYSTEM_REMINDER_RE.sub("", str(bk.get("text") or "")))
                 tag = _first_tag(text)
-                if tag in CLAUDE_HARNESS_TAGS:
+                if tag in CLAUDE_HARNESS_TAGS or recall_text.is_injection(text):
                     tagged += 1
                     continue
                 if text.strip():
@@ -370,7 +384,8 @@ def extract_codex(
             ]
             if role == "user":
                 b.boundary()
-                kept = [t for t in texts if _first_tag(t) not in CODEX_HARNESS_TAGS and t.strip()]
+                kept = [t for t in texts
+                        if _first_tag(t) not in CODEX_HARNESS_TAGS and not recall_text.is_injection(t) and t.strip()]
                 if not kept:
                     b.count_msg("harness_tag" if texts else "empty")
                     continue
