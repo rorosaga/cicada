@@ -145,6 +145,7 @@ HARNESS_LABELS = {
     "claude-web": "Claude",
     "chatgpt": "ChatGPT",
     "perplexity": "Perplexity",
+    "grok": "Grok",                     # round 4 R-AG7
     "claude-code-remote": "Claude Code (remote)",
     "codex-remote": "Codex (remote)",
     "vscode": "VS Code",

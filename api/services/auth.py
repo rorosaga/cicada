@@ -14,7 +14,10 @@ webhook through a public tunnel and cannot send our bearer header), and
 ``GET /sources/connectors/<id>/callback`` for every OAuth connector in the
 registry (G71, generalized Task 15 §3 — Pinterest and X today) — each OAuth
 redirect lands in the user's own browser, which likewise cannot send it, so
-each is gated instead by its own single-use, 10-minute ``state`` nonce. The
+each is gated instead by its own single-use, 10-minute ``state`` nonce; and
+``GET /connections/byok-openrouter/callback/<nonce>`` (R-AG10), OpenRouter's
+sign-in landing in the same browser, gated by its own single-use 10-minute
+nonce carried in the PATH (OpenRouter appends only ``code``). The
 Telegram route is gated by Telegram being *configured*
 (``CICADA_TELEGRAM_BOT_TOKEN`` set) plus, when ``CICADA_TELEGRAM_WEBHOOK_SECRET``
 is set in the same ``~/.cicada/secrets.env`` seam, a per-request constant-time
@@ -51,7 +54,10 @@ _STATIC_OPEN_PATHS = frozenset({
 
 def _is_oauth_callback_path(path: str) -> bool:
     """``/sources/connectors/<id>/callback`` for an ``id`` currently in the
-    connectors registry whose ``LOGIN_MODE`` is ``"oauth"`` (Task 15 §3).
+    connectors registry whose ``LOGIN_MODE`` is ``"oauth"`` (Task 15 §3), and
+    ``/connections/<id>/callback/<nonce>`` for a provider sign-in (R-AG10) —
+    only an OAuth connection id with a nonce of the exact minted shape, so a
+    stray path under ``/connections`` never loses its bearer check.
 
     Import is local: ``api.services.connections.secrets`` (which every
     connector module uses for credential storage) imports ``cicada_home``
@@ -61,6 +67,10 @@ def _is_oauth_callback_path(path: str) -> bool:
     from api.services.connectors import ADAPTERS
 
     parts = path.split("/")
+    if len(parts) == 5 and parts[1] == "connections" and parts[3] == "callback":
+        from api.services.connections import openrouter
+
+        return parts[2] in openrouter.OAUTH_CONNECTION_IDS and bool(openrouter.NONCE_RE.match(parts[4]))
     if len(parts) != 5 or parts[1:3] != ["sources", "connectors"] or parts[4] != "callback":
         return False
     adapter = ADAPTERS.get(parts[3])

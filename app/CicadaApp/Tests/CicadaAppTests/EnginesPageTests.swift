@@ -74,6 +74,16 @@ final class EnginesPageTests: XCTestCase {
         XCTAssertEqual(EngineOption.previewMark(engine: "codex-cli"), EngineOption.logoName(for: "codex"))
         XCTAssertEqual(EngineOption.previewMark(engine: "ollama"), EngineOption.logoName(for: "local"))
         XCTAssertNil(EngineOption.previewMark(engine: "litellm"))
+        // R-AG12 / DR-52 — a key run through OpenRouter wears OpenRouter's mark and name.
+        XCTAssertEqual(EngineOption.previewMark(engine: "litellm", model: "openrouter/~openai/gpt-mini-latest"),
+                       EngineOption.logoName(for: "openrouter"))
+        XCTAssertNil(EngineOption.previewMark(engine: "litellm", model: "gpt-5.4-mini"))
+        XCTAssertEqual(EngineOption.previewName(engine: "litellm", model: "openrouter/~openai/gpt-mini-latest"),
+                       "OpenRouter")
+        XCTAssertEqual(EngineOption.previewName(engine: "litellm", model: "gpt-5.4-mini"), Copy.engineLabel("litellm"))
+        XCTAssertEqual(EngineMark.source(for: "litellm", model: "openrouter/~openai/gpt-mini-latest"),
+                       .logo("openrouter"))
+        XCTAssertEqual(EngineMark.source(for: "litellm"), .symbol("key"))
     }
 
     // MARK: Next run (R-O10 — the server's value, never the local picker's)

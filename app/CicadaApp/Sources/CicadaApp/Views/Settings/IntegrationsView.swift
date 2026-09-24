@@ -341,9 +341,10 @@ private struct IntegrationHarnessRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             // R-HS18, DR-52 — the harness's own mark, bare. The clip is Track L's rule, not
-            // decoration: `claude-code` is an opaque square raster that is never recut, so every
-            // surface clips it to its own curvature (`PlatformTile`'s 0.2 ratio); a no-op for a mark
-            // whose corners are already transparent. No `.markHover()`: the row opens nothing.
+            // decoration: `hermes` is the one full-bleed plate (R-AG8 retired the two Claude
+            // rasters), so every surface clips to its own curvature (`PlatformTile`'s 0.2 ratio); a
+            // no-op for a mark whose corners are already transparent. No `.markHover()`: the row
+            // opens nothing.
             if let origin = IntegrationHarnessRows.markOrigin(for: source) {
                 OriginMark(origin: origin, size: CicadaTheme.scaled(28))
                     .clipShape(CicadaTheme.shape(CicadaTheme.scaled(28) * 0.2))

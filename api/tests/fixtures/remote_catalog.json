@@ -3,6 +3,7 @@
     {"id": "claude", "harness": "claude-web", "delivery": "link"},
     {"id": "chatgpt", "harness": "chatgpt", "delivery": "link"},
     {"id": "perplexity", "harness": "perplexity", "delivery": "link"},
+    {"id": "grok", "harness": "grok", "delivery": "link"},
     {"id": "claude-code", "harness": "claude-code-remote", "delivery": "header"},
     {"id": "codex", "harness": "codex-remote", "delivery": "header"},
     {"id": "cursor", "harness": "cursor", "delivery": "header"},

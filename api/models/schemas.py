@@ -2225,6 +2225,20 @@ class SleepEngineCandidate(CamelModel):
     connected: bool = False
     models: list[str] = Field(default_factory=list)
     detail: Optional[str] = None
+    # R-AG12: what a tap writes, when it is not the card's own id — the
+    # OpenRouter card is `byok` under the hood, so ruling 4 never sees a new mode.
+    mode: Optional[str] = None
+
+
+class SleepEngineProvider(CamelModel):
+    """One row of the API-key card's provider picker (R-AG11). Names and ids
+    only; ``has_key`` is presence, never a value; no price (G124)."""
+    id: str
+    label: str
+    connection_id: str
+    has_key: bool = False
+    default_model: str
+    key_url: str
 
 
 class SleepEnginePreview(CamelModel):
@@ -2261,6 +2275,16 @@ class SleepEngineResponse(CamelModel):
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
     allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
+    # R-AG12: ``mode`` is what runs; ``selected`` is the CARD that choice
+    # belongs to (``openrouter`` for a ``byok`` mode with an ``openrouter/``
+    # model, else the mode itself), so the app highlights the right card
+    # without a second mode that ruling 4 would have to learn. ``provider``
+    # is the key provider the chosen card reads through (the stored ``byok``
+    # model's, or Auto's resolved key model's — R-AG14's "leaves your Mac"
+    # note names it); ``providers`` is the API-key card's picker (R-AG11).
+    selected: str = ""
+    provider: Optional[str] = None
+    providers: list[SleepEngineProvider] = Field(default_factory=list)
 
 
 class SleepEngineChoice(CamelModel):
@@ -2534,7 +2558,12 @@ class AgentSetupResponse(CamelModel):
     """``GET /agents/setup?harness=`` (round 4 C5, G76). ``kind`` says which of
     ``prompt`` / ``argv`` / ``display`` (a paste-into-your-agent prompt naming
     exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
-    ``config`` is set. ``remote`` is reserved: no harness produces it yet."""
+    ``config`` is set. A ``prompt`` with ``argv: []`` (OpenCode, Hermes,
+    OpenClaw) is a config registration the agent performs itself, with
+    ``config`` riding along for doing it by hand (round 4 C8, R-AG3).
+    ``remote`` is produced by ``claude``/``chatgpt``/``grok``: ``display`` holds
+    exactly the two steps before Confirm on the G135 connector and ``note`` the
+    honesty line; nothing is set to run (R-AG19)."""
 
     harness: str
     kind: Literal["prompt", "deeplink", "config-merge", "remote"]
@@ -2545,6 +2574,25 @@ class AgentSetupResponse(CamelModel):
     deeplink: Optional[str] = None
     config: Optional[AgentSetupConfig] = None
     note: Optional[str] = None
+
+
+class AgentLiveRow(CamelModel):
+    """One agent's live ✓ (round 4 C8, R-AG5). ``via``: ``mcp`` (Cicada's stdio
+    server saw it initialize), ``remote`` (a connector made for it was used) or
+    ``config`` (its own MCP config names Cicada, not seen yet); null while not
+    connected. ``last_seen_at`` is the latest sighting, even while disconnected."""
+
+    id: str
+    connected: bool = False
+    last_seen_at: Optional[str] = None
+    via: Optional[Literal["mcp", "remote", "config"]] = None
+
+
+class AgentLiveResponse(CamelModel):
+    """``GET /agents/live`` — polled while the Agents page is visible; not a Store
+    domain, no ETag (a tiny body that changes by the second)."""
+
+    agents: list[AgentLiveRow] = []
 
 
 # --- Sources (media ingestion) ---
@@ -3152,7 +3200,7 @@ class ConnectionKind(str, Enum):
 
 
 class LoginHint(CamelModel):
-    mode: str  # terminal | device-code | key | none
+    mode: str  # terminal | device-code | key | oauth (R-AG10: a key card that also signs in) | none
     command: Optional[str] = None
 
 

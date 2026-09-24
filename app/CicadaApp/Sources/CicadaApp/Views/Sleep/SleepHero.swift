@@ -470,6 +470,9 @@ struct SleepControlRow: View {
 struct EngineMark: View {
     let engine: String
     var size: CGFloat = 14
+    /// R-AG12 / DR-52 — the preview's model, so a key run through OpenRouter wears OpenRouter's
+    /// mark (the button names OpenRouter; the key glyph would contradict it).
+    var model: String? = nil
 
     /// Which mark an engine wears (R-HS13): the Claude plan runs Claude Code's own binary, the ChatGPT
     /// plan wears its card's mark (`EngineOption.previewMark`), Ollama its own, and an API key — which
@@ -480,17 +483,19 @@ struct EngineMark: View {
         case symbol(String)
     }
 
-    static func source(for engine: String) -> Source {
+    static func source(for engine: String, model: String? = nil) -> Source {
         switch engine {
         case "claude-cli": .origin("claude-code")
         case "codex-cli": EngineOption.previewMark(engine: engine).map(Source.logo) ?? .symbol("key")
         case "ollama": .logo("ollama")
+        case "litellm" where EngineOption.runsOnOpenRouter(model):
+            EngineOption.previewMark(engine: engine, model: model).map(Source.logo) ?? .symbol("key")
         default: .symbol("key")
         }
     }
 
     var body: some View {
-        switch Self.source(for: engine) {
+        switch Self.source(for: engine, model: model) {
         case .origin(let origin):
             OriginMark(origin: origin, size: size)
         case .logo(let name):

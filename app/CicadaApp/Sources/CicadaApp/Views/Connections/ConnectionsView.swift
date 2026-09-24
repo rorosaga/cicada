@@ -31,6 +31,7 @@ struct ConnectionsView: View {
                             keyDraft: Binding(get: { keyDrafts[c.id, default: ""] }, set: { keyDrafts[c.id] = $0 }),
                             pendingLogin: viewModel.pendingLogin?.connectionId == c.id ? viewModel.pendingLogin : nil,
                             awaitingTerminal: viewModel.awaitingTerminal == c.id,
+                            awaitingBrowser: viewModel.awaitingBrowser == c.id,
                             terminalFallback: terminalFallback,
                             onConnect: { Task { await connect(c) } },
                             onDisconnect: { confirmDisconnect = c },
@@ -44,6 +45,9 @@ struct ConnectionsView: View {
         // No `.task { load() }`: `ConnectionsViewModel` is a thin projection
         // over `Store.connections`, already hydrated + kept live by the
         // Store — this section renders instantly from the snapshot on revisit.
+        // …except a browser sign-in's row (OpenRouter): its callback can save the key while this page is
+        // closed, and `/connections` is not a sync component, so that one row is re-read on each visit.
+        .task { await viewModel.refreshBrowserSignInRows() }
         .onDisappear { viewModel.stopPolling() }
         // R-E28: signing out of ChatGPT runs `codex logout` in Cicada's own
         // Codex home only, so the dialog says the terminal's Codex is untouched.
@@ -95,6 +99,8 @@ private struct ConnectionCard: View {
     @Binding var keyDraft: String
     let pendingLogin: LoginSession?
     let awaitingTerminal: Bool
+    /// R-AG10: OpenRouter's consent page is open in the browser; the card waits for the callback to land the key.
+    let awaitingBrowser: Bool
     let terminalFallback: Bool
     let onConnect: () -> Void
     let onDisconnect: () -> Void
@@ -168,12 +174,25 @@ private struct ConnectionCard: View {
     @ViewBuilder
     private var actions: some View {
         if connection.isKeyBased {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                if connection.connected {
-                    Button("Remove key", role: .destructive, action: onDisconnect)
-                } else {
-                    SecureField("Paste API key", text: $keyDraft).textFieldStyle(.roundedBorder).frame(maxWidth: 360)
-                    Button("Save", action: onSaveKey).disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    if connection.connected {
+                        Button("Remove key", role: .destructive, action: onDisconnect)
+                    } else {
+                        // R-AG10 (DR-40): signing in is a second way to fill the same key, so it sits before the
+                        // paste field rather than replacing it. `onConnect` → `beginLogin`, whose `oauth` case
+                        // opens the browser; the terminal hand-off never fires for it.
+                        if connection.signsIn {
+                            NeutralButton(title: Copy.signInWithOpenRouter, isDisabled: awaitingBrowser,
+                                          action: onConnect)
+                        }
+                        SecureField("Paste API key", text: $keyDraft).textFieldStyle(.roundedBorder).frame(maxWidth: 360)
+                        Button("Save", action: onSaveKey).disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+                if awaitingBrowser, !connection.connected {
+                    Text(Copy.openRouterFinishInBrowser)
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 }
             }
         } else if connection.billing == "free" {

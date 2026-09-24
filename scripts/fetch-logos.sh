@@ -27,6 +27,13 @@
 #   scripts/fetch-logos.sh --accept        record upstream drift instead of failing on it
 #   scripts/fetch-logos.sh --only <id>     restrict a real run to one manifest id
 #
+# ORIGINS (the manifest's `origin` field): `commons` (a Wikimedia Commons SVG),
+# `repo` (R-AG9: an SVG in the vendor's OWN repository, pinned to a 40-hex commit
+# on raw.githubusercontent.com — never a branch, so a redraw upstream cannot
+# walk in), `recut` (a one-time transform of a committed file) and `legacy`
+# (committed before this pipeline existed). `commons` and `repo` share the
+# svgSha256 drift guard, the rasterizer and verify_png.
+#
 # The ledger is `logos.manifest.json` (one entry per committed file, R1) and
 # `LOGOS.md` (the attribution table — this repo's NOTICE for third-party art).
 # `api/tests/test_logo_manifest.py` (T6) holds the three of them to each other.
@@ -52,7 +59,7 @@ while [[ $# -gt 0 ]]; do
         --check)  MODE="check"; shift ;;
         --accept) ACCEPT=1; shift ;;
         --only)   ONLY="${2:-}"; [[ -n "$ONLY" ]] || { echo "--only needs an id" >&2; exit 2; }; shift 2 ;;
-        -h|--help) sed -n '3,30p' "$0"; exit 0 ;;
+        -h|--help) sed -n '3,39p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
     esac
 done
@@ -70,12 +77,12 @@ manifest_get() {  # manifest_get <top-level key> <fallback>
 # character, so bash collapses a run of them and an asset with no `commonsFile`
 # and no `svgSha256` would have its `sha256` read into the wrong variable — which
 # silently disables the drift guard below (found by running it).
-manifest_rows() {  # id US file US origin US commonsFile US svgSha256 US sha256
+manifest_rows() {  # id US file US origin US commonsFile US svgSha256 US sha256 US sourceUrl
     "$PY" -c '
 import json, sys
 for a in sorted(json.load(open(sys.argv[1]))["assets"], key=lambda a: a["id"]):
     print("\x1f".join(str(a.get(k) or "") for k in
-          ("id", "file", "origin", "commonsFile", "svgSha256", "sha256")))
+          ("id", "file", "origin", "commonsFile", "svgSha256", "sha256", "sourceUrl")))
 ' "$MANIFEST"
 }
 
@@ -236,6 +243,57 @@ PYMETA
     WRITTEN+=("$png")
 }
 
+# R-AG9 — a mark from the vendor's own repository. Identical to fetch_commons
+# except where the bytes come from: the recorded `sourceUrl`, which must be
+# pinned to a commit (a branch URL would let an upstream redraw in unreviewed),
+# and no Commons imageinfo — licence, artist and sourceUrl stay exactly as the
+# manifest records them; the meta file carries only the drift guard's sha.
+fetch_repo() {  # fetch_repo <id> <file> <sourceUrl> <recorded svg sha>
+    local id="$1" file="$2" source="$3" recorded="$4"
+    local svg="$WORK/$id.svg"
+
+    if [[ ! "$source" =~ ^https://raw\.githubusercontent\.com/[^/]+/[^/]+/[0-9a-f]{40}/ ]]; then
+        echo "FAIL $id: a repo mark must be pinned to a commit" >&2
+        exit 1
+    fi
+
+    if ! curl -sSL --fail -A "$UA" -o "$svg" "$source"; then
+        echo "FAIL $id: could not fetch $source" >&2
+        FAILED=1
+        return 0
+    fi
+
+    local actual
+    actual="$(sha256_of "$svg")"
+    if [[ -n "$recorded" && "$actual" != "$recorded" ]]; then
+        echo "DRIFT $id: upstream sha $recorded → $actual" >&2
+        if [[ "$ACCEPT" -eq 0 ]]; then
+            echo "  refusing to overwrite a reviewed mark; re-run with --accept once you have looked at it" >&2
+            FAILED=1
+            return 0
+        fi
+    elif [[ -n "$recorded" ]]; then
+        echo "  $id: upstream unchanged" >&2
+        return 0
+    fi
+
+    "$PY" -c 'import json,sys;open(sys.argv[1],"w").write(json.dumps({"svgSha256": sys.argv[2]}))' \
+        "$WORK/meta/$id.json" "$actual"
+
+    local png="$LOGOS/$file"
+    if command -v rsvg-convert >/dev/null 2>&1; then
+        rsvg-convert -w "$SIZE" -h "$SIZE" -o "$png" "$svg"
+    else
+        "$(ensure_tool svg2png)" "$svg" "$png" "$SIZE"
+    fi
+
+    if ! verify_png "$png" "$id"; then
+        FAILED=1
+        return 0
+    fi
+    WRITTEN+=("$png")
+}
+
 verify_png() {  # geometry and alpha, straight from sips — no PNG parser here
     local png="$1" id="$2" w h alpha
     w="$(sips -g pixelWidth "$png" | awk '/pixelWidth/{print $2}')"
@@ -256,7 +314,7 @@ verify_png() {  # geometry and alpha, straight from sips — no PNG parser here
     return 0
 }
 
-while IFS=$'\x1f' read -r id file origin commons svg_sha sha; do
+while IFS=$'\x1f' read -r id file origin commons svg_sha sha source; do
     [[ -n "$id" ]] || continue
     if [[ -n "$ONLY" && "$ONLY" != "$id" ]]; then continue; fi
     # The ledger rewrite below re-records a sha only for an id this loop
@@ -266,6 +324,9 @@ while IFS=$'\x1f' read -r id file origin commons svg_sha sha; do
     case "$origin" in
         commons)
             fetch_commons "$id" "$file" "$commons" "$svg_sha"
+            ;;
+        repo)
+            fetch_repo "$id" "$file" "$source" "$svg_sha"
             ;;
         recut|legacy)
             # Never fetched, never regenerated — only the sha is verified.
@@ -291,7 +352,7 @@ while IFS=$'\x1f' read -r id file origin commons svg_sha sha; do
             fi
             ;;
         *)
-            echo "FAIL $id: unknown origin '$origin' (commons|recut|legacy)" >&2
+            echo "FAIL $id: unknown origin '$origin' (commons|repo|recut|legacy)" >&2
             FAILED=1
             ;;
     esac
@@ -340,9 +401,14 @@ lines = [
     "Every mark below identifies the product it names and is used nominatively:",
     "Cicada does not restyle, recolour, crop or combine them, and claims no",
     "affiliation with, sponsorship by, or endorsement from their owners. A `-dark`",
-    "row is an exact luminance inversion of a mark that has no hue (R4) — the one",
+    "row is an exact luminance inversion of a mark that has no hue (R4), or —",
+    "origin `repo` — the vendor's own dark variant; the inversion is the one",
     "transform applied to any of them. Owners: to have a mark removed or replaced,",
     "open an issue on the repository.",
+    "",
+    "The one exception to \"combine\": Claude Code is the `claude` mark with an",
+    "app-drawn SF Symbol `>_` badge over its bottom-trailing corner (owner",
+    "addendum 2, R-AG8); the mark's file itself is untouched.",
     "",
     "A `legacy` row predates this ledger: it was committed before the pipeline",
     "existed, so its provenance is the commit that introduced it rather than an",

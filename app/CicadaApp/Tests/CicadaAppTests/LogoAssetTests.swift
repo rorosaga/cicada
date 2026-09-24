@@ -38,7 +38,7 @@ final class LogoAssetTests: XCTestCase {
     /// `tools/monoflip.swift` reads every pixel and exits 3 on any hue, and it
     /// accepted the rasterized llama. Membership here is therefore always
     /// decided by the tool; nothing is added to this set by eye.
-    static let needsDarkVariant: Set<String> = ["chatgpt", "codex", "ollama", "x"]
+    static let needsDarkVariant: Set<String> = ["chatgpt", "codex", "ollama", "openrouter", "x"]
 
     private func logoURLs() throws -> [URL] {
         let urls = Bundle.cicadaResources.cicadaResources(ext: "png", in: "logos")
@@ -51,19 +51,19 @@ final class LogoAssetTests: XCTestCase {
     }
 
     /// Rasters that are opaque to the corner and are shipped that way on
-    /// purpose: they are the vendor's own app icon, a coloured plate whose
-    /// background IS the mark, so there is nothing to cut out. Every surface
-    /// that draws them clips (`PlatformTile`, `ConnectView.AgentTile`), which
-    /// is what keeps them from showing square corners inside a rounded card.
-    /// Adding an id here is a decision to clip it, not a way past the test.
+    /// purpose: a vendor's own app icon, a coloured plate whose background IS
+    /// the mark, so there is nothing to cut out. Every surface that draws one
+    /// clips it. Adding an id here is a decision to clip it, not a way past the
+    /// test.
     ///
-    /// Measured, not assumed: both sample a minimum alpha of 1.00 across the
-    /// whole raster, corners at 0.996. `hermes` is deliberately NOT here — it
-    /// is a full-bleed plate too, but it feathers its outermost pixel to 0.02
-    /// (0.91 one pixel in), so it passes on its own and adding it would claim
-    /// an exemption it does not use. That 0.02 is also why the threshold below
-    /// is 0.5 and not an exact zero.
-    static let opaquePlate: Set<String> = ["claude-code", "claude-desktop"]
+    /// Empty since R-AG8 (Round 4): the only two opaque plates were the
+    /// byte-identical `claude-code` and `claude-desktop` rasters, which are
+    /// retired — Claude Code is now the transparent-cornered `claude` mark plus
+    /// an app-drawn badge. `hermes` is a full-bleed plate too, but it feathers
+    /// its outermost pixel to 0.02 (0.91 one pixel in), so it never needed the
+    /// exemption; that 0.02 is also why the threshold below is 0.5 and not an
+    /// exact zero.
+    static let opaquePlate: Set<String> = []
 
     func testEveryMarkIsSquareBigEnoughAndKeepsItsCornersTransparent() throws {
         for url in try logoURLs() {
@@ -77,8 +77,8 @@ final class LogoAssetTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(rep.pixelsWide, floor, "\(name).png is \(rep.pixelsWide) px")
 
             // NOT `rep.hasAlpha`. That reports the channel EXISTS, which is
-            // true of a fully opaque one: `claude-code.png` and
-            // `claude-desktop.png` are 100% opaque and passed it, which is how
+            // true of a fully opaque one: the retired `claude-code.png` and
+            // `claude-desktop.png` were 100% opaque and passed it, which is how
             // a full-bleed square shipped into a rounded tile unnoticed. The
             // behaviour the message names — "renders as a hard square" — is a
             // property of the CORNER PIXELS, so test those.
@@ -111,12 +111,10 @@ final class LogoAssetTests: XCTestCase {
         // dropping a provider mark there fails here instead of leaving the
         // file behind as dead bytes.
         let providerMarks: [String] = ContributorIdentity.allProviderMarks
-        // `ConnectView.AgentTile` ids: the setup catalog's own map, which is a
-        // tile list rather than an origin list and so is not reachable from
-        // any of the three switches below.
-        let agentTileMarks: [String] = [
-            "claude-code", "cursor", "openclaw", "codex", "claude-desktop", "hermes", "gemini-cli",
-        ]
+        // `AgentCatalog`'s marks (Round 4 C8): the Agents selector's own map,
+        // which is a pill list rather than an origin list and so is not
+        // reachable from any of the three switches below.
+        let agentTileMarks: [String] = AgentCatalog.all.compactMap(\.mark)
         // Assembled step by step, not as one `+` chain: the chain was a single
         // expression the type-checker gave up on ("unable to type-check this
         // expression in reasonable time").

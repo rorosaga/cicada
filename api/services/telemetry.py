@@ -318,16 +318,15 @@ def usage_from_response(resp) -> dict:
 
 
 def connection_for_model(model: str) -> tuple[str, str]:
+    """Which connection card a model's spend belongs to. The key half is
+    ``byok.provider_for_model`` (R-AG11) — one rule with the engine card, so an
+    ``xai/…``, ``groq/…`` or ``mistral/…`` call is never billed to OpenAI."""
     m = (model or "").lower()
     if m.startswith("ollama/"):
         return "ollama-local", "free"
-    if m.startswith("openrouter/"):
-        return "byok-openrouter", "usage"
-    if m.startswith("anthropic/") or "claude" in m:
-        return "byok-anthropic", "usage"
-    if m.startswith("gemini/") or "gemini" in m:
-        return "byok-gemini", "usage"
-    return "byok-openai", "usage"
+    from api.services.connections import byok   # lazy: byok → secrets → auth, and telemetry is imported early
+
+    return f"byok-{byok.provider_for_model(m)}", "usage"
 
 
 def bank_name(settings) -> str:

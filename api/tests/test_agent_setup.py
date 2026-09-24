@@ -85,7 +85,7 @@ def test_the_claude_app_gets_a_merge_the_app_performs():
 
 
 def test_an_unknown_harness_has_no_setup():
-    assert _setup("chatgpt") is None
+    assert _setup("nope") is None
 
 
 def test_the_route_serves_every_harness_and_never_runs_a_cli(tmp_path, monkeypatch):
@@ -99,7 +99,8 @@ def test_the_route_serves_every_harness_and_never_runs_a_cli(tmp_path, monkeypat
     config.get_settings.cache_clear()
     try:
         client = TestClient(main.app)
-        for harness in ("claude-code", "codex", "gemini-cli", "cursor", "claude-desktop"):
+        for harness in ("claude-code", "codex", "gemini-cli", "cursor", "claude-desktop",
+                        "opencode", "hermes", "openclaw", "claude", "chatgpt", "grok"):
             r = client.get(f"/agents/setup?harness={harness}")
             assert r.status_code == 200, (harness, r.text)
             assert r.json()["harness"] == harness and r.json()["title"]
@@ -107,3 +108,38 @@ def test_the_route_serves_every_harness_and_never_runs_a_cli(tmp_path, monkeypat
         assert client.get("/agents/setup").status_code == 422
     finally:
         config.get_settings.cache_clear()
+
+
+# --- Round 4 C8 (R-AG3, R-AG19): config prompts and remote outlines ---
+
+
+@pytest.mark.parametrize("harness,where", [
+    ("opencode", "~/.config/opencode/opencode.json"),
+    ("hermes", "~/.hermes/config.yaml"),
+    ("openclaw", "~/.openclaw/openclaw.json"),
+])
+def test_config_agents_get_a_prompt_that_names_the_server_and_runs_nothing(harness, where):
+    setup = _setup(harness)
+    assert setup["kind"] == "prompt" and setup["argv"] == [] and setup["display"] == []
+    prompt = setup["prompt"]
+    assert len(prompt) <= agent_wiring.PROMPT_MAX_CHARS, len(prompt)
+    assert PY in prompt and f"{REPO}/mcp/server.py" in prompt and f"CICADA_MEMORY_PATH={MEM}" in prompt
+    assert where in prompt and "change nothing else" in prompt and "uploads nothing" in prompt
+    assert setup["config"]["path"] == where and setup["note"]
+
+
+def test_opencode_s_value_is_its_own_local_shape():
+    value = _setup("opencode")["config"]["value"]
+    assert value == {"type": "local", "command": [PY, f"{REPO}/mcp/server.py"],
+                     "environment": {"CICADA_MEMORY_PATH": str(MEM)}, "enabled": True}
+    assert _setup("hermes")["config"]["value"] == SPEC and _setup("openclaw")["config"]["value"] == SPEC
+
+
+@pytest.mark.parametrize("harness", ["claude", "chatgpt", "grok"])
+def test_cloud_agents_get_the_two_remote_steps_and_nothing_to_run(harness):
+    setup = _setup(harness)
+    assert setup["kind"] == "remote" and setup["title"]
+    assert len(setup["display"]) == 2 and setup["display"][0] == agent_wiring.REACH_STEP
+    assert "Create a link" in setup["display"][1]
+    assert (setup.get("prompt"), setup.get("argv"), setup.get("deeplink"), setup.get("config")) == (None, None, None, None)
+    assert "no automatic save" in setup["note"]

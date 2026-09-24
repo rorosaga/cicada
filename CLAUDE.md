@@ -874,7 +874,7 @@ Export reminders (`ExportWaits`) ask for notification permission only when the p
 delay; the Feed strip, the menu bar and the card say the same with notifications off.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
-Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
+Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
 in. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling
@@ -892,6 +892,14 @@ same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
 only: the Max-tier cost-estimate picker is gone (the no-price ruling).
+**Who reads (round 4, R-AG10…R-AG14).** OpenRouter is its own card: *Sign in with OpenRouter* (PKCE, the nonce in
+the callback path) or *Paste a key instead*; under the hood it is `byok` with an `openrouter/` model, so ruling 4 is
+unchanged and `PUT {mode: "openrouter"}` is a 422 — every card becomes a mode through `EngineWrite.mode(of:)`, and
+`selected` on the wire names the card. The API key card is a provider picker (Anthropic, OpenAI, Gemini, xAI, Groq,
+Mistral), each writing its tested default model and offering its key field in place; a key's model pins its judge.
+Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMacNote` — a pure function — says
+where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
+A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
@@ -935,7 +943,13 @@ Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `Ag
 setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
 Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
 desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
-the value itself).
+the value itself). Round 4 C8: Settings → Agents is one selector of ten agents (`AgentCatalog`, pinned to
+`agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`) with numbered steps below (`AgentSetupSteps`),
+reused by onboarding. OpenCode, Hermes and OpenClaw register by editing their own config from a pasted prompt — Cicada
+runs nothing for them and only reads that file (`agent_wiring.config_state`, ≤ 256 KB, parse-only); Claude, ChatGPT and
+Grok go through From anywhere (`kind: remote`). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
+rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
+`~/.claude.json`; polled every 3 s while the page is visible.
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
@@ -1126,12 +1140,16 @@ Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol
 is fetched once by a maintainer with `scripts/fetch-logos.sh`, declared in
 `Resources/logos/logos.manifest.json` (source, licence, trademark restriction, sha256) and
 attributed in `Resources/logos/LOGOS.md` — marks committed before the pipeline are declared
-`legacy` (12 of the 27): the script never fetches them, their sha256 is verified on every run, and
-their licence line records the commit that introduced them rather than an upstream grant. **No
+`legacy` (10 of the 30): the script never fetches them, their sha256 is verified on every run, and
+their licence line records the commit that introduced them rather than an upstream grant. Origins are
+`commons | repo | recut | legacy`; a `repo` mark (R-AG9: OpenCode, OpenRouter) is pinned to a 40-hex
+commit on the vendor's own repository, with the same upstream-drift guard as Commons. **No
 runtime network:** none of the three outbound gates is involved. A raster whose background IS the
-mark (`claude-code`, `claude-desktop`, `hermes`) is never recut — every surface that draws one
-clips it to its own curvature instead, and `LogoAssetTests` names them so a fourth cannot arrive
-unnoticed. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+mark (`hermes`, the only one) is never recut — every surface that draws one clips it to its own
+curvature instead, and `LogoAssetTests` names any opaque plate so another cannot arrive unnoticed.
+**Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
+`LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
+keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 
@@ -1212,8 +1230,10 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 32 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
-**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
-`GET /sources/connectors/{id}/callback` requires `Authorization: Bearer <token>`, from
+**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
+`GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
+`GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
+carried in the path, since OpenRouter appends only `code`; the PKCE verifier never leaves the backend) requires `Authorization: Bearer <token>`, from
 `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram
 webhook is exempt because Telegram's servers cannot send the header — today it is gated only by
 Telegram being configured, not by a per-request secret (**see G57**). Each OAuth callback lands in
@@ -1483,8 +1503,9 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
   through `link_enrichment.default_fetch`, the rail's reference transport — and paper details
   (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
-  A user-initiated `sync_now`, `POST /maintenance/enrich-links` and every OAuth
-  `authorize_url`/`exchange_code` call are **never** gated by it — they always need the network to
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, every OAuth
+  `authorize_url`/`exchange_code` call and OpenRouter's sign-in key exchange (`openrouter.ai/api/v1/auth/keys`,
+  R-AG10; the key lands only in `secrets.env`) are **never** gated by it — they always need the network to
   do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an

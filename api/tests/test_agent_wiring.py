@@ -237,3 +237,65 @@ def test_the_probes_run_side_by_side_on_a_six_second_budget(tmp_path):
                                    resolve=lambda name: name))
     # Two 0.4 s probes at once (~0.4 s), never 0.8 s in a row; the margin absorbs a loaded CI box.
     assert time.perf_counter() - started < 0.7
+
+
+# --- Round 4 C8 (R-AG3, R-AG4): agents that register through their own config ---
+
+
+def _write(home: Path, rel: str, text: str) -> None:
+    path = home / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_each_config_agent_reads_only_its_own_file_and_key(tmp_path):
+    _write(tmp_path, ".config/opencode/opencode.json", json.dumps({"mcp": {"cicada": {"type": "local"}}}))
+    _write(tmp_path, ".hermes/config.yaml", "mcp_servers:\n  cicada:\n    command: x\n")
+    _write(tmp_path, ".openclaw/openclaw.json", json.dumps({"mcp": {"servers": {"other": {}}}}))
+    _write(tmp_path, ".cursor/mcp.json", json.dumps({"mcpServers": {"cicada": {}}}))
+    _write(tmp_path, ".codex/config.toml", '[mcp_servers.cicada]\ncommand = "x"\n')
+    assert agent_wiring.config_state("opencode", tmp_path) == "on"
+    assert agent_wiring.config_state("hermes", tmp_path) == "on"
+    assert agent_wiring.config_state("openclaw", tmp_path) == "off"      # the file exists, Cicada is not in it
+    assert agent_wiring.config_state("cursor", tmp_path) == "on"
+    assert agent_wiring.config_state("codex", tmp_path) == "on"
+    assert agent_wiring.config_state("gemini-cli", tmp_path) == "off"    # no file
+
+
+def test_opencode_reads_jsonc_with_comments_and_trailing_commas(tmp_path):
+    _write(tmp_path, ".config/opencode/opencode.jsonc",
+           '{\n  // mine\n  "mcp": {\n    /* cicada */ "cicada": {"type": "local", "url": "http://x//y"},\n  },\n}\n')
+    assert agent_wiring.config_state("opencode", tmp_path) == "on"
+    # OpenClaw's openclaw.json and Cursor's mcp.json are commented by hand as often as not (JSON5 / JSONC);
+    # strict JSON is a subset, so every `.json` goes through the same tolerant reader.
+    _write(tmp_path, ".openclaw/openclaw.json", '{\n  // gateway\n  "mcp": {"servers": {"cicada": {},},},\n}\n')
+    assert agent_wiring.config_state("openclaw", tmp_path) == "on"
+
+
+def test_an_unparseable_or_oversized_config_is_unknown_never_off(tmp_path):
+    _write(tmp_path, ".hermes/config.yaml", "mcp_servers: [unclosed\n")
+    assert agent_wiring.config_state("hermes", tmp_path) == "unknown"
+    _write(tmp_path, ".cursor/mcp.json", " " * (agent_wiring.CONFIG_MAX_BYTES + 1))
+    assert agent_wiring.config_state("cursor", tmp_path) == "unknown"
+
+
+def test_the_three_new_agents_are_read_only_rows(tmp_path):
+    _write(tmp_path, ".config/opencode/opencode.json", json.dumps({"mcp": {"cicada": {}}}))
+    data = _probe(tmp_path, resolve=lambda name: f"/opt/homebrew/bin/{name}")
+    for agent_id, recall in (("opencode", "on"), ("hermes", "off"), ("openclaw", "off")):
+        row = _row(data, agent_id)
+        assert (row["installed"], row["recall"], row["autosave"], row["connect"]) == (True, recall, "n/a", []), agent_id
+        assert row.get("autorecall", "n/a") == "n/a"
+
+
+def test_the_row_order_keeps_gemini_where_it_was(tmp_path):
+    ids = [row["id"] for row in _probe(tmp_path)["agents"]]
+    assert ids == ["claude-code", "codex", "gemini-cli", "opencode", "hermes", "openclaw"]
+
+
+def test_no_config_probe_reaches_library_or_anything_of_claude_code_s():
+    """R-AG4: the backend reads an agent's own MCP config, never a path the app
+    alone may read and never Claude Code's state file (its signal is the hook)."""
+    for probe in agent_wiring.CONFIG_PROBES.values():
+        for rel in probe.files:
+            assert "Library" not in rel and ".claude" not in rel, rel

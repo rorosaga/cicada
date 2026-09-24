@@ -44,8 +44,10 @@ private struct CompactEngineChooser: View {
     /// `/connections` is not a `/sync/version` component — so a mode change
     /// refreshes that one domain itself.
     @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var selectedMode: String = "auto"
+    /// R-AG12 — the selected CARD (`response.selected`), so OpenRouter and the API key stay apart.
+    @State private var selectedCard: String = "auto"
     @State private var selectedModel: String = ""
     @State private var loadedOnce = false
 
@@ -95,8 +97,9 @@ private struct CompactEngineChooser: View {
                 EngineOptionCard(
                     candidate: candidate,
                     isSelected: selected,
-                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedMode),
+                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard),
                     costModel: EngineOption.costModel(for: candidate.id),
+                    tag: EngineOption.isLocal(candidate.id) ? Copy.engineLocalTag : nil,
                     caption: EngineOption.compactCaption(for: candidate, hasKey: hasKey),
                     showsWillRead: selected
                 ) { select(candidate) }
@@ -113,6 +116,15 @@ private struct CompactEngineChooser: View {
             }
         }
 
+        // R-AG14 — the same note Settings → Engines shows, for the card the Welcome would write
+        // (the pick) or else the saved one, so phase B's Who reads inherits it.
+        let note = LeavesMacNote.text(selected: pick?.wrappedValue ?? selectedCard, provider: response.provider,
+                                      manualEngine: response.preview?.manual.engine, providers: response.providers)
+        VStack(alignment: .leading, spacing: 0) {
+            if let note { LeavesMacNoteRow(note: note).transition(.opacity) }
+        }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: note)
+
         CompactEngineLine(response: response, readiness: readiness,
                           pickLabel: pick?.wrappedValue.flatMap { id in response.candidates.first { $0.id == id }?.label })
     }
@@ -123,7 +135,7 @@ private struct CompactEngineChooser: View {
     /// what every read of `candidate.models`/`preview` ultimately reflects.
     private func syncFromResponse() {
         guard let response = vm.response else { return }
-        selectedMode = response.mode
+        selectedCard = response.selected
         selectedModel = response.model
     }
 
@@ -132,19 +144,19 @@ private struct CompactEngineChooser: View {
         // writes it. The already-saved engine is still a pick the ring must
         // show, so the equality guard below does not apply here.
         if let pick {
-            if EngineOption.isSelectable(candidate, selectedMode: selectedMode) { pick.wrappedValue = candidate.id }
+            if EngineOption.isSelectable(candidate, selectedMode: selectedCard) { pick.wrappedValue = candidate.id }
             return
         }
-        guard candidate.id != selectedMode else { return }
-        selectedMode = candidate.id
-        let defaultModel = candidate.models.first ?? ""
-        selectedModel = defaultModel
-        commit(mode: candidate.id, model: defaultModel.isEmpty ? nil : defaultModel)
+        // R-AG12 / R-HS7: the one write rule, so a card becomes its mode in one place.
+        guard let write = EngineWrite.choosing(candidate, current: selectedCard) else { return }
+        selectedCard = candidate.id
+        selectedModel = write.model ?? ""
+        commit(write)
     }
 
-    private func commit(mode: String, model: String?) {
+    private func commit(_ write: EngineWrite) {
         Task { @MainActor in
-            await vm.set(mode: mode, model: model, disambiguationModel: nil)
+            await vm.apply(write)
             // R-E24: POWERS follow the chosen engine — refresh that one domain
             // now (the same call `ConnectionsViewModel` makes after a change).
             await store.refresh([.connections])
