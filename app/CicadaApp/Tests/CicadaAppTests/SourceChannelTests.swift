@@ -61,6 +61,15 @@ final class SourceChannelTests: XCTestCase {
         XCTAssertEqual(hit?.value.map(\.id), channels.map(\.id))
         XCTAssertEqual(hit?.etag, "\"c1\"")
     }
+
+    /// R-SR14 — `parts` is optional-with-default: an older backend's row decodes to none.
+    func testPartsDecodeAndDefaultToNone() throws {
+        let bare = try JSONDecoder().decode(SourceChannel.self, from: Data(#"{"id":"notes"}"#.utf8))
+        XCTAssertEqual(bare.parts, [])
+        let safari = try JSONDecoder().decode(SourceChannel.self,
+                                              from: Data(#"{"id":"safari-bookmarks","parts":[{"key":"favorites","count":12}]}"#.utf8))
+        XCTAssertEqual(safari.parts, [ChannelPart(key: "favorites", count: 12)])
+    }
 }
 
 /// The "+" sheet must be able to explain every channel the backend can report

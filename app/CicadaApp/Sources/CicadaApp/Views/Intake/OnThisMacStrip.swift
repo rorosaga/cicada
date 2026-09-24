@@ -85,8 +85,10 @@ struct OnThisMacStrip: View {
         case .agent("codex"): .logo("codex")
         case .agent("cursor"): .app(bundleId: LocalInventory.cursorBundleId, logo: "cursor", symbol: "cursorarrow")
         case .agent("claude-desktop"): .app(bundleId: LocalInventory.claudeDesktopBundleId, logo: "claude-desktop", symbol: "bubble.left")
-        case .browser("chrome-bookmarks"): .app(bundleId: "com.google.Chrome", logo: "chrome", symbol: "globe")
-        case .browser("safari-bookmarks"): .app(bundleId: "com.apple.Safari", logo: nil, symbol: "safari")
+        // Round 4 (C9): every browser from its catalog row — the installed icon, then the bundled mark, then a symbol.
+        case .browser(let channel):
+            BrowserInventory.spec(forBookmarksChannel: channel)
+                .map { FoundMark.app(bundleId: $0.bundleId, logo: $0.logo, symbol: $0.symbol) } ?? .logo("")
         default: .logo("")
         }
     }

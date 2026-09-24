@@ -81,6 +81,13 @@ final class FoundTurnOnTests: XCTestCase {
         XCTAssertEqual(r, .on("412 bookmarks saved"))
     }
 
+    /// Round 4 phase A final review, finding 1 — the row's × during a first
+    /// sync is a stop, said as a stop (R-SR11), and the browser stays on.
+    func testStoppingABrowsersFirstSyncIsAStopNotAFailure() async {
+        let r = await FoundTurnOn.run(.browser("brave-bookmarks"), deps: deps(sync: .failure(CancellationError())))
+        XCTAssertEqual(r, .on(Copy.syncStopped))
+    }
+
     func testCursorOpensItsDeepLinkAndClaudeDesktopFinishesInSettings() async {
         var opened: [URL] = []
         let cursor = await FoundTurnOn.run(.agent("cursor"), deps: deps(wiring: wiring(), opened: { opened.append($0) }))

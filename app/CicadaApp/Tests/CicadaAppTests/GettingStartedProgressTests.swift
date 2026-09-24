@@ -167,4 +167,27 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertEqual(ScheduleChoice.config(for: .afterImport, current: current).mode, "after_import")
         XCTAssertEqual(ScheduleChoice.config(for: .manual, current: current), current)
     }
+
+    /// Round 4 (decision 3) — a browser row says when it last synced; an agent row keeps its own words.
+    func testABrowserRowSaysItsLastSyncAndAnAgentRowKeepsItsWords() {
+        let synced = SourceChannel(id: "chrome-bookmarks", label: "Chrome bookmarks", connected: true, count: 2104,
+                                   lastSync: "2026-09-24T21:38:00Z", countNoun: "bookmark", actions: ["sync"])
+        let chrome = GettingStartedRow(id: .browser("chrome-bookmarks"), title: "Chrome", detail: "Bookmarks you save",
+                                       state: .on)
+        let model = GettingStartedSourceRows.model(chrome, origin: "chrome-bookmark", channel: synced, watch: .watching,
+                                                   run: nil)
+        XCTAssertEqual(model.status, .synced(ISO8601DateFormatter().date(from: "2026-09-24T21:38:00Z")!))
+        XCTAssertEqual(model.line, SourceRowText.countLine(synced))
+        let codex = GettingStartedRow(id: .agent("codex"), title: "Codex", detail: "Connected", state: .on)
+        let agent = GettingStartedSourceRows.model(codex, origin: "codex", channel: nil, watch: nil, run: nil)
+        XCTAssertEqual(agent.status, .idle)
+        XCTAssertEqual(agent.line, "Connected")
+        let failed = GettingStartedRow(id: .browser("safari-bookmarks"), title: "Safari", detail: "", state: .failed("No luck"))
+        XCTAssertEqual(GettingStartedSourceRows.model(failed, origin: "safari-bookmark", channel: nil, watch: nil, run: nil).status,
+                       .problem("No luck"))
+        let connecting = GettingStartedRow(id: .agent("codex"), title: "Codex", detail: "", state: .working("Connecting Codex…"))
+        let wiring = GettingStartedSourceRows.model(connecting, origin: "codex", channel: nil, watch: nil, run: nil)
+        XCTAssertEqual(wiring.status, .idle, "connecting an agent is never 'Syncing now'")
+        XCTAssertEqual(wiring.line, "Connecting Codex…")
+    }
 }

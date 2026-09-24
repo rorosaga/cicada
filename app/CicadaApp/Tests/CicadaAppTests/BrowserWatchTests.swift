@@ -56,7 +56,8 @@ final class BrowserWatchPolicyTests: XCTestCase {
     /// stream. A bookmark is an intentional act; an open tab is not.
     func testOnlyBookmarksAreWatched() {
         let watched = BrowserWatchPolicy.watched.map(\.channel)
-        XCTAssertEqual(watched, ["chrome-bookmarks", "safari-bookmarks"])
+        XCTAssertEqual(watched, ["chrome-bookmarks", "safari-bookmarks", "brave-bookmarks", "vivaldi-bookmarks",
+                                 "comet-bookmarks", "dia-bookmarks"])
         XCTAssertFalse(BrowserWatcher.isWatched("safari-tabs"))
         XCTAssertFalse(BrowserWatcher.isWatched("notes"))
         XCTAssertTrue(BrowserWatcher.isWatched("chrome-bookmarks"))
@@ -235,6 +236,59 @@ final class BrowserWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    /// Task 3 review, round 1: a file the app may not open (Full Disk Access missing) stats as absent, so the light
+    /// asks an open instead — blocked, with the fix's error, and not sticky: once access is back, Try again (a Sync
+    /// now) reads it and the light moves on.
+    func testARefusedFileReadsBlockedNotAbsentAndRecoversOnTryAgain() async throws {
+        try atomicallyReplace(with: "{}")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        turnOn()   // final review, finding 4: only a browser the person chose is probed
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        guard case .notReadable? = watcher.error(for: "chrome-bookmarks") else {
+            return XCTFail("a blocked row needs the Full Disk Access error for its hint")
+        }
+        XCTAssertTrue(synced.isEmpty, "the probe reads nothing")
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path)
+        _ = try await watcher.syncNow("chrome-bookmarks")
+        XCTAssertEqual(synced, ["chrome-bookmarks"])
+        XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
+        XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        watcher.stop()
+    }
+
+    /// Final review, finding 4 (R-IA3): a refused file nobody turned on is never "Needs Full Disk Access" with a hint
+    /// and a Try again for something never tried.
+    func testARefusedFileNobodyTurnedOnIsOffNotBlocked() async throws {
+        try atomicallyReplace(with: "{}")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await Task.sleep(for: .milliseconds(200))
+        // Not opened, so it reads as not found — the round-1 path, whose row offers Turn on with "Nothing from … yet".
+        XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .absent)
+        XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
+        XCTAssertTrue(synced.isEmpty)
+        watcher.stop()
+    }
+
+    func testTheOpenProbeTellsPresentBlockedAndAbsentApart() throws {
+        XCTAssertEqual(BrowserFileAccess.probe([dir.appendingPathComponent("nope")]), .absent)
+        try atomicallyReplace(with: "{}")
+        XCTAssertEqual(BrowserFileAccess.probe([dir.appendingPathComponent("nope"), bookmarks]), .present)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        XCTAssertEqual(BrowserFileAccess.probe([bookmarks]), .blocked(bookmarks.path))
+    }
+
     /// F1, end to end: the file exists, nobody turned the browser on, the app
     /// launches and the file changes — nothing is read, and the light says Off.
     func testFirstLaunchReadsNoBrowserBeforeConsent() async throws {
@@ -300,6 +354,28 @@ final class BrowserWatcherTests: XCTestCase {
         XCTAssertTrue(synced.isEmpty)
         watcher.enable("chrome-bookmarks")
         try await eventually("enable's catch-up") { synced == ["chrome-bookmarks"] }
+        watcher.stop()
+    }
+
+    /// R-SR11 — × stops the run: no failure light, no error, and no signature, so the next save reads it again.
+    func testCancelStopsTheRunWithoutAFailureAndWithoutRecordingTheFile() async throws {
+        try atomicallyReplace(with: "{}")
+        let activity = SyncActivity()
+        let watcher = BrowserWatcher(
+            defaults: defaults, channels: [("chrome-bookmarks", .chromeBookmarks)],
+            paths: { [dir] _ in [dir!.appendingPathComponent("Bookmarks")] },
+            debounce: .milliseconds(60), minimumInterval: .milliseconds(1), activity: activity,
+            performSync: { _, _ in try await Task.sleep(for: .seconds(30)); return "never" })
+        watcher.start(store: store)
+        let running = Task { try await watcher.syncNow("chrome-bookmarks") }
+        try await eventually("the run to register") { activity.run(for: "chrome-bookmarks")?.cancellable == true }
+        activity.cancel("chrome-bookmarks")
+        do { _ = try await running.value; XCTFail("a cancelled sync must not report a line") }
+        catch { XCTAssertTrue(SyncCancellation.isCancellation(error), "\(error)") }
+        XCTAssertNil(activity.run(for: "chrome-bookmarks"))
+        XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .failed)
+        XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
+        XCTAssertNil(defaults.data(forKey: "cicada.browserWatch.chrome-bookmarks"), "no signature: the next change re-reads")
         watcher.stop()
     }
 }

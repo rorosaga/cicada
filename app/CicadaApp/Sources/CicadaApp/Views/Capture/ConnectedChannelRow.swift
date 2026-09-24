@@ -226,7 +226,8 @@ struct ConnectedChannelRow: View {
         return switch id {
         case "rss": "dot.radiowaves.up.forward"
         case "calendar": "calendar"
-        case "chrome-bookmarks": "globe"
+        // Round 4 (C9): the Chromium family's fallback circle is Chrome's globe.
+        case "chrome-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks": "globe"
         case "safari-bookmarks", "safari-tabs": "safari"
         case "notes": "note.text"
         case "telegram": "paperplane.fill"
@@ -271,6 +272,9 @@ struct ConnectedChannelRow: View {
     static func origin(forChannel id: String) -> String {
         // G133: every `folder:<id>` row's episodes carry the one `folder` origin.
         if id.hasPrefix("folder:") { return "folder" }
+        // Round 4 (C9): every supported browser's bookmarks row is its catalog origin (Chrome and Safari resolve to
+        // the same strings as before).
+        if let spec = BrowserInventory.spec(forBookmarksChannel: id) { return spec.origin }
         return switch id {
         case "chat-export:claude": "claude-export"
         case "chat-export:chatgpt": "chatgpt-export"

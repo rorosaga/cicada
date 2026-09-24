@@ -431,3 +431,19 @@ def test_build_channels_runs_off_the_event_loop(client, monkeypatch):
     monkeypatch.setattr(sources_router.channel_registry, "build_channels", spy)
     assert client[0].get("/sources/channels").status_code == 200
     assert seen == [False], "build_channels must not run on the event loop"
+
+
+def test_a_chromium_browser_row_appears_only_once_it_has_synced(tmp_path):
+    """R-SR15: the app's inventory offers Brave before its first sync; the registry lists it only after, so an
+    install without Brave never carries a Brave row."""
+    assert "brave-bookmarks" not in _channels(tmp_path)
+    sync_state.record_sync(tmp_path, "brave-bookmarks", count=5, at="2026-09-24T10:00:00Z")
+    ch = _channels(tmp_path)["brave-bookmarks"]
+    assert (ch["label"], ch["connected"], ch["count"], ch["count_noun"], ch["actions"], ch["parts"]) == (
+        "Brave bookmarks", True, 5, "bookmark", ["sync"], [])
+
+
+def test_parts_ship_only_positive_known_counts(tmp_path):
+    sync_state.record_sync(tmp_path, "safari-bookmarks", count=9,
+                           extra={"reading_list": 2, "favorites": 0, "surprise": 4})
+    assert _channels(tmp_path)["safari-bookmarks"]["parts"] == [{"key": "reading-list", "count": 2}]

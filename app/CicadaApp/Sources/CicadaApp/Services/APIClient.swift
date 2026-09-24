@@ -366,6 +366,10 @@ struct BookmarkSyncSourceSummary: Codable {
     let found: Int
     let new: Int
     let skipped: Int
+    /// R-SR13 — Safari's Reading List and Favorites tallies (0 for every other browser). Optional so a backend from
+    /// before round 4 still decodes; declared last so the memberwise init keeps its order.
+    var readingList: Int? = nil
+    var favorites: Int? = nil
 }
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
@@ -1682,6 +1686,14 @@ actor APIClient {
         if let safariData { body["safariDataB64"] = safariData.base64EncodedString() }
         if let folders { body["folders"] = folders }
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
+    }
+
+    /// `POST /sources/sync-bookmarks` with `chromium` (round 4, C9): one Chromium-family browser's default-profile file,
+    /// read by the app (the backend never opens a profile).
+    @discardableResult
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
+        try await post("/sources/sync-bookmarks",
+                       body: ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]])
     }
 
     /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,

@@ -500,7 +500,9 @@ final class Store {
             return true
         } catch {
             await mutation.rollback(self)
-            toast = mutation.failureMessage
+            // R-SR11 — the person stopped it: no toast. The reconcile below shares the cancelled task, so its
+            // requests end at once; the next SSE `version` event is what brings the domains back in line.
+            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) { toast = mutation.failureMessage }
             Self.logger.debug("mutation failed: \(String(describing: error))")
             // The rollback restores what this mutation changed, but it cannot
             // know what else moved while the request was in flight (an SSE

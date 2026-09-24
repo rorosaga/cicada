@@ -150,7 +150,11 @@ Seven rails hold across all of them:
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
   A browser is read only after the person turned it on — a Sync now, an all-folders import, or
   onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
-  before this gate keeps syncing (Track I T1).
+  before this gate keeps syncing (Track I T1). Browsers (round 4, C9): Chrome, Safari, Brave,
+  Vivaldi, Comet and Dia — each read from its default profile only (`<browser>-bookmarks`, the
+  Chromium `Bookmarks` JSON through one parser); Safari's Reading List keeps its added date and
+  Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
+  counts as the channel's `parts`.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
@@ -881,7 +885,12 @@ Mac) — both standing connections, so both live here; their marks are the insta
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
-(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b).
+(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b). **Browsers (round 4, C9)** are drawn
+from `BrowserInventory` — the browsers on this Mac by bundle id, each with its installed icon: Chrome,
+Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, the Full Disk Access fix under
+Safari when needed, 'Last synced …'), and the ones Cicada cannot sync yet (Arc, Firefox, Edge, Opera)
+named once in the header, never as a row. Safari's source page groups its items as Recently saved ·
+Favorites · Other bookmarks.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s
@@ -942,6 +951,13 @@ documents stays off until something says who wrote a document (F2-back R-B14).
   (`BrowserStatusLight.showsFixHint`); the fix lives in the source's detail column. *Advanced statistics* is a
   remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
   eyebrow row, which reads "Sources · n connected".
+
+**Source rows and last sync (round 4).** Every source that keeps up renders one `SourceRow`
+(`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
+(`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'
+with an × or 'Last synced 2 minutes ago' (the persisted `lastSync`, re-read every 30 s; an import says 'Imported …').
+`SyncActivity` is the one registry of running syncs; × cancels the run only (R-SR11). Sources' detail column, every
+Integrations channel row and Home's Getting started rows use it.
 
 **Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
