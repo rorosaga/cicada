@@ -27,6 +27,7 @@ from api.models.schemas import (
     LocationEntry,
     LocationListing,
     PaperDetailResponse,
+    PictureInputsModel,
     RepoContext,
     RepoContextList,
     RepoInput,
@@ -36,6 +37,7 @@ from api.models.schemas import (
 from api.services import (
     decay_policy,
     decay_tuning,
+    entity_picture,
     fact_sources,
     git_service,
     logo_service,
@@ -81,6 +83,9 @@ async def get_entity(
     effective = decay_policy.effective(
         fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
     )
+    # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+    picture, picture_inputs = entity_picture.resolve_page(
+        settings.memory_path, entity_id, fm, parsed.body, page_mtime=entity_path.stat().st_mtime)
 
     return EntityResponse(
         id=entity_id,
@@ -106,6 +111,9 @@ async def get_entity(
             effective_rate_per_week=round(effective.rate, 6),
             mention_weeks=effective.mention_weeks,
         ),
+        picture=picture.url,
+        picture_source=picture.source,
+        picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
     )
 
 

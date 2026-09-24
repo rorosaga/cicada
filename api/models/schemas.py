@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -461,6 +461,28 @@ class EntityDecay(CamelModel):
     mention_weeks: int
 
 
+class PictureInputsModel(CamelModel):
+    """C11 — the rung inputs `entity_picture.resolve` read (plan R-PE5), so the app's twin can paint a removal before
+    the server answers (R-PE10). `choice` is the person's (`upload` | `initials`); `logo` is already the logo rung's
+    eligibility AND availability, decided server-side. On the entity and the write answers only — never on `/graph`."""
+
+    type: str
+    choice: Optional[str] = None
+    upload_sha: Optional[str] = None
+    contacts_sha: Optional[str] = None
+    logo: bool = False
+    thumbnail: Optional[str] = None
+
+
+class EntityPictureResponse(CamelModel):
+    """What every picture write answers (C11): the page's picture after the write, and its inputs."""
+
+    entity_id: str
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: PictureInputsModel
+
+
 class EntityResponse(CamelModel):
     id: str
     name: str
@@ -493,6 +515,13 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
+    # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
+    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`) or a media page's https thumbnail it loads without it
+    # (plan R-PE6); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
+    # all three.
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: Optional[PictureInputsModel] = None
 
 
 class PaperSummary(CamelModel):
@@ -1400,6 +1429,21 @@ class GraphNode(CamelModel):
     # app's instant search tier. Shipped after measuring the payload (plan
     # R-SU23; the number is on the G136 row). Additive/defaulted.
     aliases: list[str] = []
+    # C11 (G146) — the page's resolved picture and its rung, and the day it was last mentioned (F-12's ages and
+    # Clusters' recency order, plan R-PE13). Additive. `picture`/`pictureSource` are OMITTED when there is none: this is
+    # the app's largest snapshot and most pages have no picture, so an absent one costs nothing (R-PE5).
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    last_referenced: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_picture(self, handler) -> dict[str, Any]:
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("picture", "pictureSource", "picture_source"):
+                if key in data and data[key] is None:
+                    del data[key]
+        return data
 
 
 class GraphLink(CamelModel):

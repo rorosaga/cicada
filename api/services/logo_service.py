@@ -598,6 +598,19 @@ def cached_ids(bank: str) -> set[str]:
     }
 
 
+def missed_ids(bank: str) -> dict[str, float]:
+    """Every entity id with a FRESH recorded miss, mapped to when it was recorded (epoch seconds). Read-only, no
+    network — the picture precedence's logo rung is "cached, or not yet known to miss" (G146 plan R-PE9), and a page
+    edited after its miss is re-resolved exactly as `page_edited_since_fetch` re-resolves it for the logo endpoint."""
+    out: dict[str, float] = {}
+    for eid, entry in read_meta(bank).items():
+        if isinstance(entry, dict) and entry.get("miss") and is_fresh(entry):
+            fetched = _fetched_at(entry)
+            if fetched is not None:
+                out[eid] = fetched.timestamp()
+    return out
+
+
 # --- concurrency -------------------------------------------------------------
 #
 # `_lock("meta")` serialises the read-modify-write of a bank's `meta.json` so

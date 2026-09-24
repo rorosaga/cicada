@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, claim_contexts, decay_policy, logo_service, predicates
+from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
 from api.services.claims import parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
@@ -160,6 +160,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
         logo_ids = logo_service.cached_ids(logo_service.bank_name(memory_path))
     except Exception:
         logo_ids = set()
+    # C11 (G146 plan R-PE9) — the logos known to miss, so the picture precedence offers the logo rung only while a
+    # fetch could still succeed. Read-only, like `logo_ids`: `/graph` never fetches.
+    try:
+        logo_misses = logo_service.missed_ids(logo_service.bank_name(memory_path))
+    except Exception:
+        logo_misses = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -186,6 +192,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     )
         except Exception:
             pass
+        picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
+                                                 cached=logo_ids, missed=logo_misses)
         nodes.append(
             GraphNode(
                 id=eid,
@@ -204,6 +212,9 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 decay_class=decay_policy.resolve(fm)[0],
                 is_owner=bool(fm.get("owner")),
                 aliases=node_aliases(fm),
+                picture=picture.url,
+                picture_source=picture.source,
+                last_referenced=entity_picture.day(fm.get("last_referenced")),
             )
         )
         for repo_decl in fm.get("repos") or []:
@@ -302,12 +313,15 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # change. Folding them in moves every such node exactly once.
     # Runs after hub injection (so `hub_id` is known) and before facet nodes are
     # built (they fold the parent's hash in, so they follow their subject).
+    # C11: the resolved picture is derived from the logo index too (a fetch that
+    # misses changes it with no page edit), so it folds in like has_logo.
     for node in nodes:
         if node.id in entity_ids:
             node.content_hash = synthetic_hash(
                 node.content_hash, node.degree, node.has_pending, node.hub_id,
                 node.has_logo, node.decay_class.value,
                 "\x1e".join(node.contexts), node.summary,
+                node.picture, node.picture_source, node.last_referenced,
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
