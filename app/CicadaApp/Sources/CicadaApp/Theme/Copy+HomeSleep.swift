@@ -67,6 +67,12 @@ extension Copy {
     /// A Settings sheet's close × (R-HS16).
     static let sheetClose = "Close"
 
+    /// A Settings row's detail line in ⌘K — "Settings · Engines" — so a row reads where it lives
+    /// before ⏎ opens it there (R-HS19).
+    enum PaletteSettings {
+        static func detail(_ section: String) -> String { "\(Copy.settings) · \(section)" }
+    }
+
     /// Every DS-3b label `HomeSleepCopyTests` holds to DR-59. Later tasks append here.
     static let homeSleepLabels: [String] = [
         EngineMenu.title, EngineMenu.buttonHelp, EngineMenu.model, EngineMenu.howAutoPicks,
@@ -83,5 +89,6 @@ extension Copy {
         Folders.addTitle, Folders.name, Folders.project, Folders.projectHelp, Folders.writtenByAnAgent,
         Folders.filesIn("research"), Folders.filesMatching("*.draft.md"), Folders.chooseSubfolder,
         Folders.pickInside("example-notes"), sheetClose,
+        PaletteSettings.detail("Engines"),
     ]
 }

@@ -208,7 +208,7 @@ struct SettingsPanel: View {
     }
 
     private func openTopHit() {
-        if let top = hits.first { open(top.entry) }
+        if let top = SettingsSearchLanding.topHit(trimmedQuery, in: entries) { open(top) }
     }
 
     /// The retired scene's `apply`, unchanged: select, then land and announce.
@@ -216,9 +216,7 @@ struct SettingsPanel: View {
         guard let request else { return }
         selection = request.section
         guard let row = request.row else { return }
-        // VoiceOver hears where it landed: "Sleep, Runs", not just "Sleep".
-        let name = SettingsIndex.entry(for: row, in: entries).map { "\(request.section.title), \($0.title)" }
-            ?? request.section.title
+        let name = SettingsSearchLanding.announcement(section: request.section, row: row, in: entries)
         focus.land(on: row, announcing: name, reduceMotion: reduceMotion)
     }
 }

@@ -65,13 +65,14 @@ final class FindPaletteTests: XCTestCase {
         XCTAssertEqual(Set(objects[0].keys), ["kind", "id"], "a recent is a key — never the query, never a title")
     }
 
-    func testASettingsRowExplainsInsteadOfOpening() {
+    /// R-HS20 — ⏎ on a Settings row opens it through `AppRouter.openSettings` (the host runs the
+    /// destination), and it is remembered like any row that navigates.
+    func testASettingsRowOpensThroughTheOneDoor() {
         let m = model()
         m.setQuery("integrations")
-        XCTAssertNil(m.activate(FindRowKey(kind: .setting, id: SettingsSection.integrations.rawValue)))
-        XCTAssertNotNil(m.hint)
-        m.setQuery("integration")
-        XCTAssertNil(m.hint, "the next keystroke clears it")
+        let key = FindRowKey(kind: .setting, id: SettingsSection.integrations.rawValue)
+        XCTAssertEqual(m.activate(key), .settings(.integrations, row: nil))
+        XCTAssertEqual(m.recents.first, key)
     }
 
     func testAnAskedBeforeRowShowsTheCachedAnswerInAskMode() throws {
@@ -153,5 +154,12 @@ final class FindPaletteTests: XCTestCase {
                                              settingsOpen: true), .ignore)
         XCTAssertEqual(PaletteToggle.outcome(for: PaletteRequest(prefill: "alpha"), isOpen: false, firstRunShowing: false,
                                              homeVisible: true, settingsOpen: true), .ignore)
+    }
+
+    func testTheHostOpensSettingsThroughTheRouter() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.lastPathComponent == "ContentView.swift" })
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertTrue(text.contains("case .settings(let section, let row):"))
+        XCTAssertTrue(text.contains("router.openSettings(section, row: row)"))
     }
 }
