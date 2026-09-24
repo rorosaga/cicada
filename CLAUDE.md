@@ -766,19 +766,46 @@ whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
 documents stays off until something says who wrote a document (F2-back R-B14).
 
-**Sources page — v2 (G124).** One card system: fixed tile height, one column count derived from the
-container width in **scaled** units (`SourceGridColumns`, 2–4) and shared by every section, five
-bands (mark · brand name · one status verb · 14-day capture sparkline + lifetime total · four
-week-dots + delta). The verb is `SourceLiveness.of(row:channel:watch:)` — *Watching* / *Polls
-nightly* / *Captured by hook* / *Syncs when you ask* / *Imported once*, a failure carrying its real
-first clause **on** the card — read off `actions`, `harness` and the browser watch, with **no
-backend field**; the green dot it replaced meant `connected`, which is why a row exists (G124 R2),
-not what it is doing. **Two nouns, never one:** the big number is the row's own unit, the line and
-the delta are always *captured*. Every number in the window goes through
-`UsageFormat.count(_:locale:)` on the viewer's locale, pinned by `CountLiteralLintTests`, and the
-server ships `countNoun`/`countIsDelta` instead of a pre-formatted `detail` (`ChannelDetailLine`
-composes it back). Contributors is one chip strip over one **labelled** share-of-entities bar;
-`cicada`, `user` and `unknown` all have names, so no bucket the app can name renders as "?".
+**Sources page — v2 in Direction D (G124, DS-3c).**
+- **What stays from v2.** Every tile keeps Sources v2's five facts: mark · brand name · one status verb
+  (`SourceLiveness`, no backend field) · a 14-day capture sparkline + lifetime total · four week-dots + delta.
+  **Two nouns, never one**: the big number is the row's own unit, and the line and the delta are always
+  *captured*. Every number goes through `UsageFormat.count` on the viewer's locale (`CountLiteralLintTests`).
+- **D's material.** A tile is 96 pt including its padding, on `bgFocus` with a ring, the strong ring and a 1 pt
+  lift on hover, and no shadow. It is clipped to its shape. Its mark stands bare. A failure speaks in `warning`
+  with its dot hidden, and a live source keeps a green dot.
+- **Packing.** One column count (`SourceGridColumns`, 2–4) is shared by every section. Sections share a row by
+  span (`SourceGridPacking`), and the contributors block takes what the last row leaves when that is two columns
+  or more.
+- **Detail columns.** Opening a source, or an author in *Who wrote your memory* (a chip strip over a neutral,
+  labelled share bar), narrows the page to a list of rows and opens it as the detail column (`SourcesSelection`,
+  `SourceDetailView`, `ContributorDetailColumn`). A conversation's Reader is the third column.
+- **What changed from v2.** The contributor drill-down is a column, not a sheet, so its "from conversation" is
+  never under a modal. A compact G129 light never draws the Full Disk Access fix
+  (`BrowserStatusLight.showsFixHint`); the fix lives in the source's detail column. *Advanced statistics* is a
+  remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
+  eyebrow row, which reads "Sources · n connected".
+
+**Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
+text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
+detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).
+`ListColumns<ID>` holds the open row: a row that leaves the data closes the detail, and one that a tab or find
+hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
+the page's find row.
+- **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
+  remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three
+  beside a card) and "Show all N ›". The detail column hosts the Graph's `EntityDetailCard` unchanged, with its
+  `TopicDetailNavigation` trail. A ⌘K ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age:
+  `/graph` nodes have no `lastReferenced`.
+- **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
+  rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
+  and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the
+  titlebar.
+- **A saved item's detail column** shows `MediaPreview` (a video plays at the column's width), "Why it's saved"
+  (the page's own words, then the pages it is about, known ids only), and "Saved from" (the origin's mark, name,
+  folder and day, or `[ no source recorded ]`). The palette's saved-item row and a source page's items land there
+  through `AppRouter.routeToFeedItem`, and the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an
+  icon in the eyebrow row and opens the unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`.
 
 **Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
 one sentence in the display face under it, one Consolidate/Cancel control, one whisper line for
@@ -869,7 +896,8 @@ is the binding target for every UI change: graphite neutrals, the system accent,
 command bar holding the bank selector and search, and progressive columns (the list alone → list + detail → list + detail +
 Reader). Rules are numbered `DR-n` and a UI PR cites the ids it applies; a departure needs a dated ruling in its §9. The owner
 chose D from three mocked directions (the Inbox and the Reader). DS-1 shipped the tokens, the type, the shell and the
-Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column. Every other
+Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column; DS-3c (2026-09-24)
+shipped Clusters, the Feed and Sources the same way. Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
@@ -898,8 +926,8 @@ read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by 
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates.
 
-**Video (Track V).** A saved video plays where the user already is — the Feed sheet, the entity
-Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
+**Video (Track V).** A saved video plays where the user already is — a saved item's detail column in the
+Feed, the entity Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is
 derived from the URL at read time (`VideoRef.resolve`), never read out of the page, so a bank never
 needs rewriting to teach the app a new one.
 
@@ -907,8 +935,9 @@ needs rewriting to teach the app a new one.
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
 for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
-(`ReaderColumn`): the Inbox's third progressive column, and on every other page the shell's trailing
-column (`ShellReaderHost`), sized before the page so it is never pushed off-window. It is driven by
+(`ReaderColumn`): the third progressive column on the list pages that host it (the Inbox, Clusters, the Feed and
+Sources — `AppTab.hostsOwnReader`), and on every other page the shell's trailing column (`ShellReaderHost`),
+sized before the page so it is never pushed off-window. It is driven by
 `ProvenanceRouter` (a stack of `ReaderTarget`s), beside whatever is open so a belief and its sentence
 are on screen together (Direction D, DS-2). It shows C's header — mark, title, meta, and a neutral
 Resume when an `isfile()` check says the session is resumable — the pinned "1 of N cited here"
@@ -917,7 +946,9 @@ a swap onto the same conversation re-lands in place (`ProvenanceRouter.refocus`)
 a Back step. The dandelion wash and margin bar are gone (DR-13). It reads `/episodes/{id}/text`
 and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,
 so there is no `VersionVector` mapping — slices every offset as a Unicode scalar through one
-`ScalarText`, shows a time only when the episode stores one, and says stale / grown / derived /
+`ScalarText`, reads a quote and a turn without their markup or role labels (`ExcerptText.stripMarkup` /
+`quoteParts`: deletion only, so every span maps exactly; the Reader keeps a turn's lines, drawing a bullet as "•"),
+shows a time only when the episode stores one, and says stale / grown / derived /
 inferred / truncated in words — a span its rewritten document no longer reaches (the server's 422) is
 stale too, never "couldn't open". The entity card's "Where this came from" (bottom of Content) reads
 `/entities/{id}/provenance` once per card; G61's section is "Look it up at". Chips read the router
@@ -1045,8 +1076,10 @@ early by the next answer, `ActivateBank` (before the bank moves), the window clo
 the card (`FocusCardVariant`), options come from the server (a follow-up's 30-day "not now" is its own option), the
 source is named in a person's words (`InboxSourceLine`, ids in `.help` only), an asserted span is washed and
 underlined and a found mention is semibold. Esc closes the Other… field, then the Reader, then the question; keys
-never animate. No in-page search field — ⌘K's Inbox group lands in STATE 1. The Sources page's Deletions render the
-same card and Undo row.
+never animate. No in-page search field — ⌘K's Inbox group lands in STATE 1. The list takes the
+keys when the page appears and after every answer (the question only when DR-27 hides the list), so a
+repeated digit never sweeps the queue past its one Undo (DS-3c). An option, an informational value or a merge target
+that is exactly a page's id reads as the page's name (`Store.entityNames`, display only). The Sources page's Deletions render the same card and Undo row.
 
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
