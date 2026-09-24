@@ -25,6 +25,8 @@ Each turn's own time rides in G118's sidecar ``turns: [{offset, ts, speaker}]``
 is that module's line shape byte for byte — outside the hash, the last key,
 head-stable at 500. The episode ``timestamp`` stays the session's start, so a
 session resumed over three days keeps one id while its day-3 turns read day 3.
+Round 4 (C1): an agent turn's entry also carries `model`/`effort` when the
+transcript (or, for the last reply, the Stop hook) recorded them.
 """
 
 from __future__ import annotations
@@ -38,7 +40,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry
+from api.services import agent_turns, demo_guard, episode_ids, episode_staging, markdown_parser, session_stats, telemetry
 from api.services.transcript_extract import HARNESSES, Conversation, extract
 
 #: 256 MiB. The largest transcript seen on the author's machine during the
@@ -154,7 +156,8 @@ def _turn_sidecar(conv: Conversation, body: str) -> list[dict]:
     Before this the hook wrote ``turns: <count>`` and every Claude Code turn
     dated to the session's first day."""
     draft = episode_staging.EpisodeDraft(turns=[
-        episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts) for t in conv.turns])
+        episode_staging.Turn(text=t.text, speaker=t.role, ts=t.ts, model=t.model, effort=t.effort)
+        for t in conv.turns])
     return episode_staging.stamps_for(draft, body)
 
 
@@ -166,6 +169,50 @@ def _place_turns(fm: dict, sidecar: list[dict]) -> None:
     fm.pop("turns", None)
     if sidecar:
         fm["turns"] = sidecar
+
+
+def _last_offset(conv: Conversation, body: str) -> int | None:
+    """Where the body's LAST turn starts — `_body` joins `"{role}: {text}"`
+    chunks with `\\n`, so it is the body's length minus that chunk's."""
+    if not conv.turns:
+        return None
+    last = conv.turns[-1]
+    return len(body) - len(f"{last.role}: {last.text}")
+
+
+def _agent_fields(sidecar: list[dict], previous, effort: str | None, last_offset: int | None) -> list[dict]:
+    """Round 4 C1 (R4B-3): what the transcript did not say about an agent turn.
+
+    1. An agent entry the new read left without a `model`/`effort` keeps what the
+       previous sidecar held at the SAME offset — offsets are head-stable (R6), so
+       a hook-supplied effort survives the next Stop.
+    2. The Stop hook's `effort.level` fills the LAST body turn only, only when it
+       is the agent's and the transcript gave it none: the transcript wins, and a
+       reply not yet flushed leaves the hook's value with no turn to land on
+       rather than labelling the previous reply.
+    Keys stay in `TURN_STAMP_KEYS` order."""
+    before: dict[int, dict] = {}
+    if isinstance(previous, list):
+        for e in previous:
+            if isinstance(e, dict) and e.get("speaker") == "assistant":
+                try:
+                    before.setdefault(int(e.get("offset")), e)
+                except (TypeError, ValueError):
+                    continue
+    for entry in sidecar:
+        if entry.get("speaker") != "assistant":
+            continue
+        was = before.get(entry["offset"], {})
+        if "model" not in entry and (model := agent_turns.clean_model(was.get("model"))):
+            entry["model"] = model
+        if "effort" not in entry and (kept := agent_turns.clean_effort(was.get("effort"))):
+            entry["effort"] = kept
+    hook = agent_turns.clean_effort(effort)
+    if hook and sidecar and last_offset is not None:
+        tail = sidecar[-1]
+        if tail.get("offset") == last_offset and tail.get("speaker") == "assistant" and "effort" not in tail:
+            tail["effort"] = hook
+    return [{k: e[k] for k in episode_staging.TURN_STAMP_KEYS if k in e} for e in sidecar]
 
 
 def _title(conv: Conversation, harness: str) -> str:
@@ -254,6 +301,7 @@ def capture_transcript(
     cwd: str | None,
     keep_assistant: bool,
     bank: str | None = None,
+    effort: str | None = None,
 ) -> CaptureResult:
     """Validate (R2), extract, and write or update the session's one episode (R3).
 
@@ -262,6 +310,9 @@ def capture_transcript(
     nothing worth keeping, nothing written), ``created``, ``updated`` (body
     changed — re-queued for Sleep), ``unchanged`` (same hash — no write, so
     a Stop that fires after every reply costs no git noise).
+
+    ``effort``: the Stop hook's ``effort.level`` for the reply it fired after
+    (round 4 C1, R4B-3).
     """
     if demo_guard.is_demo(memory_path):
         # G141 capture-side track (R-CS12): a demo bank holds only made-up
@@ -311,7 +362,7 @@ def capture_transcript(
             }
             if cwd:
                 fm["project_dir"] = cwd
-            _place_turns(fm, _turn_sidecar(conv, body))
+            _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
             path_out = episodes_dir / f"{episode_id}.md"
             markdown_parser.write(path_out, fm, body)
             _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
@@ -320,6 +371,7 @@ def capture_transcript(
             return CaptureResult("created", episode_id, kept["user"], kept["assistant"], conv.summary)
 
         fm = dict(markdown_parser.parse(existing).frontmatter)
+        previous = fm.get("turns")
         episode_id = str(fm.get("id") or existing.stem)
         if fm.get("content_hash") == content_hash:
             _record(harness, session_id, "unchanged", conv, bank)
@@ -336,7 +388,7 @@ def capture_transcript(
         fm.pop("processed_by", None)
         if cwd and not fm.get("project_dir"):
             fm["project_dir"] = cwd
-        _place_turns(fm, _turn_sidecar(conv, body))
+        _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), previous, effort, _last_offset(conv, body)))
         markdown_parser.write(existing, fm, body)
         _record(harness, session_id, "updated", conv, bank)
         logger.info(f"capture: updated {episode_id} from {harness} session ({len(conv.turns)} turns), re-queued")

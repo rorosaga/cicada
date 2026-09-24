@@ -113,6 +113,9 @@ final class EntityContentTests: XCTestCase {
     func testABeliefsHelpAndAge() throws {
         let c = try JSONDecoder().decode(Claim.self, from: Data(#"{"id":"c1","text":"t","observer":"agent","context":"engineering","confidence":0.85,"authoredBy":"gpt-5.4-mini","validFrom":"2026-04-01","recordedAt":"2026-08-10T12:00:00Z"}"#.utf8))
         XCTAssertEqual(BeliefWords.help(c), "Cicada · Engineering · gpt-5.4-mini at 0.85")
+        // Round-4 C3 (R-FA14) — a harness write names the model its turn ran with.
+        let harness = try JSONDecoder().decode(Claim.self, from: Data(#"{"id":"clm_1","authoredBy":"claude-code","authorKind":"harness","authorModel":"claude-opus-5-5","authorEffort":"xhigh"}"#.utf8))
+        XCTAssertEqual(BeliefWords.help(harness), "Cicada · Claude Code · Opus 5.5 · extra-high effort at 0.00")
         let now = ISO8601DateFormatter().date(from: "2026-09-22T12:00:00Z")!
         let age = try XCTUnwrap(BeliefWords.age(c, now: now, locale: us))
         XCTAssertEqual(age.text, "6mo")

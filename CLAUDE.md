@@ -157,7 +157,13 @@ Seven rails hold across all of them:
   only after the path resolves under the harness root as `<session_id>.jsonl` within the size cap —
   anything else is refused unread. `transcript_extract.py` keeps only the person's turns and the
   agent's final reply per turn; tool calls, thinking, file dumps and harness-injected text are
-  skipped by construction. Secrets scrubbed, per-turn and per-session caps applied. **One episode
+  skipped by construction. From a kept agent turn it reads two more facts and nothing else (round
+  4 C1, G49 lifted for harness writes): the model id (Claude Code's `message.model`, Codex's
+  `turn_context.payload.model`) and the reasoning effort (Claude Code's top-level `effort`, Codex's
+  `turn_context.payload.effort`, and for the last reply the Stop hook's stdin `effort.level`). Both
+  are cleaned by `agent_turns` (an effort is one of `minimal|low|medium|high|xhigh|max`, and
+  anything else is dropped). They ride the sidecar on agent entries only; the transcript wins over
+  the hook. Secrets scrubbed, per-turn and per-session caps applied. **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
   `CICADA_CAPTURE=off`. **Recall is the same move (G149):** the harness's `SessionStart` and
@@ -184,8 +190,9 @@ Seven rails hold across all of them:
   G20 stager they share: an `EpisodeDraft` keyed by `source_id`, the hash over the scrubbed body, an
   edit rewritten in place with `processed: false`, a rename kept by content hash, a deletion
   tombstoned (`source_deleted_at`) and never unlinked. A multi-turn source records G118's per-turn
-  sidecar `turns: [{offset, ts, speaker}, …]` (R-PB4: an entry only for a turn with a time, the last
-  key, outside `content_hash`, capped head-stable at 500) — the one shape `evidence.turn_stamps`
+  sidecar `turns: [{offset, ts, speaker, model?, effort?}, …]` (R-PB4: an entry only for a turn with
+  a time, the last key, outside `content_hash`, capped head-stable at 500; `model`/`effort` only on
+  an agent turn (round 4 C1)) — the one shape `evidence.turn_stamps`
   reads. The Stop hook writes it too since G141 PJ-4 (R-PJ16): its `role: text` body is the stager's
   line shape, so `episode_staging.stamps_for` builds the list, and the episode `timestamp` stays the
   session's start while each turn carries its own time. A Stop-hook episode written before PJ-4 still
@@ -200,7 +207,17 @@ Seven rails hold across all of them:
   read-only by the app through a column whitelist (never audio, screenshots, accessibility or pasted
   text); meetings and notes by default, dictation only when the person turns it on. A meeting line is
   `speaker:<label>:` and counts as `user` evidence only when its label is one of the owner's listed
-  names.
+  names. Apple Calendar (G142): the app reads EventKit after the one standard permission prompt and
+  posts a rolling window to `POST /sources/calendar-local/sync` (one request = the whole window).
+  `calendar_local.py` stages each event keyed `calendar-local:<id>`:
+  - notes are scrubbed, then cut at 2,000 characters;
+  - a link keeps no query;
+  - an event gone from the window is tombstoned, only for the calendars the request named;
+  - one `user` commit per sync (`capture/calendar`).
+  The app half: `CalendarReader` reads every calendar on the Mac through EventKit, only after Connect and
+  macOS's full-access prompt, 30 days back to 60 ahead, and posts on launch, on `EKEventStoreChanged`
+  (debounced), every 3 hours, after a bank switch and on Sync now; an empty read is never posted (it would
+  tombstone the window); Disconnect stops it and deletes nothing. ICS subscriptions are unchanged.
 - **Capture never writes into a demo bank** (G117's synthetic bank; G141 capture-side track). A bank
   is the demo when `<bank>/_bank.yaml` says `kind: demo` — written first by `demo_bank.populate` and
   committed as `cicada` — or, for a demo made before that file, when its `.git/config` carries the
@@ -219,10 +236,17 @@ Seven rails hold across all of them:
 **Conversation identity (G48).** An MCP episode carries `session_id` plus `harness` and
 `project_dir` when exposed — minted once per MCP process from `CLAUDE_CODE_SESSION_ID` →
 `CICADA_SESSION_ID` → a `ses_*` fallback that groups but never resumes. Entities credit to
-conversations transitively via `source_episodes`. A conversation row's `model` is **reserved —
-always null** until engine calls carry session refs (G49); nothing that writes memory records a
-model against a conversation id today, so the row says so rather than joining a ledger that can't
-answer.
+conversations transitively via `source_episodes`. A conversation row's `model` stays null. The
+model lives per turn instead (round 4, G49's reservation lifted for harness writes, TODO ruling 11):
+
+- the Stop-hook episode's `turns` sidecar records each agent turn's `model`/`effort`;
+- a claim written through the MCP seam carries `recorded_ts`;
+- `turn_authorship.py` joins the two at read (`authorModel`/`authorEffort`), never guessed and
+  never self-reported.
+
+An app with no capture hook (the Claude app, ChatGPT, Cursor, a remote connector) has no turn to
+join, and neither does a Codex MCP write, because Codex gives an MCP server no session id. The app
+then says the model wasn't shared.
 
 ### Sleep — 5-stage nightly batch
 1. **Entity & relationship extraction** — LLM over episode chunks, structured output.
@@ -408,7 +432,19 @@ exact) or `stale`. A stale span travels without wash offsets; a `derived` span (
 written. The chat importer and every Local-sources draft keep each turn's time as
 `turns: [{offset, ts, speaker}]` in frontmatter, written by `episode_staging` outside
 `content_hash`; the Stop hook writes the same list (G141 PJ-4), and a reader treats any non-list — an
-older Stop-hook episode's count — as no times.
+older Stop-hook episode's count — as no times. Round 4 (C2–C4):
+
+- Every claim on the wire also carries `recordedTs` (stored on MCP writes only), and
+  `authorModel`/`authorEffort` for a harness write. These are joined by
+  `turn_authorship.TurnAuthorship`: the claim's session → its capture episode → the last person's
+  turn at or before `recorded_ts` → the agent turn that answered it, with both sides floored to the
+  second.
+- An `assistant` span carries its turn's `model`/`effort`.
+- A harness contributor lists `models: [{model, effort?, beliefs}]`.
+- `/episodes/{id}/text` carries `agent` (the most recent agent turn's, null when that turn names
+  neither) and per-turn `model`/`effort`.
+- `claim_to_model(claim, *, turns)` takes the request's join as a required keyword.
+- `AUTHOR_SHAPE` also rides `/episodes/{id}/text` and both `/projects` ETags.
 
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
@@ -549,7 +585,7 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `sleep/expiry`, `sleep/followup`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`sleep/state`, `sleep/expiry`, `sleep/followup`, `capture/calendar`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
 `Cicada-Author: user`),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
@@ -558,7 +594,8 @@ Cicada-Session: <id>
 
 - **`Cicada-Author:`** — *which agent authored this*. A model id for agent writes, **a harness
   label** (`claude-code`, `claude-web`, `chatgpt`, …; `agent` when none was sent) for a write that
-  arrived through MCP, where the model is not disclosed (G135; G49 keeps the model reserved), the
+  arrived through MCP, where the model is not disclosed (G135; the trailer never names a model — since round 4 it is joined at read from the captured
+  turn), the
   literal **`user`** for manual/companion-app writes, **`unknown`** for legacy untrailered commits,
   and **`cicada`** for system maintenance with no model and no user in the loop (the one-shot
   migrations, the split-out decay commit, the `State snapshot` commit, the `Expiry` and `Follow-ups` commits). Built by
@@ -724,7 +761,11 @@ G147's *How things fade*: pace suggestions from the person's own "Still tracking
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). ⌘K and ⌘F are
+follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General also
+holds Scene, Open Cicada at login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does
+not keep says so) and Keep memory working when Cicada is closed (`BackendAgentService`: a read-only `launchctl print`,
+and Install runs `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`,
+then hands launchd the port). ⌘K and ⌘F are
 menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
@@ -748,7 +789,10 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band
+**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band — its
+`-dark` sibling at dusk and night by the clock (`SceneClock`: NOAA's sun over the Mac's time zone's tzdb point, no
+location; `SceneStore` re-checks at each crossing, on a time-zone change and on wake) and Settings → General → Scene
+(Automatic · Always day · Always night), never the theme (G144; DESIGN_RULES §9 2026-09-24) —
 (`HomeHeroBand`, paint only, 120 pt, faded into the window), "What would you like to remember?" as a
 `PageTitle` on the row under it — text never sits on paint — then the palette's own `FindPanelBody` in
 `.page` placement in a 640 pt block: a second `FindPaletteModel` sharing the one Ask and keeping no
@@ -759,7 +803,8 @@ STATE 1) and Last read (the newest Sleep commit, its pages as `Tag`s) — each n
 (`InlineLink`) to the page that owns it; the waiting count links to Sleep, never a Consolidate.
 
 **Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
-`FirstRunGate` (unknown is never empty): the hero meadow as its band, the headline on the card that
+`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero`, the same scene rule as Home's:
+day or its `-dark` sibling by the clock and Settings → General → Scene, never the theme — G144), the headline on the card that
 rises into it, what Cicada found on this Mac as a checklist whose ticks are the consent (own acts, no
 new permission prompt, no other app — `FoundPolicy`), a chat-export drop zone that stages rows and
 imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
@@ -808,15 +853,30 @@ add-folder sheet labels its fields and asks which subfolders an agent wrote as a
 (`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b).
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
-*recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
-each, a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
+*recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s
+each and side by side (round 4: at 2 s the live Welcome read Claude Code as 'couldn't check in
+time'), a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
 unparseable settings file is `invalid`, never `off`), *auto-recall* (G149: `autorecall`
 = `on|off|stale|invalid|n/a` for the recall hooks, with `autorecallOn` / `autorecallOff` argv kept apart from
 `connect`, which onboarding runs; Settings → Agents → *Remembers automatically* runs them), plus the exact
 argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
-events and `registry.py uninstall --hook recall`); the backend never writes a
-harness root.
+events and `registry.py uninstall --hook recall`); the backend never writes a harness root. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves what to hand an
+agent instead of running anything:
+
+- for Claude Code, Codex and Gemini CLI, a plain prompt (≤ 1,200 characters) that names the exact
+  commands, built by the same step builders `/agents/wiring` uses (both steps always,
+  `display == shlex.join(argv)`);
+- for Cursor, its install link;
+- for the Claude app, a config merge the APP performs.
+
+No probe, no subprocess, no ETag.
+
+Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `AgentConnect.run`), Copy
+setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
+Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
+desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
+the value itself).
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
@@ -880,7 +940,9 @@ write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a b
 `VersionVector` mapping, nothing on disk). The wire decodes leniently into local `Project*` types (the shared `Claim` is
 untouched); derived state is `ProjectState`, the Swift twin of `project_state.timeline_state`, running the same
 `api/tests/fixtures/timeline_state.json`; every relative word comes from `RelativeDay` over `ISODay` in the viewer's
-calendar (a lint keeps the day words there), and midnight re-derives the page with no network. Every Swift test reads
+calendar (a lint keeps the day words there), and midnight re-derives the page with no network. The story is derived off the main actor (`ProjectDerived`, keyed
+by project, day and cache revision; the last value stays up while the next builds) and Lately is one lazy list, so a
+project whose happenings cite hundreds of pages opens at once (round-4 D6). Every Swift test reads
 the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
 `api/tests/test_projects_app_fixture.py`.
 - **The list:** text tabs Active · Quiet · All (resting projects only under All); sub-projects indented under a shown
@@ -895,7 +957,8 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
 - **The story:** Log progress (⏎ done, ⌘⏎ still going; the server dates it from the words, else the date chip, else
   today, and the page says which and how, with Undo = withdraw); Now (the threads; a quiet one whose follow-up waits in
   the Inbox links to that card); Lately (Today · Yesterday · This week · Earlier — one sentence per happening, every
-  participant a chip that opens its card, the owner as the sentence's own word with a "you" tag; a status word; a
+  participant a chip that opens its card, at most eight per sentence with a '+N more' that opens that row (round-4
+  D6; the server sends the first 12 and `participantsTotal`), the owner as the sentence's own word with a "you" tag; a status word; a
   source line with the origin's mark and "Show in conversation ›"; Resume where resumable; Not right); Plan (Add with
   an optional picked date, Mark done, Rename, "moved once ›"); Around this project (People · Tools & infrastructure, a
   tool unfolding its specs · Documents & links · Ideas · Parts of this project). The Reader or an entity card is the
@@ -1039,7 +1102,9 @@ needs rewriting to teach the app a new one.
 
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
-for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
+for a legacy claim's name match found at read) — an agent's chip names its model when capture recorded one ("Claude
+Code · Opus 5.5 · high effort", `ModelNames`; round-4 C3/C4), as do the hover, the Reader's meta line and turn labels,
+"Where this came from" and a belief's help; an app with no capture says "model not shared by this app" — hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
 (`ReaderColumn`): the third progressive column on the list pages that host it (the Inbox, Clusters, the Feed,
 Sources and Projects — `AppTab.hostsOwnReader`), and on every other page the shell's trailing column (`ShellReaderHost`),
@@ -1087,8 +1152,10 @@ live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET
 the same files (F1's context filter and fence strip); an entity node's hash also folds its derived
 `contexts` and `summary`, so `GraphDiff` re-pushes a node whose derivation changed. `/projects` and
 `/projects/{id}/timeline` (G141) ETag over `entities`+`episodes`+`inbox` with `extra` =
-`projects|<shape>|<machine zone>` — never today, never a viewer zone — and are **not** Store domains
-(no `VersionVector` mapping, fetched on demand like provenance). The person's writes (G141 PJ-3b) —
+`projects|<shape>|<author shape>|<machine zone>` (`git_service.AUTHOR_SHAPE` since round 4, R4B-9) — never today, never a viewer zone — and are **not** Store domains
+(no `VersionVector` mapping, fetched on demand like provenance). A timeline item carries at most
+12 participants plus `participantsTotal`, and a cluster group at most 8 names no page holds yet
+(round 4 D6; `PROJECT_SHAPE` g141-3). The person's writes (G141 PJ-3b) —
 `POST /projects/{id}/milestones`, `PATCH /projects/{id}/milestones/{slug}`, `POST /projects/{id}/happenings`
 (the Log: one time phrase becomes the day, a companion episode keeps the words), `POST
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
@@ -1393,4 +1460,10 @@ provider calls take the rail's own 4 s / ≤ 512 KB numbers rather than the olde
 
 ## Installation & Setup
 
-`install.sh` is the source of truth; the paste-prompt install story is G76 in the backlog.
+`install.sh` is the source of truth; `install.md` is the paste-into-your-agent path for a fresh Mac
+(clone → `./install.sh` → `make install-app` → open the app; G76), and it never loops `make doctor`.
+The rest of the paste-prompt install story is G76 in the backlog.
+`scripts/install-backend-agent.sh` is the one source of the `com.cicada.backend` plist; `install.sh` step 6 calls it
+behind its healthy-skip guard, and the app runs it from Settings → General (G143). `BackendProcess` spawns
+`python -m uvicorn`, never the venv's `uvicorn` script. `make login-item` is the old developer path; the app's switch
+is the supported one.

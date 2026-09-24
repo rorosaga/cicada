@@ -244,8 +244,12 @@ enum BeliefWords {
         var parts = [claim.observer.label]
         if claim.context != "general" { parts.append(ClaimContext.displayName(claim.context)) }
         let kind = ContributorIdentity.kind(author: claim.authoredBy, serverKind: claim.authorKind)
-        parts.append(Copy.Graph.writtenBy(ContributorIdentity.displayName(author: claim.authoredBy, kind: kind),
-                                          confidence: claim.confidence))
+        // Round-4 C3 (R-FA14) — "Claude Code · Opus 5.5 · high effort at 0.85"
+        // when the write's turn carried a model; byte-for-byte today's otherwise.
+        let author = [ContributorIdentity.displayName(author: claim.authoredBy, kind: kind),
+                      ModelNames.line(model: claim.authorModel, effort: claim.authorEffort)]
+            .compactMap { $0 }.joined(separator: " · ")
+        parts.append(Copy.Graph.writtenBy(author, confidence: claim.confidence))
         return parts.joined(separator: " · ")
     }
 

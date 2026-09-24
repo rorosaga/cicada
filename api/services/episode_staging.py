@@ -58,10 +58,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
-from api.services import bank_index, episode_ids, episode_scrub, markdown_parser
+from api.services import agent_turns, bank_index, episode_ids, episode_scrub, markdown_parser
 
 #: Keys of one ``turns`` sidecar entry (R-PB4) — the coordination contract, exactly.
-TURN_STAMP_KEYS = ("offset", "ts", "speaker")
+#: Round 4 C1 adds ``model``/``effort``: written on an agent turn only, only when the
+#: harness recorded them, in this order; every entry carries the first three.
+TURN_STAMP_KEYS = ("offset", "ts", "speaker", "model", "effort")
+TURN_STAMP_REQUIRED = TURN_STAMP_KEYS[:3]
 #: The sidecar's head-stable cap (R-PB4, moved here from the conversations
 #: router with the stager): frontmatter is parsed on every cold ``bank_index``
 #: scan, so turns past the cap carry no time — the Reader shows a time only when
@@ -80,6 +83,10 @@ class Turn:
     text: str
     speaker: str = "user"
     ts: str | None = None
+    # Round 4 C1: what the harness recorded for an agent turn (R4B-2); ignored
+    # on every other speaker, cleaned again by `_stamps` before it is written.
+    model: str | None = None
+    effort: str | None = None
 
 
 @dataclass
@@ -179,7 +186,7 @@ def _line(turn: Turn, text: str) -> str:
 
 
 def _stamps(turns: list[Turn], texts: list[str]) -> list[dict]:
-    """``[{offset, ts, speaker}]`` for the body ``texts`` render to (R-PB4).
+    """``[{offset, ts, speaker, model?, effort?}]`` for the body ``texts`` render to (R-PB4, C1).
     ``offset`` is the turn's marker-line start (a turn start ``evidence.turns``
     finds); ``ts`` the turn's own time in the one aware-UTC shape; a turn
     without a time gets no entry (it would only repeat the marker)."""
@@ -188,7 +195,13 @@ def _stamps(turns: list[Turn], texts: list[str]) -> list[dict]:
     for turn, text in zip(turns, texts):
         ts = normalise_timestamp(turn.ts)
         if ts and len(out) < MAX_TURN_STAMPS:
-            out.append({"offset": offset, "ts": ts, "speaker": str(turn.speaker)})
+            entry = {"offset": offset, "ts": ts, "speaker": str(turn.speaker)}
+            if turn.speaker == "assistant":  # C1: only an agent turn names a model
+                if model := agent_turns.clean_model(turn.model):
+                    entry["model"] = model
+                if effort := agent_turns.clean_effort(turn.effort):
+                    entry["effort"] = effort
+            out.append(entry)
         offset += len(_line(turn, text)) + 1
     return out
 

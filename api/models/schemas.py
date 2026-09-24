@@ -760,6 +760,11 @@ class EvidenceModel(CamelModel):
     end: int = -1
     kind: str = "reasoning"
     hash: str = ""
+    # Round 4 C3 — derived at read, never stored: for a span of kind `assistant`,
+    # the model and reasoning effort of the agent turn its offset falls in
+    # (`turn_authorship.TurnAuthorship.for_span`); null everywhere else.
+    model: Optional[str] = None
+    effort: Optional[str] = None
 
 
 class ParticipantModel(CamelModel):
@@ -820,6 +825,13 @@ class ClaimModel(CamelModel):
     participants: list[ParticipantModel] = []
     date_basis: Optional[str] = None
     expected_end: Optional[str] = None
+    # Round 4 C2/C3 — additive. `recorded_ts` is stored on MCP writes only;
+    # `author_model`/`author_effort` are joined at read for a harness write
+    # (`turn_authorship.TurnAuthorship.for_claim`) and null when no captured
+    # turn answers — the app then says the model wasn't shared.
+    recorded_ts: Optional[str] = None
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
 
 
 class ClaimListResponse(CamelModel):
@@ -894,6 +906,10 @@ class EpisodeTurn(CamelModel):
     speaker: Optional[str] = None
     ts: Optional[str] = None
     t: Optional[int] = None
+    # Round 4 C4: an agent turn's model and reasoning effort, from the episode's
+    # `turns` sidecar entry at exactly this turn's start; null otherwise.
+    model: Optional[str] = None
+    effort: Optional[str] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -910,6 +926,14 @@ class EpisodeFocus(CamelModel):
     derived: bool = False
     stale: bool = False
     grown: bool = False
+
+
+class EpisodeAgent(CamelModel):
+    """Round 4 C4: the most recent agent turn's model and effort (R4B-15). The
+    field is null when that turn names neither; an older turn never stands in."""
+
+    model: Optional[str] = None
+    effort: Optional[str] = None
 
 
 class EpisodeText(CamelModel):
@@ -936,6 +960,7 @@ class EpisodeText(CamelModel):
     capture_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
+    agent: Optional[EpisodeAgent] = None
 
 
 class ProvenanceSpan(CamelModel):
@@ -960,6 +985,15 @@ class ProvenanceSpan(CamelModel):
     derived: bool = False
 
 
+class ProvenanceModel(CamelModel):
+    """Round 4 C4: one model (and effort) a harness contributor wrote with, and
+    how many of the page's current beliefs it wrote that way."""
+
+    model: str
+    effort: Optional[str] = None
+    beliefs: int = 0
+
+
 class ProvenanceContributor(CamelModel):
     """One author of an entity (R-PB6): ``claims`` = current claims with that
     ``authored_by``; ``commits`` = commits that touched the page with that
@@ -970,6 +1004,9 @@ class ProvenanceContributor(CamelModel):
     provider: Optional[str] = None
     claims: int = 0
     commits: int = 0
+    # Round 4 C4: a `harness` contributor's joined turn models; empty when the
+    # app did not share them (no capture hook, or a Codex MCP session).
+    models: list[ProvenanceModel] = []
 
 
 class ProvenanceConversation(CamelModel):
@@ -1130,6 +1167,10 @@ class TimelineItem(CamelModel):
     facts: list[TimelineFact] = []
     more_facts: int = 0
     participants: list[TimelineParticipant] = []
+    # Round 4 D6: `participants` is the first `PARTICIPANTS_SHOWN` in the claim's
+    # own order; the whole count rides here, always present (0 for a history row),
+    # so the app's "+N more" never guesses and a 622-paper happening stays small.
+    participants_total: int = 0
     quote: Optional[TimelineQuote] = None
     conversation: Optional[TimelineConversation] = None
     claim: Optional[ClaimModel] = None
@@ -2345,6 +2386,32 @@ class AgentWiringResponse(CamelModel):
     memory: str = ""
 
 
+class AgentSetupConfig(CamelModel):
+    """A config merge the APP performs (round 4 D5): backup first, merge never
+    replace, an unparseable file left untouched. ``path`` is ``~``-relative."""
+
+    path: str
+    key: str
+    value: dict[str, Any]
+
+
+class AgentSetupResponse(CamelModel):
+    """``GET /agents/setup?harness=`` (round 4 C5, G76). ``kind`` says which of
+    ``prompt`` / ``argv`` / ``display`` (a paste-into-your-agent prompt naming
+    exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
+    ``config`` is set. ``remote`` is reserved: no harness produces it yet."""
+
+    harness: str
+    kind: Literal["prompt", "deeplink", "config-merge", "remote"]
+    title: str
+    prompt: Optional[str] = None
+    argv: Optional[list[list[str]]] = None
+    display: Optional[list[str]] = None
+    deeplink: Optional[str] = None
+    config: Optional[AgentSetupConfig] = None
+    note: Optional[str] = None
+
+
 # --- Sources (media ingestion) ---
 
 
@@ -2812,6 +2879,55 @@ class WisprFlowCaptureResponse(CamelModel):
     todos_skipped_no_owner: int = 0
     # Meetings whose to-do claims wait for a running Sleep cycle to end (L final review, finding 5).
     todos_pending: int = 0
+
+
+class CalendarLocalWindow(CamelModel):
+    """``from``/``to`` on the wire (round 4 C6); ``start``/``end`` in Python,
+    where ``from`` is a keyword. Aware ISO-8601 times."""
+
+    start: str = Field(alias="from")
+    end: str = Field(alias="to")
+
+
+class CalendarLocalCalendar(CamelModel):
+    id: str
+    title: str = ""
+    account: Optional[str] = None
+
+
+class CalendarLocalEvent(CamelModel):
+    """One EventKit event (C6). ``id`` = ``calendarItemExternalIdentifier``, plus
+    ``|`` and the occurrence start for a recurring event."""
+
+    id: str
+    calendar_id: str = ""
+    title: str = ""
+    start: str
+    end: Optional[str] = None
+    all_day: bool = False
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    url: Optional[str] = None
+    attendees: list[str] = []
+    organizer: Optional[str] = None
+    last_modified: Optional[str] = None
+
+
+class CalendarLocalSyncRequest(CamelModel):
+    """``POST /sources/calendar-local/sync`` (G142). One request carries the
+    WHOLE window — a tombstone needs the complete set (R4B-13)."""
+
+    window: CalendarLocalWindow
+    calendars: list[CalendarLocalCalendar] = []
+    events: list[CalendarLocalEvent] = []
+
+
+class CalendarLocalSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    bank: str = ""
 
 
 # --- Saved-content connectors (G71 §2) ---

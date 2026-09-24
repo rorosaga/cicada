@@ -25,7 +25,7 @@ import os
 import re
 import threading
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
@@ -37,7 +37,7 @@ from api.models.schemas import (
 )
 from api.services import (
     bank_index, claim_expiry, entity_body, evidence, inbox_context, project_state,
-    search_index, session_stats, when,
+    search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
@@ -49,12 +49,15 @@ from api.services.transclusion_resolver import claim_to_model
 
 # Bumped when a payload gains a field a client must see (the graph.NODE_SHAPE rule); rides both ETags.
 # g141-2 (T5): happenings, open threads and `milestone` chains join the payload.
-PROJECT_SHAPE = "g141-2"
+# g141-3 (round 4 D6): an item carries at most PARTICIPANTS_SHOWN participants + `participantsTotal`,
+# and a cluster group at most GROUP_CAP names no page holds yet.
+PROJECT_SHAPE = "g141-3"
 TREE_DEPTH = 2
 MAX_SCAN_PAGES = 200          # §6.6: raw scans are capped; hitting the cap sets `partial`
 COMMONS_DEGREE = 12           # R-PJ20
 FACTS_SHOWN = 3               # §6.1: 3 facts, then "+N facts"
 GROUP_CAP = 8                 # §6.4
+PARTICIPANTS_SHOWN = 12       # round 4 D6: a happening citing 622 papers beachballed the app (R4B-1)
 ACTIVITY_DAYS = 120           # §10.1: ending at the last activity day, never "the last 120 days"
 MAX_CONVERSATIONS = 20
 MILESTONES_IN_ROW = 5
@@ -130,6 +133,8 @@ class _Bank:
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
+        # Round 4 C3: one join per request, sharing this request's episode bodies.
+        self.turns = turn_authorship.TurnAuthorship(self.path, text=self.episode_text)
 
     def fm(self, eid: str) -> dict:
         f = self.entities.get(eid)
@@ -629,12 +634,13 @@ def _moments(bank: _Bank, root: str, tree: list[str], owner: str | None,
             via = None
         else:
             via = next((t for t in tree if t in pages), lead_page)
+        people = _participants(bank, root, owner, group)
         items.append(TimelineItem(
             kind="moment", id=f"m:{ep}:{day}" if ep else f"m:{day}:{lead.id}", day=day, at=lead_anchor.at,
             date_basis=lead_anchor.basis, state=facts[0].state, via=via,
             project=next((t for t in tree if t in pages), None), text=facts[0].phrase,
             facts=facts[:FACTS_SHOWN], more_facts=max(0, len(facts) - FACTS_SHOWN),
-            participants=_participants(bank, root, owner, group),
+            participants=people[:PARTICIPANTS_SHOWN], participants_total=len(people),
             quote=_quote(bank, lead, lead_page, lead_anchor),
             conversation=_conversation(bank, ep) if ep else None))
     return items
@@ -718,7 +724,7 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                 done_on=_day(c.valid_from) if c.status == "done" else None,
                 moved=any((t := _link_target(x)) is not None and t != target for x in chain[1:]),
                 source="milestone", on=page if page != root else None, claim_id=c.id,
-                chain=[claim_to_model(x) for x in chain]))
+                chain=[claim_to_model(x, turns=bank.turns) for x in chain]))
     for page in tree:
         for c in bank.claims(page):
             if c.predicate == "due":
@@ -734,7 +740,7 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                 rows.append(MilestoneRow(slug=slug_for(f"due-{target}"), name=_due_name(c, bank.name(page)),
                                          status=status, target=target, source="due",
                                          on=page if page != root else None, claim_id=c.id,
-                                         chain=[claim_to_model(c)]))
+                                         chain=[claim_to_model(c, turns=bank.turns)]))
             elif c.expected_end and _open(c):
                 end = _day(c.expected_end)
                 if end is None:
@@ -742,7 +748,7 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                 rows.append(MilestoneRow(slug=slug_for(f"end-{end}"), name=c.text or bank.name(page),
                                          status="planned", target=end, source="expectedEnd",
                                          on=page if page != root else None, claim_id=c.id,
-                                         chain=[claim_to_model(c)]))
+                                         chain=[claim_to_model(c, turns=bank.turns)]))
     planned = sorted((m for m in rows if m.status == "planned"),
                      key=lambda m: (m.target is None, m.target or "", m.slug))
     rest = sorted((m for m in rows if m.status != "planned"), key=lambda m: (m.target or "", m.slug), reverse=True)
@@ -794,7 +800,7 @@ def _happening(bank: _Bank, owner: str | None, c: Claim, page: str) -> TimelineI
         quote = _quote(bank, c, page, _Anchor(span.episode, _day(c.valid_from) or "", None, "turn", span))
         conversation = _conversation(bank, span.episode)
     participants = []
-    for p in c.participants:
+    for p in c.participants[:PARTICIPANTS_SHOWN]:
         eid, derived = _linked(bank, p)
         fm = bank.fm(eid) if eid else {}
         media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
@@ -802,9 +808,14 @@ def _happening(bank: _Bank, owner: str | None, c: Claim, page: str) -> TimelineI
             id=eid, name=bank.name(eid) if eid else str(p.get("surface") or ""), type=bank.type_of(eid),
             role=p.get("role"), surface=p.get("surface"), url=p.get("url") or (media or {}).get("url"),
             is_owner=eid is not None and eid == owner, derived=derived))
+    # R4B-1: the embedded claim carries the same first 12 — built from a copy, never a
+    # mutation (`_CLAIMS_CACHE` shares Claim objects across requests); the item's total
+    # is the honest count.
+    shown = replace(c, participants=c.participants[:PARTICIPANTS_SHOWN])
     return TimelineItem(kind="happening", id=c.id, day=_day(c.valid_from), date_basis=c.date_basis,
-                        state=c.status, project=page, text=c.text or "", participants=participants, quote=quote,
-                        conversation=conversation, claim=claim_to_model(c), verbatim=is_persons_words(c))
+                        state=c.status, project=page, text=c.text or "", participants=participants,
+                        participants_total=len(c.participants), quote=quote,
+                        conversation=conversation, claim=claim_to_model(shown, turns=bank.turns), verbatim=is_persons_words(c))
 
 
 def _last_heard(bank: _Bank, c: Claim) -> str:
@@ -1071,7 +1082,9 @@ def _cluster(bank: _Bank, tree: list[str], neighbours: dict[str, dict], commons:
     for label, _ in GROUPS:
         members = buckets[label]
         if members or hints[label]:
-            groups.append(ClusterGroup(label=label, members=members[:GROUP_CAP] + hints[label],
+            # R4B-1: hints are capped like pages — a name is a hint, a page is a fact, so the
+            # ninth unlinked name adds nothing a person can open; `more` still counts pages only.
+            groups.append(ClusterGroup(label=label, members=members[:GROUP_CAP] + hints[label][:GROUP_CAP],
                                        more=max(0, len(members) - GROUP_CAP)))
     return ProjectCluster(groups=groups, also_uses=sorted(also, key=order))
 

@@ -160,6 +160,9 @@ class TranscriptCaptureRequest(BaseModel):
     transcript_path: str
     cwd: str | None = None
     hook_event: str | None = None
+    # Round 4 C1: the Stop hook's `effort.level` for the reply it fired after —
+    # validated by the capture writer (`agent_turns.clean_effort`), unknown dropped.
+    effort: str | None = Field(default=None, max_length=32)
 
 
 @router.post("/capture/transcript")
@@ -200,6 +203,7 @@ async def capture_transcript_endpoint(
         cwd=req.cwd,
         keep_assistant=settings.capture_assistant_replies,
         bank=memory_path.name,
+        effort=req.effort,
     )
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":

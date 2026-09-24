@@ -23,8 +23,9 @@ enum HomeBandLayout {
     }
 }
 
-/// Home's band (DS-3b, D-Home; DR-13): the bundled onboarding hero — `-dark` at night through
-/// `MeadowArt.image`, which reading `CicadaTheme.mode` here subscribes to — filled into 120 pt
+/// Home's band (DS-3b, D-Home; DR-13): the bundled onboarding hero — `-dark` at dusk and night by
+/// the clock (`SceneStore`, reading it here subscribes) and Settings → General → Scene — never the
+/// theme (round-4 D4, DESIGN_RULES §9 2026-09-24) — filled into 120 pt
 /// with its meadow in view and faded into `bgBase` below. **Paint only:** no word and no number
 /// sits on it (DR-13, DR-50); Home's headline is the next row down. No drifting cloud — the
 /// hero's clouds are painted, and a moving one over them would double them (`WelcomeHero`'s
@@ -34,10 +35,13 @@ enum HomeBandLayout {
 /// It replaced the procedural sky band (one cloud under a two-line headline drawn over it).
 struct HomeHeroBand: View {
     @Environment(\.colorSchemeContrast) private var contrast
+    @AppStorage(HeroScenePreference.defaultsKey) private var sceneRaw = HeroScenePreference.automatic.rawValue
+
+    private var scene: CicadaTheme.SkyPhase { HeroScenePreference.stored(sceneRaw).scene(clock: SceneStore.shared.phase) }
 
     var body: some View {
         GeometryReader { geo in
-            if let image = MeadowArt.image(for: .heroDay, mode: CicadaTheme.mode) {
+            if let image = MeadowArt.image(for: .heroDay, mode: MeadowArt.heroMode(for: scene)) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)

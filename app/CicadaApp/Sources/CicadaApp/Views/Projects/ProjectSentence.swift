@@ -62,20 +62,42 @@ struct SentenceFlowLayout: Layout {
 struct StorySentence: View {
     let text: String
     let participants: [ProjectParticipant]
+    /// Round-4 D6 — the server's `participantsTotal` when it sent only the first 12; those count toward "+N more".
+    var total: Int? = nil
     var lead = true
     let openEntity: (String) -> Void
+    /// R-FA1 — this row's own flag, so "+N more" opens this sentence only.
+    /// Per row, on purpose (review round 1 of R4 Task 1): inside the Lately lazy stack a row scrolled far enough off
+    /// screen is torn down and comes back folded. Folded is the default and "+N more" is one click, so the row forgets
+    /// rather than the column carrying a set of expanded ids for every happening it has ever shown.
+    @State private var expanded = false
 
     private var font: Font { lead ? CicadaTheme.detailBodyFont : CicadaTheme.bodyFont }
     private var ink: Color { lead ? CicadaTheme.textPrimary : CicadaTheme.textSecondary }
 
     var body: some View {
-        let parts = ProjectStory.tokens(text, participants: participants)
+        let parts = ProjectStory.chips(text, participants: participants, total: total, expanded: expanded)
         SentenceFlowLayout(space: CicadaTheme.scaled(4), lineSpacing: CicadaTheme.scaled(3)) {
             ForEach(parts.tokens) { token in
                 tokenView(token).layoutValue(key: SpaceBefore.self, value: token.spaceBefore)
             }
             ForEach(Array(parts.extra.enumerated()), id: \.offset) { _, p in
                 ParticipantChip(participant: p, text: p.name, trailing: "", font: font, open: openEntity)
+                    .layoutValue(key: SpaceBefore.self, value: true)
+            }
+            if parts.canExpand, !expanded {
+                TextButton(title: Copy.Projects.moreParticipants(parts.more), help: Copy.Projects.moreParticipantsHelp,
+                           inline: true) { Instant.run { expanded = true } }
+                    .layoutValue(key: SpaceBefore.self, value: true)
+            } else if parts.notSent > 0 {
+                Text(Copy.Projects.notListed(parts.notSent))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(Copy.Projects.notListedHelp)
+                    .layoutValue(key: SpaceBefore.self, value: true)
+            }
+            if expanded {
+                TextButton(title: Copy.Projects.fewerParticipants, inline: true) { Instant.run { expanded = false } }
                     .layoutValue(key: SpaceBefore.self, value: true)
             }
         }

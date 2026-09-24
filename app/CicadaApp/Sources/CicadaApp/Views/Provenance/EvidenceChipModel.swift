@@ -11,13 +11,13 @@ import SwiftUI
 /// cause. `/span` carries no title or harness, and fetching `/text` per chip
 /// just to name the agent would be N whole documents per card, so a chip
 /// with no entry here says "The agent replied" and stays honest.
-struct EvidenceDocMeta: Hashable {
+struct EvidenceDocMeta: Hashable, Sendable {
     var title: String?
     var harness: String?
     var origin: String?
 }
 
-struct EvidenceDocIndex: Hashable {
+struct EvidenceDocIndex: Hashable, Sendable {
     var byEpisode: [String: EvidenceDocMeta] = [:]
 
     static let empty = EvidenceDocIndex()
@@ -86,6 +86,22 @@ struct EvidenceChipModel: Hashable, Identifiable {
         }
     }
 
+    /// Round-4 C3 (D1) — the model and effort the cited agent turn ran with,
+    /// when capture recorded them; nil for a found mention.
+    var model: String? {
+        switch source {
+        case let .stored(ev): ev.model
+        case .mention: nil
+        }
+    }
+
+    var effort: String? {
+        switch source {
+        case let .stored(ev): ev.effort
+        case .mention: nil
+        }
+    }
+
     /// Where a click goes, or nil when there is nothing to open (reasoning
     /// that names no document).
     func target(subjectId: String?, meta: EvidenceDocMeta?) -> ReaderTarget? {
@@ -148,12 +164,27 @@ enum EvidenceLabel {
         EvidenceSpeaker.agentName(harness: meta?.harness, origin: meta?.origin)
     }
 
+    /// The chip's words before the day (R-FA14, DR-57 §9 amendment): an agent
+    /// span whose turn carries a model reads as the agent line — "Claude Code ·
+    /// Opus 5.5 · high effort" — because the model is a fact about who spoke;
+    /// every other chip is byte-for-byte `speaker(...)`. "model not shared by
+    /// this app" never rides the chip (harness: nil) — that lives in the hover.
+    static func label(_ chip: EvidenceChipModel, meta: EvidenceDocMeta?) -> String {
+        guard chip.kind == .assistant,
+              ModelNames.line(model: chip.model, effort: chip.effort) != nil else {
+            return speaker(kind: chip.kind, agent: agent(meta))
+        }
+        return ModelNames.agentLine(agent: agent(meta) ?? Copy.Provenance.theAgent, harness: nil,
+                                    model: chip.model, effort: chip.effort)
+            ?? speaker(kind: chip.kind, agent: agent(meta))
+    }
+
     /// "You said · Sep 3" — the date from the episode id (`ep_YYYY-MM-DD_nnn`);
     /// a page has no date to give.
     static func chipText(_ chip: EvidenceChipModel, meta: EvidenceDocMeta?,
                          locale: Locale = .autoupdatingCurrent,
                          timeZone: TimeZone = .autoupdatingCurrent) -> String {
-        let label = speaker(kind: chip.kind, agent: agent(meta))
+        let label = Self.label(chip, meta: meta)
         guard let day = ReaderTime.day(timestamp: nil, episode: chip.episode, locale: locale,
                                        timeZone: timeZone, withYear: false) else { return label }
         return "\(label) · \(day)"
@@ -164,7 +195,7 @@ enum EvidenceLabel {
     static func accessibility(_ chip: EvidenceChipModel, meta: EvidenceDocMeta?, opens: Bool,
                               locale: Locale = .autoupdatingCurrent,
                               timeZone: TimeZone = .autoupdatingCurrent) -> String {
-        var parts = [speaker(kind: chip.kind, agent: agent(meta))]
+        var parts = [label(chip, meta: meta)]
         if let date = ReaderTime.episodeDate(chip.episode, timeZone: timeZone) {
             var style = Date.FormatStyle().day().month(.wide)
             style.locale = locale

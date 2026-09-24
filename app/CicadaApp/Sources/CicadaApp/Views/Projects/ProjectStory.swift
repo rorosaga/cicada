@@ -77,7 +77,7 @@ enum ProjectStory {
         return (out, extra)
     }
 
-    struct Group: Identifiable, Equatable {
+    struct Group: Identifiable, Equatable, Sendable {
         let group: RelativeDay.Group
         let items: [ProjectItem]
         var id: RelativeDay.Group { group }
@@ -329,4 +329,60 @@ enum ProjectAround {
 
     /// R-PP17 — a part of this project opens as the project, not as a card.
     static func opensProject(_ group: ProjectMemberGroup) -> Bool { group.label == "Sub-projects" }
+}
+
+/// Round-4 D6 (R-FA1) — what one sentence draws: its tokens (a page link past the budget reads as the words it is),
+/// the trailing chips, and how many participants stay folded behind "+N more".
+struct StoryChips: Equatable {
+    let tokens: [StoryToken]
+    let extra: [ProjectParticipant]
+    /// Participants not drawn as a chip: folded here, plus the ones the server never sent.
+    let more: Int
+    /// Participants the server held back (`participantsTotal − participants.count`). Expanding cannot show them.
+    let notSent: Int
+    var canExpand: Bool { more > notSent }
+}
+
+extension ProjectStory {
+    /// D6 — at most this many page chips per sentence. The owner's "you" is the sentence's own word and never counts.
+    static let chipBudget = 8
+
+    static func chips(_ text: String, participants: [ProjectParticipant], total: Int?, expanded: Bool) -> StoryChips {
+        let parts = tokens(text, participants: participants)
+        let notSent = max(0, (total ?? participants.count) - participants.count)
+        guard !expanded else { return StoryChips(tokens: parts.tokens, extra: parts.extra, more: notSent, notSent: notSent) }
+        var pages = 0
+        var demoted = 0
+        let capped = parts.tokens.map { token -> StoryToken in
+            guard token.kind == .page else { return token }
+            pages += 1
+            guard pages > chipBudget else { return token }
+            demoted += 1
+            return StoryToken(id: token.id, kind: .word, text: token.text + token.trailing, trailing: "",
+                              spaceBefore: token.spaceBefore, participant: nil)
+        }
+        let extra = Array(parts.extra.prefix(max(0, chipBudget - min(pages, chipBudget))))
+        return StoryChips(tokens: capped, extra: extra, more: demoted + parts.extra.count - extra.count + notSent,
+                          notSent: notSent)
+    }
+
+    /// R-FA3 — Lately as one flat list, so every row is a direct child of the column's lazy stack.
+    enum LatelyEntry: Identifiable, Equatable {
+        case label(RelativeDay.Group, first: Bool)
+        case item(ProjectItem)
+
+        /// A row's id IS its scroll id (`ProjectKey.item`), so `ScrollViewReader.scrollTo` finds rows not yet built.
+        var id: String {
+            switch self {
+            case .label(let group, _): "lately.label.\(group)"
+            case .item(let item): ProjectKey.item(item.id).id
+            }
+        }
+    }
+
+    static func latelyEntries(_ groups: [Group]) -> [LatelyEntry] {
+        groups.enumerated().flatMap { index, group in
+            [LatelyEntry.label(group.group, first: index == 0)] + group.items.map { LatelyEntry.item($0) }
+        }
+    }
 }

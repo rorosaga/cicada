@@ -34,6 +34,7 @@ GATED = {
     ("POST", "/sources/folders"): "/sources/folders",
     ("PUT", "/sources/folders/{folder_id}"): "/sources/folders/f1",
     ("POST", "/sources/folders/{folder_id}/sync"): "/sources/folders/f1/sync",
+    ("POST", "/sources/calendar-local/sync"): "/sources/calendar-local/sync",
     # A connector id no adapter has: were the gate missing, the handler 404s
     # before any adapter could reach the network (sync_now passes allow_fetch=True).
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",

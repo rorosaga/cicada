@@ -91,6 +91,47 @@ enum ProvenanceSummary {
         return parts.joined(separator: " · ")
     }
 
+    // MARK: Models (round-4 C4, D1)
+
+    /// A harness chip shows this many models before ", +N more".
+    static let namedModels = 2
+
+    /// A harness contributor's models, most beliefs first, then by id so the
+    /// order never flickers between reads.
+    private static func sortedModels(_ c: ProvenanceContributor) -> [ContributorModel] {
+        c.models.filter { !$0.model.isEmpty }
+            .sorted { $0.beliefs != $1.beliefs ? $0.beliefs > $1.beliefs : $0.model < $1.model }
+    }
+
+    /// The third line of a harness chip (R-FA14): "Opus 5.5 · high effort,
+    /// Sonnet 5", then ", +N more". With no models, an app that never tells
+    /// says so; a capturing harness (writes from before D1) and every other
+    /// kind say nothing — never a guess.
+    static func modelsLine(_ c: ProvenanceContributor) -> String? {
+        guard c.kind == "harness" else { return nil }
+        let models = sortedModels(c)
+        guard !models.isEmpty else {
+            let h = c.author.trimmingCharacters(in: .whitespaces)
+            guard !h.isEmpty, h != "unknown", h != "mcp", h != "agent",
+                  !ModelNames.capturingHarnesses.contains(h) else { return nil }
+            return Copy.Provenance.modelNotShared
+        }
+        var line = models.prefix(namedModels)
+            .compactMap { ModelNames.line(model: $0.model, effort: $0.effort) }
+            .joined(separator: ", ")
+        if models.count > namedModels { line += ", " + Copy.Provenance.moreEvidence(models.count - namedModels) }
+        return line
+    }
+
+    /// The chip's hover, one line per model: "Opus 5.5 · high effort — 2
+    /// beliefs". Empty when the contributor carries no models.
+    static func modelsHelp(_ c: ProvenanceContributor) -> [String] {
+        guard c.kind == "harness" else { return [] }
+        return sortedModels(c).compactMap { m in
+            ModelNames.line(model: m.model, effort: m.effort).map { "\($0) — \(Copy.Provenance.beliefs(m.beliefs))" }
+        }
+    }
+
     // MARK: Coverage
 
     /// "9 of 18 beliefs here have an exact quote." — stated, never implied:

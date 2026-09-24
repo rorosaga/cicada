@@ -6,7 +6,8 @@ import SwiftUI
 /// and held to its bytes by `ArtAssetTests`.
 ///
 /// **Every painting has a `-dark` sibling**, painted as dusk or night — never
-/// the light file dimmed — and the dark theme always gets it, the way
+/// the light file dimmed — and the dark theme always gets it — except the
+/// hero, which follows the clock (`heroMode(for:)`, round-4 D4) — the way
 /// `LogoImage` picks a `-dark` mark (R-L5). **Every file is authored at 2×**
 /// the point size it is drawn at, so `image(for:mode:)` sizes the `NSImage`
 /// in points and a tiled strip draws at its intended height.
@@ -34,6 +35,10 @@ enum MeadowArt: String, CaseIterable {
     static func fileName(for art: MeadowArt, mode: AppColorScheme) -> String {
         mode == .dark ? art.rawValue + darkSuffix : art.rawValue
     }
+
+    /// Round-4 D4 (R-FA4) — the hero follows the scene, not the theme: day paints the day file, dusk and night its
+    /// `-dark` sibling ("painted as dusk or night"). Every other painting keeps following the theme.
+    static func heroMode(for scene: CicadaTheme.SkyPhase) -> AppColorScheme { scene == .day ? .light : .dark }
 
     /// The theme's painting, falling back to the light one — `ArtAssetTests`
     /// guarantees the sibling exists, so the fallback only guards a bundle

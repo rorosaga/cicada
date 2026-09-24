@@ -97,6 +97,8 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("tiktok", "TikTok", "social", "tiktok-saved", ("tiktok-saved", "tiktok-history"), None),
     SourceSpec("rss", "RSS feeds", "feed", "rss", ("rss",), "rss"),
     SourceSpec("calendar", "Calendars", "feed", "calendar", ("calendar",), "calendar"),
+    # G142 (round 4): Apple Calendar through EventKit, so its episodes never read as a raw id.
+    SourceSpec("calendar-local", "Apple Calendar", "feed", "calendar-local", ("calendar-local",), "calendar-local"),
     SourceSpec("telegram", "Telegram", "messaging", "telegram", ("telegram",), "telegram"),
     SourceSpec("wispr-flow", "Wispr Flow", "voice", "wispr-flow", ("wispr-flow",), "wispr-flow"),
     SourceSpec("notes", "Apple Notes", "import", "apple-notes", ("apple-notes",), "notes"),

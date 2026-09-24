@@ -77,7 +77,8 @@ struct ProjectNowSection: View {
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 StoryGlyph(glyph: .ongoing).padding(.top, CicadaTheme.scaled(6))
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
-                    StorySentence(text: thread.text, participants: item?.participants ?? [], openEntity: openEntity)
+                    StorySentence(text: thread.text, participants: item?.participants ?? [], total: item?.participantsTotal,
+                                  openEntity: openEntity)
                     Text(ProjectStory.threadMeta(thread, state: state, today: today))
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
@@ -120,10 +121,32 @@ struct ProjectNowSection: View {
     }
 }
 
+extension ProjectStory.LatelyEntry {
+    /// R-FA3 — the gaps the nested stacks used to give: header → first label `spacingSM`, between groups
+    /// `spacingMD`, between rows `spacingXS`.
+    var topPadding: CGFloat {
+        switch self {
+        case .label(_, let first): first ? CicadaTheme.spacingSM : CicadaTheme.spacingMD
+        case .item: CicadaTheme.spacingXS
+        }
+    }
+}
+
+/// Lately's day label (Today · Yesterday · This week · Earlier) — a direct child of the column's lazy stack (R-FA3).
+struct ProjectLatelyLabel: View {
+    let group: RelativeDay.Group
+
+    var body: some View {
+        SectionLabel(RelativeDay.title(group)).padding(.horizontal, CicadaTheme.spacingMD)
+    }
+}
+
 /// Lately (the brief): Today · Yesterday · This week · Earlier — each happening ONE sentence with its participants as
 /// chips, a status word and its date, and its source line; selected, its words, how it was dated, Resume where
-/// resumable (R-PP26) and — Task 5 — "Not right". `created` is the foot line.
-struct ProjectLatelySection: View {
+/// resumable (R-PP26) and — Task 5 — "Not right". One row, a direct child of the column's lazy stack (R-FA3), so a
+/// long story builds only the rows on screen; `created` is `ProjectLatelyFoot`.
+struct ProjectLatelyRow: View {
+    let item: ProjectItem
     let timeline: ProjectTimeline
     let state: ProjectState.Output
     let today: ISODay
@@ -136,31 +159,12 @@ struct ProjectLatelySection: View {
     let closeReader: () -> Void
     var withdraw: ((String) -> Void)? = nil
     var writesBlocked = false
+    /// Owned by the column (one for every row), so Resume keeps one view model however many rows are built.
+    let conversations: ConversationsViewModel
 
     @Environment(Store.self) private var store
-    @State private var conversations = ConversationsViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            ForEach(ProjectStory.groups(timeline.items, today: today)) { group in
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    SectionLabel(RelativeDay.title(group.group)).padding(.horizontal, CicadaTheme.spacingMD)
-                    ForEach(group.items) { item in row(item).id(ProjectKey.item(item.id).id) }
-                }
-            }
-            if let foot = ProjectStory.createdLine(timeline.items, today: today) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    StoryGlyph(glyph: .history)
-                    Text(foot)
-                }
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .padding(.horizontal, CicadaTheme.spacingMD)
-            }
-        }
-    }
-
-    private func row(_ item: ProjectItem) -> some View {
         let key = ProjectKey.item(item.id)
         let selected = selection == key
         let evidence = ProjectSource.evidence(item)
@@ -170,8 +174,8 @@ struct ProjectLatelySection: View {
         return HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
             StoryGlyph(glyph: ProjectStory.glyph(item)).padding(.top, CicadaTheme.scaled(6))
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                StorySentence(text: item.text, participants: item.participants, lead: item.kind == "happening",
-                              openEntity: openEntity)
+                StorySentence(text: item.text, participants: item.participants, total: item.participantsTotal,
+                              lead: item.kind == "happening", openEntity: openEntity)
                 if let facts = ProjectStory.factsLine(item, names: names) {
                     Text(facts).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
@@ -180,7 +184,7 @@ struct ProjectLatelySection: View {
                     if let basis = ProjectStory.basis(item.dateBasis) {
                         Text(basis).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
-                    actions(item)
+                    actions
                 }
                 ProjectSourceLineView(line: ProjectSource.line(item), evidence: evidence,
                                       subjectId: item.claim?.subject ?? timeline.project.id, showing: showing,
@@ -205,7 +209,7 @@ struct ProjectLatelySection: View {
     }
 
     @ViewBuilder
-    private func actions(_ item: ProjectItem) -> some View {
+    private var actions: some View {
         let resumable = item.conversation.flatMap { c in c.resumable ? c.id : nil }
         // "Not right" only where the server can find the claim (`ProjectTimeline.holds`): an owner-page event that
         // names the project is shown here but lives outside the tree.
@@ -230,6 +234,21 @@ struct ProjectLatelySection: View {
     }
 }
 
+/// Lately's foot: "Cicada started tracking this" — the `created` item, never a row.
+struct ProjectLatelyFoot: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            StoryGlyph(glyph: .history)
+            Text(text)
+        }
+        .font(CicadaTheme.metaFont)
+        .foregroundStyle(CicadaTheme.textTertiary)
+        .padding(.horizontal, CicadaTheme.spacingMD)
+    }
+}
+
 /// Plan (R-PP22): the milestones by target, each with its diamond, name and state in words; "moved once ›" unfolds
 /// its chain. Task 5 passes `markDone`, `rename` and `add`.
 struct ProjectPlanSection: View {
@@ -242,8 +261,9 @@ struct ProjectPlanSection: View {
     var markDone: ((String) -> Void)? = nil
     var rename: ((String, String) -> Void)? = nil
     var add: ((String, String?) -> Void)? = nil
-    /// Bumped by the M key (Task 5) to open the add field.
-    var addRequest = 0
+    /// Set by the M key, the menu and "No plan yet" to open the add field; this section clears it once open. Read on
+    /// appear as well as on change, because the lazy story may build this section after the request (finding 1).
+    var addPending: Binding<Bool> = .constant(false)
     var writesBlocked = false
     /// R-PP23 — true while Rename or Add a milestone is open, so the column's L / M / D stand aside (the Inbox's
     /// `field == nil` guard): a letter typed into these fields is the person's word, never a command.
@@ -271,14 +291,19 @@ struct ProjectPlanSection: View {
             ForEach(rows) { row in planRow(row).id(ProjectKey.milestone(row.id).id) }
             if add != nil { addRow }
         }
-        .onChange(of: addRequest) { _, _ in
-            adding = true
-            DispatchQueue.main.async { addFocused = true }
-        }
+        .onAppear { openAddIfPending() }
+        .onChange(of: addPending.wrappedValue) { _, _ in openAddIfPending() }
         .onChange(of: renaming != nil || adding) { _, editing in onEditingChange(editing) }
         // Collapsing Plan while Rename or Add is open removes this view before `adding`/`renaming` change, so the
         // column's `typing` would stay true and L · M · D would stop working (final review of G141 PJ-5).
         .onDisappear { onEditingChange(false) }
+    }
+
+    private func openAddIfPending() {
+        guard addPending.wrappedValue, add != nil else { return }
+        addPending.wrappedValue = false
+        adding = true
+        DispatchQueue.main.async { addFocused = true }
     }
 
     private func planRow(_ row: ProjectPlan.Row) -> some View {

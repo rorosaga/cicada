@@ -11,6 +11,8 @@ only** — never from the transient result of a button press:
 * ``chat-export:*`` / ``files`` -> origin counts / the saved-URL index
 * ``folder:<id>`` -> one row per registered folder (G133), appended after the
   fixed ids (R-LS25)
+* ``calendar-local`` -> Apple Calendar through EventKit (G142), always listed,
+  appended after the fixed ids
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -22,6 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.services import (
+    calendar_local,
     calendar_registry,
     feed_registry,
     folder_source,
@@ -52,6 +55,14 @@ _NON_CONNECTOR_TAIL = (
     "files",
 )
 CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
+
+#: Folded into `GET /sources/channels`' ETag. Bump it whenever the rows this
+#: module always emits change for the same bank files — the app reloads its
+#: `.channels` domain from the on-disk cache WITH its ETag, so an unchanged tag
+#: 304s the old list until some component moves, which on a quiet or demo bank
+#: can be never. Same rule as `graph.NODE_SHAPE` / `git_service.AUTHOR_SHAPE`;
+#: "g142" is the always-listed Apple Calendar row (round 4 final review #3).
+CHANNELS_SHAPE = "g142"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -335,6 +346,12 @@ def build_channels(
             price_note=getattr(adapter, "PRICE_NOTE", None),
         )
     rows = [channels[cid] for cid in CHANNEL_IDS]
+    # G142 (round 4 D2, C6): Apple Calendar through EventKit — a standing
+    # connection the APP reads and posts, so `_local_channel`'s shape. Always
+    # listed, so Settings → Integrations and the Welcome can offer it before the
+    # first sync; appended after the fixed ids like every local source (R-LS25:
+    # the fixed list and its mirrors stay what they are).
+    rows.append(_local_channel(calendar_local.CHANNEL_ID, calendar_local.LABEL, state, "event"))
     for folder in folder_source.list_folders(memory_path):
         rows.append(_local_channel(folder_source.channel_id(folder["id"]),
                                    str(folder.get("label") or "Folder"), state, "note"))
