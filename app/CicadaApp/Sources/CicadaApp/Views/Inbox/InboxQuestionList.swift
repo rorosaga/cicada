@@ -97,6 +97,8 @@ struct InboxRow: View {
     var slots = InboxRowSlots(entity: true, source: true)
     let selected: Bool
     let now: Date
+    /// F-09's Needs you draws the row alone — the row already opens the question (R-HO12).
+    var showsOpenButton = true
     let open: () -> Void
 
     @State private var hovering = false
@@ -124,7 +126,7 @@ struct InboxRow: View {
             .accessibilityLabel(Copy.Inbox.rowAccessibility(kind: item.kind.label, question: item.questionText,
                                                              open: selected))
             .accessibilityAddTraits(selected ? .isSelected : [])
-            if style == .wide {
+            if style == .wide && showsOpenButton {
                 // Beside the row's button, never inside it: a button nested in a button is two
                 // targets for one click. VoiceOver already has the row.
                 IconButton(systemName: "chevron.right", help: Copy.Inbox.openQuestion, action: open)

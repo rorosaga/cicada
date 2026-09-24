@@ -75,6 +75,41 @@ enum SceneClock {
         }
     }
 
+    /// R-HO1 — golden hour: the painting turns to the afternoon this long before sunset.
+    static let goldenHour: TimeInterval = 2 * 3600
+
+    /// Round-4 T-Home (C10) — which of the three paintings the clock asks for. `SkyPhase` (`phase(at:)`) stays the
+    /// sky's own three steps for the Sleep room and `MeadowSky` (C7); this is the painting's.
+    static func time(at date: Date, timeZone: TimeZone,
+                     table: [String: GeoPoint] = TimeZoneCoordinates.bundled) -> SceneTime {
+        time(at: date, sun: sun(on: date, timeZone: timeZone, table: table))
+    }
+
+    /// R-HO1 — day from sunrise; the afternoon from `afternoonStart` through evening civil twilight (the afterglow keeps
+    /// the golden painting; the night one is full moonlight); night otherwise, dawn's twilight included — there is no
+    /// dawn painting. A polar day never reaches an afternoon; a polar night is night; a white night (civil twilight
+    /// that never ends) keeps the afternoon until local midnight, when the next day's "before sunrise" answers night.
+    /// The plain clock (R-FA5) falls out of the same rule: day 07:00–17:00, afternoon 17:00–19:30.
+    static func time(at date: Date, sun s: SunTimes) -> SceneTime {
+        switch s.horizon {
+        case .alwaysAbove: return .day
+        case .alwaysBelow: return .night
+        case let .times(rise, set):
+            if date >= rise, date < set { return date >= afternoonStart(rise: rise, set: set) ? .afternoon : .day }
+            guard date >= set else { return .night }
+            switch s.twilight {
+            case let .times(_, civilDusk): return date < civilDusk ? .afternoon : .night
+            case .alwaysAbove: return .afternoon
+            case .alwaysBelow: return .night
+            }
+        }
+    }
+
+    /// Two hours before sunset, never before solar noon, so a short winter day keeps a morning (R-HO1).
+    static func afternoonStart(rise: Date, set: Date) -> Date {
+        max(set.addingTimeInterval(-goldenHour), rise.addingTimeInterval(set.timeIntervalSince(rise) / 2))
+    }
+
     static func sun(on date: Date, timeZone: TimeZone,
                     table: [String: GeoPoint] = TimeZoneCoordinates.bundled) -> SunTimes {
         guard let point = TimeZoneCoordinates.point(for: timeZone.identifier, in: table) else {
@@ -117,7 +152,7 @@ enum SceneClock {
         return plainClock(on: date, timeZone: timeZone)
     }
 
-    /// The next moment the phase can change: the soonest crossing after `date` today or tomorrow, else (a polar day or
+    /// The next moment the phase or the painting's time can change: the soonest crossing after `date` today or tomorrow, else (a polar day or
     /// night) the next local midnight.
     static func nextBoundary(after date: Date, timeZone: TimeZone,
                              table: [String: GeoPoint] = TimeZoneCoordinates.bundled) -> Date {
@@ -126,10 +161,13 @@ enum SceneClock {
         let tomorrow = local.date(byAdding: .day, value: 1, to: local.startOfDay(for: date)) ?? date.addingTimeInterval(86_400)
         let candidates = [date, tomorrow].flatMap { day -> [Date] in
             let s = sun(on: day, timeZone: timeZone, table: table)
-            return [s.horizon, s.twilight].flatMap { c -> [Date] in
+            var times = [s.horizon, s.twilight].flatMap { c -> [Date] in
                 if case let .times(a, b) = c { return [a, b] }
                 return []
             }
+            // R-HO1 — the afternoon starts on its own line, so the store crossfades to it on time.
+            if case let .times(rise, set) = s.horizon { times.append(afternoonStart(rise: rise, set: set)) }
+            return times
         }
         return candidates.filter { $0 > date }.min() ?? tomorrow
     }
@@ -172,9 +210,10 @@ enum SceneClock {
     }
 }
 
-/// Round-4 D4 (R-FA6, C7) — Settings → General → Scene, per viewer, independent of Appearance.
+/// Round-4 D4 (R-FA6, C7) and T-Home (R-HO1) — Settings → General → Scene, per viewer, independent of Appearance:
+/// Automatic follows the clock; Day, Afternoon and Night pin one painting (owner, round-4 decision 8).
 enum HeroScenePreference: String, CaseIterable, Identifiable {
-    case automatic, day, night
+    case automatic, day, afternoon, night
 
     static let defaultsKey = "cicada.heroScene"
     var id: String { rawValue }
@@ -182,18 +221,39 @@ enum HeroScenePreference: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .automatic: Copy.sceneAutomatic
-        case .day: Copy.sceneAlwaysDay
-        case .night: Copy.sceneAlwaysNight
+        case .day: Copy.sceneDay
+        case .afternoon: Copy.sceneAfternoon
+        case .night: Copy.sceneNight
         }
     }
 
     /// Absent or unknown → Automatic.
     static func stored(_ raw: String?) -> HeroScenePreference { raw.flatMap(Self.init(rawValue:)) ?? .automatic }
 
-    func scene(clock: CicadaTheme.SkyPhase) -> CicadaTheme.SkyPhase {
+    func time(clock: SceneTime) -> SceneTime {
         switch self {
         case .automatic: clock
         case .day: .day
+        case .afternoon: .afternoon
+        case .night: .night
+        }
+    }
+}
+
+/// Round-4 T-Home (C10) — the three paintings: day, the golden hour before sunset, and night. One composition in
+/// three lights (ART_DIRECTION §3), so moving between them is a crossfade, never a jump.
+enum SceneTime: String, CaseIterable, Sendable {
+    case day, afternoon, night
+
+    /// A surface with no Scene setting (an empty state's grass, a tiled edge) follows the theme: day under light,
+    /// night under dark (ART_DIRECTION §6).
+    static func forTheme(_ mode: AppColorScheme) -> SceneTime { mode == .dark ? .night : .day }
+
+    /// The procedural sky a scene falls back to when a bundle lost its painting.
+    var skyPhase: CicadaTheme.SkyPhase {
+        switch self {
+        case .day: .day
+        case .afternoon: .dusk
         case .night: .night
         }
     }

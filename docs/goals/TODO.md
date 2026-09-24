@@ -37,6 +37,12 @@ decide the command set over the HTTP API) → G158 (website — How it works wit
 and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,
 pixel palette first).
 
+**T-Home (phase A, `feat/r4-home`):** `PaintedScene` (C10) with its three framings, the afternoon, Scene × 4, the
+pastel set, Home per F-09 and Settings per F-10 with *Show in menu bar*; rulings R-HO1–R-HO18 in DESIGN_RULES §9. For
+phase B: call `AppearanceTipPolicy.arm()` when onboarding ends, add each onboarding file that draws `PaintedScene` to
+`MeadowPlacementLintTests.allowed`, and set `\.scenePaused` on a page behind another. Getting started's last-sync line
+arrives with T-Sources' `SourceRow`.
+
 ### Round 4 — G150, backlogs live in memory
 
 (2026-09-24, `feat/r4-backlog-in-memory`, plan
@@ -45,7 +51,7 @@ over MCP (`cicada_add_backlog_item`, `cicada_add_backlog_note`, `cicada_backlog`
 page, found by ⌘K, every note signed; the primer tells an agent what to do when the person says "put it in the
 backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently
 (it refuses, writing nothing, while the backend runs a Sleep cycle and on a demo bank) —
-**importing the owner's real backlog into his bank waits for his OK** (the orchestrator runs it after merge). 27
+**the owner's backlog was imported into his bank on 2026-09-24 with his OK** (159 items onto the Cicada project, one `Backlog import` commit; a re-run skips all 159). 27
 rulings (R-B1…R-B27), five dated in DESIGN_RULES §9. Merge notes: `CONTRACT_VERSION` 8 (G149's item 8 took 7 on its own branch, so the merge moved past both, R-H13) / remote 5, `_state.md` v4 and
 the FTS `SCHEMA_VERSION` "4" take the next number past any other round-4 bump; a note's `authorModel`/`authorEffort`
 are filled by round 4's per-turn join (now on `dev`).

@@ -38,9 +38,6 @@ extension Copy {
     static func homeWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "\(UsageFormat.count(n, locale: locale)) waiting to be read"
     }
-    static func homeAllInbox(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "All \(UsageFormat.count(n, locale: locale)) ›"
-    }
     static func homeMoreChips(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "+\(UsageFormat.count(n, locale: locale))"
     }

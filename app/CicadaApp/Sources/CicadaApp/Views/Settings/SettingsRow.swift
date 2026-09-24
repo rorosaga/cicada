@@ -6,15 +6,18 @@ import SwiftUI
 struct SettingsRow<Control: View, Below: View>: View {
     let id: SettingsRowID
     let title: String
+    /// F-10 (R-HO16) — a live fact beside the title ("Day now"): read-only, never a control.
+    var accessory: String?
     var detail: String?
     @ViewBuilder var control: () -> Control
     @ViewBuilder var below: () -> Below
 
-    init(_ id: SettingsRowID, title: String, detail: String? = nil,
+    init(_ id: SettingsRowID, title: String, accessory: String? = nil, detail: String? = nil,
          @ViewBuilder control: @escaping () -> Control,
          @ViewBuilder below: @escaping () -> Below) {
         self.id = id
         self.title = title
+        self.accessory = accessory
         self.detail = detail
         self.control = control
         self.below = below
@@ -24,9 +27,17 @@ struct SettingsRow<Control: View, Below: View>: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(title)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
+                    HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                        Text(title)
+                            .font(CicadaTheme.font(size: 13, weight: .medium))
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        // F-10 — a live fact beside the title ("Day now"), never a control.
+                        if let accessory {
+                            Text(accessory)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                    }
                     if let detail, !detail.isEmpty {
                         Text(detail)
                             .font(CicadaTheme.captionFont)

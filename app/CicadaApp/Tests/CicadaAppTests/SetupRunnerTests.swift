@@ -19,6 +19,7 @@ final class FakeSetupEffects: SetupEffects {
     }
     func markOnboarded() { calls.append("markOnboarded") }
     func recordGettingStarted(_ ids: [FoundItemID]) { calls.append("record:" + ids.map(\.key).joined(separator: ",")) }
+    func armAppearanceTip() { calls.append("armTip") }
     func showHome() { calls.append("showHome") }
     func close() { calls.append("close") }
     func createDemoBank() async throws {
@@ -53,10 +54,10 @@ final class SetupRunnerTests: XCTestCase {
         await runner.run(OnboardingFlow.plan(name: "Ada", pickedEngine: "agent",
                                              ticked: [.agent("claude-code"), .browser("chrome-bookmarks")], mode: .firstRun),
                          effects: fx)
-        XCTAssertEqual(Array(fx.calls.prefix(5)),
+        XCTAssertEqual(Array(fx.calls.prefix(6)),
                        ["saveOwner:Ada", "saveEngine:agent", "markOnboarded",
-                        "record:agent:claude-code,browser:chrome-bookmarks", "showHome"])
-        XCTAssertEqual(Set(fx.calls.dropFirst(5)), ["turnOn:agent:claude-code", "turnOn:browser:chrome-bookmarks"])
+                        "record:agent:claude-code,browser:chrome-bookmarks", "armTip", "showHome"])
+        XCTAssertEqual(Set(fx.calls.dropFirst(6)), ["turnOn:agent:claude-code", "turnOn:browser:chrome-bookmarks"])
         XCTAssertEqual(runner.rows[.agent("claude-code")], .on)
         XCTAssertEqual(runner.phase, .started)
     }

@@ -11,7 +11,8 @@ final class MeadowPlacementLintTests: XCTestCase {
         "Views/Common/EmptyStateView.swift",   // G137 M1: grass corners + one cloud behind the worm
     ]
     static let needles = ["MeadowBackdrop(", "DriftingCloud(", "GrassCorners(", "GrassEdge(",
-                          "MeadowSky(", "ArtImage(", "MeadowArt.image("]
+                          "MeadowSky(", "ArtImage(", "MeadowArt.image(",
+                          "PaintedScene(", "PaintedSceneFrame("]
 
     func testPaintedArtIsDrawnOnlyWhereARulingAllowsIt() throws {
         var offenders: [String] = []

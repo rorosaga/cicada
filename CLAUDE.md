@@ -808,11 +808,13 @@ G147's *How things fade*: pace suggestions from the person's own "Still tracking
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General also
-holds Scene, Open Cicada at login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does
-not keep says so) and Keep memory working when Cicada is closed (`BackendAgentService`: a read-only `launchctl print`,
-and Install runs `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`,
-then hands launchd the port). ⌘K and ⌘F are
+follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
+Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
+login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
+menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays) and Keep memory working when
+Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
+`scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
+launchd the port). ⌘K and ⌘F are
 menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
@@ -836,24 +838,29 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band — its
-`-dark` sibling at dusk and night by the clock (`SceneClock`: NOAA's sun over the Mac's time zone's tzdb point, no
-location; `SceneStore` re-checks at each crossing, on a time-zone change and on wake) and Settings → General → Scene
-(Automatic · Always day · Always night), never the theme (G144; DESIGN_RULES §9 2026-09-24) —
-(`HomeHeroBand`, paint only, 120 pt, faded into the window), "What would you like to remember?" as a
-`PageTitle` on the row under it — text never sits on paint — then the palette's own `FindPanelBody` in
-`.page` placement in a 640 pt block: a second `FindPaletteModel` sharing the one Ask and keeping no
-recents; ⌘K on Home focuses it, a pasted `http(s)` link offers *Save this link*. Below it, in one
-760 pt column, labelled `glassCard` blocks of 36 pt rows: Getting started (while it lasts), Today
-(captured today, UTC, with the three busiest marks), Needs you (the Inbox's own `InboxRow`s, landing in
-STATE 1) and Last read (the newest Sleep commit, its pages as `Tag`s) — each number once, each a link
-(`InlineLink`) to the page that owns it; the waiting count links to Sleep, never a Consolidate.
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band —
+`PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
+person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
+over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil
+dusk), never the theme (G144); its meadow line at two thirds of the band, faded into the window from 72 %. Slow
+one-way clouds, grass swaying from its roots, seeds by day, fireflies and stars by night and a slow camera breath run
+in one `TimelineView` at ≤ 30 fps (15 under Low Power) that rests while the window cannot be seen, while the Welcome
+covers the shell and off-tab; Reduce Motion or Low Power make it gentler, never frozen (DR-66); a scene change
+crossfades the same composition in 1.2 s. Under it, "What would you like to remember?" as a `PageTitle` — text never
+sits on paint — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
+`FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
+*Save this link*. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
+captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
+question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
+pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
+Consolidate. Right after the Welcome's Start, *Make it yours* (Appearance and Scene; `AppearanceTipPolicy`, per
+viewer) sits beside the column where it fits, else atop it; once hidden it lives only in Settings.
 
 **Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
-`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero`, the same scene rule as Home's:
-day or its `-dark` sibling by the clock and Settings → General → Scene, never the theme — G144), the headline on the card that
-rises into it, what Cicada found on this Mac as a checklist whose ticks are the consent (own acts, no
-new permission prompt, no other app — `FoundPolicy`), a chat-export drop zone that stages rows and
+`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero` = `PaintedScene(.fullBleed)`,
+Home's living painting and scene rule — G144), the headline on the card that rises into it, what Cicada found on this
+Mac as a checklist whose ticks are the consent (own acts, no new permission prompt, no other app — `FoundPolicy`), a
+chat-export drop zone that stages rows and
 imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
 blocking — an untouched choice keeps the install's configured engine, and Getting started asks
 "who reads" only if that cannot run), and one meadow pill whose text twin says exactly what it
@@ -1154,10 +1161,11 @@ an inset ring, never a shadow in dark and one soft shadow on a light floating su
 only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
 **Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
 fallback, opaque under Reduce Transparency); a lint fails the build on any glass API elsewhere. **Painted art**
-(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
-sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number, and text never sits
-directly on paint — enforced by an allowlist lint; the Welcome's hero band (`WelcomeHero`) and Home's sky band
-(`HomeHeroBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every painting ships as day,
+afternoon and night of one composition — `docs/design/ART_DIRECTION.md`) appears only on non-data surfaces — never the
+graph, a list, a grid, a form or a number, and text never sits directly on paint — enforced by an allowlist lint;
+Home's band and the Welcome are `PaintedScene` (C10), composed inside `Views/Meadow/`, and its particle colours are
+the art's (`ScenePaint`), never theme tokens. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
