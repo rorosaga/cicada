@@ -394,6 +394,27 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     1.29 / 11.9; dark day 1.29 / 12.4, dusk 1.02 / 15.7, night 1.00 / 16.0 — so the gates alone
     cannot decide it. Revisit only with new composites — flip the constant and re-run
     `CICADA_WRITE_COMPOSITES=1 swift test --filter SkyBandTests`.
+11. **An agent's model and reasoning effort are recorded per turn — G49's reservation is lifted
+    for harness writes (owner, 2026-09-24).** The owner asked that every memory write an agent
+    makes be traceable to its harness, model and reasoning effort.
+
+    Checked on a live transcript before building:
+    - Claude Code's assistant lines carry `message.model` and a top-level `effort`.
+    - The Stop hook's stdin carries `effort.level`.
+    - Codex rollouts carry `turn_context.payload.model` and `.effort`.
+
+    So the capture path (G105's one permitted transcript read) keeps exactly those keys on agent
+    turns, and nothing else of the line: no thinking or reasoning text. A write through MCP is
+    joined AT READ, by its session id and `recorded_ts`, to the turn it happened in
+    (`turn_authorship.py`). It is never self-reported: an agent asked for its model can only
+    guess, and a guess in provenance is worse than a blank. `Cicada-Author:` stays the harness
+    label.
+
+    Revisit when one of these happens:
+    - A harness starts telling MCP servers its own model. Prefer that; it needs no join.
+    - The transcript keys move. The extractor then reads null, never a wrong value.
+    - A claim is ever shown with a model its turn did not use. The second-precision join rule is
+      then wrong; read `turn_authorship.turn_at` first.
 
 ## How work is run here
 

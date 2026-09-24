@@ -197,6 +197,13 @@ class Claim:
     target: str | None = None
     participants: list[dict] = field(default_factory=list)
     date_basis: str | None = None
+    # Round 4 C2 (G49 lifted for harness writes, TODO ruling 11): the second a
+    # claim was written through the MCP seam (stdio or remote),
+    # `YYYY-MM-DDTHH:MM:SSZ`, beside the day-granular `recorded_at`. With the
+    # first-writer `session_id` it is what `turn_authorship` joins to the
+    # captured turn the write happened in; a reinforce moves neither (R4B-5).
+    # Omitted from the YAML when unset (R7's reason).
+    recorded_ts: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -230,6 +237,8 @@ class Claim:
         data["participants"] = clean_participants(data.get("participants"))
         if not data["participants"]:
             data.pop("participants", None)
+        if data.get("recorded_ts") is None:
+            data.pop("recorded_ts", None)
         return data
 
     @classmethod
@@ -267,6 +276,7 @@ class Claim:
             target=_opt_str(data.get("target")),
             participants=clean_participants(data.get("participants")),
             date_basis=_opt_str(data.get("date_basis")),
+            recorded_ts=_opt_str(data.get("recorded_ts")),
         )
 
 

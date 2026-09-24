@@ -285,6 +285,7 @@ def write_claim(
     forbid_owner_observer: bool = False,
     expected_end: str | None = None,
     today: date | None = None,
+    recorded_ts: str | None = None,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -330,6 +331,10 @@ def write_claim(
     ``today`` (G141 R-PJB7): the demo's pinned day, threaded to Stage 3's
     ``now_date`` so ``recorded_at`` is deterministic; omitted, ``recorded_at``
     reads the real clock exactly as before.
+
+    ``recorded_ts`` (round 4 C2, R4B-5): the second an MCP write landed, passed
+    by the one MCP seam (`mcp_tools`) and nothing else; stored beside
+    ``session_id`` so the read path can join the claim to its captured turn.
 
     Returns ``{subject, entity_id, claim_id, action, observer, evidence, path,
     page_created, expected_end, expected_end_ignored}`` on success (``path`` memory-relative, so the caller can
@@ -482,6 +487,7 @@ def write_claim(
             evidence=spans,
             authored_by=(authored_by or "").strip() or None,
             expected_end=end,
+            recorded_ts=(recorded_ts or "").strip() or None,
         )
 
         parsed = markdown_parser.parse(page)
@@ -614,7 +620,8 @@ def owns(claim: Claim, *, author: str, origin: str | None) -> bool:
 
 
 def _withdrawal_record(target: Claim, claims: list[Claim], *, reason: str, author: str, origin: str | None,
-                       session_id: str | None, spans: list, day: str, fallback_subject: str = "") -> Claim:
+                       session_id: str | None, spans: list, day: str, fallback_subject: str = "",
+                       recorded_ts: str | None = None) -> Claim:
     """The born-closed `retracts` record that withdraws `target` (G140 Q-R5).
 
     Extracted from `retract_claim` so G141's `progress.withdraw` mints the
@@ -648,6 +655,7 @@ def _withdrawal_record(target: Claim, claims: list[Claim], *, reason: str, autho
         origin=origin or target.origin,
         session_id=(session_id or "").strip() or None,
         evidence=spans,
+        recorded_ts=(recorded_ts or "").strip() or None,
     )
 
 
@@ -662,6 +670,7 @@ def retract_claim(
     session_id: str | None = None,
     evidence: list[dict] | None = None,
     today: date | None = None,
+    recorded_ts: str | None = None,
 ) -> dict:
     """Withdraw one claim this caller wrote, keeping it as history (G140 Q-R5, R3 P7).
 
@@ -705,7 +714,8 @@ def retract_claim(
     day = (today or date.today()).isoformat()
     spans = evidence_mod.verify_many(memory_path, evidence) or [evidence_mod.reasoning("")]
     record = _withdrawal_record(target, claims, reason=reason, author=author, origin=origin,
-                                session_id=session_id, spans=spans, day=day, fallback_subject=page.stem)
+                                session_id=session_id, spans=spans, day=day, fallback_subject=page.stem,
+                                recorded_ts=recorded_ts)
     target.valid_to = day
     target.superseded_by = record.id
     try:

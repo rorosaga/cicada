@@ -61,7 +61,8 @@ def test_a_capture_writes_the_sidecar_shape_last_and_outside_the_hash(memory, tr
         {"offset": len("user: Q1 about alpha-project") + 1, "ts": "2026-09-03T10:00:00+00:00",
          "speaker": "assistant"},
     ]
-    assert all(tuple(e) == episode_staging.TURN_STAMP_KEYS for e in fm["turns"])
+    assert all(tuple(e)[:3] == episode_staging.TURN_STAMP_REQUIRED and set(e) <= set(episode_staging.TURN_STAMP_KEYS)
+               for e in fm["turns"])
     assert fm["content_hash"] == hashlib.sha256(body.encode()).hexdigest()[:12]  # the body alone
 
 
@@ -137,4 +138,7 @@ def test_the_turns_key_has_one_shape_owner_and_one_reader():
                     text = (Path(dirpath) / name).read_text(encoding="utf-8")
                     if '"turns"' in text or "'turns'" in text:
                         found.add(name)
-    assert found == {"episode_staging.py", "evidence.py", "transcript_capture.py"}
+    # Round 4 C1: `agent_turns.stamps` is the tolerant reader of the two agent
+    # keys (model/effort). It reads a non-list as no stamps, so "nothing reads a
+    # count" still holds; `evidence.turn_stamps` stays the reader of ts/speaker.
+    assert found == {"episode_staging.py", "evidence.py", "transcript_capture.py", "agent_turns.py"}

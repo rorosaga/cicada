@@ -99,6 +99,14 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def utc_now_seconds() -> str:
+    """Now as `YYYY-MM-DDTHH:MM:SSZ` — the shape of a claim's `recorded_ts`
+    (round 4 C2). Seconds on purpose: it is compared with a turn's time floored
+    to the second (`turn_authorship`), and a sub-second stamp would claim a
+    precision the join does not use."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def to_utc_iso(value: datetime | int | float) -> str:
     """Normalise an epoch or a ``datetime`` to the R2 shape.
 

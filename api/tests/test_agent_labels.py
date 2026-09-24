@@ -69,9 +69,9 @@ def test_the_old_placeholder_reads_as_an_agent():
 
 
 def test_a_claim_on_the_wire_names_the_agent_not_the_placeholder():
-    model = transclusion_resolver.claim_to_model(_claim(authored_by="mcp-agentic-write"))
+    model = transclusion_resolver.claim_to_model(_claim(authored_by="mcp-agentic-write"), turns=None)
     assert (model.authored_by, model.author_kind, model.author_provider) == ("agent", "harness", None)
-    model = transclusion_resolver.claim_to_model(_claim(authored_by="claude-code"))
+    model = transclusion_resolver.claim_to_model(_claim(authored_by="claude-code"), turns=None)
     assert (model.authored_by, model.author_kind) == ("claude-code", "harness")
 
 

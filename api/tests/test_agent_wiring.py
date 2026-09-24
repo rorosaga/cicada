@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
+import time
 from pathlib import Path
 
 from api import config
@@ -130,3 +131,20 @@ def test_the_route_serves_the_probe(tmp_path, monkeypatch):
     r = TestClient(main.app).get("/agents/wiring")
     assert r.status_code == 200 and r.json()["memory"] == str(tmp_path)
     config.get_settings.cache_clear()
+
+
+def test_the_probes_run_side_by_side_on_a_six_second_budget(tmp_path):
+    """R4B-12: the live Welcome read Claude Code as 'couldn't check in time' at
+    2 s — `claude mcp get` starts the server to health-check it."""
+    assert agent_wiring.PROBE_TIMEOUT_S == 6.0
+
+    async def slow(argv, *, timeout):
+        assert timeout == 6.0
+        await asyncio.sleep(0.4)
+        return base.CliResult(0, "", "")
+
+    started = time.perf_counter()
+    asyncio.run(agent_wiring.probe(home=tmp_path, memory_root=MEM, repo=REPO, python=PY, runner=slow,
+                                   resolve=lambda name: name))
+    # Two 0.4 s probes at once (~0.4 s), never 0.8 s in a row; the margin absorbs a loaded CI box.
+    assert time.perf_counter() - started < 0.7

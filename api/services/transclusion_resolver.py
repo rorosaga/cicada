@@ -32,8 +32,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api.models.schemas import ClaimModel, EvidenceModel, ParticipantModel, TransclusionPayload
-from api.services import git_service, markdown_parser
+from api.models.schemas import ClaimModel, ParticipantModel, TransclusionPayload
+from api.services import git_service, markdown_parser, turn_authorship
 from api.services.claims import Claim, parse_claims
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import resolve_entity_file
@@ -42,15 +42,21 @@ from api.services.id_utils import resolve_entity_file
 MAX_DEPTH = 3
 
 
-def claim_to_model(claim: Claim) -> ClaimModel:
+def claim_to_model(claim: Claim, *, turns: turn_authorship.TurnAuthorship | None) -> ClaimModel:
     """The ONE ``Claim`` → ``ClaimModel`` builder. ``routers/claims._claim_to_model``
     delegates here, so ``/entities/{id}/claims``, ``/timeline`` and
     ``/transclude`` can never ship two shapes of one claim — G118 slice 2
     (R-PB13) found the two copies drifting the moment author fields were added
     to only one. ``author_kind``/``author_provider`` come from
-    ``git_service.author_identity``, the rule the contributors strip reads."""
+    ``git_service.author_identity``, the rule the contributors strip reads.
+
+    ``turns`` (round 4 C3, R4B-8) is the request's join: a harness write's
+    ``author_model``/``author_effort`` and each assistant span's model come from
+    it. Required, so no call site can forget the join; ``None`` only where there
+    is no bank to read, which serves those fields as null."""
     author = git_service.canonical_author(claim.authored_by)
     author_kind, author_provider = git_service.author_identity(author)
+    model, effort = turns.for_claim(claim, author_kind) if turns is not None else turn_authorship.NONE
     return ClaimModel(
         id=claim.id,
         text=claim.text,
@@ -71,7 +77,7 @@ def claim_to_model(claim: Claim) -> ClaimModel:
         premises=claim.premises,
         authored_by=author,
         origin=claim.origin,
-        evidence=[EvidenceModel(**e.to_dict()) for e in (claim.evidence or [])],
+        evidence=[turn_authorship.evidence_model(e, turns) for e in (claim.evidence or [])],
         # G118 slice 2 (R-PB13) — additive.
         session_ids=claim.all_session_ids(),
         recorded_at=claim.recorded_at,
@@ -83,6 +89,10 @@ def claim_to_model(claim: Claim) -> ClaimModel:
         participants=[ParticipantModel(**p) for p in (claim.participants or [])],
         date_basis=claim.date_basis,
         expected_end=claim.expected_end,
+        # Round 4 C2/C3 — additive.
+        recorded_ts=claim.recorded_ts,
+        author_model=model,
+        author_effort=effort,
     )
 
 
@@ -187,6 +197,7 @@ def _resolve_claim(memory_path: Path, ref: str, claim_id: str) -> TransclusionPa
     entities_dir = memory_path / "entities"
     if not entities_dir.exists():
         return _stub(ref, kind="claim")
+    turns = turn_authorship.TurnAuthorship(memory_path)
     for filepath in sorted(entities_dir.glob("*.md")):
         try:
             parsed = markdown_parser.parse(filepath)
@@ -199,7 +210,7 @@ def _resolve_claim(memory_path: Path, ref: str, claim_id: str) -> TransclusionPa
                     ref=ref,
                     title=claim.subject or claim_id,
                     summary=claim.text,
-                    claims=[claim_to_model(claim)],
+                    claims=[claim_to_model(claim, turns=turns)],
                     resolved=True,
                 )
     return _stub(ref, kind="claim")
@@ -215,6 +226,7 @@ def _resolve_facet(
         c for c in claims if _is_valid(c) and (not selector or c.context == selector)
     ]
     title, _summary = _entity_summary(memory_path, page)
+    turns = turn_authorship.TurnAuthorship(memory_path)
     label = f"{title} · {selector}" if selector else title
     summary = facet_claims[0].text if facet_claims else ""
     return TransclusionPayload(
@@ -222,7 +234,7 @@ def _resolve_facet(
         ref=ref,
         title=label,
         summary=summary,
-        claims=[claim_to_model(c) for c in facet_claims],
+        claims=[claim_to_model(c, turns=turns) for c in facet_claims],
         resolved=True,
     )
 

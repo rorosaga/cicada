@@ -227,9 +227,10 @@ def test_the_channel_row_and_the_sources_card(bank):
 # in for the `folder:` family): a new `sync` row must land in both lists and
 # get a handler in `ChannelActions.syncRoute`, or its "Sync now" throws
 # "Unknown channel <id>" at the person — the L final review's finding 1.
+# round 4 (G142): `calendar-local` — the app's EventKit reader (feat/r4-foundations-app) owns its `syncRoute`.
 APP_SYNC_ROUTED = {
     "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
-    "pinterest", "reddit", "x", "folder:*", "wispr-flow",
+    "pinterest", "reddit", "x", "folder:*", "wispr-flow", "calendar-local",
 }
 
 

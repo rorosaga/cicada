@@ -39,6 +39,7 @@ from api.services import (
     provenance,
     sync_service,
     transclusion_resolver,
+    turn_authorship,
 )
 from api.services.claims import Claim, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -46,11 +47,12 @@ from api.services.id_utils import resolve_entity_file
 router = APIRouter()
 
 
-def _claim_to_model(c: Claim) -> ClaimModel:
+def _claim_to_model(c: Claim, turns: turn_authorship.TurnAuthorship | None) -> ClaimModel:
     """Every claim on the wire goes through ``transclusion_resolver.claim_to_model``
     (G118 slice 2, R-PB13): one builder, so this router and ``/transclude``
-    never disagree about a claim's author identity, sessions or evidence."""
-    return transclusion_resolver.claim_to_model(c)
+    never disagree about a claim's author identity, sessions or evidence.
+    ``turns`` is the request's one model join (round 4 C3, R4B-8)."""
+    return transclusion_resolver.claim_to_model(c, turns=turns)
 
 
 def _is_currently_valid(c: Claim) -> bool:
@@ -90,13 +92,26 @@ async def get_entity_claims(
     calls any key with two or more "contested" (``EntityDetailCard.swift``),
     so every project with two happenings would grow a bogus contested row.
     Events have their own reader, ``/projects/{id}/timeline``.
+
+    Built in the threadpool (round 4 final review #2): the C3 model join scans
+    the episode index and reads each cited capture body — seconds cold on a big
+    bank — and on the event loop that would stall SSE and every other request,
+    the hazard ``/origins`` and ``/sources/channels`` were moved off it for.
     """
-    claims = _load_subject_claims(settings.memory_path, entity_id)
+    return await run_in_threadpool(
+        _build_entity_claims, settings.memory_path, entity_id, include_superseded, include_events,
+    )
+
+
+def _build_entity_claims(memory_path: Path, entity_id: str, include_superseded: bool,
+                         include_events: bool) -> ClaimListResponse:
+    claims = _load_subject_claims(memory_path, entity_id)
     if not include_events:
         claims = [c for c in claims if not is_event(c)]
     if not include_superseded:
         claims = [c for c in claims if _is_currently_valid(c)]
-    return ClaimListResponse(claims=[_claim_to_model(c) for c in claims])
+    turns = turn_authorship.TurnAuthorship(memory_path)
+    return ClaimListResponse(claims=[_claim_to_model(c, turns) for c in claims])
 
 
 @router.get("/entities/{entity_id}/timeline", response_model=ClaimTimeline)
@@ -111,17 +126,25 @@ async def get_entity_timeline(
     Includes superseded claims (historical view), sorted newest-first: the
     currently-valid claim leads, closed claims follow by descending
     ``valid_from`` (then ``valid_to``) — the order the timeline view draws.
+    In the threadpool for the same reason as ``/claims`` (final review #2).
     """
-    claims = _load_subject_claims(settings.memory_path, entity_id)
+    return await run_in_threadpool(
+        _build_entity_timeline, settings.memory_path, entity_id, predicate, context,
+    )
+
+
+def _build_entity_timeline(memory_path: Path, entity_id: str, predicate: str, context: str) -> ClaimTimeline:
+    claims = _load_subject_claims(memory_path, entity_id)
     key_claims = [
         c for c in claims if c.predicate == predicate and c.context == context
     ]
     key_claims.sort(key=_timeline_sort_key, reverse=True)
+    turns = turn_authorship.TurnAuthorship(memory_path)
     return ClaimTimeline(
         subject=entity_id,
         predicate=predicate,
         context=context,
-        claims=[_claim_to_model(c) for c in key_claims],
+        claims=[_claim_to_model(c, turns) for c in key_claims],
     )
 
 
@@ -174,5 +197,6 @@ async def get_transclusion(
     settings: Settings = Depends(get_settings),
 ):
     """Resolve one ``![[ref]]`` embed. Never raises — a missing/cyclic/too-deep
-    ref returns ``resolved=False`` so the client renders a soft stub."""
-    return transclusion_resolver.resolve_transclusion(settings.memory_path, ref)
+    ref returns ``resolved=False`` so the client renders a soft stub. In the
+    threadpool: its claims carry the C3 model join too (final review #2)."""
+    return await run_in_threadpool(transclusion_resolver.resolve_transclusion, settings.memory_path, ref)
