@@ -45,14 +45,14 @@ final class EngineCardTests: XCTestCase {
     func testPreviewLineFormatting() {
         let manual = SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "user-triggered")
         XCTAssertEqual(
-            EngineChooser.previewLine(manual, label: "Next cycle you start"),
-            "Next cycle you start: \(Copy.engineLabel("claude-cli")) · sonnet"
+            EngineChooser.previewLine(manual, label: Copy.EngineMenu.whenYouStart),
+            "\(Copy.EngineMenu.whenYouStart): \(Copy.engineLabel("claude-cli")) · sonnet"
         )
 
         let scheduled = SleepEnginePreview(engine: "litellm", model: "gpt-5.4-mini", why: "scheduled cycle")
         XCTAssertEqual(
-            EngineChooser.previewLine(scheduled, label: "Nightly schedule"),
-            "Nightly schedule: \(Copy.engineLabel("litellm")) · gpt-5.4-mini"
+            EngineChooser.previewLine(scheduled, label: Copy.EngineMenu.scheduledCycles),
+            "\(Copy.EngineMenu.scheduledCycles): \(Copy.engineLabel("litellm")) · gpt-5.4-mini"
         )
     }
 
@@ -90,8 +90,8 @@ final class EngineCardTests: XCTestCase {
     func testTheCodexPreviewLineNamesTheChatGPTPlan() {
         let manual = SleepEnginePreview(engine: "codex-cli", model: "gpt-5.6-luna",
                                         why: "Sleep engine set to 'codex' in Settings")
-        XCTAssertEqual(EngineChooser.previewLine(manual, label: "Next cycle you start"),
-                       "Next cycle you start: Codex (your ChatGPT plan) · gpt-5.6-luna")
+        XCTAssertEqual(EngineChooser.previewLine(manual, label: Copy.EngineMenu.whenYouStart),
+                       "\(Copy.EngineMenu.whenYouStart): Codex (your ChatGPT plan) · gpt-5.6-luna")
     }
 
     func testAllowOverageDecodesTolerantly() throws {

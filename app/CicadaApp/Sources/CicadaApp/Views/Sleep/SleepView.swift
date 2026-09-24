@@ -166,6 +166,9 @@ struct SleepView: View {
     var onSelectEntity: ((String) -> Void)?
 
     @Environment(SleepViewModel.self) private var sleepVM
+    /// R-HS7 / R-HS12 — the engine menu's model, the one `EngineChooser` reads; its response is the
+    /// page's first source for every engine line.
+    @Environment(SleepEngineViewModel.self) private var engineVM
     // H1: the study list's header and the desk card's bubble/pile must agree
     // on one live reading of the queue. `Store.status`/`Store.sleepEvent` are
     // the SSE-live sources; reading them here (instead of only
@@ -273,6 +276,12 @@ struct SleepView: View {
                 loadedOnce = true
                 await sleepVM.load()
             }
+            // R-HS12 — every visit, unconditionally: the chooser's response may have been loaded
+            // long before (Home's Getting started loads it at launch), and the page reads it FIRST,
+            // so a stale one would hold the button, the lamp and the answers on an old engine. The
+            // GET is engine-free, and `EngineChooser` re-syncs from `vm.response` (`onChange`), so
+            // a reload never stomps a choice.
+            await engineVM.load()
         }
         // G106 amendment + Track Z §6.5 / Z-P17. This view's own edge
         // detection — see `justFinishedAt`'s declaration for why it can't
@@ -334,7 +343,9 @@ struct SleepView: View {
     private func resolvePage(now: Date = .now) -> SleepPageModel {
         SleepPageModel.resolve(
             status: sleepVM.status, sse: store.sleepEvent, queued: sleepVM.queuedEpisodes,
-            schedule: sleepVM.schedule, enginePreview: sleepVM.enginePreview, history: sleepVM.history,
+            schedule: sleepVM.schedule,
+            enginePreview: SleepEnginePreviewSource.current(chooser: engineVM.response, page: sleepVM.enginePreview),
+            history: sleepVM.history,
             storeStatus: store.status.value,
             queueLoad: StudyListCard.loadState(status: store.status.value,
                                                isLoading: store.status.isEmpty && store.status.isRefreshing,
@@ -617,7 +628,7 @@ struct SleepView: View {
                                  }
                              })
             SleepControlRow(consolidateEnabled: page.consolidateEnabled,
-                            queuedCount: page.queuedCount, manualEngine: page.manualEngine)
+                            queuedCount: page.queuedCount)
                 .accessibilitySortPriority(RoomA11yOrder.control)
             whisperRow(page)
                 .accessibilitySortPriority(RoomA11yOrder.whisper)

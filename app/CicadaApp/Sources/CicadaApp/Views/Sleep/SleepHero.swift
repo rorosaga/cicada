@@ -416,13 +416,11 @@ struct SleepReadoutView: View {
 
 // MARK: - The one control (R-A7, Track Z §4.2)
 
-/// What the caption under the one control says: the engine THIS click would
-/// run on (ruling 4, at the moment of choice), or what Cancel does while a
-/// cycle runs; `nil` until the preview loads — a guessed engine is worse than
-/// silence.
-func controlCaption(isRunning: Bool, manualEngine: String?) -> String? {
-    if isRunning { return Copy.cancelCaption }
-    return manualEngine.map { Copy.runsOn(engine: $0) }
+/// While a cycle runs, what Cancel does; otherwise nothing — the engine menu beside the control
+/// names what a click would run (R-HS9), the fact the retired "Runs on …" caption stated, so
+/// printing both would say it twice (DR-38).
+func controlCaption(isRunning: Bool) -> String? {
+    isRunning ? Copy.cancelCaption : nil
 }
 
 /// The page's ONE Consolidate/Cancel control (R-A7, G125 R10). While a cycle
@@ -433,24 +431,27 @@ func controlCaption(isRunning: Bool, manualEngine: String?) -> String? {
 /// `consolidateEnabled` and `queuedCount` come from `SleepPageModel`, the one
 /// reading the sentence above it also drew from, so the button can never be
 /// live while the sentence says there is nothing to read.
+///
+/// Beside it sits the engine menu (`EngineQuickMenuButton`), which names what a cycle you start
+/// would run (R-HS8); the caption beside the pair is Cancel's while a cycle runs and nothing
+/// otherwise (R-HS9).
 struct SleepControlRow: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
 
     let consolidateEnabled: Bool
     let queuedCount: Int
-    let manualEngine: String?
 
     var body: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
+        HStack(spacing: CicadaTheme.spacingSM) {
             if sleepVM.isRunning { cancelButton } else { consolidateButton }
-            if let caption = controlCaption(isRunning: sleepVM.isRunning, manualEngine: manualEngine) {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    if !sleepVM.isRunning, let engine = manualEngine { EngineMark(engine: engine) }
-                    Text(caption)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
+            // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
+            // applies to the next one (G80).
+            EngineQuickMenuButton()
+            if let caption = controlCaption(isRunning: sleepVM.isRunning) {
+                Text(caption)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
             }
         }
         .frame(maxWidth: .infinity)
@@ -507,21 +508,39 @@ struct SleepControlRow: View {
     }
 }
 
-/// The engine a caption names, with its real mark (round-3 brief: "use logos
-/// whenever possible"; Z-P26). `claude-cli` IS Claude Code, so it borrows that
+/// The engine a line names, with its real mark (round-3 brief: "use logos
+/// whenever possible"; Z-P26; DR-52). `claude-cli` IS Claude Code, so it borrows that
 /// origin's mark; an API key has no vendor to show.
 struct EngineMark: View {
     let engine: String
     var size: CGFloat = 14
 
-    var body: some View {
+    /// Which mark an engine wears (R-HS13): the Claude plan runs Claude Code's own binary, the ChatGPT
+    /// plan wears its card's mark (`EngineOption.previewMark`), Ollama its own, and an API key — which
+    /// has no vendor — a key. `codex-cli` drew the key before DS-3b (DR-52).
+    enum Source: Equatable {
+        case origin(String)
+        case logo(String)
+        case symbol(String)
+    }
+
+    static func source(for engine: String) -> Source {
         switch engine {
-        case "claude-cli":
-            OriginMark(origin: "claude-code", size: size)
-        case "ollama":
-            LogoImage(name: "ollama", size: size)
-        default:
-            Image(systemName: "key")
+        case "claude-cli": .origin("claude-code")
+        case "codex-cli": EngineOption.previewMark(engine: engine).map(Source.logo) ?? .symbol("key")
+        case "ollama": .logo("ollama")
+        default: .symbol("key")
+        }
+    }
+
+    var body: some View {
+        switch Self.source(for: engine) {
+        case .origin(let origin):
+            OriginMark(origin: origin, size: size)
+        case .logo(let name):
+            LogoImage(name: name, size: size)
+        case .symbol(let name):
+            Image(systemName: name)
                 .font(CicadaTheme.font(size: size * 0.8, weight: .medium))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .frame(width: size, height: size)

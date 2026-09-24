@@ -40,6 +40,9 @@ func lampAccessibilityLabel(lampLit: Bool, scheduleText: String, nextRunText: St
 /// Nothing here starts or cancels a cycle (R-Z9).
 struct LampPopover: View {
     @Environment(SleepViewModel.self) private var sleepVM
+    /// R-HS12 — the engine line reads the chooser's echo first, so a switch in the engine menu or
+    /// Settings → Engines shows here at once.
+    @Environment(SleepEngineViewModel.self) private var engineVM
     let page: SleepPageModel
 
     /// The value in flight, or `nil`.
@@ -71,7 +74,9 @@ struct LampPopover: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
                 // R-A14 — "Next run —" is a value with a reason.
                 .help(page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : "")
-            if let line = lampEngineLine(preview: sleepVM.enginePreview, lampLit: page.lampLit) {
+            if let line = lampEngineLine(preview: SleepEnginePreviewSource.current(chooser: engineVM.response,
+                                                                                   page: sleepVM.enginePreview),
+                                             lampLit: page.lampLit) {
                 HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
                     EngineMark(engine: line.engine, size: 12)   // Z-P26 — a named engine wears its mark
                     Text(line.text)

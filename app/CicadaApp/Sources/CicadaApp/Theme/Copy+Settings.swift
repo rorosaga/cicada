@@ -45,8 +45,6 @@ extension Copy {
     static let runsEvery = "Every"
     static let sleepEngineGroup = "Engine"
     static let sleepEngineRowTitle = "Engine"
-    static let whenYouStart = "When you start one"
-    static let onTheSchedule = "On the schedule"
     static let changeInEngines = "Change in Engines"
 
     // MARK: Customize (A1, R-O11)
