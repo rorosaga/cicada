@@ -60,4 +60,52 @@ extension Copy {
     static let safariRecentlySaved = "Recently saved"
     static let safariFavorites = "Favorites"
     static let safariOtherBookmarks = "Other bookmarks"
+
+    // MARK: Tab groups (G160)
+    static let tabGroupsTitle = "Open tab groups"
+    static let tabGroupsLive = "Live"
+    static let tabGroupsSwitch = "Read Chrome's open tab groups"
+    static let tabGroupsOffLine = "Off — turn it on to bring in each group's name, colour and its tabs' titles and links"
+    static let tabGroupsNoneYet = "Chrome hasn't saved any open windows on this Mac yet"
+    static let tabGroupsNoneOpen = "No open tab groups right now"
+    static func tabGroupsCount(_ groups: Int, tabs: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(groups, locale: locale)) open \(groups == 1 ? "group" : "groups") · \(tabsCount(tabs, locale: locale))"
+    }
+    static let tabGroupsReading = "Reading Chrome's open tabs"
+    static func tabGroupsSending(_ groups: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Bringing in \(UsageFormat.count(groups, locale: locale)) \(groups == 1 ? "group" : "groups")"
+    }
+    static func tabGroupsSynced(groups: Int, tabs: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Synced · " + tabGroupsCount(groups, tabs: tabs, locale: locale)
+    }
+    static let tabGroupsUpToDate = "Already up to date"
+    static let tabGroupsUnreadable = "Chrome keeps its open tabs in a form Cicada can't read yet."
+    static let tabGroupsSyncFailed = "Couldn't bring your tab groups in. Cicada will try again."
+    static let tabGroupsTurnOnFirst = "Turn on Chrome's open tab groups in Settings → Integrations first — Cicada reads them only after you do."
+    static let tabGroupUnnamed = "Unnamed group"
+    static let sourceBackendDown = "Cicada's background service isn't answering."
+    static let sourceNeedsUpdate = "This version of Cicada's background service can't read this yet — update Cicada."
+
+    // MARK: Contacts (G154)
+    static let contactsTitle = "Contacts"
+    static let contactsMeta = "Enriches people Cicada already knows"
+    static let contactsOff = "Not connected — Connect asks macOS to share your contacts. Nobody new is ever added."
+    static let contactsDenied = "Contacts access is off for Cicada — turn it on in System Settings → Privacy & Security → Contacts, then Connect again."
+    static let contactsEmpty = "No contacts to read yet"
+    static let contactsReading = "Reading your contacts"
+    static func contactsMatching(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Matching \(UsageFormat.count(n, locale: locale)) \(n == 1 ? "contact" : "contacts")"
+    }
+    static func contactsSyncedSummary(contacts: Int, people: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(contacts, locale: locale)) \(contacts == 1 ? "contact" : "contacts") · " + matchedPeople(people, locale: locale)
+    }
+    static let contactsConnect = "Connect"
+    static let contactsSyncNow = "Sync now"
+    static let contactsDisconnect = "Disconnect"
+    static let contactsStopTitle = "Stop reading your contacts?"
+    static let contactsStopDetail = "What Cicada already learned about people stays."
+    static let contactsStop = "Stop reading"
+    static let contactsConnectFirst = "Connect Contacts in Settings → Integrations first — Cicada reads them only after you do."
+    static let contactsSyncFailed = "Couldn't sync your contacts. Cicada will try again."
+    static let contactsCardRef = "Their card in Contacts"
 }

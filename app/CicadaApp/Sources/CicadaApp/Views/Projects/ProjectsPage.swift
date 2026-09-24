@@ -67,6 +67,7 @@ struct ProjectsPage: View {
                 focusDetail: { focus = .detail }, escape: { escape() },
                 retry: { Task { await cache.refreshList() } })
                 .focused($focus, equals: .list)
+                .tourAnchor(.projects)
         } detail: { plan in
             if let id = openId {
                 let row = rows.first { $0.id == id }
@@ -78,6 +79,7 @@ struct ProjectsPage: View {
                     openProject: { openProject($0) }, openEntity: { openCard($0) }, openItem: { openItem($0) })
                     .id(id)
                     .focused($focus, equals: .detail)
+                    .tourAnchor(.projectDetail)
             }
         } trailing: { _ in
             if provenance.isPresented {

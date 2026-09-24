@@ -47,6 +47,9 @@ extension Copy {
         static let hideConversation = "Hide conversation"
         static let hideConversationHelp = "Close the conversation (Esc)"
         static let openSource = "Open source"
+        /// Round-4 final review, finding 3: a Contacts card opens in Contacts, and the button says where it goes.
+        static let openInContacts = "Open in Contacts"
+        static let openInContactsHelp = "Open their card in Contacts"
         static func openSourceHelp(_ where: String) -> String { "Open \(`where`)" }
         static func informational(_ predicate: String?) -> String {
             "These can all be true — \(predicate ?? "this") holds several values. Nothing to pick."

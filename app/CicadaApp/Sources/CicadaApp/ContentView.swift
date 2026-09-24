@@ -40,6 +40,8 @@ struct ContentView: View {
     /// G126 R9 — consumes a Settings → Integrations "Import in Feed →"
     /// hand-off by switching the rail's own selection.
     @Environment(AppRouter.self) private var router
+    /// G152 — the guided tour: modal over the page area, the rail and the titlebar inert under it.
+    @Environment(TourController.self) private var tour
     /// Track I T5 — the one intake: every file dropped on this window lands here.
     @Environment(IntakeRouter.self) private var intake
     /// G118 slice 2 — drives the Reader inspector below; a bank switch
@@ -191,6 +193,7 @@ struct ContentView: View {
                 needsAttention: connectionsVM.needsAttention
             )
             .zIndex(1)
+            .disabled(tour.isActive)
             // G118 slice 2 (design §4.4) — the Reader opens BESIDE whatever is showing, never over
             // it: the entity card stays up, so a belief and the sentence it came from are on screen
             // together. Content, not chrome, so it is never glass (R-M5).
@@ -200,19 +203,30 @@ struct ContentView: View {
             ShellReaderHost(showsReader: provenance.isPresented && !selectedTab.hostsOwnReader,
                             navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) {
                 detailContent
+                    .disabled(tour.isActive)
                     .background(CicadaTheme.background)
                     // A rolled-back mutation (or a refresh that failed with
                     // nothing on screen) posts `store.toast`; show it at the
                     // bottom of whatever page is open (§5.4).
                     .overlay(alignment: .bottom) { toastBanner }
             } reader: {
-                ReaderColumn()
+                ReaderColumn().disabled(tour.isActive)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // G152 — the tour over the page area, reading the targets the pages publish (`.tourAnchor`). An overlay
+            // on the host, so the rail, the titlebar and the demo banner below are outside the scrim.
+            .overlayPreferenceValue(TourAnchorKey.self) { anchors in
+                TourLayer(anchors: anchors, hidden: showFirstRun || router.settingsOpen,
+                          navWidth: ShellMetrics.navWidth(labelled: labelledSidebar))
+            }
+            // F-08 — the demo banner is laid out under the page and the Reader, never over a row (ruling R-DT8); it
+            // takes no space outside the demo.
+            .safeAreaInset(edge: .bottom, spacing: 0) { DemoBanner() }
         }
         .toolbar {
             ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab),
-                         chrome: ShellChrome(welcomeShowing: showFirstRun, settingsOpen: router.settingsOpen))
+                         chrome: ShellChrome(welcomeShowing: showFirstRun, settingsOpen: router.settingsOpen,
+                                             tourActive: tour.isActive))
         }
         // No `.id(colorSchemeRaw)` here any more. Keying this subtree on the
         // mode string used to be what repainted it, because the tokens were
@@ -295,8 +309,10 @@ struct ContentView: View {
 
     private func consumePaletteRequest() {
         guard let request = router.consumePalette() else { return }
+        // G152 — ⌘K waits during the tour, as it waits under the Settings panel (R-DS21): both are modal.
         switch PaletteToggle.outcome(for: request, isOpen: paletteOpen, firstRunShowing: showFirstRun,
-                                     homeVisible: selectedTab == .home, settingsOpen: router.settingsOpen) {
+                                     homeVisible: selectedTab == .home,
+                                     settingsOpen: router.settingsOpen || tour.isActive) {
         case .open(let prefill, let mode):
             find.present(prefill: prefill, mode: mode)
             // DR-60: ⌘K never animates — the palette arrives in one frame (R-DS17).

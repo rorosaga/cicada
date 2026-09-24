@@ -30,7 +30,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
         case .chatAndAgents: "Chat & agents"
         case .browsers: "Browsers"
         case .socialAndSaved: "Social & saved"
-        case .feedsAndCalendars: "Feeds & calendars"
+        // Round 4 (G154): Contacts joins the Calendar app here — both app-owned rows.
+        case .feedsAndCalendars: "Calendars, contacts & feeds"
         case .messaging: "Messaging"
         // G133 / G134 (R-LS25): where notes live and where voices are captured.
         case .notesAndFiles: "Notes & files"
@@ -45,12 +46,15 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
             return .chatAndAgents
         // Round 4 (C9): the Chromium family beside Chrome and Safari.
         case "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
-             "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks":
+             "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
+             // Round 4 (G160): Chrome's open tab groups sit under Chrome's row.
+             "chrome-tab-groups":
             return .browsers
         case "pinterest", "reddit", "x":
             return .socialAndSaved
         // Round-4 D2 (C6, R-FA13): `calendar-local` is the Calendar app read on this Mac, drawn by `CalendarRow`.
-        case "rss", "calendar", "calendar-local":
+        // Round 4 (G154): `contacts-local` is the Mac's address book, drawn by `ContactsRow` beside the calendar.
+        case "rss", "calendar", "calendar-local", "contacts-local":
             return .feedsAndCalendars
         case "telegram":
             return .messaging

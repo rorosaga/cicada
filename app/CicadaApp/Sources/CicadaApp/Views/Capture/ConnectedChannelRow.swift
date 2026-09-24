@@ -282,6 +282,8 @@ struct ConnectedChannelRow: View {
         case "chrome-bookmarks": "chrome-bookmark"
         case "safari-bookmarks": "safari-bookmark"
         case "safari-tabs": "safari-tab"
+        // Round 4 (G160): Chrome's open tab groups wear Chrome's own mark.
+        case "chrome-tab-groups": "chrome-tab-group"
         case "notes": "apple-notes"
         case "reddit": "reddit-saved"
         case "x": "x-bookmarks"

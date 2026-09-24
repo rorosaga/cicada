@@ -56,29 +56,33 @@ struct MemoryBank: Codable, Identifiable {
     /// served in place). Privacy & data never offers it for deletion; an older
     /// backend that omits the field decodes as `false`.
     let legacy: Bool
+    /// G117 round 4 (T-Demo) — the server's `demo_guard.is_demo` answer for this bank, never its name (R-CS10): the
+    /// demo banner and the tour's demo stops key off it. An older backend that omits it decodes as `false`.
+    let demo: Bool
 
     var id: String { name }
 
     enum CodingKeys: String, CodingKey {
-        case name, active, entityCount, episodeCount, createdAt, description, legacy
+        case name, active, entityCount, episodeCount, createdAt, description, legacy, demo
     }
 
     /// Memberwise init (the `init(from:)` below suppresses the synthesized
     /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
     /// roster row before the server echoes the new roster back.
     init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
-         createdAt: String, description: String?, legacy: Bool = false) {
+         createdAt: String, description: String?, legacy: Bool = false, demo: Bool = false) {
         self.name = name; self.active = active
         self.entityCount = entityCount; self.episodeCount = episodeCount
         self.createdAt = createdAt; self.description = description
         self.legacy = legacy
+        self.demo = demo
     }
 
     /// A copy with `active` replaced.
     func settingActive(_ isActive: Bool) -> MemoryBank {
         MemoryBank(name: name, active: isActive, entityCount: entityCount,
                    episodeCount: episodeCount, createdAt: createdAt, description: description,
-                   legacy: legacy)
+                   legacy: legacy, demo: demo)
     }
 
     init(from decoder: Decoder) throws {
@@ -90,6 +94,7 @@ struct MemoryBank: Codable, Identifiable {
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         description = try c.decodeIfPresent(String.self, forKey: .description)
         legacy = (try? c.decode(Bool.self, forKey: .legacy)) ?? false
+        demo = (try? c.decode(Bool.self, forKey: .demo)) ?? false
     }
 }
 
@@ -1144,6 +1149,14 @@ actor APIClient {
         try await post("/banks/demo")
     }
 
+    /// `POST /banks/leave-demo` (G117 round 4, F-08) → the demo banner's way home: the server activates the real bank
+    /// left most recently (`last_active_at`), or makes one, and echoes the roster — `createDemoBank`'s shape, so the
+    /// caller hands it to `store.refresh([.banks])` the same way.
+    @discardableResult
+    func leaveDemo() async throws -> BanksResponse {
+        try await post("/banks/leave-demo")
+    }
+
     /// `POST /banks/{name}/activate` → switch the active bank.
     func activateBank(name: String) async throws {
         try await post("/banks/\(encodedBank(name))/activate")
@@ -1824,6 +1837,16 @@ actor APIClient {
     /// app through EventKit (`CalendarReader`); the backend stages, scrubs and tombstones them like any source.
     func syncLocalCalendar(_ payload: CalendarSyncPayload) async throws -> CalendarSyncResult {
         try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// G154: the whole address book, as names and which facts each card holds (never a value).
+    func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
+        try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
+    func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
+        try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))
     }
 
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).

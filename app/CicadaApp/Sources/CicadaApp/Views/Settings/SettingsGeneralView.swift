@@ -159,6 +159,8 @@ struct SettingsGeneralView: View {
                     }
                 }
             }
+            // G152 + G117 round 4 — the tour's replay and the demo's door, in their own view (one line here).
+            SettingsDemoTourGroup()
         }
     }
 }

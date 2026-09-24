@@ -22,7 +22,8 @@ TZ = "UTC"
 # rewrites an earlier task's expectations; a step that does not exist yet is
 # simply not patched.
 _STEPS = {"events": "_write_scenario_events", "person": "_write_scenario_person",
-          "followups": "_write_scenario_followups", "backlog": "_write_scenario_backlog"}
+          "followups": "_write_scenario_followups", "backlog": "_write_scenario_backlog",
+          "showcase": "_write_showcase"}
 
 
 def d(offset: int) -> str:
@@ -30,10 +31,13 @@ def d(offset: int) -> str:
 
 
 def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
-         followups: bool = True, backlog: bool = True) -> Path:
+         followups: bool = True, backlog: bool = True, showcase: bool = False) -> Path:
+    """The scenario bank. ``showcase`` (round 4 T-Demo) is OFF by default: every expectation the scenario tests pin
+    was written before it, and `test_projects_app_fixture.py` proves it leaves the Projects wire alone; the
+    showcase's own tests turn it on."""
     bank = tmp_path / "demo"
     bank_registry.scaffold_bank(bank)
-    wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog}
+    wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog, "showcase": showcase}
     with ExitStack() as stack:
         for flag, name in _STEPS.items():
             if not wanted[flag] and hasattr(demo_bank, name):

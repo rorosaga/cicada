@@ -52,6 +52,8 @@ enum SourceBlurb {
         "vivaldi-bookmarks": "Bookmarks you save in Vivaldi, read from its main profile as you add them.",
         "comet-bookmarks": "Bookmarks you save in Comet, read from its main profile as you add them.",
         "dia-bookmarks": "Bookmarks you save in Dia, read from its main profile as you add them.",
+        // Round 4 (G160, R-SR3): only after the person turns its own switch on.
+        "chrome-tab-groups": "Your open Chrome tab groups — each group's name, colour and its tabs' titles and links, kept in step while it is on.",
         "safari-tabs": "Your open Safari tabs across devices, via iCloud.",
         "pinterest": "Pins you save on Pinterest, as links with their boards.",
         "reddit": "Posts and comments you save on Reddit, as links with their titles.",

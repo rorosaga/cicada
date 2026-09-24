@@ -132,7 +132,9 @@ def test_the_routes_sign_in_end_to_end(monkeypatch, tmp_path):
         assert client.post("/connections/byok-openrouter/login").status_code == 401
         session = client.post("/connections/byok-openrouter/login", headers={"Authorization": "Bearer t"}).json()
         assert session["mode"] == "oauth" and session["url"].startswith(openrouter.AUTH_URL)
-        nonce = parse_qs(urlparse(session["url"]).query)["callback_url"][0].rsplit("/", 1)[1]
+        callback = parse_qs(urlparse(session["url"]).query)["callback_url"][0]
+        assert callback.startswith("http://localhost:"), callback
+        nonce = callback.rsplit("/", 1)[1]
         page = client.get(f"/connections/byok-openrouter/callback/{nonce}?code=c1")      # no bearer: the browser
         assert page.status_code == 200 and "OpenRouter connected" in page.text
         assert client.get(f"/connections/byok-openrouter/callback/{nonce}?code=c1").status_code == 400
@@ -141,3 +143,14 @@ def test_the_routes_sign_in_end_to_end(monkeypatch, tmp_path):
         assert "sk-or-v1" not in page.text and "sk-or-v1" not in str(card)
     finally:
         config.get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("host,expected", [
+    ("127.0.0.1", "http://localhost:8000"),
+    ("::1", "http://localhost:8000"),
+    ("localhost", "http://localhost:8000"),
+    ("0.0.0.0", "http://localhost:8000"),
+    ("cicada.example.com", "http://cicada.example.com:8000"),
+])
+def test_a_loopback_bind_calls_back_on_localhost_as_openrouter_documents(host, expected):
+    assert openrouter.callback_base(host, 8000) == expected

@@ -275,6 +275,13 @@ def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today:
     return _IndexOp(entity_id, alias=alias, title=new_title) if (alias or new_title) else None
 
 
+def apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today: str) -> None:
+    """Write one already-parsed response onto its page — the demo generator's door (G117 round 4): the showcase paper
+    is filled by the same code a fetched arXiv response is, from a literal (CC0 metadata), with no fetch. The index
+    change `_apply` returns is the caller's to make; the demo writes its index row itself."""
+    _apply(memory_path, entity_id, meta, source=source, today=today)
+
+
 def _replay_index(memory_path: Path, ops: list[_IndexOp]) -> bool:
     """Apply this run's index changes to a fresh load and save only on a change.
     Synchronous on purpose: nothing awaits between the load and the save, so an
