@@ -28,6 +28,10 @@ Each decision becomes a dated ruling in the PR that ships it:
 things · G152 guided tour · G153 memory quote · G154 Contacts sync · G155 Google services · G156 browser history ·
 G157 a Cicada CLI · G158 the website · G159 smart entity pictures. (G142–G144 and G150 are written on their own branches.)
 
+**Phase A, T-People (G146, G159 slice 1)** — built on `feat/r4-people` (plan `docs/superpowers/plans/2026-09-24-r4-people.md`): pictures
+for every page (upload, initials, the local-first precedence), Clusters as A's cards, the person card as C's top and
+body. Contacts photos wait for T-Sources' `contacts_photo` (the seam is in the plan's R-PE7).
+
 **Next session:** G156 (browser history — decide the unit and the default denylist, then plan) → G157 (CLI —
 decide the command set over the HTTP API) → G158 (website — How it works with interactive charts, SEO, llms.txt
 and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,

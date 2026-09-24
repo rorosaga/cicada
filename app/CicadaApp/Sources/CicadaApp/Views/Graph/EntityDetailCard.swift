@@ -67,6 +67,8 @@ struct EntityDetailCard: View {
     @State private var paperDetail: PaperDetail?
     /// R-DG21 / DR-39 — the Details disclosure, collapsed until this viewer opens it, then remembered.
     @AppStorage(DetailsWords.openKey) private var detailsOpen = false
+    /// F-12 (R-PE17, DR-39) — a person's "Show the page" disclosure, closed until this viewer opens it, then remembered.
+    @AppStorage("cicada.person.pageOpen") private var personPageOpen = false
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
     // entity body has landed and when the page has no commits, so track the
@@ -254,38 +256,8 @@ struct EntityDetailCard: View {
     // MARK: - Content Tab
 
     private var contentTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                HStack(spacing: 0) {
-                    TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
-                        get: { showRawMarkdown ? .source : .rendered },
-                        set: { if let view = $0 { showRawMarkdown = view == .source } }))
-                        .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
-                    Spacer(minLength: 0)
-                    IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(buildFullMarkdown(), forType: .string)
-                    }
-                }
-                // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
-                // arxiv.org in a preview (R-LS19).
-                if let paperDetail {
-                    PaperCard(detail: paperDetail)
-                } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
-                    // G11: rich media preview above the body for `media`-type entities.
-                    MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
-                }
-                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
-            }
-            if entity.type == .location { locationSection }
-            if !repoContexts.isEmpty { repositorySection }
-            if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
-                WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
-            }
-            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
-            // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
-            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
-            detailsSection
+        Group {
+            if entity.type == .person { personContent } else { standardContent }
         }
         .modifier(EntityTabInsets(style: style))
         .task(id: entity.id) {
@@ -329,6 +301,99 @@ struct EntityDetailCard: View {
             // Only project/directory entities carry a `repos:` frontmatter key.
             if entity.type == .project || entity.type == .directory {
                 repoContexts = (try? await APIClient.shared.fetchEntityRepos(entityId: entity.id)) ?? []
+            }
+        }
+    }
+
+    /// The Rendered/Source switch and Copy — shared by every type's page and a person's "Show the page".
+    private var bodyToolbar: some View {
+        HStack(spacing: 0) {
+            TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
+                get: { showRawMarkdown ? .source : .rendered },
+                set: { if let view = $0 { showRawMarkdown = view == .source } }))
+                .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
+            Spacer(minLength: 0)
+            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(buildFullMarkdown(), forType: .string)
+            }
+        }
+    }
+
+    /// Every type but a person: the page, then what Cicada knows about it (DS-3a).
+    private var standardContent: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                bodyToolbar
+                // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
+                // arxiv.org in a preview (R-LS19).
+                if let paperDetail {
+                    PaperCard(detail: paperDetail)
+                } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                    // G11: rich media preview above the body for `media`-type entities.
+                    MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                }
+                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+            }
+            if entity.type == .location { locationSection }
+            if !repoContexts.isEmpty { repositorySection }
+            if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
+                WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+            }
+            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
+            // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
+            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            detailsSection
+        }
+    }
+
+    // MARK: - A person's Content (F-12, R-PE17)
+
+    /// Two columns when the card is at least 880 units wide (540 + 28 + 312), one below — each under DR-36's 760.
+    private var personContent: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingCard) {
+                personMain.frame(width: CicadaTheme.scaled(540))
+                personAside.frame(width: CicadaTheme.scaled(312))
+            }
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+                personMain
+                personAside
+            }
+        }
+    }
+
+    private var personMain: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            PersonBeliefsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
+            personPage
+            // `.id` — the add field's draft belongs to one page (as in `standardContent`).
+            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            detailsSection
+        }
+    }
+
+    private var personAside: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            PersonMapSection(personId: entity.id, name: entity.name, navigate: { navigate(to: $0) },
+                             showOnGraph: showOnGraph)
+            PersonHappeningsSection(personId: entity.id,
+                                    projectIds: PersonMapLayout.projects(personId: entity.id, nodes: graphVM.nodes,
+                                                                         edges: graphVM.edges))
+        }
+    }
+
+    /// DR-39 — the page's own prose, collapsed and remembered: the hero shows its Summary and the beliefs carry its facts.
+    private var personPage: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            TextButton(title: personPageOpen ? Copy.People.hidePage : Copy.People.showPage) {
+                Instant.run { personPageOpen.toggle() }
+            }
+            .padding(.leading, -CicadaTheme.scaled(10))
+            if personPageOpen {
+                bodyToolbar
+                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
             }
         }
     }

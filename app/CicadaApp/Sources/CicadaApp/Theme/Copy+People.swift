@@ -34,6 +34,28 @@ extension Copy {
         static func pages(_ n: Int) -> String { n == 1 ? "1 page" : "\(UsageFormat.count(n)) pages" }
         static func openHelp(_ name: String) -> String { "Open \(name)" }
 
+        // The person body (F-12)
+        static let you = "you"
+        static let cicada = "Cicada"
+        static let sleep = "Sleep"
+        static let writtenByPrefix = "Written by"
+        static func writtenBy(_ who: String) -> String { "\(writtenByPrefix) \(who)" }
+        static func believes(_ n: Int) -> String { "What Cicada believes · \(UsageFormat.count(n))" }
+        static let newestFirst = "newest first"
+        static func showMore(_ n: Int) -> String { "Show \(UsageFormat.count(n)) more" }
+        static func firstName(_ name: String) -> String { name.split(separator: " ").first.map(String.init) ?? name }
+        static func howYouKnow(_ name: String) -> String { "How you know \(firstName(name))" }
+        static func connected(_ n: Int) -> String {
+            n == 1 ? "Connected to 1 page in your memory." : "Connected to \(UsageFormat.count(n)) pages in your memory."
+        }
+        static let showOnGraph = "Show on the graph ›"
+        static let whatsHappening = "What's happening"
+        static func openProject(_ name: String) -> String { "Open \(name) ›" }
+        static let ongoing = "Ongoing"
+        static func since(_ day: String) -> String { "since \(day)" }
+        static let showPage = "Show the page"
+        static let hidePage = "Hide the page"
+
         /// How long someone has been in memory — a span in plain units, never a day word (those are `RelativeDay`'s).
         static func span(days: Int) -> String {
             func unit(_ n: Int, _ one: String, _ many: String) -> String {

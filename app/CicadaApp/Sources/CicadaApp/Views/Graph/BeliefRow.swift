@@ -7,6 +7,9 @@ import SwiftUI
 struct BeliefRow: View {
     let claim: Claim
     var onOpenTimeline: (() -> Void)? = nil
+    /// F-12 (R-PE17) — on the person card a belief is signed: the signed line takes the age `Tag`'s place, since it
+    /// carries the day (DR-38).
+    var signed = false
     @State private var showAllEvidence = false
     @State private var hovering = false
 
@@ -26,7 +29,9 @@ struct BeliefRow: View {
                                                        subjectId: claim.subject),
                         subjectId: claim.subject.isEmpty ? nil : claim.subject,
                         expanded: $showAllEvidence)
-                    if let age = BeliefWords.age(claim, now: .now) {
+                    if signed, SignedLine.who(claim) != nil {
+                        SignedLineView(claim: claim)
+                    } else if let age = BeliefWords.age(claim, now: .now) {
                         Tag(text: age.text).help(age.help)
                     }
                 }
