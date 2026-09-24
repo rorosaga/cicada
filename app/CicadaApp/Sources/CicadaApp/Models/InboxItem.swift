@@ -51,8 +51,8 @@ enum InboxKind: String, Codable {
     var icon: String {
         switch self {
         case .decay: "clock.arrow.circlepath"
-        case .conflict: "exclamationmark.triangle.fill"
-        case .clarification: "questionmark.circle.fill"
+        case .conflict: "exclamationmark.triangle"
+        case .clarification: "questionmark.circle"
         case .mergeSuggestion: "arrow.triangle.merge"
         case .divergence: "arrow.triangle.branch"
         case .normalization: "arrow.triangle.merge"
@@ -88,16 +88,12 @@ struct InboxOption: Identifiable, Hashable {
 
     var id: String { key }
 
-    /// A trailing muted capsule: "today", "5 d", "3 wk", "6 mo", "2 y".
-    /// `nil` when the option has no claim behind it (the synthetic rows).
-    var ageCapsule: String? {
-        guard let days = ageDays else { return nil }
-        if days == 0 { return "today" }
-        if days < 14 { return "\(days) d" }
-        if days < 60 { return "\(Int((Double(days) / 7).rounded())) wk" }
-        if days < 365 { return "\(Int((Double(days) / 30).rounded())) mo" }
-        return "\(Int((Double(days) / 365).rounded())) y"
-    }
+    /// DR-58 / R-DI12 — the option's age as a `Tag`: "today", "5d", "3w", "6mo", "2y". One rule
+    /// with the row's age (`InboxAge.compact`), whose boundaries and half-even rounding are
+    /// `phrase(days:)`'s, so "3w" on the tag and "3 weeks ago" in the description never disagree
+    /// (the old capsule rounded half away from zero and could). `nil` when the option has no claim
+    /// behind it (the synthetic rows).
+    var ageCapsule: String? { ageDays.map(InboxAge.compact(days:)) }
 }
 
 // `Codable` is declared in an EXTENSION on purpose: a custom `init(from:)` in

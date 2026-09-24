@@ -49,6 +49,13 @@ struct QuestionSelection: Equatable {
         index = (index - 1 + rowCount) % rowCount
     }
 
+    /// DR-42 — the pointer highlights too: hovering row `i` moves the ⏎ target there. The Other row
+    /// is `optionCount`; anything out of range is ignored.
+    mutating func highlight(_ i: Int) {
+        guard i >= 0, i < rowCount else { return }
+        index = i
+    }
+
     /// Jump straight to the free-text row (the `o` shortcut).
     mutating func openOther() {
         guard allowOther else { return }

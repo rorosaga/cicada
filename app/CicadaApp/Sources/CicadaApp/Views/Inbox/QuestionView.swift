@@ -3,7 +3,7 @@ import SwiftUI
 /// What a `QuestionView` interaction resolves to — one value instead of four
 /// positional arguments, so adding a channel (option key, remind window) never
 /// churns every call site again.
-struct QuestionResolution {
+struct QuestionResolution: Equatable {
     let action: String
     var answer: String? = nil
     var optionKey: String? = nil
@@ -150,7 +150,7 @@ struct QuestionView: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(2)
-            if let url = firstURL(in: hint) {
+            if let url = HintLink.firstURL(in: hint) {
                 Spacer()
                 Button {
                     NSWorkspace.shared.open(url)
@@ -291,12 +291,5 @@ struct QuestionView: View {
         onResolve(QuestionResolution(action: "resolve", answer: text,
                                      optionKey: item.options.contains(where: { $0.key == "neither" })
                                         ? "neither" : nil))
-    }
-
-    private func firstURL(in text: String) -> URL? {
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-        else { return nil }
-        let range = NSRange(text.startIndex..., in: text)
-        return detector.firstMatch(in: text, range: range)?.url
     }
 }

@@ -88,10 +88,10 @@ final class InboxQuestionTests: XCTestCase {
         }
         XCTAssertNil(capsule(nil))
         XCTAssertEqual(capsule(0), "today")
-        XCTAssertEqual(capsule(5), "5 d")
-        XCTAssertEqual(capsule(20), "3 wk")
-        XCTAssertEqual(capsule(193), "6 mo")
-        XCTAssertEqual(capsule(800), "2 y")
+        XCTAssertEqual(capsule(5), "5d")
+        XCTAssertEqual(capsule(20), "3w")
+        XCTAssertEqual(capsule(193), "6mo")
+        XCTAssertEqual(capsule(800), "2y")
     }
 
     // MARK: - Mutation
@@ -204,5 +204,16 @@ final class QuestionSelectionTests: XCTestCase {
         XCTAssertEqual(s.escape(), .closeOther)
         XCTAssertFalse(s.otherExpanded)
         XCTAssertEqual(s.escape(), .collapse)
+    }
+
+    /// DR-42 — the pointer highlights too; a row out of range is ignored.
+    func testThePointerMovesTheHighlight() {
+        var s = QuestionSelection(optionCount: 3, allowOther: true)
+        s.highlight(2)
+        XCTAssertEqual(s.index, 2)
+        s.highlight(3)
+        XCTAssertTrue(s.isOtherRow)
+        s.highlight(9)
+        XCTAssertEqual(s.index, 3)
     }
 }
