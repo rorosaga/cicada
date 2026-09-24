@@ -101,6 +101,28 @@ extension Copy {
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
 
+    // MARK: Integrations → Calendar on this Mac (round-4 D2, R-FA11 … R-FA13)
+    /// Never "Calendar": that is the ICS feed row's label (`calendar` channel), and the two sit in one section.
+    static let calendarAppTitle = "Calendar on this Mac"
+    static let calendarOff = "Not connected — Connect asks macOS to share your calendars. Nothing leaves this Mac."
+    static let calendarDenied = "Calendar access is off for Cicada — turn it on in System Settings → Privacy & Security → Calendars, then Connect again."
+    static let calendarSyncing = "Syncing…"
+    /// DR-21 — the count through `UsageFormat.count`, in the locale the row was asked for.
+    static func calendarSynced(_ when: String, events: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Synced \(when) · \(events == 1 ? "1 event" : "\(UsageFormat.count(events, locale: locale)) events")"
+    }
+    static let calendarNeedsUpdate = "This version of Cicada's background service can't read calendars yet — update Cicada."
+    static let calendarBackendDown = "Cicada's background service isn't answering."
+    static let calendarSyncFailed = "Couldn't sync your calendars. Cicada will try again."
+    static let calendarNotReady = "Your calendars aren't ready to read yet — Cicada will try again."
+    static let calendarConnect = "Connect"
+    static let calendarSyncNow = "Sync now"
+    static let calendarDisconnect = "Disconnect"
+    static let openPrivacySettings = "Open Privacy Settings"
+    static let calendarStopTitle = "Stop reading your calendars?"
+    static let calendarStopDetail = "Events already in your memory stay there."
+    static let calendarStop = "Stop reading"
+
     // MARK: Search (design §2.4)
     static let searchSettings = "Search settings"
     static func noSettingsMatch(_ query: String) -> String { "No settings match \u{201C}\(query)\u{201D}" }

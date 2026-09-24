@@ -1760,6 +1760,12 @@ actor APIClient {
         try await postData("/capture/local-source/wispr-flow", json: json)
     }
 
+    /// `POST /sources/calendar-local/sync` (round-4 D2, C6) — the Calendar app's events in the window, read by the
+    /// app through EventKit (`CalendarReader`); the backend stages, scrubs and tombstones them like any source.
+    func syncLocalCalendar(_ payload: CalendarSyncPayload) async throws -> CalendarSyncResult {
+        try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")

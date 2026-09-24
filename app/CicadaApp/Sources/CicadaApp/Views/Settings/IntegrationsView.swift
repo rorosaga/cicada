@@ -120,6 +120,8 @@ struct IntegrationsView: View {
         case .chatAndAgents: harnessRows.count
         case .socialAndSaved: Self.exportOnlyTiles.count
         case .notesAndFiles: 1
+        // Round-4 D2 (R-FA13): "Calendar on this Mac" is always offered — Connect is how it starts.
+        case .feedsAndCalendars: 1
         case .voiceAndMeetings: showsWispr(rows) ? 1 : 0
         default: 0
         }
@@ -170,13 +172,18 @@ struct IntegrationsView: View {
                 ForEach(rows) { channel in
                     if channel.id.hasPrefix("folder:") {
                         FolderChannelRow(channel: channel)
-                    } else if channel.id != LocalSourceWatcher.wisprChannel {
+                    } else if channel.id != LocalSourceWatcher.wisprChannel,
+                              channel.id != CalendarRow.channelId {
+                        // Wispr Flow and the Calendar app each have a row the app owns (below).
                         IntegrationChannelRow(channel: channel)
                     }
                 }
                 if category == .notesAndFiles {
                     AddFolderRow.folder
                     if obsidianInstalled { AddFolderRow.obsidian }
+                }
+                if category == .feedsAndCalendars {
+                    CalendarRow(channel: rows.first { $0.id == CalendarRow.channelId })
                 }
                 if category == .voiceAndMeetings, showsWispr(rows) {
                     WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })

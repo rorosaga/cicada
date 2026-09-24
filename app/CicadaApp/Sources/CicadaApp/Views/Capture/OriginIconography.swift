@@ -37,6 +37,8 @@ enum OriginIconography {
         "x-bookmarks", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
         // G133 / G134 — a watched folder's episodes and Wispr Flow's.
         "folder", "wispr-flow",
+        // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac — the backend track stamps it.
+        "calendar-local",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -70,6 +72,7 @@ enum OriginIconography {
         case "gemini-export": "Gemini export"
         case "rss": "RSS"
         case "calendar": "Calendar"
+        case "calendar-local": "Calendar"
         case "apple-notes": "Apple Notes"
         case "share-sheet": "Share Sheet"
         case "instagram-saved": "Instagram Saved"
@@ -123,7 +126,8 @@ enum OriginIconography {
         case "telegram": "paperplane.fill"
         case "claude-export", "chatgpt-export", "gemini-export": "square.and.arrow.down"
         case "rss": "dot.radiowaves.up.forward"
-        case "calendar": "calendar"
+        // `calendar-local` too, else the Sources grid (which passes a channel id through) draws a tray.
+        case "calendar", "calendar-local": "calendar"
         case "apple-notes": "note.text"
         case "share-sheet": "square.and.arrow.up"
         case "instagram-saved": "camera.fill"
@@ -166,7 +170,7 @@ enum OriginIconography {
         case "safari-bookmark", "safari-tab": Color(hex: 0x00A2E8)
         case "telegram": Color(hex: 0x26A5E4)
         case "rss": Color(hex: 0xEE802F)
-        case "calendar": Color(hex: 0xFF3B30)
+        case "calendar", "calendar-local": Color(hex: 0xFF3B30)
         case "apple-notes": Color(hex: 0xFFCC00)
         case "share-sheet": Color(hex: 0x8896FF)
         case "instagram-saved": Color(hex: 0xE1306C)
@@ -257,6 +261,9 @@ enum OriginIconography {
         // offers the Obsidian row only when Obsidian is installed.
         case "wispr-flow": "com.electron.wispr-flow"
         case "obsidian": "md.obsidian"
+        // Round-4 D2 — Cicada reads the Calendar app's own store, so the app is here; its icon is the only mark
+        // (Apple's are never committed, Track L).
+        case "calendar-local": "com.apple.iCal"
         default: nil
         }
     }

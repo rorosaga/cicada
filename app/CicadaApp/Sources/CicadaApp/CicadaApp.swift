@@ -68,6 +68,9 @@ struct CicadaApp: App {
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
+    /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
+    /// Settings → Integrations, and posted to the backend (R-FA11).
+    @State private var calendarReader = CalendarReader()
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -175,6 +178,7 @@ struct CicadaApp: App {
                 .environment(homeSearch)
                 .environment(browserWatcher)
                 .environment(localSources)
+                .environment(calendarReader)
                 .environment(loginItems)
                 .environment(backendAgent)
                 .environment(intakeRouter)
@@ -199,6 +203,8 @@ struct CicadaApp: App {
                 // bank switch re-reads them and re-arms the watches.
                 .onChange(of: store.bank) { _, _ in
                     Task { await localSources.reload() }
+                    // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
+                    Task { await calendarReader.bankChanged() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -236,6 +242,9 @@ struct CicadaApp: App {
                         intakeRouter.accept(urls: urls, from: .dock)
                     }
                     localSources.start(store: store)
+                    // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
+                    // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
+                    calendarReader.start()
                     // R-IB22 — the export someone was waiting for arrived (a sniff
                     // recognised its vendor): its wait, in the active memory, is done.
                     intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in

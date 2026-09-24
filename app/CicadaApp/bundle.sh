@@ -68,6 +68,8 @@ fi
 # LSMinimumSystemVersion matches Package.swift's .macOS(.v14) floor (G137 R-M7; PlatformFloorTests holds the pair).
 # Track I T5 (R-IA25): offered in Open With and as a Dock drop
 # target, never the default opener (LSHandlerRank Alternate).
+# Round-4 D2 (R-FA11): the calendar prompt's words. macOS 14+ asks with the full-access key; the legacy key covers an
+# older system and is harmless. Nothing is asked until the person clicks Connect in Settings → Integrations.
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,6 +85,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory. Nothing leaves this Mac.</string>
+  <key>NSCalendarsUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory. Nothing leaves this Mac.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
