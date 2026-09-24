@@ -23,7 +23,7 @@ final class ContributorIdentityTests: XCTestCase {
         XCTAssertEqual(ContributorIdentity.logoName(provider: "openai"), "chatgpt")
         XCTAssertEqual(ContributorIdentity.logoName(provider: "google"), "gemini")
         XCTAssertEqual(ContributorIdentity.logoName(provider: "ollama"), "ollama")
-        XCTAssertNil(ContributorIdentity.logoName(provider: "openrouter"))
+        XCTAssertEqual(ContributorIdentity.logoName(provider: "openrouter"), "openrouter")
         XCTAssertNil(ContributorIdentity.logoName(provider: nil))
         for name in ContributorIdentity.allProviderMarks {
             XCTAssertTrue(LogoImage.exists(name: name), "\(name).png is not bundled")

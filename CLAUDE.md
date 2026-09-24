@@ -1049,12 +1049,16 @@ Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol
 is fetched once by a maintainer with `scripts/fetch-logos.sh`, declared in
 `Resources/logos/logos.manifest.json` (source, licence, trademark restriction, sha256) and
 attributed in `Resources/logos/LOGOS.md` — marks committed before the pipeline are declared
-`legacy` (12 of the 27): the script never fetches them, their sha256 is verified on every run, and
-their licence line records the commit that introduced them rather than an upstream grant. **No
+`legacy` (10 of the 30): the script never fetches them, their sha256 is verified on every run, and
+their licence line records the commit that introduced them rather than an upstream grant. Origins are
+`commons | repo | recut | legacy`; a `repo` mark (R-AG9: OpenCode, OpenRouter) is pinned to a 40-hex
+commit on the vendor's own repository, with the same upstream-drift guard as Commons. **No
 runtime network:** none of the three outbound gates is involved. A raster whose background IS the
-mark (`claude-code`, `claude-desktop`, `hermes`) is never recut — every surface that draws one
-clips it to its own curvature instead, and `LogoAssetTests` names them so a fourth cannot arrive
-unnoticed. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+mark (`hermes`, the only one) is never recut — every surface that draws one clips it to its own
+curvature instead, and `LogoAssetTests` names any opaque plate so another cannot arrive unnoticed.
+**Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
+`LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
+keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 

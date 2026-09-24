@@ -47,6 +47,8 @@ enum EngineOption {
         case "agent": "claude-plan"
         case "codex": "chatgpt-plan"
         case "local": "ollama-local"
+        // R-AG12/R-AG9 — the OpenRouter card is its own card and wears OpenRouter's mark.
+        case "openrouter": "byok-openrouter"
         default: nil
         }
     }

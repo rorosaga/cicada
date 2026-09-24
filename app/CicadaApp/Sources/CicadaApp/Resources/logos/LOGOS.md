@@ -7,7 +7,8 @@ The manifest beside it (`logos.manifest.json`) is the machine-readable half;
 Every mark below identifies the product it names and is used nominatively:
 Cicada does not restyle, recolour, crop or combine them, and claims no
 affiliation with, sponsorship by, or endorsement from their owners. A `-dark`
-row is an exact luminance inversion of a mark that has no hue (R4) — the one
+row is an exact luminance inversion of a mark that has no hue (R4), or —
+origin `repo` — the vendor's own dark variant; the inversion is the one
 transform applied to any of them. Owners: to have a mark removed or replaced,
 open an issue on the repository.
 
@@ -22,8 +23,6 @@ upstream URL, and its licence line says exactly that instead of inventing one.
 | `chatgpt-dark` | chatgpt-dark.png | recut | derived: chatgpt.png (this manifest) — monoflip chatgpt.png chatgpt-dark.png | Public domain — OpenAI | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `chrome` | chrome.png | commons | [Google Chrome icon (February 2022).svg](https://commons.wikimedia.org/wiki/File:Google_Chrome_icon_(February_2022).svg) | Public domain — Google | Trademarked — nominative use only; identifies the product, never restyled or recoloured. (Commons: trademarked) |
 | `claude` | claude.png | commons | [Claude AI symbol.svg](https://commons.wikimedia.org/wiki/File:Claude_AI_symbol.svg) | CC0 — Claude Logo Symbol | Nominative use only; identifies the product, never restyled or recoloured. |
-| `claude-code` | claude-code.png | legacy | — | Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
-| `claude-desktop` | claude-desktop.png | legacy | — | Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `codex` | codex.png | recut | derived: 1a4811d:app/CicadaApp/Sources/CicadaApp/Resources/logos/codex.png — alphakey <src> codex.png light | Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `codex-dark` | codex-dark.png | recut | derived: 1a4811d:app/CicadaApp/Sources/CicadaApp/Resources/logos/codex.png — alphakey <src> codex.rgba.png light; monoflip codex.rgba.png codex-dark.png | Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `cursor` | cursor.png | legacy | — | Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
@@ -36,6 +35,10 @@ upstream URL, and its licence line says exactly that instead of inventing one.
 | `ollama` | ollama.png | commons | [Ollama-logo.svg](https://commons.wikimedia.org/wiki/File:Ollama-logo.svg) | MIT — ParthSareen on ollama | Nominative use only; identifies the product, never restyled or recoloured. |
 | `ollama-dark` | ollama-dark.png | recut | derived: ollama.png (this manifest) — monoflip ollama.png ollama-dark.png | MIT — ParthSareen on ollama | Nominative use only; identifies the product, never restyled or recoloured. |
 | `openclaw` | openclaw.png | legacy | — | Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
+| `opencode` | opencode.png | repo | https://raw.githubusercontent.com/anomalyco/opencode/0f549842ee746e400b1f72516b0b2e292e267e2c/packages/console/app/src/asset/brand/opencode-logo-light-square.svg | MIT (the repository's licence; the mark is used nominatively) — anomalyco/opencode | Nominative use only; identifies the product, never restyled or recoloured. |
+| `opencode-dark` | opencode-dark.png | repo | https://raw.githubusercontent.com/anomalyco/opencode/0f549842ee746e400b1f72516b0b2e292e267e2c/packages/console/app/src/asset/brand/opencode-logo-dark-square.svg | MIT (the repository's licence; the mark is used nominatively) — anomalyco/opencode | Nominative use only; identifies the product, never restyled or recoloured. |
+| `openrouter` | openrouter.png | repo | https://raw.githubusercontent.com/OpenRouterTeam/sign-in-with-openrouter/872aaa56b2df753b6ff3812f71a6964870e2ff30/public/openrouter-logo.svg | MIT (the repository's licence; the mark is used nominatively) — OpenRouterTeam | Nominative use only; identifies the product, never restyled or recoloured. |
+| `openrouter-dark` | openrouter-dark.png | recut | derived: openrouter.png (this manifest) — monoflip openrouter.png openrouter-dark.png | MIT (the repository's licence; the mark is used nominatively) — OpenRouterTeam | Nominative use only; identifies the product, never restyled or recoloured. |
 | `pinterest` | pinterest.png | legacy | — | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `reddit` | reddit.png | legacy | — | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `rss` | rss.png | commons | [Feed-icon.svg](https://commons.wikimedia.org/wiki/File:Feed-icon.svg) | MPL 1.1 — unnamed (Mozilla Foundation) | Nominative use only; identifies the product, never restyled or recoloured. |
@@ -46,5 +49,5 @@ upstream URL, and its licence line says exactly that instead of inventing one.
 | `x-dark` | x-dark.png | recut | derived: cf2c449:app/CicadaApp/Sources/CicadaApp/Resources/logos/x.png — alphakey <src> x-dark.png dark | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 | `youtube` | youtube.png | legacy | — | Vendor mark from a favicon service — no upstream licence recorded (committed 2026-08-31, cf2c449) | Trademarked — nominative use only; identifies the product, never restyled or recoloured. |
 
-28 marks. New ones are rasterized at 256 px; the 2026-08-31 favicon rasters stay at 128 px
+30 marks. New ones are rasterized at 256 px; the 2026-08-31 favicon rasters stay at 128 px
 because upscaling a favicon would be fake resolution.

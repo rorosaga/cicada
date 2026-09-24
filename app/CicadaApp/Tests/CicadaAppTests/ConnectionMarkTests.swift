@@ -11,8 +11,14 @@ final class ConnectionMarkTests: XCTestCase {
         }
     }
 
-    func testOpenRouterKeepsTheKeyGlyph() {
-        XCTAssertNil(ConnectionMark.logoName(connectionId: "byok-openrouter"))
+    /// R-AG9 — OpenRouter ships its own mark now; the key glyph stays for the
+    /// key providers that ship none (xAI, Groq, Mistral).
+    func testOpenRouterWearsItsMark() {
+        XCTAssertEqual(ConnectionMark.logoName(connectionId: "byok-openrouter"), "openrouter")
+        XCTAssertTrue(LogoImage.exists(name: "openrouter"))
+        for id in ["byok-xai", "byok-groq", "byok-mistral"] {
+            XCTAssertNil(ConnectionMark.logoName(connectionId: id), id)
+        }
         XCTAssertEqual(ConnectionMark.symbol(isKeyBased: true), "key.fill")
     }
 

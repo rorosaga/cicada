@@ -422,9 +422,10 @@ private struct AgentSetupRow: View {
 /// mark, colour ones included, on a white chip in dark mode. Track L recut
 /// `codex` and `x` with alpha and gave the monochrome marks a `-dark` sibling
 /// `LogoImage.resolvedName(for:)` picks up, so the plate has nothing left to
-/// hide and the tile keeps only its own border. Opaque rasters DO remain
-/// (`claude-code`, `claude-desktop`, `hermes`) — they are coloured plates that
-/// read fine on a dark card, which is a clipping problem, not a plate one, and
+/// hide and the tile keeps only its own border. `hermes` is the one full-bleed
+/// plate; R-AG8 retired the two Claude rasters (Claude Code is now the
+/// transparent-cornered Claude mark plus an app-drawn badge). A full-bleed
+/// plate reads fine on a dark card — a clipping problem, not a plate one — and
 /// the `clipShape` below is what answers it.
 private struct AgentTile: View {
     let agent: AgentSetup
@@ -433,13 +434,11 @@ private struct AgentTile: View {
         Group {
             if LogoImage.exists(name: agent.id) {
                 // Clipped to the tile's own border radius, for the same reason
-                // `PlatformTile` clips: three of this catalog's seven ids —
-                // `claude-code`, `claude-desktop`, `hermes` — are full-bleed
-                // plates (measured corner alpha 0.996, 0.996, and 0.02 that is
-                // 0.91 one pixel in), so drawn unclipped at the full 44 pt
-                // they push square corners outside the 10 pt rounded stroke
-                // this tile overlays. A no-op for the four that already carry
-                // transparent corners.
+                // `PlatformTile` clips: `hermes` is the one full-bleed plate
+                // (corner alpha 0.02, 0.91 one pixel in; R-AG8 retired the two
+                // Claude rasters), so drawn unclipped at the full 44 pt it
+                // pushes square corners outside the 10 pt rounded stroke this
+                // tile overlays. A no-op for every transparent-cornered mark.
                 LogoImage(name: agent.id, size: 44)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
