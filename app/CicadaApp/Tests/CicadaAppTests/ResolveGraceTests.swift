@@ -18,6 +18,7 @@ final class ResolveGraceTests: XCTestCase {
         let store = Store(cache: SnapshotCache(
             root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)), api: api)
         api.replies[.inbox] = .notModified
+        api.honorsCancellation = true
         store.inbox.value = try JSONDecoder().decode([InboxItem].self, from: Data(Self.twoItems.utf8))
         // The window never closes on its own unless a test says so.
         store.graceWait = { _ in try? await Task.sleep(for: .seconds(3600)) }
@@ -65,6 +66,36 @@ final class ResolveGraceTests: XCTestCase {
         await eventually(api.writes == ["resolveInbox:inbox-001:resolve:b:nil"])
         XCTAssertNil(store.heldResolve)
         XCTAssertEqual(store.visibleInbox.map(\.id), ["inbox-002"], "still hidden until a snapshot drops it")
+    }
+
+    /// Task 2 review round 1 — the main path: an answer left to time out. The send runs inside the
+    /// window's own task; if expiring cancelled that task, the POST died as `URLError.cancelled`, the
+    /// question came back and the "reverted" toast showed for an answer that was never refused.
+    func testAnAnswerLeftToTimeOutIsSavedNotCancelledByItsOwnWindow() async throws {
+        let (store, api) = try makeStore()
+        store.graceWait = { _ in }
+        hold(store, "inbox-001")
+        await eventually(api.writes.count == 1 && store.sendingInboxIds.isEmpty)
+        XCTAssertEqual(api.writes, ["resolveInbox:inbox-001:resolve:b:nil"], "exactly one POST")
+        XCTAssertNil(store.toast, "no failure toast")
+        XCTAssertEqual(store.visibleInbox.map(\.id), ["inbox-002"], "no rollback")
+    }
+
+    /// Task 2 review round 1 — quit waits for an answer already on the wire too, not only a held one.
+    func testQuitWaitsForAnAnswerAlreadyBeingSent() async throws {
+        let (store, api) = try makeStore()
+        api.gateWrites = true
+        hold(store, "inbox-001")
+        hold(store, "inbox-002", action: "skip", optionKey: nil)
+        await api.waitForParkedWrite()
+        _ = store.undoHeld()
+        XCTAssertNil(store.heldResolve)
+        XCTAssertTrue(store.hasAnswerInFlight, "the first answer is still on the wire")
+        let drained = Task { await store.sendHeldAndDrain() }
+        await Task.yield()
+        api.releaseWriteGate()
+        await drained.value
+        XCTAssertFalse(store.hasAnswerInFlight)
     }
 
     func testTheNextAnswerSendsThePreviousAtOnce() async throws {

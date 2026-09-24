@@ -91,6 +91,10 @@ final class FakeSyncAPI: SyncAPI {
     private var writeGate: CheckedContinuation<Void, Never>?
     /// Set once a gated write has actually parked.
     private(set) var writeIsParked = false
+    /// When true, a write from a cancelled task throws `CancellationError` before it is recorded, as
+    /// `URLSession.data(for:)` does with `URLError.cancelled`. Task 2 review round 1: a send running
+    /// inside the task it cancelled never left the app, and a fake that ignored cancellation hid it.
+    var honorsCancellation = false
 
     func releaseWriteGate() {
         let g = writeGate
@@ -109,6 +113,7 @@ final class FakeSyncAPI: SyncAPI {
     }
 
     private func record(_ what: String) async throws {
+        if honorsCancellation { try Task.checkCancellation() }
         writes.append(what)
         if gateWrites {
             await withCheckedContinuation { c in

@@ -71,9 +71,28 @@ extension Store {
     }
 
     /// The window closed on its own; a stale token (an Undo, or a newer hold) sends nothing.
+    ///
+    /// Task 2 review round 1: this runs INSIDE `graceTask`, so the handle is dropped before
+    /// `flushHeld` — otherwise its `graceTask?.cancel()` cancelled the very task doing the send,
+    /// `URLSession.data(for:)` failed at once with `URLError.cancelled`, and every answer left to
+    /// time out (the main path) was rolled back with the failure toast and never POSTed.
     func expire(token: Int) async {
         guard let held = heldResolve, held.token == token else { return }
+        graceTask = nil
         await flushHeld()
+    }
+
+    /// Something the quit path must wait for: a held answer, or one already on the wire.
+    var hasAnswerInFlight: Bool { heldResolve != nil || !sendingInboxIds.isEmpty }
+
+    /// Quit (R-DI3): send the held answer, then wait for any earlier answer still being sent (started
+    /// by the next tap) so its refresh or rollback is not cut off. Task 2 review round 1 finding 2.
+    /// Unbounded on its own — `QuitFlush.run` caps the whole wait.
+    func sendHeldAndDrain() async {
+        await flushHeld()
+        while !sendingInboxIds.isEmpty && !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     /// Send the held answer now: the window's end, a bank switch, the window closing, quit.

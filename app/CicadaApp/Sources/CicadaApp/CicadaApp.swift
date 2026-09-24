@@ -247,8 +247,8 @@ struct CicadaApp: App {
                         await menuBarManager.refreshAfterAction()
                     }
                     // DR-42 (R-DI3) — ⌘Q inside an Undo window sends the held answer first.
-                    appDelegate.heldAnswer = { [store] in store.heldResolve != nil }
-                    appDelegate.sendHeldAnswer = { [store] in await store.flushHeld() }
+                    appDelegate.heldAnswer = { [store] in store.hasAnswerInFlight }
+                    appDelegate.sendHeldAnswer = { [store] in await store.sendHeldAndDrain() }
                     // G139 final review: a reopened window re-reads the system
                     // appearance rather than trusting the last one this scene saw.
                     ThemeStore.shared.refreshSystemAppearance()
