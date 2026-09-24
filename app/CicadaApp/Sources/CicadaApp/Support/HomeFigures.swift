@@ -29,6 +29,8 @@ struct HomeNeedsYou {
 struct HomeChip: Equatable {
     let id: String
     let name: String
+    /// The page's type, for the `Tag`'s dot (DR-44, R-HS6).
+    let type: EntityType
 }
 
 struct HomeChips: Equatable {
@@ -90,14 +92,14 @@ enum HomeFigures {
     /// The commit's `entities/<id>.md` files that still name a node — a page
     /// deleted since the read is never a chip, and a repeat counts once.
     static func chips(_ e: SleepHistoryEntry, nodes: [GraphNode]) -> HomeChips {
-        var names: [String: String] = [:]
-        for node in nodes where names[node.id] == nil { names[node.id] = node.name }
+        var byId: [String: GraphNode] = [:]
+        for node in nodes where byId[node.id] == nil { byId[node.id] = node }
         var seen = Set<String>()
         var known: [HomeChip] = []
         for path in e.filesChanged where path.hasPrefix("entities/") && path.hasSuffix(".md") {
             let id = String(path.dropFirst("entities/".count).dropLast(3))
-            guard let name = names[id], seen.insert(id).inserted else { continue }
-            known.append(HomeChip(id: id, name: name))
+            guard let node = byId[id], seen.insert(id).inserted else { continue }
+            known.append(HomeChip(id: id, name: node.name, type: node.type))
         }
         return HomeChips(shown: Array(known.prefix(chipLimit)), more: max(0, known.count - chipLimit))
     }
