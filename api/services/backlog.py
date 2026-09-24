@@ -328,8 +328,13 @@ def _block(text: str, cap: int) -> str:
     """Markdown made safe for the item's own structure (R-B4): trimmed,
     capped, and every level 1–3 heading demoted to `####`, so a pasted
     "## Notes" or "### 2026-09-01 · You" can never start a section or forge a
-    note. Nothing else about the markdown changes."""
-    text = (text or "").replace("\r\n", "\n").strip()
+    note. Nothing else about the markdown changes.
+
+    Every line break is normalised first, a lone `\r` included (task 1 review
+    round 1): the heading pattern never saw one as a line start, but
+    `markdown_parser.parse` reads the file back with universal newlines, so
+    "x\r### 2026-01-01 · You" read back as a note signed by the person."""
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     return _HEADING.sub("####", text)[:cap].rstrip()
 
 
@@ -543,12 +548,18 @@ def stamp(memory_path: Path) -> str:
                 if not d.is_dir():
                     continue
                 dirs += 1
+                # The folder's own mtime moves on any create, rename or
+                # unlink inside it, so a hand rename that keeps the file's
+                # mtime still moves the stamp (review round 1).
+                newest = max(newest, d.stat().st_mtime_ns)
                 with os.scandir(d.path) as inner:
                     for e in inner:
                         if e.is_file() and e.name.endswith(".md"):
                             files += 1
                             newest = max(newest, e.stat().st_mtime_ns)
-    except FileNotFoundError:
+    except OSError:
+        # Missing, a plain file, or unreadable: degrade to the partial counts
+        # rather than raise into every sync read (review round 1).
         pass
     return f"{dirs}:{files}:{newest}"
 
