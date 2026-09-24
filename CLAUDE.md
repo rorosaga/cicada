@@ -692,14 +692,15 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108, Track I part b).** The front door at ⌘1: "What would you like / *to remember?*" over a
-procedural sky with one cloud (art composed in `Views/Meadow/`, never under a number), then the
-palette's own `FindPanelBody` in `.page` placement — a second `FindPaletteModel` sharing the one
-Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers *Save this link*.
-Below it: Getting started (while it lasts), then Today (captured today, UTC, with the three busiest
-marks), Needs you (the inbox's first three) and Last read (the newest Sleep commit and its pages) —
-each number once, each a link to the page that owns it; the waiting count is a link to Sleep, never a
-Consolidate.
+**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band
+(`HomeHeroBand`, paint only, 120 pt, faded into the window), "What would you like to remember?" as a
+`PageTitle` on the row under it — text never sits on paint — then the palette's own `FindPanelBody` in
+`.page` placement in a 640 pt block: a second `FindPaletteModel` sharing the one Ask and keeping no
+recents; ⌘K on Home focuses it, a pasted `http(s)` link offers *Save this link*. Below it, in one
+760 pt column, labelled `glassCard` blocks of 36 pt rows: Getting started (while it lasts), Today
+(captured today, UTC, with the three busiest marks), Needs you (the Inbox's own `InboxRow`s, landing in
+STATE 1) and Last read (the newest Sleep commit, its pages as `Tag`s) — each number once, each a link
+(`InlineLink`) to the page that owns it; the waiting count links to Sleep, never a Consolidate.
 
 **Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
 `FirstRunGate` (unknown is never empty): the hero meadow as its band, the headline on the card that
@@ -728,8 +729,10 @@ way a Claude cycle continues past the plan's included usage; otherwise it stops 
 sentence and the reset time. Ask follows the same choice. The ChatGPT plan runs as `codex exec` in
 Cicada's own Codex home (`~/.cicada/codex`), signed into in-app with a device code; Cicada never
 opens that home's files — `codex app-server` answers plan, limit and models.
-`EngineChooser` is the component (`EngineCard` wraps it for onboarding); the Sleep page shows the two
-previews read-only with a link here. The Claude plan's old *Use for Sleep* switch moved here too —
+`EngineChooser` is the component (`EngineCard` wraps it for onboarding); the Sleep page's quick engine
+menu (beside Consolidate) reads and writes the same `PUT /sleep/engine` through the same
+`SleepEngineViewModel` and the same write rule (`EngineWrite`), and shows both previews — "When you
+start a cycle" / "Scheduled cycles", the one wording app-wide. The Claude plan's old *Use for Sleep* switch moved here too —
 same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
@@ -743,6 +746,10 @@ behind the Feed's `+`. Both read the same `channel_registry`, so a channel never
 two surfaces. Round 3 added **Notes & files** (Apple Notes, every watched folder, *Add a folder* and,
 when Obsidian is installed, *Obsidian vault*) and **Voice & meetings** (Wispr Flow once it is on this
 Mac) — both standing connections, so both live here; their marks are the installed apps' own icons.
+Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
+Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
+add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
+(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b).
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
@@ -781,9 +788,14 @@ composes it back). Contributors is one chip strip over one **labelled** share-of
 `cicada`, `user` and `unknown` all have names, so no bucket the app can name renders as "?".
 
 **Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
-one sentence in the display face under it, one Consolidate/Cancel control, one whisper line for
-the schedule, and everything else under a single **Details** disclosure (Last cycle · What's
-waiting · Readout · Past nights), closed by default, remembered per viewer
+one sentence in the display face under it, one Consolidate/Cancel control with the engine menu
+beside it — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
+under Auto) that opens the five engines with their real marks, the chosen engine's model and both
+ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's caption shows while running
+— one whisper line for the schedule, and everything else under a single **Details** disclosure (Last
+cycle · What's waiting · Readout · Past nights) in D's list grammar — section labels over rows, no
+cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows — closed by
+default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
@@ -847,7 +859,8 @@ never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One r
 folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
 Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,
 logged or sent anywhere but `/search` and `/conversations/recent?q=`. `FindPanelBody` is the hostable
-body (Home).
+body (Home). Settings' pages and every static row are in the palette from `SettingsIndex` (one index,
+one ranker); ⏎ lands on the row through `AppRouter.openSettings(_:row:)` (DS-3b).
 
 **Brand marks (Track L).** One map, `OriginIconography.logoName(for:)`, and one precedence:
 **installed app icon → bundled PNG → SF Symbol**. Apple's marks are never committed (Safari and
@@ -869,7 +882,8 @@ is the binding target for every UI change: graphite neutrals, the system accent,
 command bar holding the bank selector and search, and progressive columns (the list alone → list + detail → list + detail +
 Reader). Rules are numbered `DR-n` and a UI PR cites the ids it applies; a departure needs a dated ruling in its §9. The owner
 chose D from three mocked directions (the Inbox and the Reader). DS-1 shipped the tokens, the type, the shell and the
-Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column. Every other
+Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column; DS-3b
+(2026-09-24) shipped Home, the Sleep page's engine menu and Details, and the Settings panel's fixes. Every other
 page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
@@ -890,7 +904,7 @@ fallback, opaque under Reduce Transparency); a lint fails the build on any glass
 (`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
 sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number, and text never sits
 directly on paint — enforced by an allowlist lint; the Welcome's hero band (`WelcomeHero`) and Home's sky band
-(`HomeSkyBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+(`HomeHeroBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
