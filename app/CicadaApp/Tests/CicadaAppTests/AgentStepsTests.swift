@@ -99,4 +99,53 @@ final class AgentStepsTests: XCTestCase {
         XCTAssertEqual(Copy.agentsConnectedSummary(0), "Connect as many as you like")
         XCTAssertEqual(Copy.agentsConnectedSummary(2), "2 connected · connect as many as you like")
     }
+
+    // MARK: R-OB12 — onboarding turns on Remembers automatically with the connection
+
+    private let mcp = AgentWiringStep(step: "mcp", display: "codex mcp add …", argv: ["/x/codex", "mcp"], touches: [])
+    private let hook = AgentWiringStep(step: "hook", display: "registry install Stop", argv: ["/p", "r"], touches: [])
+    private let recallA = AgentWiringStep(step: "autorecall", display: "registry install SessionStart",
+                                          argv: ["/p", "r", "install"], touches: ["~/.codex/hooks.json"])
+    private let recallB = AgentWiringStep(step: "autorecall", display: "registry install UserPromptSubmit",
+                                          argv: ["/p", "r", "install"], touches: ["~/.codex/hooks.json"])
+
+    private func codex(recall: String = "off", autosave: String = "off", autorecall: String = "off") -> AgentWiring {
+        AgentWiring(id: "codex", installed: true, binary: "/x/codex", recall: recall, autosave: autosave,
+                    connect: recall == "on" && autosave == "on" ? [] : [mcp, hook], detail: nil,
+                    autorecall: autorecall, autorecallOn: autorecall == "on" ? [] : [recallA, recallB])
+    }
+
+    private func onboarding(_ wiring: AgentWiring) throws -> [AgentStep] {
+        AgentSteps.steps(for: AgentCatalog.entry(for: "codex")!, setups: ["codex": try prompt("codex")], wiring: wiring,
+                         live: nil, remoteReady: false, bundleAutoRecall: true, now: now, locale: en)
+    }
+
+    func testOnboardingsConnectForMeAlsoTurnsOnRememberingAndSaysSo() throws {
+        let s = try onboarding(codex())
+        XCTAssertEqual(s[0].actions.first, .connectForMe([mcp, hook, recallA, recallB]),
+                       "every command is in the box before the click (spec decision 14)")
+        XCTAssertTrue(s[0].detail.contains(Copy.agentStepAlsoRecalls))
+        XCTAssertEqual(s.map(\.title), [Copy.agentStepSend("Codex"), Copy.agentStepConfirm], "no separate step")
+    }
+
+    func testAnAlreadyConnectedAgentGetsItsOwnRememberStep() throws {
+        let s = try onboarding(codex(recall: "on", autosave: "on"))
+        XCTAssertFalse(s[0].actions.contains { if case .connectForMe = $0 { return true }; return false })
+        XCTAssertEqual(s.map(\.title), [Copy.agentStepSend("Codex"), Copy.autoRecallGroup, Copy.agentStepConfirm])
+        XCTAssertEqual(s[1].actions, [.autoRecall([recallA, recallB])])
+    }
+
+    func testNothingIsAddedOnceRememberingIsOn() throws {
+        let s = try onboarding(codex(autorecall: "on"))
+        XCTAssertEqual(s[0].actions.first, .connectForMe([mcp, hook]))
+        XCTAssertFalse(s.contains { $0.title == Copy.autoRecallGroup })
+    }
+
+    /// R-H11 holds in Settings → Agents: recall stays its own click there.
+    func testSettingsNeverBundles() throws {
+        let s = AgentSteps.steps(for: AgentCatalog.entry(for: "codex")!, setups: ["codex": try prompt("codex")],
+                                 wiring: codex(), live: nil, remoteReady: false, now: now, locale: en)
+        XCTAssertEqual(s[0].actions.first, .connectForMe([mcp, hook]))
+        XCTAssertFalse(s.contains { $0.title == Copy.autoRecallGroup })
+    }
 }

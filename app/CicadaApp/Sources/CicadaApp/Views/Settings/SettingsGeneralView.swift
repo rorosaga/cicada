@@ -127,28 +127,10 @@ struct SettingsGeneralView: View {
             SettingsGroupCard(header: Copy.whenClosedGroup) {
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
                             detail: Copy.backgroundDetail(backendAgent.state)) {
-                    switch backendAgent.state {
-                    case .missing, .stopped, .failed:
-                        // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which
-                        // would kill a running cycle mid-stage and leave its pages for the next `git add -A` writer
-                        // (the G85 smear); the Projects writes' own gate, so the two never disagree about "running".
-                        let sleeping = ProjectWriteGate.blocked(store.status.value)
-                        NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
-                                      help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
-                            guard !ProjectWriteGate.blocked(store.status.value) else { return }
-                            Task { await backendAgent.install() }
-                        }
-                    case .unknown:
-                        NeutralButton(title: Copy.foundRetry, size: .compact) { Task { await backendAgent.refresh() } }
-                    case .checking, .installing:
-                        ProgressView().controlSize(.small)
-                    case .running:
-                        EmptyView()
-                    }
+                    BackgroundServiceButton()
                 } below: {
-                    switch backendAgent.state {
-                    case .missing, .stopped, .failed: CommandBox(command: backendAgent.display)
-                    default: EmptyView()
+                    if BackgroundServiceButton.showsCommand(backendAgent.state) {
+                        CommandBox(command: backendAgent.display)
                     }
                 }
             }
@@ -177,6 +159,43 @@ struct SettingsGeneralView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// R-OB14 — *Keep memory working when Cicada is closed*: one control in Settings → General and onboarding's F-06,
+/// so the two can never disagree about what the click does. Install runs only after the click, with the command
+/// shown first beside it (spec decision 14, R-FA8/R-FA9, DR-19), and waits while Sleep reads (finding 6, DR-41).
+struct BackgroundServiceButton: View {
+    @Environment(BackendAgentService.self) private var backendAgent
+    @Environment(Store.self) private var store
+
+    /// The command shows before the click, beside the button (`CommandBox`, DR-19) — only while Install is offered.
+    static func showsCommand(_ state: BackendAgentState) -> Bool {
+        switch state {
+        case .missing, .stopped, .failed: true
+        default: false
+        }
+    }
+
+    var body: some View {
+        switch backendAgent.state {
+        case .missing, .stopped, .failed:
+            // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which would kill
+            // a running cycle mid-stage and leave its pages for the next `git add -A` writer (the G85 smear); the
+            // Projects writes' own gate, so the two never disagree about "running".
+            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
+                          help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
+                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                Task { await backendAgent.install() }
+            }
+        case .unknown:
+            NeutralButton(title: Copy.foundRetry, size: .compact) { Task { await backendAgent.refresh() } }
+        case .checking, .installing:
+            ProgressView().controlSize(.small)
+        case .running:
+            EmptyView()
         }
     }
 }

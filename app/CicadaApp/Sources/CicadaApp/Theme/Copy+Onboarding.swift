@@ -71,6 +71,39 @@ extension Copy {
     static func seeHowStepOf(_ n: Int, _ total: Int) -> String { "Step \(n) of \(total)" }
     static func seeHowWhere(host: String, path: String) -> String { "\(host) · \(path)" }
 
+    // MARK: F-04 (Task 5)
+    static let agentsPageTitle = "Work with your agents"
+    static let agentsPageSubline = "Pick an agent and follow its steps. Connected agents read your memory, add to it, and sign what they write."
+    static let agentsFoot = "Connect or disconnect agents any time in"
+    static let onboardingSettingsAgents = "\(settings) → \(agents)"
+    /// R-OB12 — said on the step whose click also turns it on.
+    static let agentStepAlsoRecalls = "It also turns on Remembers automatically; undo that in \(settings) → \(agents)."
+    static let agentStepRecallHow = "Before your agent answers, Cicada adds a short note about who and what you mention. Undo it in \(settings) → \(agents)."
+
+    // MARK: F-05 (Task 5)
+    static let whoReadsSubline = "A reader turns what came in into pages about people, projects and ideas. Change it any time on the Sleep page."
+    static let whoReadsNothingYet = "Nothing is read until you say so. Whether it keeps reading on its own is asked after your first read."
+    static let privacyEverything = "Everything stays on this Mac, in plain files you own."
+    static let privacyEverythingElse = "Everything else stays on this Mac, in plain files you own."
+
+    // MARK: F-06 (Task 5)
+    static let keepRunningTitle = "Keep Cicada running"
+    static let keepRunningSubline = "The sources you connected are read by the app itself, so it needs to stay open. Let it start at login and wait in the menu bar."
+    static let keepRunningBothInSettings = "Both switch on or off any time in"
+    static let onboardingSettingsGeneral = "\(settings) → \(general)"
+    static let keepRunningBackgroundItems = "macOS shows “Background Items Added” once, naming Cicada. You don’t need to click it."
+    static let keepRunningWhere = "macOS keeps this switch in System Settings → General → Login Items."
+    static let keepRunningWhileOpen = "With Cicada in the menu bar"
+    static let keepRunningAfterQuit = "If you quit Cicada"
+    static let keepOpenBrowsers = "Browsers and folders keep up as you save"
+    static let keepOpenCalendar = "Calendar events and Wispr Flow meetings arrive"
+    static let keepOpenAgents = "Your agents save their conversations"
+    static let keepOpenSleep = "Sleep reads when you ask, or on your schedule"
+    static let keepQuitWaits = "What Cicada reads on this Mac waits, then catches up when it opens"
+    static let keepQuitAgentsSave = "Your agents still save their conversations"
+    static let keepQuitSleep = "Sleep still runs on the schedule you choose"
+    static let keepQuitAgentsWait = "Your agents’ conversations are saved only while Cicada is open"
+
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     static var onboardingLabels: [String] {
         [importReading(9, of: 17, noun: "conversations"), importBrowsers, importCalendar, importCalendarAndContacts,
@@ -79,13 +112,18 @@ extension Copy {
          importPrivateTail, importTickHelp, importUntickHelp, importDropLead, importDropDetail, importSeeHow,
          importMoreSources, onboardingSettingsIntegrations, seeHowTitle, seeHowReplay, seeHowDone, seeHowClaudePath,
          seeHowChatGPTPath, seeHowGeminiPath, seeHowOpenPage("ChatGPT"), seeHowSteps(11), seeHowStepOf(11, 11),
-         seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath)]
+         seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath), agentsPageTitle, agentsFoot,
+         onboardingSettingsAgents, keepRunningTitle, keepRunningBothInSettings, onboardingSettingsGeneral,
+         keepRunningWhileOpen, keepRunningAfterQuit, keepOpenBrowsers, keepOpenCalendar, keepOpenAgents, keepOpenSleep,
+         keepQuitAgentsSave, keepQuitSleep]
             + ChatVendor.allCases.map(importWait)
     }
 
     /// Longer sentences — the vocabulary rule only.
     static var onboardingSentences: [String] {
         [importSubline, importDoneOnce, importLockedHelp, importNeedsAccess, seeHowClaudeHonest, seeHowChatGPTHonest,
-         seeHowGeminiHonest]
+         seeHowGeminiHonest, agentsPageSubline, agentStepAlsoRecalls, agentStepRecallHow, whoReadsSubline,
+         whoReadsNothingYet, privacyEverything, privacyEverythingElse, keepRunningSubline, keepRunningBackgroundItems,
+         keepRunningWhere, keepQuitWaits, keepQuitAgentsWait]
     }
 }
