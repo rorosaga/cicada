@@ -236,7 +236,11 @@ enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s ow
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
-exchanges) in one, OR an explicit link to an existing high-confidence entity.
+exchanges) in one, OR an explicit link to an existing high-confidence entity. What Sleep hears about a
+name before it has a page is not lost (G141 PJ-0b): Stage 5.56 holds those claims on the name's line in
+`<bank>/pending_entities.jsonl` (`api/services/pending_store.py`: spans, not copies; at most 50 per name,
+the rest counted) and releases them onto the page, first and through Stage 3, in the cycle whose Stage 5
+gives the name one — a holding line leaves the store only then.
 
 ### Temporal decay
 Absence of mention IS a signal. Every entity carries `last_referenced` and `decay_rate`; Sleep drops
