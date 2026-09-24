@@ -12,7 +12,7 @@ any AI app and the phone, folders and papers, Wispr Flow, a provenance viewer, f
 search, an interactive mascot page, onboarding/import, the Instinct ideas; then, after his live review, a
 Linear-inspired design pass and two new ideas — project timelines and agent-first clarification) landed as
 PRs **#71–#98** on opus Workflow tracks (the owner allowed opus for this round; coding subagents at medium
-effort, see [[cicada-opus-coding-effort]] in the orchestrator's memory). Specs:
+effort). Specs:
 `docs/superpowers/specs/2026-09-23-round3-meadow-reach-provenance-design.md` (+ its three design docs),
 `…/2026-09-23-g141-project-timelines-design.md`, `…/2026-09-23-g61-agent-first-clarification-design.md`.
 
