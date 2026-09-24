@@ -548,6 +548,16 @@ struct GraphContainerView: View {
             }
         }
         .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: graphVM.selectedEntity?.id)
+        // DS-3a Task 1 — until the page's own reducer lands (Task 2), both canvas events close the card:
+        // Esc is a keyboard path and never animates (DR-60); a click on empty canvas is a pointer path.
+        .onChange(of: graphVM.canvasEventCount) { _, _ in
+            guard selectedTab == .graph, graphVM.selectedEntity != nil else { return }
+            switch graphVM.canvasEvent {
+            case .escape: Instant.run { graphVM.clearSelection() }
+            case .backgroundClicked: graphVM.clearSelection()
+            case nil: break
+            }
+        }
     }
 }
 

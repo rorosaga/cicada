@@ -186,6 +186,12 @@ window.onerror = (message, source, line, col, error) => {
     } catch (e) { /* no handler (standalone browser) */ }
 };
 
+// DS-3a — the one sender for the messages Swift answers as page actions. try/catch because the page
+// also runs standalone in a browser (no handler), exactly like the posts above.
+function postToSwift(msg) {
+    try { window.webkit.messageHandlers.cicada.postMessage(JSON.stringify(msg)); } catch (e) { /* standalone */ }
+}
+
 // ---------- Module-level state ----------
 
 let canvas, ctx;
@@ -286,6 +292,47 @@ function setHoverSuppressed(on) {
 function setPanToggle(on) {
     panToggled = !!on;
     setPanMode(panToggled);
+}
+// DS-3a R-DG9 — the entity whose column is open. Swift pushes it on every change (`GraphJS.setSelectedNode`).
+// It draws a neutral ring (draw(), beside the search ring) and is kept in view after every resize: the
+// column takes up to 560 pt of the canvas, and a node clicked on its right half would otherwise vanish.
+// Only the zoom TRANSFORM moves, never its scale, and nothing here touches `simulation` (G109).
+let selectedNodeId = null;
+const KEEP_IN_VIEW_PAD = 80;   // px inside the canvas edge, the same margin revealNode fits with
+// A G123 reveal owns the transform while its transition runs (revealNode sets this, its end clears it).
+// `revealEntity` selects AND reveals in one update, and d3 transitions of one name are exclusive — a
+// keep-in-view pan started beside the reveal (or `zoom.transform` on a resize, which interrupts) would
+// cancel the zoom to the neighbourhood. The reveal's end re-checks instead (R-DG9).
+let revealing = false;
+let revealSeq = 0;             // which reveal holds `revealing` (revealNode)
+function setSelectedNode(id) {
+    selectedNodeId = id ? String(id) : null;
+    const shown = selectedNodeId ? ensureVisible(selectedNodeId, true) : false;
+    scheduleRedraw();
+    return shown;
+}
+function axisShift(s, extent) {
+    const pad = Math.min(KEEP_IN_VIEW_PAD, extent / 2);
+    if (s < pad) return pad - s;
+    if (s > extent - pad) return (extent - pad) - s;
+    return 0;
+}
+function ensureVisible(id, animate) {
+    const n = visibleNodes.find((x) => x.id === id);
+    if (!n || n.x == null || width <= 0 || height <= 0) return false;
+    if (revealing) return true;   // the reveal lands on it, then re-checks (revealNode)
+    const dx = axisShift(n.x * transform.k + transform.x, width);
+    const dy = axisShift(n.y * transform.k + transform.y, height);
+    if (dx === 0 && dy === 0) return true;
+    const t = d3.zoomIdentity.translate(transform.x + dx, transform.y + dy).scale(transform.k);
+    if (currentZoom) {
+        const sel = d3.select(canvas);
+        if (animate) sel.transition().duration(250).call(currentZoom.transform, t);
+        else sel.call(currentZoom.transform, t);
+    } else {
+        transform = t;   // headless (no zoom behaviour attached): apply directly, as revealNode does
+    }
+    return true;
 }
 let lastPointer = null;         // { sx, sy } of the last mousemove, for the keyup re-pick
 function setPanMode(on) {
@@ -442,20 +489,36 @@ function centerOnce() {
     );
 }
 
+// The WKWebView is created with a zero frame and only gets its real size from the SwiftUI layout pass
+// AFTER this script ran — without centerOnce here the origin stays at the top-left corner and the whole
+// graph renders off-canvas (the "blank graph" bug). DS-3a: the entity column narrows the canvas, so
+// the open node is kept in view on every resize — without an animation, because the resize itself is
+// already the column's motion.
+function onResize() {
+    resizeCanvas();
+    centerOnce();
+    if (selectedNodeId) ensureVisible(selectedNodeId, false);
+    scheduleRedraw();
+}
+
+// Shift is the momentary pan. Esc: an ego focus is graph.js's own and closes first; otherwise the page
+// decides what Esc closes (the find field, the Legend, the Reader, the column — DR-28), so it is posted
+// and prevented here — WebKit must not ALSO forward it up the responder chain, or one press would close
+// two things (DS-3a R-DG11).
+function onKeyDown(e) {
+    if (e.key === "Shift") setPanMode(true);
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    if (focusNodeId) { clearFocus(); return; }
+    postToSwift({ type: "escape" });
+}
+
 function init() {
     canvas = document.getElementById("graph");
     ctx = canvas.getContext("2d");
 
     resizeCanvas();
-    window.addEventListener("resize", () => {
-        resizeCanvas();
-        // The WKWebView is created with a zero frame and only gets its real
-        // size from the SwiftUI layout pass AFTER this script ran — without
-        // this re-center the origin stays at the top-left corner and the
-        // whole graph renders off-canvas (the "blank graph" bug).
-        centerOnce();
-        scheduleRedraw();
-    });
+    window.addEventListener("resize", onResize);
 
     // Zoom/pan. We drive d3.zoom on the canvas element and store the result
     // in a local transform object; draw() applies that transform manually
@@ -478,15 +541,7 @@ function init() {
     // gesture now (handled in onMouseUp, not here).
     d3.select(canvas).on("dblclick.zoom", null);
 
-    // ESC clears focus mode. Swift's detail-card ESC handling is independent;
-    // when no focus is active this is a no-op so the two don't collide.
-    document.addEventListener("keydown", (e) => {
-        if (e.key === "Shift") setPanMode(true);
-        if (e.key === "Escape" && focusNodeId) {
-            e.preventDefault();
-            clearFocus();
-        }
-    });
+    document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", (e) => {
         if (e.key === "Shift" && !panToggled) setPanMode(false);
     });
@@ -1209,7 +1264,18 @@ function revealNode(id) {
     const k = Math.min(MAX_ZOOM, Math.max(1.0, fit ? fit.k : 1.6));
     const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-n.x, -n.y);
     if (currentZoom) {
-        d3.select(canvas).transition().duration(450).call(currentZoom.transform, t);
+        // DS-3a R-DG9 — the reveal owns the transform until it lands; a keep-in-view pan would cancel it
+        // (same-name d3 transitions are exclusive). Its end re-checks, because the entity column may have
+        // narrowed the canvas under it. Anything that stops it — a wheel or drag (interrupt), or a zoom
+        // button, fit or focus scheduled before it started (cancel, d3 v7) — just drops the hold, so the
+        // hold can never outlive its transition.
+        // A second reveal cancels the first, whose handler must not release the second's hold: a sequence number.
+        const seq = ++revealSeq;
+        const release = () => { if (seq === revealSeq) revealing = false; };
+        revealing = true;
+        d3.select(canvas).transition().duration(450).call(currentZoom.transform, t)
+            .on("end", () => { release(); if (!revealing && selectedNodeId) ensureVisible(selectedNodeId, true); })
+            .on("interrupt cancel", release);
     } else {
         transform = t;   // headless (no zoom behaviour attached): apply directly
     }
@@ -1413,6 +1479,17 @@ function draw() {
             ctx.strokeStyle = PALETTE.nodeStroke;
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 6 / transform.k, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // DS-3a R-DG9 — the open entity's node: the search ring's shape in the theme's neutral ink
+        // (textPrimary's twin), never the accent — selection is brightness, not colour (DR-5, P-a).
+        if (selectedNodeId !== null && n.id === selectedNodeId) {
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 2 / transform.k;
+            ctx.strokeStyle = PALETTE.nodeStroke;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 5 / transform.k, 0, Math.PI * 2);
             ctx.stroke();
         }
 
@@ -1664,8 +1741,9 @@ function seededDragVelocity(lastSampleTime, now, vx, vy) {
 
 function onMouseDown(event) {
     const [sx, sy] = eventScreenXY(event);
-    pressStart = { x: sx, y: sy, moved: false };
+    pressStart = { x: sx, y: sy, moved: false, onNode: false, pan: false };
     if (event.shiftKey || panToggled) {
+        pressStart.pan = true;
         // Pan mode: never claim the gesture, so d3-zoom's own mousedown (bubble
         // phase, after this capture listener) starts a pan even over a node.
         setPanMode(true);
@@ -1673,6 +1751,7 @@ function onMouseDown(event) {
     }
     const picked = pickNode(sx, sy);
     if (picked) {
+        pressStart.onNode = true;
         draggingNode = picked;
         picked.fx = picked.x;
         picked.fy = picked.y;
@@ -1818,6 +1897,10 @@ function onMouseUp(event) {
         if (wasClick) {
             handleNodeClick(clickedId);
         }
+    } else if (pressStart && !pressStart.moved && !pressStart.onNode && !pressStart.pan) {
+        // DS-3a R-DG8 — a click on EMPTY canvas: Swift closes a floating panel, else the entity column.
+        // A drag is d3-zoom's pan (moved), and pan mode's every press is a pan, so neither closes anything.
+        postToSwift({ type: "backgroundClicked" });
     }
 
     pressStart = null;

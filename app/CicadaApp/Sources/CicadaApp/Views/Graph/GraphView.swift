@@ -70,12 +70,20 @@ struct GraphView: NSViewRepresentable {
             webView.evaluateJavaScript("setTheme(\"\(theme)\")", completionHandler: nil)
         }
 
-        // G123: land on a searched node. JSON-encode the id so a quote in a
-        // slug can never break out of the call.
-        if viewModel.isGraphReady, let id = viewModel.pendingReveal,
-           let data = try? JSONEncoder().encode(id), let quoted = String(data: data, encoding: .utf8) {
-            webView.evaluateJavaScript("revealNode(\(quoted))", completionHandler: nil)
+        // G123: land on a searched node (R-DG25 — the id is a JSON literal).
+        if viewModel.isGraphReady, let id = viewModel.pendingReveal {
+            webView.evaluateJavaScript(GraphJS.revealNode(id), completionHandler: nil)
             DispatchQueue.main.async { self.viewModel.pendingReveal = nil }
+        }
+
+        // DS-3a R-DG9 — the open entity's node: a neutral ring, kept in view as the column narrows the
+        // canvas. Latched like the theme so an unrelated update never re-sends. AFTER the reveal on purpose:
+        // `revealEntity` sets both in one update, and graph.js's reveal must hold the transform first.
+        let selected = viewModel.selectedEntity?.id
+        if viewModel.isGraphReady, !context.coordinator.hasPushedSelection || context.coordinator.lastSelected != selected {
+            context.coordinator.hasPushedSelection = true
+            context.coordinator.lastSelected = selected
+            webView.evaluateJavaScript(GraphJS.setSelectedNode(selected), completionHandler: nil)
         }
 
         // Handle zoom actions from Swift UI
@@ -149,6 +157,9 @@ struct GraphView: NSViewRepresentable {
         /// Latched so a theme push happens once per actual flip, never on
         /// every unrelated `updateNSView` (R11).
         var lastTheme: String?
+        /// DS-3a R-DG9 — the last open-entity id pushed to `setSelectedNode`, latched like `lastTheme`.
+        var lastSelected: String?
+        var hasPushedSelection = false
         let viewModel: GraphViewModel
         var webView: WKWebView?
         var isGraphReady = false
@@ -162,41 +173,27 @@ struct GraphView: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard let bodyString = message.body as? String,
-                  let data = bodyString.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = json["type"] as? String
-            else { return }
-
+            guard let parsed = GraphMessage.parse(message.body) else { return }
             DispatchQueue.main.async { [self] in
-                switch type {
-                case "graphReady":
+                switch parsed {
+                case .graphReady:
                     isGraphReady = true
                     viewModel.isGraphReady = true
                     pushGraphData()
-
-                case "nodeClicked":
-                    if let id = json["id"] as? String {
-                        viewModel.selectEntity(id: id)
-                    }
-
-                case "hubExpanded":
-                    // Hub tapped while in hubs-only paint: zoom into its
-                    // 1-hop neighborhood instead of opening a detail card.
-                    if let id = json["id"] as? String {
-                        webView?.evaluateJavaScript("setFocus('\(id)', 1)", completionHandler: nil)
-                    }
-
-                case "nodeFocused", "focusCleared":
-                    // Informational — focus state lives in JS.
-                    break
-
-                case "jsError":
-                    let stack = json["stack"] as? String ?? ""
-                    print("Graph JS error: \(json["message"] as? String ?? "?") @ \(json["source"] as? String ?? "?"):\(json["line"] as? Int ?? 0):\(json["col"] as? Int ?? 0)\(stack.isEmpty ? "" : "\n\(stack)")")
-
-                default:
-                    break
+                case .nodeClicked(let id):
+                    viewModel.selectEntity(id: id)
+                case .hubExpanded(let id):
+                    // Hub tapped while in hubs-only paint: zoom into its 1-hop neighbourhood instead of
+                    // opening a card.
+                    webView?.evaluateJavaScript(GraphJS.setFocus(id, hops: 1), completionHandler: nil)
+                case .backgroundClicked:
+                    viewModel.receive(.backgroundClicked)
+                case .escape:
+                    viewModel.receive(.escape)
+                case .nodeFocused, .focusCleared:
+                    break   // informational — focus state lives in JS
+                case .jsError(let detail):
+                    print("Graph JS error: \(detail)")
                 }
             }
         }

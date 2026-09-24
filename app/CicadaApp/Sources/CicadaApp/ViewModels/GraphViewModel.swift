@@ -60,6 +60,15 @@ final class GraphViewModel {
     /// G123: a node id the web view should land on (zoom to its neighbourhood)
     /// on the next update; consumed by `GraphView.updateNSView`.
     var pendingReveal: String?
+    /// DS-3a R-DG11 — the last canvas event the PAGE answers (Esc, a click on empty canvas), and a counter
+    /// so two identical events in a row are two changes `onChange` sees.
+    private(set) var canvasEvent: CanvasEvent?
+    private(set) var canvasEventCount = 0
+
+    func receive(_ event: CanvasEvent) {
+        canvasEvent = event
+        canvasEventCount &+= 1
+    }
     var showFilterPopover = false
     var pendingFilterUpdate = false
     /// Flips true whenever a fresh graph snapshot lands (initial load, a
