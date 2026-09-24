@@ -39,7 +39,7 @@ from api.models.schemas import (
     DECAY_CLASS_RATES,
     DecayClass,
 )
-from api.services import episode_ids, markdown_parser
+from api.services import decay_tuning, episode_ids, markdown_parser
 
 # The historical extraction default, kept as the fallback for a page whose
 # frontmatter carries neither a class nor a usable numeric rate.
@@ -296,29 +296,80 @@ def default_class_for(entity_type: str | None, source: str = "extraction") -> De
     return _legacy_class(entity_type)
 
 
+class SubjectDecay(NamedTuple):
+    """What the claim engine needs about a claim's SUBJECT page (G147, R-FD13)."""
+
+    decay_class: DecayClass
+    entity_type: str
+    kept_on: tuple[str, ...]
+    type_multiplier: float
+
+
+# An unknown or unreadable subject: the neutral 1.0 class multiplier, no keeps,
+# no pace — a page-less subject decays exactly as it did before G66 and G147.
+NEUTRAL_SUBJECT = SubjectDecay(DecayClass.active, "", (), 1.0)
+
+
+def subject_lookup(memory_path, *, tuning: dict[str, float] | None = None) -> Callable[[str], SubjectDecay]:
+    """A memoised ``entity_id -> SubjectDecay`` reader for one bank.
+
+    One parse per subject yields the class (G66), the type (the key of the
+    per-type pace, R-FD5) and the page's kept weeks (R-FD3), so the claim
+    engine never walks the same files twice. ``tuning=None`` reads the bank's
+    ``_decay_tuning.yaml`` lazily, on the first page found — an MCP write, whose
+    one subject is always referenced, never reads it.
+    """
+    entities_dir = Path(memory_path) / "entities"
+    cache: dict[str, SubjectDecay] = {}
+    pace: list[dict[str, float]] = [] if tuning is None else [dict(tuning)]
+
+    def pace_for(etype: str) -> float:
+        if not pace:
+            pace.append(decay_tuning.load(memory_path))
+        return float(pace[0].get(etype, 1.0))
+
+    def lookup(entity_id: str) -> SubjectDecay:
+        eid = str(entity_id or "")
+        if eid in cache:
+            return cache[eid]
+        found = NEUTRAL_SUBJECT
+        filepath = entities_dir / f"{eid}.md"
+        if eid and filepath.exists():
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter or {}
+                etype = entity_type(fm)
+                found = SubjectDecay(resolve(fm)[0], etype, tuple(kept_dates(fm)), pace_for(etype))
+            except Exception:
+                found = NEUTRAL_SUBJECT
+        cache[eid] = found
+        return found
+
+    return lookup
+
+
 def class_lookup(memory_path) -> Callable[[str], DecayClass]:
     """A memoised ``entity_id -> DecayClass`` reader for one bank.
 
     Injected into the claim engine so it can weight a claim by its SUBJECT's
     class without the reconciler growing a filesystem dependency. Unknown /
-    unreadable ids resolve to ``DecayClass.active`` (the neutral 1.0 multiplier),
-    so a page-less subject decays exactly as it did before this existed.
+    unreadable ids resolve to ``DecayClass.active`` (the neutral 1.0
+    multiplier). Since G147 it is :func:`subject_lookup`'s class column; the
+    empty ``tuning`` means a class-only caller never reads the pace file.
     """
-    entities_dir = Path(memory_path) / "entities"
-    cache: dict[str, DecayClass] = {}
+    subject = subject_lookup(memory_path, tuning={})
+    return lambda entity_id: subject(entity_id).decay_class
 
-    def lookup(entity_id: str) -> DecayClass:
-        eid = str(entity_id or "")
-        if eid in cache:
-            return cache[eid]
-        cls = DecayClass.active
-        filepath = entities_dir / f"{eid}.md"
-        if filepath.exists():
-            try:
-                cls = resolve(markdown_parser.parse(filepath).frontmatter or {})[0]
-            except Exception:
-                cls = DecayClass.active
-        cache[eid] = cls
-        return cls
 
-    return lookup
+def claim_mention_weeks(claim, kept_on=()) -> int:
+    """Distinct ISO weeks a claim was stated or restated in (R-FD4): its
+    ``source_episodes`` and the ``ep_*`` documents its evidence cites (a ``page``
+    span cites an entity, not a conversation), plus the subject's kept weeks.
+    Session ids carry no date and ``recorded_at`` moves on every restatement,
+    so neither counts. Duck-typed on ``Claim`` to keep this module import-light.
+    """
+    refs = list(getattr(claim, "source_episodes", None) or [])
+    for ev in getattr(claim, "evidence", None) or []:
+        doc = str(getattr(ev, "episode", "") or "")
+        if doc.startswith("ep_"):
+            refs.append(doc)
+    return mention_weeks(refs, kept_on)

@@ -277,3 +277,121 @@ def test_record_keep_is_idempotent_within_a_day():
     fm = {"kept_on": ["2026-09-01"]}
     assert decay_policy.record_keep(fm, "2026-09-01") == ["2026-09-01"]
     assert decay_policy.record_keep({"kept_on": "2026-09-01"}, "2026-09-24") == ["2026-09-01", "2026-09-24"]
+
+
+# --- claims (R-FD4, R-FD5, R-FD13) --------------------------------------------
+
+from api.services import decay_tuning, predicates  # noqa: E402
+from api.services.claim_reconciler import reconcile_stage3  # noqa: E402
+from api.services.claims import Claim, Evidence  # noqa: E402
+
+
+class _ClaimSettings:
+    def __init__(self, memory_path: Path):
+        self.memory_path = memory_path
+        self.archive_threshold = 0.2
+        self.decay_nudge_threshold = 0.4
+        self.litellm_model = "test-model"
+
+
+def _claim(cid: str, episodes=(), evidence=()) -> Claim:
+    return Claim(
+        id=cid, text="alpha-project uses postgres", subject="alpha-project", predicate="uses",
+        object="postgres", epistemic="explicit", source_trust="agent_extracted", confidence=0.9,
+        valid_from="2026-01-01", recorded_at="2026-01-01", decayed_through="2026-01-01",
+        source_episodes=list(episodes), evidence=list(evidence),
+    )
+
+
+def _one_week_drop(root: Path, claim: Claim, **kw) -> float:
+    predicates.install_predicate_map(root)
+    reconciled, _nudges, _audit = reconcile_stage3(
+        [], {"alpha-project": [claim]}, _ClaimSettings(root),
+        cardinality_fn=lambda _p: True, now_date="2026-01-08", **kw,
+    )
+    return 0.9 - reconciled["alpha-project"][0].confidence
+
+
+def test_a_claim_restated_across_twelve_weeks_fades_at_the_spaced_rate(tmp_path):
+    burst = _one_week_drop(tmp_path, _claim("c1", ["ep_2025-10-06_001", "ep_2025-10-07_002"]))
+    spaced = _one_week_drop(tmp_path, _claim("c2", _weekly("2025-10-06", 12)))
+    assert burst == pytest.approx(0.02)  # explicit x agent_extracted x active x one week
+    assert spaced == pytest.approx(0.02 * decay_policy.stability(12))
+
+
+def test_evidence_documents_count_but_page_citations_and_sessions_do_not(tmp_path):
+    ev = [Evidence(episode=e, start=0, end=4, kind="user", hash="x") for e in _weekly("2025-10-06", 4)]
+    ev.append(Evidence(episode="media-alpha", start=0, end=4, kind="page", hash="y"))
+    claim = _claim("c3", evidence=ev)
+    claim.session_ids = ["ses_a", "ses_b", "ses_c"]
+    assert decay_policy.claim_mention_weeks(claim) == 4
+    assert _one_week_drop(tmp_path, claim) == pytest.approx(0.02 * decay_policy.stability(4))
+
+
+def test_a_claim_with_nothing_dated_decays_exactly_as_before(tmp_path):
+    assert _one_week_drop(tmp_path, _claim("c4")) == pytest.approx(0.02)
+
+
+def test_the_subjects_kept_weeks_count_for_its_claims(tmp_path):
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(
+        tmp_path / "entities" / "alpha-project.md",
+        {"name": "Alpha Project", "type": "project", "status": "active", "confidence": 0.5,
+         "kept_on": ["2025-11-03", "2025-12-01"]},
+        "A synthetic page.\n",
+    )
+    drop = _one_week_drop(tmp_path, _claim("c5", ["ep_2025-10-06_001"]))
+    assert drop == pytest.approx(0.02 * decay_policy.stability(3))
+
+
+def test_claim_decay_multiplies_by_the_subjects_type_pace(tmp_path):
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(
+        tmp_path / "entities" / "alpha-project.md",
+        {"name": "Alpha Project", "type": "project", "status": "active", "confidence": 0.5},
+        "A synthetic page.\n",
+    )
+    decay_tuning.save(tmp_path, {"project": 0.5})
+    assert _one_week_drop(tmp_path, _claim("c6")) == pytest.approx(0.01)
+
+
+def test_an_injected_subject_fn_is_honoured(tmp_path):
+    about = decay_policy.SubjectDecay(DecayClass.active, "project", (), 0.5)
+    assert _one_week_drop(tmp_path, _claim("c7"), subject_fn=lambda _s: about) == pytest.approx(0.01)
+
+
+def test_an_injected_class_fn_still_wins_over_the_page(tmp_path):
+    drop = _one_week_drop(tmp_path, _claim("c8"), decay_class_fn=lambda _s: DecayClass.volatile)
+    assert drop == pytest.approx(0.04)
+
+
+def test_class_lookup_keeps_its_contract(tmp_path):
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(tmp_path / "entities" / "a.md", {"type": "skill"}, "x\n")
+    lookup = decay_policy.class_lookup(tmp_path)
+    assert lookup("a") is DecayClass.durable
+    assert lookup("nobody") is DecayClass.active
+
+
+def test_subject_lookup_reads_the_page_once_and_neutral_for_a_missing_one(tmp_path):
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(tmp_path / "entities" / "bob-example.md",
+                          {"type": "person", "kept_on": ["2026-08-10"]}, "x\n")
+    lookup = decay_policy.subject_lookup(tmp_path, tuning={"person": 0.5})
+    assert lookup("bob-example") == decay_policy.SubjectDecay(
+        DecayClass.active, "person", ("2026-08-10",), 0.5)
+    assert lookup("nobody") == decay_policy.NEUTRAL_SUBJECT
+
+
+def test_no_bank_path_means_neutral_subjects_never_the_cwd(tmp_path, monkeypatch):
+    """The reconciler never resolves a bank from the process's working
+    directory (the split-brain rule, R-FD13): a settings object with no bank
+    path reads no page, however the cwd looks."""
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(tmp_path / "entities" / "alpha-project.md", {"type": "skill"}, "x\n")
+    monkeypatch.chdir(tmp_path)
+    reconciled, _nudges, _audit = reconcile_stage3(
+        [], {"alpha-project": [_claim("c9")]}, _ClaimSettings(None),
+        cardinality_fn=lambda _p: True, now_date="2026-01-08",
+    )
+    assert 0.9 - reconciled["alpha-project"][0].confidence == pytest.approx(0.02)
