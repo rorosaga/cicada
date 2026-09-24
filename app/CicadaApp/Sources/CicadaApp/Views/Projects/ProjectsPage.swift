@@ -7,6 +7,7 @@ import SwiftUI
 struct ProjectsPage: View {
     @Environment(Store.self) private var store
     @Environment(ProjectsCache.self) private var cache
+    @Environment(BacklogCache.self) private var backlogCache
     @Environment(AppRouter.self) private var router
     @Environment(ProvenanceRouter.self) private var provenance
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
@@ -21,8 +22,8 @@ struct ProjectsPage: View {
     /// R-PP5 — the viewer's today; `.NSCalendarDayChanged` moves it and every word re-derives with no network.
     @State private var today = ISODay.today()
     @FocusState private var focus: ListFocus?
-    /// R-PP17 — an entity's card in the third column; the Reader wins the slot.
-    @State private var card: String?
+    /// R-PP17 / R-B21 — the third column's one slot besides the Reader: an entity's card or a backlog item.
+    @State private var trailing: ProjectTrailing?
 
     private var rows: [ProjectRow] { cache.list?.projects ?? [] }
 
@@ -44,7 +45,7 @@ struct ProjectsPage: View {
         let lines = ProjectsModel.lines(rows, tab: tab, query: findOpen ? query : "", today: today)
         let people = ProjectsModel.peopleIndex(store.graph.value)
         let openId = columns.openId
-        ProgressiveColumns(hasDetail: openId != nil, hasTrailing: provenance.isPresented || card != nil,
+        ProgressiveColumns(hasDetail: openId != nil, hasTrailing: provenance.isPresented || trailing != nil,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
             EyebrowRow(eyebrow: eyebrow(lines),
                        horizontalPadding: openId == nil && !provenance.isPresented ? plan.gutter : CicadaTheme.spacingXL) {
@@ -71,19 +72,25 @@ struct ProjectsPage: View {
                 let row = rows.first { $0.id == id }
                 ProjectDetailColumn(
                     projectId: id, row: row, parentName: parentName(of: row?.parent), today: today, gutter: plan.gutter,
-                    hiddenListCount: plan.listHidden ? lines.count : nil, openCard: card,
+                    hiddenListCount: plan.listHidden ? lines.count : nil, openCard: trailing?.entityId,
+                    openBacklogItem: trailing?.backlogItemId,
                     onShowList: { showList() }, onClose: { closeProject() }, onEscape: { escape() },
-                    openProject: { openProject($0) }, openEntity: { openCard($0) })
+                    openProject: { openProject($0) }, openEntity: { openCard($0) }, openItem: { openItem($0) })
                     .id(id)
                     .focused($focus, equals: .detail)
             }
         } trailing: { _ in
             if provenance.isPresented {
                 ReaderColumn().focused($focus, equals: .reader)
-            } else if let card {
-                ProjectEntityColumn(entityId: card, openProject: { openProject($0) }, onClose: { closeCard() },
+            } else if let card = trailing?.entityId {
+                ProjectEntityColumn(entityId: card, openProject: { openProject($0) }, onClose: { closeTrailing() },
                                     onEscape: { escape() })
                     .id(card)
+                    .focused($focus, equals: .reader)
+            } else if let item = trailing?.backlogItemId, let project = openId {
+                BacklogItemColumn(projectId: project, itemId: item, onClose: { closeTrailing() },
+                                  onEscape: { escape() })
+                    .id(BacklogCache.key(project, item))
                     .focused($focus, equals: .reader)
             }
         }
@@ -99,17 +106,25 @@ struct ProjectsPage: View {
             columns.reconcile(present: Set(ids))
             if !tabChosen { tab = ProjectsModel.defaultTab(rows, today: today) }
         }
-        // R-PP3 — a sync version event that moved what the ETags fold asks again (a 304 costs nothing).
+        // R-PP3 / R-B18 — a sync version event that moved what an ETag folds asks again (a 304 costs nothing).
         .onChange(of: store.version) { old, new in
-            guard ProjectsRefresh.shouldRevalidate(old: old, new: new) else { return }
+            let projects = ProjectsRefresh.shouldRevalidate(old: old, new: new)
+            let backlog = BacklogRefresh.shouldRevalidate(old: old, new: new)
+            guard projects || backlog else { return }
             Task {
-                await cache.refreshList()
-                if let id = columns.openId { await cache.refreshTimeline(id) }
+                if projects {
+                    await cache.refreshList()
+                    if let id = columns.openId { await cache.refreshTimeline(id) }
+                }
+                if backlog, let id = columns.openId {
+                    await backlogCache.refreshList(id)
+                    if let item = trailing?.backlogItemId { await backlogCache.refreshItem(id, item) }
+                }
             }
         }
-        // A bank switch forgets the card and the open project: ids repeat across banks.
+        // A bank switch forgets the card or item and the open project: ids repeat across banks.
         .onChange(of: store.bank) { _, _ in
-            card = nil
+            trailing = nil
             columns.close()
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in today = ISODay.today() }
@@ -136,7 +151,7 @@ struct ProjectsPage: View {
     private func openProject(_ id: String) {
         let change = {
             columns.open(id)
-            card = nil
+            trailing = nil
             if provenance.isPresented { provenance.close() }
         }
         if columns.openId == nil {
@@ -151,21 +166,22 @@ struct ProjectsPage: View {
         Instant.run {
             guard let next = columns.neighbour(delta, in: lines.map(\.id)) else { return }
             columns.open(next)
-            card = nil
+            trailing = nil
             if provenance.isPresented { provenance.close() }
         }
     }
 
-    /// DR-28 — Esc closes the rightmost open thing: the Reader, then the card, then the project.
+    /// DR-28 — Esc closes the rightmost open thing: the Reader, then the item or card, then the project.
     private func escape() {
         Instant.run {
-            if provenance.isPresented {
-                provenance.close()
-            } else if card != nil {
-                card = nil
-            } else if columns.openId != nil {
+            switch ProjectTrailing.escape(readerOpen: provenance.isPresented, trailing: trailing,
+                                          projectOpen: columns.openId != nil) {
+            case .reader: provenance.close()
+            case .trailing: trailing = nil
+            case .project:
                 columns.close()
                 focus = .list
+            case .nothing: break
             }
         }
     }
@@ -173,7 +189,7 @@ struct ProjectsPage: View {
     private func closeProject() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
             provenance.close()
-            card = nil
+            trailing = nil
             columns.close()
         }
         focus = .list
@@ -182,17 +198,23 @@ struct ProjectsPage: View {
     /// R-PP17 — a chip or a member opens its card beside the project; the Reader steps aside (one slot). A Reader
     /// opened from inside the card returns to it on close.
     private func openCard(_ id: String) {
-        card = id
+        trailing = .entity(id)
         if provenance.isPresented { provenance.close() }
     }
 
-    private func closeCard() { card = nil }
+    /// R-B21 — a backlog row opens its item in the same slot; a Reader the old selection opened steps aside (DR-29).
+    private func openItem(_ id: String) {
+        trailing = .backlogItem(id)
+        if provenance.isPresented { provenance.close() }
+    }
 
-    /// DR-27 — "‹ N projects" brings the list back by closing the rightmost thing: the Reader, else the card, else
-    /// the project.
+    private func closeTrailing() { trailing = nil }
+
+    /// DR-27 — "‹ N projects" brings the list back by closing the rightmost thing: the Reader, else the item or card,
+    /// else the project.
     private func showList() {
         withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) {
-            if provenance.isPresented { provenance.close() } else if card != nil { card = nil } else { columns.close() }
+            if provenance.isPresented { provenance.close() } else if trailing != nil { trailing = nil } else { columns.close() }
         }
     }
 

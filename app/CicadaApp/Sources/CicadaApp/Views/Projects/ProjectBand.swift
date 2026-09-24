@@ -23,7 +23,7 @@ enum ProjectKey: Hashable, Sendable {
     }
 }
 
-enum ProjectSection: String, CaseIterable, Sendable { case now, lately, plan, around }
+enum ProjectSection: String, CaseIterable, Sendable { case now, lately, plan, backlog, around }
 
 /// §3.8 / §9 (2026-09-23) / R-PP10 — the band, pure: every mark at the approved mock's coordinates, in units that
 /// `ProjectBandView` scales (DR-70). The green is the band's one hue; every mark is a neutral shape in the text ladder
