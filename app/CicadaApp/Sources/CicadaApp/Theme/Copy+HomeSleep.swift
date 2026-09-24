@@ -60,6 +60,9 @@ extension Copy {
         /// typed one before DS-3b (R-HS17: a round trip never drops a rule).
         static func filesMatching(_ rule: String) -> String { "Files matching \(rule)" }
         static let noSubfolders = "No subfolders here — everything in this folder counts as yours."
+        /// A folder watched from another Mac (G133 `paths:`): its subfolders can't be listed here.
+        static let notOnThisMac =
+            "This folder isn't on this Mac — open Manage on the Mac that has it to add a subfolder."
         static let chooseSubfolder = "Choose a subfolder…"
         static func pickInside(_ folder: String) -> String { "Pick a folder inside \(folder)." }
         static let manageHelp = "Changing this re-reads the folder so every file is credited to the right author."
@@ -84,7 +87,7 @@ extension Copy {
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
         SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,
-        // `writtenByAnAgentHelp`, `noSubfolders` and `manageHelp` are sentences over 60 characters,
+        // `writtenByAnAgentHelp`, `noSubfolders`, `notOnThisMac` and `manageHelp` are sentences over 60 characters,
         // so they stay off this list (Task 4).
         Folders.addTitle, Folders.name, Folders.project, Folders.projectHelp, Folders.writtenByAnAgent,
         Folders.filesIn("research"), Folders.filesMatching("*.draft.md"), Folders.chooseSubfolder,

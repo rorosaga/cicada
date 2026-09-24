@@ -437,13 +437,18 @@ final class LocalSourceWatcher {
 
     /// A changed "written by an agent" rule re-posts every file, so the backend can
     /// re-attribute them (R-LS10): the manifest is dropped, nothing else.
+    ///
+    /// Returns once the rule is saved; the re-read runs on its own (DS-3b final review, finding 1).
+    /// Manage became a modal sheet, and a full walk-read-upload of a large vault can take minutes —
+    /// awaiting it held the whole sheet, its × included, under `.disabled(busy)`. The row's light
+    /// already says "syncing" while the re-read runs, and a failure lands on it as before.
     func updateAgentGlobs(_ folder: FolderRegistration, globs: [String]) async throws {
         let updated = try await api.updateFolder(
             id: folder.id, authorship: globs.map { FolderAuthorshipRule(glob: $0, authorship: "agent") })
         if let i = folders.firstIndex(where: { $0.id == folder.id }) { folders[i] = updated }
         manifests.remove("\(bank)-\(folder.id)")
         lastStarted[folder.channelId] = nil
-        await syncFolder(updated, resolve: false)
+        Task { await self.syncFolder(updated, resolve: false) }
     }
 
     // MARK: Wispr Flow (G134)

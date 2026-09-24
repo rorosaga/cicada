@@ -213,16 +213,39 @@ struct AgentFolderPicker: View {
     var body: some View {
         LabeledField(label: Copy.Folders.writtenByAnAgent, help: Copy.Folders.writtenByAnAgentHelp) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                if rows.isEmpty {
+                // A folder anchored on another Mac (G133 `paths:`) has no root here, so an empty
+                // listing means "can't see it", not "has no subfolders" — say which (DS-3b final
+                // review, finding 2; the honest-empty-state rail). Saved rules still list below so
+                // they can be unticked: the rule write goes through the backend, which needs no folder.
+                if root == nil {
+                    Text(Copy.Folders.notOnThisMac)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if rows.isEmpty {
                     Text(Copy.Folders.noSubfolders)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach($rows) { $row in
-                    Toggle(row.title, isOn: $row.isOn)
-                        .toggleStyle(.checkbox)
-                        .font(CicadaTheme.bodyFont)
+                // Capped and scrolled (DS-3b final review, finding 3): a vault with dozens of
+                // top-level folders would otherwise push the sheet's primary action past the
+                // window — the thing R-HS16 set out to stop. "Choose a subfolder…" stays outside.
+                if !rows.isEmpty {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            ForEach($rows) { $row in
+                                Toggle(row.title, isOn: $row.isOn)
+                                    .toggleStyle(.checkbox)
+                                    .font(CicadaTheme.bodyFont)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    // Asked for its ideal height, the list is its content height clamped to 220:
+                    // a short list takes no extra room, a long one scrolls.
+                    .frame(maxHeight: CicadaTheme.scaled(220))
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 if let root {
                     TextButton(title: Copy.Folders.chooseSubfolder) { choose(in: root) }
