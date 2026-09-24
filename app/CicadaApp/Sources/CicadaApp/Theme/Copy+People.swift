@@ -14,6 +14,11 @@ extension Copy {
         static let sleepBusy = "Sleep is updating your memory — try the picture again in a moment."
         static let backendDown = "Cicada's engine isn't running, so the picture wasn't saved."
 
+        // Clusters (F-11, F-12)
+        static let showAll = "Show all ›"
+        static func showAllHelp(_ group: String) -> String { "Show every one of your \(group.lowercased())" }
+        static let recencySuffix = "· recently mentioned first"
+
         static func useDetected(_ source: PictureSource) -> String {
             switch source {
             case .contacts: "Use the photo from Contacts"

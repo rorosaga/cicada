@@ -930,10 +930,16 @@ detail column, and the Reader as the third column (each list page hosts its own:
 detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
 the page's find row.
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
-  remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three
-  beside a card) and "Show all N ›". The detail column hosts DS-3a's `EntityDetailCard` as it is, in its `.card`
-  style, with its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K
-  ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age: `/graph` nodes have no `lastReferenced`.
+  remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
+  is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
+  rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
+  a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
+  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
+  is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
+  (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
+  its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K ⌥⏎ landing
+  opens the entity's type tab.
 - **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
   rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
   and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the
