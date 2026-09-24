@@ -14,6 +14,7 @@ from api.config import Settings
 from api.services import (claim_pipeline, entity_resolver, git_service, markdown_parser, owner_identity,
                           predicates, sleep_cycle, telemetry)
 from api.services.claims import parse_claims
+from api.services.pending_store import HoldOutcome
 
 REPO = Path(__file__).resolve().parents[2]
 EP = "ep_2026-09-22_001"
@@ -179,18 +180,22 @@ def test_a_page_less_claim_is_logged_as_a_count_and_never_as_text(tmp_path):
         assert needle not in joined
 
 
-def test_the_r_pj17_seam_is_asked_holds_nothing_and_writes_nothing(tmp_path, monkeypatch):
+def test_a_subject_with_no_pending_line_is_offered_to_the_hold_and_nothing_is_written(tmp_path, monkeypatch):
+    """R-PJ17's seam, filled by PJ-0b (R-HP10): every page-less subject is offered
+    in one call; with no pending line for it nothing is held, no store is
+    invented, and the claim is counted exactly as PJ-0 counted it."""
     memory = _bank(tmp_path)
-    assert claim_pipeline.hold_page_less("zed-unknown", [], memory) == 0
-    asked: list[tuple[str, int]] = []
+    assert claim_pipeline.hold_page_less({"zed-unknown": []}, memory) == {"zed-unknown": HoldOutcome(0, 0)}
+    asked: list[dict[str, int]] = []
     real = claim_pipeline.hold_page_less
     monkeypatch.setattr(claim_pipeline, "hold_page_less",
-                        lambda s, c, m: asked.append((s, len(c))) or real(s, c, m))
+                        lambda offers, m: asked.append({s: len(c) for s, c in offers.items()}) or real(offers, m))
     before = sorted(p.relative_to(memory).as_posix() for p in memory.rglob("*") if p.is_file())
     result = claim_pipeline.run_claim_pipeline(
         _extracted(("Zed Unknown", "uses", "Alpha Project")), [], memory, _settings(memory),
         now_date="2026-09-22", name_to_id={})
-    assert asked == [("zed-unknown", 1)] and result["claims_page_less"] == 1
+    assert asked == [{"zed-unknown": 1}]
+    assert (result["claims_page_less"], result["claims_held"]) == (1, 0)
     after = sorted(p.relative_to(memory).as_posix() for p in memory.rglob("*") if p.is_file())
     assert after == before
 

@@ -339,9 +339,11 @@ clarification's hue); `GraphNode` dates ride PJ-5.
 
 **PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
 longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
-recently, every other writer refuses; CLAUDE.md's seventh Awake rail). Next on the backend: **PJ-0b** (hold a
-page-less subject's claims with its pending entity, ruled 2026-09-23; the seam is
-`claim_pipeline.hold_page_less`) and **PJ-1**.
+recently, every other writer refuses; CLAUDE.md's seventh Awake rail). **PJ-0b** is built on
+`feat/g141-hold-page-less` (plan `2026-09-24-g141-hold-page-less.md`): Stage 5.56 holds a page-less subject's
+claims on its pending line and releases them, through Stage 3, in the cycle that gives the name a page; a
+holding line leaves the store only then. Nothing expires a pending name yet; that is an owner question under
+Research / decisions.
 
 **Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
 (`docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). Its three backend-only slices are built on
@@ -644,7 +646,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     stored. Order: derive → write → spend. Spec
     `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md` (R-PJ1…R-PJ23). Slices:
     **PJ-0** page-less claim fix ✅ · **PJ-4** Stop-hook turn stamps ✅ (both PR #88) · **PJ-0b** hold
-    page-less claims with the pending entity (ruled 2026-09-23) · **PJ-1** read model +
+    page-less claims with the pending entity (built, `feat/g141-hold-page-less`) · **PJ-1** read model +
     `GET /projects[/{id}/timeline]` — backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
     handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
     page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
@@ -736,8 +738,14 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
   that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
   encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
   writes them on promotion: a new slice **PJ-0b** after PJ-0 — its seam,
-  `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88) and holds nothing until PJ-0b. R-PJ16 (the Stop
-  hook writes the per-turn `turns` list) is accepted.
+  `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88); PJ-0b fills it (built on
+  `feat/g141-hold-page-less`). R-PJ16 (the Stop hook writes the per-turn `turns` list) is accepted.
+- **Pending-name expiry** (raised by G141 PJ-0b, 2026-09-24): nothing expires a name Stage 2 parked once.
+  It stays in `pending_entities.jsonl`, with any claims held for it, until it is mentioned again, and the
+  store grows by one line per such name. Should a name heard once and never again leave after N months,
+  taking its held claims with it (counted)? That would change the promotion model: a mention months later
+  would no longer promote. It is research R7's "decay-pruned candidates" and decision D2's question, so it
+  is the owner's. Until then `claims_waiting` on the `sleep_run` row shows how much is waiting.
 
 ### Parked — no near-term work
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors

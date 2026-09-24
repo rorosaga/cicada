@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -27,13 +26,16 @@ import numpy as np
 from loguru import logger
 
 from api.services import markdown_parser
+from api.services import pending_store as _store
+# G141 PJ-0b (R-HP1): the pending store is its own module now. These two names
+# stay importable from here — entity_resolver, link_recon and the tests use them.
+from api.services.pending_store import PENDING_STORE_FILE, PendingEntity  # noqa: F401
 
 # An embed function takes texts and a query/document flag (EmbeddingGemma and
 # other instruction-aware models embed queries and documents differently).
 EmbedFn = Callable[..., np.ndarray]
 
 INDEX_DB_FILE = "vector_index.db"
-PENDING_STORE_FILE = "pending_entities.jsonl"
 
 # "log once" for a WAL-enable failure (Devin PR #24 finding 4) — _connect()
 # runs on every search call; a persistently-locked file must not spam a
@@ -44,42 +46,6 @@ _warned_wal_failure = False
 # single multi-thousand-token conversation isn't embedded as one vector.
 EPISODE_CHUNK_CHARS = 4000
 EPISODE_CHUNK_OVERLAP = 200
-
-
-@dataclass
-class PendingEntity:
-    """A sub-threshold entity (first mention) awaiting a promotion trigger."""
-
-    name: str
-    type: str
-    description: str
-    source_episode: str
-    confidence: float
-    tags: list[str]
-    history_entries: list[dict]
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "type": self.type,
-            "description": self.description,
-            "source_episode": self.source_episode,
-            "confidence": self.confidence,
-            "tags": self.tags or [],
-            "history_entries": self.history_entries or [],
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PendingEntity":
-        return cls(
-            name=data.get("name", ""),
-            type=data.get("type", "concept"),
-            description=data.get("description", ""),
-            source_episode=data.get("source_episode", ""),
-            confidence=float(data.get("confidence", 0.3)),
-            tags=data.get("tags", []) or [],
-            history_entries=data.get("history_entries", []) or [],
-        )
 
 
 def _try_enable_wal(conn: sqlite3.Connection) -> None:
@@ -476,40 +442,26 @@ class SqliteVecIndexer:
         return self._search_kind("episodes", query, top_k)
 
     # ---------- pending (sub-threshold) index ----------
+    #
+    # The file is `pending_store`'s (G141 PJ-0b, R-HP1): these methods keep
+    # their names and contracts for Stage 2 and link recon and delegate every
+    # read and write to that one module. The vectors below stay here.
 
     def _load_pending(self) -> list[PendingEntity]:
-        if not self.pending_store.exists():
-            return []
-        out: list[PendingEntity] = []
-        for line in self.pending_store.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                out.append(PendingEntity.from_dict(json.loads(line)))
-            except Exception:
-                continue
-        return out
+        return _store.load(self.memory_path)
 
     def _save_pending(self, entries: list[PendingEntity]) -> None:
-        self.pending_store.parent.mkdir(parents=True, exist_ok=True)
-        if not entries:
-            self.pending_store.write_text("", encoding="utf-8")
-            return
-        lines = [json.dumps(e.to_dict()) for e in entries]
-        self.pending_store.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        _store.save(self.memory_path, entries)
 
     def index_pending_entity(self, entity: PendingEntity) -> None:
         """Append/replace a sub-threshold entity in the store (no vec rebuild).
 
         Rebuilding the vec table per add would be O(N^2) embedding calls in a
         single sleep batch; call :meth:`rebuild_pending_index` once afterward.
+        A replaced line's held claims are carried, never dropped
+        (``pending_store.upsert``, G141 PJ-0b R-HP4).
         """
-        entries = self._load_pending()
-        name_lower = entity.name.lower()
-        kept = [e for e in entries if e.name.lower() != name_lower]
-        kept.append(entity)
-        self._save_pending(kept)
+        _store.upsert(self.memory_path, entity)
 
     def rebuild_pending_index(self) -> int:
         entries = self._load_pending()
@@ -529,20 +481,16 @@ class SqliteVecIndexer:
         return None
 
     def promote_from_pending(self, entity_name: str) -> PendingEntity | None:
-        """Remove and return an entry from the pending store, rebuild the index."""
-        entries = self._load_pending()
-        name_lower = entity_name.lower()
-        kept: list[PendingEntity] = []
-        promoted: PendingEntity | None = None
-        for e in entries:
-            if e.name.lower() == name_lower and promoted is None:
-                promoted = e
-            else:
-                kept.append(e)
-        if promoted is None:
-            return None
-        self._save_pending(kept)
-        self._rebuild_pending_index(kept)
+        """Remove and return an entry from the pending store, rebuild the index.
+
+        G141 PJ-0b (R-HP4): an entry that still holds claims is returned but
+        STAYS — it leaves through ``pending_store.release`` once Stage 5.56 has
+        written its claims onto the new page — and nothing is rebuilt for it,
+        since nothing left the store.
+        """
+        promoted, removed = _store.take(self.memory_path, entity_name)
+        if removed:
+            self._rebuild_pending_index(self._load_pending())
         return promoted
 
     def _rebuild_pending_index(self, entries: list[PendingEntity]) -> None:
