@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The Welcome's band (R-IB11): the bundled onboarding hero, `-dark` at dusk
-/// and night by the clock (`SceneStore`, reading it here subscribes) and
+/// The Welcome's band (R-IB11): the bundled onboarding hero, the scene's
+/// painting by the clock (`SceneStore`, reading it here subscribes) and
 /// Settings → General → Scene — never the theme (round-4 D4, DESIGN_RULES §9
 /// 2026-09-24), filling the band and anchored
 /// at the bottom so the meadow shows. No words: the headline lives on the card
@@ -16,7 +16,7 @@ struct WelcomeHero: View {
 
     var body: some View {
         GeometryReader { geo in
-            if let image = MeadowArt.image(for: .heroDay, mode: MeadowArt.heroMode(for: scene)) {
+            if let image = MeadowArt.image(for: .hero, time: scene) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)

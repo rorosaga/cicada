@@ -136,11 +136,11 @@ final class SceneClockTests: XCTestCase {
         XCTAssertEqual(SceneTime.forTheme(.dark), .night)
     }
 
-    /// Task 1 only — until the three-scene set lands (Task 2) the afternoon paints the day file.
+    /// R-HO8 — one painting per scene; the afternoon has its own file now.
     func testTheHeroPicksItsPaintingByTheScene() {
-        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .day)), "hero-day")
-        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .afternoon)), "hero-day")
-        XCTAssertEqual(MeadowArt.fileName(for: .heroDay, mode: MeadowArt.heroMode(for: .night)), "hero-day-dark")
+        XCTAssertEqual(MeadowArt.fileName(for: .hero, time: .day), "hero-day")
+        XCTAssertEqual(MeadowArt.fileName(for: .hero, time: .afternoon), "hero-afternoon")
+        XCTAssertEqual(MeadowArt.fileName(for: .hero, time: .night), "hero-night")
     }
 
     func testPolarDayAndNightFallBackSanely() {
@@ -222,8 +222,8 @@ final class SceneClockTests: XCTestCase {
         let files = try ThemeTokenTests.swiftSources()
         for suffix in ["Views/Meadow/HomeHeroBand.swift", "Views/Meadow/WelcomeHero.swift"] {
             let text = try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(suffix) }), encoding: .utf8)
-            XCTAssertFalse(text.contains("mode: CicadaTheme.mode"), suffix)
-            XCTAssertTrue(text.contains("MeadowArt.heroMode(for:"), suffix)
+            XCTAssertFalse(text.contains("CicadaTheme.mode"), suffix)
+            XCTAssertTrue(text.contains("MeadowArt.image(for: .hero, time:"), suffix)
         }
     }
 }

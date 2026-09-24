@@ -32,10 +32,12 @@ final class MeadowTests: XCTestCase {
         XCTAssertLessThanOrEqual(MeadowRules.grassOpacity(contrast: .increased), 0.3)
     }
 
-    func testTheDarkPaintingIsPickedUnderTheDarkTheme() {
-        XCTAssertEqual(MeadowArt.fileName(for: .cloud1, mode: .light), "cloud-1")
-        XCTAssertEqual(MeadowArt.fileName(for: .cloud1, mode: .dark), "cloud-1-dark")
-        XCTAssertEqual(MeadowArt.heroDay.fileExtension, "jpg", "the hero is opaque: JPEG (R-M20)")
+    func testEveryPaintingIsNamedForItsScene() {
+        XCTAssertEqual(MeadowArt.fileName(for: .cloud1, time: .day), "cloud-1-day")
+        XCTAssertEqual(MeadowArt.fileName(for: .pane(.whoReads), time: .afternoon), "pane-who-reads-afternoon")
+        XCTAssertEqual(MeadowArt.hero.fileExtension, "jpg", "the opaque paintings are JPEG (ART_DIRECTION §6)")
+        XCTAssertEqual(MeadowArt.pane(.import).fileExtension, "jpg")
         XCTAssertEqual(MeadowArt.grassEdge.fileExtension, "png")
+        XCTAssertEqual(MeadowArt.allCases.count, 7 + PaneFraming.allCases.count)
     }
 }
