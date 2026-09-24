@@ -183,6 +183,35 @@ final class FakeSyncAPI: SyncAPI {
             from: Data(#"{"status":"started","cycleId":"c1","message":"started"}"#.utf8))
     }
 
+    // MARK: Projects (G141 PJ-5)
+
+    /// What every Projects write answers; set `projectWriteError` to drive a rollback (a 409 with the server's words).
+    var projectWriteReply = ProjectWriteResponse(action: "created", claimId: "clm_fake", day: "2026-09-23",
+                                                 dateBasis: "person")
+    var projectWriteError: (any Error)?
+
+    private func projectWrite(_ what: String) async throws -> ProjectWriteResponse {
+        try await record(what)
+        if let projectWriteError { throw projectWriteError }
+        return projectWriteReply
+    }
+
+    func addProjectMilestone(project: String, name: String, target: String?) async throws -> ProjectWriteResponse {
+        try await projectWrite("addProjectMilestone:\(project):\(name):\(target ?? "nil")")
+    }
+    func changeProjectMilestone(project: String, slug: String, change: MilestoneChange) async throws -> ProjectWriteResponse {
+        try await projectWrite("changeProjectMilestone:\(project):\(slug):\(change.status ?? "nil"):\(change.name ?? "nil")")
+    }
+    func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse {
+        try await projectWrite("logProjectHappening:\(project):\(status):\(when ?? "nil")")
+    }
+    func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse {
+        try await projectWrite("settleProjectThread:\(project):\(claimId):\(status)")
+    }
+    func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
+        try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
+    }
+
     private func connectionFixture(id: String) throws -> ConnectionStatus {
         ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
                          connected: true, plan: "max", planLabel: nil, tier: nil,

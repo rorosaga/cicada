@@ -2581,3 +2581,57 @@ extension APIClient: IntakeAPI {
 
 /// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.
 extension APIClient: LocalSourcesAPI {}
+
+// MARK: - Projects (G141 PJ-5) — the person's five writes
+
+extension APIClient {
+    /// `/projects/<id>/<tail…>`, every component encoded the way `provenancePath` encodes an id: a slug or a claim id
+    /// never reshapes the URL.
+    nonisolated static func projectPath(_ id: String, _ tail: String...) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        return "/projects/" + ([id] + tail).map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }
+            .joined(separator: "/")
+    }
+
+    func addProjectMilestone(project: String, name: String, target: String?) async throws -> ProjectWriteResponse {
+        var body: [String: Any] = ["name": name]
+        if let target { body["target"] = target }
+        return try await post(Self.projectPath(project, "milestones"), body: body)
+    }
+
+    func changeProjectMilestone(project: String, slug: String, change: MilestoneChange) async throws -> ProjectWriteResponse {
+        try await patch(Self.projectPath(project, "milestones", slug), body: change.body)
+    }
+
+    func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse {
+        var body: [String: Any] = ["text": text, "status": status]
+        if let when { body["when"] = when }
+        return try await post(Self.projectPath(project, "happenings"), body: body)
+    }
+
+    func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse {
+        try await post(Self.projectPath(project, "threads", claimId), body: ["status": status])
+    }
+
+    func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
+        try await post(Self.projectPath(project, "withdraw"), body: ["claimId": claimId])
+    }
+
+    /// The PATCH twin of `put` — `PATCH /projects/{id}/milestones/{slug}` is the one PATCH the app sends.
+    private func patch<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
+        var request = makeRequest(path, method: "PATCH")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+}

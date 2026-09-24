@@ -24,6 +24,8 @@ final class ProjectsCache {
     private(set) var listPhase: Phase = .idle
     private(set) var timelines: [String: ProjectTimeline] = [:]
     private(set) var timelinePhases: [String: Phase] = [:]
+    /// R-PP19 — writes painted over `timelines` until the server's answer holds them (Task 5).
+    private(set) var overlays: [String: [ProjectOverlay]] = [:]
 
     @ObservationIgnored private let api: any ProjectsAPI
     @ObservationIgnored private var listETag: String?
@@ -35,8 +37,10 @@ final class ProjectsCache {
 
     func phase(_ id: String) -> Phase { timelinePhases[id] ?? .idle }
 
-    /// What the page draws for a project.
-    func display(_ id: String) -> ProjectTimeline? { timelines[id] }
+    /// What the page draws for a project: the server's answer with every pending write painted over it (R-PP19).
+    func display(_ id: String) -> ProjectTimeline? {
+        timelines[id].map { ProjectOverlay.apply(overlays[id] ?? [], to: $0) }
+    }
 
     /// Forget everything — a bank switch (`ContentView`, R-PU26's reason).
     func reset() {
@@ -48,6 +52,7 @@ final class ProjectsCache {
         timelinePhases = [:]
         timelineETags = [:]
         recent = []
+        overlays = [:]
     }
 
     func refreshList() async {
@@ -75,6 +80,8 @@ final class ProjectsCache {
             let answer = try await api.fetchProjectTimeline(id: id, etag: timelines[id] == nil ? nil : timelineETags[id])
             guard started == epoch else { return }
             if let value = answer.value { store(value, etag: answer.etag, for: id) }
+            // A fresh answer holds every write the server accepted before it; a 304 changes nothing.
+            if answer.value != nil { overlays[id]?.removeAll(where: \.confirmed) }
             timelinePhases[id] = .loaded
         } catch APIError.httpError(404, _) {
             guard started == epoch else { return }
@@ -99,6 +106,21 @@ final class ProjectsCache {
             timelinePhases[old] = nil
         }
     }
+
+    // MARK: - Optimistic writes (R-PP19)
+
+    func add(_ overlay: ProjectOverlay) { overlays[overlay.projectId, default: []].append(overlay) }
+
+    func remove(overlayId: UUID) {
+        for key in overlays.keys { overlays[key]?.removeAll { $0.id == overlayId } }
+    }
+
+    /// The server accepted it: the paint stays until the next fresh answer, which holds the write.
+    func confirm(_ overlayId: UUID) {
+        for key in overlays.keys {
+            if let i = overlays[key]?.firstIndex(where: { $0.id == overlayId }) { overlays[key]?[i].confirmed = true }
+        }
+    }
 }
 
 /// R-PP3 — when the visible Projects page asks again: a sync version event that moved a component both `/projects`
@@ -111,5 +133,52 @@ enum ProjectsRefresh {
         guard let new else { return false }
         guard let old else { return true }
         return components.contains { old.components[$0] != new.components[$0] }
+    }
+}
+
+/// R-PP19 — a write painted over the cached timeline before the server answers: only what the answer cannot change —
+/// a thread settled or restated today, a milestone done today or renamed, a new milestone, a withdrawal. A milestone
+/// added here has no slot yet (`pending-…`), so nothing acts on it until the answer lands.
+struct ProjectOverlay: Identifiable, Equatable {
+    enum Change: Equatable {
+        case threadSettled(claimId: String)
+        case threadRestated(claimId: String)
+        case milestoneDone(slug: String)
+        case milestoneRenamed(slug: String, name: String)
+        case milestoneAdded(name: String, target: String?)
+        case withdrawn(claimId: String)
+    }
+
+    let id: UUID
+    let projectId: String
+    let change: Change
+    let day: ISODay
+    var confirmed = false
+
+    static func apply(_ overlays: [ProjectOverlay], to timeline: ProjectTimeline) -> ProjectTimeline {
+        var t = timeline
+        for o in overlays {
+            let day = o.day.description
+            switch o.change {
+            case .threadSettled(let id):
+                t.now.threads.removeAll { $0.claimId == id }
+            case .threadRestated(let id):
+                if let i = t.now.threads.firstIndex(where: { $0.claimId == id }) { t.now.threads[i].lastHeard = day }
+            case .milestoneDone(let slug):
+                if let i = t.milestones.firstIndex(where: { $0.slug == slug }) {
+                    t.milestones[i].status = "done"
+                    t.milestones[i].doneOn = day
+                }
+            case .milestoneRenamed(let slug, let name):
+                if let i = t.milestones.firstIndex(where: { $0.slug == slug }) { t.milestones[i].name = name }
+            case .milestoneAdded(let name, let target):
+                t.milestones.append(ProjectMilestone(slug: "pending-\(o.id.uuidString)", name: name, status: "planned",
+                                                     target: target))
+            case .withdrawn(let id):
+                t.items.removeAll { $0.id == id }
+                t.now.threads.removeAll { $0.claimId == id }
+            }
+        }
+        return t
     }
 }

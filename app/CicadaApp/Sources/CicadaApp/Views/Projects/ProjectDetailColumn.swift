@@ -29,6 +29,19 @@ struct ProjectDetailColumn: View {
     @State private var scrollToken = 0
     @State private var bandWidth: CGFloat = 0
     @FocusState private var bandFocused: Bool
+    /// R-PP21 — the Log field; L focuses it.
+    @FocusState private var logFocused: Bool
+    /// Bumped by M, the menu and "No plan yet — Add a milestone" to open the Plan's add field.
+    @State private var addRequest = 0
+    /// A scroll target that is not a selection (the Plan's section, for M).
+    @State private var pendingScroll: String?
+    /// R-PP23 — the Plan's Rename or Add field is open, so a letter is typing, not a key.
+    @State private var planEditing = false
+
+    /// R-PP20 — Sleep is writing: every write control waits, its reason in `.help` (DR-41).
+    private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
+    /// R-PP23 — a field of this column is being typed in; L · M · D stand aside.
+    private var typing: Bool { logFocused || planEditing }
 
     private var collapsed: Set<ProjectSection> {
         Set(collapsedRaw.split(separator: ",").compactMap { ProjectSection(rawValue: String($0)) })
@@ -65,6 +78,20 @@ struct ProjectDetailColumn: View {
         .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.detailMaxWidth), maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, gutter)
+        // R-PP23 / DR-68 — L · M · D, the Inbox's O / L precedent (key presses on the focused column, never menu key
+        // equivalents), and like its `field == nil`, never while a field of this column is being typed in. A key
+        // never animates (DR-60).
+        .onKeyPress(KeyEquivalent("l")) {
+            guard cache.display(projectId) != nil, !blocked, !typing else { return .ignored }
+            logFocused = true
+            return .handled
+        }
+        .onKeyPress(KeyEquivalent("m")) {
+            guard cache.display(projectId) != nil, !blocked, !typing else { return .ignored }
+            Instant.run { requestAdd() }
+            return .handled
+        }
+        .onKeyPress(KeyEquivalent("d")) { markSelectedDone() ? .handled : .ignored }
         .focusable()
         .focusEffectDisabled()
         .onExitCommand { onEscape() }
@@ -85,6 +112,10 @@ struct ProjectDetailColumn: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(26)) {
+                    ProjectLogField(projectName: t.project.name, today: today, blocked: blocked, focus: $logFocused,
+                                    save: { text, status, when in await write(.log(text: text, status: status, when: when)) },
+                                    undo: { claimId in _ = await write(.withdraw(claimId: claimId)) })
+                        .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
                     sections(t, state: state)
                 }
                 .frame(maxWidth: CicadaTheme.scaled(ProjectLayout.textMaxWidth), alignment: .leading)
@@ -94,8 +125,10 @@ struct ProjectDetailColumn: View {
                 .environment(\.evidenceDocIndex, ProjectSource.docIndex(t))
             }
             .onChange(of: scrollToken) { _, _ in
-                guard let key = selection else { return }
-                Instant.run { proxy.scrollTo(key.id, anchor: .center) }
+                let target = pendingScroll ?? selection?.id
+                pendingScroll = nil
+                guard let target else { return }
+                Instant.run { proxy.scrollTo(target, anchor: .center) }
             }
         }
     }
@@ -108,20 +141,34 @@ struct ProjectDetailColumn: View {
             ProjectNowSection(timeline: t, state: state, today: today, selection: selection,
                               followups: ProjectStory.followups(store.visibleInbox),
                               pick: { pickRow($0, in: t) }, openEntity: openEntity, showSource: { show($0, in: t) },
-                              openInbox: { router.routeToInboxItem($0) })
+                              openInbox: { router.routeToInboxItem($0) },
+                              settle: { id, status in Task { await write(.settle(claimId: id, status: status)) } },
+                              writesBlocked: blocked)
         }
         section(.lately, title: Copy.Projects.lately,
                 meta: Copy.Projects.happeningsCount(t.items.filter { $0.kind != "created" }.count)) {
             ProjectLatelySection(timeline: t, state: state, today: today, selection: selection,
                                  readerEpisode: readerEpisode, names: names, pick: { pickRow($0, in: t) },
                                  openEntity: openEntity, showSource: { show($0, in: t) },
-                                 closeReader: { provenance.close() })
+                                 closeReader: { provenance.close() },
+                                 withdraw: { id in Task { await write(.withdraw(claimId: id)) } },
+                                 writesBlocked: blocked)
         }
         section(.plan, title: Copy.Projects.plan,
                 meta: state.planned ? Copy.Projects.doneOf(state.progress) : Copy.Projects.noPlanYet) {
             ProjectPlanSection(timeline: t, today: today, selection: selection, names: names,
-                               pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) })
+                               pick: { pickRow($0, in: t) }, showSource: { show($0, in: t) },
+                               markDone: { slug in
+                                   Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(status: "done"))) }
+                               },
+                               rename: { slug, name in
+                                   Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(name: name))) }
+                               },
+                               add: { name, target in Task { await write(.addMilestone(name: name, target: target)) } },
+                               addRequest: addRequest, writesBlocked: blocked,
+                               onEditingChange: { planEditing = $0 })
         }
+        .id("section.plan")
         if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
             section(.around, title: Copy.Projects.around, meta: "") {
                 ProjectAroundSection(cluster: t.cluster, today: today, partial: t.partial, openCard: openCard,
@@ -213,6 +260,47 @@ struct ProjectDetailColumn: View {
         }
     }
 
+    // MARK: - Writes (R-PP19…R-PP23)
+
+    /// R-PP19 — every write: a `ProjectWrite` through `Store.perform` (paint, send, roll back with a toast), then the
+    /// cache asks again for what the server now holds (a 304 costs nothing).
+    @discardableResult
+    private func write(_ action: ProjectWrite.Action) async -> ProjectWriteResponse? {
+        let w = ProjectWrite(projectId: projectId, action: action, cache: cache, day: today)
+        let ok = await store.perform(w)
+        if ok { cache.confirm(w.overlayId) }
+        await cache.refreshTimeline(projectId)
+        await cache.refreshList()
+        return ok ? w.result : nil
+    }
+
+    /// M, the menu and "No plan yet — Add a milestone": open the Plan and its field, and bring it into view.
+    private func requestAdd() {
+        setOpen(.plan, true)
+        addRequest &+= 1
+        pendingScroll = "section.plan"
+        scrollToken &+= 1
+    }
+
+    /// DR-68 (R-PP23) — D marks the selected thread or milestone done, dated today; never while typing, so a "d" in
+    /// the Log or a milestone's name stays a letter.
+    private func markSelectedDone() -> Bool {
+        guard !blocked, !typing, let key = selection, let t = cache.display(projectId) else { return false }
+        switch key {
+        case .thread(let id):
+            Task { await write(.settle(claimId: id, status: "done")) }
+            return true
+        case .milestone(let slug):
+            guard let m = t.milestones.first(where: { $0.slug == slug }),
+                  ProjectPlan.canMarkDone(ProjectPlan.Row(milestone: m, state: ProjectState.milestoneState(m, today: today)))
+            else { return false }
+            Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(status: "done"))) }
+            return true
+        case .item:
+            return false
+        }
+    }
+
     // MARK: - Heading
 
     private func header(name: String, oneLiner: String, parent: String?) -> some View {
@@ -227,6 +315,11 @@ struct ProjectDetailColumn: View {
                 }
                 Spacer(minLength: 0)
                 Menu {
+                    // Both need a project on screen: the header also draws while it is still loading (no dead control).
+                    Button(Copy.Projects.addMilestone) { requestAdd() }
+                        .disabled(blocked || cache.display(projectId) == nil)
+                    Button(Copy.Projects.logLabel(name)) { logFocused = true }
+                        .disabled(blocked || cache.display(projectId) == nil)
                     Button(Copy.Projects.openCard) { openEntity(projectId) }
                 } label: {
                     Image(systemName: "ellipsis").font(CicadaTheme.icon(.list))
@@ -264,9 +357,14 @@ struct ProjectDetailColumn: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .help(Copy.Projects.barHelp(planned: true, progress: progress))
             } else {
-                Text(Copy.Projects.noPlanYet)
+                // The mock's "No plan yet — Add a milestone" (R-PP22).
+                Text(Copy.Projects.noPlanAdd)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .help(Copy.Projects.barHelp(planned: false, progress: progress))
+                TextButton(title: Copy.Projects.addMilestone, keyHint: "M", help: Copy.Projects.addMilestoneHelp) {
+                    requestAdd()
+                }
+                .disabled(blocked)
             }
         }
         .font(CicadaTheme.metaFont)

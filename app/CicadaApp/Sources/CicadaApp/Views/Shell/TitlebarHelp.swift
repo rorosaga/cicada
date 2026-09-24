@@ -149,6 +149,9 @@ enum ListHelp {
             .init(key: "↑ ↓", does: "Move through projects"),
             .init(key: "⏎", does: "Step into the project"),
             .init(key: "← →", does: "Step along the bar; ⏎ shows it in the conversation"),
+            .init(key: "L", does: "Log progress"),
+            .init(key: "M", does: "Add a milestone"),
+            .init(key: "D", does: "Mark the selected thread or milestone done"),
             .init(key: "Esc", does: "Close the rightmost column"),
         ])
 }
