@@ -43,6 +43,11 @@ phase B: call `AppearanceTipPolicy.arm()` when onboarding ends, add each onboard
 `MeadowPlacementLintTests.allowed`, and set `\.scenePaused` on a page behind another. Getting started's last-sync line
 arrives with T-Sources' `SourceRow`.
 
+**Phase B, T-Demo (G117 round 4, G152)** — built on `feat/r4-demo` (plan `docs/superpowers/plans/2026-09-24-r4-demo.md`):
+the demo shows everything (`demo_showcase`), `/banks` says which bank is the demo, `POST /banks/demo` re-opens it,
+`POST /banks/leave-demo` and the F-08 banner lead home, and the six-stop guided tour; rulings R-DT1–R-DT17. A demo
+generated before this branch keeps its old content: delete it in Settings → Privacy & data and open the demo again.
+
 ### Round 4 — G150, backlogs live in memory
 
 (2026-09-24, `feat/r4-backlog-in-memory`, plan
@@ -937,12 +942,6 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
-- **Demo-bank inbox coverage (DS-2 R-DI21)** — `demo_bank.py` should also write a removal, a divergence, a
-  normalization and an informational item, so DR-43's "the app reaches every variant through the demo bank" holds;
-  until then `InboxFocusCardFitTests` renders them from the server's shapes — XS, backend only
-- **Demo bank's saved guide in the Feed (DS-3c R-DL18)** — `demo_bank._write_scenario` writes the media page but not
-  `sources/url_index.json` (`media_ingestor.save_url_index`), so the Feed on the demo reads nothing saved — XS, backend
-  only
 - **`/graph` nodes carry `lastReferenced` (DS-3c R-DL11)** — Clusters rows would show an age (DR-58). It must be added
   to `graph.NODE_SHAPE` and the node's hash, per the ETag rail — XS, backend only
 - **`/sources` items carry their saving episode (DS-3c R-DL15)** — for the Feed detail's "Show in conversation" — XS,
