@@ -26,7 +26,8 @@ struct EngineChooser: View {
     /// refreshes that one domain itself.
     @Environment(Store.self) private var store
 
-    @State private var selectedMode: String = "auto"
+    /// R-AG12 — the selected CARD, not the mode: OpenRouter and the API key are both `byok`.
+    @State private var selectedCard: String = "auto"
     @State private var selectedModel: String = ""
     @State private var loadedOnce = false
 
@@ -59,7 +60,7 @@ struct EngineChooser: View {
     /// what every read of `candidate.models`/`preview` ultimately reflects.
     private func syncFromResponse() {
         guard let response = vm.response else { return }
-        selectedMode = response.mode
+        selectedCard = response.selected
         selectedModel = response.model
     }
 
@@ -70,8 +71,8 @@ struct EngineChooser: View {
             ForEach(response.candidates) { candidate in
                 EngineOptionCard(
                     candidate: candidate,
-                    isSelected: candidate.id == selectedMode,
-                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedMode)
+                    isSelected: candidate.id == selectedCard,
+                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard)
                 ) { select(candidate) }
             }
         }
@@ -85,7 +86,7 @@ struct EngineChooser: View {
             }
         }
 
-        if let candidate = response.candidates.first(where: { $0.id == selectedMode }) {
+        if let candidate = response.candidates.first(where: { $0.id == selectedCard }) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 stateLine(for: candidate)
                 modelField(for: candidate)
@@ -93,7 +94,7 @@ struct EngineChooser: View {
             .settingsRow(.engineModel)
         }
 
-        if EngineOption.showsOverageToggle(selectedMode: selectedMode) {
+        if EngineOption.showsOverageToggle(selectedMode: selectedCard) {
             overageToggle(response)
                 .settingsRow(.engineOverage)
         }
@@ -107,8 +108,8 @@ struct EngineChooser: View {
     /// R-HS7 — the write rule is `EngineWrite`, shared with the Sleep page's quick menu, so a tap
     /// on either surface writes the same thing.
     private func select(_ candidate: SleepEngineCandidate) {
-        guard let write = EngineWrite.choosing(candidate, current: selectedMode) else { return }
-        selectedMode = write.mode
+        guard let write = EngineWrite.choosing(candidate, current: selectedCard) else { return }
+        selectedCard = candidate.id
         selectedModel = write.model ?? ""
         commit(write)
     }
@@ -122,7 +123,10 @@ struct EngineChooser: View {
                 get: { response.allowOverage },
                 set: { on in
                     Task { @MainActor in
-                        await vm.set(mode: selectedMode, model: nil, disambiguationModel: nil, allowOverage: on)
+                        // The switch shows only for `agent`/`auto`, where card and mode agree; the
+                        // response's mode is still the one that is written (R-AG12).
+                        await vm.set(mode: vm.response?.mode ?? selectedCard, model: nil,
+                                      disambiguationModel: nil, allowOverage: on)
                     }
                 }
             ))
@@ -164,7 +168,7 @@ struct EngineChooser: View {
                 TextField("Model id", text: freeTextModelBinding(for: candidate))
                     .textFieldStyle(.roundedBorder)
                     .font(CicadaTheme.captionFont)
-                    .onSubmit { commit(EngineWrite(mode: candidate.id, model: selectedModel)) }
+                    .onSubmit { commit(EngineWrite(mode: EngineWrite.mode(of: candidate), model: selectedModel)) }
             }
         case "local":
             let guideState = OllamaGuideState.from(candidate: candidate)
@@ -194,7 +198,7 @@ struct EngineChooser: View {
         Binding(
             get: { selectedModel },
             set: { newValue in
-                let write = EngineWrite.model(newValue, mode: candidate.id, current: selectedModel)
+                let write = EngineWrite.model(newValue, mode: EngineWrite.mode(of: candidate), current: selectedModel)
                 selectedModel = newValue
                 if let write { commit(write) }
             }

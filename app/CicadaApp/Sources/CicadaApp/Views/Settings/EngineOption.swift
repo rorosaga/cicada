@@ -12,12 +12,16 @@ enum EngineOption {
     /// The two cards that spend a subscription (ruling 4's `SUBSCRIPTION_MODES`).
     static let planIds: Set<String> = ["agent", "codex"]
 
-    /// R-E25: a plan card is selectable once that plan is signed in, or when
+    /// The cards that need a sign-in before they can run: the two plans, and OpenRouter (R-AG12),
+    /// which is a key card but one you sign in to. It is NOT a plan — ruling 4 never sees it.
+    static let signInIds: Set<String> = planIds.union(["openrouter"])
+
+    /// R-E25: a sign-in card is selectable once it is signed in, or when
     /// it is already the saved choice — a signed-out current pick stays
     /// visible (and says why) instead of vanishing. The server accepts any
-    /// valid mode; this is UX, not validation.
+    /// valid mode; this is UX, not validation. `selectedMode` is the selected CARD.
     static func isSelectable(_ candidate: SleepEngineCandidate, selectedMode: String) -> Bool {
-        guard planIds.contains(candidate.id) else { return true }
+        guard signInIds.contains(candidate.id) else { return true }
         return candidate.connected || candidate.id == selectedMode
     }
 
@@ -141,11 +145,17 @@ struct EngineWrite: Equatable {
     /// A tap on another selectable engine writes it with its first model — the plan's own default
     /// first (R-E17); `nil` when it lists none (an API key's model lives on Plans & keys). A tap on
     /// the current engine, or on a plan that is not signed in (R-E25), writes nothing.
+    /// `current` is the selected CARD (`SleepEngineResponse.selected`), so OpenRouter and the API-key
+    /// card — both `byok` — are told apart.
     static func choosing(_ candidate: SleepEngineCandidate, current: String) -> EngineWrite? {
         guard candidate.id != current, EngineOption.isSelectable(candidate, selectedMode: current) else { return nil }
         let first = candidate.models.first ?? ""
-        return EngineWrite(mode: candidate.id, model: first.isEmpty ? nil : first)
+        return EngineWrite(mode: mode(of: candidate), model: first.isEmpty ? nil : first)
     }
+
+    /// R-AG12 — the ONE place a card becomes a mode. The OpenRouter card writes `byok`; spelling
+    /// `mode: candidate.id` anywhere else would PUT `openrouter`, which the server refuses (422).
+    static func mode(of candidate: SleepEngineCandidate) -> String { candidate.mode ?? candidate.id }
 
     /// A model pick on the chosen engine. The same model again, or a blank one, writes nothing.
     static func model(_ model: String, mode: String, current: String) -> EngineWrite? {

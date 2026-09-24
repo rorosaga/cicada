@@ -53,7 +53,9 @@ struct EngineQuickMenuModel: Equatable {
     }
 
     static func from(_ response: SleepEngineResponse) -> EngineQuickMenuModel {
-        let current = response.mode
+        // R-AG12 — rows are cards, so the selected CARD is current (OpenRouter and the API key are
+        // both `byok`); a model pick below still writes `response.mode`.
+        let current = response.selected
         let rows = response.candidates.map { candidate -> Row in
             let caption = EngineOption.caption(for: candidate)
             let selectable = EngineOption.isSelectable(candidate, selectedMode: current)
@@ -128,7 +130,7 @@ struct EngineQuickMenuButton: View {
     private func choose(_ id: String) {
         guard let response = engineVM.response,
               let candidate = response.candidates.first(where: { $0.id == id }),
-              let write = EngineWrite.choosing(candidate, current: response.mode) else { return }
+              let write = EngineWrite.choosing(candidate, current: response.selected) else { return }
         apply(write)
     }
 

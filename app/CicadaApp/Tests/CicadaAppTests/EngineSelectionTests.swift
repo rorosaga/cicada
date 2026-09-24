@@ -74,4 +74,72 @@ final class EngineSelectionTests: XCTestCase {
         _ = await store.perform(SetUseForSleep(id: "claude-plan", on: true))
         XCTAssertEqual(api.writes, ["setUseForSleep:claude-plan:true"])
     }
+
+    // MARK: - R-AG12 — the OpenRouter card is `byok`, told apart by `selected`
+
+    func testOpenRouterWritesByokWithItsModelAndIsSelectedByItsCard() throws {
+        let card = SleepEngineCandidate(id: "openrouter", label: "OpenRouter", available: true, connected: true,
+                                        models: ["openrouter/~openai/gpt-mini-latest"], detail: nil, mode: "byok")
+        XCTAssertEqual(EngineWrite.choosing(card, current: "byok"),
+                       EngineWrite(mode: "byok", model: "openrouter/~openai/gpt-mini-latest"))
+        XCTAssertNil(EngineWrite.choosing(card, current: "openrouter"), "tapping the chosen card writes nothing")
+        let signedOut = SleepEngineCandidate(id: "openrouter", label: "OpenRouter", available: true, connected: false,
+                                             models: [], detail: nil, mode: "byok")
+        XCTAssertFalse(EngineOption.isSelectable(signedOut, selectedMode: "byok"))
+        XCTAssertEqual(EngineWrite.mode(of: card), "byok")
+        XCTAssertEqual(EngineWrite.mode(of: SleepEngineCandidate(id: "local", label: "Ollama", available: true,
+                                                                  connected: true, models: [], detail: nil)), "local")
+    }
+
+    /// Every sleep-engine write outside `EngineWrite` would PUT the card id; the two that used to are pinned here.
+    func testNoWriteSiteSendsACardIdAsTheMode() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
+        for file in ["Views/Settings/EngineCard.swift", "Support/LiveSetupEffects.swift"] {
+            let text = try String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertFalse(text.contains("mode: candidate.id") || text.contains("mode: candidateId,"), file)
+        }
+    }
+
+    func testAnOlderPayloadWithoutTheNewFieldsDecodes() throws {
+        let json = #"{"mode":"byok","model":"gpt-5.4-mini","disambiguationModel":"gpt-5.4-nano","source":"default","candidates":[{"id":"byok","label":"API key","available":true,"connected":true,"models":[],"detail":null}]}"#
+        let r = try JSONDecoder().decode(SleepEngineResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(r.selected, "byok")
+        XCTAssertEqual(r.providers, [])
+        XCTAssertNil(r.candidates[0].mode)
+    }
+
+    /// R-AG11: the new fields decode, and one malformed provider row empties the list rather than
+    /// failing the card.
+    func testTheNewFieldsDecodeAndAMalformedProviderListIsDropped() throws {
+        let json = #"{"mode":"byok","model":"openrouter/~openai/gpt-mini-latest","disambiguationModel":"x","source":"prefs","selected":"openrouter","provider":"openrouter","providers":[{"id":"groq","label":"Groq","connectionId":"byok-groq","hasKey":true,"defaultModel":"groq/openai/gpt-oss-120b","keyUrl":"https://console.groq.com/keys"}],"candidates":[{"id":"openrouter","label":"OpenRouter","available":true,"connected":true,"models":["openrouter/~openai/gpt-mini-latest"],"detail":null,"mode":"byok"}]}"#
+        let r = try JSONDecoder().decode(SleepEngineResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(r.selected, "openrouter")
+        XCTAssertEqual(r.provider, "openrouter")
+        XCTAssertEqual(r.providers.map(\.id), ["groq"])
+        XCTAssertTrue(r.providers[0].hasKey)
+        XCTAssertEqual(r.candidates[0].mode, "byok")
+        let bad = json.replacingOccurrences(of: #""keyUrl":"https://console.groq.com/keys""#, with: #""keyUrl":7"#)
+        let r2 = try JSONDecoder().decode(SleepEngineResponse.self, from: Data(bad.utf8))
+        XCTAssertEqual(r2.providers, [])
+        XCTAssertEqual(r2.selected, "openrouter")
+    }
+
+    /// The Sleep page's quick menu highlights the selected CARD, so choosing OpenRouter never lights
+    /// the API-key row (both are `byok`).
+    func testTheQuickMenuMarksTheSelectedCardNotTheMode() {
+        let response = SleepEngineResponse(
+            mode: "byok", model: "openrouter/~openai/gpt-mini-latest", disambiguationModel: "x", source: "prefs",
+            candidates: [
+                SleepEngineCandidate(id: "openrouter", label: "OpenRouter", available: true, connected: true,
+                                     models: ["openrouter/~openai/gpt-mini-latest"], detail: nil, mode: "byok"),
+                SleepEngineCandidate(id: "byok", label: "API key", available: true, connected: true,
+                                     models: ["anthropic/claude-haiku-4-5"], detail: nil),
+            ],
+            preview: nil, selected: "openrouter")
+        let rows = EngineQuickMenuModel.from(response).rows
+        XCTAssertEqual(rows.filter(\.isSelected).map(\.id), ["openrouter"])
+        XCTAssertEqual(SleepEngineResponse(mode: "local", model: "m", disambiguationModel: "m", source: "prefs",
+                                           candidates: [], preview: nil).selected, "local")
+    }
 }

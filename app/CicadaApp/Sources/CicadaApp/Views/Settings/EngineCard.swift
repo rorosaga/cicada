@@ -45,7 +45,8 @@ private struct CompactEngineChooser: View {
     /// refreshes that one domain itself.
     @Environment(Store.self) private var store
 
-    @State private var selectedMode: String = "auto"
+    /// R-AG12 — the selected CARD (`response.selected`), so OpenRouter and the API key stay apart.
+    @State private var selectedCard: String = "auto"
     @State private var selectedModel: String = ""
     @State private var loadedOnce = false
 
@@ -95,7 +96,7 @@ private struct CompactEngineChooser: View {
                 EngineOptionCard(
                     candidate: candidate,
                     isSelected: selected,
-                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedMode),
+                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard),
                     costModel: EngineOption.costModel(for: candidate.id),
                     caption: EngineOption.compactCaption(for: candidate, hasKey: hasKey),
                     showsWillRead: selected
@@ -123,7 +124,7 @@ private struct CompactEngineChooser: View {
     /// what every read of `candidate.models`/`preview` ultimately reflects.
     private func syncFromResponse() {
         guard let response = vm.response else { return }
-        selectedMode = response.mode
+        selectedCard = response.selected
         selectedModel = response.model
     }
 
@@ -132,19 +133,19 @@ private struct CompactEngineChooser: View {
         // writes it. The already-saved engine is still a pick the ring must
         // show, so the equality guard below does not apply here.
         if let pick {
-            if EngineOption.isSelectable(candidate, selectedMode: selectedMode) { pick.wrappedValue = candidate.id }
+            if EngineOption.isSelectable(candidate, selectedMode: selectedCard) { pick.wrappedValue = candidate.id }
             return
         }
-        guard candidate.id != selectedMode else { return }
-        selectedMode = candidate.id
-        let defaultModel = candidate.models.first ?? ""
-        selectedModel = defaultModel
-        commit(mode: candidate.id, model: defaultModel.isEmpty ? nil : defaultModel)
+        // R-AG12 / R-HS7: the one write rule, so a card becomes its mode in one place.
+        guard let write = EngineWrite.choosing(candidate, current: selectedCard) else { return }
+        selectedCard = candidate.id
+        selectedModel = write.model ?? ""
+        commit(write)
     }
 
-    private func commit(mode: String, model: String?) {
+    private func commit(_ write: EngineWrite) {
         Task { @MainActor in
-            await vm.set(mode: mode, model: model, disambiguationModel: nil)
+            await vm.apply(write)
             // R-E24: POWERS follow the chosen engine — refresh that one domain
             // now (the same call `ConnectionsViewModel` makes after a change).
             await store.refresh([.connections])

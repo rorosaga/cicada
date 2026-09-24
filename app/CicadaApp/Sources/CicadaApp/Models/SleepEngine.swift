@@ -16,6 +16,21 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     let connected: Bool
     let models: [String]
     let detail: String?
+    /// R-AG12 — what a tap writes when it is not the card's own id: the OpenRouter card is `byok`
+    /// under the hood. Absent (an older backend, or any other card) → `nil`, and the id is the
+    /// mode; read only through `EngineWrite.mode(of:)`.
+    var mode: String? = nil
+}
+
+/// R-AG11 — one row of the API-key card's provider picker, from `GET /sleep/engine`.
+/// Names and ids only: `hasKey` is presence, never a value.
+struct SleepEngineProvider: Codable, Hashable, Identifiable {
+    let id: String
+    let label: String
+    let connectionId: String
+    var hasKey: Bool = false
+    let defaultModel: String
+    let keyUrl: String
 }
 
 /// What the NEXT cycle would actually run on, for one trigger source
@@ -53,15 +68,26 @@ struct SleepEngineResponse: Codable, Hashable {
     /// absent on an older backend → false (off is the safe default: a Claude
     /// plan cycle stops at the included usage rather than billing past it).
     let allowOverage: Bool
+    /// R-AG12 — the CARD the current choice belongs to (`openrouter` for a `byok` mode with an
+    /// `openrouter/` model, else the mode). Absent or malformed on an older backend → `mode`,
+    /// which is exactly what the card row highlighted before OpenRouter existed.
+    let selected: String
+    /// R-AG12 / R-AG14 — the key provider the chosen card reads through, when it reads through one.
+    let provider: String?
+    /// R-AG11 — the API-key card's provider picker; one malformed row empties the list rather
+    /// than failing the whole card.
+    let providers: [SleepEngineProvider]
 
     enum CodingKeys: String, CodingKey {
         case mode, model, disambiguationModel, source, candidates, preview, allowOverage
+        case selected, provider, providers
     }
 
     init(
         mode: String, model: String, disambiguationModel: String, source: String,
         candidates: [SleepEngineCandidate], preview: SleepEnginePreviews?,
-        allowOverage: Bool = false
+        allowOverage: Bool = false, selected: String? = nil, provider: String? = nil,
+        providers: [SleepEngineProvider] = []
     ) {
         self.mode = mode
         self.model = model
@@ -70,6 +96,9 @@ struct SleepEngineResponse: Codable, Hashable {
         self.candidates = candidates
         self.preview = preview
         self.allowOverage = allowOverage
+        self.selected = selected ?? mode
+        self.provider = provider
+        self.providers = providers
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +112,10 @@ struct SleepEngineResponse: Codable, Hashable {
         candidates = ((try? c.decodeIfPresent([SleepEngineCandidate].self, forKey: .candidates)) ?? nil) ?? []
         preview = (try? c.decodeIfPresent(SleepEnginePreviews.self, forKey: .preview)) ?? nil
         allowOverage = ((try? c.decodeIfPresent(Bool.self, forKey: .allowOverage)) ?? nil) ?? false
+        let decodedSelected = ((try? c.decodeIfPresent(String.self, forKey: .selected)) ?? nil) ?? ""
+        selected = decodedSelected.isEmpty ? mode : decodedSelected
+        provider = (try? c.decodeIfPresent(String.self, forKey: .provider)) ?? nil
+        providers = ((try? c.decodeIfPresent([SleepEngineProvider].self, forKey: .providers)) ?? nil) ?? []
     }
 }
 

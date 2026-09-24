@@ -2090,6 +2090,20 @@ class SleepEngineCandidate(CamelModel):
     connected: bool = False
     models: list[str] = Field(default_factory=list)
     detail: Optional[str] = None
+    # R-AG12: what a tap writes, when it is not the card's own id — the
+    # OpenRouter card is `byok` under the hood, so ruling 4 never sees a new mode.
+    mode: Optional[str] = None
+
+
+class SleepEngineProvider(CamelModel):
+    """One row of the API-key card's provider picker (R-AG11). Names and ids
+    only; ``has_key`` is presence, never a value; no price (G124)."""
+    id: str
+    label: str
+    connection_id: str
+    has_key: bool = False
+    default_model: str
+    key_url: str
 
 
 class SleepEnginePreview(CamelModel):
@@ -2126,6 +2140,16 @@ class SleepEngineResponse(CamelModel):
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
     allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
+    # R-AG12: ``mode`` is what runs; ``selected`` is the CARD that choice
+    # belongs to (``openrouter`` for a ``byok`` mode with an ``openrouter/``
+    # model, else the mode itself), so the app highlights the right card
+    # without a second mode that ruling 4 would have to learn. ``provider``
+    # is the key provider the chosen card reads through (the stored ``byok``
+    # model's, or Auto's resolved key model's — R-AG14's "leaves your Mac"
+    # note names it); ``providers`` is the API-key card's picker (R-AG11).
+    selected: str = ""
+    provider: Optional[str] = None
+    providers: list[SleepEngineProvider] = Field(default_factory=list)
 
 
 class SleepEngineChoice(CamelModel):

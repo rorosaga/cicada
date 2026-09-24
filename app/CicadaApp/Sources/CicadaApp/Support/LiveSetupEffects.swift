@@ -35,10 +35,15 @@ struct LiveSetupEffects: SetupEffects {
     /// `SleepEngineViewModel.set` never throws — it sets `errorMessage` — so the
     /// failure is read back from there and becomes one line on the *Who reads*
     /// row rather than stopping Start (R-IB14).
+    ///
+    /// `candidateId` is a picked CARD; R-AG12 turns it into a mode through `EngineWrite.mode(of:)`,
+    /// so the OpenRouter card writes `byok` with its model rather than a mode the server refuses.
     func saveEngine(_ candidateId: String) async throws {
-        let model = engineVM.response?.candidates.first { $0.id == candidateId }?.models.first
+        let candidate = engineVM.response?.candidates.first { $0.id == candidateId }
+        let model = candidate?.models.first
         engineVM.errorMessage = nil
-        await engineVM.set(mode: candidateId, model: model, disambiguationModel: nil)
+        await engineVM.set(mode: candidate.map(EngineWrite.mode(of:)) ?? candidateId, model: model,
+                           disambiguationModel: nil)
         if let why = engineVM.errorMessage { throw SetupError.engine(why) }
         await store.refresh([.connections])
     }
