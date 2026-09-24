@@ -8,13 +8,15 @@ enum EngineReadiness: Equatable {
     case ready(candidate: String)
     case needsChoice
 
-    /// `ENGINE_LABELS` id → `GET /sleep/engine` candidate id.
-    static func candidateId(forEngine engine: String) -> String? {
+    /// `ENGINE_LABELS` id → `GET /sleep/engine` candidate id. R-AG12: a `litellm` run on an
+    /// `openrouter/` model is the OpenRouter card (the server's `selected_card` rule), so onboarding
+    /// rings OpenRouter, not the API key, when OpenRouter will read.
+    static func candidateId(forEngine engine: String, model: String? = nil) -> String? {
         switch engine {
         case "claude-cli": "agent"
         case "codex-cli": "codex"
         case "ollama": "local"
-        case "litellm": "byok"
+        case "litellm": EngineOption.runsOnOpenRouter(model) ? "openrouter" : "byok"
         default: nil
         }
     }
@@ -34,11 +36,13 @@ enum EngineReadiness: Equatable {
 
     static func resolve(candidates: [SleepEngineCandidate], connections: [ConnectionStatus],
                         preview: SleepEnginePreviews?) -> EngineReadiness {
-        guard let engine = preview?.manual.engine, let id = candidateId(forEngine: engine) else { return .needsChoice }
+        guard let engine = preview?.manual.engine,
+              let id = candidateId(forEngine: engine, model: preview?.manual.model) else { return .needsChoice }
         let canRun: Bool
         switch id {
         case "agent", "codex": canRun = connected(id, candidates)
         case "local": canRun = ollamaReady(candidates)
+        // `byok` and `openrouter` alike: a usage key is what lets either run (F6).
         default: canRun = hasKey(connections)
         }
         return canRun ? .ready(candidate: id) : .needsChoice

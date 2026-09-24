@@ -44,6 +44,7 @@ private struct CompactEngineChooser: View {
     /// `/connections` is not a `/sync/version` component — so a mode change
     /// refreshes that one domain itself.
     @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// R-AG12 — the selected CARD (`response.selected`), so OpenRouter and the API key stay apart.
     @State private var selectedCard: String = "auto"
@@ -98,6 +99,7 @@ private struct CompactEngineChooser: View {
                     isSelected: selected,
                     isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard),
                     costModel: EngineOption.costModel(for: candidate.id),
+                    tag: EngineOption.isLocal(candidate.id) ? Copy.engineLocalTag : nil,
                     caption: EngineOption.compactCaption(for: candidate, hasKey: hasKey),
                     showsWillRead: selected
                 ) { select(candidate) }
@@ -113,6 +115,15 @@ private struct CompactEngineChooser: View {
                     .font(CicadaTheme.captionFont)
             }
         }
+
+        // R-AG14 — the same note Settings → Engines shows, for the card the Welcome would write
+        // (the pick) or else the saved one, so phase B's Who reads inherits it.
+        let note = LeavesMacNote.text(selected: pick?.wrappedValue ?? selectedCard, provider: response.provider,
+                                      manualEngine: response.preview?.manual.engine, providers: response.providers)
+        VStack(alignment: .leading, spacing: 0) {
+            if let note { LeavesMacNoteRow(note: note).transition(.opacity) }
+        }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: note)
 
         CompactEngineLine(response: response, readiness: readiness,
                           pickLabel: pick?.wrappedValue.flatMap { id in response.candidates.first { $0.id == id }?.label })

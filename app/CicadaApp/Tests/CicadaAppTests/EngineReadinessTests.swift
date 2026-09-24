@@ -42,4 +42,12 @@ final class EngineReadinessTests: XCTestCase {
         XCTAssertEqual(EngineReadiness.resolve(candidates: [], connections: [], preview: nil), .needsChoice)
         XCTAssertEqual(EngineReadiness.resolve(candidates: [], connections: [], preview: preview("mystery")), .needsChoice)
     }
+    /// R-AG12 — a key run through OpenRouter belongs to the OpenRouter card everywhere a preview names a card.
+    func testALiteLLMRunOnAnOpenRouterModelIsTheOpenRouterCard() {
+        XCTAssertEqual(EngineReadiness.candidateId(forEngine: "litellm", model: "openrouter/~openai/gpt-mini-latest"),
+                       "openrouter")
+        XCTAssertEqual(EngineReadiness.candidateId(forEngine: "litellm", model: "gpt-5.4-mini"), "byok")
+        XCTAssertEqual(EngineReadiness.candidateId(forEngine: "litellm"), "byok")
+        XCTAssertEqual(EngineOption.candidateId(forEngine: "litellm", model: "openrouter/z-ai/glm-5.2"), "openrouter")
+    }
 }

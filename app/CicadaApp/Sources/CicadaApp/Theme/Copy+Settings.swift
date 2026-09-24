@@ -348,4 +348,24 @@ extension Copy {
     static let signInWithOpenRouter = "Sign in with OpenRouter"
     static let openRouterFinishInBrowser = "Finish signing in in your browser — this card updates itself."
     static let openRouterCouldNotOpen = "Couldn't open OpenRouter's sign-in page. Paste a key instead."
+
+    // MARK: Who reads — Settings → Engines (R-AG11, R-AG12, R-AG14)
+    /// The OpenRouter card's name where a preview line names it (`EngineOption.previewName`).
+    static let openRouterName = "OpenRouter"
+    static let leavesMacLead = "This is where information leaves your Mac."
+    static let leavesMacTail = "Everything else stays here."
+    static let leavesMacClaudePlan = "The Claude plan sends what it reads to Anthropic, under your plan's terms."
+    static let leavesMacChatGPTPlan = "The ChatGPT plan sends what it reads to OpenAI, under your plan's terms."
+    static let leavesMacOpenRouter =
+        "OpenRouter sends what it reads to the model you picked, billed to your OpenRouter key."
+    static let leavesMacKeyUnknown = "Your key sends what it reads to its provider."
+    static func leavesMacKey(_ brand: String) -> String { "Your \(brand) key sends what it reads to \(brand)." }
+    static let engineLocalTag = "Local"
+    static let costModelOpenRouter = "Billed per use by OpenRouter"
+    static let pasteAKeyInstead = "Paste a key instead"
+    static func pasteProviderKey(_ brand: String) -> String { "Paste your \(brand) key" }
+    static let whereDoIGetOne = "Where do I get one?"
+    static let keySave = "Save"
+    static let keyProvider = "Provider"
+    static let openRouterModel = "Model"
 }

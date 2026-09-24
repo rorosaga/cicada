@@ -4,8 +4,8 @@ import Foundation
 /// G139) makes, as pure functions with table tests, so `EngineChooser` is a
 /// renderer.
 ///
-/// The row is `GET /sleep/engine`'s five candidates in the server's order
-/// (Auto, Claude plan, ChatGPT plan, Ollama, API key). Marks come through
+/// The row is `GET /sleep/engine`'s six candidates in the server's order
+/// (Auto, Claude plan, ChatGPT plan, OpenRouter, Ollama, API key — R-AG12). Marks come through
 /// `ConnectionMark` — the translation Plans & keys uses — so the two surfaces
 /// never disagree about what a plan looks like.
 enum EngineOption {
@@ -58,26 +58,48 @@ enum EngineOption {
     }
 
     /// The mark beside a "What runs" line — the same vendor mark the chosen
-    /// card wears, from the engine id the preview reports.
-    static func previewMark(engine: String) -> String? {
+    /// card wears, from the engine id the preview reports. R-AG12 / DR-52: a
+    /// `litellm` run on an `openrouter/` model is the OpenRouter card, so it
+    /// wears OpenRouter's mark rather than the key card's glyph.
+    static func previewMark(engine: String, model: String? = nil) -> String? {
         switch engine {
         case "claude-cli": logoName(for: "agent")
         case "codex-cli": logoName(for: "codex")
         case "ollama": logoName(for: "local")
+        case "litellm" where runsOnOpenRouter(model): logoName(for: "openrouter")
         default: nil
         }
     }
 
     /// The card a preview's engine belongs to — `previewMark`'s inverse — so a line that names what
-    /// will run uses the card's own label ("Claude plan"), never a fresh coinage (R-HS8).
-    static func candidateId(forEngine engine: String) -> String? {
-        switch engine {
-        case "claude-cli": "agent"
-        case "codex-cli": "codex"
-        case "ollama": "local"
-        case "litellm": "byok"
-        default: nil
-        }
+    /// will run uses the card's own label ("Claude plan"), never a fresh coinage (R-HS8). R-AG12:
+    /// OpenRouter and the API key are both `litellm`; the model tells them apart, as the server's
+    /// `selected_card` does.
+    static func candidateId(forEngine engine: String, model: String? = nil) -> String? {
+        EngineReadiness.candidateId(forEngine: engine, model: model)
+    }
+
+    /// R-AG12 — the server's `selected_card` rule, on the app side: a key model routed through
+    /// OpenRouter is spelled `openrouter/…`.
+    static func runsOnOpenRouter(_ model: String?) -> Bool {
+        (model ?? "").hasPrefix("openrouter/")
+    }
+
+    /// The engine word a preview line prints: exactly `Copy.engineLabel`, except a key run through
+    /// OpenRouter, which reads "OpenRouter" — "API key · openrouter/…" named the wrong card (R-AG12).
+    static func previewName(engine: String, model: String?) -> String {
+        engine == "litellm" && runsOnOpenRouter(model) ? Copy.openRouterName : Copy.engineLabel(engine)
+    }
+
+    /// R-AG14 / DR-44 — Ollama is the one engine that reads on this Mac; its card wears a Local tag
+    /// instead of a "slower" warning.
+    static func isLocal(_ id: String) -> Bool { id == "local" }
+
+    /// R-AG11 — a provider pick writes that provider's default model on the key card (selecting it when another
+    /// card was chosen); the same model again writes nothing.
+    static func providerWrite(_ provider: SleepEngineProvider, selectedCard: String, currentModel: String) -> EngineWrite? {
+        guard selectedCard != "byok" || currentModel != provider.defaultModel else { return nil }
+        return EngineWrite(mode: "byok", model: provider.defaultModel)
     }
 
     static func symbol(for candidateId: String) -> String {
@@ -112,6 +134,7 @@ enum EngineOption {
         case "agent", "codex": Copy.costModelPlan
         case "local": Copy.costModelLocal
         case "byok": Copy.costModelKey
+        case "openrouter": Copy.costModelOpenRouter
         default: nil
         }
     }

@@ -820,7 +820,7 @@ Export reminders (`ExportWaits`) ask for notification permission only when the p
 delay; the Feed strip, the menu bar and the card say the same with notifications off.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
-Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
+Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
 in. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling
@@ -838,6 +838,14 @@ same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
 only: the Max-tier cost-estimate picker is gone (the no-price ruling).
+**Who reads (round 4, R-AG10…R-AG14).** OpenRouter is its own card: *Sign in with OpenRouter* (PKCE, the nonce in
+the callback path) or *Paste a key instead*; under the hood it is `byok` with an `openrouter/` model, so ruling 4 is
+unchanged and `PUT {mode: "openrouter"}` is a 422 — every card becomes a mode through `EngineWrite.mode(of:)`, and
+`selected` on the wire names the card. The API key card is a provider picker (Anthropic, OpenAI, Gemini, xAI, Groq,
+Mistral), each writing its tested default model and offering its key field in place; a key's model pins its judge.
+Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMacNote` — a pure function — says
+where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
+A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a

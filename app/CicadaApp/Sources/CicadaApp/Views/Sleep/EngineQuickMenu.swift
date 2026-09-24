@@ -28,6 +28,8 @@ struct EngineQuickMenuModel: Equatable {
         let label: String
         let engine: String
         let text: String
+        /// R-AG12 — the preview's model, so its `EngineMark` can tell OpenRouter from the key card.
+        var model: String? = nil
     }
 
     let rows: [Row]
@@ -45,7 +47,7 @@ struct EngineQuickMenuModel: Equatable {
     /// "Runs on …" caption stated the same fact. `nil` until the preview is known (R-A7).
     static func buttonLabel(_ response: SleepEngineResponse?) -> String? {
         guard let response, let manual = response.preview?.manual else { return nil }
-        let name = EngineOption.candidateId(forEngine: manual.engine)
+        let name = EngineOption.candidateId(forEngine: manual.engine, model: manual.model)
             .flatMap { id in response.candidates.first { $0.id == id }?.label }
             ?? Copy.engineLabel(manual.engine)
         let runs = "\(name) · \(manual.model)"
@@ -72,9 +74,11 @@ struct EngineQuickMenuModel: Equatable {
         let command = chosen.flatMap { $0.id == "local" ? OllamaGuideState.from(candidate: $0).command : nil }
         let previews: [Preview] = response.preview.map { p in
             [Preview(label: Copy.EngineMenu.whenYouStart, engine: p.manual.engine,
-                     text: "\(Copy.engineLabel(p.manual.engine)) · \(p.manual.model)"),
+                     text: "\(EngineOption.previewName(engine: p.manual.engine, model: p.manual.model)) · \(p.manual.model)",
+                     model: p.manual.model),
              Preview(label: Copy.EngineMenu.scheduledCycles, engine: p.scheduled.engine,
-                     text: "\(Copy.engineLabel(p.scheduled.engine)) · \(p.scheduled.model)")]
+                     text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model)) · \(p.scheduled.model)",
+                     model: p.scheduled.model)]
         } ?? []
         return EngineQuickMenuModel(
             rows: rows,
@@ -111,7 +115,8 @@ struct EngineQuickMenuButton: View {
         if let response = engineVM.response, let label = EngineQuickMenuModel.buttonLabel(response) {
             NeutralButton(title: label,
                           leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
-                                                      size: CicadaTheme.scaled(14))),
+                                                      size: CicadaTheme.scaled(14),
+                                                      model: response.preview?.manual.model)),
                           trailingSystemImage: "chevron.down",
                           help: Copy.EngineMenu.buttonHelp) { open.toggle() }
                 .frame(maxWidth: CicadaTheme.scaled(EngineQuickMenu.buttonMaxWidth))
@@ -249,7 +254,7 @@ struct EngineQuickMenu: View {
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                         SectionLabel(preview.label)
                         HStack(spacing: CicadaTheme.scaled(6)) {
-                            EngineMark(engine: preview.engine, size: CicadaTheme.scaled(12))
+                            EngineMark(engine: preview.engine, size: CicadaTheme.scaled(12), model: preview.model)
                             Text(preview.text)
                                 .font(CicadaTheme.metaFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)

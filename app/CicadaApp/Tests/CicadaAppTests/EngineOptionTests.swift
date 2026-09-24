@@ -83,4 +83,20 @@ final class EngineOptionTests: XCTestCase {
         XCTAssertEqual(EngineOption.compactCaption(for: card("byok"), hasKey: true), Copy.engineKeySaved)
         XCTAssertEqual(EngineOption.compactCaption(for: card("codex"), hasKey: false), "Signed in")
     }
+    func testOnlyOllamaIsLocal() {
+        XCTAssertTrue(EngineOption.isLocal("local"))
+        for id in ["auto", "agent", "codex", "openrouter", "byok"] { XCTAssertFalse(EngineOption.isLocal(id), id) }
+        XCTAssertEqual(Copy.engineLocalTag, "Local")
+        XCTAssertEqual(EngineOption.costModel(for: "openrouter"), "Billed per use by OpenRouter")
+    }
+
+    func testPickingAProviderWritesItsDefaultOnlyWhenItChangesSomething() {
+        let groq = SleepEngineProvider(id: "groq", label: "Groq", connectionId: "byok-groq", hasKey: true,
+                                       defaultModel: "groq/openai/gpt-oss-120b", keyUrl: "https://example.com")
+        XCTAssertEqual(EngineOption.providerWrite(groq, selectedCard: "byok", currentModel: "gpt-5.4-mini"),
+                       EngineWrite(mode: "byok", model: "groq/openai/gpt-oss-120b"))
+        XCTAssertNil(EngineOption.providerWrite(groq, selectedCard: "byok", currentModel: "groq/openai/gpt-oss-120b"))
+        XCTAssertEqual(EngineOption.providerWrite(groq, selectedCard: "agent", currentModel: "sonnet"),
+                       EngineWrite(mode: "byok", model: "groq/openai/gpt-oss-120b"), "picking selects the key card")
+    }
 }
