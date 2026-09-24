@@ -6,6 +6,16 @@
 
 ## Where things stand (end of 2026-09-24) — round 3
 
+**Round 4 — G150, backlogs live in memory** (2026-09-24, `feat/r4-backlog-in-memory`, plan
+`2026-09-24-r4-backlog-in-memory.md`). A project's backlog is one markdown file per item in the bank, filed by agents
+over MCP (`cicada_add_backlog_item`, `cicada_add_backlog_note`, `cicada_backlog`) and by the person on the Projects
+page, found by ⌘K, every note signed; the primer tells an agent what to do when the person says "put it in the
+backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently —
+**importing the owner's real backlog into his bank waits for his OK** (the orchestrator runs it after merge). 27
+rulings (R-B1…R-B27), five dated in DESIGN_RULES §9. Merge notes: `CONTRACT_VERSION` 7 / remote 5, `_state.md` v4 and
+the FTS `SCHEMA_VERSION` "4" take the next number past any other round-4 bump; a note's `authorModel`/`authorEffort`
+are filled by round 4's per-turn join once it is on `dev`.
+
 **Nothing is in flight except the README screenshot PR.** Round 3 (owner brief 2026-09-22/23: a
 friendlier "nature and technology in harmony" look, Codex + Hermes-style Claude engines, a connector for
 any AI app and the phone, folders and papers, Wispr Flow, a provenance viewer, fast search, Settings with
@@ -52,7 +62,8 @@ consolidation on a small OpenAI model he asked for is one click on the Sleep pag
 **Open owner questions:** (1) should a pending name heard once and never again expire, taking its held
 claims (PJ-0b; changes the promotion model — R7/D2)? (2) when a folder's authorship rule later marks a
 file as agent-written, should beliefs Sleep already formed from it be re-judged (R-B8; today they keep
-"You said" as history)? (3) promote `dev` to `main` — his call, as always.
+"You said" as history)? (3) promote `dev` to `main` — his call, as always. (4) G150: once the Cicada backlog lives in the bank, does
+`docs/goals/` stay its public mirror (and which way does it sync), or become a pointer?
 
 **Next, in order:** README screenshots PR (in review) → polish from the live checks (a Projects happening
 that cites many papers should show a few chips + "+N more"; long source-tile names truncate; legacy
