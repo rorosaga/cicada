@@ -81,6 +81,19 @@ enum IntegrationHarnessRows {
         // for are the ones with nothing to connect: Claude Code, Cursor, Codex.
         overview.filter { $0.kind == .harness && $0.channelId == nil }
     }
+
+    /// DR-52, R-HS18 — the mark a harness row wears: its app's own (installed icon → bundled PNG,
+    /// Track L), or nil when it has none — "Other agents" names no vendor, so it wears
+    /// `otherAgentsSymbol`, never a "?" and never another app's mark.
+    static func markOrigin(for row: SourceOverview) -> String? {
+        let harness = row.harness ?? row.mark
+        guard harness != "unknown", !harness.isEmpty,
+              OriginIconography.logoName(for: harness) != nil || OriginIconography.appBundleId(for: harness) != nil
+        else { return nil }
+        return harness
+    }
+
+    static let otherAgentsSymbol = "ellipsis.bubble"
 }
 
 /// R8 — the state line is a dedicated pure formatter, not `SourceChannel.

@@ -173,8 +173,8 @@ final class PaletteMergeTests: XCTestCase {
                        "Nothing matches “zzz”.")
     }
 
-    func testASettingsRowNeverPromisesToOpenSettingsOnReturn() {
-        XCTAssertEqual(FindRowText.primaryVerb(.settings(.integrations)), "Show how to open",
-                       "⏎ only shows the hint (R-SU12); the Open link is what opens it")
+    func testASettingsRowSaysItOpensSettings() {
+        XCTAssertEqual(FindRowText.primaryVerb(.settings(.integrations, row: nil)), "Open in Settings",
+                       "R-HS20 — ⏎ opens it (R-SU12's explain-only verb retired with the Settings scene)")
     }
 }

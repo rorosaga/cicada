@@ -7,62 +7,57 @@ import SwiftUI
 /// trigger (the waiting line opens the Sleep page — never a Consolidate, G125
 /// R10 in steady state).
 ///
+/// In Direction D's list grammar (DS-3b): a `SectionLabel` over one grouped
+/// block, 36 pt rows, links in `accentText` (R-HS6).
+///
 /// Internal, not `private`: `HomeView.swift` composes them from another file.
 struct HomeSections: View {
     let today: Date
     let gettingStartedVisible: Bool
+    /// R-HS4 — the Inbox's slot floors, measured from Home's own column (`HomeLayout`).
+    let needsYouSlots: InboxRowSlots
     @Binding var selectedTab: AppTab
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
             TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, selectedTab: $selectedTab)
-            NeedsYouSection(selectedTab: $selectedTab)
+            NeedsYouSection(needsYouSlots: needsYouSlots, selectedTab: $selectedTab)
             LastReadSection(selectedTab: $selectedTab)
         }
     }
 }
 
-// MARK: - The card and its rows
+// MARK: - The block and its lines
 
-/// A `surface` card with the Settings card-title style — content, not chrome,
-/// so it is opaque (R-M5: glass stays chrome).
-struct HomeCard<Content: View>: View {
+/// DR-20, DR-37 — a Home section: its `SectionLabel` above one grouped block (`glassCard()`:
+/// `bgFocus`, `cornerRadius`, a resting ring), 4 pt inside so a row's hover fill sits concentric
+/// (DR-12). It replaced the old Home card, whose label sat inside a padded `surface` card (P1,
+/// R-HS6).
+struct HomeBlock<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.labelGap)) {
             SectionLabel(title)
-            content
+                .padding(.horizontal, CicadaTheme.scaled(10))
+            VStack(alignment: .leading, spacing: 0) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(CicadaTheme.scaled(HomeLayout.blockInset))
+                .glassCard()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(CicadaTheme.spacingLG)
-        .background(CicadaTheme.surface, in: RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge))
     }
 }
 
-/// One row that opens something: a real `Button` (VoiceOver, H6) with a
-/// `surfaceHover` fill on hover — never a lift, these are dense rows (R9 §3.2).
-struct HomeRowButton<Label: View>: View {
-    let action: () -> Void
-    @ViewBuilder let label: Label
-
-    @State private var hovered = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+/// One line in a block (DR-34): the list row's 36 pt from `RowMetrics`, 10 pt in.
+struct HomeLine<Content: View>: View {
+    @ViewBuilder let content: Content
 
     var body: some View {
-        Button(action: action) {
-            label
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, CicadaTheme.spacingSM)
-                .padding(.vertical, CicadaTheme.spacingXS)
-                .background(hovered ? CicadaTheme.surfaceHover : Color.clear,
-                            in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        }
-        .buttonStyle(.cicadaPlain)
-        .onHover { inside in
-            withAnimation(CicadaMotion.hover(reduceMotion: reduceMotion)) { hovered = inside }
-        }
+        HStack(spacing: CicadaTheme.scaled(10)) { content }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)
     }
 }
 
@@ -91,7 +86,7 @@ struct TodaySection: View {
 
     var body: some View {
         let figures = HomeFigures.today(store.sourcesOverview.value, today: today)
-        HomeCard(title: Copy.homeToday) {
+        HomeBlock(title: Copy.homeToday) {
             captured(figures)
             if HomeLayout.showsWaitingInToday(gettingStartedVisible: gettingStartedVisible,
                                               hasRunBefore: hasRunBefore) {
@@ -108,7 +103,7 @@ struct TodaySection: View {
 
     @ViewBuilder
     private func captured(_ figures: HomeToday) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
+        HomeLine {
             switch figures.captured {
             case nil:
                 HomeUnknown()
@@ -119,12 +114,16 @@ struct TodaySection: View {
             case let n?:
                 Text(Copy.homeCapturedToday(n))
                     .font(CicadaTheme.bodyFont)
+                    .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .help(Copy.homeCapturedHelp)
                 Spacer(minLength: CicadaTheme.spacingSM)
                 ForEach(figures.origins, id: \.sourceId) { chip in
+                    // DR-52 — the service's real mark, bare, nodding on hover (`markHover`).
                     Button { router.routeToSourceDetail(chip.sourceId) } label: {
                         OriginMark(origin: chip.mark, size: CicadaTheme.scaled(16))
+                            .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
+                            .contentShape(Rectangle())
                             .markHover()
                     }
                     .buttonStyle(.cicadaPlain)
@@ -133,13 +132,12 @@ struct TodaySection: View {
                 }
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingSM)
     }
 
     private var waiting: some View {
         let status = store.status.value
         let worm = status.map { deriveBookwormState($0, justFinishedAt: nil) } ?? .awake
-        return HStack(spacing: CicadaTheme.spacingSM) {
+        return HomeLine {
             BookwormView(state: worm, pointSize: 24)
                 .accessibilityHidden(true)
             switch status?.episodes.unprocessed {
@@ -152,22 +150,20 @@ struct TodaySection: View {
             case let n?:
                 Text(Copy.homeWaiting(n))
                     .font(CicadaTheme.bodyFont)
+                    .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
             Spacer(minLength: CicadaTheme.spacingSM)
             // A link to the page that owns the queue — never a Sleep trigger (G125 R10).
-            Button(Copy.homeOpenSleep) { selectedTab = .sleep }
-                .buttonStyle(.cicadaPlain)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.accent)
+            InlineLink(title: Copy.homeOpenSleep) { selectedTab = .sleep }
         }
-        .padding(.horizontal, CicadaTheme.spacingSM)
     }
 }
 
 // MARK: - Needs you
 
 struct NeedsYouSection: View {
+    let needsYouSlots: InboxRowSlots
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
@@ -175,41 +171,28 @@ struct NeedsYouSection: View {
 
     var body: some View {
         let figures = HomeFigures.needsYou(store.visibleInbox)
-        HomeCard(title: Copy.homeNeedsYou) {
+        // DR-58 — an age is computed when read, never stored.
+        let now = Date.now
+        HomeBlock(title: Copy.homeNeedsYou) {
             if figures.shown.isEmpty {
-                Text(Copy.homeNothingNeedsYou)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .padding(.horizontal, CicadaTheme.spacingSM)
+                HomeLine {
+                    Text(Copy.homeNothingNeedsYou)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
             } else {
                 ForEach(figures.shown) { item in
-                    HomeRowButton(action: {
-                        // The palette's own route onto one card (`router.pendingInboxItem`).
+                    // R-HS4 — the Inbox's own STATE 0 row, so a question reads here exactly as it does
+                    // there; the palette's hand-off (`pendingInboxItem`) lands it in STATE 1.
+                    InboxRow(item: item, style: .wide, slots: needsYouSlots, selected: false, now: now) {
                         router.pendingInboxItem = item.id
                         selectedTab = .inbox
-                    }) {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Image(systemName: item.kind.icon)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                                .accessibilityHidden(true)
-                            Text(item.question ?? item.title)
-                                .font(CicadaTheme.bodyFont)
-                                .foregroundStyle(CicadaTheme.textPrimary)
-                                .lineLimit(1)
-                            Spacer(minLength: CicadaTheme.spacingSM)
-                            if let harness = item.cause?.harness {
-                                OriginMark(origin: harness, size: CicadaTheme.scaled(14))
-                                    .accessibilityHidden(true)
-                            }
-                        }
                     }
                 }
                 if figures.total > HomeFigures.needsYouLimit {
-                    Button(Copy.homeAllInbox(figures.total)) { selectedTab = .inbox }
-                        .buttonStyle(.cicadaPlain)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.accent)
-                        .padding(.horizontal, CicadaTheme.spacingSM)
+                    HomeLine {
+                        InlineLink(title: Copy.homeAllInbox(figures.total)) { selectedTab = .inbox }
+                    }
                 }
             }
         }
@@ -226,81 +209,74 @@ struct LastReadSection: View {
     @Environment(GraphViewModel.self) private var graphVM
 
     var body: some View {
-        HomeCard(title: Copy.homeLastRead) {
+        HomeBlock(title: Copy.homeLastRead) {
             switch HomeFigures.lastRead(sleepVM.history, loaded: sleepVM.historyLoaded,
                                         hasRunBefore: sleepVM.status?.debt.hasRunBefore
                                             ?? store.status.value.map { $0.lastSleepAt != nil },
                                         lastSleepAt: store.status.value?.lastSleepAt) {
             case .loading:
-                HomeUnknown()
-                    .padding(.horizontal, CicadaTheme.spacingSM)
+                HomeLine { HomeUnknown() }
             case .never:
-                Text(Copy.homeNothingReadYet)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .padding(.horizontal, CicadaTheme.spacingSM)
+                HomeLine {
+                    Text(Copy.homeNothingReadYet)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
             case .entry(let entry):
                 read(entry)
             case .earlier(let at):
                 // Off the history page: the day the status gives, and the page
-                // that owns the rest — never counts this card did not read.
-                HStack(spacing: CicadaTheme.spacingSM) {
+                // that owns the rest — never counts this block did not read.
+                HomeLine {
                     if let day = at.flatMap({ HomeFigures.day($0, locale: .autoupdatingCurrent) }) {
                         Text(day)
                             .font(CicadaTheme.bodyFont)
+                            .monospacedDigit()
                             .foregroundStyle(CicadaTheme.textPrimary)
                     } else {
                         HomeUnknown()
                     }
                     Spacer(minLength: CicadaTheme.spacingSM)
-                    Button(Copy.homeOpenSleep) { selectedTab = .sleep }
-                        .buttonStyle(.cicadaPlain)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.accent)
+                    InlineLink(title: Copy.homeOpenSleep) { selectedTab = .sleep }
                 }
-                .padding(.horizontal, CicadaTheme.spacingSM)
             }
         }
     }
 
     private func read(_ entry: SleepHistoryEntry) -> some View {
         let chips = HomeFigures.chips(entry, nodes: store.graph.value?.nodes ?? [])
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(spacing: CicadaTheme.spacingSM) {
+        return VStack(alignment: .leading, spacing: 0) {
+            HomeLine {
                 Text(HomeFigures.lastReadLine(entry))
                     .font(CicadaTheme.bodyFont)
+                    .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Spacer(minLength: CicadaTheme.spacingSM)
-                Button(Copy.homeOpenSleep) { selectedTab = .sleep }
-                    .buttonStyle(.cicadaPlain)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.accent)
+                InlineLink(title: Copy.homeOpenSleep) { selectedTab = .sleep }
             }
             if !chips.shown.isEmpty {
-                HStack(spacing: CicadaTheme.spacingXS) {
+                // DR-44 — the one pill, with the page type's dot inside it; a click opens the graph.
+                HStack(spacing: CicadaTheme.scaled(6)) {
                     ForEach(chips.shown, id: \.id) { chip in
                         Button {
                             selectedTab = .graph
                             graphVM.revealEntity(id: chip.id)
                         } label: {
-                            Text(chip.name)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textPrimary)
-                                .lineLimit(1)
-                                .padding(.horizontal, CicadaTheme.spacingSM)
-                                .padding(.vertical, CicadaTheme.spacingXS)
-                                .background(CicadaTheme.surfaceHover, in: Capsule())
+                            Tag(text: chip.name, dot: CicadaTheme.entityColor(for: chip.type))
                         }
                         .buttonStyle(.cicadaPlain)
+                        .help(Copy.homeShowOnGraph(chip.name))
                     }
                     if chips.more > 0 {
                         Text(Copy.homeMoreChips(chips.more))
-                            .font(CicadaTheme.captionFont)
+                            .font(CicadaTheme.metaFont)
+                            .monospacedDigit()
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .padding(.vertical, CicadaTheme.spacingSM)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingSM)
     }
 }

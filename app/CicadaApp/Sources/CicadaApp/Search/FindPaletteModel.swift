@@ -16,8 +16,6 @@ final class FindPaletteModel {
     private(set) var results = FindResults.empty
     private(set) var selection: FindRowKey?
     private(set) var expanded: Set<FindGroupID> = []
-    /// One line under the rows — why ⏎ did not open Settings (R-SU12). The next keystroke clears it.
-    private(set) var hint: String?
     /// True while the overlay is up: page fields stop claiming ⌘F (R-SU9).
     private(set) var isPresented = false
     let ask: AskViewModel
@@ -72,7 +70,6 @@ final class FindPaletteModel {
 
     func setQuery(_ text: String) {
         query = text
-        hint = nil
         expanded = []
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         results = trimmed.isEmpty ? index.emptyState(recents: recents)
@@ -170,7 +167,7 @@ final class FindPaletteModel {
     }
 
     /// A row's primary (or ⌥ secondary) action. What the palette owns —
-    /// asking, an asked-before answer, the Settings hint — happens here and
+    /// asking, an asked-before answer — happens here and
     /// returns nil; what navigates comes back for the host to run, and is
     /// remembered as a recent (R-SU6).
     func activate(_ key: FindRowKey, secondary: Bool = false) -> FindDestination? {
@@ -187,9 +184,6 @@ final class FindPaletteModel {
             setMode(.ask)
             ask.question = question
             if let entry = ask.history.first(where: { $0.question == question }) { ask.select(entry) }
-            return nil
-        case .settings:
-            hint = "Click Open to see this in Settings."
             return nil
         default:
             remember(row.key)

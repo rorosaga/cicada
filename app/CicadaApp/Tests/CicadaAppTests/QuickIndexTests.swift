@@ -31,7 +31,7 @@ final class QuickIndexTests: XCTestCase {
 
     func testSettingsActionsAndBanksReflectTheirState() {
         XCTAssertEqual(ids(index.query("integrations"), .settings), [SettingsSection.integrations.rawValue])
-        XCTAssertEqual(index.query("consolidate").rows.first?.title, "Consolidate now")
+        XCTAssertEqual(index.query("consolidate").rows.first { $0.key.kind == .action }?.title, "Consolidate now")
         XCTAssertEqual(index.query("beta").rows.first { $0.key.kind == .bank }?.destination, .bank(name: "beta-bank"))
         XCTAssertTrue(index.query("switch to default").rows.filter { $0.key.kind == .bank }.isEmpty,
                       "the active bank is not offered")
@@ -39,8 +39,8 @@ final class QuickIndexTests: XCTestCase {
         sleeping.isSleeping = true
         sleeping.appearance = .light
         let busy = QuickIndex.build(sleeping)
-        XCTAssertEqual(busy.query("stop").rows.first?.destination, .action(.stopConsolidating))
-        XCTAssertEqual(busy.query("dark").rows.first?.destination, .action(.darkMode))
+        XCTAssertEqual(busy.query("stop").rows.first { $0.key.kind == .action }?.destination, .action(.stopConsolidating))
+        XCTAssertEqual(busy.query("dark").rows.first { $0.key.kind == .action }?.destination, .action(.darkMode))
         var rested = FindFixtures.inputs()
         rested.unprocessed = 0
         XCTAssertTrue(QuickIndex.build(rested).query("consolidate").rows.filter { $0.key.kind == .action }.isEmpty,
@@ -94,5 +94,32 @@ final class QuickIndexTests: XCTestCase {
         XCTAssertEqual(old.aliases, [])
         let new = try JSONDecoder().decode(GraphNode.self, from: Data(#"{"id": "a", "name": "A", "type": "concept", "confidence": 0.5, "aliases": ["alpha"]}"#.utf8))
         XCTAssertEqual(new.aliases, ["alpha"])
+    }
+
+    /// R-HS19 — every Settings page and every row is in ⌘K, from Settings' own index, and ⏎ lands on
+    /// the row through the one door (R-HS20).
+    func testEverySettingIsFoundFromCommandK() {
+        let size = index.query("text size").rows.first { $0.group == .settings }
+        XCTAssertEqual(size?.key, FindRowKey(kind: .setting, id: SettingsRowID.textSize.rawValue))
+        XCTAssertEqual(size?.destination, .settings(.general, row: .textSize))
+        XCTAssertEqual(size?.detail, Copy.PaletteSettings.detail(SettingsSection.general.title))
+        XCTAssertEqual(index.query("extra usage").rows.first { $0.group == .settings }?.destination,
+                       .settings(.engines, row: .engineOverage))
+        XCTAssertEqual(index.query("tailscale").rows.first { $0.group == .settings }?.destination,
+                       .settings(.remote, row: .page(.remote)))
+        XCTAssertEqual(index.query("integrations").rows.first { $0.group == .settings }?.destination,
+                       .settings(.integrations, row: nil), "a page lands on the page")
+    }
+
+    /// R-HS21 — a page keeps its old key (a recent survives); rows are keyed by row id; none collide.
+    func testSettingsKeysAreStableAndUnique() {
+        let docs = QuickIndex.settingsDocs()
+        XCTAssertEqual(docs.count, SettingsIndex.pageEntries.count + SettingsIndex.staticEntries.count)
+        XCTAssertEqual(Set(docs.map(\.row.key)).count, docs.count)
+        let sections = Set(SettingsSection.allCases.map(\.rawValue))
+        XCTAssertTrue(SettingsIndex.staticIDs.allSatisfy { !sections.contains($0.rawValue) },
+                      "a row id equal to a section's raw value would shadow its page")
+        XCTAssertTrue(docs.allSatisfy { !$0.row.key.id.contains(":") || $0.row.key.id.hasPrefix("skill:") },
+                      "no per-item row (channel:, connection:, agent:) — R-HS19")
     }
 }

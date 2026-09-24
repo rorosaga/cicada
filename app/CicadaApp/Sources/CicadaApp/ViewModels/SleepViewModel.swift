@@ -46,9 +46,11 @@ final class SleepViewModel {
     var expanded: String?
 
     /// G125 v3 R-A7 — what the NEXT cycle would run on, both trigger sources,
-    /// from `GET /sleep/engine`. The hero's one Consolidate control renders
-    /// `preview.manual` as its subtitle so the standing ruling (a scheduled
-    /// cycle never spends plan quota) is visible at the moment of choice;
+    /// from `GET /sleep/engine`. The engine menu beside Consolidate names
+    /// `preview.manual` (R-HS8) so the standing ruling (a scheduled
+    /// cycle never spends plan quota) is visible at the moment of choice —
+    /// this copy is the page's fallback source when `SleepEngineViewModel` has
+    /// no response yet (R-HS12);
     /// Task 6's queue footer names `preview.scheduled` only when the two
     /// differ. `nil` means "not loaded" and renders as NOTHING — a guessed
     /// engine would be worse than silence.
@@ -229,7 +231,7 @@ final class SleepViewModel {
         async let historyTask: Void = loadHistory()
         // The fifth fetch (R-A7). Raced alongside the others and guarded by
         // the same `loadToken`, but its failure is SILENT: an absent engine
-        // preview costs the Consolidate button its subtitle, not the page its
+        // preview costs the page's fallback engine source (R-HS12), not the page its
         // function, and `errorMessage` drives a visible error banner reserved
         // for failures the reader can act on.
         async let engineTask = fetchEngine()

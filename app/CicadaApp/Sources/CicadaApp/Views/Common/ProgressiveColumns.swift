@@ -184,4 +184,6 @@ enum RowMetrics {
     static let option: CGFloat = 48
     static let twoLineGap: CGFloat = 2
     static let optionGap: CGFloat = 4
+    static let menuItem: CGFloat = 30   // a menu's item: the D-Sleep mock's engine rows (DR-34)
+    static let keyValue: CGFloat = 32   // a key–value row: the D-Sleep mock's readout (DR-34)
 }

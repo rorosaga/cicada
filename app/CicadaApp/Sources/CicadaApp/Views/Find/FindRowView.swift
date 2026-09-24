@@ -23,9 +23,6 @@ struct FindRowView: View {
             if let trailing = row.trailing {
                 Text(trailing).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
-            if case .settings(let section) = row.destination {
-                SettingsSectionLink(section: section, label: "Open")
-            }
             if selected { hints }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
@@ -34,18 +31,10 @@ struct FindRowView: View {
             .fill(selected || hovered ? CicadaTheme.surfaceHover : Color.clear))
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        // A Settings row keeps its children: its Open link is the only thing
-        // that opens the scene, and `.ignore` hid it from VoiceOver while the
-        // hint promised Settings (final review, finding 2).
-        .accessibilityElement(children: opensSettings ? .contain : .ignore)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(FindRowText.accessibilityLabel(row))
         .accessibilityHint(FindRowText.primaryVerb(row.destination))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-    }
-
-    private var opensSettings: Bool {
-        if case .settings = row.destination { return true }
-        return false
     }
 
     private var titleLine: some View {

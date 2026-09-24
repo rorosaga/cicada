@@ -252,3 +252,17 @@ enum SettingsLiveValue {
         }
     }
 }
+
+/// G139's landing, as values (R-HS22): what ⏎ in the panel's field opens, and what VoiceOver hears
+/// when it lands. `SettingsPanel.openTopHit` and `land(_:)` call these, so the test drives the same
+/// code the field does.
+enum SettingsSearchLanding {
+    static func topHit(_ query: String, in entries: [SettingsEntry]) -> SettingsEntry? {
+        SettingsIndex.search(query.trimmingCharacters(in: .whitespacesAndNewlines), in: entries).first?.entry
+    }
+
+    /// "Sleep, Runs", not just "Sleep".
+    static func announcement(section: SettingsSection, row: SettingsRowID, in entries: [SettingsEntry]) -> String {
+        SettingsIndex.entry(for: row, in: entries).map { "\(section.title), \($0.title)" } ?? section.title
+    }
+}
