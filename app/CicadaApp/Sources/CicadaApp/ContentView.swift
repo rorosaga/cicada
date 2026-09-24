@@ -219,6 +219,9 @@ struct ContentView: View {
                 TourLayer(anchors: anchors, hidden: showFirstRun || router.settingsOpen,
                           navWidth: ShellMetrics.navWidth(labelled: labelledSidebar))
             }
+            // F-08 — the demo banner is laid out under the page and the Reader, never over a row (ruling R-DT8); it
+            // takes no space outside the demo.
+            .safeAreaInset(edge: .bottom, spacing: 0) { DemoBanner() }
         }
         .toolbar {
             ShellToolbar(labelled: $labelledSidebar, help: .page(selectedTab),
