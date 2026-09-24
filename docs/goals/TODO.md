@@ -6,6 +6,35 @@
 
 ## Where things stand (end of 2026-09-24) — round 3
 
+### Round 4 (2026-09-24) — owner decisions and queue
+
+The owner reviewed four mocked directions (A, B, C and R) and decided, in his words, which parts of each ship.
+Each decision becomes a dated ruling in the PR that ships it:
+
+1. **Welcome = A's** full-bleed living painting; *Try the demo* is prominent, the demo showcases every page, and a big *Finish setting up* returns to onboarding. A skippable guided tour runs after onboarding or inside the demo (**G145**, **G152**).
+2. **Onboarding is pages, not one scroll** — this reverses round 3's "two surfaces, not steps" (spec `2026-09-23-round3-design-onboarding-intake-home.md:189`) (**G145**).
+3. **Import = R's page in categories:** Browsers first (auto-detected, real app icons; Safari = bookmarks + Reading List + Favorites + recently saved), then Calendar & Contacts, Notes & files, Voice & meetings, Your chat history, and the *Private by design · Show in Finder* banner. No Obsidian row, no social-media rows (untested). *See how* walkthroughs for each chat export. A row syncs **on tick**, with an × to cancel it.
+4. **Last sync is shown everywhere** a source is connected (Sources, Integrations, onboarding rows, Getting started).
+5. **Agents = the Higgsfield pattern:** an animated selector, numbered steps below, a live ✓, several agents at once. Claude Code appears as its mascot, never a second Anthropic mark. No CLI tab.
+6. **Who reads:** more providers with OpenRouter first, sign-in buttons where offered, Ollama tagged *Local*. The data-leaves note shows only on providers where it is true.
+7. **Keep it running:** open at login and the menu bar, both switchable in Settings → General.
+8. **Ready = "You're set."** plus one public-domain quote about memory (**G153**).
+9. **Home = B's** captured-today and Getting started. Needs you = icon rows with their age and an *Open Inbox* link. The scene inset appears only right after onboarding. Settings → Scene: Automatic · Day · Afternoon · Night, with a smooth crossfade.
+10. **Clusters = A's** icon-led cards + a picture per entity (manual upload, then smart detection); **the person card = C's** top; the command bar loses its stack glyph (**G146**, **G159**).
+11. **Contacts sync is in scope** (**G154**, building **G81**). **Google services go to the backlog** (**G155**).
+12. **Art** is regenerated at the highest resolution with a documented direction: *pastel paintings, like Monet's, a touch more realistic*. Day, afternoon and night share one composition.
+
+**Rows added:** G145 onboarding v2 (🛠️ round 4) · G146 Clusters + pictures + person card · G151 design identity of
+things · G152 guided tour · G153 memory quote · G154 Contacts sync · G155 Google services · G156 browser history ·
+G157 a Cicada CLI · G158 the website · G159 smart entity pictures. (G142–G144 and G150 are written on their own branches.)
+
+**Next session:** G156 (browser history — decide the unit and the default denylist, then plan) → G157 (CLI —
+decide the command set over the HTTP API) → G158 (website — How it works with interactive charts, SEO, llms.txt
+and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,
+pixel palette first).
+
+### Round 3 (PRs #71–#98)
+
 **Nothing is in flight except the README screenshot PR.** Round 3 (owner brief 2026-09-22/23: a
 friendlier "nature and technology in harmony" look, Codex + Hermes-style Claude engines, a connector for
 any AI app and the phone, folders and papers, Wispr Flow, a provenance viewer, fast search, Settings with
@@ -365,6 +394,27 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     1.29 / 11.9; dark day 1.29 / 12.4, dusk 1.02 / 15.7, night 1.00 / 16.0 — so the gates alone
     cannot decide it. Revisit only with new composites — flip the constant and re-run
     `CICADA_WRITE_COMPOSITES=1 swift test --filter SkyBandTests`.
+11. **An agent's model and reasoning effort are recorded per turn — G49's reservation is lifted
+    for harness writes (owner, 2026-09-24).** The owner asked that every memory write an agent
+    makes be traceable to its harness, model and reasoning effort.
+
+    Checked on a live transcript before building:
+    - Claude Code's assistant lines carry `message.model` and a top-level `effort`.
+    - The Stop hook's stdin carries `effort.level`.
+    - Codex rollouts carry `turn_context.payload.model` and `.effort`.
+
+    So the capture path (G105's one permitted transcript read) keeps exactly those keys on agent
+    turns, and nothing else of the line: no thinking or reasoning text. A write through MCP is
+    joined AT READ, by its session id and `recorded_ts`, to the turn it happened in
+    (`turn_authorship.py`). It is never self-reported: an agent asked for its model can only
+    guess, and a guess in provenance is worse than a blank. `Cicada-Author:` stays the harness
+    label.
+
+    Revisit when one of these happens:
+    - A harness starts telling MCP servers its own model. Prefer that; it needs no join.
+    - The transcript keys move. The extractor then reads null, never a wrong value.
+    - A claim is ever shown with a model its turn did not use. The second-precision join rule is
+      then wrong; read `turn_authorship.turn_at` first.
 
 ## How work is run here
 
@@ -630,6 +680,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G147 frequency-aware decay (round 4)** | Built on `feat/r4-decay` (plan `2026-09-24-r4-frequency-aware-decay.md`): pages and claims fade by distinct mention weeks (f(w) = max(0.25, 1/(1+0.6·ln w))), "keep" counts as a week (`kept_on`), per-type pace suggestions from the bank's own decay answers with Apply · Not now in Settings → Memory, and the pace in words on the entity card. | Orchestrator verification (both suites; the 12-week vs 1-week simulation; suggestions on a synthetic history; live check of Settings → Memory and a card's Details on the demo bank), then merge to `dev`. |
 | **Direction D — DS-1 (tokens, type, shell, Settings panel)** | Built on `feat/d-shell` (plan `2026-09-23-d-shell.md`): graphite + the Mac's accent + rings, SF only with one `SectionLabel`, the icon rail ⇄ labelled sidebar (⌃⌘S), the titlebar command bar (the one bank selector, search, the page's `?`), the eyebrow/tabs components, Settings as an in-app panel. | Orchestrator live check (both themes, 1.0×/1.4×, every page by rail and ⌘1–7, ⌘K from the bar, a bank switch, Settings search landing on a row, Esc), then merge; DS-2 (Inbox columns + Reader) next, then the page tracks and G141 PJ-5 at ⌘8. |
 | **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
 | **G118 slice 2** | **Server merged** (PR #72, plan `2026-09-23-provenance-backend.md`). **App merged** (PR #78) from `feat/provenance-ui` (plan `2026-09-23-provenance-ui.md`): evidence chips with a hover quote, the Reader inspector (turns, washed span, honest banners, navigator, "Noted from this conversation"), "Where this came from" on the entity card, contributor faces in the claim footer and History, "Show in conversation" from the inbox, evidence under Ask answers. | Orchestrator live check on the demo bank (the plan's Verification), then merge. P6 (palette → Reader) rides Track S; the server hand-offs are listed in the G118 row. |
@@ -789,6 +840,10 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 22a. **G117** first-run onboarding in the app — **release blocker**: a three-step first-run sheet
     (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
     demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
+22b. **G148** memory benchmark pass (LongMemEval_S + LoCoMo, hooks vs tools modes, throwaway banks, never the
+    owner's) — first fix the `benchmarks/` `Settings` path bug, a benchmark-only Sleep clock (expiry and decay run on today's date), the engine pin — then **G149**
+    implicit recall (SessionStart primer + UserPromptSubmit injection), measured by G148's hooks mode —
+    `docs/research/2026-09-24-memory-benchmarks-and-implicit-recall.md` — M each, G148 💸
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
 24. **G72** skills manager *(owner 2026-09-03: two halves — skills Cicada compiled about you (G112) and the
     harness skills you actually use, ranked by the harness's own usage counters, adoptable into memory)* · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each

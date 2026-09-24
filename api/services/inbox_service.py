@@ -981,6 +981,13 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
             entity.frontmatter.get("confidence", 0.5), 0.6
         )
         entity.frontmatter["last_referenced"] = str(date.today())
+        # G147 (plan R-FD3): "still relevant" is the person's own act — it counts
+        # as one more week the page came up, so a page kept once fades a little
+        # slower than one never answered for. Dates, not a counter:
+        # `decay_policy.mention_weeks` unions them with the page's episode weeks.
+        entity.frontmatter[decay_policy.KEPT_ON_KEY] = decay_policy.record_keep(
+            entity.frontmatter, str(date.today())
+        )
         # G113 slice 3c: "still true" is a verdict on the CLAIM the decay nudge
         # was raised over, not just the entity's summary confidence — without
         # this, a `keep_active` left the claim itself faded (and, if decay had

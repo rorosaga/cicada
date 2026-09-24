@@ -46,6 +46,10 @@ CardinalityFn = Callable[[str], bool]
 # so this module stays pure trust/temporal logic with no filesystem dependency.
 DecayClassFn = Callable[[str], DecayClass]
 
+# A subject oracle (G147): the subject page's class, type, kept weeks and the
+# per-type pace, read once per subject (`decay_policy.subject_lookup`).
+SubjectFn = Callable[[str], "decay_policy.SubjectDecay"]
+
 # Decay lookup (D2 table): base rate per cycle by epistemic class.
 _DECAY_BASE = {"explicit": 0.02, "deductive": 0.05, "inductive": 0.10, "abductive": 0.20}
 # source_trust multiplier — user_stated fades ~3x slower than routine extraction.
@@ -534,6 +538,7 @@ def reconcile_stage3(
     cardinality_fn: CardinalityFn | None = None,
     now_date: str | None = None,
     decay_class_fn: DecayClassFn | None = None,
+    subject_fn: SubjectFn | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
@@ -552,6 +557,10 @@ def reconcile_stage3(
             decay by its subject entity's class (G66). Defaults to the
             filesystem lookup for ``settings.memory_path``; an evergreen subject
             means its claims never decay.
+        subject_fn: ``subject_id -> SubjectDecay`` (G147) — the subject's
+            per-type pace and kept weeks; defaults to
+            ``decay_policy.subject_lookup`` for ``settings.memory_path``, or
+            ``NEUTRAL_SUBJECT`` for every subject when there is no bank path.
 
     Returns ``(reconciled_by_subject, nudges, audit)``. ``nudges`` carries
     ``conflict_nudge`` / ``divergence_nudge`` / ``normalization_audit`` records in
@@ -561,8 +570,15 @@ def reconcile_stage3(
     today = now_date or str(date.today())
     if cardinality_fn is None:
         cardinality_fn = _default_cardinality_fn(settings)
+    memory_path = getattr(settings, "memory_path", None)
+    if subject_fn is None:
+        # No bank path, no page to read: every subject is neutral. Never "." —
+        # this module does not resolve a bank from the process's cwd (R-FD13).
+        subject_fn = (decay_policy.subject_lookup(memory_path) if memory_path
+                      else (lambda _sid: decay_policy.NEUTRAL_SUBJECT))
     if decay_class_fn is None:
-        decay_class_fn = decay_policy.class_lookup(getattr(settings, "memory_path", "."))
+        # One parse per subject: the class is the subject reader's own column.
+        decay_class_fn = lambda sid: subject_fn(sid).decay_class  # noqa: E731
 
     reconciled: dict[str, list[Claim]] = {
         sub: list(claims) for sub, claims in existing_claims_by_subject.items()
@@ -636,7 +652,7 @@ def reconcile_stage3(
         elif action == "KEEP_BOTH":
             slot.append(_stamp_new(new, settings, today=today))
 
-    _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn)
+    _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
     return reconciled, nudges, audit
 
 
@@ -667,9 +683,11 @@ def _decay_claims(
     nudges: list[dict],
     today: str,
     decay_class_fn: DecayClassFn,
+    subject_fn: SubjectFn,
 ) -> None:
     archive_threshold = float(getattr(settings, "archive_threshold", 0.2) or 0.2)
     nudge_threshold = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
+    alpha, floor = decay_policy.spacing_params(settings)
 
     for subject, claims in reconciled.items():
         if subject in referenced_subjects:
@@ -678,6 +696,9 @@ def _decay_claims(
         multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
         if multiplier <= 0:
             continue  # evergreen subject: its claims are artifacts, they don't fade
+        # G147: the subject's per-type pace (the person's choice, R-FD5) and its
+        # "keep" weeks — read once per subject, like the class above.
+        about = subject_fn(subject)
         for c in claims:
             if not open_(c) or is_event(c):
                 # Closed claims are history; events are asked about (the G141
@@ -697,7 +718,14 @@ def _decay_claims(
             # `today`) — a long gap works off gradually over several cycles
             # instead of charging the whole span as one cliff.
             charged_days = min(raw_days, MAX_DECAY_DAYS_PER_CYCLE)
-            amount = base * factor * multiplier * (charged_days / 7.0)
+            # G147 (R-FD4): a belief restated across many weeks fades slower than
+            # one heard in a single burst — weeks from what the claim already
+            # records, plus the subject's kept weeks.
+            spacing = decay_policy.stability(
+                decay_policy.claim_mention_weeks(c, about.kept_on), alpha=alpha, floor=floor
+            )
+            amount = (base * factor * multiplier * about.type_multiplier * spacing
+                      * (charged_days / 7.0))
             today_date = date.fromisoformat(today[:10])
             try:
                 anchor_date = date.fromisoformat((anchor or today)[:10])

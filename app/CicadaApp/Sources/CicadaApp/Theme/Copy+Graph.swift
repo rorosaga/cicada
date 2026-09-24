@@ -103,7 +103,7 @@ extension Copy.Graph {
     static let firstNoted = "First noted"
     static let lastMentioned = "Last mentioned"
     static let fades = "Fades"
-    static let fadesHelp = "How fast this fades when it stops being mentioned"
+    static let fadesHelp = "How fast this fades when it stops coming up — the more weeks it came up in, the slower"
 
     // Beliefs
     static let beliefTimelineHelp = "How this belief changed over time"

@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, engine_errors, entity_body, json_parse, markdown_parser
+from api.services import decay_policy, decay_tuning, engine_errors, entity_body, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -34,13 +34,22 @@ MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 async def resolve_and_prune(
-    resolved: list[dict], existing: list[dict], settings: Settings, *, now: datetime | None = None
+    resolved: list[dict],
+    existing: list[dict],
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    tuning: dict[str, float] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
 
     ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
     ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
     can simulate elapsed time without monkeypatching the stdlib clock.
+
+    ``tuning``: the per-type pace (G147, ``{type: multiplier}``); ``None``
+    reads the bank's ``_decay_tuning.yaml`` (``decay_tuning.load``), so a test
+    can inject a pace without writing the file.
     """
     changes: list[dict] = list(resolved)
 
@@ -140,9 +149,19 @@ async def resolve_and_prune(
 
     progress.close()
 
-    # Temporal decay for unreferenced entities. The per-week rate and the class
-    # both come from `decay_policy.resolve` — evergreen entities are skipped.
+    # Temporal decay for unreferenced entities (G147). The weekly rate is
+    # `decay_policy.effective`: the class's (or explicit) rate x the spacing
+    # factor over distinct mention weeks x the per-type pace the person chose —
+    # the SAME function `GET /entities/{id}` serves, so the card's pace is the
+    # pace charged. Evergreen entities are skipped.
     now = now or datetime.now()
+    alpha, floor = decay_policy.spacing_params(settings)
+    if tuning is None:
+        # G147: the per-type pace the person approved in Settings → Memory. One
+        # small file read per cycle; a demo or test settings object without a
+        # bank path has none.
+        memory_path = getattr(settings, "memory_path", None)
+        tuning = decay_tuning.load(memory_path) if memory_path else {}
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -165,7 +184,8 @@ async def resolve_and_prune(
             continue
 
         confidence = fm.get("confidence", 0.5)
-        decay_class, decay_rate = decay_policy.resolve(fm)
+        effective = decay_policy.effective(fm, alpha=alpha, floor=floor, tuning=tuning)
+        decay_class, decay_rate = effective.decay_class, effective.rate
         if decay_class is DecayClass.evergreen:
             # An artifact, not a belief: it does not become less true by going
             # unmentioned. No decay math, no decay nudge, never auto-archived.

@@ -199,3 +199,11 @@ def test_a_remote_watch_is_record_scope_and_the_apps(saved, monkeypatch):
     eid, _, cid = _ids(text)
     assert _claim(memory, eid, cid).origin == "remote:aaaaaaaa"
     assert catalog.TOOL_SCOPE["cicada_record_watch"] == "record" and "cicada_record_watch" in catalog.WRITE_TOOLS
+
+
+def test_a_watch_claim_is_stamped_to_the_second(saved, monkeypatch):
+    """Round 4 C2: `cicada_record_watch` is an MCP write like any other."""
+    server, memory = saved
+    monkeypatch.setattr(mcp_tools, "_now_ts", lambda: "2026-09-24T10:31:02Z")
+    eid, _ep, cid = _ids(_record(server))
+    assert _claim(memory, eid, cid).recorded_ts == "2026-09-24T10:31:02Z"

@@ -3,8 +3,9 @@
 Both reads are fetched on demand, like the provenance reads (R-PJ7): neither is
 a Store domain, so there is no `VersionVector` mapping and the ship-together
 rule has nothing to pair. Both ETags fold `entities`, `episodes` and `inbox`
-plus the machine zone's NAME and `PROJECT_SHAPE` — never today, never a viewer
-zone — so a 304 holds across midnight and moves only when the bank or the Mac's
+plus the machine zone's NAME, `PROJECT_SHAPE` and `git_service.AUTHOR_SHAPE`
+(round 4, R4B-9: the bodies carry claim author kinds and turn models) — never
+today, never a viewer zone — so a 304 holds across midnight and moves only when the bank or the Mac's
 zone does. (The `inbox` component itself re-validates once a day while a
 deferred item is pending — that item's return IS a content change.) The build
 runs in the threadpool: it parses pages.
@@ -37,7 +38,8 @@ from api.config import Settings, get_settings
 from api.models.schemas import (HappeningCreate, MilestoneCreate, MilestonePatch, ProjectsResponse,
                                 ProjectTimeline, ProjectWriteResponse, ThreadSettle, WithdrawRequest)
 from api.services import (bank_index, episode_scrub, git_service, handshake, markdown_parser, owner_identity,
-                          progress, project_timeline, search_index, sync_service, telemetry, when)
+                          progress, project_timeline, search_index, sync_service, telemetry,
+                          turn_authorship, when)
 from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -81,7 +83,7 @@ def _unpin_degraded(response: Response, index_state: str, result) -> None:
 async def list_projects(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     mp, tz = settings.memory_path, _tz()
     etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"projects|{project_timeline.PROJECT_SHAPE}|{tz}")
+                                 extra=f"projects|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)
@@ -102,7 +104,7 @@ async def get_project_timeline(project_id: str, request: Request, response: Resp
             raise HTTPException(400, "since must be a date (YYYY-MM-DD)")
     stem = _project_stem(mp, project_id)
     etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{tz}")
+                                 extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)
@@ -215,14 +217,18 @@ def _raise_for(result: dict) -> None:
 
 
 def _models(memory_path: Path, page: str, ids: list[str | None]) -> list:
+    """The written claims as the wire shows them. Callers run it in the
+    threadpool: a withdrawn agent claim takes the C3 model join, which scans
+    the episode index — never on the event loop (round 4 final review #2)."""
     wanted = [i for i in dict.fromkeys(ids) if i]
     claims = _page_claims(memory_path, page)
+    turns = turn_authorship.TurnAuthorship(memory_path)  # round 4 C3: one join per request
     out = []
     for cid in wanted:
         c = next((x for x in claims if x.id == cid and x.valid_to is None), None) or \
             next((x for x in claims if x.id == cid), None)
         if c is not None:
-            out.append(claim_to_model(c))
+            out.append(claim_to_model(c, turns=turns))
     return out
 
 
@@ -244,7 +250,8 @@ async def add_milestone(project_id: str, body: MilestoneCreate, settings: Settin
         _raise_for(result)
         await _commit(mp, result["paths"], today)
     return ProjectWriteResponse(action=result["action"], claim_id=result["claim_id"], day=today.isoformat(),
-                                date_basis="person", claims=_models(mp, result["entity_id"], [result["claim_id"]]))
+                                date_basis="person",
+                                claims=await run_in_threadpool(_models, mp, result["entity_id"], [result["claim_id"]]))
 
 
 @router.patch("/projects/{project_id}/milestones/{slug}", response_model=ProjectWriteResponse)
@@ -286,7 +293,7 @@ async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
     return ProjectWriteResponse(action=result["action"], claim_id=result["claim_id"],
                                 day=on.isoformat() if moves or is_due else None,
                                 date_basis="person" if moves or is_due else None,
-                                claims=_models(mp, page, [result["claim_id"]]))
+                                claims=await run_in_threadpool(_models, mp, page, [result["claim_id"]]))
 
 
 @router.post("/projects/{project_id}/happenings", response_model=ProjectWriteResponse)
@@ -344,7 +351,7 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
         await _commit(mp, [*result["paths"], f"episodes/{ep}.md"], today)
     return ProjectWriteResponse(action=result["action"], claim_id=result["claim_id"], day=result["day"],
                                 date_basis=result["date_basis"], episode_id=ep,
-                                claims=_models(mp, result["entity_id"], [result["claim_id"]]))
+                                claims=await run_in_threadpool(_models, mp, result["entity_id"], [result["claim_id"]]))
 
 
 @router.post("/projects/{project_id}/threads/{claim_id}", response_model=ProjectWriteResponse)
@@ -373,7 +380,7 @@ async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
         await _commit(mp, result["paths"], today)
     ids = [result["claim_id"]] + ([claim_id] if result.get("settled") == "closed" else [])
     return ProjectWriteResponse(action=result["action"], claim_id=result["claim_id"], day=result["day"],
-                                date_basis=result["date_basis"], claims=_models(mp, page, ids))
+                                date_basis=result["date_basis"], claims=await run_in_threadpool(_models, mp, page, ids))
 
 
 @router.post("/projects/{project_id}/withdraw", response_model=ProjectWriteResponse)
@@ -403,4 +410,4 @@ async def withdraw_happening(project_id: str, body: WithdrawRequest, settings: S
                           "authored_by": target.authored_by or "unknown", "date_basis": target.date_basis,
                           "verdict": "overruled"}))
     return ProjectWriteResponse(action=result["action"], claim_id=body.claim_id, day=today.isoformat(),
-                                claims=_models(mp, page, [body.claim_id]))
+                                claims=await run_in_threadpool(_models, mp, page, [body.claim_id]))

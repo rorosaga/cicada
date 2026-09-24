@@ -73,7 +73,7 @@ enum SettingsIndex {
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchIndex, .enrichLinks,
+        .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .calendarApp,
         .agentsInstall, .agentsCloud, .agentsSkill,
@@ -112,6 +112,9 @@ enum SettingsIndex {
         // Memory
         SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
         SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
+        SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
+                      keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
+                      detail: Copy.fadePaceDetail),
         // Sleep
         SettingsEntry(.sleepRuns, .sleep, Copy.runsTitle, keywords: ["schedule", "nightly", "daily", "interval", "automatic", "consolidate", "when"]),
         SettingsEntry(.sleepTime, .sleep, Copy.runsAt, keywords: ["time", "hour", "clock"]),

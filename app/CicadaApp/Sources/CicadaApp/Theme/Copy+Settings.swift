@@ -249,6 +249,16 @@ extension Copy {
     static let fetchNow = "Fetch now"
     static let sleepIsRunning = "Sleep is running — try again when it finishes."
     static let alreadyRunning = "Already running — try again when it finishes."
+    // G147 — How things fade
+    static let fadeHeader = "How things fade"
+    static let fadePaceTitle = "Learns from your answers"
+    static let fadePaceDetail = "Pages that come up across many weeks fade more slowly. After you answer “Still tracking…?” about a few pages of one kind, Cicada may suggest a different pace for that kind here."
+    static let fadeApply = "Apply"
+    static let fadeNotNow = "Not now"
+    static let fadeReset = "Reset"
+    static let fadeBusyHelp = "Saving your last change…"
+    static let fadeLoadFailed = "Couldn't read your answers just now — open this page again to retry."
+    static let fadeSaveFailed = "Couldn't save that — try again."
 
     // MARK: Advanced
     static let advanced = "Advanced"

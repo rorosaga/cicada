@@ -171,6 +171,7 @@ def record(
     author: str = "agent",
     session_id: str | None = None,
     origin: str = ORIGIN,
+    recorded_ts: str | None = None,
 ) -> dict:
     """Write the watch episode and the ``describes`` claim. Never raises on a
     normal input; returns ``{error}`` or the ids, counts and ``paths`` to commit."""
@@ -216,7 +217,7 @@ def record(
         memory_path, target.entity_id, PREDICATE, summary, observer="agent", confidence=0.75,
         context="general", source_episode=episode_id, object_kind="literal",
         text=f"{target.title}: {summary}", session_id=session_id, origin=origin, evidence=cites,
-        authored_by=author,
+        authored_by=author, recorded_ts=recorded_ts,
     )
     paths = [f"episodes/{episode_id}.md"]
     if result.get("action") in ("error", "ambiguous_subject", "corrupt_claims_block"):

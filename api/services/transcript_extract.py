@@ -15,6 +15,11 @@ The RULING (G105, 2026-09-03) is implemented literally:
   last ``tool_use`` and before the next boundary; interstitial narration,
   every ``tool_use`` / ``tool_result`` / ``thinking`` block and every file
   dump are skipped by construction, not by heuristics;
+* from (b)'s lines, exactly two more facts and nothing else of them (round 4
+  D1, C1): the model id and the reasoning effort — Claude Code's
+  ``message.model`` and top-level ``effort``, Codex's ``turn_context.payload.model``
+  and ``.effort`` — cleaned by ``agent_turns`` (unknown values dropped) and
+  carried on the agent turn only;
 * on what survives: fenced code stripped, secrets scrubbed, a per-turn cap
   and a head-stable session cap (R6);
 * ``keep_assistant=False`` drops (b) — the owner's fallback if the assistant
@@ -37,6 +42,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from api.services.episode_scrub import REDACTED, scrub as _scrub  # R-LS6: one rule set
+from api.services.agent_turns import clean_effort, clean_model  # round 4 C1: one vocabulary
 
 HARNESSES = ("claude-code", "codex")
 
@@ -78,6 +84,10 @@ class Turn:
     role: str  # "user" | "assistant"
     text: str
     ts: str | None
+    # Round 4 C1: set on an agent turn only — what the harness recorded for the
+    # kept reply's line; never inferred (R4B-2).
+    model: str | None = None
+    effort: str | None = None
 
 
 @dataclass
@@ -138,7 +148,7 @@ class _Builder:
         self.turn_cap = turn_cap
         self.session_cap = session_cap
         self.turns: list[Turn] = []
-        self.pending: list[tuple[str, str | None]] = []
+        self.pending: list[tuple[str, str | None, str | None, str | None]] = []
         self.kept: Counter = Counter()
         self.dropped_blocks: Counter = Counter()
         self.dropped_messages: Counter = Counter()
@@ -161,9 +171,9 @@ class _Builder:
         self.boundary()
         self._add("user", text, ts)
 
-    def assistant_text(self, text: str, ts: str | None) -> None:
+    def assistant_text(self, text: str, ts: str | None, model=None, effort=None) -> None:
         if text and text.strip():
-            self.pending.append((text, ts))
+            self.pending.append((text, ts, clean_model(model), clean_effort(effort)))
 
     def assistant_tool_call(self) -> None:
         """A tool call means everything the agent said so far this turn was
@@ -174,15 +184,19 @@ class _Builder:
     def boundary(self) -> None:
         if not self.pending:
             return
-        joined = "\n\n".join(t for t, _ in self.pending)
+        joined = "\n\n".join(p[0] for p in self.pending)
         ts = self.pending[-1][1]
+        # R4B-2: the last line of the kept reply that names one — the line whose
+        # `ts` the turn already takes; narration before a tool was dropped with it.
+        model = next((p[2] for p in reversed(self.pending) if p[2]), None)
+        effort = next((p[3] for p in reversed(self.pending) if p[3]), None)
         self.pending = []
         if not self.keep_assistant:
             self.count_msg("assistant_by_flag")
             return
-        self._add("assistant", joined, ts)
+        self._add("assistant", joined, ts, model=model, effort=effort)
 
-    def _add(self, role: str, text: str, ts: str | None) -> None:
+    def _add(self, role: str, text: str, ts: str | None, *, model=None, effort=None) -> None:
         cleaned = strip_code_fences(text)
         cleaned, n = scrub_secrets(cleaned)
         self.scrubbed += n
@@ -196,7 +210,7 @@ class _Builder:
         if self.total_chars + len(cleaned) > self.session_cap:
             self.session_cap_hit = True
             return
-        self.turns.append(Turn(role=role, text=cleaned, ts=ts))
+        self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
         self.total_chars += len(cleaned)
         self.kept[role] += 1
         if ts:
@@ -309,10 +323,17 @@ def extract_claude_code(
             if obj.get("isApiErrorMessage"):
                 b.count_msg("api_error")
                 continue
+            # Round 4 D1 (C1): exactly two keys of an agent line — `message.model`
+            # and the top-level `effort` (a `{level}` object is read the same way).
+            # Thinking, usage and every other key stay unread (G105).
+            model = msg.get("model")
+            effort = obj.get("effort")
+            if isinstance(effort, dict):
+                effort = effort.get("level")
             for bk in blocks:
                 k = str(bk.get("type") or "")
                 if k == "text":
-                    b.assistant_text(str(bk.get("text") or ""), ts)
+                    b.assistant_text(str(bk.get("text") or ""), ts, model, effort)
                 elif k == "tool_use":
                     b.count_block("tool_use")
                     b.assistant_tool_call()
@@ -343,6 +364,7 @@ def extract_codex(
     b = _Builder("codex", keep_assistant=keep_assistant, turn_cap=turn_cap, session_cap=session_cap)
     session_id: str | None = None
     cwd: str | None = None
+    ctx_model = ctx_effort = None
     for raw in lines:
         raw = raw.strip()
         if not raw:
@@ -356,6 +378,14 @@ def extract_codex(
         if typ == "session_meta":
             session_id = session_id or (str(payload.get("id") or "") or None)
             cwd = cwd or (str(payload.get("cwd") or "") or None)
+            continue
+        if typ == "turn_context":
+            # Round 4 D1 (C1): the model and reasoning effort for the agent turns
+            # that follow, until the next turn_context — these two payload keys
+            # only; instructions, policies and summaries are never read. Counted
+            # as before, so the ledger's counts do not move.
+            ctx_model, ctx_effort = payload.get("model"), payload.get("effort")
+            b.count_msg("other_type")
             continue
         if typ != "response_item":
             b.count_msg("other_type")
@@ -376,7 +406,7 @@ def extract_codex(
                     continue
                 b.user("\n".join(kept), ts)
             elif role == "assistant":
-                b.assistant_text("\n".join(texts), ts)
+                b.assistant_text("\n".join(texts), ts, ctx_model, ctx_effort)
             else:
                 b.count_msg("developer")
         elif ptype == "function_call":
