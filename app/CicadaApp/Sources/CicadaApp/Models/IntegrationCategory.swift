@@ -45,7 +45,9 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
             return .chatAndAgents
         // Round 4 (C9): the Chromium family beside Chrome and Safari.
         case "chrome-bookmarks", "safari-bookmarks", "safari-tabs",
-             "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks":
+             "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
+             // Round 4 (G160): Chrome's open tab groups sit under Chrome's row.
+             "chrome-tab-groups":
             return .browsers
         case "pinterest", "reddit", "x":
             return .socialAndSaved

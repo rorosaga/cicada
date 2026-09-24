@@ -205,6 +205,7 @@ private struct SourceCardTile: View {
 
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var hovering = false
@@ -280,7 +281,7 @@ private struct SourceCardTile: View {
             // the detail page — and now, since R-S2, its first clause is on the
             // card's own status band.
             _ = try? await (title == "Poll now" ? ChannelActions.poll(channelId)
-                                                 : ChannelActions.sync(channelId, store: store, watcher: watcher, local: localSources, calendar: calendarReader))
+                                                 : ChannelActions.sync(channelId, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups))
             await store.refresh([.channels, .sources, .sourcesOverview, .status])
             busy = false
         }

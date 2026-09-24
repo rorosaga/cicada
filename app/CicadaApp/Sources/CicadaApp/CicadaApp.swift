@@ -75,6 +75,9 @@ struct CicadaApp: App {
     /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
     /// Settings → Integrations, and posted to the backend (R-FA11).
     @State private var calendarReader = CalendarReader()
+    /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
+    /// person turns on their own switch (R-SR3), and posted per memory.
+    @State private var tabGroups: TabGroupWatcher
     /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
     /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
     /// go through it, and its request counter owns `Store.intakeInFlight`.
@@ -144,6 +147,7 @@ struct CicadaApp: App {
         let lights = BrowserWatcher(activity: activity)
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
+        _tabGroups = State(initialValue: TabGroupWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
         _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
@@ -187,6 +191,7 @@ struct CicadaApp: App {
                 .environment(syncActivity)
                 .environment(localSources)
                 .environment(calendarReader)
+                .environment(tabGroups)
                 .environment(loginItems)
                 .environment(backendAgent)
                 .environment(intakeRouter)
@@ -213,6 +218,8 @@ struct CicadaApp: App {
                     Task { await localSources.reload() }
                     // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
                     Task { await calendarReader.bankChanged() }
+                    // G160 — the new memory gets the open groups too (its digest is its own).
+                    Task { await tabGroups.bankChanged() }
                 }
                 .onAppear {
                     // G130 R5: the View menu's CommandGroup below already
@@ -253,6 +260,8 @@ struct CicadaApp: App {
                     // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
                     // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
                     calendarReader.start()
+                    // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
+                    tabGroups.start()
                     // R-IB22 — the export someone was waiting for arrived (a sniff
                     // recognised its vendor): its wait, in the active memory, is done.
                     intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in

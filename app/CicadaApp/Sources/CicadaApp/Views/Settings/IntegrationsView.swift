@@ -236,6 +236,7 @@ private struct IntegrationChannelRow: View {
     /// Track I T1: a Sync now here is consent for a watched browser, so it goes
     /// through the watcher. The `Settings{}` scene injects it for this reason.
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     /// Round 4 (R-SR17) — where a running sync says it is running and can be stopped.
@@ -304,12 +305,12 @@ private struct IntegrationChannelRow: View {
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups) }
                 }
                 NeutralButton(title: "Manage", size: .compact) { showConnector = true }
             }
         } else if channel.actions.contains("sync") {
-            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
+            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups) }
         } else if channel.actions.contains("poll") {
             actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
         }

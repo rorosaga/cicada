@@ -33,6 +33,8 @@ enum ChannelActions {
         case wisprFlow
         /// Round-4 G142: the Calendar app, read on this Mac by `CalendarReader` (EventKit) and posted whole.
         case calendarLocal
+        /// Round 4 (G160): Chrome's open tab groups, read on this Mac by `TabGroupWatcher` behind its own switch.
+        case tabGroups
     }
 
     /// The browser rows whose files the app reads and posts (R1): iCloud tabs, then every supported browser's
@@ -50,6 +52,7 @@ enum ChannelActions {
         if channelId == "notes" { return .notes }
         if channelId == LocalSourceWatcher.wisprChannel { return .wisprFlow }
         if channelId == calendarLocalChannel { return .calendarLocal }
+        if channelId == TabGroupWatcher.channel { return .tabGroups }
         if channelId.hasPrefix(folderPrefix), channelId.count > folderPrefix.count {
             return .folder(id: String(channelId.dropFirst(folderPrefix.count)))
         }
@@ -62,7 +65,7 @@ enum ChannelActions {
     /// sheet (L final review, finding 1).
     static func managesInIntegrations(_ channelId: String) -> Bool {
         switch syncRoute(for: channelId) {
-        case .folder, .wisprFlow: true
+        case .folder, .wisprFlow, .tabGroups: true
         default: false
         }
     }
@@ -77,16 +80,19 @@ enum ChannelActions {
     /// Round 4 (R-SR11): a sync the person stopped with the row's × comes back as
     /// `Copy.syncStopped` — said as a stop, never as an error.
     static func sync(_ channelId: String, store: Store, watcher: BrowserWatcher? = nil,
-                     local: LocalSourceWatcher, calendar: CalendarReader? = nil) async throws -> String {
+                     local: LocalSourceWatcher, calendar: CalendarReader? = nil,
+                     tabGroups: TabGroupWatcher? = nil) async throws -> String {
         do {
-            return try await route(channelId, store: store, watcher: watcher, local: local, calendar: calendar)
+            return try await route(channelId, store: store, watcher: watcher, local: local, calendar: calendar,
+                                   tabGroups: tabGroups)
         } catch let error where SyncCancellation.isCancellation(error) {
             return Copy.syncStopped   // R-SR11: a stop is said as a stop, never as an error
         }
     }
 
     private static func route(_ channelId: String, store: Store, watcher: BrowserWatcher?,
-                              local: LocalSourceWatcher, calendar: CalendarReader?) async throws -> String {
+                              local: LocalSourceWatcher, calendar: CalendarReader?,
+                              tabGroups: TabGroupWatcher?) async throws -> String {
         switch syncRoute(for: channelId) {
         case .browserFile:
             if let watcher, BrowserWatcher.isWatched(channelId) {
@@ -116,6 +122,12 @@ enum ChannelActions {
             case .synced(_, let events): return Copy.calendarSyncedSummary(events)
             default: return Copy.calendarSyncedSummary(nil)
             }
+        case .tabGroups:
+            // Never a first read from a card: the switch in Integrations is the consent (R-SR3).
+            guard let tabGroups, tabGroups.enabled else {
+                throw BrowserImportActions.ImportActionError.failed(Copy.tabGroupsTurnOnFirst)
+            }
+            return try await tabGroups.syncNow()
         case nil:
             throw BrowserImportActions.ImportActionError.failed("This source can't be synced from here.")
         }

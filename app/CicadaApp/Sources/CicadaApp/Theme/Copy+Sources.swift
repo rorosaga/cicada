@@ -60,4 +60,29 @@ extension Copy {
     static let safariRecentlySaved = "Recently saved"
     static let safariFavorites = "Favorites"
     static let safariOtherBookmarks = "Other bookmarks"
+
+    // MARK: Tab groups (G160)
+    static let tabGroupsTitle = "Open tab groups"
+    static let tabGroupsLive = "Live"
+    static let tabGroupsSwitch = "Read Chrome's open tab groups"
+    static let tabGroupsOffLine = "Off — turn it on to bring in each group's name, colour and its tabs' titles and links"
+    static let tabGroupsNoneYet = "Chrome hasn't saved any open windows on this Mac yet"
+    static let tabGroupsNoneOpen = "No open tab groups right now"
+    static func tabGroupsCount(_ groups: Int, tabs: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(groups, locale: locale)) open \(groups == 1 ? "group" : "groups") · \(tabsCount(tabs, locale: locale))"
+    }
+    static let tabGroupsReading = "Reading Chrome's open tabs"
+    static func tabGroupsSending(_ groups: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Bringing in \(UsageFormat.count(groups, locale: locale)) \(groups == 1 ? "group" : "groups")"
+    }
+    static func tabGroupsSynced(groups: Int, tabs: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "Synced · " + tabGroupsCount(groups, tabs: tabs, locale: locale)
+    }
+    static let tabGroupsUpToDate = "Already up to date"
+    static let tabGroupsUnreadable = "Chrome keeps its open tabs in a form Cicada can't read yet."
+    static let tabGroupsSyncFailed = "Couldn't bring your tab groups in. Cicada will try again."
+    static let tabGroupsTurnOnFirst = "Turn on Chrome's open tab groups in Settings → Integrations first — Cicada reads them only after you do."
+    static let tabGroupUnnamed = "Unnamed group"
+    static let sourceBackendDown = "Cicada's background service isn't answering."
+    static let sourceNeedsUpdate = "This version of Cicada's background service can't read this yet — update Cicada."
 }

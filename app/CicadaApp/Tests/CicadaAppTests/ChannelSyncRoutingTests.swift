@@ -22,6 +22,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "calendar-local",
         // Round 4 (C9): the Chromium family, emitted once synced (R-SR15).
         "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
+        // Round 4 (G160): Chrome's open tab groups, emitted once synced (R-SR15).
+        "chrome-tab-groups",
     ]
 
     func testEverySyncIdTheRegistryEmitsHasAHandler() {
@@ -41,6 +43,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         XCTAssertEqual(ChannelActions.syncRoute(for: "reddit"), .connector)
         XCTAssertEqual(ChannelActions.syncRoute(for: "calendar-local"), .calendarLocal,
                        "Sync now on the Calendar card runs the app's EventKit reader (G142)")
+        XCTAssertEqual(ChannelActions.syncRoute(for: "chrome-tab-groups"), .tabGroups,
+                       "Sync now on the tab-groups card runs the app's session reader (G160)")
         XCTAssertNil(ChannelActions.syncRoute(for: "folder:"), "an empty folder id is not a folder")
         XCTAssertNil(ChannelActions.syncRoute(for: "rss"), "rss polls; it has no sync")
     }
@@ -55,6 +59,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         XCTAssertTrue(ChannelActions.managesInIntegrations(folder.id))
         XCTAssertTrue(ChannelActions.managesInIntegrations(LocalSourceWatcher.wisprChannel))
         XCTAssertFalse(ChannelActions.managesInIntegrations("safari-tabs"))
+        XCTAssertTrue(ChannelActions.managesInIntegrations("chrome-tab-groups"),
+                      "its switch lives in Integrations — the consent (R-SR3)")
         XCTAssertNil(AddSourceTile.forChannel(folder.id), "why the add-source sheet was the wrong answer")
         XCTAssertEqual(ConnectedChannelRow.menuActions(for: folder), ["sync"])
     }

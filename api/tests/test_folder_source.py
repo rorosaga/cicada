@@ -234,9 +234,11 @@ APP_SYNC_ROUTED = {
     "pinterest", "reddit", "x", "folder:*", "wispr-flow", "calendar-local",
     # round 4 (C9): rows that appear once synced — the test gives each a sync.
     "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
+    # round 4 (G160): Chrome's open tab groups, once synced.
+    "chrome-tab-groups",
 }
 #: Round-4 rows the registry emits only once synced (R-SR15).
-ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks")
+ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks", "chrome-tab-groups")
 
 
 def test_every_sync_row_the_registry_can_emit_is_one_the_app_routes(bank):

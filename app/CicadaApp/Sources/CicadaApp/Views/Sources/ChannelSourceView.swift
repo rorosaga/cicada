@@ -13,6 +13,7 @@ struct ChannelSourceView: View {
 
     @Environment(Store.self) private var store
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     /// Round 4 (R-SR17) — the running sync and its ×.
@@ -52,7 +53,30 @@ struct ChannelSourceView: View {
                 if groups.count > 1 || (groups.first?.folder != SourceItemsGrouping.noFolder) {
                     folderCounts(groups)
                 }
-                if items.isEmpty {
+                if source.id == TabGroupWatcher.channel {
+                    // G160 — the groups open right now, read on this Mac; never read back from the bank.
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        SectionLabel(Copy.tabGroupsTitle)
+                        if let tabGroups, tabGroups.enabled {
+                            ForEach(Array(tabGroups.groups.enumerated()), id: \.offset) { _, group in
+                                HStack(spacing: CicadaTheme.spacingSM) {
+                                    Tag(text: group.title.isEmpty ? Copy.tabGroupUnnamed : group.title,
+                                        dot: TabGroupColor.hue(group.color))
+                                    Text(Copy.tabsCount(group.tabs.count))
+                                        .font(CicadaTheme.metaFont).monospacedDigit()
+                                        .foregroundStyle(CicadaTheme.textSecondary)
+                                }
+                            }
+                            if tabGroups.groups.isEmpty {
+                                Text(Copy.tabGroupsNoneOpen)
+                                    .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                            }
+                        } else {
+                            Text(Copy.tabGroupsOffLine)
+                                .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                    }
+                } else if items.isEmpty {
                     Text("No saved items from this source yet.")
                         .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
                 } else if source.id == "safari-bookmarks" {
@@ -99,7 +123,7 @@ struct ChannelSourceView: View {
             TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                 SourceRow(model: model, now: context.date, onCancel: { activity.cancel(channel.id) }) {
                     if channel.actions.contains("sync") {
-                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
+                        actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups) }
                     }
                     if channel.actions.contains("poll") {
                         actionButton("Poll now") { try await ChannelActions.poll(channel.id) }

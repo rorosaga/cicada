@@ -1778,6 +1778,11 @@ actor APIClient {
         try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
     }
 
+    /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
+    func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
+        try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))
+    }
+
     /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
     func fetchPaperDetail(id: String) async throws -> PaperDetail {
         try await get("/entities/\(encodedID(id))/paper")
