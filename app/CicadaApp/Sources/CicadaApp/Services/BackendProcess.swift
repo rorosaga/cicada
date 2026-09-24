@@ -12,7 +12,39 @@ final class BackendProcess {
         stop()
     }
 
-    func start() {
+    /// Round-4 final review, finding 2 — with Open at login and Keep memory working both on, launchd's RunAtLoad
+    /// uvicorn and this login-launched app race for :8000. uvicorn runs its lifespan before it binds, so the port
+    /// probe below can see a free port and spawn a second backend; if the child wins, launchd's KeepAlive copy
+    /// fails its bind and restarts (a full startup) every ~10 s all session. When the LaunchAgent plist exists,
+    /// launchd owns the port: wait for it to bind, and spawn only if nothing has after `launchdGrace`.
+    static let launchdGrace: Duration = .seconds(15)
+    private var launchdWait: Task<Void, Never>?
+
+    func start(launchAgentPlist: URL = BackendAgentPolicy.plistURL()) {
+        guard !isRunning else { return }
+        if FileManager.default.fileExists(atPath: launchAgentPlist.path) {
+            isRunning = true
+            guard launchdWait == nil else { return }
+            launchdWait = Task { @MainActor [weak self] in
+                let clock = ContinuousClock()
+                let deadline = clock.now.advanced(by: Self.launchdGrace)
+                while clock.now < deadline {
+                    if Task.isCancelled { return }
+                    if self?.isPortInUse(port: 8000) ?? true { return }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                // A plist launchd never loaded (unbootstrapped by hand): the app's own backend, as before.
+                guard let self, !Task.isCancelled else { return }
+                self.launchdWait = nil
+                self.isRunning = false
+                self.spawn()
+            }
+            return
+        }
+        spawn()
+    }
+
+    private func spawn() {
         guard !isRunning else { return }
 
         // If something is already bound to 127.0.0.1:8000 (e.g. a manually
@@ -53,14 +85,7 @@ final class BackendProcess {
 
         if fm.fileExists(atPath: envFile.path),
            let envContents = try? String(contentsOf: envFile, encoding: .utf8) {
-            for line in envContents.components(separatedBy: .newlines) {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
-                let parts = trimmed.split(separator: "=", maxSplits: 1)
-                if parts.count == 2 {
-                    environment[String(parts[0])] = String(parts[1])
-                }
-            }
+            environment.merge(Self.envOverlay(envContents)) { _, new in new }
         }
 
         let proc = Process()
@@ -82,9 +107,24 @@ final class BackendProcess {
     }
 
     func stop() {
+        launchdWait?.cancel()
+        launchdWait = nil
         process?.terminate()
         process = nil
         isRunning = false
+    }
+
+    /// `KEY=value` lines of an `api/.env`, comments and blanks skipped. Shared with `BackendAgentPolicy` so the
+    /// always-on service reads the same memory folder this spawn would (round-4 final review, finding 5).
+    static func envOverlay(_ contents: String) -> [String: String] {
+        var out: [String: String] = [:]
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 { out[String(parts[0])] = String(parts[1]) }
+        }
+        return out
     }
 
     /// Round-4 D3 (R-FA10) — install.sh's own command: `python -m uvicorn`, the interpreter itself as the executable

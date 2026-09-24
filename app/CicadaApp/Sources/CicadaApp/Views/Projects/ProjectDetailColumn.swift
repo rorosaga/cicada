@@ -31,8 +31,11 @@ struct ProjectDetailColumn: View {
     @FocusState private var bandFocused: Bool
     /// R-PP21 — the Log field; L focuses it.
     @FocusState private var logFocused: Bool
-    /// Bumped by M, the menu and "No plan yet — Add a milestone" to open the Plan's add field.
-    @State private var addRequest = 0
+    /// Set by M, the menu and "No plan yet — Add a milestone" to open the Plan's add field; the Plan clears it once
+    /// the field is open. A flag, not a counter: the story is a lazy stack (R-FA3), so a Plan below a long Lately is
+    /// often built only after the request, with the request already in its initial value, and a counter's
+    /// `.onChange` never fires then — the section reads the flag on appear too (final review, finding 1).
+    @State private var addPending = false
     /// A scroll target that is not a selection (the Plan's section, for M).
     @State private var pendingScroll: String?
     /// R-PP23 — the Plan's Rename or Add field is open, so a letter is typing, not a key.
@@ -180,7 +183,7 @@ struct ProjectDetailColumn: View {
                                                Task { await write(.changeMilestone(slug: slug, change: MilestoneChange(name: name))) }
                                            },
                                            add: { name, target in Task { await write(.addMilestone(name: name, target: target)) } },
-                                           addRequest: addRequest, writesBlocked: blocked,
+                                           addPending: $addPending, writesBlocked: blocked,
                                            onEditingChange: { planEditing = $0 })
                     }
                     .padding(.top, sectionGap)
@@ -334,12 +337,11 @@ struct ProjectDetailColumn: View {
     }
 
     /// M, the menu and "No plan yet — Add a milestone": open the Plan and its field, and bring it into view.
-    /// A collapsed Plan is built in this same update with the already-bumped `addRequest`, so its `.onChange` would
-    /// never fire and the field would stay shut; bump on the next turn, once the section exists (final review).
+    /// Whether the Plan is collapsed, already built, or not yet built by the lazy stack, it opens the field from
+    /// `addPending` on appear or on change, so no next-turn special case is needed.
     private func requestAdd() {
-        let wasClosed = collapsed.contains(.plan)
         setOpen(.plan, true)
-        if wasClosed { DispatchQueue.main.async { addRequest &+= 1 } } else { addRequest &+= 1 }
+        addPending = true
         pendingScroll = ProjectScroll.planSection
         scrollToken &+= 1
     }

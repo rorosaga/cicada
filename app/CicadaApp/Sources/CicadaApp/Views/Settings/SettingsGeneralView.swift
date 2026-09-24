@@ -120,7 +120,13 @@ struct SettingsGeneralView: View {
                             detail: Copy.backgroundDetail(backendAgent.state)) {
                     switch backendAgent.state {
                     case .missing, .stopped, .failed:
-                        NeutralButton(title: Copy.backgroundInstall, size: .compact, help: Copy.backgroundInstallHelp) {
+                        // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which
+                        // would kill a running cycle mid-stage and leave its pages for the next `git add -A` writer
+                        // (the G85 smear); the Projects writes' own gate, so the two never disagree about "running".
+                        let sleeping = ProjectWriteGate.blocked(store.status.value)
+                        NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
+                                      help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
+                            guard !ProjectWriteGate.blocked(store.status.value) else { return }
                             Task { await backendAgent.install() }
                         }
                     case .unknown:

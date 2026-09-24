@@ -179,6 +179,18 @@ final class CalendarReaderTests: XCTestCase {
         XCTAssertEqual(CalendarReader.failureMessage(APIError.httpError(500, "boom")), Copy.calendarSyncFailed)
     }
 
+    func testOneMeetingInTwoCalendarsIsPostedOnce() {
+        func rec(_ id: String, _ cal: String) -> CalendarEventRecord {
+            CalendarEventRecord(id: id, calendarId: cal, title: "alpha-project review",
+                                start: "2026-09-25T10:00:00+02:00", end: "2026-09-25T11:00:00+02:00",
+                                allDay: false, location: nil, notes: nil, url: nil,
+                                attendees: nil, organizer: nil, lastModified: nil)
+        }
+        let out = CalendarEventMapper.firstById([rec("EXT-1", "cal-1"), rec("EXT-2", "cal-1"), rec("EXT-1", "cal-2")])
+        XCTAssertEqual(out.map(\.id), ["EXT-1", "EXT-2"], "one id, one record: the backend stages by id")
+        XCTAssertEqual(out.first?.calendarId, "cal-1", "the first seen is kept")
+    }
+
     func testTheMapperKeepsTheContract() {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = madrid

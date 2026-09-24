@@ -99,6 +99,16 @@ enum CalendarEventMapper {
         return recurring ? "\(base)|\(iso(occurrence, timeZone: timeZone))" : base
     }
 
+    /// One record per C6 id, the first kept, order unchanged. The same meeting seen through two calendars (a shared or
+    /// delegated one) carries the same iCal UID, and the backend stages by `calendar-local:<id>`, so two records
+    /// with one id would overwrite each other on every sync — the episode flipped back to `processed: false` every
+    /// three hours and re-read by Sleep (paid spend), and one event lost. Round-4 final review, finding 3; the C6
+    /// id carrying `calendarId` too is flagged to the contract's owner rather than changed here.
+    static func firstById(_ records: [CalendarEventRecord]) -> [CalendarEventRecord] {
+        var seen = Set<String>()
+        return records.filter { seen.insert($0.id).inserted }
+    }
+
     /// A person as the calendar names them: their display name, else their address without `mailto:`.
     static func person(name: String?, url: URL?) -> String? {
         if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }

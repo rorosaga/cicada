@@ -261,8 +261,9 @@ struct ProjectPlanSection: View {
     var markDone: ((String) -> Void)? = nil
     var rename: ((String, String) -> Void)? = nil
     var add: ((String, String?) -> Void)? = nil
-    /// Bumped by the M key (Task 5) to open the add field.
-    var addRequest = 0
+    /// Set by the M key, the menu and "No plan yet" to open the add field; this section clears it once open. Read on
+    /// appear as well as on change, because the lazy story may build this section after the request (finding 1).
+    var addPending: Binding<Bool> = .constant(false)
     var writesBlocked = false
     /// R-PP23 — true while Rename or Add a milestone is open, so the column's L / M / D stand aside (the Inbox's
     /// `field == nil` guard): a letter typed into these fields is the person's word, never a command.
@@ -290,14 +291,19 @@ struct ProjectPlanSection: View {
             ForEach(rows) { row in planRow(row).id(ProjectKey.milestone(row.id).id) }
             if add != nil { addRow }
         }
-        .onChange(of: addRequest) { _, _ in
-            adding = true
-            DispatchQueue.main.async { addFocused = true }
-        }
+        .onAppear { openAddIfPending() }
+        .onChange(of: addPending.wrappedValue) { _, _ in openAddIfPending() }
         .onChange(of: renaming != nil || adding) { _, editing in onEditingChange(editing) }
         // Collapsing Plan while Rename or Add is open removes this view before `adding`/`renaming` change, so the
         // column's `typing` would stay true and L · M · D would stop working (final review of G141 PJ-5).
         .onDisappear { onEditingChange(false) }
+    }
+
+    private func openAddIfPending() {
+        guard addPending.wrappedValue, add != nil else { return }
+        addPending.wrappedValue = false
+        adding = true
+        DispatchQueue.main.async { addFocused = true }
     }
 
     private func planRow(_ row: ProjectPlan.Row) -> some View {

@@ -40,7 +40,7 @@ final class EventKitCalendarStore: CalendarStore, @unchecked Sendable {
             let infos = calendars.map {
                 CalendarInfo(id: $0.calendarIdentifier, title: $0.title, account: $0.source?.title)
             }
-            let records = events.map(Self.record(_:))
+            let records = CalendarEventMapper.firstById(events.map(Self.record(_:)))
             return (infos, records)
         }.value
     }
@@ -70,7 +70,10 @@ final class EventKitCalendarStore: CalendarStore, @unchecked Sendable {
         return CalendarEventRecord(
             id: CalendarEventMapper.id(externalId: event.calendarItemExternalIdentifier,
                                        itemId: event.calendarItemIdentifier,
-                                       recurring: event.hasRecurrenceRules,
+                                       // A detached occurrence (one moved or edited) can report no rules while
+                                       // sharing its series' UID; without its start it would collapse onto the
+                                       // bare UID with every other detached one (finding 3).
+                                       recurring: event.hasRecurrenceRules || event.isDetached,
                                        occurrence: event.occurrenceDate ?? start, timeZone: zone),
             calendarId: event.calendar?.calendarIdentifier ?? "",
             title: event.title ?? "",

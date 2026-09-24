@@ -85,8 +85,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
-  <key>NSCalendarsFullAccessUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory. Nothing leaves this Mac.</string>
-  <key>NSCalendarsUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory. Nothing leaves this Mac.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory, kept in plain files on this Mac.</string>
+  <key>NSCalendarsUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory, kept in plain files on this Mac.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

@@ -60,6 +60,11 @@ extension Copy {
     static let backgroundNoPython = "Cicada's Python environment is missing — run the one-time install under Agents first."
     static let backgroundLaunchdRefused = "macOS wouldn't start the background service. The log in your Cicada folder says why."
     static let backgroundRefused = "Cicada only runs its own install script."
+    /// Finding 5 — neither the running backend nor api/.env named the memory folder; guessing one would point the
+    /// always-on service at an empty folder with no error (the bank split-brain class).
+    static let backgroundNeedsBackend = "Cicada couldn't tell which memory folder to use. Open Cicada so its backend is running, then Install again."
+    /// Finding 6 — installing hands the port to launchd and stops the app's own backend, which would cut a cycle short.
+    static let backgroundWaitForSleep = "Wait for Sleep to finish reading — installing restarts Cicada's backend."
     /// Never `Copy.intakeFailed` ("The import didn't finish.") — that is `AgentConnect`'s import sentence.
     static let backgroundInstallFailed = "Cicada couldn't set up the background service. Try again in a moment."
 
@@ -124,7 +129,9 @@ extension Copy {
     // MARK: Integrations → Calendar on this Mac (round-4 D2, R-FA11 … R-FA13)
     /// Never "Calendar": that is the ICS feed row's label (`calendar` channel), and the two sit in one section.
     static let calendarAppTitle = "Calendar on this Mac"
-    static let calendarOff = "Not connected — Connect asks macOS to share your calendars. Nothing leaves this Mac."
+    /// Never "Nothing leaves this Mac": events become episodes, and Sleep, Ask or a remote connector can send those to
+    /// a cloud engine — that sentence is Ollama's alone (`honestyOllama`). Final review of round 4, finding 4.
+    static let calendarOff = "Not connected — Connect asks macOS to share your calendars with Cicada."
     static let calendarDenied = "Calendar access is off for Cicada — turn it on in System Settings → Privacy & Security → Calendars, then Connect again."
     static let calendarSyncing = "Syncing…"
     /// DR-21 — the count through `UsageFormat.count`, in the locale the row was asked for.

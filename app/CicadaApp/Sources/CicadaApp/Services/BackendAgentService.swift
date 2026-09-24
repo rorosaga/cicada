@@ -49,13 +49,43 @@ enum BackendAgentPolicy {
         }
     }
 
-    static func environment(base: [String: String], installRoot: URL, memoryRoot: String?) -> [String: String] {
+    /// Where launchd's copy of the background service is declared. `BackendProcess.start` reads the same path to
+    /// leave :8000 to launchd (finding 2), so the two can never disagree about which file means "launchd owns it".
+    static func plistURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        home.appendingPathComponent("Library/LaunchAgents/\(label).plist")
+    }
+
+    /// Finding 5 — the memory folder the always-on service gets: the live backend's own root first, then the
+    /// `CICADA_MEMORY_PATH` install.sh wrote into `api/.env` (the file `BackendProcess` overlays too). Never a guess
+    /// from the checkout: install.sh defaults memory to `~/cicada/memory` wherever the repo lives, so
+    /// `<installRoot>/memory` would silently serve an empty folder — the split-brain bug, whose symptom is silence.
+    /// nil means refuse Install.
+    static func memoryPath(live: String?, envFile: String?) -> String? {
+        for candidate in [live, envFile] {
+            if let c = candidate?.trimmingCharacters(in: .whitespaces), !c.isEmpty { return c }
+        }
+        return nil
+    }
+
+    /// `CICADA_MEMORY_PATH` from an `api/.env` body, parsed like `BackendProcess.envOverlay` plus the quotes and `~`
+    /// python-dotenv and a shell would resolve, so the plist names the folder the backend actually reads.
+    static func envFileMemoryPath(_ contents: String?, home: String = NSHomeDirectory()) -> String? {
+        guard let contents, var value = BackendProcess.envOverlay(contents)["CICADA_MEMORY_PATH"] else { return nil }
+        value = value.trimmingCharacters(in: .whitespaces)
+        if value.count >= 2, let f = value.first, f == value.last, f == "\"" || f == "'" {
+            value = String(value.dropFirst().dropLast())
+        }
+        if value == "~" { value = home } else if value.hasPrefix("~/") { value = home + value.dropFirst(1) }
+        if value.hasPrefix("$HOME/") { value = home + value.dropFirst(5) }
+        return value.isEmpty ? nil : value
+    }
+
+    static func environment(base: [String: String], installRoot: URL, memoryRoot: String) -> [String: String] {
         var env = base
         for key in AgentConnect.scrubbedKeys { env.removeValue(forKey: key) }
         env["CICADA_CAPTURE"] = "off"
         env["CICADA_REPO"] = installRoot.standardizedFileURL.path
-        env["CICADA_MEMORY_PATH"] = memoryRoot?.isEmpty == false ? memoryRoot
-            : installRoot.appendingPathComponent("memory").standardizedFileURL.path
+        env["CICADA_MEMORY_PATH"] = memoryRoot
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         return env
     }
@@ -71,20 +101,23 @@ final class BackendAgentService {
     @ObservationIgnored private let plistURL: URL
     @ObservationIgnored private let uid: uid_t
     @ObservationIgnored private let memoryRoot: () async -> String?
+    @ObservationIgnored private let envFileContents: () -> String?
     @ObservationIgnored private let onInstalled: () -> Void
 
     init(runner: AgentProcessRunning = LiveAgentProcessRunner(),
          installRoot: URL = BackendProcess.installRoot(),
-         plistURL: URL = FileManager.default.homeDirectoryForCurrentUser
-             .appendingPathComponent("Library/LaunchAgents/\(BackendAgentPolicy.label).plist"),
+         plistURL: URL = BackendAgentPolicy.plistURL(),
          uid: uid_t = getuid(),
          memoryRoot: @escaping () async -> String? = { try? await APIClient.shared.fetchHealth().memoryRoot },
+         envFileContents: (() -> String?)? = nil,
          onInstalled: @escaping () -> Void = {}) {
         self.runner = runner
         self.installRoot = installRoot
         self.plistURL = plistURL
         self.uid = uid
         self.memoryRoot = memoryRoot
+        let envFile = installRoot.appendingPathComponent("api/.env")
+        self.envFileContents = envFileContents ?? { try? String(contentsOf: envFile, encoding: .utf8) }
         self.onInstalled = onInstalled
     }
 
@@ -106,8 +139,13 @@ final class BackendAgentService {
             return
         }
         state = .installing
+        guard let memory = BackendAgentPolicy.memoryPath(
+            live: await memoryRoot(), envFile: BackendAgentPolicy.envFileMemoryPath(envFileContents())) else {
+            state = .failed(Copy.backgroundNeedsBackend)
+            return
+        }
         let env = BackendAgentPolicy.environment(base: ProcessInfo.processInfo.environment, installRoot: installRoot,
-                                                 memoryRoot: await memoryRoot())
+                                                 memoryRoot: memory)
         let result = await runner.run(argv, environment: env, timeout: BackendAgentPolicy.installTimeout)
         guard result.status == 0 else {
             state = .failed(BackendAgentPolicy.failureMessage(status: result.status, stderr: result.stderr))

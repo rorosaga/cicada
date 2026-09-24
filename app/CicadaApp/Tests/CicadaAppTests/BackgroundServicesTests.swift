@@ -102,8 +102,42 @@ final class BackgroundServicesTests: XCTestCase {
         XCTAssertEqual(env["CICADA_MEMORY_PATH"], "/m/memory")
         XCTAssertNil(env["ANTHROPIC_API_KEY"])
         XCTAssertTrue(env["PATH"]?.contains("/usr/bin") ?? false)
-        XCTAssertEqual(BackendAgentPolicy.environment(base: [:], installRoot: root, memoryRoot: nil)["CICADA_MEMORY_PATH"],
-                       "/x/cicada/memory", "no live root: the memory BackendProcess serves (R-FA8)")
+    }
+
+    /// Finding 5 — with the backend down, the memory folder comes from api/.env, never `<installRoot>/memory`.
+    func testTheMemoryFolderIsNeverGuessedFromTheCheckout() {
+        XCTAssertEqual(BackendAgentPolicy.memoryPath(live: "/live/memory", envFile: "/env/memory"), "/live/memory")
+        XCTAssertEqual(BackendAgentPolicy.memoryPath(live: nil, envFile: "/env/memory"), "/env/memory")
+        XCTAssertEqual(BackendAgentPolicy.memoryPath(live: "", envFile: "/env/memory"), "/env/memory")
+        XCTAssertNil(BackendAgentPolicy.memoryPath(live: nil, envFile: nil))
+        XCTAssertEqual(BackendAgentPolicy.envFileMemoryPath("# c\nCICADA_MEMORY_PATH=/h/cicada/memory\nX=1", home: "/h"),
+                       "/h/cicada/memory")
+        XCTAssertEqual(BackendAgentPolicy.envFileMemoryPath("CICADA_MEMORY_PATH=\"~/cicada/memory\"", home: "/h"),
+                       "/h/cicada/memory")
+        XCTAssertNil(BackendAgentPolicy.envFileMemoryPath("X=1", home: "/h"))
+        XCTAssertNil(BackendAgentPolicy.envFileMemoryPath(nil, home: "/h"))
+    }
+
+    func testInstallWithNoHealthReadsApiEnv() async {
+        let runner = FakeRunner()
+        let service = BackendAgentService(runner: runner, installRoot: root,
+                                          plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
+                                          memoryRoot: { nil },
+                                          envFileContents: { "CICADA_MEMORY_PATH=/src/elsewhere/memory" },
+                                          onInstalled: {})
+        await service.install()
+        let run = runner.runs.first { $0.argv.first == "/bin/bash" }
+        XCTAssertEqual(run?.env["CICADA_MEMORY_PATH"], "/src/elsewhere/memory")
+    }
+
+    func testInstallWithNoHealthAndNoEnvIsRefused() async {
+        let runner = FakeRunner()
+        let service = BackendAgentService(runner: runner, installRoot: root,
+                                          plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
+                                          memoryRoot: { nil }, envFileContents: { nil }, onInstalled: {})
+        await service.install()
+        XCTAssertEqual(service.state, .failed(Copy.backgroundNeedsBackend))
+        XCTAssertNil(runner.runs.first { $0.argv.first == "/bin/bash" }, "no script runs on a guessed folder")
     }
 
     func testTheProbeReadsLaunchdWithoutChangingIt() {
@@ -138,7 +172,7 @@ final class BackgroundServicesTests: XCTestCase {
         runner.answers["/bin/bash /x/cicada/scripts/install-backend-agent.sh"] = 3
         let service = BackendAgentService(runner: runner, installRoot: root,
                                           plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
-                                          memoryRoot: { nil }, onInstalled: {})
+                                          memoryRoot: { "/m/memory" }, onInstalled: {})
         await service.install()
         XCTAssertEqual(service.state, .failed(Copy.backgroundNoPython), "the script's exit 3, in words")
         XCTAssertEqual(BackendAgentPolicy.failureMessage(status: 4, stderr: ""), Copy.backgroundLaunchdRefused)
