@@ -48,6 +48,31 @@ final class ResolveGraceTests: XCTestCase {
         XCTAssertEqual(store.currentHeld?.id, "inbox-001")
     }
 
+    /// Final review — the palette's rebuild token must move on a hold and again on its Undo, or ⌘K
+    /// and Home's search keep listing a held question (and miss a reopened one) until the next
+    /// inbox snapshot.
+    func testHoldAndUndoEachMoveThePaletteTokenAndTheHeldQuestionLeavesItsInputs() throws {
+        let (store, _) = try makeStore()
+        let before = QuickIndexInputs.token(store, askHistoryCount: 0)
+        hold(store, "inbox-001")
+        let held = QuickIndexInputs.token(store, askHistoryCount: 0)
+        XCTAssertNotEqual(held, before, "a tap rebuilds the palette")
+        XCTAssertEqual(QuickIndexInputs.from(store, askHistory: []).inbox.map(\.id), ["inbox-002"])
+        store.undoHeld()
+        let undone = QuickIndexInputs.token(store, askHistoryCount: 0)
+        XCTAssertNotEqual(undone, held, "an Undo rebuilds the palette")
+        XCTAssertEqual(undone, before)
+        XCTAssertEqual(QuickIndexInputs.from(store, askHistory: []).inbox.map(\.id), ["inbox-001", "inbox-002"])
+    }
+
+    func testAHoldReplacingAnotherMovesThePaletteToken() throws {
+        let (store, _) = try makeStore()
+        hold(store, "inbox-001")
+        let first = QuickIndexInputs.token(store, askHistoryCount: 0)
+        hold(store, "inbox-002")
+        XCTAssertNotEqual(QuickIndexInputs.token(store, askHistoryCount: 0), first)
+    }
+
     func testUndoInsideTheWindowSendsNothingEver() async throws {
         let (store, api) = try makeStore()
         hold(store, "inbox-001")
