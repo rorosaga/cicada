@@ -236,6 +236,8 @@ APP_SYNC_ROUTED = {
     "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     # round 4 (G160): Chrome's open tab groups, once synced.
     "chrome-tab-groups",
+    # round 4 (G154): always listed — the app's Contacts reader (Task 4) owns its `syncRoute`.
+    "contacts-local",
 }
 #: Round-4 rows the registry emits only once synced (R-SR15).
 ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks", "chrome-tab-groups")

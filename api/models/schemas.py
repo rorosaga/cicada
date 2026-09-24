@@ -2866,7 +2866,7 @@ class SourceChannel(CamelModel):
     # bake in itself.
     count_is_delta: bool = False
     # Round 4 (R-SR14) — additive, `[]` for every channel that stamped none;
-    # rides `CHANNELS_SHAPE = "r4-sources"` (the ETag ship-together rule).
+    # rode the "r4-sources" bump of CHANNELS_SHAPE (the ETag ship-together rule).
     parts: list[ChannelPart] = []
     actions: list[str] = []
 
@@ -3083,6 +3083,39 @@ class TabGroupsSyncResponse(CamelModel):
     tombstoned: int = 0
     groups: int = 0
     tabs: int = 0
+    bank: str = ""
+
+
+class ContactRecord(CamelModel):
+    """One card the app read through the Contacts framework (G154). Names and WHICH facts the card holds — never an
+    address or a number (R-SR8). ``photo_b64`` is the card's thumbnail, sent only when it has one."""
+
+    id: str
+    given_name: str = ""
+    family_name: str = ""
+    has_organization: bool = False
+    has_job_title: bool = False
+    has_email: bool = False
+    has_phone: bool = False
+    has_birthday: bool = False
+    photo_b64: Optional[str] = None
+
+
+class ContactsLocalSyncRequest(CamelModel):
+    """``POST /sources/contacts-local/sync`` — the WHOLE address book (a removal needs the complete set)."""
+
+    contacts: list[ContactRecord] = []
+
+
+class ContactsLocalSyncResponse(CamelModel):
+    contacts: int = 0
+    matched: int = 0
+    people: int = 0
+    ambiguous: int = 0
+    unmatched: int = 0
+    sources_added: int = 0
+    sources_removed: int = 0
+    photos: int = 0
     bank: str = ""
 
 

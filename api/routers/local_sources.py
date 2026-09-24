@@ -10,6 +10,9 @@ posted here.
 
 Chrome's open tab groups (round 4, G160): the app reads the profile's session
 file; one snapshot per group is posted here.
+
+macOS Contacts (round 4, G154): the app reads the address book after one prompt and posts names plus which facts each
+card holds; the backend enriches person pages it already has, never creates one.
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ from api.config import Settings, get_settings
 from api.models.schemas import (
     CalendarLocalSyncRequest,
     CalendarLocalSyncResponse,
+    ContactsLocalSyncRequest,
+    ContactsLocalSyncResponse,
     FolderListResponse,
     FolderRecord,
     FolderRegisterRequest,
@@ -36,6 +41,7 @@ from api.models.schemas import (
 )
 from api.services import (
     calendar_local,
+    contacts_local,
     folder_source,
     local_refs,
     paper_metadata,
@@ -308,3 +314,27 @@ async def sync_tab_groups(req: TabGroupsSyncRequest, settings: Settings = Depend
     await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Tab groups sync",
                                          trigger="capture/tab-groups", channel=channel)
     return TabGroupsSyncResponse(**out, bank=memory_path.name)
+
+
+@router.post("/sources/contacts-local/sync", response_model=ContactsLocalSyncResponse, dependencies=_DEMO_GATE)
+async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings = Depends(get_settings)):
+    """G154 (round 4): enrich the person pages Cicada already has from the address book the app read. 409 while Sleep
+    runs (this writes entity pages Stage 5 rewrites); 413 above ``contacts_local.MAX_CONTACTS``; 422 for a payload the
+    backend cannot trust. One ``user`` commit per sync (trigger ``capture/contacts``), scoped to the pages it changed —
+    an unchanged address book commits nothing."""
+    memory_path = settings.memory_path
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        raise HTTPException(409, contacts_local.SLEEP_REFUSAL)
+    if len(req.contacts) > contacts_local.MAX_CONTACTS:
+        raise HTTPException(413, f"at most {contacts_local.MAX_CONTACTS} contacts per sync")
+    try:
+        out = await run_in_threadpool(contacts_local.sync, memory_path, req.model_dump(by_alias=False),
+                                      bank=memory_path.name)
+    except contacts_local.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    sync_state.record_sync(memory_path, contacts_local.CHANNEL_ID, count=out["contacts"], extra={"people": out["people"]})
+    await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Contacts sync",
+                                         trigger="capture/contacts", channel=contacts_local.CHANNEL_ID)
+    return ContactsLocalSyncResponse(**out, bank=memory_path.name)
