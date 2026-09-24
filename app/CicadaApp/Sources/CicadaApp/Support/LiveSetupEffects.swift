@@ -47,10 +47,11 @@ struct LiveSetupEffects: SetupEffects {
 
     func recordGettingStarted(_ ids: [FoundItemID]) {
         GettingStartedState.record(bank: store.bank, enabled: ids)
-        // R-HO15 — the Welcome's Start arms *Make it yours*; the demo plan never records Getting started.
-        AppearanceTipPolicy.arm()
         onChecklistChanged()
     }
+
+    /// Called by `SetupRunner` for the Welcome's plans only — never from Home's card (R-HO15).
+    func armAppearanceTip() { AppearanceTipPolicy.arm() }
 
     func showHome() { onShowHome() }
     func close() { onClose() }

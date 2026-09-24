@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// F-09's first-time "Make it yours" (owner, round-4 decision 8; R-HO15) — Appearance and Scene where a person who has
-/// just finished setup will see them, once. The Welcome's Start arms it (`LiveSetupEffects.recordGettingStarted`; the
-/// demo plan records no Getting started, so it never does) and phase B's onboarding calls `arm()` when its last page
+/// just finished setup will see them, once. The Welcome's Start arms it (`SetupRunner` calls `SetupEffects.armAppearanceTip`
+/// beside the plan's Getting started record; the demo plan has none, so it never does) and phase B's onboarding calls `arm()` when its last page
 /// closes. × and Hide both dismiss it for good; both settings live on in Settings → General, which its foot links to.
 /// No hours, no city, no sunrise times here — the explanation is Settings' (decision 8). Per viewer, in defaults.
 enum AppearanceTipPolicy {

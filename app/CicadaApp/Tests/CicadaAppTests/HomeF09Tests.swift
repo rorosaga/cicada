@@ -25,12 +25,26 @@ final class HomeF09Tests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: AppearanceTipPolicy.armedKey))
     }
 
-    func testTheWelcomesStartArmsTheTipAndTheDemoDoesNot() throws {
-        XCTAssertTrue(try source("Support/LiveSetupEffects.swift").contains("AppearanceTipPolicy.arm()"))
-        XCTAssertFalse(OnboardingFlow.demoSteps.contains {
-            if case .recordGettingStarted = $0 { return true }
-            return false
-        }, "the demo plan records no Getting started, so it never arms the tip")
+    /// Runs the plans through the spy rather than grepping a source file: the r4-home final review found the arm
+    /// folded into the shared `recordGettingStarted` effect, which Home's card also calls, and a string check passed.
+    func testTheWelcomesStartArmsTheTipAndTheDemoDoesNot() async {
+        for mode in [OnboardingMode.firstRun, .setUpLater, .rerun] {
+            let fx = FakeSetupEffects()
+            await SetupRunner().run(OnboardingFlow.plan(name: "Ada", pickedEngine: nil, ticked: [], mode: mode), effects: fx)
+            XCTAssertEqual(fx.calls.filter { $0 == "armTip" }.count, 1, "\(mode)")
+        }
+        let demo = FakeSetupEffects()
+        await SetupRunner().run(SetupRunner.demoPlan, effects: demo)
+        XCTAssertFalse(demo.calls.contains("armTip"), "the demo never arms the tip")
+        XCTAssertTrue(demo.calls.contains("createDemoBank"))
+    }
+
+    /// Home's *Also found* row calls the effect directly; it records the row and never arms the tip.
+    func testTheCardsDirectRecordNeverArmsTheTip() throws {
+        let live = try source("Support/LiveSetupEffects.swift")
+        let body = try XCTUnwrap(live.range(of: "func recordGettingStarted").map { live[$0.lowerBound...] })
+        let record = body.prefix(while: { $0 != "}" })
+        XCTAssertFalse(record.contains("AppearanceTipPolicy"), "arming lives in armAppearanceTip, called by SetupRunner")
     }
 
     func testTheTipSitsBesideTheColumnOnlyWhenItFits() {
