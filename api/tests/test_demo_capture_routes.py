@@ -44,6 +44,9 @@ GATED = {
 HANDLED_ELSEWHERE = {
     ("POST", "/capture/transcript"): "redirects to the real bank left last (test_demo_capture.py)",
     ("POST", "/capture/telegram"): "answers 200 with a reply so Telegram never retries (test_demo_capture.py)",
+    ("POST", "/capture/hook-context"):
+        "reads only, from bank_registry.capture_bank — the real bank left last while the demo is open "
+        "(test_hook_context_route.py)",
     ("POST", "/intake/import"): "checks its TARGET bank in intake.resolve_target",
     ("POST", "/intake/sniff"): "stages nothing; a chat export's TARGET bank is checked in intake.resolve_target",
     ("PUT", "/sources/connectors/{connector_id}/credentials"):

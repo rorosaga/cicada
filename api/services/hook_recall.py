@@ -35,7 +35,9 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
-from api.services import handshake, mcp_tools, recall_text, search_index, state_dictionary, text_fold
+from api.services import (
+    bank_registry, handshake, mcp_tools, recall_text, search_index, state_dictionary, telemetry, text_fold,
+)
 
 # Budgets (R-H5, R-H6).
 PROMPT_BUDGET_S = 0.300
@@ -437,6 +439,52 @@ class RecentPages:
 
 
 RECENT = RecentPages()
+
+
+def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: str,
+            deadline: float) -> tuple[Injection, str | None]:
+    """The route's one worker call: the bank a capture would write into
+    (``bank_registry.capture_bank``, R-H16), then the primer or the note.
+    SessionStart resets the session's window (R-H7): after compact or clear
+    the earlier notes are gone from the model's context."""
+    target = bank_registry.capture_bank(Path(root))
+    if target is None:
+        return Injection.none("no_bank"), None
+    if event == "session_start":
+        RECENT.reset(session_id)
+        return session_primer(target.path, harness), target.name
+    return prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline), target.name
+
+
+LATENCY_BUCKETS = ((50, "<50"), (100, "50-100"), (200, "100-200"), (300, "200-300"))
+TOKEN_BUCKETS = ((0, "0"), (100, "1-100"), (200, "101-200"), (300, "201-300"), (400, "301-400"))
+
+
+def _bucket(value: int, buckets, top: str) -> str:
+    return next((label for limit, label in buckets if value <= limit), top)
+
+
+def _model_id(model: str | None) -> str | None:
+    """A model id as the harness sent it, only when it is id-shaped (D7)."""
+    m = str(model or "").strip()
+    return m if m and len(m) <= 80 and all(c.isalnum() or c in "._:/-[]" for c in m) else None
+
+
+def record(event: str, harness: str, result: Injection, *, latency_ms: int, model: str | None,
+           bank: str | None) -> None:
+    """One ``hook_recall`` ledger row (R-H9): ids, enums and buckets only,
+    filed beside ``read``. Never raises: the ledger never costs a prompt."""
+    try:
+        telemetry.record(telemetry.UsageEvent(
+            kind=telemetry.HOOK_RECALL_KIND, stage="hook_recall", bank=bank, invocations=0, billing="free",
+            refs={"harness": harness, "event": event, "reason": result.reason,
+                  "injected": len(result.injected), "entity_ids": list(result.injected),
+                  "inbox": result.inbox_id is not None,
+                  "tokens": _bucket(result.tokens, TOKEN_BUCKETS, ">400"),
+                  "latency": _bucket(latency_ms, LATENCY_BUCKETS, ">300"),
+                  "model": _model_id(model)}))
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def reset() -> None:
