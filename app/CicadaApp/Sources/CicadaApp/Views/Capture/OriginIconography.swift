@@ -42,6 +42,8 @@ enum OriginIconography {
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
+        // Round 4 R-AG7: Grok's connector.
+        "grok",
     ]
 
     static func label(for origin: String) -> String {
@@ -110,6 +112,7 @@ enum OriginIconography {
         case "claude-web": "Claude"
         case "chatgpt": "ChatGPT"
         case "perplexity": "Perplexity"
+        case "grok": "Grok"
         case "claude-code-remote": "Claude Code (remote)"
         case "codex-remote": "Codex (remote)"
         case "vscode": "VS Code"
@@ -152,7 +155,8 @@ enum OriginIconography {
         case "unknown": "questionmark.circle"
         // G135 R-R26 — the fallback when no mark ships (Perplexity and "Other"
         // by R-R34; any of them if a bundled PNG ever goes missing).
-        case "claude-web", "chatgpt": "bubble.left.and.bubble.right"
+        // Grok (R-AG9): no sourced xAI mark yet, so it stays on the glyph.
+        case "claude-web", "chatgpt", "grok": "bubble.left.and.bubble.right"
         case "perplexity": "magnifyingglass.circle"
         case "claude-code-remote", "codex-remote": "terminal"
         case "vscode": "chevron.left.forwardslash.chevron.right"

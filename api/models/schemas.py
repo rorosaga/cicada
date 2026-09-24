@@ -2399,7 +2399,12 @@ class AgentSetupResponse(CamelModel):
     """``GET /agents/setup?harness=`` (round 4 C5, G76). ``kind`` says which of
     ``prompt`` / ``argv`` / ``display`` (a paste-into-your-agent prompt naming
     exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
-    ``config`` is set. ``remote`` is reserved: no harness produces it yet."""
+    ``config`` is set. A ``prompt`` with ``argv: []`` (OpenCode, Hermes,
+    OpenClaw) is a config registration the agent performs itself, with
+    ``config`` riding along for doing it by hand (round 4 C8, R-AG3).
+    ``remote`` is produced by ``claude``/``chatgpt``/``grok``: ``display`` holds
+    exactly the two steps before Confirm on the G135 connector and ``note`` the
+    honesty line; nothing is set to run (R-AG19)."""
 
     harness: str
     kind: Literal["prompt", "deeplink", "config-merge", "remote"]

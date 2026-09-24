@@ -24,19 +24,37 @@ and argv (``autorecall``, ``autorecall_on``, ``autorecall_off``), kept apart fro
 ``setup`` (round 4 D5, C5; G76's in-app half) serves what to hand an agent
 instead of running anything: a prompt that names exactly the commands this
 module's step builders produce, Cursor's install link, or a config merge the app
-performs. No probe, no subprocess, no harness file read.
+performs. Round 4 C8 adds two more shapes. OpenCode, Hermes and OpenClaw get a
+prompt with no commands (``argv: []``) that names the server and where it lives
+in the agent's own settings, so the agent writes the entry itself — their CLIs'
+registration flags could not be verified, and a wrong argv the app runs is worse
+than a prompt an agent reads (R-AG3). Claude (on the web), ChatGPT and Grok get
+``kind: "remote"``: the two steps before Confirm on the G135 connector, worded
+here so Settings and onboarding read one source (R-AG19). No probe, no
+subprocess, no harness file read.
+
+The config reads behind ``recall`` for the agents with no verified CLI probe
+(R-AG4) open ONE file each — the agent's own MCP config — parse-only, at most
+256 KB, never written, and only ``on | off | unknown`` leaves the function
+(those files can hold other servers' secrets). None of them is under
+``~/Library`` (the app's alone) or Claude Code's ``~/.claude.json`` (its state
+file, not a config Cicada owns); the ``~/.claude`` sentence above stays true.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
+import re
 import shlex
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 from urllib.parse import quote
+
+import yaml
 
 from api.hooks import registry as hook_registry
 from api.services.connections import base
@@ -100,6 +118,106 @@ def hook_step(h: Harness, *, home: Path, repo: Path, python: str) -> dict:
 GEMINI_SETTINGS = ".gemini/settings.json"
 
 
+# --- Round 4 C8 (R-AG4): an agent's own MCP config, read to say whether it names Cicada ---
+
+CONFIG_MAX_BYTES = 256 * 1024
+
+
+@dataclass(frozen=True)
+class ConfigProbe:
+    """Where one agent keeps its MCP servers. ``files`` are HOME-relative and
+    the first that exists wins; ``key`` is the dict path to Cicada's entry.
+    Parse-only and bounded: a config file is never written here (the backend
+    never writes a harness root, design §1) and a huge one is ``unknown``."""
+    files: tuple[str, ...]
+    key: tuple[str, ...]
+
+
+CONFIG_PROBES: dict[str, ConfigProbe] = {
+    "gemini-cli": ConfigProbe((GEMINI_SETTINGS,), ("mcpServers", "cicada")),
+    "opencode": ConfigProbe((".config/opencode/opencode.json", ".config/opencode/opencode.jsonc"), ("mcp", "cicada")),
+    "hermes": ConfigProbe((".hermes/config.yaml",), ("mcp_servers", "cicada")),
+    "openclaw": ConfigProbe((".openclaw/openclaw.json",), ("mcp", "servers", "cicada")),
+    "cursor": ConfigProbe((".cursor/mcp.json",), ("mcpServers", "cicada")),
+    "codex": ConfigProbe((".codex/config.toml",), ("mcp_servers", "cicada")),
+}
+
+
+def _loads_jsonc(text: str):
+    """OpenCode accepts JSON with comments and trailing commas (``opencode.jsonc``).
+    Comments are dropped outside strings only, so ``"http://x"`` survives."""
+    out: list[str] = []
+    i, n, in_string = 0, len(text), False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            in_string = ch != '"'
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        else:
+            out.append(ch)
+            i += 1
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+
+
+def _parse_config(path: Path):
+    """One reader per format. Every ``.json``/``.jsonc`` goes through the
+    comment- and trailing-comma-tolerant reader: OpenClaw's ``openclaw.json``
+    is written as JSON5 and Cursor's ``mcp.json`` as JSONC by hand, and strict
+    JSON is a subset, so a commented file reads ``on``/``off`` rather than a
+    false ``unknown``. (Unquoted keys or single quotes still fail → ``unknown``.)"""
+    text = path.read_text(encoding="utf-8")
+    if path.suffix in (".yaml", ".yml"):
+        return yaml.safe_load(text)
+    if path.suffix == ".toml":
+        return tomllib.loads(text)
+    return _loads_jsonc(text)
+
+
+def config_state(agent_id: str, home: Path) -> str:
+    """``on`` when the agent's own config names Cicada, ``off`` when it does not
+    (or there is no file), ``unknown`` when it cannot be read — never ``off``
+    for a file Cicada failed to parse (R-IA15's rule for ``recall``)."""
+    probe = CONFIG_PROBES[agent_id]
+    path = next((home / rel for rel in probe.files if (home / rel).is_file()), None)
+    if path is None:
+        return "off"
+    try:
+        if path.stat().st_size > CONFIG_MAX_BYTES:
+            return "unknown"
+        node = _parse_config(path)
+    except (OSError, ValueError, yaml.YAMLError):
+        return "unknown"
+    for part in probe.key:
+        if not isinstance(node, dict) or part not in node:
+            return "off"
+        node = node[part]
+    return "on"
+
+
+def stop_hook_state(home: Path, python: str, repo: Path, harness: str = "claude-code") -> str:
+    """The G105 Stop hook's state in the harness's own settings file — Claude
+    Code's only config signal, because its MCP registration lives in
+    ``~/.claude.json``, which Cicada never opens (R-AG4)."""
+    h = next(h for h in HARNESSES if h.id == harness)
+    return _autosave(home / h.settings, hook_command(python, repo, h.id))
+
+
 def gemini_mcp_step(binary: str, *, memory_root: Path, repo: Path, python: str) -> dict:
     """`gemini mcp add [options] <name> <command> [args...]` with user scope, per
     the Gemini CLI docs (checked 2026-09-24, not run). Served only inside a
@@ -151,6 +269,57 @@ def _prompt_setup(harness: str, steps: list[dict], note: str = _NEW_SESSION) -> 
             "display": [s["display"] for s in steps], "note": note}
 
 
+# Round 4 C8 (R-AG3): agents that write Cicada into their own settings.
+CONFIG_SETUPS: dict[str, tuple[str, str, str, str]] = {
+    # id: (product, where the entry lives, its key, what to do after)
+    "opencode": ("OpenCode", "~/.config/opencode/opencode.json", "mcp.cicada",
+                 "Once it's done, start a new OpenCode session so it can see your memory."),
+    "hermes": ("Hermes", "~/.hermes/config.yaml", "mcp_servers.cicada",
+               "Once it's done, run /reload-mcp in Hermes or start a new session."),
+    "openclaw": ("OpenClaw", "~/.openclaw/openclaw.json", "mcp.servers.cicada",
+                 "OpenClaw picks the change up on its own."),
+}
+
+
+def config_value(agent_id: str, spec: dict) -> dict:
+    """The entry in the agent's own shape. OpenCode's local server is a
+    ``command`` array with ``environment`` (its docs); Hermes and OpenClaw take
+    the same ``command``/``args``/``env`` object Cursor and Claude do."""
+    if agent_id == "opencode":
+        return {"type": "local", "command": [spec["command"], *spec["args"]],
+                "environment": dict(spec["env"]), "enabled": True}
+    return spec
+
+
+def config_prompt(product: str, where: str, key: str, spec: dict) -> str:
+    """C5's promises, for an agent that edits a file instead of running a
+    command: what to add, where, change nothing else, nothing is uploaded."""
+    memory = spec["env"]["CICADA_MEMORY_PATH"]
+    return (f"Please connect Cicada, the memory app on this Mac, to {product}. Add one MCP server named cicada "
+            f"to your own settings — {where}, at {key} — and change nothing else. It runs:\n\n"
+            f"command: {spec['command']}\nargument: {spec['args'][0]}\nenvironment: CICADA_MEMORY_PATH={memory}\n\n"
+            "It lets you read and add to my memory. If Cicada is already there, that's fine. This uploads nothing: "
+            "my memory stays on this computer. Then tell me in one sentence whether it worked.")
+
+
+# Round 4 C8 (R-AG19): cloud agents reach this Mac only through the G135 connector.
+# From anywhere is its own Settings row (Customize: Integrations · Agents · From anywhere, G139), not a part of
+# Agents — the step names the row the person will actually find.
+REACH_STEP = ("In Cicada's Settings, open From anywhere and turn it on. It needs a tunnel you run, like "
+              "Tailscale Funnel or ngrok.")
+REMOTE_SETUPS: dict[str, tuple[str, str, str]] = {
+    # id: (title, product, the link step)
+    "claude": ("Connect Claude on the web", "Claude",
+               "Create a link for Claude, then paste it in claude.ai → Settings → Connectors → Add custom "
+               "connector, with sign-in off. It works in the Claude app on your phone too."),
+    "chatgpt": ("Connect ChatGPT", "ChatGPT",
+                "Create a link for ChatGPT, then in ChatGPT on the web turn on Developer mode and add an app "
+                "with the link and no authentication."),
+    "grok": ("Connect Grok", "Grok",
+             "Create a link for Grok, then send Grok the message Cicada shows you. Grok adds the link itself."),
+}
+
+
 def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python: str | None = None,
           resolve=base.resolve_binary) -> dict | None:
     """`GET /agents/setup` (C5). Both steps always for Claude Code and Codex —
@@ -177,6 +346,17 @@ def setup(harness: str, *, home: Path, memory_root: Path, repo: Path = REPO_ROOT
         return {"harness": harness, "kind": "config-merge", "title": "Connect the Claude app",
                 "config": {"path": CLAUDE_DESKTOP_CONFIG, "key": "mcpServers.cicada", "value": spec},
                 "note": "Quit and reopen Claude so it picks Cicada up."}
+    if harness in CONFIG_SETUPS:
+        product, where, key, note = CONFIG_SETUPS[harness]
+        value = config_value(harness, spec)
+        return {"harness": harness, "kind": "prompt", "title": f"Connect {product}",
+                "prompt": config_prompt(product, where, key, spec), "argv": [], "display": [],
+                "config": {"path": where, "key": key, "value": value}, "note": note}
+    if harness in REMOTE_SETUPS:
+        title, product, link_step = REMOTE_SETUPS[harness]
+        return {"harness": harness, "kind": "remote", "title": title, "display": [REACH_STEP, link_step],
+                "note": (f"{product} saves to your memory only when you or it asks — it has no automatic save. "
+                         "It reaches this Mac while this Mac is awake and online.")}
     return None
 
 
@@ -264,20 +444,19 @@ async def _harness(h: Harness, *, home: Path, memory_root: Path, repo: Path, pyt
             "autosave": autosave, "connect": connect, "detail": detail}
 
 
-def _gemini_cli(home: Path, resolve) -> dict:
-    """Read-only until its CLI registration is verified (R-IA15)."""
-    binary = resolve("gemini")
+CONFIG_AGENT_BINARIES = {"gemini-cli": "gemini", "opencode": "opencode", "hermes": "hermes", "openclaw": "openclaw"}
+
+
+def _config_agent(agent_id: str, home: Path, resolve) -> dict:
+    """Read-only until the app has verified a registration command for it
+    (R-IA15, R-AG3): the row reports the agent's own config and offers nothing.
+    Dict order is the row order — Gemini CLI stays where it was, the three
+    round-4 agents follow it."""
+    binary = resolve(CONFIG_AGENT_BINARIES[agent_id])
     if binary is None:
-        return {"id": "gemini-cli", "installed": False, "binary": None, "recall": "off",
+        return {"id": agent_id, "installed": False, "binary": None, "recall": "off",
                 "autosave": "n/a", "connect": [], "detail": None}
-    path = home / ".gemini" / "settings.json"
-    try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        servers = data.get("mcpServers") if isinstance(data, dict) else None
-        recall = "on" if isinstance(servers, dict) and "cicada" in servers else "off"
-    except (OSError, ValueError):
-        recall = "unknown"
-    return {"id": "gemini-cli", "installed": True, "binary": binary, "recall": recall,
+    return {"id": agent_id, "installed": True, "binary": binary, "recall": config_state(agent_id, home),
             "autosave": "n/a", "connect": [], "detail": None}
 
 
@@ -293,5 +472,5 @@ async def probe(*, home: Path, memory_root: Path, repo: Path = REPO_ROOT, python
     by_id = {h.id: h for h in HARNESSES}
     rows = [{**row, **autorecall_fields(by_id[row["id"]], home=home, repo=repo, python=python)}
             if row["installed"] else row for row in rows]
-    return {"agents": [*rows, _gemini_cli(home, resolve)], "python": python,
+    return {"agents": [*rows, *(_config_agent(a, home, resolve) for a in CONFIG_AGENT_BINARIES)], "python": python,
             "repo": str(repo), "memory": str(memory_root)}
