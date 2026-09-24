@@ -284,7 +284,7 @@ def test_channels_etag_recipe_is_unchanged_by_the_two_new_fields(client):
     behaviourally, the way test_source_overview.py:305 pins the overview's —
     note this one has no `overview|` prefix."""
     from api.routers.sources import ADAPTERS
-    from api.services import sync_service
+    from api.services import channel_registry, sync_service
 
     c, path = client
     r = c.get("/sources/channels")
@@ -293,10 +293,23 @@ def test_channels_etag_recipe_is_unchanged_by_the_two_new_fields(client):
     tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
     expected = sync_service.etag_for(
         path, "sources", "episodes", "entities",
-        extra=f"telegram:False|connectors:{tag}",
+        extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:False|connectors:{tag}",
     )
     assert r.headers["etag"] == expected
     assert c.get("/sources/channels", headers={"If-None-Match": expected}).status_code == 304
+
+
+def test_channels_etag_moves_when_the_always_listed_rows_change(client, monkeypatch):
+    """Round 4 final review #3: the Apple Calendar row joined the body with no
+    bank file changing, so a client's cached list 304'd without it. The body's
+    shape rides the ETag like `graph.NODE_SHAPE`; a bump must break it."""
+    from api.services import channel_registry
+
+    c, _ = client
+    etag = c.get("/sources/channels").headers["etag"]
+    assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 304
+    monkeypatch.setattr(channel_registry, "CHANNELS_SHAPE", "next-shape")
+    assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 200
 
 
 def test_files_channel_counts_the_url_index(tmp_path):

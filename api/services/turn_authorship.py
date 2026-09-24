@@ -11,8 +11,9 @@ sidecar (C1), and every claim written through the MCP seam carries
 * a claim → its first writer's `session_id` → that session's capture episode
   (`capture_kind: transcript`; an MCP episode of the same session never is) →
   the last person's turn at or before `recorded_ts` → the agent turn that
-  answered it (the next agent entry before the next person's). No such turn →
-  null. No `recorded_ts` (written before C2) → the session's only model, when it
+  answered it (the next agent entry before the next person's that ended at or
+  after the write — an earlier one is the turn before a dropped prompt). No
+  such turn → null. No `recorded_ts` (written before C2) → the session's only model, when it
   used exactly one (R4B-6).
 * an evidence span of kind `assistant` → the turn its start falls in, by the
   body's own turn starts, unless the span is stale (R4B-7).
@@ -86,8 +87,20 @@ def turn_at(stamps: list[agent_turns.Stamp], recorded_ts) -> Pair:
     for s in stamps[asked + 1:]:
         if s.speaker == "user":
             return NONE          # that question got no kept reply (tool calls only)
-        if s.speaker == "assistant":
-            return (s.model, s.effort)
+        if s.speaker != "assistant":
+            continue
+        # A reply that ended BEFORE the write's second cannot be the write's
+        # turn: the extractor keeps a reply only after the turn's last tool
+        # call, and an MCP write is a tool call, so the real reply always ends
+        # at or after it. An earlier reply means the prompt that started the
+        # write's turn was dropped (a `/command`, a task notification, an
+        # `isMeta` line, a turn past the session cap) and this is the turn
+        # before — its model/effort would be a guess (D1, final review #1).
+        # Keep scanning: the write's own reply may still follow.
+        ended = _second(s.ts)
+        if ended is None or ended < moment:
+            continue
+        return (s.model, s.effort)
     return NONE                  # the reply is not captured yet — the next Stop adds it
 
 

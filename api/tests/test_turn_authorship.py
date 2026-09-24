@@ -3,9 +3,12 @@ joined at read from the capture episode's per-turn sidecar, never stored, never
 guessed. Pure rules first, then over a synthetic bank."""
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from api.services import agent_turns, bank_index, episode_staging, evidence, markdown_parser
+from api.services import (agent_turns, bank_index, episode_staging, evidence, markdown_parser,
+                          transcript_capture, transcript_extract)
 from api.services import turn_authorship as ta
 from api.services.claims import Claim, Evidence
 
@@ -33,7 +36,9 @@ def _stamps(entries=SIDECAR):
 @pytest.mark.parametrize("at, expected", [
     ("2026-09-03T10:00:03Z", ("claude-opus-5-5", "xhigh")),   # written during the first turn
     ("2026-09-03T10:05:00Z", ("claude-sonnet-5", "low")),     # the question's own second (both floored)
-    ("2026-09-03T10:07:00Z", ("claude-sonnet-5", "low")),     # still the last question's turn
+    # After the last reply ended: a later turn whose prompt was dropped, not
+    # this one — the write's own reply always ends at or after it (final review #1).
+    ("2026-09-03T10:07:00Z", (None, None)),
     ("2026-09-03T09:59:59Z", (None, None)),                   # before anyone asked
     ("not a time", (None, None)),
 ])
@@ -44,6 +49,36 @@ def test_a_write_belongs_to_the_turn_it_happened_in(at, expected):
 def test_a_question_with_no_kept_reply_answers_nothing():
     only_tools = [SIDECAR[0], SIDECAR[2], SIDECAR[3]]  # the first question's reply was tool calls only
     assert ta.turn_at(_stamps(only_tools), "2026-09-03T10:00:30Z") == (None, None)
+
+
+def _line(typ, ts, text, **extra):
+    line = {"type": typ, "uuid": typ[0], "timestamp": ts, "sessionId": SID,
+            "cwd": "/home/example/alpha-project", "message": {"role": typ, "content": text}}
+    if typ == "assistant":
+        line["message"]["content"] = [{"type": "text", "text": text}]
+        line["message"]["model"] = "claude-opus-5-5"
+    line.update(extra)
+    return json.dumps(line)
+
+
+def test_a_dropped_prompt_never_lends_the_write_the_previous_replys_effort():
+    """Final review #1, through the real extractor and the real sidecar writer:
+    a `/review` slash command is dropped at capture, so the last kept question
+    before the write is the previous turn's. That turn's reply ended before the
+    write, so it is not the write's turn; the reply after the write is."""
+    conv = transcript_extract.extract_claude_code([
+        _line("user", "2026-09-03T10:00:00.000Z", "Plan alpha-project."),
+        _line("assistant", "2026-09-03T10:00:05.000Z", "Planned.", effort="low"),
+        _line("user", "2026-09-03T10:02:00.000Z", "<command-name>/review</command-name>"),
+        _line("assistant", "2026-09-03T10:02:30.000Z", "Reviewed.", effort="xhigh"),
+    ])
+    assert [t.role for t in conv.turns] == ["user", "assistant", "assistant"]
+    body = transcript_capture._body(conv)
+    stamps = agent_turns.stamps({"turns": transcript_capture._turn_sidecar(conv, body)})
+    assert ta.turn_at(stamps, "2026-09-03T10:02:10Z") == ("claude-opus-5-5", "xhigh")
+    assert ta.turn_at(stamps, "2026-09-03T10:00:03Z") == ("claude-opus-5-5", "low")
+    # With the later reply not captured yet, the write answers nothing rather than "low".
+    assert ta.turn_at(stamps[:2], "2026-09-03T10:02:10Z") == (None, None)
 
 
 def test_past_the_head_stable_cap_nothing_is_claimed(monkeypatch):

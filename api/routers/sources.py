@@ -739,11 +739,12 @@ async def list_source_channels(
     # filesystem-in-the-bank ones: configuring a bot token, or connecting an
     # account, flips a channel to "connected" without touching any component
     # below, so without them in the ETag a warm client 304s and keeps showing
-    # "not connected" forever.
+    # "not connected" forever. `CHANNELS_SHAPE` covers the other case: the body
+    # changing for the same files (a new always-listed row), round 4 final review #3.
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities",
-        extra=f"telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+        extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

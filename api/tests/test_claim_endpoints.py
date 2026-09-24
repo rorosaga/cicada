@@ -381,3 +381,33 @@ def test_claims_endpoint_hides_events_unless_asked(tmp_path):
     assert (wire["status"], wire["target"], wire["participants"]) == (
         "planned", "2026-10-01", [{"role": "with", "surface": None, "entity": "hana-example", "url": None}])
     assert wire["dateBasis"] is None and "expectedEnd" in wire
+
+
+def test_the_model_join_never_runs_on_the_event_loop(tmp_path, monkeypatch):
+    """Round 4 final review #2: the C3 model join scans the episode index and
+    reads cited capture bodies — seconds cold on a big bank. `/claims`,
+    `/timeline` and `/transclude` build it in the threadpool, never on the loop
+    where it would stall SSE and every other request."""
+    from api.routers import claims as claims_router
+    from api.services import turn_authorship
+
+    _write_page(tmp_path, "cicada", "Cicada", [
+        Claim(id="clm_v", text="Cicada uses sqlite-vec.", subject="cicada",
+              predicate="uses", object="sqlite-vec", context="engineering")])
+    real = turn_authorship.TurnAuthorship
+    seen: list[bool] = []
+
+    def spy(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen.append(True)
+        except RuntimeError:
+            seen.append(False)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(turn_authorship, "TurnAuthorship", spy)
+    s = _FakeSettings(tmp_path)
+    run(claims_router.get_entity_claims("cicada", settings=s))
+    run(claims_router.get_entity_timeline("cicada", predicate="uses", context="engineering", settings=s))
+    run(claims_router.get_transclusion(ref="cicada", settings=s))
+    assert seen and not any(seen), "the model join must not run on the event loop"

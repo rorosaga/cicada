@@ -56,6 +56,14 @@ _NON_CONNECTOR_TAIL = (
 )
 CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 
+#: Folded into `GET /sources/channels`' ETag. Bump it whenever the rows this
+#: module always emits change for the same bank files — the app reloads its
+#: `.channels` domain from the on-disk cache WITH its ETag, so an unchanged tag
+#: 304s the old list until some component moves, which on a quiet or demo bank
+#: can be never. Same rule as `graph.NODE_SHAPE` / `git_service.AUTHOR_SHAPE`;
+#: "g142" is the always-listed Apple Calendar row (round 4 final review #3).
+CHANNELS_SHAPE = "g142"
+
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
 # `f"{n:,}"` into every `detail` line and the app printed that verbatim, so a
