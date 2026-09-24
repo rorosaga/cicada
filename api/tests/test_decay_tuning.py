@@ -326,3 +326,18 @@ def test_the_decay_pass_multiplies_by_the_bank_pace(bank):
     changes = {c["id"]: c for c in run(conflict_resolver.resolve_and_prune([], existing, _SleepSettings(bank)))}
     assert changes["person-01"]["new_confidence"] == pytest.approx(0.7 - 0.025)
     assert changes["tool-01"]["new_confidence"] == pytest.approx(0.7 - 0.05)
+
+
+def test_a_file_that_is_not_utf8_reads_as_no_tuning_and_sleep_still_decays(bank):
+    """R4 final review: a hand edit saved as Latin-1 raised UnicodeDecodeError out
+    of ``load`` — Stage 3 failed every night after the LLM spend, every entity read
+    failed, and the /memory routes that could Reset it failed too."""
+    (bank / decay_tuning.FILE).write_bytes(b"types:\n  person: 0.5  # caf\xe9\n")
+    assert decay_tuning.load(bank) == {}
+    ago = str(date.today() - timedelta(days=35))
+    existing = [
+        {"id": "person-01", "frontmatter": {"type": "person", "status": "active", "confidence": 0.7,
+                                            "decay_class": "active", "last_referenced": ago}, "body": ""},
+    ]
+    changes = {c["id"]: c for c in run(conflict_resolver.resolve_and_prune([], existing, _SleepSettings(bank)))}
+    assert changes["person-01"]["new_confidence"] == pytest.approx(0.7 - 0.05)

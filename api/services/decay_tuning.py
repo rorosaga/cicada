@@ -52,7 +52,10 @@ def load(memory_path) -> dict[str, float]:
         return {}
     try:
         data = yaml.safe_load((Path(memory_path) / FILE).read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+    except (OSError, ValueError, yaml.YAMLError):
+        # ValueError covers UnicodeDecodeError: a hand edit saved as Latin-1 must
+        # read as no tuning, not raise out of Stage 3, every entity read and the
+        # /memory routes that would let Reset repair it (R4 final review).
         return {}
     types = data.get("types") if isinstance(data, dict) else None
     out: dict[str, float] = {}

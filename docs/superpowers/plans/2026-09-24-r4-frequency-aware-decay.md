@@ -138,9 +138,9 @@ graph JS 8/8.
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay` (branch
+- Work ONLY in `<worktree>` (branch
   `feat/r4-decay`, based on `dev` @ `ecb59c7`). Every shell command is
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay && <cmd>` with the absolute
+  `cd <worktree> && <cmd>` with the absolute
   path (zoxide hijacks relative `cd`; ignore its stderr warning). No unquoted
   `--include=*.ext` (zsh globs it).
 - NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari` or
@@ -154,7 +154,7 @@ graph JS 8/8.
   **two or more ISO weeks**, update the expected number to the spaced value with a comment citing
   G147 — never loosen the assertion. (Survey at `ecb59c7`: every existing decay fixture uses
   `source_episodes: []`, so none is expected.)
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and
   `swift test 2>&1 | tail -20` must report **0 failures**. SleepViewModelTests poll tests and the
   search-latency tests can flake under load — re-run alone before calling them yours. SourceKit
   diagnostics naming OTHER worktrees are noise. Graph JS: `node --test
@@ -662,7 +662,7 @@ def test_record_keep_is_idempotent_within_a_day():
 ```
 
 - [ ] **Step 2: Run — red.**
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay && api/.venv/bin/python -m pytest api/tests/test_decay_spacing.py -q -p no:cacheprovider`
+  `cd <worktree> && api/.venv/bin/python -m pytest api/tests/test_decay_spacing.py -q -p no:cacheprovider`
   → `AttributeError: module 'api.services.decay_policy' has no attribute 'mention_weeks'` (and
   a `KeyError` on the config fields).
 
@@ -2090,7 +2090,7 @@ final class FadeWordsTests: XCTestCase {
   `api/.venv/bin/python -m pytest api/tests/test_decay_endpoint.py -q -p no:cacheprovider` →
   the three new tests fail (`KeyError: 'decay'` from the dumped body, then
   `AttributeError: 'EntityResponse' object has no attribute 'decay'`); the existing ones pass;
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay/app/CicadaApp && swift test --filter FadeWordsTests 2>&1 | tail -20` → compile failure
+  `cd <worktree>/app/CicadaApp && swift test --filter FadeWordsTests 2>&1 | tail -20` → compile failure
   (`EntityDecay`, `FadeWords` do not exist).
 
 - [ ] **Step 3: Implement.**
@@ -2277,7 +2277,7 @@ docstring.
 - [ ] **Step 4: Green, then the suites.**
   `api/.venv/bin/python -m pytest api/tests/test_decay_endpoint.py -q -p no:cacheprovider` →
   pass; full `api/tests` → 0 failures.
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay/app/CicadaApp && swift build 2>&1 | tail -5` → success;
+  `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` → success;
   `swift test --filter "FadeWordsTests|DecayClassTests|EntityContentTests|CountLiteralLintTests" 2>&1 | tail -20`
   → pass; then `swift test 2>&1 | tail -20` → 0 failures.
 
@@ -2475,7 +2475,7 @@ final class DecayTuningTests: XCTestCase {
 ```
 
 - [ ] **Step 2: Run — red.**
-  `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay/app/CicadaApp && swift test --filter DecayTuningTests 2>&1 | tail -20`
+  `cd <worktree>/app/CicadaApp && swift test --filter DecayTuningTests 2>&1 | tail -20`
   → compile failure (`DecayTuningResponse`, `DecaySuggestion`, `DecayTuningModel` do not exist).
 
 - [ ] **Step 3: Implement.**
@@ -2813,7 +2813,7 @@ leading, trailingSystemImage, size, keyHint, shortcut, isDisabled, help, disable
 (precedent `Views/Inbox/FocusCardVariants.swift:71`); omitted arguments keep their defaults.
 
 - [ ] **Step 4: Green, then the suites.** In
-  `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay/app/CicadaApp` (`cd` to it
+  `<worktree>/app/CicadaApp` (`cd` to it
   with the absolute path first): `swift build 2>&1 | tail -5` → success;
   `swift test --filter "DecayTuningTests|FadeWordsTests|SettingsIndexTests|SettingsRowLintTests|CountLiteralLintTests|FontLiteralLintTests" 2>&1 | tail -20`
   → pass; then `swift test 2>&1 | tail -20` → 0 failures.
@@ -2964,11 +2964,11 @@ In `## API Design`, `31 routers` → `32 routers`, and add to **Endpoint traps**
 
 ## Verification (the orchestrator runs this at the end)
 
-1. **Backend suite:** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`
+1. **Backend suite:** `cd <worktree> && api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`
    → 0 failures (3775 + this track's 62 = **3837 passed, 1 skipped**, as the critic check
    measured; the one known order-dependent case re-run alone if it is the only red). A count
    below 3837 means a test from this plan was dropped.
-2. **Swift:** `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/r4-decay/app/CicadaApp && swift build 2>&1 | tail -5` → success;
+2. **Swift:** `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` → success;
    `swift test 2>&1 | tail -20` → 0 failures (2003 + this track's 17 = **2020 tests**).
    **Graph JS:** `node --test app/CicadaApp/Tests/graph/*.test.js` → 8/8.
 3. **The spacing, on a synthetic bank over simulated cycles:**
