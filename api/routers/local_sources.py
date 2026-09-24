@@ -4,6 +4,9 @@ The app owns the disk — a folder bookmark, another app's SQLite under
 ``~/Library`` — and posts bytes or a whitelisted projection here; the backend
 never opens either (R-F1, R-N1). Every route is bearer-gated like the rest of
 the API; none is on the Telegram / OAuth-callback exemption list.
+
+Apple Calendar (G142): EventKit is read by the app; the window's events are
+posted here.
 """
 
 from __future__ import annotations
@@ -13,6 +16,8 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    CalendarLocalSyncRequest,
+    CalendarLocalSyncResponse,
     FolderListResponse,
     FolderRecord,
     FolderRegisterRequest,
@@ -24,7 +29,7 @@ from api.models.schemas import (
     WisprFlowPayload,
     WisprFlowSettings,
 )
-from api.services import folder_source, local_refs, paper_metadata, papers, sync_state, wispr_flow
+from api.services import calendar_local, folder_source, local_refs, paper_metadata, papers, sync_state, wispr_flow
 from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter()
@@ -248,3 +253,24 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
     await folder_source.commit_paths_for(memory_path, report.pop("paths"), subject="Wispr Flow sync",
                                          trigger="wispr-flow/sync", channel=wispr_flow.CHANNEL_ID)
     return WisprFlowCaptureResponse(**report)
+
+
+@router.post("/sources/calendar-local/sync", response_model=CalendarLocalSyncResponse, dependencies=_DEMO_GATE)
+async def sync_calendar_local(req: CalendarLocalSyncRequest, settings: Settings = Depends(get_settings)):
+    """G142 (round 4 C6): stage one rolling window the app read through EventKit.
+    413 above ``calendar_local.MAX_EVENTS``; 422 for a window with no offset or
+    out of order; nothing staged either way. One ``user`` commit per sync
+    (trigger ``capture/calendar``), scoped to the episodes it wrote — a
+    no-change re-read commits nothing."""
+    memory_path = settings.memory_path
+    if len(req.events) > calendar_local.MAX_EVENTS:
+        raise HTTPException(413, f"at most {calendar_local.MAX_EVENTS} events per sync — send a shorter window")
+    try:
+        out = await run_in_threadpool(calendar_local.sync, memory_path, req.model_dump(by_alias=False),
+                                      bank=memory_path.name)
+    except calendar_local.PayloadError as exc:
+        raise HTTPException(422, str(exc))
+    sync_state.record_sync(memory_path, calendar_local.CHANNEL_ID, count=out.pop("live"))
+    await folder_source.commit_paths_for(memory_path, out.pop("paths"), subject="Calendar sync",
+                                         trigger="capture/calendar", channel=calendar_local.CHANNEL_ID)
+    return CalendarLocalSyncResponse(**out, bank=memory_path.name)

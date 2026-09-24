@@ -2839,6 +2839,55 @@ class WisprFlowCaptureResponse(CamelModel):
     todos_pending: int = 0
 
 
+class CalendarLocalWindow(CamelModel):
+    """``from``/``to`` on the wire (round 4 C6); ``start``/``end`` in Python,
+    where ``from`` is a keyword. Aware ISO-8601 times."""
+
+    start: str = Field(alias="from")
+    end: str = Field(alias="to")
+
+
+class CalendarLocalCalendar(CamelModel):
+    id: str
+    title: str = ""
+    account: Optional[str] = None
+
+
+class CalendarLocalEvent(CamelModel):
+    """One EventKit event (C6). ``id`` = ``calendarItemExternalIdentifier``, plus
+    ``|`` and the occurrence start for a recurring event."""
+
+    id: str
+    calendar_id: str = ""
+    title: str = ""
+    start: str
+    end: Optional[str] = None
+    all_day: bool = False
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    url: Optional[str] = None
+    attendees: list[str] = []
+    organizer: Optional[str] = None
+    last_modified: Optional[str] = None
+
+
+class CalendarLocalSyncRequest(CamelModel):
+    """``POST /sources/calendar-local/sync`` (G142). One request carries the
+    WHOLE window — a tombstone needs the complete set (R4B-13)."""
+
+    window: CalendarLocalWindow
+    calendars: list[CalendarLocalCalendar] = []
+    events: list[CalendarLocalEvent] = []
+
+
+class CalendarLocalSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    bank: str = ""
+
+
 # --- Saved-content connectors (G71 §2) ---
 
 
