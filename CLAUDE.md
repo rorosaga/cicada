@@ -865,7 +865,8 @@ is the binding target for every UI change: graphite neutrals, the system accent,
 command bar holding the bank selector and search, and progressive columns (the list alone → list + detail → list + detail +
 Reader). Rules are numbered `DR-n` and a UI PR cites the ids it applies; a departure needs a dated ruling in its §9. The owner
 chose D from three mocked directions (the Inbox and the Reader). DS-1 shipped the tokens, the type, the shell and the
-Settings panel; each page paragraph below describes what ships until that page's DS track lands.
+Settings panel; DS-2 (2026-09-24) shipped the Inbox in progressive columns and the Reader as a column. Every other
+page paragraph below describes what ships until that page's DS track lands.
 
 **Graphite and Meadow (Direction D, G137).** Working surfaces are graphite — `bgRail` · `bgBase` · `bgPane` · `bgHover`
 · `bgFocus` · `bgOption` · `bgButton` · `bgSelected` · `bgMenu` · `bgKey` · `bgBadge` (DESIGN_RULES §3.1, chroma ≤ 4,
@@ -889,7 +890,7 @@ directly on paint — enforced by an allowlist lint; the Welcome's hero band (`W
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
-defined for DS-2's Reader and Inbox to adopt (no view uses it yet). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
+read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
 never animates.
 
@@ -901,9 +902,15 @@ needs rewriting to teach the app a new one.
 **Provenance viewer (G118 slice 2).** Every claim carries evidence chips (`Views/Provenance/`): the
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
 for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
-when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a trailing
-`.inspector` on the main window driven by `ProvenanceRouter` (a stack of `ReaderTarget`s), beside
-whatever is open so a belief and its sentence are on screen together. It reads `/episodes/{id}/text`
+when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
+(`ReaderColumn`): the Inbox's third progressive column, and on every other page the shell's trailing
+column (`ShellReaderHost`), sized before the page so it is never pushed off-window. It is driven by
+`ProvenanceRouter` (a stack of `ReaderTarget`s), beside whatever is open so a belief and its sentence
+are on screen together (Direction D, DS-2). It shows C's header — mark, title, meta, and a neutral
+Resume when an `isfile()` check says the session is resumable — the pinned "1 of N cited here"
+navigator, the turns in the quote face with `CitedSpan`, and the "Noted from this conversation" rows;
+a swap onto the same conversation re-lands in place (`ProvenanceRouter.refocus`) rather than stacking
+a Back step. The dandelion wash and margin bar are gone (DR-13). It reads `/episodes/{id}/text`
 and `/citations` through `ProvenanceCache` — in memory, ETag-revalidated, **never a Store domain**,
 so there is no `VersionVector` mapping — slices every offset as a Unicode scalar through one
 `ScalarText`, shows a time only when the episode stores one, and says stale / grown / derived /
@@ -1022,6 +1029,20 @@ write back to the claim layer, a rejected merge is remembered in `<bank>/_merge_
 neither `clarification_manager` nor the dedup sweep proposes the pair again, and `remind_later` is a
 7-day defer (shipped with G115 Phase 1). Each of these also records a `resolution` telemetry event —
 see Telemetry ledger.
+
+**The page (Direction D, DS-2).** Progressive columns (`ProgressiveColumns`, `ColumnLayout` — DESIGN_RULES §5.3): the
+questions alone at full width; a click narrows them to the triage column and opens the question as C's focus card;
+"Show in conversation" opens the Reader as the third column. Widths are units (÷ uiScale); the list hides before the
+question drops under 440, and when neither the question's 440 nor the Reader's 360 fits they share the width, so
+nothing is pushed off-window. **One tap answers, and Undo is a send delay** (`ResolveGrace`, in the `Store`): the
+answer leaves `visibleInbox` at once and `POST /inbox/{id}/resolve` waits 5 s (`CicadaTiming.undoWindow`), sent
+early by the next answer, `ActivateBank` (before the bank moves), the window closing and quit (`.terminateLater`,
+≤ 3 s) — an undone answer makes no commit, claim or G113 event; a page switch does not send. Every kind renders in
+the card (`FocusCardVariant`), options come from the server (a follow-up's 30-day "not now" is its own option), the
+source is named in a person's words (`InboxSourceLine`, ids in `.help` only), an asserted span is washed and
+underlined and a found mention is semibold. Esc closes the Other… field, then the Reader, then the question; keys
+never animate. No in-page search field — ⌘K's Inbox group lands in STATE 1. The Sources page's Deletions render the
+same card and Undo row.
 
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
