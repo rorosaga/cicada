@@ -21,6 +21,8 @@ struct GettingStartedCard: View {
     @Environment(SetupRunner.self) private var runner
     @Environment(LocalInventory.self) private var inventory
     @Environment(BrowserWatcher.self) private var watcher
+    /// Round 4 (R-SR17) — a browser row's running sync and its ×.
+    @Environment(SyncActivity.self) private var activity
     @Environment(IntakeRouter.self) private var intake
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
@@ -151,24 +153,45 @@ struct GettingStartedCard: View {
 
     @ViewBuilder
     private func rowList(_ rows: [GettingStartedRow]) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            ForEach(rows) { row in
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    HStack(spacing: CicadaTheme.spacingXS) {
-                        FoundRow(mark: mark(row.id), title: row.title, detail: row.detail, state: row.state,
-                                 action: { Task { await runner.turnOn(row.id, effects: effects) } },
-                                 settingsLink: row.settingsLink)
-                        dismissButton(row)
+        let channels = store.channels.value ?? []
+        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                ForEach(rows) { row in
+                    let channelId = GettingStartedSourceRows.channelId(row.id)
+                    let run = channelId.flatMap { activity.run(for: $0) }
+                    let model = GettingStartedSourceRows.model(
+                        row, origin: origin(row.id), channel: channelId.flatMap { id in channels.first { $0.id == id } },
+                        watch: channelId.flatMap { watcher.state(for: $0) }, run: run)
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        SourceRow(model: model, now: context.date,
+                                  onCancel: channelId.map { id -> () -> Void in { activity.cancel(id) } }) {
+                            GettingStartedRowAction(row: row, showsOn: channelId == nil) {
+                                Task { await runner.turnOn(row.id, effects: effects) }
+                            }
+                            // While a run can be stopped, its × is the row's one ×.
+                            if run == nil { dismissButton(row) }
+                        }
+                        refusedLines(row.id)
                     }
-                    refusedLines(row.id)
+                }
+                if let engineError = runner.engineError {
+                    Text(engineError)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.danger)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if let engineError = runner.engineError {
-                Text(engineError)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.danger)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        }
+    }
+
+    /// The mark a row wears — an origin key for `OriginMark` (DR-52): an agent's own id, a browser's origin, a
+    /// dropped export's vendor.
+    private func origin(_ id: FoundItemID) -> String {
+        switch id {
+        case .agent(let agent): agent
+        case .browser(let channel): ConnectedChannelRow.origin(forChannel: channel)
+        case .dropped: runner.origins[id] ?? ""
+        case .app(let app): app
         }
     }
 
@@ -180,15 +203,6 @@ struct GettingStartedCard: View {
                    accessibilityLabel: "\(Copy.gsDismiss), \(row.title)") {
             if case .dropped = row.id { runner.forget(row.id) } else { effects.settle(row.id) }
         }
-    }
-
-    /// The export's real mark for a dropped row (an unknown origin falls to the
-    /// SF fallback); every other row wears the `+` strip's mark.
-    private func mark(_ id: FoundItemID) -> FoundMark {
-        if case .dropped = id {
-            return .logo(OriginIconography.logoName(for: runner.origins[id] ?? "") ?? "")
-        }
-        return OnThisMacStrip.mark(id)
     }
 
     /// Exactly as `OnThisMacStrip` renders them: to inspect, never to run — no copy button.
@@ -415,6 +429,36 @@ struct GettingStartedCard: View {
                              Task { await runner.turnOn(item.id, effects: effects) }
                          })
             }
+        }
+    }
+}
+
+/// The one thing a Getting started row can still do — `FoundRow`'s trailing rule, as DR-40 buttons. `showsOn`: a row
+/// with no channel (an agent, an app, a dropped export) has no "Last synced" to say, so it keeps `FoundRow`'s
+/// "On ✓" — without it an On row would say nothing on its right at all; a browser row says "Last synced …" instead.
+private struct GettingStartedRowAction: View {
+    let row: GettingStartedRow
+    let showsOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        switch row.state {
+        case .off, .needsAction, .failed:
+            if let section = row.settingsLink {
+                // The state's own words ("Finish in Settings → Agents", "Finish in Integrations"), as `FoundRow`
+                // would with an `actionTitle`; the Claude-desktop sentence is only the fallback.
+                SettingsSectionLink(section: section,
+                                    label: FoundRow.defaultActionTitle(row.state) ?? Copy.foundClaudeDesktopDetail)
+            } else if let title = FoundRow.defaultActionTitle(row.state) {
+                NeutralButton(title: title, size: .compact, action: action)
+            }
+        case .on:
+            if showsOn {
+                Label(Copy.foundOn, systemImage: "checkmark.circle.fill")
+                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.success)
+            }
+        case .working:
+            if showsOn { ProgressView().controlSize(.small) }   // a syncing browser row's spinner is `SourceRow`'s own
         }
     }
 }

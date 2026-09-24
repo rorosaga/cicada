@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime
 from pathlib import Path
 
@@ -365,6 +366,29 @@ async def ingest_rss(
     )
 
 
+# One bookmark sync per bank at a time (round 4 phase A final review, finding
+# 2). The app's × cancels only its own URLSession request: the route keeps
+# enriching and writing, while the app forgets the run at once and its Sync
+# now skips the file watcher's minimum interval. A second sync of the same
+# file started then would load `url_index.json` before the first saved, so
+# both would treat the same URLs as new — duplicate media episodes, an index
+# holding only the last writer's entries, and the seen-set and removal diff
+# run twice. The second caller gets a 409 rather than queueing, the
+# `POST /maintenance/enrich-links` precedent: process-local on purpose (the
+# backend is one uvicorn process), keyed by the resolved bank so a sync into
+# another bank is never held up. A preview stages nothing and takes no lock.
+_bookmark_sync_locks: dict[str, asyncio.Lock] = {}
+BOOKMARK_SYNC_BUSY = "A bookmark sync is still finishing"
+
+
+def _bookmark_sync_lock(memory_path: Path) -> asyncio.Lock:
+    key = str(Path(memory_path).resolve())
+    lock = _bookmark_sync_locks.get(key)
+    if lock is None:
+        lock = _bookmark_sync_locks[key] = asyncio.Lock()
+    return lock
+
+
 @router.post("/sources/sync-bookmarks", response_model=None, dependencies=_DEMO_GATE)
 async def sync_bookmarks(
     request: BookmarkSyncRequest | None = None,
@@ -376,10 +400,20 @@ async def sync_bookmarks(
     Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
     data — what the companion app sends after reading the files itself, R1,
     and what tests use) to sync against that data hermetically. Omit the body
-    (or send neither field) to read the real local bookmark files instead —
-    best-effort, offline-safe; see ``bookmark_sync.sync_from_local_files``.
-    That fallback exists for ``curl``/tests and is never the app's path: the
-    launchd backend has no Full Disk Access.
+    ENTIRELY to read the real local bookmark files instead — best-effort,
+    offline-safe; see ``bookmark_sync.sync_from_local_files``. That fallback
+    exists for ``curl``/tests and is never the app's path: the launchd
+    backend has no Full Disk Access.
+
+    A body that carries no bookmark data is a 422, never the fallback, and an
+    unknown field is a 422 too (``extra="forbid"``). Round 4 phase A final
+    review, finding 3: a pre-round-4 route dropped the new ``chromium`` field,
+    saw no data, and read the Chrome file the person had not turned on —
+    Chrome's profile is not behind Full Disk Access, so the backend could.
+    The next new field fails loudly instead of reading local files.
+
+    409 while another bookmark sync of this bank is still running (see
+    ``_bookmark_sync_locks``).
 
     ``?preview=true`` (R5) parses the supplied bytes and returns each source's
     folder tree with leaf counts WITHOUT ingesting anything — the same
@@ -388,6 +422,8 @@ async def sync_bookmarks(
     preview; there is nothing to preview from the local-file fallback.
     ``folders`` on the body narrows the sync to those folder paths (segment-
     boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
+    ``chromium`` (round 4, C9) carries the Chromium-family browsers; 422 for an
+    unknown browser, one sent twice, or bad base64.
 
     The "diff" is the existing ``url_index.json`` hash dedup in
     ``media_ingestor.ingest_batch`` — already-saved bookmarks are silently
@@ -399,6 +435,7 @@ async def sync_bookmarks(
 
     chrome_data = None
     safari_data = None
+    chromium: list[tuple[str, bytes]] = []
     if request is not None:
         if request.chrome_data_b64:
             try:
@@ -410,27 +447,49 @@ async def sync_bookmarks(
                 safari_data = base64.b64decode(request.safari_data_b64)
             except Exception:
                 raise HTTPException(status_code=422, detail="Invalid safariDataB64")
+        # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
+        # both fields — a browser sent twice would ingest its file twice and write
+        # two seen-sets for one channel.
+        for entry in request.chromium or []:
+            browser = entry.browser.strip().lower()
+            if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+                raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+            if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+                raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+            try:
+                chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
+            except Exception:
+                raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
 
     if preview:
-        if chrome_data is None and safari_data is None:
-            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64 and/or safariDataB64")
+        if chrome_data is None and safari_data is None and not chromium:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
         # Off the event loop, same reason as the upload preview: a plist the
         # size of a real Safari library is a CPU-bound parse and must not
         # stall the SSE stream.
         result = await run_in_threadpool(
-            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data
+            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data, chromium=chromium
         )
         return BookmarkTreePreview(**result)
 
-    if chrome_data is not None or safari_data is not None:
-        result = await bookmark_sync.sync_bookmarks(
-            memory_path,
-            chrome_data=chrome_data,
-            safari_data=safari_data,
-            folders=request.folders if request is not None else None,
-        )
-    else:
-        result = await bookmark_sync.sync_from_local_files(memory_path)
+    has_data = chrome_data is not None or safari_data is not None or bool(chromium)
+    if request is not None and not has_data:
+        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
+
+    lock = _bookmark_sync_lock(memory_path)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail=BOOKMARK_SYNC_BUSY)
+    async with lock:
+        if has_data:
+            result = await bookmark_sync.sync_bookmarks(
+                memory_path,
+                chrome_data=chrome_data,
+                safari_data=safari_data,
+                chromium=chromium,
+                folders=request.folders if request is not None else None,
+            )
+        else:
+            result = await bookmark_sync.sync_from_local_files(memory_path)
 
     # G62: the only durable trace that bookmark sync ever ran. `found` is the
     # number of bookmarks seen this pass (new + already-known), which is what
@@ -441,7 +500,9 @@ async def sync_bookmarks(
     for s in result.get("sources", []):
         channel = s.get("channel") or bookmark_sync.CHANNEL_BY_ORIGIN.get(s.get("origin", ""))
         if channel:
-            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0))
+            # R-SR14: Safari's two counts ride the entry as `extra`, so the row can say them.
+            extra = {k: int(s[k]) for k in bookmark_sync.PART_KEYS if k in s}
+            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0), extra=extra or None)
 
     return BookmarkSyncResponse(**result)
 

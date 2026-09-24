@@ -366,6 +366,10 @@ struct BookmarkSyncSourceSummary: Codable {
     let found: Int
     let new: Int
     let skipped: Int
+    /// R-SR13 — Safari's Reading List and Favorites tallies (0 for every other browser). Optional so a backend from
+    /// before round 4 still decodes; declared last so the memberwise init keeps its order.
+    var readingList: Int? = nil
+    var favorites: Int? = nil
 }
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
@@ -1212,6 +1216,54 @@ actor APIClient {
         return data
     }
 
+    /// C11 — `GET <path>` for a picture on this API (`/entities/{id}/picture?v=…`), with the bearer (plan R-PE6). nil on a
+    /// 404 — "no picture" is an ordinary answer — and for any path that is not an entity picture.
+    func fetchPictureBytes(path: String) async throws -> Data? {
+        guard path.hasPrefix("/entities/"), !path.contains("..") else { return nil }
+        var request = makeRequest(path, method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
+    /// C11 — `POST /entities/{id}/picture`: bytes `PictureImport` already shrank, as multipart `file`.
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        var request = makeRequest("/entities/\(encodedID(entityId))/picture", method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"picture.\(ext)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(ext == "png" ? "image/png" : "image/jpeg")\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return try decoder.decode(EntityPictureAnswer.self, from: reply)
+    }
+
+    /// C11 / F-12 — "Use initials instead" (plan R-PE4).
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await post("/entities/\(encodedID(entityId))/picture/initials")
+    }
+
+    /// C11 — back to what was detected.
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        let data = try await delete("/entities/\(encodedID(entityId))/picture")
+        return try decoder.decode(EntityPictureAnswer.self, from: data)
+    }
+
     func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
@@ -1682,6 +1734,14 @@ actor APIClient {
         if let safariData { body["safariDataB64"] = safariData.base64EncodedString() }
         if let folders { body["folders"] = folders }
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
+    }
+
+    /// `POST /sources/sync-bookmarks` with `chromium` (round 4, C9): one Chromium-family browser's default-profile file,
+    /// read by the app (the backend never opens a profile).
+    @discardableResult
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
+        try await post("/sources/sync-bookmarks",
+                       body: ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]])
     }
 
     /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,
@@ -2661,5 +2721,25 @@ extension APIClient {
         } catch {
             throw APIError.decodingError("\(error)")
         }
+    }
+}
+
+// MARK: - Backlog (G150) — the person's three writes
+
+extension APIClient {
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
+        var body: [String: Any] = ["title": title]
+        if !description.isEmpty { body["description"] = description }
+        return try await post(Self.projectPath(project, "backlog"), body: body)
+    }
+
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
+        var body: [String: Any] = ["note": note]
+        if let status { body["status"] = status }
+        return try await post(Self.backlogPath(project, item, "notes"), body: body)
+    }
+
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem {
+        try await patch(Self.backlogPath(project, item), body: change.body)
     }
 }

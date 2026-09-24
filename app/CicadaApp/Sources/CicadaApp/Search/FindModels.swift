@@ -8,7 +8,7 @@ import Foundation
 enum FindMode: String, Codable, Sendable { case find, ask }
 
 enum FindKind: String, Codable, Sendable {
-    case ask, entity, conversation, belief, media, source, inbox, setting, action, bank, askedBefore
+    case ask, entity, conversation, belief, media, source, inbox, backlog, setting, action, bank, askedBefore
 }
 
 /// A row's identity — the merge rule's dedupe key, `(kind, id)` (design §3.2),
@@ -19,10 +19,13 @@ struct FindRowKey: Hashable, Codable, Sendable {
 }
 
 /// The fixed order (design §3.3: Top hit, Entities, Conversations, Beliefs,
-/// Sources & papers, Inbox, Settings, Actions, Asked before), with the
+/// Sources & papers, Inbox, Backlog, Settings, Actions, Asked before), with the
 /// empty-state groups (§3.6: Recent, Asked before, Suggested) in the same sequence.
+/// Raw values are only an order — a recent persists `FindRowKey`, whose kind is a
+/// string — so G150's Backlog group slots in after Inbox without a migration.
 enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
-    case ask, topHit, recent, entities, conversations, beliefs, sources, inbox, settings, actions, askedBefore, suggested
+    case ask, topHit, recent, entities, conversations, beliefs, sources, inbox, backlog, settings, actions, askedBefore,
+         suggested
 
     static func < (lhs: FindGroupID, rhs: FindGroupID) -> Bool { lhs.rawValue < rhs.rawValue }
 
@@ -36,6 +39,7 @@ enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
         case .beliefs: "Beliefs"
         case .sources: "Sources & papers"
         case .inbox: "Inbox"
+        case .backlog: "Backlog"
         case .settings: "Settings"
         case .actions: "Actions"
         case .askedBefore: "Asked before"
@@ -53,6 +57,7 @@ enum FindGroupID: Int, CaseIterable, Comparable, Sendable {
         case .beliefs: "text.quote"
         case .sources: "photo.stack"
         case .inbox: "tray.full"
+        case .backlog: "checklist"
         case .settings: "gearshape"
         case .actions: "bolt"
         case .askedBefore: "arrow.uturn.left"
@@ -105,6 +110,8 @@ enum FindDestination: Equatable, Sendable {
     case belief(subjectId: String, claimId: String)
     case evidence(ReaderSpan)
     case inbox(id: String)
+    /// G150 (R-B25) — Projects, the project open, the item in the third column.
+    case backlogItem(project: String, id: String)
     case settings(SettingsSection, row: SettingsRowID?)
     case tab(AppTab)
     case action(PaletteAction)

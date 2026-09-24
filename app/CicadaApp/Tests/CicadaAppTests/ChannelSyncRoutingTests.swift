@@ -20,6 +20,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "pinterest", "reddit", "x",
         "folder:alpha-project-1a2b3c", "wispr-flow",
         "calendar-local",
+        // Round 4 (C9): the Chromium family, emitted once synced (R-SR15).
+        "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
     ]
 
     func testEverySyncIdTheRegistryEmitsHasAHandler() {
@@ -33,6 +35,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
                        .folder(id: "alpha-project-1a2b3c"))
         XCTAssertEqual(ChannelActions.syncRoute(for: LocalSourceWatcher.wisprChannel), .wisprFlow)
         XCTAssertEqual(ChannelActions.syncRoute(for: "safari-tabs"), .browserFile)
+        XCTAssertEqual(ChannelActions.syncRoute(for: "dia-bookmarks"), .browserFile,
+                       "a Chromium-family browser is read by the app like Chrome (C9)")
         XCTAssertEqual(ChannelActions.syncRoute(for: "notes"), .notes)
         XCTAssertEqual(ChannelActions.syncRoute(for: "reddit"), .connector)
         XCTAssertEqual(ChannelActions.syncRoute(for: "calendar-local"), .calendarLocal,

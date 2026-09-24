@@ -12,7 +12,7 @@ def test_project_rows_carry_next_and_the_file_is_idempotent_across_a_day(tmp_pat
     first = state_dictionary.refresh(bank, None, force=True, today=T, now=now, probe_repos=False)
     assert first["written"]
     st = state_dictionary.read_state(bank)
-    assert st["schema_version"] == 3
+    assert st["schema_version"] == state_dictionary.SCHEMA_VERSION   # v4 (G150) only adds backlog_open, and this bank has no backlog
     rover = next(p for p in st["projects"] if p["id"] == "rover-arm-project")
     assert rover["next"] == {"slug": f"due-{d(12)}", "name": "Pick And Place Demo", "target": d(12)}
     assert "now" not in rover                        # no ongoing claim exists before PJ-3

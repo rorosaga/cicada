@@ -89,7 +89,7 @@ struct FindMarkView: View {
     var body: some View {
         switch mark {
         case .entity(let id, let name, let type):
-            LogoImage(entityId: id, name: name, type: type, size: CicadaTheme.scaled(20))
+            EntityPicture(id: id, name: name, type: type, size: 20)
         case .origin(let origin):
             OriginMark(origin: origin, size: CicadaTheme.scaled(20))
         case .symbol(let name):

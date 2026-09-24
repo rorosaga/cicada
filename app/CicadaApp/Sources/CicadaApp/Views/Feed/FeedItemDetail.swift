@@ -59,8 +59,7 @@ struct FeedItemDetail: View {
                 .lineLimit(1)
             Spacer(minLength: CicadaTheme.spacingSM)
             IconButton(systemName: "link", help: Copy.Lists.copyLink) {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(item.url, forType: .string)
+                AppPasteboard.copy(item.url)
                 store.toast = Copy.Lists.linkCopied
             }
             IconButton(systemName: "point.3.connected.trianglepath.dotted", help: Copy.Lists.showOnGraph) {

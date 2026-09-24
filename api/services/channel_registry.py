@@ -13,6 +13,7 @@ only** — never from the transient result of a button press:
   fixed ids (R-LS25)
 * ``calendar-local`` -> Apple Calendar through EventKit (G142), always listed,
   appended after the fixed ids
+* ``<browser>-bookmarks`` for Brave, Vivaldi, Comet, Dia -> once synced (round 4, C9)
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -24,6 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.services import (
+    bookmark_sync,
     calendar_local,
     calendar_registry,
     feed_registry,
@@ -61,8 +63,9 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: `.channels` domain from the on-disk cache WITH its ETag, so an unchanged tag
 #: 304s the old list until some component moves, which on a quiet or demo bank
 #: can be never. Same rule as `graph.NODE_SHAPE` / `git_service.AUTHOR_SHAPE`;
-#: "g142" is the always-listed Apple Calendar row (round 4 final review #3).
-CHANNELS_SHAPE = "g142"
+#: "g142" is the always-listed Apple Calendar row (round 4 final review #3);
+#: "r4-sources" adds `parts` and the rows that appear once synced — round 4, R-SR14.
+CHANNELS_SHAPE = "r4-sources"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -79,6 +82,21 @@ CHANNELS_SHAPE = "g142"
 def _short_date(iso: str | None) -> str:
     """`2026-08-29T10:00:00Z` / `2026-08-29` -> `2026-08-29`; '' when absent."""
     return (iso or "").split("T", 1)[0]
+
+
+#: Round 4 (R-SR14): extra counts a sync stamps beside `count` (`sync_state`'s
+#: `extra`), shipped as `parts` with a kebab key. A key not listed, a zero, a
+#: bool or a non-int is not a part — the app owns the words for these four only.
+PART_KEYS = ("reading_list", "favorites", "tabs", "people")
+
+
+def _parts(entry: dict) -> list[dict]:
+    out = []
+    for key in PART_KEYS:
+        value = entry.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            out.append({"key": key.replace("_", "-"), "count": value})
+    return out
 
 
 def _latest(values: list[str | None]) -> str | None:
@@ -133,6 +151,7 @@ def _sync_channel(
         # A running total, unlike a connector's per-run delta below.
         "count_noun": noun if connected else None,
         "count_is_delta": False,
+        "parts": _parts(entry) if connected else [],
         "actions": ["sync"],
     }
 
@@ -259,6 +278,7 @@ def _local_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
         "detail": detail,
         "count_noun": noun if connected and not error else None,
         "count_is_delta": False,
+        "parts": _parts(entry) if connected else [],
         "actions": ["sync", "manage"],
     }
 
@@ -352,6 +372,14 @@ def build_channels(
     # first sync; appended after the fixed ids like every local source (R-LS25:
     # the fixed list and its mirrors stay what they are).
     rows.append(_local_channel(calendar_local.CHANNEL_ID, calendar_local.LABEL, state, "event"))
+    # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
+    # once it has synced — the app's `BrowserInventory` offers it before that, so
+    # an install without Brave never carries a Brave row. Appended like every
+    # local source (R-LS25: the fixed list and its mirrors stay what they are).
+    for browser, name in bookmark_sync.CHROMIUM_BROWSERS.items():
+        channel = bookmark_sync.channel_for(browser)
+        if browser != "chrome" and state.get(channel):
+            rows.append(_sync_channel(channel, f"{name} bookmarks", state, "bookmark"))
     for folder in folder_source.list_folders(memory_path):
         rows.append(_local_channel(folder_source.channel_id(folder["id"]),
                                    str(folder.get("label") or "Folder"), state, "note"))

@@ -144,7 +144,7 @@ def test_kinds_are_honoured_and_totals_are_per_kind(tmp_path):
     assert [h.id for h in _by_kind(resp, "inbox")] == ["inbox-001"], "deferred and subject-gone items are not served"
     assert _by_kind(resp, "inbox")[0].name == "Still tracking Alpha Project?"
     assert resp.totals["inbox"] == 1
-    assert set(resp.totals) == {"entity", "claim", "episode", "media", "inbox"}
+    assert set(resp.totals) == set(search_service.KINDS)
 
 
 def test_aliases_and_diacritics_find_the_page_and_say_why(tmp_path):

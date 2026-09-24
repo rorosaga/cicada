@@ -333,7 +333,7 @@ final class MenuBarManager: NSObject {
     /// endpoint. The endpoint ships in a later wave, so a 404 surfaces a
     /// transient "coming soon" header in the menu rather than crashing.
     func saveClipboardURL() async {
-        guard let raw = NSPasteboard.general.string(forType: .string),
+        guard let raw = AppPasteboard.board.string(forType: .string),
               let url = Self.firstURL(in: raw) else {
             flashHeader("Clipboard has no URL")
             return

@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// §5.3 STATE 1 — one project beside the list, top to bottom (the approved mock): the heading (DR-16's H1 role), the
-/// band's header line and the band (Task 3), then the story in one scroll — Now, Lately, Plan, Around this project
-/// (R-PP13), each collapsible and remembered per viewer (DR-39). One selection (R-PP11) rings the band's mark and
+/// band's header line and the band (Task 3), then the story in one scroll — Now, Lately, Plan, Backlog (G150),
+/// Around this project (R-PP13), each collapsible and remembered per viewer (DR-39). One selection (R-PP11) rings the band's mark and
 /// marks the section row; a pick from the band scrolls its row into view (DR-30). It reads `ProjectsCache` (R-PP3): a
 /// skeleton on a first open, words when the project is gone, the error card with Retry — never a blank (DR-43).
 struct ProjectDetailColumn: View {
@@ -13,16 +13,19 @@ struct ProjectDetailColumn: View {
     let gutter: CGFloat
     let hiddenListCount: Int?
     let openCard: String?
+    let openBacklogItem: String?
     let onShowList: () -> Void
     let onClose: () -> Void
     let onEscape: () -> Void
     let openProject: (String) -> Void
     let openEntity: (String) -> Void
+    let openItem: (String) -> Void
 
     @Environment(ProjectsCache.self) private var cache
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
+    @Environment(BacklogCache.self) private var backlogCache
     /// DR-39 — which sections this viewer folded, remembered (a convenience, so `UserDefaults`).
     @AppStorage("cicada.projects.collapsed") private var collapsedRaw = ""
     @State private var selection: ProjectKey?
@@ -40,6 +43,8 @@ struct ProjectDetailColumn: View {
     @State private var pendingScroll: String?
     /// R-PP23 — the Plan's Rename or Add field is open, so a letter is typing, not a key.
     @State private var planEditing = false
+    /// G150 — the backlog's add fields are open, so a letter is typing, not a key.
+    @State private var backlogEditing = false
     /// R-FA2 — the story's derivation, built off the main actor. The last value for the same project keeps painting
     /// while a newer one builds (never blank); the skeleton shows only before the first one.
     @State private var derived: ProjectDerived?
@@ -54,7 +59,7 @@ struct ProjectDetailColumn: View {
     /// R-PP20 — Sleep is writing: every write control waits, its reason in `.help` (DR-41).
     private var blocked: Bool { ProjectWriteGate.blocked(store.status.value) }
     /// R-PP23 — a field of this column is being typed in; L · M · D stand aside.
-    private var typing: Bool { logFocused || planEditing }
+    private var typing: Bool { logFocused || planEditing || backlogEditing }
 
     private var collapsed: Set<ProjectSection> {
         Set(collapsedRaw.split(separator: ",").compactMap { ProjectSection(rawValue: String($0)) })
@@ -116,6 +121,9 @@ struct ProjectDetailColumn: View {
         .task(id: projectId) {
             selection = nil
             await cache.refreshTimeline(projectId)
+            // R-B19 — a folded Backlog section still says "n open": `section(_:…)` builds its body only when open,
+            // so the section's own `.task` never runs while it is folded.
+            await backlogCache.refreshList(projectId)
         }
         // R-FA2 — derive off the main actor, only when the project, the day or the cached payload moved.
         .task(id: deriveKey) {
@@ -188,6 +196,16 @@ struct ProjectDetailColumn: View {
                     }
                     .padding(.top, sectionGap)
                     .id(ProjectScroll.planSection)
+                    // G150 (R-B19) — after Plan: the plan is what is dated, the backlog what is kept for later.
+                    section(.backlog, title: Copy.Projects.Backlog.title,
+                            meta: backlogCache.list(projectId)
+                                .map { Copy.Projects.Backlog.openCount(BacklogModel.openCount($0)) } ?? "") {
+                        ProjectBacklogSection(projectId: projectId, today: today, openItem: openBacklogItem,
+                                              writesBlocked: blocked, open: openItem,
+                                              onEditingChange: { backlogEditing = $0 })
+                    }
+                    .padding(.top, sectionGap)
+                    .id("section.backlog")
                     if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
                         section(.around, title: Copy.Projects.around, meta: "") {
                             ProjectAroundSection(cluster: t.cluster, today: today, partial: t.partial, openCard: openCard,

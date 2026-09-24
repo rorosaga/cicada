@@ -8,10 +8,12 @@ final class SelectionTintLintTests: XCTestCase {
                          "Views/Inbox/InboxQuestionList.swift", "Views/Sleep/EngineQuickMenu.swift",
                          "Views/Graph/GraphControlGroup.swift", "Views/Graph/GraphFindOverlay.swift",
                          "Views/Graph/EntityCardHeader.swift", "Views/Clusters/ClustersRows.swift",
+                         "Views/Clusters/ClustersGrid.swift",
                          "Views/Common/ListColumns.swift", "Views/Clusters/ClustersViewMenu.swift",
                          "Views/Feed/FeedRows.swift", "Views/Sources/SourcesColumns.swift",
                          "Views/Projects/ProjectsRows.swift", "Views/Projects/ProjectBand.swift",
-                         "Views/Projects/ProjectSections.swift"]
+                         "Views/Projects/ProjectSections.swift", "Views/Projects/ProjectBacklogSection.swift",
+                         "Views/Projects/BacklogItemColumn.swift"]
     static let needles = ["CicadaTheme.accent", "CicadaTheme.wash", "CicadaTheme.onAccent", "accentColor"]
 
     func testNavigationAndTabStateNeverSpendTheAccent() throws {

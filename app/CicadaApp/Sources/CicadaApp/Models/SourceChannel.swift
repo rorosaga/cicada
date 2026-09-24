@@ -29,21 +29,25 @@ struct SourceChannel: Codable, Identifiable, Hashable {
     /// channel total — rendered "+N nouns this sync".
     let countIsDelta: Bool
     let actions: [String]
+    /// Round 4 (R-SR14) — the extra counts the last sync stamped (Safari's Reading List and Favorites, open tabs,
+    /// matched people). Optional-with-default: an older backend omits it and the row says only its count.
+    let parts: [ChannelPart]
 
     enum CodingKeys: String, CodingKey {
         case id, label, connected, count, lastSync, detail, lastError
-        case countNoun, countIsDelta, actions
+        case countNoun, countIsDelta, actions, parts
     }
 
     init(id: String, label: String, connected: Bool = false, count: Int = 0,
          lastSync: String? = nil, detail: String? = nil, lastError: String? = nil,
          countNoun: String? = nil, countIsDelta: Bool = false,
-         actions: [String] = []) {
+         actions: [String] = [], parts: [ChannelPart] = []) {
         self.id = id; self.label = label; self.connected = connected
         self.count = count; self.lastSync = lastSync; self.detail = detail
         self.lastError = lastError
         self.countNoun = countNoun; self.countIsDelta = countIsDelta
         self.actions = actions
+        self.parts = parts
     }
 
     init(from decoder: Decoder) throws {
@@ -60,6 +64,7 @@ struct SourceChannel: Codable, Identifiable, Hashable {
         countNoun = try c.decodeIfPresent(String.self, forKey: .countNoun)
         countIsDelta = try c.decodeIfPresent(Bool.self, forKey: .countIsDelta) ?? false
         actions = try c.decodeIfPresent([String].self, forKey: .actions) ?? []
+        parts = (try? c.decodeIfPresent([ChannelPart].self, forKey: .parts)) ?? []
     }
 
     /// `lastSync` parsed for sorting. Accepts both the fractional- and
@@ -91,6 +96,13 @@ struct SourceChannel: Codable, Identifiable, Hashable {
             }
         }
     }
+}
+
+/// Round 4 (R-SR14): one extra count a channel's last sync stamped — `reading-list`, `favorites`, `tabs`, `people`.
+/// `ChannelPartsText` owns the words; an unknown key says nothing.
+struct ChannelPart: Codable, Hashable {
+    let key: String
+    let count: Int
 }
 
 struct SourceChannelsResponse: Codable {

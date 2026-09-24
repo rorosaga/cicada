@@ -85,6 +85,8 @@ final class FakeSyncAPI: SyncAPI {
     var writes: [String] = []
     /// When true, every write throws — drives the rollback paths.
     var failWrites = false
+    /// Thrown by every write when set — a specific server answer (a 409, say) rather than `failWrites`' unreachable.
+    var writeError: Error?
     /// Parks the next write until `releaseWriteGate()`, so a test can inspect
     /// the Store while a mutation is mid-flight.
     var gateWrites = false
@@ -122,6 +124,7 @@ final class FakeSyncAPI: SyncAPI {
             }
         }
         if failWrites { throw APIError.serverUnreachable }
+        if let writeError { throw writeError }
     }
 
     func resolveInbox(id: String, action: String, answer: String?,
@@ -173,6 +176,10 @@ final class FakeSyncAPI: SyncAPI {
         try await record("syncBookmarks:\(folders?.count ?? 0)")
         return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
     }
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
+        try await record("syncChromiumBookmarks:\(browser)")
+        return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
+    }
     func activateBank(name: String) async throws {
         try await record("activateBank:\(name)")
     }
@@ -210,6 +217,50 @@ final class FakeSyncAPI: SyncAPI {
     }
     func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
         try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
+    }
+
+    // MARK: Entity pictures (C11)
+
+    var pictureAnswer = EntityPictureAnswer(entityId: "bob-example", picture: nil, pictureSource: nil, pictureInputs: nil)
+    var pictureError: (any Error)?
+
+    private func pictureWrite(_ what: String) async throws -> EntityPictureAnswer {
+        try await record(what)
+        if let pictureError { throw pictureError }
+        return pictureAnswer
+    }
+
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("setEntityPicture:\(entityId):\(ext):\(data.count)")
+    }
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("useEntityInitials:\(entityId)")
+    }
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("clearEntityPicture:\(entityId)")
+    }
+
+    // MARK: Backlog (G150)
+
+    /// What every backlog write answers; set `backlogError` to drive a rollback.
+    var backlogReply: BacklogItem?
+    var backlogError: (any Error)?
+
+    private func backlogWrite(_ what: String) async throws -> BacklogItem {
+        try await record(what)
+        if let backlogError { throw backlogError }
+        guard let backlogReply else { throw APIError.serverUnreachable }
+        return backlogReply
+    }
+
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
+        try await backlogWrite("addBacklogItem:\(project):\(title)")
+    }
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
+        try await backlogWrite("addBacklogNote:\(project):\(item):\(status ?? "nil")")
+    }
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem {
+        try await backlogWrite("updateBacklogItem:\(project):\(item):\(change.status ?? "nil"):\(change.title ?? "nil")")
     }
 
     private func connectionFixture(id: String) throws -> ConnectionStatus {

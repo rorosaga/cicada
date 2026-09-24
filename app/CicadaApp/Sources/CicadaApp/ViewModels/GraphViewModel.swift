@@ -226,7 +226,7 @@ final class GraphViewModel {
                 status: node.status,
                 confidence: node.confidence,
                 created: "",
-                lastReferenced: "",
+                lastReferenced: node.lastReferenced ?? "",
                 decayRate: 0,
                 sourceEpisodes: [],
                 tags: node.tags,
@@ -234,7 +234,9 @@ final class GraphViewModel {
                 version: 0,
                 markdownContent: node.summary ?? "",
                 history: [],
-                decayClass: node.decayClass
+                decayClass: node.decayClass,
+                pictureURL: node.picture,
+                pictureSource: node.pictureSource
             )
         }
         edges = response.links

@@ -194,6 +194,12 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         c, str(a.get("project") or ""), str(a.get("kind") or ""), str(a.get("summary") or ""),
         str(a.get("status") or ""), when=a.get("when"), target=a.get("target"), milestone=a.get("milestone"),
         settles=a.get("settles"), participants=a.get("participants"), evidence=a.get("evidence")),
+    "cicada_backlog": lambda c, a: mcp_tools.backlog(c, str(a.get("project") or ""), a.get("status"), a.get("item")),
+    "cicada_add_backlog_item": lambda c, a: mcp_tools.add_backlog_item(
+        c, str(a.get("project") or ""), str(a.get("title") or ""), str(a.get("description") or ""),
+        a.get("triage"), a.get("paid")),
+    "cicada_add_backlog_note": lambda c, a: mcp_tools.add_backlog_note(
+        c, str(a.get("item") or ""), str(a.get("note") or ""), a.get("status")),
     "cicada_record_watch": lambda c, a: mcp_tools.record_watch(
         c, str(a.get("url") or ""), str(a.get("summary") or ""), a.get("excerpts"), a.get("chapters")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(

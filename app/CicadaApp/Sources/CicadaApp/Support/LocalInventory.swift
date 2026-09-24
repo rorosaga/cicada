@@ -82,7 +82,10 @@ final class LocalInventory {
                                  content: .ownIntentionalAct,
                                  readiness: s.claudeDesktopHasCicada == true ? .alreadyOn : .ready, opensAnotherApp: true))
         }
-        for (channel, title) in [("chrome-bookmarks", "Chrome"), ("safari-bookmarks", "Safari")] {
+        // Round 4 (C9): every supported browser in `BrowserInventory.catalog` order, found by the same presence probe
+        // as Chrome and named by its catalog row.
+        for spec in BrowserInventory.catalog where spec.supported {
+            guard let channel = spec.bookmarksChannel else { continue }
             let readiness: FoundItem.Readiness
             switch s.browsers[channel] ?? .absent {
             case .absent: continue
@@ -90,7 +93,7 @@ final class LocalInventory {
             case .off: readiness = .ready
             case .on: readiness = .alreadyOn
             }
-            out.append(FoundItem(id: .browser(channel), group: .browsers, title: title, isPresent: true,
+            out.append(FoundItem(id: .browser(channel), group: .browsers, title: spec.name, isPresent: true,
                                  content: .ownIntentionalAct, readiness: readiness, opensAnotherApp: false))
         }
         return out
@@ -104,22 +107,12 @@ final class LocalInventory {
             isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil },
             browserPresence: { channel in
                 guard let file = BrowserWatchPolicy.file(for: channel) else { return .absent }
-                // Open, never `fileExists` first: a stat TCC refuses answers "no
-                // such file" (`BrowserFileReader.readIfPresent`'s L2 note), which
-                // would turn a blocked Safari into an absent one and hide its
-                // Allow… row; `isReadableFile` says yes to a Full-Disk-Access file
-                // the app cannot read. Only the errno of an open tells the three
-                // apart. Nothing is read — the descriptor closes at once.
-                var blocked = false
-                for url in file.candidatePaths {
-                    let fd = open(url.path, O_RDONLY)
-                    if fd >= 0 {
-                        close(fd)
-                        return watcher.isEnabled(channel) ? .on : .off
-                    }
-                    if errno != ENOENT && errno != ENOTDIR { blocked = true }
+                // Open, never `fileExists` first — `BrowserFileAccess` says why; the watch's light asks the same.
+                switch BrowserFileAccess.probe(file.candidatePaths) {
+                case .present: return watcher.isEnabled(channel) ? .on : .off
+                case .blocked: return .blocked
+                case .absent: return .absent
                 }
-                return blocked ? .blocked : .absent
             },
             claudeDesktopHasCicada: {
                 let url = FileManager.default.homeDirectoryForCurrentUser

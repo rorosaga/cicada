@@ -30,7 +30,7 @@ def test_build_schema_and_ranking(tmp_path):
     memory = _bank(tmp_path)
     fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW,
                                       repo_resolver=_ok_repo)
-    assert fm["type"] == "state" and fm["schema_version"] == 3
+    assert fm["type"] == "state" and fm["schema_version"] == state_dictionary.SCHEMA_VERSION
     assert fm["generated_at"] == NOW.isoformat()
     assert fm["bank"] == "memory" and "owner_id" not in fm
     assert fm["engine"] == {"mode": "byok", "engine": "litellm", "model": "gpt-5.4-mini", "connected": []}
@@ -248,7 +248,7 @@ def test_standing_focus_and_how_to_work_with_me(tmp_path):
     _entity(memory, "ask-first", type="skill", confidence=0.4, tags=["autonomy"],
             body="## Summary\nAsk before acting on anything irreversible.\n")
     fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW, repo_resolver=_ok_repo)
-    assert fm["schema_version"] == 3
+    assert fm["schema_version"] == state_dictionary.SCHEMA_VERSION
     assert [s["id"] for s in fm["standing"]] == ["local-first", "pinned-tool"], "confidence alone, no recency"
     assert [f["id"] for f in fm["focus"]] == ["exam-week"], "active/volatile, touched in 14 days"
     assert [p["id"] for p in fm["preferences"]] == ["ask-first", "concise-summaries"], "a working tag sorts first"

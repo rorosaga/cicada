@@ -47,6 +47,11 @@ enum SourceBlurb {
         "chat-export:gemini": "Your Gemini prompts and replies from Takeout, one episode per prompt.",
         "chrome-bookmarks": "Bookmarks you save in Chrome, synced as you add them.",
         "safari-bookmarks": "Bookmarks you save in Safari, synced as you add them.",
+        // Round 4 (C9, R-SR1): the default profile only, so the blurb says "main profile".
+        "brave-bookmarks": "Bookmarks you save in Brave, read from its main profile as you add them.",
+        "vivaldi-bookmarks": "Bookmarks you save in Vivaldi, read from its main profile as you add them.",
+        "comet-bookmarks": "Bookmarks you save in Comet, read from its main profile as you add them.",
+        "dia-bookmarks": "Bookmarks you save in Dia, read from its main profile as you add them.",
         "safari-tabs": "Your open Safari tabs across devices, via iCloud.",
         "pinterest": "Pins you save on Pinterest, as links with their boards.",
         "reddit": "Posts and comments you save on Reddit, as links with their titles.",

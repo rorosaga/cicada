@@ -78,7 +78,9 @@ STATE_FILENAME = "_state.md"
 # reads every new key with `.get`).
 # 3: G141 §10.3 — each project row gains `next` (and `now` once PJ-3 writes
 # happenings); both absolute, neither today-dependent.
-SCHEMA_VERSION = 3
+# 4: G150 — a project row carries backlog_open (items open or doing) when it
+# has any; a bank with no backlog renders as v3 did apart from this number.
+SCHEMA_VERSION = 4
 # R10: the handshake primer that embeds this file is budgeted at ~1,800
 # tokens; 6 KiB of cursor leaves room for the contract text around it.
 MAX_BYTES = 6 * 1024
@@ -92,7 +94,8 @@ GIT_TIMEOUT_S = 2.0
 # moves HEAD, so a digest over it would invalidate itself every cycle and
 # commit forever (R1). `sleep.last_at` only changes with a `Sleep cycle`
 # commit, which never lands without an entity/episode/inbox change.
-INPUT_COMPONENTS = ("entities", "inbox", "episodes", "bank")
+# `backlog` (G150): a new item or a move re-renders a project's count.
+INPUT_COMPONENTS = ("entities", "inbox", "episodes", "bank", "backlog")
 # G121 in one sentence — the handshake carries this verbatim (single source).
 WORLD_FACTS_NOTE = (
     "Personal facts (what the person said, did or decided) are authoritative; "
@@ -489,6 +492,16 @@ def build(
     # every connect, and must never pull the project read model in with it.
     from api.services import project_timeline
 
+    # G150 (R-B16): one frontmatter pass over `backlog/` (bank_index's cache),
+    # never a body.
+    from api.services import backlog as backlog_store
+
+    try:
+        open_backlog = backlog_store.open_counts(memory_path)
+    except Exception as exc:  # noqa: BLE001 — a count is never worth a failed state file
+        logger.warning(f"_state.md backlog counts skipped: {type(exc).__name__}")
+        open_backlog = {}
+
     projects = []
     for f in _ranked(memory_path, "project", today, _limit(settings, "state_projects")):
         row = {
@@ -508,6 +521,8 @@ def build(
             row["now"] = now_row
         if next_row:
             row["next"] = next_row
+        if open_backlog.get(f.stem):
+            row["backlog_open"] = open_backlog[f.stem]
         projects.append(row)
     people = [{"id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
                "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None}
@@ -596,6 +611,8 @@ def _cursor(p: dict) -> str:
         bits.append(f"now: {p['now']['text']} (since {p['now']['since']})")
     if p.get("next"):
         bits.append(f"next: {p['next']['name']}, {p['next'].get('target') or 'no date'}")
+    if p.get("backlog_open"):
+        bits.append(f"backlog: {p['backlog_open']} open")
     return "".join(f" · {b}" for b in bits)
 
 
