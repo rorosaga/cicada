@@ -124,8 +124,9 @@ struct IntegrationsView: View {
         case .chatAndAgents: harnessRows.count
         case .socialAndSaved: Self.exportOnlyTiles.count
         case .notesAndFiles: 1
-        // Round-4 D2 (R-FA13): "Calendar on this Mac" is always offered — Connect is how it starts.
-        case .feedsAndCalendars: 1
+        // Round-4 D2 (R-FA13): "Calendar on this Mac" is always offered — Connect is how it starts. Round 4
+        // (G154): so is Contacts.
+        case .feedsAndCalendars: 2
         case .voiceAndMeetings: showsWispr(rows) ? 1 : 0
         // Round 4 (C9): an installed browser is offered before its first sync (R-SR15).
         case .browsers: BrowserRows.shown(inventory: browsers, channels: rows).count
@@ -191,8 +192,9 @@ struct IntegrationsView: View {
                     if channel.id.hasPrefix("folder:") {
                         FolderChannelRow(channel: channel)
                     } else if channel.id != LocalSourceWatcher.wisprChannel,
-                              channel.id != CalendarRow.channelId {
-                        // Wispr Flow and the Calendar app each have a row the app owns (below).
+                              channel.id != CalendarRow.channelId,
+                              channel.id != ContactsReader.channel {
+                        // Wispr Flow, the Calendar app and Contacts each have a row the app owns (below).
                         IntegrationChannelRow(channel: channel)
                     }
                 }
@@ -202,6 +204,7 @@ struct IntegrationsView: View {
                 }
                 if category == .feedsAndCalendars {
                     CalendarRow(channel: rows.first { $0.id == CalendarRow.channelId })
+                    ContactsRow(channel: rows.first { $0.id == ContactsReader.channel })
                 }
                 if category == .voiceAndMeetings, showsWispr(rows) {
                     WisprFlowRow(channel: rows.first { $0.id == LocalSourceWatcher.wisprChannel })
@@ -236,6 +239,8 @@ private struct IntegrationChannelRow: View {
     /// Track I T1: a Sync now here is consent for a watched browser, so it goes
     /// through the watcher. The `Settings{}` scene injects it for this reason.
     @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     /// Round 4 (R-SR17) — where a running sync says it is running and can be stopped.
@@ -304,12 +309,12 @@ private struct IntegrationChannelRow: View {
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts) }
                 }
                 NeutralButton(title: "Manage", size: .compact) { showConnector = true }
             }
         } else if channel.actions.contains("sync") {
-            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
+            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader, tabGroups: tabGroups, contacts: contacts) }
         } else if channel.actions.contains("poll") {
             actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
         }

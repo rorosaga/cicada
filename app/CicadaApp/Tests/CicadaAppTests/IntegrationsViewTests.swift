@@ -28,11 +28,15 @@ final class IntegrationsViewTests: XCTestCase {
             // Round 4 (C9): the Chromium family.
             ("brave-bookmarks", .browsers), ("vivaldi-bookmarks", .browsers), ("comet-bookmarks", .browsers),
             ("dia-bookmarks", .browsers),
+            // Round 4 (G160): Chrome's open tab groups sit under Chrome.
+            ("chrome-tab-groups", .browsers),
             // R-LS25: Apple Notes sits beside the watched folders now.
             ("notes", .notesAndFiles),
             ("rss", .feedsAndCalendars), ("calendar", .feedsAndCalendars),
             // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac, rendered by `CalendarRow`.
             ("calendar-local", .feedsAndCalendars),
+            // Round 4 (G154): the Mac's address book, rendered by `ContactsRow` beside the Calendar app.
+            ("contacts-local", .feedsAndCalendars),
             ("pinterest", .socialAndSaved), ("reddit", .socialAndSaved), ("x", .socialAndSaved),
             ("telegram", .messaging), ("files", .filesAndImports),
         ]

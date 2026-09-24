@@ -311,6 +311,17 @@ enum HintLink {
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return nil }
         return detector.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))?.url
     }
+
+    /// The hint as the person reads it (round-4 final review, finding 3). The server keeps a Contacts card's ref in
+    /// the sentence — "Their card in your Contacts (addressbook://<id>) is where to check this" — so `firstURL` can
+    /// find it for the button; drawn word for word it put a raw Contacts id in the Inbox, which the entity card
+    /// already hides (DR-54). Only a parenthesised `addressbook://` ref is removed; every other hint is unchanged.
+    static func displayText(_ hint: String) -> String {
+        hint.replacingOccurrences(of: #"\s*\(addressbook://[^)\s]*\)"#, with: "", options: .regularExpression)
+    }
+
+    /// True when the link opens a card in the Mac's Contacts app — the button then says so.
+    static func isContacts(_ url: URL) -> Bool { url.scheme?.lowercased() == "addressbook" }
 }
 
 /// A typed answer, in the wire shape each item was built for: a G60 question object answers through

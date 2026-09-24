@@ -14,6 +14,8 @@ only** — never from the transient result of a button press:
 * ``calendar-local`` -> Apple Calendar through EventKit (G142), always listed,
   appended after the fixed ids
 * ``<browser>-bookmarks`` for Brave, Vivaldi, Comet, Dia -> once synced (round 4, C9)
+* ``chrome-tab-groups`` -> Chrome's open tab groups, once synced (round 4, G160); ``tabs`` rides ``parts``
+* ``contacts-local`` -> macOS Contacts (G154), always listed; ``people`` rides ``parts``
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -28,11 +30,13 @@ from api.services import (
     bookmark_sync,
     calendar_local,
     calendar_registry,
+    contacts_local,
     feed_registry,
     folder_source,
     media_ingestor,
     origin_stats,
     sync_state,
+    tab_groups,
     wispr_flow,
 )
 from api.services.connectors import ADAPTERS
@@ -64,8 +68,9 @@ CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 #: 304s the old list until some component moves, which on a quiet or demo bank
 #: can be never. Same rule as `graph.NODE_SHAPE` / `git_service.AUTHOR_SHAPE`;
 #: "g142" is the always-listed Apple Calendar row (round 4 final review #3);
-#: "r4-sources" adds `parts` and the rows that appear once synced — round 4, R-SR14.
-CHANNELS_SHAPE = "r4-sources"
+#: "r4-sources" adds `parts` and the rows that appear once synced — round 4, R-SR14;
+#: "r4-contacts" is the always-listed Contacts row (G154) — its own PR, so its own bump (R-SR19).
+CHANNELS_SHAPE = "r4-contacts"
 
 
 # R-S5 — there is deliberately no `_plural` here any more. It baked
@@ -372,6 +377,9 @@ def build_channels(
     # first sync; appended after the fixed ids like every local source (R-LS25:
     # the fixed list and its mirrors stay what they are).
     rows.append(_local_channel(calendar_local.CHANNEL_ID, calendar_local.LABEL, state, "event"))
+    # G154 (round 4, R-SR15): macOS Contacts — a standing connection the app reads and posts. Always listed, so
+    # Integrations can offer Connect before the first sync; `people` (the pages it enriched) rides `parts`.
+    rows.append(_local_channel(contacts_local.CHANNEL_ID, contacts_local.LABEL, state, "contact"))
     # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
     # once it has synced — the app's `BrowserInventory` offers it before that, so
     # an install without Brave never carries a Brave row. Appended like every
@@ -380,6 +388,12 @@ def build_channels(
         channel = bookmark_sync.channel_for(browser)
         if browser != "chrome" and state.get(channel):
             rows.append(_sync_channel(channel, f"{name} bookmarks", state, "bookmark"))
+    # Round 4 (G160 first slice, R-SR15): a browser's open tab groups, once synced — the switch under Chrome in
+    # Integrations offers the row before that. `tabs` rides `parts`.
+    for browser, name in tab_groups.BROWSERS.items():
+        channel = tab_groups.channel_id(browser)
+        if state.get(channel):
+            rows.append(_local_channel(channel, f"{name} tab groups", state, "tab group"))
     for folder in folder_source.list_folders(memory_path):
         rows.append(_local_channel(folder_source.channel_id(folder["id"]),
                                    str(folder.get("label") or "Folder"), state, "note"))

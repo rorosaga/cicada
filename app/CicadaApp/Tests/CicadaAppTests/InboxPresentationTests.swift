@@ -197,6 +197,17 @@ final class InboxPresentationTests: XCTestCase {
         XCTAssertNil(HintLink.firstURL(in: "Only you know this"))
     }
 
+    /// Round-4 final review, finding 3: a Contacts hint reads without its raw card id, and still opens the card.
+    func testAContactsHintHidesTheCardIdButKeepsItsLink() throws {
+        let hint = "Their card in your Contacts (addressbook://C1:ABPerson) is where to check this"
+        XCTAssertEqual(HintLink.displayText(hint), "Their card in your Contacts is where to check this")
+        let url = try XCTUnwrap(HintLink.firstURL(in: hint))
+        XCTAssertTrue(HintLink.isContacts(url))
+        let web = "You said https://example.com/alpha-project (the team page) is where to check this"
+        XCTAssertEqual(HintLink.displayText(web), web)
+        XCTAssertFalse(HintLink.isContacts(try XCTUnwrap(HintLink.firstURL(in: web))))
+    }
+
     /// R-DI15 — every kind lands on a variant; free text keeps its two wire shapes.
     func testEveryKindHasAVariant() throws {
         let options = #","options":[{"key":"a","label":"A"},{"key":"b","label":"B"}]"#
