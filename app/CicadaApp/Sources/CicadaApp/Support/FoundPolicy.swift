@@ -24,7 +24,7 @@ struct FoundItem: Equatable, Identifiable {
     let readiness: Readiness
     let opensAnotherApp: Bool
     var count: Int? = nil
-    /// Singular; `startSummary` pluralises with `+ "s"`.
+    /// Singular — what `count` counts (the one-scroll Welcome's retired start line pluralised it, R-OB6).
     var countNoun: String? = nil
 }
 
@@ -44,29 +44,5 @@ enum FoundPolicy {
             if a != b { return a }
             return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
         }
-    }
-
-    /// Start's text twin: exactly what Start will do, counted.
-    static func startSummary(_ ticked: [FoundItem], locale: Locale = .autoupdatingCurrent) -> String {
-        func counted(_ n: Int, _ noun: String) -> String { "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? noun : noun + "s")" }
-        let apps = ticked.filter { $0.group == .agents }.count
-        var brings: [String] = []
-        let browsers = ticked.filter { $0.group == .browsers }
-        if !browsers.isEmpty {
-            let counts = browsers.compactMap(\.count)
-            brings.append(counts.count == browsers.count ? counted(counts.reduce(0, +), "bookmark") : "your bookmarks")
-        }
-        for item in ticked where item.group == .chatHistory {
-            if let n = item.count, let noun = item.countNoun { brings.append(counted(n, noun)) }
-        }
-        if ticked.contains(where: { $0.group == .notesAndVoice }) { brings.append("your notes") }
-        var clauses: [String] = []
-        if apps > 0 { clauses.append("Connects \(counted(apps, "app"))") }
-        if !brings.isEmpty {
-            let list = brings.count == 1 ? brings[0]
-                : brings.dropLast().joined(separator: ", ") + " and " + brings[brings.count - 1]
-            clauses.append((clauses.isEmpty ? "Brings in " : "brings in ") + list)
-        }
-        return clauses.isEmpty ? Copy.foundStartNothing : clauses.joined(separator: " and ") + "."
     }
 }

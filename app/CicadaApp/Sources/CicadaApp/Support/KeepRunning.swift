@@ -19,3 +19,32 @@ enum KeepRunning {
 enum WhoReadsFoot {
     static func line(note: String?) -> String { note == nil ? Copy.privacyEverything : Copy.privacyEverythingElse }
 }
+
+/// F-07's lines (R-OB15), from real state: the agents Cicada saw connect, in catalog order, and how Cicada starts.
+enum ReadySummary {
+    static func agents(connected: Set<String>, locale: Locale = .autoupdatingCurrent) -> String? {
+        let names = AgentCatalog.featured.filter { connected.contains($0.id) }.map(\.name)
+        guard !names.isEmpty else { return nil }
+        let formatter = ListFormatter()
+        formatter.locale = locale
+        return Copy.readyAgentsConnected(formatter.string(from: names) ?? names.joined(separator: ", "))
+    }
+
+    static func startup(opensAtLogin: Bool, menuBar: Bool) -> String? {
+        switch (opensAtLogin, menuBar) {
+        case (true, true): Copy.readyOpensAtLoginMenuBar
+        case (true, false): Copy.readyOpensAtLogin
+        case (false, true): Copy.readyMenuBar
+        case (false, false): nil
+        }
+    }
+}
+
+/// F-01's marks row: every featured agent that has a real mark (DR-52) — a glyph never stands in on a welcome.
+/// Main-actor because `LogoImage.exists` (a view's static) is.
+@MainActor
+enum WelcomeMarks {
+    static var entries: [AgentCatalogEntry] {
+        AgentCatalog.featured.filter { entry in entry.mark.map { LogoImage.exists(name: $0) } ?? false }
+    }
+}

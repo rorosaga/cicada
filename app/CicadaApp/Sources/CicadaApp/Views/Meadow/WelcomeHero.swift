@@ -5,5 +5,7 @@ import SwiftUI
 /// meadow. No words: the headline lives on the card, so no text ever sits on paint (R-M6, DR-13). Phase B's full-window
 /// Welcome keeps this framing.
 struct WelcomeHero: View {
-    var body: some View { PaintedScene(.fullBleed) }
+    /// R-HO7 — rests while something covers it (onboarding's See how sheet).
+    var paused = false
+    var body: some View { PaintedScene(.fullBleed, paused: paused) }
 }

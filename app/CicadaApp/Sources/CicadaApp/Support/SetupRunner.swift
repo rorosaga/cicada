@@ -6,7 +6,6 @@ import Observation
 @MainActor
 protocol SetupEffects {
     func saveOwner(_ name: String) async throws
-    func saveEngine(_ candidateId: String) async throws
     func markOnboarded()
     func recordGettingStarted(_ ids: [FoundItemID])
     /// R-HO15 — *Make it yours* is armed by the Welcome's Start alone. A requirement of its own, not a side effect of
@@ -29,11 +28,10 @@ protocol SetupEffects {
 
 /// Track I part b (design §4.1.7, R-IB14) — executes part a's `OnboardingFlow`
 /// plan. The owner PUT runs alone and first: it is the observer every later
-/// write carries (G117 R1), so its failure stops everything. The sequential
-/// steps end on Home before any row runs (Start costs one round trip); the rows
-/// then run side by side, each reporting here, and a failure stays on its row.
-/// App-lifetime, so a Welcome that has faded out keeps reporting to Home's
-/// Getting started card.
+/// write carries (G117 R1), so its failure stops everything. Since round 4 phase B a
+/// row runs on its tick (`start`, R-OB2 — the owner: "do not wait for continue") and stops on its untick (`stop`,
+/// R-OB8); each reports here, and a failure stays on its row. App-lifetime, so onboarding that has faded out keeps
+/// reporting to Home's Getting started card.
 @MainActor
 @Observable
 final class SetupRunner {
@@ -50,7 +48,6 @@ final class SetupRunner {
     /// it is committed.
     private(set) var titles: [FoundItemID: String] = [:]
     private(set) var origins: [FoundItemID: String] = [:]
-    private(set) var engineError: String?
     /// When a row last came on — a finished import's "Imported …" (R-SR12) reads it, since an import is not a sync
     /// and has no channel to say when.
     private(set) var finishedAt: [FoundItemID: Date] = [:]
@@ -82,7 +79,6 @@ final class SetupRunner {
     func run(_ plan: [StartStep], titles: [FoundItemID: String] = [:], origins: [FoundItemID: String] = [:],
              effects: SetupEffects) async {
         phase = .starting
-        engineError = nil
         self.titles.merge(titles) { _, new in new }
         self.origins.merge(origins) { _, new in new }
         var turnOns: [FoundItemID] = []
@@ -90,13 +86,11 @@ final class SetupRunner {
             switch step {
             case .saveOwner(let name):
                 do { try await effects.saveOwner(name) } catch { phase = .failed(Self.describe(error)); return }
-            case .saveEngine(let id):
-                do { try await effects.saveEngine(id) } catch { engineError = Copy.gsEngineFailed }
             case .markOnboarded:
                 effects.markOnboarded()
             case .recordGettingStarted(let ids):
                 effects.recordGettingStarted(ids)
-                // Only the Welcome's plans (first run, set up later, rerun) carry this step; the demo plan does not,
+                // Only onboarding's Open Cicada and Set up later carry this step; the demo plan does not,
                 // so a demo never arms the tip (R-HO15).
                 effects.armAppearanceTip()
             case .showHome:

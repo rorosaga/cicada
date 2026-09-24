@@ -29,4 +29,40 @@ final class OnboardingSourceTests: XCTestCase {
         XCTAssertTrue(try source("Views/Onboarding/AgentsPage.swift").contains("bundleAutoRecall: true"))
         XCTAssertFalse(try source("Views/Connect/ConnectView.swift").contains("bundleAutoRecall"))
     }
+
+    /// Seam 1 — the one door opens the paged flow; the demo is still `SetupRunner.demoPlan` (seam 2).
+    func testTheGateAndTheDoorsRaiseThePagedFlow() throws {
+        let content = try source("/ContentView.swift")
+        XCTAssertTrue(content.contains("OnboardingView(mode: welcomeMode"))
+        XCTAssertFalse(content.contains("WelcomeView("))
+        XCTAssertTrue(try source("Views/Onboarding/OnboardingView.swift").contains("SetupRunner.demoPlan"))
+    }
+
+    /// R-OB2 — Get started runs the owner PUT alone and first; nothing else before it.
+    func testGetStartedRunsTheOwnerSaveBeforeAnythingStarts() throws {
+        let text = try source("Views/Onboarding/OnboardingView.swift")
+        XCTAssertTrue(text.contains("OnboardingFlow.beginSteps(name:"))
+        let tick = try XCTUnwrap(text.range(of: "private func tick(")).upperBound
+        XCTAssertTrue(text[tick...].prefix(200).contains("guard ownerSaved"), "no tick before the owner is saved")
+    }
+
+    /// DR-60 — ⏎ never animates.
+    func testReturnAdvancesWithTheKeyboardInput() throws {
+        let text = try source("Views/Onboarding/OnboardingView.swift")
+        XCTAssertTrue(text.contains(".onKeyPress(.return)"))
+        XCTAssertTrue(text.contains("advance(.keyboard)"))
+    }
+
+    /// R-OB15 / DR-18 / G153 — the quote is not the quote face and not a cited span.
+    func testTheQuoteIsNeverTheQuoteFace() throws {
+        let text = try source("Views/Onboarding/ReadyPage.swift")
+        XCTAssertFalse(text.contains("quoteFont"))
+        XCTAssertFalse(text.contains("CitedSpan"))
+    }
+
+    /// R-OB20 — the painting is named only inside Views/Meadow/ (MeadowPlacementLintTests needs no new entry).
+    func testTheOnboardingPaintingLivesInMeadow() throws {
+        XCTAssertTrue(try source("Views/Meadow/OnboardingPane.swift").contains("PaintedScene("))
+        XCTAssertFalse(MeadowPlacementLintTests.allowed.contains { $0.contains("Onboarding") })
+    }
 }

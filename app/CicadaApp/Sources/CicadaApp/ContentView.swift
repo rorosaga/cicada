@@ -11,9 +11,9 @@ struct ContentView: View {
     @AppStorage("cicada.selectedTab") private var selectedTabRaw = AppTab.home.rawValue
     /// R-DS15 — per viewer: the icon rail (default) or the labelled sidebar.
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
-    // G117 / Track I part b (spec decision 14) — the Welcome: one screen
-    // (found on this Mac, the ticks as consent, Start into Home) replacing the
-    // four-step first-run sheet. Still gated per-bank (`OnboardingState`, R5)
+    // G117 / G145 (round 4 phase B) — the onboarding flow: six pages (Welcome,
+    // Import, Agents, Who reads, Keep it running, You're set) replacing Track I's
+    // one-screen Welcome and, before it, the four-step first-run sheet. Still gated per-bank (`OnboardingState`, R5)
     // rather than the old machine-global `hasSeenConnectGuide` flag: switching
     // to a fresh bank must show it again even on a Mac that already onboarded
     // a different one. `FirstRunGate` still decides, and unknown is still
@@ -237,9 +237,9 @@ struct ContentView: View {
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
         // while a file hovers, the overlay while the router shows it.
         .overlay { IntakeLayer(dropTargeted: dropTargeted && !showFirstRun) }
-        // Track I part b (spec decision 14, R-IB11) — the Welcome is a full-window
+        // Track I part b (spec decision 14, R-IB11) — the onboarding flow is a full-window
         // layer, not a sheet: the shell underneath is already on Home, so
-        // Start reveals it. It sits above the intake layer, which stays unused
+        // Open Cicada reveals it. It sits above the intake layer, which stays unused
         // while it shows (R-IB15), and INSIDE the window's one drop target below:
         // a modifier's drop region is the view it wraps, so an overlay stacked
         // after `.onDrop` would take a drag over the Welcome without delivering it.
@@ -252,20 +252,20 @@ struct ContentView: View {
         }
     }
 
-    /// The Welcome over the whole window (R-IB11), or nothing.
+    /// G145 — the paged onboarding over the whole window (R-IB11's placement), or nothing.
     @ViewBuilder
     private var welcomeLayer: some View {
         if showFirstRun {
-            WelcomeView(mode: welcomeMode, dropTargeted: dropTargeted,
-                        onShowHome: {
-                            withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) {
-                                selectedTab = .home
-                                showFirstRun = false
-                            }
-                        },
-                        onClose: {
-                            withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) { showFirstRun = false }
-                        })
+            OnboardingView(mode: welcomeMode, dropTargeted: dropTargeted,
+                           onShowHome: {
+                               withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) {
+                                   selectedTab = .home
+                                   showFirstRun = false
+                               }
+                           },
+                           onClose: {
+                               withAnimation(CicadaMotion.morph(reduceMotion: reduceMotion)) { showFirstRun = false }
+                           })
                 .transition(.opacity)
         }
     }

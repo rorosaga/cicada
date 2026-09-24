@@ -104,6 +104,45 @@ extension Copy {
     static let keepQuitSleep = "Sleep still runs on the schedule you choose"
     static let keepQuitAgentsWait = "Your agents’ conversations are saved only while Cicada is open"
 
+    // MARK: The frame, F-01, F-07 (Task 6)
+    static let onboardingGetStarted = "Get started"
+    static let onboardingContinue = "Continue"
+    static let onboardingBack = "Back"
+    static let onboardingOpenCicada = "Open Cicada"
+    static func onboardingStepOf(_ n: Int) -> String { "Step \(n) of \(OnboardingPage.stepCount)" }
+    static func onboardingComingIn(_ k: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(k, locale: locale)) still coming in"
+    }
+    /// A page's opening line: the source that just finished and what came in (its count line is already localised).
+    static func onboardingArrival(title: String, line: String?) -> String { line.map { "\(title) · \($0)" } ?? title }
+    static let welcomeEyebrow = "Welcome to Cicada"
+    static let welcomeTagline = "Memory made easy — and local."
+    /// R-OB17 — "kept on this Mac", never "never uploaded": a reader may send what it reads (F-05 says where).
+    static let welcomePromise = "One memory for every AI you use, kept on this Mac in plain files you own. Your agents read it, add to it, and sign what they write."
+    static let welcomeWorksWith = "Works with the agents you already use"
+    static let welcomeJustLooking = "Just looking?"
+    static let welcomeDemoBlurb = "The demo is a made-up memory with pictures and videos, and every page filled in. Finish setting up from it any time."
+    static let welcomeTryTheDemo = "Try the demo"
+    /// R-OB2 — a drop on Welcome is held until Get started; the card says so.
+    static func welcomeDropsWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        n == 1 ? "1 export is waiting. It comes in after Get started."
+               : "\(UsageFormat.count(n, locale: locale)) exports are waiting. They come in after Get started."
+    }
+    static let readyTitle = "You’re set."
+    static let readyNothingRead = "Nothing is read until you say so: press Read now in Getting started on Home. This list continues there."
+    static let readyOpensAtLoginMenuBar = "Opens at login · menu bar"
+    static let readyOpensAtLogin = "Opens at login"
+    static let readyMenuBar = "Waits in the menu bar"
+    static func readyAgentsConnected(_ names: String) -> String { "\(names) · connected" }
+    static func readyQuoteLine(_ text: String) -> String { "“\(text)”" }
+    static func readyQuoteAuthor(_ author: String) -> String { "\(author), " }
+    /// A year is a name, not a count: never grouped.
+    static func readyQuoteYear(_ year: Int) -> String { " (\(String(year)))" }
+    static func readyKeepUp(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        n == 1 ? "1 source keeps up on its own"
+               : "\(UsageFormat.count(n, locale: locale)) sources keep up on their own"
+    }
+
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     static var onboardingLabels: [String] {
         [importReading(9, of: 17, noun: "conversations"), importBrowsers, importCalendar, importCalendarAndContacts,
@@ -115,7 +154,10 @@ extension Copy {
          seeHowWhere(host: "takeout.google.com", path: seeHowGeminiPath), agentsPageTitle, agentsFoot,
          onboardingSettingsAgents, keepRunningTitle, keepRunningBothInSettings, onboardingSettingsGeneral,
          keepRunningWhileOpen, keepRunningAfterQuit, keepOpenBrowsers, keepOpenCalendar, keepOpenAgents, keepOpenSleep,
-         keepQuitAgentsSave, keepQuitSleep]
+         keepQuitAgentsSave, keepQuitSleep, onboardingGetStarted, onboardingContinue, onboardingBack,
+         onboardingOpenCicada, onboardingStepOf(6), onboardingComingIn(4), welcomeEyebrow, welcomeTagline, welcomeWorksWith,
+         welcomeJustLooking, welcomeTryTheDemo, readyTitle, readyOpensAtLoginMenuBar, readyOpensAtLogin, readyMenuBar,
+         readyAgentsConnected("Claude Code and Codex"), readyKeepUp(7)]
             + ChatVendor.allCases.map(importWait)
     }
 
@@ -124,6 +166,7 @@ extension Copy {
         [importSubline, importDoneOnce, importLockedHelp, importNeedsAccess, seeHowClaudeHonest, seeHowChatGPTHonest,
          seeHowGeminiHonest, agentsPageSubline, agentStepAlsoRecalls, agentStepRecallHow, whoReadsSubline,
          whoReadsNothingYet, privacyEverything, privacyEverythingElse, keepRunningSubline, keepRunningBackgroundItems,
-         keepRunningWhere, keepQuitWaits, keepQuitAgentsWait]
+         keepRunningWhere, keepQuitWaits, keepQuitAgentsWait, welcomePromise, welcomeDemoBlurb, readyNothingRead,
+         welcomeDropsWaiting(1), welcomeDropsWaiting(3)]
     }
 }

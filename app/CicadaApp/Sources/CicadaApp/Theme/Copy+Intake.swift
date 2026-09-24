@@ -106,7 +106,6 @@ extension Copy {
     static let honestyOllama = "Reads on this Mac, whenever it runs. Nothing leaves this Mac."
     static let honestyKey = "Your key reads, when you ask and on a schedule. Your provider bills per use."
     static let honestyNothingYet = "Nothing can read yet. Choose who reads before the first read."
-    static let foundStartNothing = "Sets your name. You can add sources any time."
 
     /// The engine as a person says it, inside a sentence ("using your API key").
     /// `Copy.engineLabel` stays the noun for pickers and pills.
@@ -132,7 +131,7 @@ extension Copy {
         foundSavingBookmarks, foundWhatThisChanges, foundCopyCommands, foundAgentDetail,
         foundBrowserDetail, foundCursorDetail, foundClaudeDesktopDetail, foundNeedsDiskAccess,
         foundCheckingApps, foundCouldNotCheck, foundPastStays, foundBackendDown,
-        afterImportWhenYouAsk, honestyPlanBoth, foundStartNothing,
+        afterImportWhenYouAsk, honestyPlanBoth,
     ]
     /// Longer sentences — no length rule, the same vocabulary rule.
     /// `honestyPlanThenKey` (63) and `honestyPlanThenOllama` (62) are two-sentence

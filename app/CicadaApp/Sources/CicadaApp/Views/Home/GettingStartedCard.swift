@@ -134,7 +134,7 @@ struct GettingStartedCard: View {
     }
 
     private var effects: LiveSetupEffects {
-        LiveSetupEffects(store: store, engineVM: engineVM,
+        LiveSetupEffects(store: store,
                          deps: .live(inventory: inventory, watcher: watcher, intake: intake,
                                      calendar: calendar, local: local, store: store),
                          onChecklistChanged: runner.checklistChanged)
@@ -185,12 +185,6 @@ struct GettingStartedCard: View {
                         }
                         refusedLines(row.id)
                     }
-                }
-                if let engineError = runner.engineError {
-                    Text(engineError)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.danger)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

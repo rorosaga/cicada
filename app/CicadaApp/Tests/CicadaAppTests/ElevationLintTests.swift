@@ -9,7 +9,6 @@ final class ElevationLintTests: XCTestCase {
     static let allowlist: [String: String] = [
         "Views/Common/MediaPreview.swift": "a legibility shadow under a play glyph over a video still — imagery, not elevation",
         "Views/Common/HeroPreview.swift": "the same play glyph on the entity hero",
-        "Views/Onboarding/WelcomeView.swift": "the Welcome card over painted art — restyled by the onboarding page's D track",
     ]
 
     func testShadowsLiveInTheTheme() throws {
