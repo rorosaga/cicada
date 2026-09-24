@@ -3,7 +3,9 @@ import SwiftUI
 /// Settings → Memory (G139): the derived search index and the link backfill,
 /// both user-started and both refused with a plain sentence while Sleep runs.
 /// Rebuilding the index costs CPU, never a fact (TODO ruling 3), which is why
-/// it can sit behind one button with no confirmation.
+/// it can sit behind one button with no confirmation. Below them sits G147's
+/// *How things fade* (`FadePaceCard`) — suggestions from the person's own decay
+/// answers, applied only on Apply.
 ///
 /// "Look for duplicates" is deliberately absent (R-O17): the dedup endpoint
 /// blocks the event loop, its dry run never reaches the Inbox, and its live
@@ -37,6 +39,7 @@ struct MemoryView: View {
                     .disabled(busy)
                 }
             }
+            FadePaceCard()
         }
         .task { index = try? await APIClient.shared.fetchSearchIndexStatus() }
     }

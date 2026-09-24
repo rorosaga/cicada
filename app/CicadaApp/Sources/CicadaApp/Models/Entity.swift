@@ -634,6 +634,36 @@ struct MediaBlock: Codable, Equatable {
     var hasURL: Bool { !url.isEmpty }
 }
 
+/// G147 — the pace Sleep actually charges this page, derived at read by the backend
+/// (`decay_policy.effective`, the same function the decay pass calls): the class's base
+/// rate × the spacing factor over distinct mention weeks × the bank's per-type pace.
+/// Never stored. Lenient: an unknown class reads `.active`; a block missing its numbers
+/// fails alone (the entity decodes with `decay == nil`) and the card falls back to the
+/// class's own words.
+struct EntityDecay: Codable, Equatable {
+    var decayClass: DecayClass
+    var effectiveRatePerWeek: Double
+    var mentionWeeks: Int
+
+    enum CodingKeys: String, CodingKey {
+        case decayClass = "class"
+        case effectiveRatePerWeek, mentionWeeks
+    }
+
+    init(decayClass: DecayClass, effectiveRatePerWeek: Double, mentionWeeks: Int) {
+        self.decayClass = decayClass
+        self.effectiveRatePerWeek = effectiveRatePerWeek
+        self.mentionWeeks = mentionWeeks
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
+        effectiveRatePerWeek = try c.decode(Double.self, forKey: .effectiveRatePerWeek)
+        mentionWeeks = try c.decode(Int.self, forKey: .mentionWeeks)
+    }
+}
+
 struct Entity: Identifiable, Codable {
     let id: String
     var name: String
@@ -647,6 +677,8 @@ struct Entity: Identifiable, Codable {
     /// explicit `decay_class:`, else inferred from the entity type), so this is
     /// always populated for a real entity; `.active` for a graph-node stub.
     var decayClass: DecayClass = .active
+    /// G147 — the effective pace (`EntityDecay`); nil from an older backend or a graph stub.
+    var decay: EntityDecay? = nil
     var sourceEpisodes: [String]
     var tags: [String]
     var related: [String]
@@ -699,7 +731,7 @@ struct Entity: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
-        case decayRate, decayClass, sourceEpisodes, tags, related, version
+        case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
         case markdownContent, rawMarkdown, path, media, history, isOwner
     }
 
@@ -716,6 +748,7 @@ struct Entity: Identifiable, Codable {
         lastReferenced = try c.decode(String.self, forKey: .lastReferenced)
         decayRate = try c.decode(Double.self, forKey: .decayRate)
         decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
+        decay = (try? c.decodeIfPresent(EntityDecay.self, forKey: .decay)) ?? nil
         sourceEpisodes = try c.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         related = try c.decodeIfPresent([String].self, forKey: .related) ?? []

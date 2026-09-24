@@ -450,6 +450,17 @@ class EntityMedia(CamelModel):
     kind: Optional[str] = None
 
 
+class EntityDecay(CamelModel):
+    """G147 — the pace Sleep charges this page, derived at read by
+    ``decay_policy.effective`` (the pass's own function) and never stored.
+    ``class`` by explicit alias (a Python keyword as a field name is not an
+    option); ``decayRate`` beside it keeps meaning the base (plan R-FD9)."""
+
+    decay_class: DecayClass = Field(alias="class")
+    effective_rate_per_week: float
+    mention_weeks: int
+
+
 class EntityResponse(CamelModel):
     id: str
     name: str
@@ -478,6 +489,10 @@ class EntityResponse(CamelModel):
     # G117 — mirrors GraphNode.is_owner (same `owner:` frontmatter key), so
     # the detail card can render "Name (you)" without a second lookup.
     is_owner: bool = False
+    # G147 — derived at read (never stored); None only for a caller that
+    # builds an EntityResponse without a page. Additive: an older client
+    # ignores it and keeps showing the class.
+    decay: Optional[EntityDecay] = None
 
 
 class PaperSummary(CamelModel):
@@ -540,6 +555,28 @@ class EntityDecayUpdate(CamelModel):
     """
 
     decay_class: DecayClass
+
+
+class DecaySuggestion(CamelModel):
+    """G147 — one per-type pace suggestion. A type and counts only — never a
+    page id or name (the payload of a Settings page, not of the graph)."""
+
+    type: str
+    direction: Literal["slower", "faster"]
+    multiplier: float
+    kept: int
+    archived: int
+    answers: int
+
+
+class DecayTuningResponse(CamelModel):
+    """``GET /memory/decay-suggestions`` and ``PUT /memory/decay-tuning`` (G147).
+    Not a Store domain — fetched when Settings → Memory opens — so no ETag."""
+
+    bank: str
+    window_days: int
+    tuning: dict[str, float] = {}
+    suggestions: list[DecaySuggestion] = []
 
 
 # --- Location listing (#7 — show a location entity's directory contents) ---

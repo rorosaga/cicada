@@ -651,6 +651,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G147 frequency-aware decay (round 4)** | Built on `feat/r4-decay` (plan `2026-09-24-r4-frequency-aware-decay.md`): pages and claims fade by distinct mention weeks (f(w) = max(0.25, 1/(1+0.6·ln w))), "keep" counts as a week (`kept_on`), per-type pace suggestions from the bank's own decay answers with Apply · Not now in Settings → Memory, and the pace in words on the entity card. | Orchestrator verification (both suites; the 12-week vs 1-week simulation; suggestions on a synthetic history; live check of Settings → Memory and a card's Details on the demo bank), then merge to `dev`. |
 | **Direction D — DS-1 (tokens, type, shell, Settings panel)** | Built on `feat/d-shell` (plan `2026-09-23-d-shell.md`): graphite + the Mac's accent + rings, SF only with one `SectionLabel`, the icon rail ⇄ labelled sidebar (⌃⌘S), the titlebar command bar (the one bank selector, search, the page's `?`), the eyebrow/tabs components, Settings as an in-app panel. | Orchestrator live check (both themes, 1.0×/1.4×, every page by rail and ⌘1–7, ⌘K from the bar, a bank switch, Settings search landing on a row, Esc), then merge; DS-2 (Inbox columns + Reader) next, then the page tracks and G141 PJ-5 at ⌘8. |
 | **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
 | **G118 slice 2** | **Server merged** (PR #72, plan `2026-09-23-provenance-backend.md`). **App merged** (PR #78) from `feat/provenance-ui` (plan `2026-09-23-provenance-ui.md`): evidence chips with a hover quote, the Reader inspector (turns, washed span, honest banners, navigator, "Noted from this conversation"), "Where this came from" on the entity card, contributor faces in the claim footer and History, "Show in conversation" from the inbox, evidence under Ask answers. | Orchestrator live check on the demo bank (the plan's Verification), then merge. P6 (palette → Reader) rides Track S; the server hand-offs are listed in the G118 row. |
@@ -810,6 +811,10 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 22a. **G117** first-run onboarding in the app — **release blocker**: a three-step first-run sheet
     (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
     demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
+22b. **G148** memory benchmark pass (LongMemEval_S + LoCoMo, hooks vs tools modes, throwaway banks, never the
+    owner's) — first fix the `benchmarks/` `Settings` path bug, a benchmark-only Sleep clock (expiry and decay run on today's date), the engine pin — then **G149**
+    implicit recall (SessionStart primer + UserPromptSubmit injection), measured by G148's hooks mode —
+    `docs/research/2026-09-24-memory-benchmarks-and-implicit-recall.md` — M each, G148 💸
 23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
 24. **G72** skills manager *(owner 2026-09-03: two halves — skills Cicada compiled about you (G112) and the
     harness skills you actually use, ranked by the harness's own usage counters, adoptable into memory)* · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
