@@ -80,8 +80,8 @@ enum Copy {
     /// — a scheduled cycle never spends plan quota — makes that difference
     /// real on a plan-backed bank, and this is where it is *shown* rather than
     /// silently applied. It names the scheduled engine only: which engine THIS
-    /// click would use is the Consolidate button's own subtitle
-    /// (`runsOn(engine:)`), and repeating both here would put the same fact on
+    /// click would use is the engine menu beside Consolidate
+    /// (R-HS8), and repeating both here would put the same fact on
     /// the page twice.
     static func scheduledRunsOn(engine: String) -> String {
         "Scheduled runs use \(engineLabel(engine))"
@@ -155,26 +155,6 @@ enum Copy {
         count == 1 ? "episode waiting" : "episodes waiting"
     }
 
-    /// The Consolidate button's subtitle: what THIS click would run on
-    /// (`GET /sleep/engine`'s `preview.manual`). Shown at the moment of
-    /// choice rather than hidden, because the standing ruling — a scheduled
-    /// cycle never spends plan quota — makes manual and scheduled genuinely
-    /// different, and a button that hides which one it is would be lying by
-    /// omission. Absent, never guessed, when the preview hasn't loaded.
-    static func runsOn(engine: String) -> String { "Runs on \(engineLabel(engine))" }
-
-    /// The hero tiles' nouns (R-A6). Each takes its own count so the singular
-    /// is right, and an unknown (`nil`) keeps the plural — the tile shows `—`
-    /// beside it, so "— entities in memory" reads correctly and "— entity in
-    /// memory" would not.
-    static func entitiesInMemory(_ count: Int?) -> String {
-        count == 1 ? "entity in memory" : "entities in memory"
-    }
-
-    static func sourcesFeeding(_ count: Int?) -> String {
-        count == 1 ? "source feeding it" : "sources feeding it"
-    }
-
     /// What `Rested n%` is made of, on hover over the meter's label
     /// (round-2 live check). The backend combines two ratios into one
     /// percentage — how full the queue is by volume, and how far its oldest
@@ -186,8 +166,6 @@ enum Copy {
     static func restedBreakdown(volumePct: Int, agePct: Int) -> String {
         "Volume \(volumePct)% · age \(agePct)% of the way to a full backlog"
     }
-
-    static let lastCycle = "Last cycle"
 
     /// R-A14/P18 — every `—` on this page carries a hover reason naming why
     /// the number is unknowable. A cycle's duration is joined from the

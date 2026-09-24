@@ -681,8 +681,17 @@ Each ruling is dated. A new ruling is added as a new line, and old lines are nev
 - **2026-09-24: With the list hidden, the Undo row sits at the head of the question column (R-DI25, DR-42).** DR-42 places it in the list; when DR-27 hides the list, the row moves above the card in its short form so Undo and ⌘Z stay reachable for the whole window. One Undo row is on screen at a time.
 - **2026-09-24: No check line on the focus card until G61 S3 serves a result (R-DI13).** `check` on the wire is S2's read-only census, which nothing acts on yet; the mock's "Check now" and "Checked by Cicada" line render a result S3 will serve. The hint row keeps "Open source ↗".
 - **2026-09-24: DS-2 ships without the `cicada.design.focus` flag (R-DI1, DR-73).** R-DS1's reasons hold unchanged; comparison is the installed build against the branch on the demo bank.
+- **2026-09-24: Home is the D-Home mock (R-HS2, DR-13, DR-17, DR-50).** The band is the bundled `hero-day` painting (its `-dark` sibling at night), 120 pt, the meadow line kept in view and faded into `bgBase` from 40 % down. The headline is one line, "What would you like to remember?", in `PageTitle` on the row under the band, so text never sits on paint. The italic second line and the drifting cloud retire. The field is 640 pt, the approved mock's value, over §10's 560.
+- **2026-09-24: No Consolidate on Home (R-HS3, G125 R10).** §10's bullet contradicted a CLAUDE.md ruling (one Consolidate, on the Sleep page), and §1 says the rule is what gets fixed, so §10 is corrected. The waiting count stays a link to Sleep. "Recently learned" waits for a backend field: the claims a cycle wrote, with their spans.
+- **2026-09-24: The Sleep page's "Runs on …" caption retires into the engine button (R-HS9, DR-38).** The caption and the button would say the same words twice. The button stays while a cycle runs, beside Cancel's caption, because a change applies to the next cycle.
+- **2026-09-24: The engine menu is a `NeutralButton` and a popover, with a native menu `Picker` for the model (R-HS10, DR-40, DR-45).** A popover carries marks, both previews and a model picker that a native `Menu` cannot. The mock's model text tabs are not used: a model roster is the plan's own list, of any length, and DR-45's tabs are single-select filters that deselect on a second tap. The free-text model id stays in Settings → Engines.
+- **2026-09-24: One preview wording app-wide (R-HS11, DR-38).** "When you start a cycle" and "Scheduled cycles", in the menu, in `EngineChooser` and in Settings → Sleep, where there were two wordings for one pair of facts.
+- **2026-09-24: Sleep's Details use the list grammar (R-HS15, DR-7, DR-21, DR-37, DR-48).** Section labels over rows, no cards. Last cycle's failure and warning rows wear the `warning` glyph with no fill (DR-7), "Rested" is a sentence with its breakdown on hover, the readout is key–value rows whose counts go through `UsageFormat`, and an episode row carries one glyph.
+- **2026-09-24: Settings raises sheets, never popovers (R-HS16, DR-33).** The panel is modal and inset only 40 pt, so a popover anchored at a row's edge could open past the screen (owner-reported: a folder's Manage). Manage, Wispr Flow and a connector's Connect/Manage open in one `SettingsSheet`; a lint holds `Views/Settings/` to no `.popover(`.
+- **2026-09-24: ⏎ on a Settings row in ⌘K opens it (R-HS20, DR-60).** It lands on the row through `AppRouter.openSettings`. R-SU12's explain-only row existed because a closure could not open the `Settings{}` scene; that scene is gone, so the hint and the row's "Open" link go too.
+- **2026-09-24: DS-3b ships without the `cicada.design.focus` flag (R-HS1, DR-73).** R-DS1's reasons hold unchanged; comparison is the installed build against the branch on the demo bank.
 
-This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. As of DS-2 (2026-09-24), CLAUDE.md's Inbox paragraph (Features §2/3, "The page") and its "Provenance viewer" paragraph describe D as it ships; every other page paragraph keeps describing what ships until that page's DS track lands. That track updates each paragraph in the same PR that changes the code.
+This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. As of DS-3b (2026-09-24), CLAUDE.md's Inbox paragraph (Features §2/3, "The page"), its "Provenance viewer" paragraph, its Home paragraph, the Sleep page's control row and Details, and the Settings panel's Integrations and search describe D as it ships; every other page paragraph keeps describing what ships until that page's DS track lands. That track updates each paragraph in the same PR that changes the code.
 
 ---
 
@@ -690,10 +699,13 @@ This file landed on its own, as docs, on 2026-09-23; CLAUDE.md points here. As o
 
 Each screen below names the problems it fixes: **P1** chrome louder than the work; **P2** colour spent everywhere; **P3** provenance in machine vocabulary; **P4** inverted density; **P5** a forked component vocabulary.
 
-**Home (G108; ⌘1 once built). Fixes P1, P5.** Search comes first, in the command bar's grammar, under the painted Home band (DR-13). The bar grows into a 560 pt field in a 760 pt column. The same palette sits underneath it, so `QuickMatch` stays the one ranker. Below the field come three things:
-- "Needs you": the top three inbox rows in STATE 0 styling, each opening the Inbox in STATE 1.
-- "Recently learned": claims with their source lines.
-- Consolidate, as the page's one `PrimaryActionButton`.
+**Home (G108; ⌘1). Fixes P1, P5.** Search comes first, in the command bar's grammar, under the painted Home band (DR-13): the `hero-day` painting as a 120 pt band faded into the window, and the one-line headline on the row under it, never on the paint. The bar grows into a 640 pt field in a 760 pt column. The same palette sits underneath it, so `QuickMatch` stays the one ranker. Below the field come labelled blocks of 36 pt rows:
+- "Getting started", while it lasts.
+- "Today": what was captured today, and how much is waiting (a link to Sleep).
+- "Needs you": the top three inbox rows, the Inbox's own STATE 0 rows, each opening the Inbox in STATE 1.
+- "Last read": the newest Sleep cycle and the pages it touched.
+
+Each number appears once, and each is a link to the page that owns it. There is **no Consolidate** on Home: the one Consolidate lives on the Sleep page (G125 R10). "Recently learned" (claims with their source lines) waits for a backend field.
 
 **Graph. Fixes P1, P5.** A full-bleed canvas. The chrome is floating overlays in one `LiquidGlassGroup`: the view switch (text tabs), the Context legend (collapsed by default) and the zoom control. The bank chip, "Find a node" and the Search button retire into the command bar. ⌘K finds nodes, and ⌘F opens an in-canvas find that overlays the canvas and never pushes it. A selected node opens the entity card as the detail column, and its evidence opens the Reader column: the same progressive columns as the Inbox.
 
@@ -704,11 +716,11 @@ Each screen below names the problems it fixes: **P1** chrome louder than the wor
 **Sources. Fixes P2, P4.** A list-and-grid page. The eyebrow reads "Sources · n connected", with "Add a source" as a `NeutralButton` in the eyebrow row. The G124 cards stay but are restyled: `bgFocus` with a resting ring, no shadow, and a hover lift (each card is a sparse tile that opens something). Dropping the duplicate "Nothing yet" lines takes a card from 128 pt to 104 pt or less. The contributor strip becomes a labelled bar, and a card opens its source detail as a column.
 
 **Sleep. Fixes P3, P4.** The study room stays: the art, the worm, one sentence, and Consolidate as the page's only `PrimaryActionButton`.
-- **New (owner, 2026-09-23): a quick engine/model menu** beside Consolidate. It is a `NeutralButton` that reads the current engine ("Claude plan · Sonnet ▾") and writes the same `PUT /sleep/engine` that `EngineChooser` writes. It shows both the `preview.manual` and `preview.scheduled` lines, so ruling 4 (a scheduled cycle never spends plan quota) stays visible rather than applying silently.
-- **Details** (Last cycle · What's waiting · Readout · Past nights) use the list grammar: rows and section labels, no bordered cards.
-- **"Rested 0%"** becomes a sentence instead of 26 empty boxes.
+- **New (owner, 2026-09-23): a quick engine/model menu** beside Consolidate. It is a `NeutralButton` that reads the current engine ("Claude plan · Sonnet ▾") and writes the same `PUT /sleep/engine` that `EngineChooser` writes. It opens a popover of the five engines with real marks, the chosen engine's model (a menu picker), both previews, and "More in Settings → Engines ›". It shows both the `preview.manual` and `preview.scheduled` lines, so ruling 4 (a scheduled cycle never spends plan quota) stays visible rather than applying silently.
+- **Details** (Last cycle · What's waiting · Readout · Past nights) use the list grammar: section labels over rows, no cards, 28 pt between sections. Last cycle's rows are words with a glyph and no fill, the readout is key–value rows, and an episode row carries one glyph.
+- **"Rested 0%"** is a sentence ("Fully rested — nothing is waiting.", "Rested n% — …") instead of a row of empty boxes, with the breakdown on hover.
 
-**Settings panel. Fixes P1, P5.** Built per DR-33. Each pane is one group of rows on `bgFocus` (DR-37), and native controls follow the system accent. Integrations shows real marks: its chat-bubble fallback for Claude Code and Cursor is a bug (DR-52).
+**Settings panel. Fixes P1, P5.** Built per DR-33. Each pane is one group of rows on `bgFocus` (DR-37), and native controls follow the system accent. Integrations shows real marks: its chat-bubble fallback for Claude Code and Cursor is a bug (DR-52). Manage and Connect open as sheets, never popovers.
 
 **Entity card. Fixes P3, P4, P5.** A detail column, opened from Graph, Clusters or ⌘K.
 - **Header:** the name (`displayFont(size: 22)`), the type as a `Tag` with a dot, and a one-line summary.

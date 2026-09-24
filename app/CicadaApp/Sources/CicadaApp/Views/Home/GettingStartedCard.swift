@@ -77,15 +77,18 @@ struct GettingStartedCard: View {
                 rowList(rows)
                 if !hasDrop { chatHistoryRow.transition(.opacity) }
                 if readiness == .needsChoice { EngineChoice().transition(.opacity) }
-                Divider()
                 firstRead(readiness: readiness)
                 if asksSchedule { scheduleQuestion(honesty).transition(.opacity) }
                 if !alsoFound.isEmpty { alsoFoundList(alsoFound).transition(.opacity) }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(CicadaTheme.spacingLG)
-        .background(CicadaTheme.surface, in: RoundedRectangle(cornerRadius: CicadaTheme.radiusLarge))
+        // R-HS5 — C's focus-card material (DR-9, DR-10, §3.5): `bgFocus`, `radiusLarge`, a
+        // resting ring, 24/28 padding. Only the material moved; Track I's rulings are untouched.
+        .padding(EdgeInsets(top: CicadaTheme.spacingXL, leading: CicadaTheme.spacingCard,
+                            bottom: CicadaTheme.spacingCard, trailing: CicadaTheme.spacingCard))
+        .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         .animation(CicadaMotion.settle(reduceMotion: reduceMotion),
                    value: [done, hasDrop, readiness == .needsChoice, asksSchedule, alsoFound.isEmpty])
         // The first time it is done: "You're set up." for this session, and the
@@ -134,15 +137,13 @@ struct GettingStartedCard: View {
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityFocused($headingFocused)
             Spacer(minLength: CicadaTheme.spacingSM)
-            Button(Copy.gsHide) {
+            // DR-40 — the text button (R-HS5).
+            TextButton(title: Copy.gsHide) {
                 GettingStartedState.setHidden(true, bank: store.bank)
                 // Hide also ends this session's "You're set up." (R-IB18).
                 runner.sawDoneThisSession = false
                 runner.checklistChanged()
             }
-            .buttonStyle(.cicadaPlain)
-            .font(CicadaTheme.captionFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
 
@@ -173,18 +174,12 @@ struct GettingStartedCard: View {
 
     /// ✕ settles a row (R-IB18); a dropped export lives only in this session,
     /// so its ✕ forgets it instead (R-IB17 — a drop is never recorded).
+    /// The one icon-only button (DR-40, R-HS5).
     private func dismissButton(_ row: GettingStartedRow) -> some View {
-        Button {
+        IconButton(systemName: "xmark", help: Copy.gsDismiss,
+                   accessibilityLabel: "\(Copy.gsDismiss), \(row.title)") {
             if case .dropped = row.id { runner.forget(row.id) } else { effects.settle(row.id) }
-        } label: {
-            Image(systemName: "xmark")
-                .font(CicadaTheme.font(size: 10, weight: .semibold))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .iconHover()
         }
-        .buttonStyle(.cicadaPlain)
-        .help(Copy.gsDismiss)
-        .accessibilityLabel("\(Copy.gsDismiss), \(row.title)")
     }
 
     /// The export's real mark for a dropped row (an unknown origin falls to the
@@ -239,17 +234,13 @@ struct GettingStartedCard: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
             Spacer(minLength: CicadaTheme.spacingSM)
-            Button(Copy.intakeChooseFile) { intake.present(from: wait.intakeOrigin(fallback: .onboardingRow)) }
-                .buttonStyle(.bordered)
-            Button { waits.remove(wait) } label: {
-                Image(systemName: "xmark")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .iconHover()
+            NeutralButton(title: Copy.intakeChooseFile, size: .compact) {
+                intake.present(from: wait.intakeOrigin(fallback: .onboardingRow))
             }
-            .buttonStyle(.cicadaPlain)
-            .help(Copy.reminderDismiss)
-            .accessibilityLabel("\(Copy.reminderDismiss), \(ExportWaits.vendorTitle(wait.vendor))")
+            IconButton(systemName: "xmark", help: Copy.reminderDismiss,
+                       accessibilityLabel: "\(Copy.reminderDismiss), \(ExportWaits.vendorTitle(wait.vendor))") {
+                waits.remove(wait)
+            }
         }
     }
 
@@ -260,15 +251,14 @@ struct GettingStartedCard: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(Copy.gsChatHistory)
-                    .font(CicadaTheme.font(size: 13, weight: .semibold))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))   // DR-16 reserves semibold
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Text(Copy.gsChatDrop)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
             }
             Spacer(minLength: CicadaTheme.spacingSM)
-            Button(Copy.intakeChooseFile) { intake.present(from: .onboardingRow) }
-                .buttonStyle(.bordered)
+            NeutralButton(title: Copy.intakeChooseFile, size: .compact) { intake.present(from: .onboardingRow) }
         }
         .padding(.vertical, CicadaTheme.spacingXS)
         .padding(.horizontal, CicadaTheme.spacingSM)
@@ -364,7 +354,7 @@ struct GettingStartedCard: View {
                                                   (.daily, Copy.gsNightly)]
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(Copy.gsScheduleQuestion)
-                .font(CicadaTheme.font(size: 13, weight: .semibold))
+                .font(CicadaTheme.font(size: 13, weight: .medium))   // DR-16 reserves semibold
                 .foregroundStyle(CicadaTheme.textPrimary)
             HStack(spacing: CicadaTheme.spacingMD) {
                 ForEach(options, id: \.0) { mode, label in

@@ -272,12 +272,11 @@ final class RoomSentenceTests: XCTestCase {
                        "Manual only — the lamp is off")
     }
 
-    /// The caption names what THIS click would run on (ruling 4 at the moment
-    /// of choice), or what Cancel does while running; nothing when unloaded.
+    /// R-HS9 — the caption is what Cancel does while a cycle runs, and nothing otherwise: the
+    /// engine menu beside the control names what a click would run.
     func test_controlCaption() {
-        XCTAssertEqual(controlCaption(isRunning: false, manualEngine: "claude-cli"), Copy.runsOn(engine: "claude-cli"))
-        XCTAssertNil(controlCaption(isRunning: false, manualEngine: nil))
-        XCTAssertEqual(controlCaption(isRunning: true, manualEngine: "claude-cli"), Copy.cancelCaption)
+        XCTAssertNil(controlCaption(isRunning: false), "R-HS9 — the engine menu names the engine")
+        XCTAssertEqual(controlCaption(isRunning: true), Copy.cancelCaption)
     }
 
     /// R-Z5 — the bubble is retired from the page.

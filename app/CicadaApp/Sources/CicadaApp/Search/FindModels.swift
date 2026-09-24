@@ -91,8 +91,9 @@ enum PaletteAction: String, Codable, Sendable {
     case consolidate, stopConsolidating, zoomIn, zoomOut, actualSize, lightMode, darkMode
 }
 
-/// What a row opens. `ContentView.openFind(_:)` runs the navigating cases;
-/// `FindPaletteModel.activate` handles `.ask`, `.askedBefore` and `.settings` itself.
+/// What a row opens. `ContentView.openFind(_:)` runs the navigating cases —
+/// `.settings` among them since DS-3b, through `AppRouter.openSettings` (R-HS20);
+/// only `.ask` and `.askedBefore` stay in the palette (`FindPaletteModel.activate`).
 enum FindDestination: Equatable, Sendable {
     case entity(id: String)
     case entityInClusters(id: String)
@@ -104,7 +105,7 @@ enum FindDestination: Equatable, Sendable {
     case belief(subjectId: String, claimId: String)
     case evidence(ReaderSpan)
     case inbox(id: String)
-    case settings(SettingsSection)
+    case settings(SettingsSection, row: SettingsRowID?)
     case tab(AppTab)
     case action(PaletteAction)
     case bank(name: String)

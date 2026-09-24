@@ -313,8 +313,9 @@ struct ContentView: View {
     }
 
     /// The one place a palette row becomes navigation (design §3.3). The
-    /// palette has already closed itself; `.ask`, `.askedBefore` and
-    /// `.settings` never arrive here (`FindPaletteModel.activate`).
+    /// palette has already closed itself; only `.ask` and `.askedBefore`
+    /// never arrive here (`FindPaletteModel.activate`) — a Settings row does,
+    /// and opens through `AppRouter.openSettings` (R-HS20).
     private func openFind(_ destination: FindDestination) {
         switch destination {
         case .entity(let id), .belief(let id, _):
@@ -361,7 +362,11 @@ struct ContentView: View {
         case .bank(let name):
             // `BankSwitcher.switchTo`'s own pair (R-SU13).
             Task { if await banksVM.activate(name) { await graphVM.loadGraph() } }
-        case .settings, .ask, .askedBefore:
+        case .settings(let section, let row):
+            // R-HS20 — the one door (R-DS22). The palette has already closed itself; Home's field
+            // (page placement) stays, under the panel.
+            router.openSettings(section, row: row)
+        case .ask, .askedBefore:
             break
         }
     }

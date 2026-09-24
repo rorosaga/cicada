@@ -106,4 +106,18 @@ final class IntegrationsViewTests: XCTestCase {
         let errored = SourceChannel(id: "rss", label: "RSS", connected: true, lastError: "401 Unauthorized")
         XCTAssertTrue(IntegrationRowState.line(errored, now: now).contains("401 Unauthorized"))
     }
+
+    /// DR-52, R-HS18 — a harness row wears its app's real mark; "Other agents" has no vendor and
+    /// wears a neutral glyph, never a "?" and never a chat bubble in a tinted circle.
+    func testHarnessRowsWearTheirRealMarks() {
+        func row(_ harness: String) -> SourceOverview {
+            SourceOverview(id: "harness:\(harness)", label: harness, kind: .harness, mark: harness, harness: harness)
+        }
+        XCTAssertEqual(IntegrationHarnessRows.markOrigin(for: row("claude-code")), "claude-code")
+        XCTAssertEqual(IntegrationHarnessRows.markOrigin(for: row("codex")), "codex")
+        XCTAssertEqual(IntegrationHarnessRows.markOrigin(for: row("cursor")), "cursor")
+        XCTAssertNil(IntegrationHarnessRows.markOrigin(for: row("unknown")))
+        XCTAssertNotEqual(IntegrationHarnessRows.otherAgentsSymbol, "questionmark.circle")
+        XCTAssertNotEqual(IntegrationHarnessRows.otherAgentsSymbol, "bubble.left.and.bubble.right")
+    }
 }

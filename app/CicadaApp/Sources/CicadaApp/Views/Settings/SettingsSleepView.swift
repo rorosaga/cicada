@@ -80,8 +80,8 @@ struct SettingsSleepView: View {
                             below: {
                     if let preview = engineVM.response?.preview {
                         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                            EngineChooser.previewRow(preview.manual, label: Copy.whenYouStart)
-                            EngineChooser.previewRow(preview.scheduled, label: Copy.onTheSchedule)
+                            EngineChooser.previewRow(preview.manual, label: Copy.EngineMenu.whenYouStart)
+                            EngineChooser.previewRow(preview.scheduled, label: Copy.EngineMenu.scheduledCycles)
                         }
                     }
                 })

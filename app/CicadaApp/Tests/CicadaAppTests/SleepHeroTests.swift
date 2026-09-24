@@ -205,48 +205,57 @@ final class SleepHeroTests: XCTestCase {
         XCTAssertNil(heroMeterHelp(.rested(pct: 42), debt: nil))
     }
 
-    // MARK: heroTiles — R-A6: present tense or measured, never a forecast
+    // MARK: readoutRows — R-A6's measured values as rows (R-HS15)
 
-    func test_heroTiles_areAlwaysThree_andMeasured() {
-        let tiles = heroTiles(entityCount: 1_904, sourceCount: 6, lastDurationMs: 252_000)
-        XCTAssertEqual(tiles.count, 3)
-        XCTAssertEqual(tiles.map(\.value), ["1904", "6", "4 m 12 s"])
-        XCTAssertEqual(tiles.map(\.label), ["entities in memory", "sources feeding it", "Last cycle"])
-        XCTAssertTrue(tiles.allSatisfy { $0.reason == nil }, "a real value carries no dash reason")
+    func test_readoutRowsAreFourAndMeasured() {
+        let en = Locale(identifier: "en_US")
+        let rows = readoutRows(entityCount: 1_904, sourceCount: 6, lastDurationMs: 252_000, lastEngine: "claude-cli",
+                               engineDetail: nil, locale: en)
+        XCTAssertEqual(rows.map(\.key), ["In memory", "Feeding it", "Last cycle took", "Last engine"])
+        XCTAssertEqual(rows.map(\.value), ["1,904 entities", "6 sources", "4 m 12 s", Copy.engineLabel("claude-cli")])
+        XCTAssertTrue(rows.allSatisfy { $0.reason == nil }, "a real value carries no dash reason")
+        XCTAssertEqual(rows.last?.engine, "claude-cli", "the engine row wears its mark (DR-52)")
+        // de_DE, not es_ES: CLDR gives es_ES `minimumGroupingDigits = 2`, so Spanish leaves a
+        // four-digit count ungrouped ("1904") — `SourcesV2Tests` records the same choice.
+        XCTAssertEqual(readoutRows(entityCount: 1_904, sourceCount: 1, lastDurationMs: nil, lastEngine: nil,
+                                   engineDetail: nil, locale: Locale(identifier: "de_DE")).first?.value,
+                       "1.904 entities", "DR-21 — the reader's locale, never String(n)")
     }
 
-    /// R-A14/P18 — `—` is a value with a reason, never a blank and never a
-    /// zero standing in for an unknown.
-    func test_heroTiles_useADashWithAReasonForEveryUnknown() {
-        let tiles = heroTiles(entityCount: nil, sourceCount: nil, lastDurationMs: nil)
-        XCTAssertEqual(tiles.count, 3)
-        for tile in tiles {
-            XCTAssertEqual(tile.value, "—", "\(tile.label) invented a number it does not have")
-            XCTAssertFalse((tile.reason ?? "").isEmpty, "\(tile.label): every dash names why")
+    func test_readoutRowsUseADashWithAReasonForEveryUnknown() {
+        for row in readoutRows(entityCount: nil, sourceCount: nil, lastDurationMs: nil, lastEngine: nil, engineDetail: nil) {
+            XCTAssertEqual(row.value, "—", "\(row.key) invented a value it does not have")
+            XCTAssertFalse((row.reason ?? "").isEmpty, "\(row.key): every dash names why")
         }
     }
 
-    func test_heroTiles_pluraliseTheirNouns() {
-        let one = heroTiles(entityCount: 1, sourceCount: 1, lastDurationMs: 900)
-        XCTAssertEqual(one.map(\.label), ["entity in memory", "source feeding it", "Last cycle"])
-        XCTAssertEqual(one.map(\.value), ["1", "1", "0 s"])
+    func test_readoutRowsPluraliseAndNeverForecast() {
+        let one = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: 900, lastEngine: "ollama",
+                              engineDetail: "example-local", locale: Locale(identifier: "en_US"))
+        XCTAssertEqual(one.map(\.value), ["1 entity", "1 source", "0 s", "\(Copy.engineLabel("ollama")) · example-local"])
+        for row in one {
+            let text = "\(row.key) \(row.value) \(row.reason ?? "")".lowercased()
+            for banned in ["cluster", "insight", "estimate", "~", "$", "token"] {
+                XCTAssertFalse(text.contains(banned), "\"\(text)\" contains \"\(banned)\"")
+            }
+        }
     }
 
-    /// The refused words (R-A6, G107): no forecast, no "clusters", no
-    /// estimate — asserted over the label, the value AND the dash reason,
-    /// since all three are read by the human.
-    func test_heroTiles_neverForecastAnything() {
-        let cases = [
-            heroTiles(entityCount: 1_904, sourceCount: 6, lastDurationMs: 252_000),
-            heroTiles(entityCount: nil, sourceCount: nil, lastDurationMs: nil),
-        ]
-        for tiles in cases {
-            for tile in tiles {
-                let text = "\(tile.label) \(tile.value) \(tile.reason ?? "")".lowercased()
-                for banned in ["cluster", "insight", "est", "~"] {
-                    XCTAssertFalse(text.contains(banned), "\"\(text)\" contains \"\(banned)\"")
-                }
-            }
+    // MARK: The meter is a sentence (DESIGN_RULES §10, Sleep; R-HS15)
+
+    func test_theRestedMeterIsASentence() {
+        XCTAssertEqual(HeroMeter.rested(pct: 100).sentence(unprocessed: 0, mood: .happy),
+                       "Fully rested — nothing is waiting.")
+        XCTAssertEqual(HeroMeter.rested(pct: 0).sentence(unprocessed: 40, mood: .hungry),
+                       "Rested 0% — the backlog is overdue.")
+        XCTAssertEqual(HeroMeter.rested(pct: 40).sentence(unprocessed: 3, mood: .reading),
+                       "Rested 40% — based on how much is waiting, and for how long.")
+        XCTAssertEqual(HeroMeter.reading(read: 2, total: 3).sentence(unprocessed: 3, mood: .sleeping(stage: 1)),
+                       "Read 2 of 3 so far.")
+        for meter in [HeroMeter.rested(pct: 12), .rested(pct: 100), .reading(read: 1, total: 9)] {
+            let s = meter.sentence(unprocessed: 5, mood: .awake)
+            XCTAssertTrue(s.hasSuffix("."), s)
+            XCTAssertTrue(s.hasPrefix("Rested") || s.hasPrefix("Read") || s.hasPrefix("Fully"), "\(s) — the noun first (R-A5)")
         }
     }
 }

@@ -166,25 +166,22 @@ struct StudyListCard: View {
         return .loading
     }
 
+    /// "What's waiting" — the Details section's own name (Track Z §4.2), in the plain words the
+    /// sentence above already uses. R-HS15: its label over rows, no card (DR-37); the error line is
+    /// a quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions).
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            // "What's waiting" — the Details section's own name (Track Z
-            // §4.2), in the plain words the sentence above already uses.
-            SectionLabel("What's waiting")
-
+        SleepDetailsSection(title: "What's waiting") {
             content
 
             if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.danger)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
             }
         }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 
     @ViewBuilder
@@ -197,38 +194,42 @@ struct StudyListCard: View {
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         case .failed(let message):
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(CicadaTheme.font(size: 12))
-                    .foregroundStyle(CicadaTheme.danger)
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.warning)
+                    .accessibilityHidden(true)
                 Text(message)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                 Spacer()
-                Button("Retry") { Task { await store.refresh([.status]) } }
-                    .buttonStyle(.cicadaPlain)
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.accent)
+                NeutralButton(title: "Retry", size: .compact) { Task { await store.refresh([.status]) } }
                     .accessibilityLabel("Retry loading the queue")
             }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         case .loaded(let count):
             if rows.isEmpty {
                 Text(count == 0 ? "All caught up" : "Nothing grouped yet.")
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.vertical, CicadaTheme.spacingSM)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(rows) { row in
                         rowView(row)
                         if expandedOrigins.contains(row.origin) {
-                            LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
                                 ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
                                     EpisodeRow(item: ep)
                                 }
                             }
-                            .padding(.leading, CicadaTheme.spacingLG)
+                            // The mock's 45 pt indent, less the row's own 10.
+                            .padding(.leading, CicadaTheme.scaled(35))
                         }
                     }
                 }
@@ -246,34 +247,38 @@ struct StudyListCard: View {
                 }
             }
         } label: {
+            // R-HS15 — one 36 pt row (DR-34): the chevron, the source's real mark (DR-52), its
+            // name, the oldest age inline, and the trailing state.
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: expandedOrigins.contains(row.origin) ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
+                    .font(CicadaTheme.icon(.inline))
                     .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(width: 10)
+                    .frame(width: CicadaTheme.scaled(12))
 
-                OriginMark(origin: row.origin, size: 18)
+                OriginMark(origin: row.origin, size: CicadaTheme.scaled(14))
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(row.label)
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                    if let age = row.oldestAge {
-                        Text("oldest \(age)")
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                    }
+                Text(row.label)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                if let age = row.oldestAge {
+                    Text("oldest \(age)")
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
 
                 trailing(row)
             }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.surfaceHover : Color.clear,
-                    in: RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.bgHover : Color.clear,
+                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
         .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
         .accessibilityLabel(Self.rowAccessibilityLabel(row))
     }
@@ -306,37 +311,40 @@ struct StudyListCard: View {
         switch queueRowState(row) {
         case .nextCycle:
             Text("next cycle")
-                .font(CicadaTheme.captionFont)
+                .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
         case .done:
             // Dimmed, and no numbers: this source is finished, and the cycle's
             // live readout has moved on to the stage strip.
             Image(systemName: "checkmark")
-                .font(CicadaTheme.font(size: 10, weight: .semibold))
+                .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.textTertiary)
         case .waiting(let count):
-            countText("\(count)")
+            countText(UsageFormat.count(count))
         case .reading(let read, let total, let fill):
-            countText("\(read) / \(total)")
+            countText("\(UsageFormat.count(read)) / \(UsageFormat.count(total))")
                 .background(alignment: .bottom) { microFill(fill) }
         }
     }
 
     private func countText(_ value: String) -> some View {
         Text(value)
-            .font(CicadaTheme.font(size: 12, weight: .semibold, design: .rounded))
+            .font(CicadaTheme.metaFont)
+            .monospacedDigit()
             .foregroundStyle(CicadaTheme.textSecondary)
     }
 
     /// 3 pt tall, as wide as the count it sits under. Decorative in the
     /// accessibility sense only — the numbers above it carry the same fact,
     /// which is why it can be hidden from VoiceOver without losing anything.
+    /// R-HS15 — `textSecondary` on `bgBadge`, not the accent: progress is not one of DR-5's accent
+    /// uses, and the stage strip already fills in the text ladder.
     private func microFill(_ fraction: Double) -> some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(CicadaTheme.border)
+                Capsule().fill(CicadaTheme.bgBadge)
                 Capsule()
-                    .fill(CicadaTheme.accent)
+                    .fill(CicadaTheme.textSecondary)
                     .frame(width: geo.size.width * min(max(fraction, 0), 1))
             }
         }
