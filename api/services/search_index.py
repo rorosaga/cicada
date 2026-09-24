@@ -879,6 +879,45 @@ class Reader:
         rows = self.conn.execute(f"SELECT id, kind, ref, meta FROM docs WHERE id IN ({marks})", list(ids))
         return {int(i): Doc(int(i), k, r, json.loads(m or "{}")) for i, k, r, m in rows}
 
+    def name_candidates(self, terms: list[str], limit: int) -> list[tuple[int, float]]:
+        """``[(doc_id, bm25)]`` of entity pages whose name or an alias holds one
+        of ``terms`` as a WHOLE word, best first (G149 R-H3).
+
+        The recall hook's candidate read. An OR over the ``title`` and
+        ``aliases`` columns only, never the body and never a prefix: a prompt is
+        prose, so ``match_expression``'s implicit AND would ask every word of it
+        to match, and a prefix OR ("the"*) would match half the graph. ``terms``
+        come from ``text_fold.words`` (alphanumeric) and are quoted, so FTS5
+        reads an ``OR`` or ``NEAR`` in a prompt as a word, never an operator."""
+        if not terms:
+            return []
+        expr = "{title aliases} : (" + " OR ".join(f'"{t}"' for t in terms) + ")"
+        sql = (f"SELECT rowid >> {ROW_BITS}, bm25(ent, {WEIGHTS['ent']}) AS r "
+               "FROM ent WHERE ent MATCH ? ORDER BY r LIMIT ?")
+        return [(int(i), float(r)) for i, r in self.conn.execute(sql, (expr, int(limit)))]
+
+    def claims_of(self, doc_id: int) -> list[tuple[str, dict]]:
+        """One page's indexed claims in fence order, ``[(text, payload)]``,
+        superseded ones included (the caller decides what is current). A rowid
+        range scan: claim ``n`` is row ``doc_id << ROW_BITS | n``, ``n >= 1``."""
+        lo = int(doc_id) << ROW_BITS
+        out: list[tuple[str, dict]] = []
+        for text, payload in self.conn.execute(
+                "SELECT title, payload FROM clm WHERE rowid > ? AND rowid <= ? ORDER BY rowid",
+                (lo, lo | MAX_ROWS_PER_DOC)):
+            try:
+                out.append((str(text or ""), json.loads(payload or "{}")))
+            except ValueError:
+                continue
+        return out
+
+    def inbox_docs(self) -> list[Doc]:
+        """Every indexed inbox item, at most a few hundred on a real bank.
+        ``meta`` holds the served question, kind, subject and ``remind_after``
+        (``_index_inbox``), which is everything ``mcp_tools.nudge_visible`` reads."""
+        rows = self.conn.execute("SELECT id, kind, ref, meta FROM docs WHERE kind = 'inbox'")
+        return [Doc(int(i), k, r, json.loads(m or "{}")) for i, k, r, m in rows]
+
     def docs_by_ref(self, kinds: tuple[str, ...], refs: list[str]) -> dict[str, Doc]:
         if not refs:
             return {}

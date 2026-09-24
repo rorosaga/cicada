@@ -64,6 +64,24 @@ def clear_embed_cache() -> None:
         _EMBED_INFLIGHT.clear()
 
 
+def warm_local_embed_fn(model_id: str | None) -> EmbedFn | None:
+    """The query embedder for ``model_id`` only when it runs ON THIS MAC and is
+    ALREADY loaded in this process; ``None`` otherwise. Never a build.
+
+    G149 R-H4: the recall hook may re-order pages with the stored vectors, but
+    it fires on every prompt. It must never pay a multi-second model load inside
+    a 300 ms budget (``cached_embed_fn_for_model`` builds on a miss), and it
+    must never send the person's words to a hosted embedding API (OpenAI,
+    OpenRouter). The palette's opt-in hybrid search has that data flow; an
+    automatic per-prompt hook must not."""
+    mid = (model_id or "").strip()
+    if not mid or mid == "unknown" or _model_is_openai(mid) or _model_is_openrouter(mid):
+        return None
+    with _EMBED_LOCK:
+        hit = _EMBED_CACHE.get(mid)
+    return hit[0] if hit else None
+
+
 def cached_embed_fn_for_model(model_id: str, settings: Settings | None = None) -> tuple[EmbedFn, str]:
     """Memoised :func:`resolve_embed_fn_for_model` — the model is loaded once per process.
 

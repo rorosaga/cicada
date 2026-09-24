@@ -2242,6 +2242,24 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
 
 
+def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: str = "") -> bool:
+    """``check_nudges``' item filter, shared with the recall hook (G149) so an
+    item the hook points at is exactly an item ``cicada_check_nudges`` lists:
+    not an id this session skipped, never ``normalization`` (app-only audit
+    rows), the subject in ``wanted`` when ids were given (G75 R12's exact
+    match), and not deferred. ``fm`` may be a frontmatter dict or the search
+    index's inbox ``meta``; both carry ``kind``, ``entity_id``, ``remind_after``."""
+    from api.services import inbox_questions
+
+    if stem and stem in skipped:
+        return False
+    if str(fm.get("kind") or "") == "normalization":
+        return False
+    if wanted and str(fm.get("entity_id") or "") not in wanted:
+        return False
+    return not inbox_questions.is_deferred(fm, today)
+
+
 def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = None) -> str:
     """Check for pending inbox items (decay/conflict/clarification/merge).
 
@@ -2272,9 +2290,7 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         content = filepath.read_text(encoding="utf-8")
         fm, body = parse_frontmatter(content)
 
-        if str(fm.get("kind") or "") == "normalization":
-            continue
-        if wanted and str(fm.get("entity_id") or "") not in wanted:
+        if not nudge_visible(fm, wanted=wanted, today=today):
             continue
 
         if topic:
@@ -2288,11 +2304,6 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
             ).lower()
             if not _topic_matches(topic.lower(), combined):
                 continue
-
-        from api.services import inbox_questions
-
-        if inbox_questions.is_deferred(fm, today):
-            continue
 
         # Decay becomes a question object here, and every question object gains
         # its cause + `(Recommended)` marker, so the agent reads the same card
