@@ -27,6 +27,11 @@ struct GettingStartedCard: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(ExportWaitStore.self) private var waits
+    /// R-OB9 — the app-side sources (Calendar, Apple Notes, Wispr Flow) turn on through their registered drivers, so
+    /// their rows start here exactly as they do on the Import page. Optional: a host without the reader registers
+    /// no Calendar driver and its row still finishes in Integrations.
+    @Environment(CalendarReader.self) private var calendar: CalendarReader?
+    @Environment(LocalSourceWatcher.self) private var local
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @AccessibilityFocusState private var headingFocused: Bool
@@ -50,11 +55,9 @@ struct GettingStartedCard: View {
                                                 connections: connections, preview: engineVM.response?.preview)
         let honesty = HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
                                          connections: connections)
-        let inputs = GettingStartedInputs(
-            record: record, items: inventory.items, runnerRows: runner.rows, runnerDetail: runner.detail,
-            titles: runner.titles,
-            browserOn: Set(BrowserWatchPolicy.watched.map(\.channel).filter(watcher.isEnabled)),
-            wiringLoaded: inventory.wiring != nil)
+        // R-OB4 — built through the one `.live` builder onboarding also uses, so a row never reads differently.
+        let inputs = GettingStartedInputs.live(record: record, inventory: inventory, runner: runner, watcher: watcher,
+                                               apps: apps)
         let rows = GettingStartedProgress.rows(inputs)
         let asksSchedule = hasRunBefore && sleepVM.scheduleLoaded && !record.scheduleAsked
             && ScheduleChoice.asks(sleepVM.schedule)
@@ -125,9 +128,15 @@ struct GettingStartedCard: View {
         sleepVM.status?.debt.hasRunBefore ?? (store.status.value?.lastSleepAt != nil)
     }
 
+    /// The live app-source registrations (R-OB9) — read for the rows' on/known state and handed to the turn-on.
+    private var apps: [String: AppSourceDriver] {
+        AppSourceDrivers.live(calendar: calendar, local: local, store: store)
+    }
+
     private var effects: LiveSetupEffects {
         LiveSetupEffects(store: store, engineVM: engineVM,
-                         deps: .live(inventory: inventory, watcher: watcher, intake: intake),
+                         deps: .live(inventory: inventory, watcher: watcher, intake: intake,
+                                     calendar: calendar, local: local, store: store),
                          onChecklistChanged: runner.checklistChanged)
     }
 
@@ -151,25 +160,28 @@ struct GettingStartedCard: View {
 
     // MARK: Rows
 
+    /// R-OB4 — the rows are `SetupProgress.snapshots`, the one projection the Import page, the onboarding topbar and
+    /// F-07 read too, so "Last synced", "Reading 9 of 17" and the × can never differ between Home and onboarding.
     @ViewBuilder
     private func rowList(_ rows: [GettingStartedRow]) -> some View {
-        let channels = store.channels.value ?? []
+        let snapshots = SetupProgress.snapshots(rows, facts: facts(for: rows))
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                ForEach(rows) { row in
-                    let channelId = GettingStartedSourceRows.channelId(row.id)
-                    let run = channelId.flatMap { activity.run(for: $0) }
-                    let model = GettingStartedSourceRows.model(
-                        row, origin: origin(row.id), channel: channelId.flatMap { id in channels.first { $0.id == id } },
-                        watch: channelId.flatMap { watcher.state(for: $0) }, run: run)
+                ForEach(snapshots) { snapshot in
+                    let row = snapshot.row
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        SourceRow(model: model, now: context.date,
-                                  onCancel: channelId.map { id -> () -> Void in { activity.cancel(id) } }) {
-                            GettingStartedRowAction(row: row, showsOn: channelId == nil) {
+                        // The × reads the run key, not the channel: a drop's run sits under its import key and is
+                        // never cancellable (R-OB10), so `SourceRow` draws no × for it.
+                        SourceRow(model: snapshot.model, now: context.date,
+                                  onCancel: GettingStartedSourceRows.runKey(row.id)
+                                      .map { key -> () -> Void in { activity.cancel(key) } }) {
+                            // An app row now has a channel, so it says "Last synced …" like a browser; an agent or a
+                            // drop keeps the ✓ On label.
+                            GettingStartedRowAction(row: row, showsOn: GettingStartedSourceRows.channelId(row.id) == nil) {
                                 Task { await runner.turnOn(row.id, effects: effects) }
                             }
                             // While a run can be stopped, its × is the row's one ×.
-                            if run == nil { dismissButton(row) }
+                            if !snapshot.model.status.isSyncing { dismissButton(row) }
                         }
                         refusedLines(row.id)
                     }
@@ -184,15 +196,21 @@ struct GettingStartedCard: View {
         }
     }
 
-    /// The mark a row wears — an origin key for `OriginMark` (DR-52): an agent's own id, a browser's origin, a
-    /// dropped export's vendor.
-    private func origin(_ id: FoundItemID) -> String {
-        switch id {
-        case .agent(let agent): agent
-        case .browser(let channel): ConnectedChannelRow.origin(forChannel: channel)
-        case .dropped: runner.origins[id] ?? ""
-        case .app(let app): app
+    /// What a row is drawn from beyond its runner state (R-OB4): the Store's channels, each channel's watch light,
+    /// the live runs, a drop's vendor mark and when each row finished. The marks themselves are
+    /// `SetupProgress.origin` — an app row wears its channel's mark (Apple Notes → `apple-notes`), not its bare id.
+    /// The watch light is read per row's channel (as before), not per Store channel: a browser whose channel the
+    /// Store has not listed yet still shows its syncing light.
+    private func facts(for rows: [GettingStartedRow]) -> SetupFacts {
+        var facts = SetupFacts()
+        facts.channels = store.channels.value ?? []
+        for id in rows.compactMap({ GettingStartedSourceRows.channelId($0.id) }) {
+            if let state = watcher.state(for: id) { facts.watches[id] = state }
         }
+        facts.runs = activity.runs
+        facts.origins = runner.origins
+        facts.finishedAt = runner.finishedAt
+        return facts
     }
 
     /// ✕ settles a row (R-IB18); a dropped export lives only in this session,

@@ -13,4 +13,20 @@ extension Copy {
                               locale: Locale = .autoupdatingCurrent) -> String {
         "Reading \(UsageFormat.count(done, locale: locale)) of \(UsageFormat.count(total, locale: locale)) \(noun)"
     }
+
+    // MARK: Import categories and rows (Task 3)
+    static let importBrowsers = "Browsers"
+    static let importCalendar = "Calendar"
+    static let importCalendarAndContacts = "Calendar & contacts"
+    static let importNotesAndFiles = "Notes & files"
+    static let importVoice = "Voice & meetings"
+    static let importNotes = "Apple Notes"
+    static let importWispr = "Wispr Flow"
+    static let importTickToBringIn = "Tick to bring it in"
+    static let importCalendarMeta = "Every calendar on this Mac"
+    static let importCalendarIdle = "Asks macOS once for your calendars"
+    static let importNotesMeta = "Every folder"
+    /// R-OB11 — Notes syncs on demand; the row never says "keeps up".
+    static let importNotesIdle = "Reads your notes now; sync again any time"
+    static let importWisprMeta = "Meetings · dictation stays off"
 }
