@@ -53,7 +53,9 @@ from api.services.auth import cicada_home
 # G140's 3 at the merge, so neither side's cached 3 is ever served.
 # 5: G141 — cicada_project named; project rows carry now/next.
 # 6: G141 PJ-3a — item 3 names cicada_note_progress.
-CONTRACT_VERSION = 6
+# 7: G150 — item 3 names cicada_add_backlog_item, cicada_add_backlog_note and
+# cicada_backlog; item 7 adds backlog/ to what is never edited directly.
+CONTRACT_VERSION = 7
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -68,7 +70,9 @@ REMOTE_VARIANT = "remote"
 # 3: G141 — cicada_project named (read scope); project rows carry now/next,
 # a person-verbatim `now` shown as "a note of yours" without `sources`.
 # 4: G141 PJ-3a — cicada_note_progress named when the connection holds it.
-REMOTE_CONTRACT_VERSION = 4
+# 5: G150 — cicada_backlog among the reads; the backlog sentence when the
+# connection holds cicada_add_backlog_item.
+REMOTE_CONTRACT_VERSION = 5
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -103,6 +107,7 @@ def _remote_contract(tools: frozenset[str]) -> str:
         ("cicada_ask", "`cicada_ask` for a direct factual question"),
         ("cicada_timeline", "`cicada_timeline(since)` for what changed recently"),
         ("cicada_project", "`cicada_project(project)` for where a project stands"),
+        ("cicada_backlog", "`cicada_backlog(project)` for a project's backlog"),
     ) if tool in tools]
     if reads:
         items.append("Recall first: " + ", ".join(reads) + ". State only what the tools returned.")
@@ -125,6 +130,13 @@ def _remote_contract(tools: frozenset[str]) -> str:
         items.append("When the person says what they did, got, started or finished in a project, record it "
                      "with `cicada_note_progress(project, kind, summary, status, evidence)` — observer is "
                      "always you, never the person.")
+    if "cicada_add_backlog_item" in tools:
+        # G150: named only where the tool exists (R12); the note tool shares
+        # its `record` scope, so the two always travel together.
+        items.append("When the person asks you to put something in the backlog, file it with "
+                     "`cicada_add_backlog_item(project, title, description)` — the brief task as the title, the "
+                     "reasoning as the description; later findings go on that item with "
+                     "`cicada_add_backlog_note(item, note)`, never a second item.")
     if "cicada_record_watch" in tools:
         items.append("After watching a video the person saved: `cicada_record_watch(url, summary, "
                      "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript.")
@@ -217,7 +229,10 @@ _CONTRACT = (
     "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
     "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript. When the person says what they "
     "did, got, started or finished in a project, record it with `cicada_note_progress(project, kind, summary, "
-    "status, evidence)`.\n"
+    "status, evidence)`. When the person asks to put something in the backlog (or to keep it for later), file it "
+    "with `cicada_add_backlog_item(project, title, description)` — the brief task as the title, the reasoning as the "
+    "description; later findings go on that item with `cicada_add_backlog_note(item, note)`, never a second item; "
+    "`cicada_backlog(project)` lists what is open.\n"
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
@@ -225,7 +240,7 @@ _CONTRACT = (
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"
-    "7. Never edit `entities/`, `hubs/` or `_index.md` directly; every write goes through a tool so provenance "
+    "7. Never edit `entities/`, `hubs/`, `backlog/` or `_index.md` directly; every write goes through a tool so provenance "
     "and dedup hold."
 )
 
@@ -366,6 +381,9 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
             cursor += f" · now: {text} (since {now['since']})"
         if p.get("next") and personal:
             cursor += f" · next: {p['next']['name']}, {p['next'].get('target') or 'no date'}"
+        # G150 (R-B16): the open backlog count rides the same gate as now/next.
+        if p.get("backlog_open") and personal:
+            cursor += f" · backlog: {p['backlog_open']} open"
         lines.append(f"  - `{p['id']}` {p['name']}{tail}{cursor}" + (f" [{repos}]" if repos else ""))
     focus = (state.get("focus") or []) if personal else []
     if focus:
