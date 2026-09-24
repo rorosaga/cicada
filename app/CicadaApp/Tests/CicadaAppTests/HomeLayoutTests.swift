@@ -18,17 +18,6 @@ final class HomeLayoutTests: XCTestCase {
         XCTAssertEqual(HomeLayout.labelGap, 6)
     }
 
-    /// R-HS4 — Needs you's rows are the Inbox's STATE 0 rows, so their slots follow R-DI26's floors,
-    /// measured in units from Home's own column (760 less the 4 pt inset, or the page less its gutters).
-    func testNeedsYouDropsSlotsAtTheInboxsFloors() {
-        XCTAssertEqual(HomeLayout.needsYouSlots(pageWidth: 1384, scale: 1.0), InboxRowSlots(entity: true, source: true))
-        XCTAssertEqual(HomeLayout.needsYouSlots(pageWidth: 1144, scale: 1.4), InboxRowSlots(entity: true, source: true))
-        XCTAssertEqual(HomeLayout.needsYouSlots(pageWidth: 992, scale: 1.4), InboxRowSlots(entity: false, source: true))
-        XCTAssertEqual(HomeLayout.needsYouSlots(pageWidth: 600, scale: 1.4), InboxRowSlots(entity: false, source: false))
-        XCTAssertEqual(HomeLayout.needsYouSlots(pageWidth: 0, scale: 0), InboxRowSlots(entity: false, source: false),
-                       "a zero width never traps")
-    }
-
     /// G125 R10, R-HS3 — Home links to the Sleep page and never starts a cycle.
     func testHomeNeverStartsACycle() throws {
         let files = try ThemeTokenTests.swiftSources()

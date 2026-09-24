@@ -69,7 +69,7 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .heroScene, .textSize, .runSetup, .openAtLogin, .backgroundService,
+        .appearance, .heroScene, .textSize, .runSetup, .openAtLogin, .showInMenuBar, .backgroundService,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
@@ -87,10 +87,11 @@ enum SettingsIndex {
     static let staticEntries: [SettingsEntry] = [
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
-        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset"], detail: Copy.sceneDetail),
+        SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
+        SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),
         // You
         SettingsEntry(.ownerName, .you, Copy.ownerNameTitle, keywords: ["name", "me", "owner", "who"]),

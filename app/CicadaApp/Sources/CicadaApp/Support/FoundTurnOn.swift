@@ -95,6 +95,14 @@ enum FoundTurnOn {
                 let line = try await deps.syncBrowser(channel)
                 await deps.refresh()
                 return .on(line)
+            } catch where SyncCancellation.isCancellation(error) {
+                // The row's × (final review, finding 1): syncNow already
+                // recorded consent, so the browser IS on — the stop is said as
+                // a stop (R-SR11), never as "Swift.CancellationError error 1".
+                return .on(Copy.syncStopped)
+            } catch BrowserImportActions.ImportActionError.busy {
+                // An earlier sync of this bank is still saving (a 409, finding 2): consented, not failed.
+                return .on(Copy.bookmarkSyncBusy)
             } catch {
                 return .failed(AddSourceSheet.friendlyError(error))
             }

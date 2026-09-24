@@ -260,13 +260,33 @@ def _around_line(timeline) -> str | None:
     return "Around it: " + " · ".join(bits)
 
 
+BACKLOG_IN_REPLY = 5
+
+
+def _backlog_line(items, can_backlog: bool) -> str | None:
+    """G150 (R-B16): the project's open backlog items, most recently touched
+    first, at most five by title — and the tool that lists them all, named
+    only for a caller that holds it (R12 for tool output)."""
+    items = list(items or ())
+    if not items:
+        return None
+    shown = ["{} {}".format(i.id, i.title) + (f" [{i.triage}]" if i.triage else "")
+             + (" (doing)" if i.status == "doing" else "") for i in items[:BACKLOG_IN_REPLY]]
+    line = f"Backlog: {len(items)} open — " + "; ".join(shown)
+    if len(items) > BACKLOG_IN_REPLY:
+        line += f"; and {len(items) - BACKLOG_IN_REPLY} more"
+    return line + (" — cicada_backlog(project) lists them all" if can_backlog else "")
+
+
 def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, can_note: bool,
-           can_detail: bool) -> str:
+           can_detail: bool, backlog=(), can_backlog: bool = False) -> str:
     """The reply, line by line (§10.2). `state` is `project_state.timeline_state`
     for `today`; it carries only `slug/state/days/moved` per milestone, so
     names, targets and chains are joined from `timeline.milestones` by slug.
     `can_note` names `cicada_note_progress` in the closing line (T5) only for
-    a caller that holds it (R12 for tool output)."""
+    a caller that holds it (R12 for tool output); `backlog` is the project's
+    open items in list order (G150), `can_backlog` the same gate for
+    `cicada_backlog`."""
     lines: list[str] = []
     head = f"{timeline.project.name} — {'planned' if state.get('planned') else 'unplanned'}"
     if state.get("planned"):
@@ -288,6 +308,9 @@ def render(timeline, state: dict, *, memory_path: Path, today: date, raw: bool, 
         since = f" from {rel(pending.newest_day, today).split(' (')[0]}" if pending.newest_day else ""
         lines.append(f"Waiting for Sleep: {n} conversation{'s' if n != 1 else ''}{since}")
     lines += _happened_lines(timeline, state, memory_path=memory_path, today=today, raw=raw)
+    backlog_line = _backlog_line(backlog, can_backlog)
+    if backlog_line:
+        lines.append(backlog_line)
     around = _around_line(timeline)
     if around:
         lines.append(around)

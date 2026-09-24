@@ -9,6 +9,11 @@ protocol SetupEffects {
     func saveEngine(_ candidateId: String) async throws
     func markOnboarded()
     func recordGettingStarted(_ ids: [FoundItemID])
+    /// R-HO15 — *Make it yours* is armed by the Welcome's Start alone. A requirement of its own, not a side effect of
+    /// `recordGettingStarted`, because Home's Getting started card calls that effect directly for an *Also found* row:
+    /// folded in there, an install onboarded before round 4 got the first-time tip on its first Also-found click
+    /// (r4-home final review).
+    func armAppearanceTip()
     func showHome()
     func close()
     func createDemoBank() async throws
@@ -78,6 +83,9 @@ final class SetupRunner {
                 effects.markOnboarded()
             case .recordGettingStarted(let ids):
                 effects.recordGettingStarted(ids)
+                // Only the Welcome's plans (first run, set up later, rerun) carry this step; the demo plan does not,
+                // so a demo never arms the tip (R-HO15).
+                effects.armAppearanceTip()
             case .showHome:
                 effects.showHome()
             case .close:

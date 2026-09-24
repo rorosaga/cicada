@@ -929,8 +929,14 @@ def project(ctx: ToolContext, project: str, since=None, tz: str | None = None) -
         return f"`{page.stem}` is a {etype}, not a project — cicada_project reads projects."
     state = project_state.timeline_state(project_state.input_from_timeline(timeline), today)
     telemetry.record_read(timeline.project.id, surface=f"{ctx.read_surface}-project", bank=memory_path.name)
+    # G150 (R-B16): the open backlog, from frontmatter alone — never a body.
+    from api.services import backlog as backlog_store
+
+    open_items = [i for i in backlog_store.list_items(memory_path, timeline.project.id)
+                  if i.status in backlog_store.OPEN_STATUSES]
     return project_text.render(timeline, state, memory_path=memory_path, today=today, raw=ctx.raw_excerpts,
-                               can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"))
+                               can_note=ctx.can("cicada_note_progress"), can_detail=ctx.can("cicada_recall_detail"),
+                               backlog=open_items, can_backlog=ctx.can("cicada_backlog"))
 
 
 def _now_in(tz_name: str | None) -> datetime:
@@ -1124,6 +1130,185 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
         # R-PJB14: an agent's `settles` never closes a human thread.
         reply += f"; the thread `{settles}` stays open — only the person can close their own thread"
     return reply + "."
+
+
+# --------------------------------------------------------------------------- #
+# G150 — a project's backlog (R-B6, R-B7, R-B8, R-B12, R-B13)
+# --------------------------------------------------------------------------- #
+
+BACKLOG_ROWS = 25
+BACKLOG_SLEEPING = "Sleep is consolidating memory right now — try again in a minute. Nothing was written."
+# R-B12: R-R22's rail — a remote connection without `sources` never reads the
+# person's own words; it is told they exist.
+PERSONS_WORDS = "(the person's own words — this connection can't read them)"
+
+
+def _backlog_words(ctx: ToolContext, by: str, text: str) -> str:
+    return text if ctx.raw_excerpts or by != "user" else PERSONS_WORDS
+
+
+def _backlog_row(item, tz: str) -> str:
+    from api.services import backlog as store
+
+    bits = [item.status] + ([item.triage] if item.triage else []) + (["paid AI"] if item.paid else [])
+    last = store.local_day(item.last_note_at, tz)
+    said = (f"last note {last} by {store.who_label(item.last_note_by)}" if last
+            else f"added {item.created} by {store.who_label(item.added_by)}")
+    return f"- {item.id} · {item.title} — {' · '.join(bits)} · {said}"
+
+
+def _backlog_item_text(ctx: ToolContext, it) -> str:
+    from api.services import backlog as store
+
+    head = f"{it.id} · {it.title} — {it.status}" + (f" · {it.triage}" if it.triage else "") \
+        + (" · paid AI" if it.paid else "")
+    lines = [head, f"On {it.project}'s backlog, added {it.created} by {store.who_label(it.added_by)}.", "",
+             "Description:", _backlog_words(ctx, it.added_by, it.description) if it.description else "(none)"]
+    if it.links:
+        lines.append("Links: " + ", ".join(f"{link['kind']} {link['ref']}" for link in it.links))
+    lines += ["", f"Notes ({len(it.notes)}):" if it.notes else "Notes: none yet."]
+    lines += [f"- {n.day} · {n.who}: {_backlog_words(ctx, store.author_of(n), n.text)}" for n in it.notes]
+    if ctx.can("cicada_add_backlog_note"):
+        lines += ["", f"Add what you find with cicada_add_backlog_note(item=\"{it.project}/{it.id}\", note)."]
+    return "\n".join(lines)
+
+
+def _commit_backlog(ctx: ToolContext, memory_path: Path, paths: list[str], action: str, item) -> None:
+    """G135 R-R11 for a backlog write (R-B7): the item's own file, its own
+    commit under the harness, the conversation as `Cicada-Session:`, and one
+    ids-and-enums `agentic_write` ledger row — never a title or a note."""
+    from api.services import telemetry
+
+    refs = {"entity_id": item.project, "item_id": item.id, "action": f"backlog_{action}",
+            "session_id": ctx.session_id, "harness": ctx.harness, "client_name": ctx.client_name,
+            "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client", model=None, bank=memory_path.name,
+        billing="subscription", invocations=1, refs=refs))
+    agent_commits.commit_write(
+        memory_path, subject=ctx.commit_subject,
+        lines=[f"{p}: {action} (source: n/a, trigger: {ctx.trigger})" for p in paths],
+        paths=paths, author=ctx.author, session=ctx.session_id)
+
+
+def backlog(ctx: ToolContext, project: str, status=None, item=None) -> str:
+    """`cicada_backlog` (G150, R-B13): a project's backlog as text an agent can
+    act on — or, with `item`, one item in full (its reasoning and every signed
+    note), because "add a note, never a second item" starts with reading the
+    row. Engine-free; writes nothing but an ids-only `read` ledger row."""
+    from api.services import backlog as store
+    from api.services import handshake, telemetry
+
+    memory_path = ctx.memory_path()
+    tz = handshake.local_timezone() or "UTC"
+    ref = (project or "").strip()
+    if item:
+        got = store.resolve_item(memory_path, str(item), ref or None)
+        if isinstance(got, dict):
+            return f"{got['error'].split(';')[0]}."
+        stem, iid = got
+        it = store.get_item(memory_path, stem, iid)
+        if it is None:
+            return f"No {iid} on {stem}'s backlog."
+        telemetry.record_read(stem, surface=f"{ctx.read_surface}-backlog", bank=memory_path.name)
+        return _backlog_item_text(ctx, it)
+    if not ref:
+        return "project is required — a project's id or name."
+    got = store.project_page(memory_path, ref)
+    if isinstance(got, dict):
+        return f"{got['error'].split(';')[0]}."
+    stem, fm = got
+    wanted = (status or "").strip().lower() or None
+    if wanted not in (None, "all", *store.STATUSES):
+        return f"'{status}' isn't a status — use open, doing, done, dropped or all."
+    items = store.list_items(memory_path, stem)
+    c = store.counts(items)
+    if wanted is None:
+        shown = [i for i in items if i.status in store.OPEN_STATUSES]
+    else:
+        shown = [i for i in items if wanted == "all" or i.status == wanted]
+    lines = [f"{fm.get('name') or stem} backlog — " + " · ".join(f"{c[s]} {s}" for s in store.STATUSES)]
+    if not items:
+        lines.append("Nothing on it yet.")
+    elif not shown:
+        lines.append("No open or doing items." if wanted is None else f"No {wanted} items.")
+    lines += [_backlog_row(i, tz) for i in shown[:BACKLOG_ROWS]]
+    if len(shown) > BACKLOG_ROWS:
+        lines.append(f"…and {len(shown) - BACKLOG_ROWS} more — pass status to narrow.")
+    if shown:
+        lines.append(f"Read one in full with cicada_backlog(project, item=\"{shown[0].id}\").")
+    if ctx.can("cicada_add_backlog_note"):
+        lines.append("Add findings to an item with cicada_add_backlog_note(item, note) — never a second item "
+                     "for the same idea.")
+    telemetry.record_read(stem, surface=f"{ctx.read_surface}-backlog", bank=memory_path.name)
+    return "\n".join(lines)
+
+
+def add_backlog_item(ctx: ToolContext, project: str, title: str, description: str, triage=None, paid=None) -> str:
+    """`cicada_add_backlog_item` (G150, R-B13): the person asked for something
+    to go on a project's backlog. The author is the harness — never the
+    person, remote or not (G135 R-R11) — and the conversation is kept so a
+    note can be joined to its turn at read (R-B6). Refused, each in one line
+    and writing nothing: in a demo bank, without a reasoning, while Sleep runs
+    (R-B8), and when an open item already holds the idea (R-B9)."""
+    from api.services import backlog as store
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if not str(description or "").strip():
+        return ("Give the reasoning as the description — the problem, the evidence, what a fix must respect. "
+                "Nothing was added.")
+    if ctx.sleep_running():
+        return BACKLOG_SLEEPING
+    result = store.add_item(memory_path, project=str(project or ""), title=str(title or ""),
+                            description=str(description), triage=triage, paid=bool(paid), author=ctx.author,
+                            session=ctx.session_id)
+    action = result.get("action")
+    if action == "duplicate":
+        address = f"{result['project']}/{result['item_id']}"
+        tail = (f" Add what you found to it with cicada_add_backlog_note(item=\"{address}\", note)."
+                if ctx.can("cicada_add_backlog_note") else "")
+        return f"NOT added — {result['item_id']} already holds this idea on {result['project']}'s backlog.{tail}"
+    if action != "added":
+        return f"Not added: {result.get('error') or 'unknown error'}."
+    item = result["item"]
+    _commit_backlog(ctx, memory_path, result["paths"], "created", item)
+    tail = (f" Add later findings to it with cicada_add_backlog_note(item=\"{item.project}/{item.id}\", note)."
+            if ctx.can("cicada_add_backlog_note") else "")
+    return f"Added {item.id} to {item.project}'s backlog: {item.title} (open).{tail}"
+
+
+def add_backlog_note(ctx: ToolContext, item: str, note: str, status=None) -> str:
+    """`cicada_add_backlog_note` (G150): what an agent learned about an item —
+    appended and signed, never overwriting (R-B4) — optionally moving it
+    (R-B5). `item` is `RAP3` or `<project>/RAP3`; a bare id two projects share
+    is refused with both addresses (R-B13)."""
+    from api.services import backlog as store
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    got = store.resolve_item(memory_path, str(item or ""))
+    if isinstance(got, dict):
+        return f"Not noted: {got['error']}."
+    stem, iid = got
+    if ctx.sleep_running():
+        return BACKLOG_SLEEPING
+    move = (str(status).strip().lower() or None) if status else None
+    result = store.add_note(memory_path, project=stem, item=iid, note=str(note or ""), status=move,
+                            author=ctx.author, session=ctx.session_id)
+    action = result.get("action")
+    if action == "unchanged":
+        return f"{iid} is already {result['item'].status}; nothing was written."
+    if action != "updated":
+        return f"Not noted: {result.get('error') or 'unknown error'}."
+    it = result["item"]
+    _commit_backlog(ctx, memory_path, result["paths"], "updated", it)
+    return f"Noted on {it.id} ({it.title}) — now {it.status}."
 
 
 def write_claim(

@@ -25,6 +25,9 @@ final class IntegrationsViewTests: XCTestCase {
             ("chat-export:claude", .chatAndAgents), ("chat-export:chatgpt", .chatAndAgents),
             ("chat-export:gemini", .chatAndAgents),
             ("chrome-bookmarks", .browsers), ("safari-bookmarks", .browsers), ("safari-tabs", .browsers),
+            // Round 4 (C9): the Chromium family.
+            ("brave-bookmarks", .browsers), ("vivaldi-bookmarks", .browsers), ("comet-bookmarks", .browsers),
+            ("dia-bookmarks", .browsers),
             // R-LS25: Apple Notes sits beside the watched folders now.
             ("notes", .notesAndFiles),
             ("rss", .feedsAndCalendars), ("calendar", .feedsAndCalendars),

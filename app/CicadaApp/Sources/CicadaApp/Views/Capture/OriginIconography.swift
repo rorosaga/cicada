@@ -39,6 +39,8 @@ enum OriginIconography {
         "folder", "wispr-flow",
         // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac — the backend track stamps it.
         "calendar-local",
+        // Round 4 (C9): the Chromium family, each its own origin (`bookmark_sync.origin_for`).
+        "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark",
         // G135 R-R26: a remote connector's app, as its episodes stamp it
         "claude-web", "chatgpt", "perplexity", "claude-code-remote",
         "codex-remote", "vscode", "remote-app",
@@ -64,6 +66,10 @@ enum OriginIconography {
         case "claude-desktop": "Claude Desktop"
         case "chrome-bookmark": "Chrome"
         case "safari-bookmark": "Safari"
+        case "brave-bookmark": "Brave"
+        case "vivaldi-bookmark": "Vivaldi"
+        case "comet-bookmark": "Comet"
+        case "dia-bookmark": "Dia"
         // R3 — iCloud tabs are their own origin so a tab and a bookmark from
         // the same browser stay distinguishable in the origins strip.
         case "safari-tab": "Safari tab"
@@ -130,7 +136,7 @@ enum OriginIconography {
     static func symbol(for origin: String) -> String {
         switch origin {
         case "mcp", "claude-code", "cursor", "codex", "claude-desktop": "bubble.left.and.bubble.right"
-        case "chrome-bookmark": "globe"
+        case "chrome-bookmark", "brave-bookmark", "vivaldi-bookmark", "comet-bookmark", "dia-bookmark": "globe"
         case "safari-bookmark", "safari-tab": "safari"
         case "telegram": "paperplane.fill"
         case "claude-export", "chatgpt-export", "gemini-export": "square.and.arrow.down"
@@ -234,6 +240,9 @@ enum OriginIconography {
         case "chatgpt-export": "chatgpt"
         case "gemini-export": "gemini"
         case "chrome-bookmark": "chrome"
+        // Round 4 (C9): the one Chromium-family mark Track L bundled (G119 reserved it); the others show their
+        // installed icon and then a globe.
+        case "brave-bookmark": "brave"
         case "rss": "rss"
         case "telegram": "telegram"
         case "pinterest": "pinterest"
@@ -270,6 +279,11 @@ enum OriginIconography {
         switch origin {
         case "safari-bookmark", "safari-tab": "com.apple.Safari"
         case "chrome-bookmark": "com.google.Chrome"
+        // Round 4 (C9) — Cicada reads each browser's own files, so the app is here (`BrowserInventory.catalog`).
+        case "brave-bookmark": "com.brave.Browser"
+        case "vivaldi-bookmark": "com.vivaldi.Vivaldi"
+        case "comet-bookmark": "ai.perplexity.comet"
+        case "dia-bookmark": "company.thebrowser.dia"
         case "apple-notes": "com.apple.Notes"
         // R-LS27 — Cicada reads Wispr Flow's own files (so the app is here) and
         // offers the Obsidian row only when Obsidian is installed.

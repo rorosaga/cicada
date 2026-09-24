@@ -128,8 +128,7 @@ struct DeviceCodePanel: View {
     }
 
     private func copy(_ code: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(code, forType: .string)
+        AppPasteboard.copy(code)
         copiedCode = code
     }
 }

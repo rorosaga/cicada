@@ -101,6 +101,11 @@ class RawItem:
     # it exactly as it would from conversation text, and written separately as a
     # `saved-because` claim by the caller that has one.
     reason: str | None = None
+    # Round 4 (R-SR13): the page excerpt Safari cached for a Reading List entry
+    # (`ReadingList.PreviewText`), scrubbed and cut at parse time. It is Safari's
+    # words about the page, not the person's — so it is never a `note` — and it
+    # stands in as the description only when enrichment found none.
+    preview: str | None = None
 
 
 @dataclass
@@ -502,6 +507,11 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
     return items
 
 
+#: Round 4 (R-SR13): the most of Safari's cached Reading List excerpt kept as a
+#: stand-in description — enough to say what the page is, never the page itself.
+SAFARI_PREVIEW_CAP = 500
+
+
 def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
     """Safari bookmarks in either shape Safari can hand you.
 
@@ -544,7 +554,19 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
                 uri_dict = node.get("URIDictionary")
                 title = uri_dict.get("title") if isinstance(uri_dict, dict) else None
                 folder = "/".join(path) if path else None
-                items.append(RawItem(url=url, title=title or None, folder=folder))
+                # Round 4 (R-SR13): a Reading List leaf carries Safari's own
+                # `ReadingList` dict — when it was added, and the excerpt Safari
+                # cached — which this walk used to drop. `ReadingListNonSync` is
+                # offline-cache bookkeeping and stays unread.
+                reading = node.get("ReadingList")
+                added = preview = None
+                if isinstance(reading, dict):
+                    added = saved_at.from_plist_date(reading.get("DateAdded"))
+                    text = reading.get("PreviewText")
+                    if isinstance(text, str) and text.strip():
+                        cleaned, _ = episode_scrub.scrub(" ".join(text.split()))
+                        preview = cleaned[:SAFARI_PREVIEW_CAP] or None
+                items.append(RawItem(url=url, title=title or None, folder=folder, added=added, preview=preview))
             return
         title = node.get("Title")
         new_path = path + (title,) if title else path
@@ -1875,6 +1897,10 @@ async def ingest_one(
         meta.title = item.title
     if item.channel and not meta.channel:
         meta.channel = item.channel
+    # Round 4 (R-SR13): Safari's cached excerpt stands in only when the page gave
+    # no description of its own — enrichment's words always win.
+    if item.preview and not (meta.description or "").strip():
+        meta.description = item.preview
 
     entity_id = _media_entity_id(meta, item)
     episode_id = write_media_episode(

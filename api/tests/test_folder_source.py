@@ -228,16 +228,23 @@ def test_the_channel_row_and_the_sources_card(bank):
 # get a handler in `ChannelActions.syncRoute`, or its "Sync now" throws
 # "Unknown channel <id>" at the person — the L final review's finding 1.
 # round 4 (G142): `calendar-local` — the app's EventKit reader (feat/r4-foundations-app) owns its `syncRoute`.
+# round 4 (C9): the Chromium family beyond Chrome — `BrowserInventory` routes each to the app's browser reader.
 APP_SYNC_ROUTED = {
     "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
     "pinterest", "reddit", "x", "folder:*", "wispr-flow", "calendar-local",
+    # round 4 (C9): rows that appear once synced — the test gives each a sync.
+    "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks",
 }
+#: Round-4 rows the registry emits only once synced (R-SR15).
+ONCE_SYNCED = ("brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks")
 
 
 def test_every_sync_row_the_registry_can_emit_is_one_the_app_routes(bank):
-    from api.services import wispr_flow
+    from api.services import sync_state, wispr_flow
     _folder(bank)
     wispr_flow.save_settings(bank, enabled=True, include_dictation=False, owner_speaker_names=[])
+    for channel in ONCE_SYNCED:
+        sync_state.record_sync(bank, channel, count=1)
     every_connector = {cid: True for cid in channel_registry.ADAPTERS}
     rows = channel_registry.build_channels(bank, telegram_enabled=True, connectors_connected=every_connector)
     emitted = {("folder:*" if r["id"].startswith("folder:") else r["id"])

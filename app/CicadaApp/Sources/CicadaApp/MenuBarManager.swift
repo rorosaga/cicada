@@ -12,6 +12,15 @@ import AppKit
 final class MenuBarManager: NSObject {
     private(set) var state: BookwormState = .awake
 
+    /// F-10's *Show in menu bar* (R-HO16): the status item stays built — its sprite, badge and menu keep updating — and
+    /// only its visibility follows the switch, so turning it back on shows the current state at once.
+    private(set) var isVisible = true
+
+    func setVisible(_ visible: Bool) {
+        isVisible = visible
+        statusItem?.isVisible = visible
+    }
+
     /// 24 cells at 0.75 pt (ruling R3): the standard status-item image height,
     /// and what the previous template glyph used. A 24 pt image would fill the
     /// whole menu bar and clip on a 22 pt status button.
@@ -64,6 +73,7 @@ final class MenuBarManager: NSObject {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.imagePosition = .imageOnly
+        statusItem?.isVisible = isVisible
         transition(to: .awake)
         rebuildMenu()
 
@@ -323,7 +333,7 @@ final class MenuBarManager: NSObject {
     /// endpoint. The endpoint ships in a later wave, so a 404 surfaces a
     /// transient "coming soon" header in the menu rather than crashing.
     func saveClipboardURL() async {
-        guard let raw = NSPasteboard.general.string(forType: .string),
+        guard let raw = AppPasteboard.board.string(forType: .string),
               let url = Self.firstURL(in: raw) else {
             flashHeader("Clipboard has no URL")
             return

@@ -17,10 +17,13 @@ extension Copy {
     static let appearanceDark = "Dark"
     // Round-4 D4 (G144) — Settings → General → Scene: Home's painting by the clock, never by location.
     static let scene = "Scene"
-    static let sceneDetail = "Home's painting follows sunrise and sunset in your Mac's time zone. No location is used."
+    /// F-10 (R-HO16) — what the row controls; how Automatic works is the explainer under the row (`Copy+Scene`).
+    static let sceneDetail = "The meadow on Home and in setup"
     static let sceneAutomatic = "Automatic"
-    static let sceneAlwaysDay = "Always day"
-    static let sceneAlwaysNight = "Always night"
+    // Round-4 T-Home (R-HO1) — F-10's words: Automatic · Day · Afternoon · Night.
+    static let sceneDay = "Day"
+    static let sceneAfternoon = "Afternoon"
+    static let sceneNight = "Night"
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."
     static let actualSize = "Actual size"
@@ -30,7 +33,6 @@ extension Copy {
 
     // MARK: General → In the background (round-4 D3, G143)
     // No price, token or cost words here (the 2026-09-03 ruling, DR-59).
-    static let backgroundGroup = "In the background"
     static let openAtLogin = "Open Cicada at login"
     static let loginItemOff = "Cicada opens only when you open it."
     static let loginItemOn = "Cicada opens when you log in, and keeps working with its window closed."
@@ -46,7 +48,8 @@ extension Copy {
     /// R-FA9 — "On" means launchd holds the agent (loaded, KeepAlive on), which is exactly what the sentence says.
     static func backgroundDetail(_ state: BackendAgentState) -> String {
         switch state {
-        case .running: "On — Cicada's memory keeps working in the background."
+        // R-HO16 — what keeps going is the backend's work; the Calendar read is app-side (D2) and stops on quit.
+        case .running: "On — Sleep's schedule and your agents' saves keep going after you quit."
         case .stopped: "Installed, but not running. Install again to restart it."
         case .missing: "Off — memory only updates while Cicada is open."
         case .checking: "Checking…"

@@ -618,6 +618,37 @@ TOOLS = [
             "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                 "episode": {"type": "string"}, "quote": {"type": "string"}}}}}},
     },
+    {
+        # G150 R-B13: `read` scope remotely; `item` reads one row in full.
+        "name": "cicada_backlog",
+        "description": "A project's backlog: the tasks and ideas the person asked to keep for later, each with its id, status (open, doing, done, dropped), triage and latest note. Pass `item` to read one in full — its description (the reasoning) and every note, signed by who wrote it. Read an item before adding a note to it.",
+        "inputSchema": {"type": "object", "required": ["project"], "properties": {
+            "project": {"type": "string", "description": "A project's id or name."},
+            "status": {"type": "string", "enum": ["open", "doing", "done", "dropped", "all"],
+                       "description": "Optional: which items to list. Default: open and doing."},
+            "item": {"type": "string", "description": "Optional: one item's id (e.g. 'RAP3') to read in full."}}},
+    },
+    {
+        # G150: a write, `record` scope remotely; the harness is the author, never the person.
+        "name": "cicada_add_backlog_item",
+        "description": "Put something on a project's backlog when the person asks you to ('put it in the backlog', 'keep this for later', 'add a task'). The title is the brief task in one line; the description is the reasoning — the problem, the evidence, and what any fix must respect. One item per idea: if it is already there, add a note to it with cicada_add_backlog_note instead.",
+        "inputSchema": {"type": "object", "required": ["project", "title", "description"], "properties": {
+            "project": {"type": "string", "description": "The project page (id or name)."},
+            "title": {"type": "string", "description": "The brief task, one line."},
+            "description": {"type": "string", "description": "The reasoning: the problem, the evidence, the constraint a fix must respect."},
+            "triage": {"type": "string", "enum": ["apply", "research", "decide"],
+                       "description": "Optional: apply (buildable now), research (needs investigation) or decide (needs the person's call)."},
+            "paid": {"type": "boolean", "description": "Optional: true when doing it needs paid AI usage."}}},
+    },
+    {
+        "name": "cicada_add_backlog_note",
+        "description": "Add what you learned to an existing backlog item — a finding, a measurement, a decision — and optionally move it (doing, done, dropped). Notes are appended and signed; nothing is overwritten. Use this rather than filing a second item for the same idea.",
+        "inputSchema": {"type": "object", "required": ["item", "note"], "properties": {
+            "item": {"type": "string", "description": "The item's id (e.g. 'RAP3'), or '<project>/<id>' when two projects share a prefix."},
+            "note": {"type": "string", "description": "What you found, in a few sentences."},
+            "status": {"type": "string", "enum": ["open", "doing", "done", "dropped"],
+                       "description": "Optional: move the item as you note it."}}},
+    },
 ]
 
 
@@ -785,6 +816,12 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_project(arguments.get("project", ""), arguments.get("since"), arguments.get("tz"))
     elif name == "cicada_note_progress":
         return handle_note_progress(arguments)
+    elif name == "cicada_backlog":
+        return handle_backlog(arguments)
+    elif name == "cicada_add_backlog_item":
+        return handle_add_backlog_item(arguments)
+    elif name == "cicada_add_backlog_note":
+        return handle_add_backlog_note(arguments)
     elif name == "cicada_open_hub":
         return handle_open_hub(arguments.get("hub", ""))
     elif name == "cicada_ask":
@@ -924,6 +961,25 @@ def handle_note_progress(arguments: dict) -> str:
         when=arguments.get("when"), target=arguments.get("target"), milestone=arguments.get("milestone"),
         settles=arguments.get("settles"), participants=arguments.get("participants"),
         evidence=arguments.get("evidence"))
+
+
+def handle_backlog(arguments: dict) -> str:
+    """`cicada_backlog` (G150) — read-only, engine-free."""
+    return mcp_tools.backlog(_ctx(), str(arguments.get("project") or ""), arguments.get("status"),
+                             arguments.get("item"))
+
+
+def handle_add_backlog_item(arguments: dict) -> str:
+    """`cicada_add_backlog_item` (G150) — the person asked for it to go on the backlog."""
+    return mcp_tools.add_backlog_item(_ctx(), str(arguments.get("project") or ""), str(arguments.get("title") or ""),
+                                      str(arguments.get("description") or ""), arguments.get("triage"),
+                                      arguments.get("paid"))
+
+
+def handle_add_backlog_note(arguments: dict) -> str:
+    """`cicada_add_backlog_note` (G150) — a finding on an item already filed."""
+    return mcp_tools.add_backlog_note(_ctx(), str(arguments.get("item") or ""), str(arguments.get("note") or ""),
+                                      arguments.get("status"))
 
 
 def handle_write_claim(subject, predicate, object_, observer, confidence, context, source_episode,

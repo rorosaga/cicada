@@ -69,8 +69,8 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(SettingsLiveValue.text(for: .appearance, inputs), "System")
         XCTAssertEqual(SettingsLiveValue.text(for: .textSize, inputs), "120%")
         XCTAssertNil(SettingsLiveValue.text(for: .runSetup, inputs))
-        // Round-4 D4 (G144) — the Scene row's live value is the person's choice.
+        // Round-4 T-Home — the Scene row's live value is the person's choice, in F-10's words (R-HO1).
         inputs.heroScene = .night
-        XCTAssertEqual(SettingsLiveValue.text(for: .heroScene, inputs), "Always night")
+        XCTAssertEqual(SettingsLiveValue.text(for: .heroScene, inputs), "Night")
     }
 }

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -461,6 +461,28 @@ class EntityDecay(CamelModel):
     mention_weeks: int
 
 
+class PictureInputsModel(CamelModel):
+    """C11 — the rung inputs `entity_picture.resolve` read (plan R-PE5), so the app's twin can paint a removal before
+    the server answers (R-PE10). `choice` is the person's (`upload` | `initials`); `logo` is already the logo rung's
+    eligibility AND availability, decided server-side. On the entity and the write answers only — never on `/graph`."""
+
+    type: str
+    choice: Optional[str] = None
+    upload_sha: Optional[str] = None
+    contacts_sha: Optional[str] = None
+    logo: bool = False
+    thumbnail: Optional[str] = None
+
+
+class EntityPictureResponse(CamelModel):
+    """What every picture write answers (C11): the page's picture after the write, and its inputs."""
+
+    entity_id: str
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: PictureInputsModel
+
+
 class EntityResponse(CamelModel):
     id: str
     name: str
@@ -493,6 +515,13 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
+    # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
+    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`) or a media page's https thumbnail it loads without it
+    # (plan R-PE6); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
+    # all three.
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: Optional[PictureInputsModel] = None
 
 
 class PaperSummary(CamelModel):
@@ -1331,6 +1360,97 @@ class ProjectWriteResponse(CamelModel):
     claims: list[ClaimModel] = []
 
 
+# --- G150: a project's backlog (routers/backlog.py) ----------------------------
+
+
+class BacklogLink(CamelModel):
+    kind: str                      # pr | commit | url | doc | entity
+    ref: str
+
+
+class BacklogNoteModel(CamelModel):
+    """One signed note (R-B4). `by` is the author id, `byLabel` the heading's
+    words. `authorModel`/`authorEffort` are the turn's model and effort for a
+    harness note once round 4's C3 join is called in `routers/backlog._note`
+    (R-B6) — null until then, never self-reported."""
+    day: str
+    text: str
+    by: str
+    by_kind: str
+    by_provider: Optional[str] = None
+    by_label: str
+    at: Optional[str] = None
+    session: Optional[str] = None
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
+
+
+class BacklogItemSummary(CamelModel):
+    id: str
+    project: str
+    title: str
+    status: str                    # open | doing | done | dropped
+    triage: Optional[str] = None   # apply | research | decide
+    paid: bool = False
+    created: str
+    updated: str
+    added_by: str
+    added_by_kind: str
+    added_by_label: str
+    note_count: int = 0
+    last_note_day: Optional[str] = None   # the machine zone's day (tzName) — never a relative word
+    last_note_by: Optional[str] = None
+    order: Optional[int] = None
+
+
+class BacklogItemModel(BacklogItemSummary):
+    description: str = ""
+    notes: list[BacklogNoteModel] = []
+    links: list[BacklogLink] = []
+    session: Optional[str] = None
+    path: str = ""
+
+
+class BacklogListResponse(CamelModel):
+    project: str
+    project_name: str
+    prefix: str
+    counts: dict[str, int]
+    items: list[BacklogItemSummary]
+    tz_name: str
+
+
+class BacklogItemCreate(CamelModel):
+    title: str
+    description: str = ""
+    triage: Optional[str] = None
+    paid: bool = False
+
+
+class BacklogNoteCreate(CamelModel):
+    note: str = ""
+    status: Optional[str] = None
+
+
+class BacklogItemPatch(CamelModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+    triage: Optional[str] = None   # "" clears it
+    paid: Optional[bool] = None
+    links: Optional[list[BacklogLink]] = None
+
+
+class BacklogImportRequest(CamelModel):
+    markdown: str
+    prefix: str = "G"
+
+
+class BacklogImportResponse(CamelModel):
+    created: list[str]
+    skipped: list[str]
+    failed: list[str] = []
+
+
 class TransclusionPayload(CamelModel):
     """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
 
@@ -1400,6 +1520,21 @@ class GraphNode(CamelModel):
     # app's instant search tier. Shipped after measuring the payload (plan
     # R-SU23; the number is on the G136 row). Additive/defaulted.
     aliases: list[str] = []
+    # C11 (G146) — the page's resolved picture and its rung, and the day it was last mentioned (F-12's ages and
+    # Clusters' recency order, plan R-PE13). Additive. `picture`/`pictureSource` are OMITTED when there is none: this is
+    # the app's largest snapshot and most pages have no picture, so an absent one costs nothing (R-PE5).
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    last_referenced: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_picture(self, handler) -> dict[str, Any]:
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("picture", "pictureSource", "picture_source"):
+                if key in data and data[key] is None:
+                    del data[key]
+        return data
 
 
 class GraphLink(CamelModel):
@@ -2589,11 +2724,26 @@ class SourceListResponse(CamelModel):
     total: int
 
 
+class ChromiumBookmarksFile(CamelModel):
+    """Round 4 (C9): one Chromium-family browser's default-profile `Bookmarks`
+    JSON, read by the app (the backend never opens a profile). ``browser`` is a
+    `bookmark_sync.CHROMIUM_BROWSERS` key."""
+
+    browser: str
+    data_b64: str
+
+
 class BookmarkSyncRequest(CamelModel):
     # Both optional + base64-encoded so the same endpoint works for an inline
     # hermetic test payload and (when omitted entirely) a local-file sync.
+    # `forbid` (round 4 phase A final review, finding 3): an unknown field is
+    # a 422, never silently dropped into the no-data local-file fallback —
+    # that is how a pre-round-4 route read Chrome for a `chromium`-only body.
+    model_config = ConfigDict(extra="forbid")
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
+    # Round 4 (C9) — the Chromium family beside Chrome's legacy field.
+    chromium: Optional[list[ChromiumBookmarksFile]] = None
     # R5 — exact folder-path prefixes at segment boundaries; "" = everything;
     # omitted = everything (unchanged behaviour).
     folders: Optional[list[str]] = None
@@ -2608,6 +2758,9 @@ class BookmarkSyncSourceSummary(CamelModel):
     found: int = 0
     new: int = 0
     skipped: int = 0
+    # R-SR13 — Safari only; 0 for every other browser.
+    reading_list: int = 0
+    favorites: int = 0
 
 
 class BookmarkSyncResponse(CamelModel):
@@ -2764,6 +2917,15 @@ class NotesSyncResponse(CamelModel):
 # --- Capture channels (G62) --------------------------------------------------
 
 
+class ChannelPart(CamelModel):
+    """Round 4 (R-SR14): one extra count a channel's last sync stamped — Safari's
+    `reading-list` and `favorites`, a tab-group sync's `tabs`, the `people`
+    Contacts enriched. The key is an enum; the app owns the words."""
+
+    key: str
+    count: int = 0
+
+
 class SourceChannel(CamelModel):
     """One capture channel as the Capture page sees it. `connected` is derived
     from persisted state only (registries, sync_state.json, env, origin counts)
@@ -2795,6 +2957,9 @@ class SourceChannel(CamelModel):
     # the client renders it "+N nouns this sync", the words the server used to
     # bake in itself.
     count_is_delta: bool = False
+    # Round 4 (R-SR14) — additive, `[]` for every channel that stamped none;
+    # rides `CHANNELS_SHAPE = "r4-sources"` (the ETag ship-together rule).
+    parts: list[ChannelPart] = []
     actions: list[str] = []
 
 

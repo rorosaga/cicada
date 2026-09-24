@@ -150,7 +150,11 @@ Seven rails hold across all of them:
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
   A browser is read only after the person turned it on — a Sync now, an all-folders import, or
   onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
-  before this gate keeps syncing (Track I T1).
+  before this gate keeps syncing (Track I T1). Browsers (round 4, C9): Chrome, Safari, Brave,
+  Vivaldi, Comet and Dia — each read from its default profile only (`<browser>-bookmarks`, the
+  Chromium `Bookmarks` JSON through one parser); Safari's Reading List keeps its added date and
+  Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
+  counts as the channel's `parts`.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
@@ -469,6 +473,18 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
+- `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
+  picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
+  travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
+  for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
+  committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
+  it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
+  precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring
+  monogram), resolved at read onto `/graph` nodes and the entity; the app's `EntityPictureResolver` is its twin over
+  `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no service is sent a person's name (G159).
+- `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
+  absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
+  Written by the Contacts sync only.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
@@ -484,11 +500,37 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails.
 
+### Backlogs (G150)
+
+A project's backlog is memory, not a table in some repository: **one markdown file per item** at
+`<bank>/backlog/<project-id>/<item-id>.md`. Frontmatter: `id`, `title` (the brief task), `project`, `status`
+(`open | doing | done | dropped`), `triage` (`apply | research | decide`, optional), `paid` (the 💸 flag), `created` /
+`updated` (the machine zone's days), `added_by` (`user` | a harness label | `cicada`), `session`, `links: [{kind:
+pr|commit|url|doc|entity, ref}]`, `order` (hand-set), and last a `notes: [{at, by, session}]` sidecar. Body:
+`## Description` (the reasoning) then `## Notes`, append-only `### <day> · <who>` entries — a status move is itself a
+signed note, and a note is edited only through git history; any heading inside a text is demoted so it can never forge
+a note. **Never an entity page**: Stage 1 never extracts one, it never decays, and the writer never touches
+`entities/`. Ids are `<PREFIX><n>` like G-ids — the project page's `backlog_prefix:`, else the prefix most of its items
+share (an imported G-row list continues its sequence), else the name's initials (`Orchard` → `ORC`) — max+1, claimed by
+an exclusive create (the backend and every stdio MCP process mint in one folder). **One writer**,
+`api/services/backlog.py`, behind every door: REST (`routers/backlog.py` — `GET/POST /projects/{id}/backlog`,
+`POST /projects/{id}/backlog/import`, `GET/PATCH /backlog/{project}/{item}`, `POST /backlog/{project}/{item}/notes`;
+409 while Sleep runs; each write commits alone as `Backlog update <day>`, `Cicada-Author: user`, trigger
+`user/companion_app`, an import as `Backlog import <day>`, `user/backlog_import`), MCP (`cicada_backlog` read;
+`cicada_add_backlog_item` and `cicada_add_backlog_note` record — the harness as author and the conversation as
+`Cicada-Session:`, refused while Sleep runs and in a demo bank; a remote connection without `sources` is told the
+person's own words exist, never shown them), the importer (`backlog_import.py`, `scripts/import-backlog.sh`: G-row
+tables and `### G<n>` sections, ids and statuses kept, an id already filed skipped) and the demo. Every text is
+scrubbed (writer `backlog`), and an open item whose title matches a new one exactly refuses the new one — one row per
+idea, later findings are notes. Both reads ETag over the `backlog` sync component (a stat walk) and `entities`; neither
+is a Store domain (`BacklogCache` in the app, like `ProjectsCache`). A note's model and effort are joined to its turn at
+read once round 4's per-turn join lands; until then a note names its harness.
+
 ### Live state + handshake (G53 / G75)
 
 **`<bank>/_state.md` is a *cursor* into the graph, never a copy of it** — YAML frontmatter plus a
 short wikilinked body, ≤ 6 KB, zero LLM, deterministic. Written only by
-`state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank` sync components is
+`state_dictionary.refresh`. A digest of the `entities`/`inbox`/`episodes`/`bank`/`backlog` sync components is
 stored as `inputs_version`; unchanged inputs mean no write. **Never `git_head`** — its own
 `State snapshot` commit would self-invalidate.
 
@@ -503,7 +545,9 @@ every day and made every idle night commit.
 and, once happenings exist, `now: {claim, text ≤ 80, since, verbatim?}` — the first claim text the
 file holds; `verbatim` marks the person's own Log sentence, which a remote primer shows as 'a note of
 yours' without `sources`. Neither field depends on today, and `_fit` drops every `now` before it
-drops a project.
+drops a project. **v4 (G150)** adds `backlog_open` (items open or doing) to a project row that has any, and
+`backlog` joins the input components; the primer's Current row says "backlog: n open" under the same gate as
+`now`/`next`. Contract item 3 names the backlog tools (CONTRACT_VERSION 8 with G149's item 8; each branch alone had taken 7).
 
 **The handshake** (`api/services/handshake.py`) turns `_state.md` + a fixed contract into ≤ 1,800
 tokens of primer: what Cicada is, a per-harness prelude (the contract never varies), the contract
@@ -532,8 +576,8 @@ markdown, safe to delete at any time.
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
 inside it**: entity names + aliases + prose, every claim (superseded ones kept as history), episode
-titles + 600-character passages that tile the evidence text exactly, media/paper metadata and inbox
-questions, in six per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
+titles + 600-character passages that tile the evidence text exactly, media/paper metadata, inbox
+questions and backlog items (G150), in seven per-kind FTS5 tables (`unicode61 remove_diacritics 2`, prefix `2 3 4`; rowid
 `doc_id << 16 | n`). `dropped` pages are never indexed. **Derived and disposable** (TODO ruling 3):
 deleting it costs a few seconds of CPU and never a fact; a missing, corrupt or schema-mismatched file is
 rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_excluded` writes
@@ -587,7 +631,8 @@ Cicada-Session: <id>
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
 `sleep/state`, `sleep/expiry`, `sleep/followup`, `capture/calendar`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
-`Cicada-Author: user`),
+`Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
+importer),
 `mcp/<harness>` (a local agent's write), `remote/<harness>` (a remote connector's write, G135).
 
 **Three trailer families, all inert to entity-line parsing — extend them, don't break them:**
@@ -668,6 +713,8 @@ fact can be checked when there is no claim to write — only a source the person
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
+**`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
+project's backlog — see Backlogs.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -761,11 +808,13 @@ G147's *How things fade*: pace suggestions from the person's own "Still tracking
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General also
-holds Scene, Open Cicada at login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does
-not keep says so) and Keep memory working when Cicada is closed (`BackendAgentService`: a read-only `launchctl print`,
-and Install runs `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`,
-then hands launchd the port). ⌘K and ⌘F are
+follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
+Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
+login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
+menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays) and Keep memory working when
+Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
+`scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
+launchd the port). ⌘K and ⌘F are
 menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
@@ -789,24 +838,29 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band — its
-`-dark` sibling at dusk and night by the clock (`SceneClock`: NOAA's sun over the Mac's time zone's tzdb point, no
-location; `SceneStore` re-checks at each crossing, on a time-zone change and on wake) and Settings → General → Scene
-(Automatic · Always day · Always night), never the theme (G144; DESIGN_RULES §9 2026-09-24) —
-(`HomeHeroBand`, paint only, 120 pt, faded into the window), "What would you like to remember?" as a
-`PageTitle` on the row under it — text never sits on paint — then the palette's own `FindPanelBody` in
-`.page` placement in a 640 pt block: a second `FindPaletteModel` sharing the one Ask and keeping no
-recents; ⌘K on Home focuses it, a pasted `http(s)` link offers *Save this link*. Below it, in one
-760 pt column, labelled `glassCard` blocks of 36 pt rows: Getting started (while it lasts), Today
-(captured today, UTC, with the three busiest marks), Needs you (the Inbox's own `InboxRow`s, landing in
-STATE 1) and Last read (the newest Sleep commit, its pages as `Tag`s) — each number once, each a link
-(`InlineLink`) to the page that owns it; the waiting count links to Sleep, never a Consolidate.
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band —
+`PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
+person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
+over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil
+dusk), never the theme (G144); its meadow line at two thirds of the band, faded into the window from 72 %. Slow
+one-way clouds, grass swaying from its roots, seeds by day, fireflies and stars by night and a slow camera breath run
+in one `TimelineView` at ≤ 30 fps (15 under Low Power) that rests while the window cannot be seen, while the Welcome
+covers the shell and off-tab; Reduce Motion or Low Power make it gentler, never frozen (DR-66); a scene change
+crossfades the same composition in 1.2 s. Under it, "What would you like to remember?" as a `PageTitle` — text never
+sits on paint — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
+`FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
+*Save this link*. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
+captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
+question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
+pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
+Consolidate. Right after the Welcome's Start, *Make it yours* (Appearance and Scene; `AppearanceTipPolicy`, per
+viewer) sits beside the column where it fits, else atop it; once hidden it lives only in Settings.
 
 **Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
-`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero`, the same scene rule as Home's:
-day or its `-dark` sibling by the clock and Settings → General → Scene, never the theme — G144), the headline on the card that
-rises into it, what Cicada found on this Mac as a checklist whose ticks are the consent (own acts, no
-new permission prompt, no other app — `FoundPolicy`), a chat-export drop zone that stages rows and
+`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero` = `PaintedScene(.fullBleed)`,
+Home's living painting and scene rule — G144), the headline on the card that rises into it, what Cicada found on this
+Mac as a checklist whose ticks are the consent (own acts, no new permission prompt, no other app — `FoundPolicy`), a
+chat-export drop zone that stages rows and
 imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
 blocking — an untouched choice keeps the install's configured engine, and Getting started asks
 "who reads" only if that cannot run), and one meadow pill whose text twin says exactly what it
@@ -858,7 +912,12 @@ Mac) — both standing connections, so both live here; their marks are the insta
 Harness rows wear their app's real mark ("Other agents" a neutral glyph); a folder's Manage, Wispr
 Flow and a connector's Connect/Manage open as sheets (`SettingsSheet`), never popovers; the
 add-folder sheet labels its fields and asks which subfolders an agent wrote as a checklist
-(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b).
+(`AgentFolders`), the wire still a `<folder>/**` glob (DS-3b). **Browsers (round 4, C9)** are drawn
+from `BrowserInventory` — the browsers on this Mac by bundle id, each with its installed icon: Chrome,
+Safari, Brave, Vivaldi, Comet and Dia as `SourceRow`s (Turn on / Sync now, the Full Disk Access fix under
+Safari when needed, 'Last synced …'), and the ones Cicada cannot sync yet (Arc, Firefox, Edge, Opera)
+named once in the header, never as a row. Safari's source page groups its items as Recently saved ·
+Favorites · Other bookmarks.
 
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 6 s
@@ -926,6 +985,13 @@ documents stays off until something says who wrote a document (F2-back R-B14).
   remembered disclosure on the old toggle's `cicada.usageMode` key. "Add a source" is a neutral button in the
   eyebrow row, which reads "Sources · n connected".
 
+**Source rows and last sync (round 4).** Every source that keeps up renders one `SourceRow`
+(`Views/Common/SourceRow.swift`) from a pure `SourceRowModel`: the bare mark, name and what it reads, what came in
+(`SourceRowText.countLine`: the count in the reader's locale and the channel's `parts`), and on the right 'Syncing now'
+with an × or 'Last synced 2 minutes ago' (the persisted `lastSync`, re-read every 30 s; an import says 'Imported …').
+`SyncActivity` is the one registry of running syncs; × cancels the run only (R-SR11). Sources' detail column, every
+Integrations channel row and Home's Getting started rows use it.
+
 **Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).
@@ -933,10 +999,16 @@ detail column, and the Reader as the third column (each list page hosts its own:
 detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
 the page's find row.
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
-  remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three
-  beside a card) and "Show all N ›". The detail column hosts DS-3a's `EntityDetailCard` as it is, in its `.card`
-  style, with its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K
-  ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age: `/graph` nodes have no `lastReferenced`.
+  remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
+  is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
+  rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
+  a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
+  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
+  is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
+  (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
+  its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K ⌥⏎ landing
+  opens the entity's type tab.
 - **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
   rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
   and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the
@@ -976,7 +1048,11 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   source line with the origin's mark and "Show in conversation ›"; Resume where resumable; Not right); Plan (Add with
   an optional picked date, Mark done, Rename, "moved once ›"); Around this project (People · Tools & infrastructure, a
   tool unfolding its specs · Documents & links · Ideas · Parts of this project). The Reader or an entity card is the
-  third column; Esc closes the Reader, then the card, then the project.
+  third column; Esc closes the Reader, then the item or card, then the project.
+- **Backlog (G150):** after Plan, text tabs Open · Doing · Done · All (a dropped item only under All); rows with the
+  id, the title, a triage tag and the age of the last note; Add to backlog. A row opens the item as the third column
+  — the title as the heading, the moves, the description and every note as page prose signed with its author's mark,
+  the links, Add a note. The third column is one slot: the Reader, else a backlog item, else an entity's card.
 - **Writes** are `ProjectWrite` mutations through `Store.perform`: painted where the answer is known (a thread settled
   or restated, a milestone done, renamed or added, a withdrawal), rolled back with the server's own 409/422 sentence
   (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
@@ -1049,7 +1125,8 @@ reaches only the visible page's field. The palette is an overlay anchored 4 pt u
 pt, an opaque `bgMenu` floating surface over the panel scrim — that appears and leaves in one frame
 (DR-60); its instant tier (`QuickIndex`) is rebuilt off the main actor from the Store's snapshots and
 answers every keystroke with no network; ~150 ms later `GET /search` (prefix, then hybrid) appends
-conversations, beliefs (superseded ones as history) and whatever the local tier missed — a shown row
+conversations, beliefs (superseded ones as history), backlog items (G150; the server tier only) and whatever
+the local tier missed — a shown row
 never moves. Ask is a mode (⌘⏎) hosting the unchanged `AskPanel` body. One ranker, `QuickMatch`,
 folds text exactly like the server's `text_fold`; every in-page field is `CicadaSearchField`.
 Recents are `(kind, id)` pairs in the cache-only `.quickRecents` domain; the query is never stored,
@@ -1102,10 +1179,11 @@ an inset ring, never a shadow in dark and one soft shadow on a light floating su
 only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
 **Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
 fallback, opaque under Reduce Transparency); a lint fails the build on any glass API elsewhere. **Painted art**
-(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
-sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number, and text never sits
-directly on paint — enforced by an allowlist lint; the Welcome's hero band (`WelcomeHero`) and Home's sky band
-(`HomeHeroBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every painting ships as day,
+afternoon and night of one composition — `docs/design/ART_DIRECTION.md`) appears only on non-data surfaces — never the
+graph, a list, a grid, a form or a number, and text never sits directly on paint — enforced by an allowlist lint;
+Home's band and the Welcome are `PaintedScene` (C10), composed inside `Views/Meadow/`, and its particle colours are
+the art's (`ScenePaint`), never theme tokens. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
@@ -1252,6 +1330,20 @@ until G61 S3 serves one, and the page's open inbox question with Open in Inbox; 
 tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
 `.help`. History: Show in conversation (straight to the Reader when one conversation maps here) and What
 changed. Timeline: contested beliefs inline; a belief's clock opens its own.
+
+**Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
+precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
+or "initials" → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
+fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the bearer only for Cicada's own paths, never
+to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
+dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
+picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
+with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
+facts strip whose every cell comes from something the card loaded (`PersonFacts`); then the tabs, and in Content two
+columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
+this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
+own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
+40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`

@@ -99,6 +99,20 @@ def _no_real_agent_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_browser_files(tmp_path, monkeypatch):
+    """Round 4 phase A final review, finding 5: a body-less
+    `POST /sources/sync-bookmarks` falls back to `sync_from_local_files`, which
+    reads THIS machine's Chrome and Safari bookmark files. Task 1's red run did
+    exactly that into pytest tmp banks. Every test gets absent paths; the two
+    `sync_from_local_files` tests that point these at fixture files override
+    them on top."""
+    from api.services import bookmark_sync
+
+    monkeypatch.setattr(bookmark_sync, "chrome_bookmarks_path", lambda: tmp_path / "_absent-chrome-bookmarks")
+    monkeypatch.setattr(bookmark_sync, "safari_bookmarks_path", lambda: tmp_path / "_absent-safari-bookmarks.plist")
+
+
+@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit

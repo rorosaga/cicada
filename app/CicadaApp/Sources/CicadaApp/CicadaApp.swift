@@ -43,6 +43,8 @@ struct CicadaApp: App {
     @State private var provenanceCache = ProvenanceCache()
     /// G141 PJ-5 (R-PP3) — the Projects page's in-memory cache; app-level so a tab switch keeps what was read.
     @State private var projectsCache = ProjectsCache()
+    /// G150 (R-B18) — the Backlog section's in-memory cache; app-level for ProjectsCache's reason.
+    @State private var backlogCache = BacklogCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -65,6 +67,8 @@ struct CicadaApp: App {
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
     @State private var browserWatcher: BrowserWatcher
+    /// Round 4 (R-SR17) — the one registry of running syncs every `SourceRow` reads, and where its × goes.
+    @State private var syncActivity: SyncActivity
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
     /// never opens them). Lights ride `browserWatcher` (R-LS26).
     @State private var localSources: LocalSourceWatcher
@@ -101,6 +105,8 @@ struct CicadaApp: App {
     // doesn't pick up from SwiftUI state automatically — see
     // `syncWindowChrome` below.
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
+    /// Round-4 decision 6 (R-HO16) — Settings → General → Show in menu bar, per viewer, on by default.
+    @AppStorage(MenuBarPreference.defaultsKey) private var menuBarVisible = true
     /// R-O4 — the preference resolved against the system appearance
     /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
     private var appColorScheme: AppColorScheme {
@@ -135,7 +141,9 @@ struct CicadaApp: App {
         let backend = BackendProcess()
         _backend = State(initialValue: backend)
         _backendAgent = State(initialValue: BackendAgentService(onInstalled: { [backend] in backend.stopSpawnedChild() }))
-        let lights = BrowserWatcher()
+        let activity = SyncActivity()
+        _syncActivity = State(initialValue: activity)
+        let lights = BrowserWatcher(activity: activity)
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
         _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
@@ -168,6 +176,7 @@ struct CicadaApp: App {
                 .environment(provenanceRouter)
                 .environment(provenanceCache)
                 .environment(projectsCache)
+                .environment(backlogCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
@@ -177,6 +186,7 @@ struct CicadaApp: App {
                 .environment(findModel)
                 .environment(homeSearch)
                 .environment(browserWatcher)
+                .environment(syncActivity)
                 .environment(localSources)
                 .environment(calendarReader)
                 .environment(loginItems)
@@ -190,6 +200,7 @@ struct CicadaApp: App {
                 .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
+                .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
                 .onReceive(DistributedNotificationCenter.default()
                     .publisher(for: AppearancePreference.systemChangedNotification)
                     .receive(on: RunLoop.main)) { _ in
@@ -309,6 +320,8 @@ struct CicadaApp: App {
                             intakeRouter.present(from: .menuBar)
                         }
                     )
+                    // R-HO16 — the switch, applied at launch too.
+                    menuBarManager.setVisible(menuBarVisible)
 
                     // Drive the menu-bar bookworm's stage dots live during a
                     // running cycle (1s cadence), separate from the coarse 30s

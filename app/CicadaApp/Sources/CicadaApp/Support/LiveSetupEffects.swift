@@ -55,6 +55,9 @@ struct LiveSetupEffects: SetupEffects {
         onChecklistChanged()
     }
 
+    /// Called by `SetupRunner` for the Welcome's plans only — never from Home's card (R-HO15).
+    func armAppearanceTip() { AppearanceTipPolicy.arm() }
+
     func showHome() { onShowHome() }
     func close() { onClose() }
 

@@ -54,6 +54,11 @@ final class Store {
     /// getter already reads `graph`, which is what views must track.
     @ObservationIgnored var entityNamesMemo: (stamp: Date?, count: Int, names: EntityNames)?
 
+    /// C11 (G146 plan R-PE10) — picture writes painted before the graph snapshot carries them, keyed `bank/id`, and the
+    /// snapshot's pictures by id, memoised like `entityNamesMemo` (`Sync/PictureOverrides.swift`).
+    var pictureOverrides: [String: PictureOverride] = [:]
+    @ObservationIgnored var pictureIndexMemo: (stamp: Date?, count: Int, index: [String: EntityPictureRef?])?
+
     /// DR-42 (R-DI2) — the one answer inside its Undo window, and the ids whose held answer is on
     /// the wire. Both leave `visibleInbox`, so the rail badge, Home and the palette drop a question
     /// the moment it is tapped — not five seconds later, and not only on the Inbox.
@@ -500,7 +505,9 @@ final class Store {
             return true
         } catch {
             await mutation.rollback(self)
-            toast = mutation.failureMessage
+            // R-SR11 — the person stopped it: no toast. The reconcile below shares the cancelled task, so its
+            // requests end at once; the next SSE `version` event is what brings the domains back in line.
+            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) { toast = mutation.failureMessage }
             Self.logger.debug("mutation failed: \(String(describing: error))")
             // The rollback restores what this mutation changed, but it cannot
             // know what else moved while the request was in flight (an SSE

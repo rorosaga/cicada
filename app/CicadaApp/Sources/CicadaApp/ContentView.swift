@@ -47,6 +47,7 @@ struct ContentView: View {
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(ProvenanceCache.self) private var provenanceCache
     @Environment(ProjectsCache.self) private var projectsCache
+    @Environment(BacklogCache.self) private var backlogCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -86,11 +87,12 @@ struct ContentView: View {
         // Reader and forgets every cached document rather than show another
         // bank's conversation under this one.
         // R-DI19 — and the Inbox's open question and tab go with it: ids repeat across banks — and the Projects
-        // cache: project ids repeat across banks (R-PP3).
+        // cache: project ids repeat across banks (R-PP3) — and the backlog's: item ids repeat across banks (R-B18).
         .onChange(of: store.bank) { _, _ in
             provenance.close()
             provenanceCache.reset()
             projectsCache.reset()
+            backlogCache.reset()
             inboxVM.resetColumns()
         }
         // A cached hover preview has no validator, so any change to the
@@ -226,6 +228,9 @@ struct ContentView: View {
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
         // R-DS25 — the page under the Settings panel never answers ⌘F.
         .environment(\.pageFindSuppressed, router.settingsOpen)
+        // R-HO7 — Home's band rests while the Welcome covers it; the Welcome's own painting is in the overlay,
+        // outside this environment.
+        .environment(\.scenePaused, showFirstRun)
         // R-DS21 — the Settings panel is modal the same way: ⌘1–8 and page controls are inert.
         .disabled(showFirstRun || router.settingsOpen)
         .accessibilityHidden(showFirstRun || router.settingsOpen)
@@ -357,6 +362,8 @@ struct ContentView: View {
         case .inbox(let id):
             router.pendingInboxItem = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .inbox }
+        case .backlogItem(let project, let id):
+            router.routeToBacklogItem(project: project, item: id)
         case .tab(let tab):
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = tab }
         case .action(let action):

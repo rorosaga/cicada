@@ -84,14 +84,12 @@ struct ConnectionsView: View {
             var err: NSDictionary?
             apple.executeAndReturnError(&err)
             if err != nil {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
+                AppPasteboard.copy(command)
                 return false
             }
             return true
         }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        AppPasteboard.copy(command)
         return false
     }
 }

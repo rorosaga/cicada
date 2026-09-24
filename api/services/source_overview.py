@@ -88,6 +88,11 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("chrome-bookmarks", "Chrome bookmarks", "browser", "chrome-bookmark", ("chrome-bookmark",), "chrome-bookmarks"),
     SourceSpec("safari-bookmarks", "Safari bookmarks", "browser", "safari-bookmark", ("safari-bookmark",), "safari-bookmarks"),
     SourceSpec("safari-tabs", "Safari iCloud tabs", "browser", "safari-tab", ("safari-tab",), "safari-tabs"),
+    # Round 4 (C9): the Chromium family beyond Chrome — Chrome's parser, their own origin.
+    SourceSpec("brave-bookmarks", "Brave bookmarks", "browser", "brave-bookmark", ("brave-bookmark",), "brave-bookmarks"),
+    SourceSpec("vivaldi-bookmarks", "Vivaldi bookmarks", "browser", "vivaldi-bookmark", ("vivaldi-bookmark",), "vivaldi-bookmarks"),
+    SourceSpec("comet-bookmarks", "Comet bookmarks", "browser", "comet-bookmark", ("comet-bookmark",), "comet-bookmarks"),
+    SourceSpec("dia-bookmarks", "Dia bookmarks", "browser", "dia-bookmark", ("dia-bookmark",), "dia-bookmarks"),
     SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest",), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
     SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks",), "x"),

@@ -27,12 +27,7 @@ enum ChannelDetailLine {
     /// is the rail that keeps an irregular one from arriving as "calendarys".
     static func text(_ channel: SourceChannel,
                      locale: Locale = .autoupdatingCurrent) -> String? {
-        var phrase: String?
-        if let noun = channel.countNoun, !noun.isEmpty {
-            let number = UsageFormat.count(channel.count, locale: locale)
-            let unit = channel.count == 1 ? noun : noun + "s"
-            phrase = channel.countIsDelta ? "+\(number) \(unit) this sync" : "\(number) \(unit)"
-        }
+        let phrase = countPhrase(channel, locale: locale)
         let detail = (channel.detail?.isEmpty == false) ? channel.detail : nil
         switch (phrase, detail) {
         case let (phrase?, detail?): return "\(phrase) · \(detail)"
@@ -40,5 +35,13 @@ enum ChannelDetailLine {
         case let (nil, detail?): return detail
         case (nil, nil): return nil
         }
+    }
+
+    /// The count half alone — `SourceRowText.countLine` puts the parts beside it, and the time lives on the row's right.
+    static func countPhrase(_ channel: SourceChannel, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard let noun = channel.countNoun, !noun.isEmpty else { return nil }
+        let number = UsageFormat.count(channel.count, locale: locale)
+        let unit = channel.count == 1 ? noun : noun + "s"
+        return channel.countIsDelta ? "+\(number) \(unit) this sync" : "\(number) \(unit)"
     }
 }

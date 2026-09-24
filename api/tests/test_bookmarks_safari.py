@@ -169,3 +169,56 @@ def test_parse_upload_html_still_routes_through_safari_parser_unchanged():
         "https://example.org/a",
         "https://example.org/b",
     }
+
+
+# --- Round 4 (R-SR13): a Reading List leaf keeps its date and Safari's excerpt ---
+
+
+def test_a_reading_list_leaf_keeps_when_it_was_added_and_safaris_excerpt():
+    from datetime import datetime
+
+    tree = {"Title": "", "WebBookmarkType": "WebBookmarkTypeList", "Children": [
+        {"WebBookmarkType": "WebBookmarkTypeList", "Title": "com.apple.ReadingList", "Children": [
+            {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": "https://example.org/rl",
+             "URIDictionary": {"title": "Read later"},
+             "ReadingList": {"DateAdded": datetime(2026, 9, 20, 8, 30),
+                             "PreviewText": "  An   article\nabout alpha-project. token=" + "a1" * 20},
+             "ReadingListNonSync": {"FetchResult": 1}},
+        ]},
+        {"WebBookmarkType": "WebBookmarkTypeList", "Title": "BookmarksBar", "Children": [
+            {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": "https://example.org/bar",
+             "URIDictionary": {"title": "On the bar"}},
+        ]},
+    ]}
+    for fmt in (plistlib.FMT_BINARY, plistlib.FMT_XML):
+        reading, bar = media_ingestor.parse_safari_bookmarks(plistlib.dumps(tree, fmt=fmt))
+        assert (reading.added, reading.folder) == ("2026-09-20", "com.apple.ReadingList")
+        assert reading.preview.startswith("An article about alpha-project.")
+        assert "a1a1a1" not in reading.preview, "the excerpt is scrubbed before it is kept"
+        assert (bar.added, bar.preview) == (None, None)
+
+
+def test_a_reading_list_preview_is_the_description_only_when_the_page_gave_none(tmp_path, monkeypatch):
+    import asyncio
+
+    from api.services import markdown_parser
+    from api.services.media_ingestor import MediaMeta
+
+    descriptions = iter(["", "The page's own words."])
+
+    async def enrich(url, client, from_bookmark_file=False):
+        # One title per URL: `_media_entity_id` slugs the title, so a shared title would make both items one page.
+        return MediaMeta(title="Read later " + url.rsplit("/", 1)[-1], description=next(descriptions),
+                         site="example.org",
+                         media_type=media_ingestor._classify(url, from_bookmark_file=from_bookmark_file))
+
+    monkeypatch.setattr(media_ingestor, "enrich", enrich)
+    first = RawItem(url="https://example.org/one", preview="Safari's excerpt about alpha-project.")
+    second = RawItem(url="https://example.org/two", preview="Safari's excerpt, not used.")
+    for item in (first, second):
+        result = asyncio.run(media_ingestor.ingest_one(item, tmp_path, None, {}, from_bookmark_file=True))
+        body = markdown_parser.parse(tmp_path / "entities" / f"{result.media_entity_id}.md").body
+        if item is first:
+            assert "Safari's excerpt about alpha-project." in body
+        else:
+            assert "The page's own words." in body and "not used" not in body
