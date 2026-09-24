@@ -31,12 +31,15 @@ final class GraphViewModel {
     /// Distinct contexts present across nodes/edges. Drives the §2 context
     /// legend. Derived client-side from the loaded graph.
     private(set) var contextRoster: [String] = []
+    /// The whose-beliefs tab that is on (`nil` = All). It lived in the retired `ObserverFilterBar`'s own
+    /// `@State`, which a rebuilt view forgot while the filter kept dimming (R-DG3).
+    private(set) var observerSelection: String?
     private var lastSyncedLoadedAt: Date?
 
     /// True only when the graph has more than one distinct observer. A
     /// single-observer graph (e.g. everything asserted by `agent`) can't be
     /// meaningfully filtered — every segment would show the same slice — so
-    /// `ObserverFilterBar` gates its visibility on this rather than just
+    /// the whose-beliefs tabs show only on this rather than just
     /// `observerRoster.isEmpty`.
     var hasObserverDiversity: Bool {
         observerRoster.count > 1
@@ -60,7 +63,15 @@ final class GraphViewModel {
     /// G123: a node id the web view should land on (zoom to its neighbourhood)
     /// on the next update; consumed by `GraphView.updateNSView`.
     var pendingReveal: String?
-    var showFilterPopover = false
+    /// DS-3a R-DG11 — the last canvas event the PAGE answers (Esc, a click on empty canvas), and a counter
+    /// so two identical events in a row are two changes `onChange` sees.
+    private(set) var canvasEvent: CanvasEvent?
+    private(set) var canvasEventCount = 0
+
+    func receive(_ event: CanvasEvent) {
+        canvasEvent = event
+        canvasEventCount &+= 1
+    }
     var pendingFilterUpdate = false
     /// Flips true whenever a fresh graph snapshot lands (initial load, a
     /// Sleep cycle, an SSE-driven refresh) so `GraphView.updateNSView` knows
@@ -178,6 +189,9 @@ final class GraphViewModel {
             entities = []
             observerRoster = []
             contextRoster = []
+            // A bank switch drops the lens with the roster it was chosen from.
+            observerSelection = nil
+            filter.observers = []
             selectedEntity = nil
             // A bank switch invalidates any "go deeper" trail just as much
             // as the selection itself — the entities in it belong to a graph
@@ -380,6 +394,7 @@ final class GraphViewModel {
     /// `external:*` observer in the roster. Non-matching nodes are dimmed (not
     /// deleted) by graph.js via the same focus-alpha mechanism.
     func setObserver(_ wire: String?) {
+        observerSelection = wire
         guard let wire else { filter.observers = []; return }
         if wire == "external" {
             filter.observers = Set(observerRoster.filter { $0.hasPrefix("external:") })

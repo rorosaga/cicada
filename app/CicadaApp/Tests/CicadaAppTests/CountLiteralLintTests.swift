@@ -31,7 +31,8 @@ final class CountLiteralLintTests: XCTestCase {
     /// `Views/Shell/` (DS-1 T3): the rail's Inbox numeral and its "6 pending" label —
     /// and the two list-header components (DS-1 T5, DR-25/DR-45): a tab's count and
     /// the eyebrow's "6 pending" are the numbers every list page will show first — and the Inbox's
-    /// columns and the Reader (DS-2, R-DI23): positions, counts and ages on every row.
+    /// columns and the Reader (DS-2, R-DI23): positions, counts and ages on every row — and the Graph's
+    /// views (DS-3a): the Legend's counts and the entity column's tab counts.
     static let scope = [
         "/Views/Sources/",
         "/Views/Contributors/",
@@ -44,6 +45,7 @@ final class CountLiteralLintTests: XCTestCase {
         "/Views/Common/EyebrowRow.swift",
         "/Views/Inbox/",
         "/Views/Provenance/ReaderColumn.swift",
+        "/Views/Graph/",
     ]
 
     /// The documented way out, for a line the needle flags but that renders no

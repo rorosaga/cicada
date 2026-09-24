@@ -37,7 +37,9 @@ final class SectionLabelLintTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(seen, 10, "the regex no longer matches — this lint would pass vacuously")
+        // A vacuity floor, not a census: each DS track moves page labels into `Copy`, so the
+        // literal count only shrinks (19 before DS-3; 10 once DS-3a and DS-3b both landed).
+        XCTAssertGreaterThan(seen, 5, "the regex no longer matches — this lint would pass vacuously")
     }
 
     /// One door: `labelFont` is read by `SectionLabel` and nothing else outside the theme.

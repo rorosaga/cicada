@@ -66,6 +66,15 @@ Manage and Connect are sheets, and every static Settings row is in ⌘K with ⏎
 `AppRouter.openSettings`. 22 rulings (R-HS1…R-HS22), nine of them dated in DESIGN_RULES §9. No backend change.
 Measured on the branch: Swift **1856 executed, 0 failures**, graph node tests **7 passed**.
 
+**Round 3, Direction D — DS-3a (2026-09-24, `feat/d-graph`, plan `2026-09-24-d-graph.md`).** The Graph page and the
+entity card: one quiet floating group (whose-beliefs tabs · Legend · − + fit · pan) instead of four islands; the Legend
+as the context legend, the filters and a key in one; ⌘F finds on the canvas; the entity card as the right-hand column
+beside the Reader (no scrim), closed by × or a click on empty canvas; status and confidence in words; Content, Look it
+up at (G61's fields in words, no check line until S3), Details, belief rows, History's Show in conversation, the Belief
+Timeline inline. graph.js gained `backgroundClicked`, `escape` and `setSelectedNode`, tested alpha-free. 25 rulings
+(R-DG1…R-DG25), six dated in DESIGN_RULES §9. No backend change; one gap reported: `effectiveAccess` on
+`GET /entities/{id}/sources`. Measured on the branch: Swift **1863 executed, 0 failures**, graph node tests **8 passed**.
+
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 **Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
