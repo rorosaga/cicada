@@ -1,0 +1,3524 @@
+{
+ "followup": {
+  "claimId": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
+  "createdDate": "2026-09-23",
+  "entityId": "rover-arm-project",
+  "entityName": "Rover Arm Project",
+  "id": "inbox-007",
+  "kind": "followup",
+  "predicate": "happened",
+  "requiredInput": "choice",
+  "status": "pending",
+  "title": "How did it go?"
+ },
+ "projects": {
+  "partial": false,
+  "projects": [
+   {
+    "activity": [
+     {
+      "day": "2026-07-22",
+      "n": 1
+     },
+     {
+      "day": "2026-08-19",
+      "n": 1
+     },
+     {
+      "day": "2026-09-22",
+      "n": 1
+     },
+     {
+      "day": "2026-09-23",
+      "n": 1
+     }
+    ],
+    "children": [],
+    "created": "2026-08-19",
+    "followups": 0,
+    "id": "pick-and-place-demo",
+    "lastMomentDay": "2026-09-23",
+    "medianGapDays": 28.0,
+    "milestones": [
+     {
+      "chain": [],
+      "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+      "doneOn": null,
+      "moved": false,
+      "name": "Pick And Place Demo",
+      "on": null,
+      "slug": "due-2026-10-05",
+      "source": "due",
+      "status": "planned",
+      "target": "2026-10-05"
+     }
+    ],
+    "name": "Pick And Place Demo",
+    "oneLiner": "The first demo of the rover arm picking a part.",
+    "openThreads": [
+     {
+      "claimId": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+      "lastHeard": "2026-09-23",
+      "on": null,
+      "since": "2026-09-23",
+      "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+      "verbatim": false
+     }
+    ],
+    "parent": "rover-arm-project",
+    "planned": true,
+    "progress": {
+     "done": 0,
+     "total": 1
+    },
+    "status": "active"
+   },
+   {
+    "activity": [
+     {
+      "day": "2026-07-15",
+      "n": 1
+     },
+     {
+      "day": "2026-07-22",
+      "n": 1
+     },
+     {
+      "day": "2026-08-09",
+      "n": 1
+     },
+     {
+      "day": "2026-08-19",
+      "n": 1
+     },
+     {
+      "day": "2026-08-30",
+      "n": 1
+     },
+     {
+      "day": "2026-09-09",
+      "n": 1
+     },
+     {
+      "day": "2026-09-22",
+      "n": 1
+     },
+     {
+      "day": "2026-09-23",
+      "n": 1
+     }
+    ],
+    "children": [
+     "pick-and-place-demo"
+    ],
+    "created": "2026-07-15",
+    "followups": 1,
+    "id": "rover-arm-project",
+    "lastMomentDay": "2026-09-23",
+    "medianGapDays": 10.0,
+    "milestones": [
+     {
+      "chain": [],
+      "claimId": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+      "doneOn": null,
+      "moved": true,
+      "name": "First grasp",
+      "on": null,
+      "slug": "first-grasp",
+      "source": "milestone",
+      "status": "planned",
+      "target": "2026-10-01"
+     },
+     {
+      "chain": [],
+      "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+      "doneOn": null,
+      "moved": false,
+      "name": "Pick And Place Demo",
+      "on": "pick-and-place-demo",
+      "slug": "due-2026-10-05",
+      "source": "due",
+      "status": "planned",
+      "target": "2026-10-05"
+     },
+     {
+      "chain": [],
+      "claimId": "clm_rover-arm-project_due_8e88a49d",
+      "doneOn": null,
+      "moved": false,
+      "name": "Lab showcase",
+      "on": null,
+      "slug": "due-2026-11-02",
+      "source": "due",
+      "status": "planned",
+      "target": "2026-11-02"
+     },
+     {
+      "chain": [],
+      "claimId": "clm_rover-arm-project_milestone_arm-assembled_2026-08-09",
+      "doneOn": "2026-08-09",
+      "moved": false,
+      "name": "Arm assembled",
+      "on": null,
+      "slug": "arm-assembled",
+      "source": "milestone",
+      "status": "done",
+      "target": "2026-08-12"
+     }
+    ],
+    "name": "Rover Arm Project",
+    "oneLiner": "A small arm that picks parts off a tray.",
+    "openThreads": [
+     {
+      "claimId": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+      "lastHeard": "2026-09-23",
+      "on": "pick-and-place-demo",
+      "since": "2026-09-23",
+      "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+      "verbatim": false
+     },
+     {
+      "claimId": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
+      "lastHeard": "2026-08-30",
+      "on": null,
+      "since": "2026-08-30",
+      "text": "Bob started calibrating the gripper camera",
+      "verbatim": false
+     }
+    ],
+    "parent": null,
+    "planned": true,
+    "progress": {
+     "done": 1,
+     "total": 4
+    },
+    "status": "active"
+   },
+   {
+    "activity": [
+     {
+      "day": "2026-09-14",
+      "n": 1
+     },
+     {
+      "day": "2026-09-20",
+      "n": 1
+     },
+     {
+      "day": "2026-09-22",
+      "n": 1
+     }
+    ],
+    "children": [
+     "beta-project"
+    ],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "alpha-project",
+    "lastMomentDay": "2026-09-22",
+    "medianGapDays": 4.0,
+    "milestones": [],
+    "name": "Alpha Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [
+     {
+      "day": "2026-09-20",
+      "n": 1
+     }
+    ],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "beta-project",
+    "lastMomentDay": "2026-09-20",
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Beta Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": "alpha-project",
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [
+     {
+      "day": "2026-09-18",
+      "n": 1
+     }
+    ],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "gamma-project",
+    "lastMomentDay": "2026-09-18",
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Gamma Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [
+     {
+      "day": "2026-08-02",
+      "n": 1
+     },
+     {
+      "day": "2026-08-24",
+      "n": 1
+     },
+     {
+      "day": "2026-09-14",
+      "n": 1
+     }
+    ],
+    "children": [],
+    "created": "2026-08-02",
+    "followups": 0,
+    "id": "garden-sensor-project",
+    "lastMomentDay": "2026-09-14",
+    "medianGapDays": 21.5,
+    "milestones": [],
+    "name": "Garden Sensor Project",
+    "oneLiner": "Soil sensors that report from the garden.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "delta-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Delta Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "epsilon-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Epsilon Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "eta-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Eta Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "iota-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Iota Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "kappa-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Kappa Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "lambda-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Lambda Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "mu-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Mu Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "theta-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Theta Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   },
+   {
+    "activity": [],
+    "children": [],
+    "created": "2026-09-23",
+    "followups": 0,
+    "id": "zeta-project",
+    "lastMomentDay": null,
+    "medianGapDays": null,
+    "milestones": [],
+    "name": "Zeta Project",
+    "oneLiner": "A synthetic project for trying Cicada.",
+    "openThreads": [],
+    "parent": null,
+    "planned": false,
+    "progress": {
+     "done": 0,
+     "total": 0
+    },
+    "status": "active"
+   }
+  ],
+  "tzName": "UTC"
+ },
+ "timelines": {
+  "garden-sensor-project": {
+   "activity": [
+    {
+     "day": "2026-08-02",
+     "n": 1
+    },
+    {
+     "day": "2026-08-24",
+     "n": 1
+    },
+    {
+     "day": "2026-09-14",
+     "n": 1
+    }
+   ],
+   "cluster": {
+    "alsoUses": [],
+    "groups": [
+     {
+      "label": "People",
+      "members": [
+       {
+        "count": 1,
+        "fact": "",
+        "id": "carol-example",
+        "lastSeen": "2026-08-02",
+        "name": "Carol Example",
+        "pending": false,
+        "rolePhrase": "works on this project",
+        "type": "person"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Tools & infrastructure",
+      "members": [
+       {
+        "count": 1,
+        "fact": "",
+        "id": "tool-example-g",
+        "lastSeen": "2026-09-14",
+        "name": "Tool Example G",
+        "pending": false,
+        "rolePhrase": "this project uses",
+        "type": "tool"
+       },
+       {
+        "count": 1,
+        "fact": "",
+        "id": "tool-example-c",
+        "lastSeen": "2026-08-24",
+        "name": "Tool Example C",
+        "pending": false,
+        "rolePhrase": "this project uses",
+        "type": "tool"
+       }
+      ],
+      "more": 0
+     }
+    ]
+   },
+   "conversations": [
+    {
+     "episodeId": "ep_2026-09-14_003",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Hourly reports"
+    },
+    {
+     "episodeId": "ep_2026-08-24_001",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Soil readings"
+    },
+    {
+     "episodeId": "ep_2026-08-02_001",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Garden sensors"
+    }
+   ],
+   "items": [
+    {
+     "at": "2026-09-14T09:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-09-14_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Hourly reports"
+     },
+     "dateBasis": "episode",
+     "day": "2026-09-14",
+     "facts": [
+      {
+       "claimId": "clm_garden-sensor-project_uses_d53cf7f0",
+       "now": null,
+       "object": "tool-example-g",
+       "phrase": "Garden Sensor Project uses Tool Example G",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "garden-sensor-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-09-14_003:2026-09-14",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "tool-example-g",
+       "isOwner": false,
+       "name": "Tool Example G",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "garden-sensor-project",
+     "quote": {
+      "end": 78,
+      "episode": "ep_2026-09-14_003",
+      "kind": "user",
+      "start": 32,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Garden Sensor Project uses Tool Example G",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-08-24T09:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-08-24_001",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Soil readings"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-24",
+     "facts": [
+      {
+       "claimId": "clm_garden-sensor-project_uses_0e5c77cf",
+       "now": null,
+       "object": "tool-example-c",
+       "phrase": "Garden Sensor Project uses Tool Example C",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "garden-sensor-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-08-24_001:2026-08-24",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "tool-example-c",
+       "isOwner": false,
+       "name": "Tool Example C",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "garden-sensor-project",
+     "quote": {
+      "end": 55,
+      "episode": "ep_2026-08-24_001",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Garden Sensor Project uses Tool Example C",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-08-02T09:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-08-02_001",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Garden sensors"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-02",
+     "facts": [
+      {
+       "claimId": "clm_bob-example_works-on_75f9706d",
+       "now": null,
+       "object": "garden-sensor-project",
+       "phrase": "Bob Example works on Garden Sensor Project",
+       "predicate": "works-on",
+       "state": "said",
+       "subject": "bob-example",
+       "was": null
+      },
+      {
+       "claimId": "clm_carol-example_works-on_5f1e99f3",
+       "now": null,
+       "object": "garden-sensor-project",
+       "phrase": "Carol Example works on Garden Sensor Project",
+       "predicate": "works-on",
+       "state": "said",
+       "subject": "carol-example",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-08-02_001:2026-08-02",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": null,
+       "surface": null,
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "carol-example",
+       "isOwner": false,
+       "name": "Carol Example",
+       "role": null,
+       "surface": null,
+       "type": "person",
+       "url": null
+      }
+     ],
+     "project": null,
+     "quote": {
+      "end": 58,
+      "episode": "ep_2026-08-02_001",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Bob Example works on Garden Sensor Project",
+     "verbatim": false,
+     "via": "bob-example"
+    },
+    {
+     "at": null,
+     "claim": null,
+     "conversation": null,
+     "dateBasis": null,
+     "day": "2026-08-02",
+     "facts": [],
+     "id": "c:garden-sensor-project",
+     "kind": "created",
+     "moreFacts": 0,
+     "participants": [],
+     "project": "garden-sensor-project",
+     "quote": null,
+     "state": null,
+     "text": "Cicada started tracking this",
+     "verbatim": false,
+     "via": null
+    }
+   ],
+   "lastMomentDay": "2026-09-14",
+   "medianGapDays": 21.5,
+   "milestones": [],
+   "momentDays": [
+    "2026-08-02",
+    "2026-08-24",
+    "2026-09-14"
+   ],
+   "now": {
+    "last": {
+     "at": "2026-09-14T09:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-09-14_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Hourly reports"
+     },
+     "dateBasis": "episode",
+     "day": "2026-09-14",
+     "facts": [
+      {
+       "claimId": "clm_garden-sensor-project_uses_d53cf7f0",
+       "now": null,
+       "object": "tool-example-g",
+       "phrase": "Garden Sensor Project uses Tool Example G",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "garden-sensor-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-09-14_003:2026-09-14",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "tool-example-g",
+       "isOwner": false,
+       "name": "Tool Example G",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "garden-sensor-project",
+     "quote": {
+      "end": 78,
+      "episode": "ep_2026-09-14_003",
+      "kind": "user",
+      "start": 32,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Garden Sensor Project uses Tool Example G",
+     "verbatim": false,
+     "via": null
+    },
+    "next": null,
+    "threads": []
+   },
+   "partial": false,
+   "pending": {
+    "newestDay": null,
+    "unconsolidated": 0
+   },
+   "project": {
+    "children": [],
+    "created": "2026-08-02",
+    "id": "garden-sensor-project",
+    "name": "Garden Sensor Project",
+    "oneLiner": "Soil sensors that report from the garden.",
+    "parent": null,
+    "status": "active"
+   },
+   "tzName": "UTC",
+   "window": {
+    "end": "2026-09-14",
+    "start": "2026-08-02"
+   }
+  },
+  "pick-and-place-demo": {
+   "activity": [
+    {
+     "day": "2026-07-22",
+     "n": 1
+    },
+    {
+     "day": "2026-08-19",
+     "n": 1
+    },
+    {
+     "day": "2026-09-22",
+     "n": 1
+    },
+    {
+     "day": "2026-09-23",
+     "n": 1
+    }
+   ],
+   "cluster": {
+    "alsoUses": [],
+    "groups": [
+     {
+      "label": "People",
+      "members": [
+       {
+        "count": 1,
+        "fact": "",
+        "id": "hana-example",
+        "lastSeen": "2026-09-22",
+        "name": "Hana Example",
+        "pending": false,
+        "rolePhrase": "from",
+        "type": "person"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Tools & infrastructure",
+      "members": [
+       {
+        "count": 4,
+        "fact": "4 GPU nodes · Slurm-example scheduler · login.example.com",
+        "id": "lab-cluster-example",
+        "lastSeen": "2026-09-23",
+        "name": "Lab Cluster Example",
+        "pending": false,
+        "rolePhrase": "about",
+        "type": "tool"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Documents",
+      "members": [
+       {
+        "count": 1,
+        "fact": "example.com",
+        "id": "media-example-cluster-guide",
+        "lastSeen": "2026-09-22",
+        "name": "Lab Cluster Onboarding Guide",
+        "pending": false,
+        "rolePhrase": "document",
+        "type": "media"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Ideas",
+      "members": [
+       {
+        "count": 1,
+        "fact": "",
+        "id": "rover-arm-project",
+        "lastSeen": "2026-08-19",
+        "name": "Rover Arm Project",
+        "pending": false,
+        "rolePhrase": "this project part of",
+        "type": "project"
+       }
+      ],
+      "more": 0
+     }
+    ]
+   },
+   "conversations": [
+    {
+     "episodeId": "ep_2026-09-23_003",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Notes on the lab cluster"
+    },
+    {
+     "episodeId": "ep_2026-09-22_003",
+     "harness": "claude-code",
+     "id": "ses_demo_rover_03",
+     "origin": "claude-code",
+     "resumable": false,
+     "title": "Lab cluster specs"
+    },
+    {
+     "episodeId": "ep_2026-08-19_001",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Scoping the demo"
+    },
+    {
+     "episodeId": "ep_2026-07-22_001",
+     "harness": "claude-code",
+     "id": "ses_demo_rover_01",
+     "origin": "claude-code",
+     "resumable": false,
+     "title": "The rover arm plan"
+    }
+   ],
+   "items": [
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "harness",
+      "authorProvider": null,
+      "authoredBy": "claude-code",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "turn",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 241,
+        "episode": "ep_2026-09-23_003",
+        "hash": "792b9932b2ab",
+        "kind": "user",
+        "start": 186
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+      "object": "bob is connecting to lab cluster example to run the pick and place demo",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "mcp",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       },
+       {
+        "entity": "lab-cluster-example",
+        "role": "used",
+        "surface": "Lab Cluster Example",
+        "url": null
+       },
+       {
+        "entity": "pick-and-place-demo",
+        "role": "for",
+        "surface": "Pick And Place Demo",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-09-23",
+      "sessionIds": [
+       "ses_demo_rover_02"
+      ],
+      "sourceEpisodes": [
+       "ep_2026-09-23_003"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "ongoing",
+      "subject": "pick-and-place-demo",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+      "validFrom": "2026-09-23",
+      "validTo": null
+     },
+     "conversation": {
+      "episodeId": "ep_2026-09-23_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Notes on the lab cluster"
+     },
+     "dateBasis": "turn",
+     "day": "2026-09-23",
+     "facts": [],
+     "id": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": "used",
+       "surface": "Lab Cluster Example",
+       "type": "tool",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "pick-and-place-demo",
+       "isOwner": false,
+       "name": "Pick And Place Demo",
+       "role": "for",
+       "surface": "Pick And Place Demo",
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 241,
+      "episode": "ep_2026-09-23_003",
+      "kind": "user",
+      "start": 186,
+      "status": "current"
+     },
+     "state": "ongoing",
+     "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "harness",
+      "authorProvider": null,
+      "authoredBy": "claude-code",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "stated",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 180,
+        "episode": "ep_2026-09-23_003",
+        "hash": "792b9932b2ab",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+      "object": "bob got the lab cluster onboarding guide from hana example; it walks through connecting to lab cluster example",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "mcp",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       },
+       {
+        "entity": "media-example-cluster-guide",
+        "role": "document",
+        "surface": "lab cluster onboarding guide",
+        "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+       },
+       {
+        "entity": "hana-example",
+        "role": "from",
+        "surface": "Hana Example",
+        "url": null
+       },
+       {
+        "entity": "lab-cluster-example",
+        "role": "about",
+        "surface": "Lab Cluster Example",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-09-23",
+      "sessionIds": [
+       "ses_demo_rover_02"
+      ],
+      "sourceEpisodes": [
+       "ep_2026-09-23_003"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "done",
+      "subject": "pick-and-place-demo",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+      "validFrom": "2026-09-22",
+      "validTo": "2026-09-22"
+     },
+     "conversation": {
+      "episodeId": "ep_2026-09-23_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Notes on the lab cluster"
+     },
+     "dateBasis": "stated",
+     "day": "2026-09-22",
+     "facts": [],
+     "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "media-example-cluster-guide",
+       "isOwner": false,
+       "name": "Lab Cluster Onboarding Guide",
+       "role": "document",
+       "surface": "lab cluster onboarding guide",
+       "type": "media",
+       "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+      },
+      {
+       "derived": false,
+       "id": "hana-example",
+       "isOwner": false,
+       "name": "Hana Example",
+       "role": "from",
+       "surface": "Hana Example",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": "about",
+       "surface": "Lab Cluster Example",
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 180,
+      "episode": "ep_2026-09-23_003",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "done",
+     "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-09-22T15:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-09-22_003",
+      "harness": "claude-code",
+      "id": "ses_demo_rover_03",
+      "origin": "claude-code",
+      "resumable": false,
+      "title": "Lab cluster specs"
+     },
+     "dateBasis": "episode",
+     "day": "2026-09-22",
+     "facts": [
+      {
+       "claimId": "clm_lab-cluster-example_hosts_65c14f99",
+       "now": null,
+       "object": "pick-and-place-demo",
+       "phrase": "Lab Cluster Example hosts Pick And Place Demo",
+       "predicate": "hosts",
+       "state": "said",
+       "subject": "lab-cluster-example",
+       "was": null
+      },
+      {
+       "claimId": "clm_lab-cluster-example_spec_cebe81d1",
+       "now": null,
+       "object": "Slurm-example scheduler",
+       "phrase": "Lab Cluster Example spec Slurm-example scheduler",
+       "predicate": "spec",
+       "state": "said",
+       "subject": "lab-cluster-example",
+       "was": null
+      },
+      {
+       "claimId": "clm_lab-cluster-example_spec_f100789b",
+       "now": null,
+       "object": "login.example.com",
+       "phrase": "Lab Cluster Example spec login.example.com",
+       "predicate": "spec",
+       "state": "said",
+       "subject": "lab-cluster-example",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-09-22_003:2026-09-22",
+     "kind": "moment",
+     "moreFacts": 1,
+     "participants": [
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": null,
+     "quote": {
+      "end": 59,
+      "episode": "ep_2026-09-22_003",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Lab Cluster Example hosts Pick And Place Demo",
+     "verbatim": false,
+     "via": "lab-cluster-example"
+    },
+    {
+     "at": "2026-09-09T14:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-09-09_002",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "First grasp slipped"
+     },
+     "dateBasis": "episode",
+     "day": "2026-09-09",
+     "facts": [
+      {
+       "claimId": "clm_rover-arm-project_uses_ba39feed",
+       "now": null,
+       "object": "tool-example-e",
+       "phrase": "Rover Arm Project uses Tool Example E",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "rover-arm-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-09-09_002:2026-09-09",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "rover-arm-project",
+       "isOwner": false,
+       "name": "Rover Arm Project",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "tool-example-e",
+       "isOwner": false,
+       "name": "Tool Example E",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": null,
+     "quote": {
+      "end": 72,
+      "episode": "ep_2026-09-09_002",
+      "kind": "user",
+      "start": 27,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Rover Arm Project uses Tool Example E",
+     "verbatim": false,
+     "via": "rover-arm-project"
+    },
+    {
+     "at": "2026-08-30T13:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-08-30_002",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Gripper camera"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-30",
+     "facts": [
+      {
+       "claimId": "clm_rover-arm-project_uses_a6fd3b48",
+       "now": null,
+       "object": "tool-example-f",
+       "phrase": "Rover Arm Project uses Tool Example F",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "rover-arm-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-08-30_002:2026-08-30",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "rover-arm-project",
+       "isOwner": false,
+       "name": "Rover Arm Project",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "tool-example-f",
+       "isOwner": false,
+       "name": "Tool Example F",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": null,
+     "quote": {
+      "end": 89,
+      "episode": "ep_2026-08-30_002",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Rover Arm Project uses Tool Example F",
+     "verbatim": false,
+     "via": "rover-arm-project"
+    },
+    {
+     "at": "2026-08-19T12:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-08-19_001",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Scoping the demo"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-19",
+     "facts": [
+      {
+       "claimId": "clm_pick-and-place-demo_part-of_42069d13",
+       "now": null,
+       "object": "rover-arm-project",
+       "phrase": "Pick And Place Demo part of Rover Arm Project",
+       "predicate": "part-of",
+       "state": "said",
+       "subject": "pick-and-place-demo",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-08-19_001:2026-08-19",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "rover-arm-project",
+       "isOwner": false,
+       "name": "Rover Arm Project",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 69,
+      "episode": "ep_2026-08-19_001",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Pick And Place Demo part of Rover Arm Project",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": null,
+     "claim": null,
+     "conversation": null,
+     "dateBasis": null,
+     "day": "2026-08-19",
+     "facts": [],
+     "id": "c:pick-and-place-demo",
+     "kind": "created",
+     "moreFacts": 0,
+     "participants": [],
+     "project": "pick-and-place-demo",
+     "quote": null,
+     "state": null,
+     "text": "Cicada started tracking this",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-08-09T11:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-08-09_001",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Arm assembled"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-09",
+     "facts": [
+      {
+       "claimId": "clm_rover-arm-project_uses_4f4061ad",
+       "now": null,
+       "object": "tool-example-d",
+       "phrase": "Rover Arm Project uses Tool Example D",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "rover-arm-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-08-09_001:2026-08-09",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "rover-arm-project",
+       "isOwner": false,
+       "name": "Rover Arm Project",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "tool-example-d",
+       "isOwner": false,
+       "name": "Tool Example D",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": null,
+     "quote": {
+      "end": 84,
+      "episode": "ep_2026-08-09_001",
+      "kind": "user",
+      "start": 42,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Rover Arm Project uses Tool Example D",
+     "verbatim": false,
+     "via": "rover-arm-project"
+    },
+    {
+     "at": "2026-07-22T10:04:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-07-22_001",
+      "harness": "claude-code",
+      "id": "ses_demo_rover_01",
+      "origin": "claude-code",
+      "resumable": false,
+      "title": "The rover arm plan"
+     },
+     "dateBasis": "turn",
+     "day": "2026-07-22",
+     "facts": [
+      {
+       "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+       "now": null,
+       "object": "2026-10-05",
+       "phrase": "Pick And Place Demo due 2026-10-05",
+       "predicate": "due",
+       "state": "said",
+       "subject": "pick-and-place-demo",
+       "was": null
+      },
+      {
+       "claimId": "clm_rover-arm-project_due_8e88a49d",
+       "now": null,
+       "object": "2026-11-02",
+       "phrase": "Rover Arm Project due 2026-11-02",
+       "predicate": "due",
+       "state": "said",
+       "subject": "rover-arm-project",
+       "was": null
+      },
+      {
+       "claimId": "clm_rover-arm-project_due_093f2e5d",
+       "now": "arm-assembled",
+       "object": "2026-08-12",
+       "phrase": "Rover Arm Project due 2026-08-12",
+       "predicate": "due",
+       "state": "changed",
+       "subject": "rover-arm-project",
+       "was": "2026-08-12"
+      }
+     ],
+     "id": "m:ep_2026-07-22_001:2026-07-22",
+     "kind": "moment",
+     "moreFacts": 1,
+     "participants": [
+      {
+       "derived": false,
+       "id": "rover-arm-project",
+       "isOwner": false,
+       "name": "Rover Arm Project",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 131,
+      "episode": "ep_2026-07-22_001",
+      "kind": "user",
+      "start": 94,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Pick And Place Demo due 2026-10-05",
+     "verbatim": false,
+     "via": null
+    }
+   ],
+   "lastMomentDay": "2026-09-23",
+   "medianGapDays": 10.5,
+   "milestones": [
+    {
+     "chain": [
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 131,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 94
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_pick-and-place-demo_due_b4c4f24c",
+       "object": "2026-10-05",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "pick-and-place-demo",
+       "supersededBy": null,
+       "supersedes": null,
+       "target": null,
+       "text": "Pick And Place Demo due 2026-10-05",
+       "validFrom": "2026-07-22",
+       "validTo": null
+      }
+     ],
+     "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+     "doneOn": null,
+     "moved": false,
+     "name": "Pick And Place Demo",
+     "on": null,
+     "slug": "due-2026-10-05",
+     "source": "due",
+     "status": "planned",
+     "target": "2026-10-05"
+    }
+   ],
+   "momentDays": [
+    "2026-07-22",
+    "2026-08-09",
+    "2026-08-19",
+    "2026-08-30",
+    "2026-09-09",
+    "2026-09-22",
+    "2026-09-23"
+   ],
+   "now": {
+    "last": {
+     "at": null,
+     "claim": {
+      "authorKind": "harness",
+      "authorProvider": null,
+      "authoredBy": "claude-code",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "stated",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 180,
+        "episode": "ep_2026-09-23_003",
+        "hash": "792b9932b2ab",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+      "object": "bob got the lab cluster onboarding guide from hana example; it walks through connecting to lab cluster example",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "mcp",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       },
+       {
+        "entity": "media-example-cluster-guide",
+        "role": "document",
+        "surface": "lab cluster onboarding guide",
+        "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+       },
+       {
+        "entity": "hana-example",
+        "role": "from",
+        "surface": "Hana Example",
+        "url": null
+       },
+       {
+        "entity": "lab-cluster-example",
+        "role": "about",
+        "surface": "Lab Cluster Example",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-09-23",
+      "sessionIds": [
+       "ses_demo_rover_02"
+      ],
+      "sourceEpisodes": [
+       "ep_2026-09-23_003"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "done",
+      "subject": "pick-and-place-demo",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+      "validFrom": "2026-09-22",
+      "validTo": "2026-09-22"
+     },
+     "conversation": {
+      "episodeId": "ep_2026-09-23_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Notes on the lab cluster"
+     },
+     "dateBasis": "stated",
+     "day": "2026-09-22",
+     "facts": [],
+     "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "media-example-cluster-guide",
+       "isOwner": false,
+       "name": "Lab Cluster Onboarding Guide",
+       "role": "document",
+       "surface": "lab cluster onboarding guide",
+       "type": "media",
+       "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+      },
+      {
+       "derived": false,
+       "id": "hana-example",
+       "isOwner": false,
+       "name": "Hana Example",
+       "role": "from",
+       "surface": "Hana Example",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": "about",
+       "surface": "Lab Cluster Example",
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 180,
+      "episode": "ep_2026-09-23_003",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "done",
+     "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+     "verbatim": false,
+     "via": null
+    },
+    "next": {
+     "chain": [
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 131,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 94
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_pick-and-place-demo_due_b4c4f24c",
+       "object": "2026-10-05",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "pick-and-place-demo",
+       "supersededBy": null,
+       "supersedes": null,
+       "target": null,
+       "text": "Pick And Place Demo due 2026-10-05",
+       "validFrom": "2026-07-22",
+       "validTo": null
+      }
+     ],
+     "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+     "doneOn": null,
+     "moved": false,
+     "name": "Pick And Place Demo",
+     "on": null,
+     "slug": "due-2026-10-05",
+     "source": "due",
+     "status": "planned",
+     "target": "2026-10-05"
+    },
+    "threads": [
+     {
+      "claimId": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+      "lastHeard": "2026-09-23",
+      "on": null,
+      "since": "2026-09-23",
+      "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+      "verbatim": false
+     }
+    ]
+   },
+   "partial": false,
+   "pending": {
+    "newestDay": "2026-09-23",
+    "unconsolidated": 1
+   },
+   "project": {
+    "children": [],
+    "created": "2026-08-19",
+    "id": "pick-and-place-demo",
+    "name": "Pick And Place Demo",
+    "oneLiner": "The first demo of the rover arm picking a part.",
+    "parent": "rover-arm-project",
+    "status": "active"
+   },
+   "tzName": "UTC",
+   "window": {
+    "end": "2026-10-05",
+    "start": "2026-07-22"
+   }
+  },
+  "rover-arm-project": {
+   "activity": [
+    {
+     "day": "2026-07-15",
+     "n": 1
+    },
+    {
+     "day": "2026-07-22",
+     "n": 1
+    },
+    {
+     "day": "2026-08-09",
+     "n": 1
+    },
+    {
+     "day": "2026-08-19",
+     "n": 1
+    },
+    {
+     "day": "2026-08-30",
+     "n": 1
+    },
+    {
+     "day": "2026-09-09",
+     "n": 1
+    },
+    {
+     "day": "2026-09-22",
+     "n": 1
+    },
+    {
+     "day": "2026-09-23",
+     "n": 1
+    }
+   ],
+   "cluster": {
+    "alsoUses": [],
+    "groups": [
+     {
+      "label": "People",
+      "members": [
+       {
+        "count": 1,
+        "fact": "",
+        "id": "hana-example",
+        "lastSeen": "2026-09-22",
+        "name": "Hana Example",
+        "pending": false,
+        "rolePhrase": "from",
+        "type": "person"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Tools & infrastructure",
+      "members": [
+       {
+        "count": 4,
+        "fact": "4 GPU nodes · Slurm-example scheduler · login.example.com",
+        "id": "lab-cluster-example",
+        "lastSeen": "2026-09-23",
+        "name": "Lab Cluster Example",
+        "pending": false,
+        "rolePhrase": "about",
+        "type": "tool"
+       },
+       {
+        "count": 1,
+        "fact": "",
+        "id": "tool-example-e",
+        "lastSeen": "2026-09-09",
+        "name": "Tool Example E",
+        "pending": false,
+        "rolePhrase": "this project uses",
+        "type": "tool"
+       },
+       {
+        "count": 1,
+        "fact": "",
+        "id": "tool-example-f",
+        "lastSeen": "2026-08-30",
+        "name": "Tool Example F",
+        "pending": false,
+        "rolePhrase": "this project uses",
+        "type": "tool"
+       },
+       {
+        "count": 1,
+        "fact": "",
+        "id": "tool-example-d",
+        "lastSeen": "2026-08-09",
+        "name": "Tool Example D",
+        "pending": false,
+        "rolePhrase": "this project uses",
+        "type": "tool"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Documents",
+      "members": [
+       {
+        "count": 1,
+        "fact": "example.com",
+        "id": "media-example-cluster-guide",
+        "lastSeen": "2026-09-22",
+        "name": "Lab Cluster Onboarding Guide",
+        "pending": false,
+        "rolePhrase": "document",
+        "type": "media"
+       }
+      ],
+      "more": 0
+     },
+     {
+      "label": "Sub-projects",
+      "members": [
+       {
+        "count": 0,
+        "fact": "",
+        "id": "pick-and-place-demo",
+        "lastSeen": null,
+        "name": "Pick And Place Demo",
+        "pending": false,
+        "rolePhrase": "",
+        "type": "project"
+       }
+      ],
+      "more": 0
+     }
+    ]
+   },
+   "conversations": [
+    {
+     "episodeId": "ep_2026-09-23_003",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Notes on the lab cluster"
+    },
+    {
+     "episodeId": "ep_2026-09-22_003",
+     "harness": "claude-code",
+     "id": "ses_demo_rover_03",
+     "origin": "claude-code",
+     "resumable": false,
+     "title": "Lab cluster specs"
+    },
+    {
+     "episodeId": "ep_2026-09-09_002",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "First grasp slipped"
+    },
+    {
+     "episodeId": "ep_2026-08-30_002",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Gripper camera"
+    },
+    {
+     "episodeId": "ep_2026-08-19_001",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Scoping the demo"
+    },
+    {
+     "episodeId": "ep_2026-08-09_001",
+     "harness": null,
+     "id": null,
+     "origin": "telegram",
+     "resumable": false,
+     "title": "Arm assembled"
+    },
+    {
+     "episodeId": "ep_2026-07-22_001",
+     "harness": "claude-code",
+     "id": "ses_demo_rover_01",
+     "origin": "claude-code",
+     "resumable": false,
+     "title": "The rover arm plan"
+    }
+   ],
+   "items": [
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "harness",
+      "authorProvider": null,
+      "authoredBy": "claude-code",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "turn",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 241,
+        "episode": "ep_2026-09-23_003",
+        "hash": "792b9932b2ab",
+        "kind": "user",
+        "start": 186
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+      "object": "bob is connecting to lab cluster example to run the pick and place demo",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "mcp",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       },
+       {
+        "entity": "lab-cluster-example",
+        "role": "used",
+        "surface": "Lab Cluster Example",
+        "url": null
+       },
+       {
+        "entity": "pick-and-place-demo",
+        "role": "for",
+        "surface": "Pick And Place Demo",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-09-23",
+      "sessionIds": [
+       "ses_demo_rover_02"
+      ],
+      "sourceEpisodes": [
+       "ep_2026-09-23_003"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "ongoing",
+      "subject": "pick-and-place-demo",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+      "validFrom": "2026-09-23",
+      "validTo": null
+     },
+     "conversation": {
+      "episodeId": "ep_2026-09-23_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Notes on the lab cluster"
+     },
+     "dateBasis": "turn",
+     "day": "2026-09-23",
+     "facts": [],
+     "id": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": "used",
+       "surface": "Lab Cluster Example",
+       "type": "tool",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "pick-and-place-demo",
+       "isOwner": false,
+       "name": "Pick And Place Demo",
+       "role": "for",
+       "surface": "Pick And Place Demo",
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 241,
+      "episode": "ep_2026-09-23_003",
+      "kind": "user",
+      "start": 186,
+      "status": "current"
+     },
+     "state": "ongoing",
+     "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "harness",
+      "authorProvider": null,
+      "authoredBy": "claude-code",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "stated",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 180,
+        "episode": "ep_2026-09-23_003",
+        "hash": "792b9932b2ab",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+      "object": "bob got the lab cluster onboarding guide from hana example; it walks through connecting to lab cluster example",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "mcp",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       },
+       {
+        "entity": "media-example-cluster-guide",
+        "role": "document",
+        "surface": "lab cluster onboarding guide",
+        "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+       },
+       {
+        "entity": "hana-example",
+        "role": "from",
+        "surface": "Hana Example",
+        "url": null
+       },
+       {
+        "entity": "lab-cluster-example",
+        "role": "about",
+        "surface": "Lab Cluster Example",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-09-23",
+      "sessionIds": [
+       "ses_demo_rover_02"
+      ],
+      "sourceEpisodes": [
+       "ep_2026-09-23_003"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "done",
+      "subject": "pick-and-place-demo",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+      "validFrom": "2026-09-22",
+      "validTo": "2026-09-22"
+     },
+     "conversation": {
+      "episodeId": "ep_2026-09-23_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Notes on the lab cluster"
+     },
+     "dateBasis": "stated",
+     "day": "2026-09-22",
+     "facts": [],
+     "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "media-example-cluster-guide",
+       "isOwner": false,
+       "name": "Lab Cluster Onboarding Guide",
+       "role": "document",
+       "surface": "lab cluster onboarding guide",
+       "type": "media",
+       "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+      },
+      {
+       "derived": false,
+       "id": "hana-example",
+       "isOwner": false,
+       "name": "Hana Example",
+       "role": "from",
+       "surface": "Hana Example",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": "about",
+       "surface": "Lab Cluster Example",
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 180,
+      "episode": "ep_2026-09-23_003",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "done",
+     "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-09-22T15:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-09-22_003",
+      "harness": "claude-code",
+      "id": "ses_demo_rover_03",
+      "origin": "claude-code",
+      "resumable": false,
+      "title": "Lab cluster specs"
+     },
+     "dateBasis": "episode",
+     "day": "2026-09-22",
+     "facts": [
+      {
+       "claimId": "clm_lab-cluster-example_hosts_65c14f99",
+       "now": null,
+       "object": "pick-and-place-demo",
+       "phrase": "Lab Cluster Example hosts Pick And Place Demo",
+       "predicate": "hosts",
+       "state": "said",
+       "subject": "lab-cluster-example",
+       "was": null
+      },
+      {
+       "claimId": "clm_lab-cluster-example_spec_cebe81d1",
+       "now": null,
+       "object": "Slurm-example scheduler",
+       "phrase": "Lab Cluster Example spec Slurm-example scheduler",
+       "predicate": "spec",
+       "state": "said",
+       "subject": "lab-cluster-example",
+       "was": null
+      },
+      {
+       "claimId": "clm_lab-cluster-example_spec_f100789b",
+       "now": null,
+       "object": "login.example.com",
+       "phrase": "Lab Cluster Example spec login.example.com",
+       "predicate": "spec",
+       "state": "said",
+       "subject": "lab-cluster-example",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-09-22_003:2026-09-22",
+     "kind": "moment",
+     "moreFacts": 1,
+     "participants": [
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "pick-and-place-demo",
+       "isOwner": false,
+       "name": "Pick And Place Demo",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": null,
+     "quote": {
+      "end": 59,
+      "episode": "ep_2026-09-22_003",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Lab Cluster Example hosts Pick And Place Demo",
+     "verbatim": false,
+     "via": "lab-cluster-example"
+    },
+    {
+     "at": "2026-09-09T14:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-09-09_002",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "First grasp slipped"
+     },
+     "dateBasis": "episode",
+     "day": "2026-09-09",
+     "facts": [
+      {
+       "claimId": "clm_rover-arm-project_uses_ba39feed",
+       "now": null,
+       "object": "tool-example-e",
+       "phrase": "Rover Arm Project uses Tool Example E",
+       "predicate": "uses",
+       "state": "said",
+       "subject": "rover-arm-project",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-09-09_002:2026-09-09",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "tool-example-e",
+       "isOwner": false,
+       "name": "Tool Example E",
+       "role": null,
+       "surface": null,
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "rover-arm-project",
+     "quote": {
+      "end": 72,
+      "episode": "ep_2026-09-09_002",
+      "kind": "user",
+      "start": 27,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Rover Arm Project uses Tool Example E",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "model",
+      "authorProvider": "openai",
+      "authoredBy": "gpt-5.4-mini",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "episode",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 69,
+        "episode": "ep_2026-08-30_002",
+        "hash": "529d96e97602",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
+      "object": "bob started calibrating the gripper camera",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "telegram",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-08-30",
+      "sessionIds": [],
+      "sourceEpisodes": [
+       "ep_2026-08-30_002"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "ongoing",
+      "subject": "rover-arm-project",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob started calibrating the gripper camera",
+      "validFrom": "2026-08-30",
+      "validTo": null
+     },
+     "conversation": {
+      "episodeId": "ep_2026-08-30_002",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Gripper camera"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-30",
+     "facts": [],
+     "id": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      }
+     ],
+     "project": "rover-arm-project",
+     "quote": {
+      "end": 69,
+      "episode": "ep_2026-08-30_002",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "ongoing",
+     "text": "Bob started calibrating the gripper camera",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-08-19T12:00:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-08-19_001",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Scoping the demo"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-19",
+     "facts": [
+      {
+       "claimId": "clm_pick-and-place-demo_part-of_42069d13",
+       "now": null,
+       "object": "rover-arm-project",
+       "phrase": "Pick And Place Demo part of Rover Arm Project",
+       "predicate": "part-of",
+       "state": "said",
+       "subject": "pick-and-place-demo",
+       "was": null
+      }
+     ],
+     "id": "m:ep_2026-08-19_001:2026-08-19",
+     "kind": "moment",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "pick-and-place-demo",
+       "isOwner": false,
+       "name": "Pick And Place Demo",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 69,
+      "episode": "ep_2026-08-19_001",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Pick And Place Demo part of Rover Arm Project",
+     "verbatim": false,
+     "via": "pick-and-place-demo"
+    },
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "model",
+      "authorProvider": "openai",
+      "authoredBy": "gpt-5.4-mini",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "episode",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 57,
+        "episode": "ep_2026-08-09_001",
+        "hash": "00f14eee85f4",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_rover-arm-project_happened_3f016540_2026-08-09",
+      "object": "the arm is fully assembled",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "telegram",
+      "participants": [],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-08-09",
+      "sessionIds": [],
+      "sourceEpisodes": [
+       "ep_2026-08-09_001"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "done",
+      "subject": "rover-arm-project",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "The arm is fully assembled",
+      "validFrom": "2026-08-09",
+      "validTo": "2026-08-09"
+     },
+     "conversation": {
+      "episodeId": "ep_2026-08-09_001",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Arm assembled"
+     },
+     "dateBasis": "episode",
+     "day": "2026-08-09",
+     "facts": [],
+     "id": "clm_rover-arm-project_happened_3f016540_2026-08-09",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [],
+     "project": "rover-arm-project",
+     "quote": {
+      "end": 57,
+      "episode": "ep_2026-08-09_001",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "done",
+     "text": "The arm is fully assembled",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": "2026-07-22T10:04:00Z",
+     "claim": null,
+     "conversation": {
+      "episodeId": "ep_2026-07-22_001",
+      "harness": "claude-code",
+      "id": "ses_demo_rover_01",
+      "origin": "claude-code",
+      "resumable": false,
+      "title": "The rover arm plan"
+     },
+     "dateBasis": "turn",
+     "day": "2026-07-22",
+     "facts": [
+      {
+       "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+       "now": null,
+       "object": "2026-10-05",
+       "phrase": "Pick And Place Demo due 2026-10-05",
+       "predicate": "due",
+       "state": "said",
+       "subject": "pick-and-place-demo",
+       "was": null
+      },
+      {
+       "claimId": "clm_rover-arm-project_due_8e88a49d",
+       "now": null,
+       "object": "2026-11-02",
+       "phrase": "Rover Arm Project due 2026-11-02",
+       "predicate": "due",
+       "state": "said",
+       "subject": "rover-arm-project",
+       "was": null
+      },
+      {
+       "claimId": "clm_rover-arm-project_due_093f2e5d",
+       "now": "arm-assembled",
+       "object": "2026-08-12",
+       "phrase": "Rover Arm Project due 2026-08-12",
+       "predicate": "due",
+       "state": "changed",
+       "subject": "rover-arm-project",
+       "was": "2026-08-12"
+      }
+     ],
+     "id": "m:ep_2026-07-22_001:2026-07-22",
+     "kind": "moment",
+     "moreFacts": 1,
+     "participants": [
+      {
+       "derived": false,
+       "id": "pick-and-place-demo",
+       "isOwner": false,
+       "name": "Pick And Place Demo",
+       "role": null,
+       "surface": null,
+       "type": "project",
+       "url": null
+      }
+     ],
+     "project": "rover-arm-project",
+     "quote": {
+      "end": 131,
+      "episode": "ep_2026-07-22_001",
+      "kind": "user",
+      "start": 94,
+      "status": "current"
+     },
+     "state": "said",
+     "text": "Pick And Place Demo due 2026-10-05",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": null,
+     "claim": {
+      "authorKind": "model",
+      "authorProvider": "openai",
+      "authoredBy": "gpt-5.4-mini",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "turn",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 41,
+        "episode": "ep_2026-07-15_001",
+        "hash": "3bc0bed0cbd5",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_rover-arm-project_happened_0ccb3300_2026-07-15",
+      "object": "bob started the rover arm project",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "claude-code",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-07-15",
+      "sessionIds": [],
+      "sourceEpisodes": [
+       "ep_2026-07-15_001"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "done",
+      "subject": "rover-arm-project",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob started the Rover Arm Project",
+      "validFrom": "2026-07-15",
+      "validTo": "2026-07-15"
+     },
+     "conversation": {
+      "episodeId": "ep_2026-07-15_001",
+      "harness": "claude-code",
+      "id": "ses_demo_rover_01",
+      "origin": "claude-code",
+      "resumable": false,
+      "title": "Starting the rover arm"
+     },
+     "dateBasis": "turn",
+     "day": "2026-07-15",
+     "facts": [],
+     "id": "clm_rover-arm-project_happened_0ccb3300_2026-07-15",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      }
+     ],
+     "project": "rover-arm-project",
+     "quote": {
+      "end": 41,
+      "episode": "ep_2026-07-15_001",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "done",
+     "text": "Bob started the Rover Arm Project",
+     "verbatim": false,
+     "via": null
+    },
+    {
+     "at": null,
+     "claim": null,
+     "conversation": null,
+     "dateBasis": null,
+     "day": "2026-07-15",
+     "facts": [],
+     "id": "c:rover-arm-project",
+     "kind": "created",
+     "moreFacts": 0,
+     "participants": [],
+     "project": "rover-arm-project",
+     "quote": null,
+     "state": null,
+     "text": "Cicada started tracking this",
+     "verbatim": false,
+     "via": null
+    }
+   ],
+   "lastMomentDay": "2026-09-23",
+   "medianGapDays": 10.0,
+   "milestones": [
+    {
+     "chain": [
+      {
+       "authorKind": "user",
+       "authorProvider": null,
+       "authoredBy": "user",
+       "confidence": 0.8,
+       "context": "general",
+       "dateBasis": "person",
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": -1,
+         "episode": "",
+         "hash": "",
+         "kind": "reasoning",
+         "start": -1
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+       "object": "first-grasp",
+       "objectKind": "literal",
+       "observer": "owner",
+       "origin": "companion_app",
+       "participants": [],
+       "predicate": "milestone",
+       "premises": [],
+       "recordedAt": "2026-09-10",
+       "sessionIds": [],
+       "sourceEpisodes": [],
+       "sourceTrust": "user_stated",
+       "status": "planned",
+       "subject": "rover-arm-project",
+       "supersededBy": null,
+       "supersedes": "clm_rover-arm-project_due_2b13f02f",
+       "target": "2026-10-01",
+       "text": "First grasp",
+       "validFrom": "2026-09-10",
+       "validTo": null
+      },
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 92,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 67
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_due_2b13f02f",
+       "object": "2026-09-09",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "rover-arm-project",
+       "supersededBy": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+       "supersedes": null,
+       "target": null,
+       "text": "First grasp due 2026-09-09",
+       "validFrom": "2026-07-22",
+       "validTo": "2026-09-09"
+      }
+     ],
+     "claimId": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+     "doneOn": null,
+     "moved": true,
+     "name": "First grasp",
+     "on": null,
+     "slug": "first-grasp",
+     "source": "milestone",
+     "status": "planned",
+     "target": "2026-10-01"
+    },
+    {
+     "chain": [
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 131,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 94
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_pick-and-place-demo_due_b4c4f24c",
+       "object": "2026-10-05",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "pick-and-place-demo",
+       "supersededBy": null,
+       "supersedes": null,
+       "target": null,
+       "text": "Pick And Place Demo due 2026-10-05",
+       "validFrom": "2026-07-22",
+       "validTo": null
+      }
+     ],
+     "claimId": "clm_pick-and-place-demo_due_b4c4f24c",
+     "doneOn": null,
+     "moved": false,
+     "name": "Pick And Place Demo",
+     "on": "pick-and-place-demo",
+     "slug": "due-2026-10-05",
+     "source": "due",
+     "status": "planned",
+     "target": "2026-10-05"
+    },
+    {
+     "chain": [
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 166,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 136
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_due_8e88a49d",
+       "object": "2026-11-02",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "rover-arm-project",
+       "supersededBy": null,
+       "supersedes": null,
+       "target": null,
+       "text": "Lab showcase due 2026-11-02",
+       "validFrom": "2026-07-22",
+       "validTo": null
+      }
+     ],
+     "claimId": "clm_rover-arm-project_due_8e88a49d",
+     "doneOn": null,
+     "moved": false,
+     "name": "Lab showcase",
+     "on": null,
+     "slug": "due-2026-11-02",
+     "source": "due",
+     "status": "planned",
+     "target": "2026-11-02"
+    },
+    {
+     "chain": [
+      {
+       "authorKind": "user",
+       "authorProvider": null,
+       "authoredBy": "user",
+       "confidence": 0.8,
+       "context": "general",
+       "dateBasis": "person",
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": -1,
+         "episode": "",
+         "hash": "",
+         "kind": "reasoning",
+         "start": -1
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_milestone_arm-assembled_2026-08-09",
+       "object": "arm-assembled",
+       "objectKind": "literal",
+       "observer": "owner",
+       "origin": "companion_app",
+       "participants": [],
+       "predicate": "milestone",
+       "premises": [],
+       "recordedAt": "2026-08-09",
+       "sessionIds": [],
+       "sourceEpisodes": [],
+       "sourceTrust": "user_stated",
+       "status": "done",
+       "subject": "rover-arm-project",
+       "supersededBy": null,
+       "supersedes": "clm_rover-arm-project_due_093f2e5d",
+       "target": "2026-08-12",
+       "text": "Arm assembled",
+       "validFrom": "2026-08-09",
+       "validTo": null
+      },
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 65,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 38
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_due_093f2e5d",
+       "object": "2026-08-12",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "rover-arm-project",
+       "supersededBy": "clm_rover-arm-project_milestone_arm-assembled_2026-08-09",
+       "supersedes": null,
+       "target": null,
+       "text": "Arm assembled due 2026-08-12",
+       "validFrom": "2026-07-22",
+       "validTo": "2026-08-12"
+      }
+     ],
+     "claimId": "clm_rover-arm-project_milestone_arm-assembled_2026-08-09",
+     "doneOn": "2026-08-09",
+     "moved": false,
+     "name": "Arm assembled",
+     "on": null,
+     "slug": "arm-assembled",
+     "source": "milestone",
+     "status": "done",
+     "target": "2026-08-12"
+    }
+   ],
+   "momentDays": [
+    "2026-07-15",
+    "2026-07-22",
+    "2026-08-09",
+    "2026-08-19",
+    "2026-08-30",
+    "2026-09-09",
+    "2026-09-22",
+    "2026-09-23"
+   ],
+   "now": {
+    "last": {
+     "at": null,
+     "claim": {
+      "authorKind": "harness",
+      "authorProvider": null,
+      "authoredBy": "claude-code",
+      "confidence": 0.8,
+      "context": "general",
+      "dateBasis": "stated",
+      "epistemic": "explicit",
+      "evidence": [
+       {
+        "end": 180,
+        "episode": "ep_2026-09-23_003",
+        "hash": "792b9932b2ab",
+        "kind": "user",
+        "start": 6
+       }
+      ],
+      "expectedEnd": null,
+      "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+      "object": "bob got the lab cluster onboarding guide from hana example; it walks through connecting to lab cluster example",
+      "objectKind": "literal",
+      "observer": "agent",
+      "origin": "mcp",
+      "participants": [
+       {
+        "entity": "bob-example",
+        "role": "owner",
+        "surface": "Bob",
+        "url": null
+       },
+       {
+        "entity": "media-example-cluster-guide",
+        "role": "document",
+        "surface": "lab cluster onboarding guide",
+        "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+       },
+       {
+        "entity": "hana-example",
+        "role": "from",
+        "surface": "Hana Example",
+        "url": null
+       },
+       {
+        "entity": "lab-cluster-example",
+        "role": "about",
+        "surface": "Lab Cluster Example",
+        "url": null
+       }
+      ],
+      "predicate": "happened",
+      "premises": [],
+      "recordedAt": "2026-09-23",
+      "sessionIds": [
+       "ses_demo_rover_02"
+      ],
+      "sourceEpisodes": [
+       "ep_2026-09-23_003"
+      ],
+      "sourceTrust": "agent_extracted",
+      "status": "done",
+      "subject": "pick-and-place-demo",
+      "supersededBy": null,
+      "supersedes": null,
+      "target": null,
+      "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+      "validFrom": "2026-09-22",
+      "validTo": "2026-09-22"
+     },
+     "conversation": {
+      "episodeId": "ep_2026-09-23_003",
+      "harness": null,
+      "id": null,
+      "origin": "telegram",
+      "resumable": false,
+      "title": "Notes on the lab cluster"
+     },
+     "dateBasis": "stated",
+     "day": "2026-09-22",
+     "facts": [],
+     "id": "clm_pick-and-place-demo_happened_488da33d_2026-09-22",
+     "kind": "happening",
+     "moreFacts": 0,
+     "participants": [
+      {
+       "derived": false,
+       "id": "bob-example",
+       "isOwner": true,
+       "name": "Bob Example",
+       "role": "owner",
+       "surface": "Bob",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "media-example-cluster-guide",
+       "isOwner": false,
+       "name": "Lab Cluster Onboarding Guide",
+       "role": "document",
+       "surface": "lab cluster onboarding guide",
+       "type": "media",
+       "url": "https://example.com/guides/lab-cluster-onboarding.pdf"
+      },
+      {
+       "derived": false,
+       "id": "hana-example",
+       "isOwner": false,
+       "name": "Hana Example",
+       "role": "from",
+       "surface": "Hana Example",
+       "type": "person",
+       "url": null
+      },
+      {
+       "derived": false,
+       "id": "lab-cluster-example",
+       "isOwner": false,
+       "name": "Lab Cluster Example",
+       "role": "about",
+       "surface": "Lab Cluster Example",
+       "type": "tool",
+       "url": null
+      }
+     ],
+     "project": "pick-and-place-demo",
+     "quote": {
+      "end": 180,
+      "episode": "ep_2026-09-23_003",
+      "kind": "user",
+      "start": 6,
+      "status": "current"
+     },
+     "state": "done",
+     "text": "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+     "verbatim": false,
+     "via": null
+    },
+    "next": {
+     "chain": [
+      {
+       "authorKind": "user",
+       "authorProvider": null,
+       "authoredBy": "user",
+       "confidence": 0.8,
+       "context": "general",
+       "dateBasis": "person",
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": -1,
+         "episode": "",
+         "hash": "",
+         "kind": "reasoning",
+         "start": -1
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+       "object": "first-grasp",
+       "objectKind": "literal",
+       "observer": "owner",
+       "origin": "companion_app",
+       "participants": [],
+       "predicate": "milestone",
+       "premises": [],
+       "recordedAt": "2026-09-10",
+       "sessionIds": [],
+       "sourceEpisodes": [],
+       "sourceTrust": "user_stated",
+       "status": "planned",
+       "subject": "rover-arm-project",
+       "supersededBy": null,
+       "supersedes": "clm_rover-arm-project_due_2b13f02f",
+       "target": "2026-10-01",
+       "text": "First grasp",
+       "validFrom": "2026-09-10",
+       "validTo": null
+      },
+      {
+       "authorKind": "harness",
+       "authorProvider": null,
+       "authoredBy": "agent",
+       "confidence": 0.75,
+       "context": "general",
+       "dateBasis": null,
+       "epistemic": "explicit",
+       "evidence": [
+        {
+         "end": 92,
+         "episode": "ep_2026-07-22_001",
+         "hash": "5c6d1ec3a867",
+         "kind": "user",
+         "start": 67
+        }
+       ],
+       "expectedEnd": null,
+       "id": "clm_rover-arm-project_due_2b13f02f",
+       "object": "2026-09-09",
+       "objectKind": "literal",
+       "observer": "agent",
+       "origin": "mcp",
+       "participants": [],
+       "predicate": "due",
+       "premises": [],
+       "recordedAt": "2026-09-23",
+       "sessionIds": [],
+       "sourceEpisodes": [
+        "ep_2026-07-22_001"
+       ],
+       "sourceTrust": "agent_extracted",
+       "status": null,
+       "subject": "rover-arm-project",
+       "supersededBy": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+       "supersedes": null,
+       "target": null,
+       "text": "First grasp due 2026-09-09",
+       "validFrom": "2026-07-22",
+       "validTo": "2026-09-09"
+      }
+     ],
+     "claimId": "clm_rover-arm-project_milestone_first-grasp_2026-09-10",
+     "doneOn": null,
+     "moved": true,
+     "name": "First grasp",
+     "on": null,
+     "slug": "first-grasp",
+     "source": "milestone",
+     "status": "planned",
+     "target": "2026-10-01"
+    },
+    "threads": [
+     {
+      "claimId": "clm_pick-and-place-demo_happened_7ab9b8cd_2026-09-23",
+      "lastHeard": "2026-09-23",
+      "on": "pick-and-place-demo",
+      "since": "2026-09-23",
+      "text": "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+      "verbatim": false
+     },
+     {
+      "claimId": "clm_rover-arm-project_happened_f7b29ccb_2026-08-30",
+      "lastHeard": "2026-08-30",
+      "on": null,
+      "since": "2026-08-30",
+      "text": "Bob started calibrating the gripper camera",
+      "verbatim": false
+     }
+    ]
+   },
+   "partial": false,
+   "pending": {
+    "newestDay": "2026-09-23",
+    "unconsolidated": 1
+   },
+   "project": {
+    "children": [
+     "pick-and-place-demo"
+    ],
+    "created": "2026-07-15",
+    "id": "rover-arm-project",
+    "name": "Rover Arm Project",
+    "oneLiner": "A small arm that picks parts off a tray.",
+    "parent": null,
+    "status": "active"
+   },
+   "tzName": "UTC",
+   "window": {
+    "end": "2026-11-02",
+    "start": "2026-07-15"
+   }
+  }
+ },
+ "today": "2026-09-23"
+}

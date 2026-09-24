@@ -109,6 +109,14 @@ protocol SyncAPI: Sendable {
     func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult
     func activateBank(name: String) async throws
     func triggerSleep() async throws -> SleepTriggerResponse
+    /// G141 PJ-5 (R-PP19) — the Projects page's five writes (`routers/projects.py`), each answering the claim it wrote,
+    /// the day and how that day was decided. Every day sent is `YYYY-MM-DD`: nothing relative is sent as a value
+    /// (R-PJ6). All answer 409 while a Sleep cycle runs.
+    func addProjectMilestone(project: String, name: String, target: String?) async throws -> ProjectWriteResponse
+    func changeProjectMilestone(project: String, slug: String, change: MilestoneChange) async throws -> ProjectWriteResponse
+    func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse
+    func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse
+    func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse
 
     /// `GET /sync/version` — the current version vector.
     func fetchSyncVersion() async throws -> VersionVector

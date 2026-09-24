@@ -344,7 +344,7 @@ demo bank, never the live one, after the next visual change.
 **Direction D, next (after DS-3b merges):** Home, Sleep and the Settings panel are done. The remaining page tracks
 adopt `ProgressiveColumns` and retire their use of the shell's trailing Reader (`ShellReaderHost`) — **Graph and the
 entity card** (DS-3a restyled both; the Graph still takes its Reader from `ShellReaderHost`), ~~**Clusters**, **Feed**,
-**Sources**~~ (DS-3c) and **Projects** (G141 PJ-5), each per DESIGN_RULES §10 and each updating its CLAUDE.md page
+**Sources**~~ (DS-3c) and ~~**Projects**~~ (G141 PJ-5, built on `feat/g141-projects-page`), each per DESIGN_RULES §10 and each updating its CLAUDE.md page
 paragraph in the same PR.
 
 **Filed 2026-09-23 — G141 project timelines.** The spec is committed
@@ -371,9 +371,11 @@ PJ-6 (T7), the engine-free `followup` inbox kind, closes the backend: a quiet th
 or a passed `due` raises one follow-up (one per project, three in the bank) from Sleep's tail right after
 expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`), served as a question at read with a 30-day
 "not now", answered through `progress.py` and graded against the extractor (R-PJB24). **Status: PJ-1,
-PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their own tracks; PJ-5 waits for
-the DS shell; PJ-7/PJ-8 gated.** The Swift `followup` case landed with the final review (label "Follow-up",
-clarification's hue); `GraphNode` dates ride PJ-5.
+PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their own tracks; PJ-5 built on `feat/g141-projects-page` (plan
+`2026-09-24-g141-projects-page.md`, R-PP1…R-PP27); PJ-7/PJ-8 gated.** The Swift `followup` case landed with the final review (label "Follow-up",
+clarification's hue); `GraphNode` dates
+did not ride PJ-5: they are a backend change, reported with the track (the list shows a skeleton on its first open
+after a launch).
 
 **PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
 longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
@@ -687,7 +689,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
     page-less claims with the pending entity (built, `feat/g141-hold-page-less`) · **PJ-1** read model +
     `GET /projects[/{id}/timeline]` — backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
     handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
-    page (after the DS shell + a G108 ruling on the rail cell); **PJ-6** `followup` inbox kind ($0); **PJ-7**
+    page ✅ built (`feat/g141-projects-page`); **PJ-6** `followup` inbox kind ($0); **PJ-7**
     Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
     per-project re-read 💸 — L. The three DECIDEs (rail cell, band colour, pending-store hold) were ruled
     2026-09-23 — see Research / decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over

@@ -33,7 +33,8 @@ final class CountLiteralLintTests: XCTestCase {
     /// the eyebrow's "6 pending" are the numbers every list page will show first — and the Inbox's
     /// columns and the Reader (DS-2, R-DI23): positions, counts and ages on every row — and the Graph's
     /// views (DS-3a): the Legend's counts and the entity column's tab counts — and the D list
-    /// pages (DS-3c): Clusters' counts and the list pages' words.
+    /// pages (DS-3c): Clusters' counts and the list pages' words — and the Projects page (G141 PJ-5): every row's
+    /// counts and ages.
     static let scope = [
         "/Views/Sources/",
         "/Views/Contributors/",
@@ -50,6 +51,11 @@ final class CountLiteralLintTests: XCTestCase {
         "/Views/Clusters/",
         "/Views/Feed/",
         "/Theme/Copy+Lists.swift",
+        "/Views/Projects/",
+        "/Theme/Copy+Projects.swift",
+        "/Models/Project.swift",
+        "/Models/ProjectState.swift",
+        "/Models/RelativeDay.swift",
     ]
 
     /// The documented way out, for a line the needle flags but that renders no

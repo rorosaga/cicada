@@ -643,7 +643,7 @@ no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and 
 unchanged for future use.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
-Sleep, Inbox, Sources at ⌘1–7 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
+Sleep, Inbox, Sources, Projects at ⌘1–8 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
 naming its page and shortcut (450 ms, then instant while warm), selection by brightness and one neutral fill
 (`bgSelected` — never the accent, `SelectionTintLintTests`), the Inbox count a neutral `bgBadge` numeral, a spinner on
 Sleep while a cycle runs, the gear and the sun/moon toggle at its foot, no wordmark. ⌃⌘S or the titlebar toggle swaps it
@@ -814,6 +814,38 @@ the page's find row.
   through `AppRouter.routeToFeedItem`, and the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an
   icon in the eyebrow row and opens the unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`.
 
+**Projects (G141 PJ-5, Direction D).** The eighth page (⌘8, after Sources), the first designed for D: a list page in
+progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
+`ProjectsCache` (app-level, in memory) revalidates them with the server's ETag when the page appears, a project opens, a
+write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a bank switch empties it (no
+`VersionVector` mapping, nothing on disk). The wire decodes leniently into local `Project*` types (the shared `Claim` is
+untouched); derived state is `ProjectState`, the Swift twin of `project_state.timeline_state`, running the same
+`api/tests/fixtures/timeline_state.json`; every relative word comes from `RelativeDay` over `ISODay` in the viewer's
+calendar (a lint keeps the day words there), and midnight re-derives the page with no network. Every Swift test reads
+the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`, pinned by
+`api/tests/test_projects_app_fixture.py`.
+- **The list:** text tabs Active · Quiet · All (resting projects only under All); sub-projects indented under a shown
+  parent; each row's where-it-stands line, a mini `progressFill` bar, the next milestone or "No plan yet", people from
+  the graph's `person` neighbours (never the owner), the compact age; "still indexing" while the server says `partial`.
+- **The band** (`BandLayout`, pure, the approved mock's coordinates): `progressFill` from the first moment up to a
+  "You, today" marker in `textPrimary`; done milestones filled inside the green, planned ones hollow on the track, a
+  closed `due` slashed ("passed, no word on how it went"), a moved one's dashed ghost and bracket; happenings as neutral
+  dots, ongoing threads as spans to today that dash once quiet; months and words near today. Every mark is a button: a
+  `textPrimary` ring, its first words and date on hover, ←/→ along the band, ⏎ into the Reader. It is never called
+  "Timeline" — that is the entity card's tab, which can share the screen.
+- **The story:** Log progress (⏎ done, ⌘⏎ still going; the server dates it from the words, else the date chip, else
+  today, and the page says which and how, with Undo = withdraw); Now (the threads; a quiet one whose follow-up waits in
+  the Inbox links to that card); Lately (Today · Yesterday · This week · Earlier — one sentence per happening, every
+  participant a chip that opens its card, the owner as the sentence's own word with a "you" tag; a status word; a
+  source line with the origin's mark and "Show in conversation ›"; Resume where resumable; Not right); Plan (Add with
+  an optional picked date, Mark done, Rename, "moved once ›"); Around this project (People · Tools & infrastructure, a
+  tool unfolding its specs · Documents & links · Ideas · Parts of this project). The Reader or an entity card is the
+  third column; Esc closes the Reader, then the card, then the project.
+- **Writes** are `ProjectWrite` mutations through `Store.perform`: painted where the answer is known (a thread settled
+  or restated, a milestone done, renamed or added, a withdrawal), rolled back with the server's own 409/422 sentence
+  (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
+  value. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
+
 **Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
 one sentence in the display face under it, one Consolidate/Cancel control with the engine menu
 beside it — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
@@ -950,8 +982,8 @@ needs rewriting to teach the app a new one.
 label says who spoke ("You said", "<agent> replied", "From the page", "Inferred", "Mentioned here"
 for a legacy claim's name match found at read), hovering shows the words in the quote face — washed
 when quoted, bold when derived, plain when stale — and a click opens the **Reader**, a column
-(`ReaderColumn`): the third progressive column on the list pages that host it (the Inbox, Clusters, the Feed and
-Sources — `AppTab.hostsOwnReader`), and on every other page the shell's trailing column (`ShellReaderHost`),
+(`ReaderColumn`): the third progressive column on the list pages that host it (the Inbox, Clusters, the Feed,
+Sources and Projects — `AppTab.hostsOwnReader`), and on every other page the shell's trailing column (`ShellReaderHost`),
 sized before the page so it is never pushed off-window. It is driven by
 `ProvenanceRouter` (a stack of `ReaderTarget`s), beside whatever is open so a belief and its sentence
 are on screen together (Direction D, DS-2). It shows C's header — mark, title, meta, and a neutral

@@ -73,6 +73,33 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// G141 PJ-5 (R-PP24) — a project opened from elsewhere (a ⌘K entity row) lands in the Projects page's detail
+    /// column; the tab and the id move together, `routeToFeedItem`'s reason.
+    var pendingProject: String?
+
+    func routeToProject(_ id: String) {
+        closeSettings()
+        pendingTab = .projects
+        pendingProject = id
+        activateMainWindow()
+    }
+
+    /// Read-then-clear, for `consumeAddSource`'s double-firing reason (`onAppear` and `onChange` can both see it).
+    @discardableResult
+    func consumeProject() -> String? {
+        defer { pendingProject = nil }
+        return pendingProject
+    }
+
+    /// R-PP18 — a quiet thread's "How did it go? ›" opens its follow-up's card in the Inbox; the Inbox owns answering
+    /// and its Undo (DR-42). The tab and the item move together.
+    func routeToInboxItem(_ id: String) {
+        closeSettings()
+        pendingTab = .inbox
+        pendingInboxItem = id
+        activateMainWindow()
+    }
+
     /// Track P R7 — every hand-off to a page goes through the router, so no
     /// view can stage a flag and forget to bring the window forward. Staging
     /// alone left the person looking at another window while the tab switched
