@@ -58,16 +58,26 @@ def _forget_the_developers_dotenv():
     try:
         import litellm  # noqa: F401  (imported for its load_dotenv side effect)
     except Exception:
-        pass
+        litellm = None
 
-    dotenv = Path(__file__).resolve().parents[1] / ".env"
-    if not dotenv.exists():
-        return
-    for line in dotenv.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    # Round 4 (orchestrator): `load_dotenv()` searches upward from litellm's own file, so it finds the `.env`
+    # beside the virtualenv it is installed in — in a git worktree that shares the main checkout's venv, the
+    # MAIN checkout's `api/.env`, never this tree's. Only dropping this tree's names leaked the developer's
+    # engine choice into every worktree run (test_sleep_engine_prefs read `auto` from it).
+    dotenvs = [Path(__file__).resolve().parents[1] / ".env"]
+    if litellm is not None and getattr(litellm, "__file__", None):
+        for parent in Path(litellm.__file__).resolve().parents:
+            if (parent / ".env").is_file():
+                dotenvs.append(parent / ".env")
+                break
+    for dotenv in dotenvs:
+        if not dotenv.exists():
             continue
-        os.environ.pop(line.split("=", 1)[0].strip(), None)
+        for line in dotenv.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            os.environ.pop(line.split("=", 1)[0].removeprefix("export ").strip(), None)
 
 
 @pytest.fixture(autouse=True)
