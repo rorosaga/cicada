@@ -19,6 +19,7 @@ final class ChannelSyncRoutingTests: XCTestCase {
         "chrome-bookmarks", "safari-bookmarks", "safari-tabs", "notes",
         "pinterest", "reddit", "x",
         "folder:alpha-project-1a2b3c", "wispr-flow",
+        "calendar-local",
     ]
 
     func testEverySyncIdTheRegistryEmitsHasAHandler() {
@@ -34,6 +35,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
         XCTAssertEqual(ChannelActions.syncRoute(for: "safari-tabs"), .browserFile)
         XCTAssertEqual(ChannelActions.syncRoute(for: "notes"), .notes)
         XCTAssertEqual(ChannelActions.syncRoute(for: "reddit"), .connector)
+        XCTAssertEqual(ChannelActions.syncRoute(for: "calendar-local"), .calendarLocal,
+                       "Sync now on the Calendar card runs the app's EventKit reader (G142)")
         XCTAssertNil(ChannelActions.syncRoute(for: "folder:"), "an empty folder id is not a folder")
         XCTAssertNil(ChannelActions.syncRoute(for: "rss"), "rss polls; it has no sync")
     }
@@ -102,6 +105,24 @@ final class ChannelSyncRoutingTests: XCTestCase {
             XCTFail("a turned-off source must not report a sync")
         } catch {
             XCTAssertEqual(error.localizedDescription, LocalSourceCopy.wisprTurnedOff)
+        }
+    }
+
+    /// G142: Sync now on the Calendar card never starts the first EventKit read — Connect in Settings does.
+    func testCalendarSyncNowBeforeConnectSaysSoInWords() async {
+        let suite = "ChannelSyncRoutingTests.calendar.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChannelSyncRouting-cal-\(UUID().uuidString)")
+        let reader = CalendarReader(store: FakeCalendarStore(), defaults: defaults)
+        let store = Store(cache: SnapshotCache(root: root.appendingPathComponent("cache")), api: FakeSyncAPI())
+        do {
+            _ = try await ChannelActions.sync("calendar-local", store: store,
+                                              local: makeWatcher(FakeLocalSourcesAPI(folders: []), root: root, defaults: defaults),
+                                              calendar: reader)
+            XCTFail("an unconnected calendar must not sync")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, Copy.calendarConnectFirst)
         }
     }
 }

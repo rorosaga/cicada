@@ -13,6 +13,7 @@ struct ConnectedChannelsStrip: View {
 
     @Environment(Store.self) private var store
     /// Track I T1: a browser row's Sync now is consent, routed through the watcher.
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     @AppStorage("cicada.feedChannelsCollapsed") private var isCollapsed = false
@@ -136,7 +137,8 @@ struct ConnectedChannelsStrip: View {
         case "sync":
             let local = localSources
             let watcher = watcher
-            Task { await run(channel) { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: local) } }
+            let calendar = calendarReader
+            Task { await run(channel) { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: local, calendar: calendar) } }
         // A folder or Wispr Flow row is itself the Settings → Integrations link
         // (`ConnectedChannelRow.rowLink`); it has no Feed tile, and the generic
         // add-source sheet is the wrong answer (L final review, finding 1).

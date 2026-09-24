@@ -216,6 +216,7 @@ private struct IntegrationChannelRow: View {
     @Environment(Store.self) private var store
     /// Track I T1: a Sync now here is consent for a watched browser, so it goes
     /// through the watcher. The `Settings{}` scene injects it for this reason.
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var vendor: WalkthroughVendor = .claude
@@ -307,13 +308,13 @@ private struct IntegrationChannelRow: View {
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
-                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources) }
+                    actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
                 }
                 Button("Manage") { showConnector = true }
                     .buttonStyle(.bordered)
             }
         } else if channel.actions.contains("sync") {
-            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources) }
+            actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources, calendar: calendarReader) }
         } else if channel.actions.contains("poll") {
             actionButton("Poll now") { try await ChannelActions.poll(channel.id) }
         }

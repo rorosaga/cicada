@@ -142,6 +142,13 @@ extension Copy {
     static let calendarBackendDown = "Cicada's background service isn't answering."
     static let calendarSyncFailed = "Couldn't sync your calendars. Cicada will try again."
     static let calendarNotReady = "Your calendars aren't ready to read yet — Cicada will try again."
+    /// Sync now on the `calendar-local` card before Calendar was connected (G142): the app reads EventKit only after
+    /// the person's own Connect, so a Sources card never starts that first read.
+    static let calendarConnectFirst = "Connect Calendar in Settings → Integrations first — Cicada reads it only after you do."
+    static func calendarSyncedSummary(_ events: Int?, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let events else { return "Calendar synced" }
+        return "Calendar synced · \(UsageFormat.count(events, locale: locale)) \(events == 1 ? "event" : "events")"
+    }
     static let calendarConnect = "Connect"
     static let calendarSyncNow = "Sync now"
     static let calendarDisconnect = "Disconnect"
