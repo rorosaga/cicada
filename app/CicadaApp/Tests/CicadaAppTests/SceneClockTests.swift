@@ -217,13 +217,17 @@ final class SceneClockTests: XCTestCase {
         XCTAssertEqual(SceneStore(now: { noon }, timeZone: { ny }).delayUntilNextCheck(), SceneClock.maxRecheck)
     }
 
-    /// The hero follows the scene, never the theme (source check, the HomeBandLayoutTests precedent).
+    /// The hero follows the clock and the Scene setting, never the theme (G144) — one door, `PaintedScene`.
     func testTheHeroViewsDoNotReadTheThemeForThePainting() throws {
         let files = try ThemeTokenTests.swiftSources()
-        for suffix in ["Views/Meadow/HomeHeroBand.swift", "Views/Meadow/WelcomeHero.swift"] {
-            let text = try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(suffix) }), encoding: .utf8)
-            XCTAssertFalse(text.contains("CicadaTheme.mode"), suffix)
-            XCTAssertTrue(text.contains("MeadowArt.image(for: .hero, time:"), suffix)
+        func text(_ suffix: String) throws -> String {
+            try String(contentsOf: XCTUnwrap(files.first { $0.path.hasSuffix(suffix) }, suffix), encoding: .utf8)
+        }
+        XCTAssertTrue(try text("Views/Meadow/HomeHeroBand.swift").contains("PaintedScene(.hero(band:"))
+        XCTAssertTrue(try text("Views/Meadow/WelcomeHero.swift").contains("PaintedScene(.fullBleed"))
+        for suffix in ["Views/Meadow/PaintedScene.swift", "Views/Meadow/SceneFraming.swift",
+                       "Views/Meadow/SceneMotion.swift"] {
+            XCTAssertFalse(try text(suffix).contains("CicadaTheme.mode"), suffix)
         }
     }
 }

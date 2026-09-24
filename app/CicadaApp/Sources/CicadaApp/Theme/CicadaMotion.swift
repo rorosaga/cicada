@@ -155,6 +155,58 @@ enum CicadaMotion {
     }
 }
 
+// MARK: - The living painting (round-4 T-Home, C10)
+
+/// rationale-F's motion table and ART_DIRECTION §5, as the tokens `SceneMotion` reads (R-HO3). Ambient, not UI
+/// motion: these periods run for seconds to minutes and the crossfade for 1.2 s, outside the 400 ms UI budget and
+/// DR-61's 0.4 s ambient ceiling on purpose (R-HO4) — none is a transition between two layouts. Under Reduce Motion or
+/// Low Power the scene is `SceneProfile.gentle`: nothing travels, but it never freezes (DR-66).
+extension CicadaMotion {
+    /// ≤ 30 fps (the brief's cap); 15 under Low Power (R-HO7). The one knob if Home's CPU runs over budget.
+    static let sceneFrameInterval: TimeInterval = 1.0 / 30.0
+    static let sceneLowPowerFrameInterval: TimeInterval = 1.0 / 15.0
+    /// A Scene pick, or the clock crossing a line, crossfades the same composition (owner, round-4 decision 8).
+    static let sceneCrossfadeDuration: TimeInterval = 1.2
+    static let sceneCrossfadeReducedDuration: TimeInterval = 0.6
+    static func sceneCrossfade(reduceMotion: Bool) -> Animation {
+        CicadaCurve.ease(reduceMotion ? sceneCrossfadeReducedDuration : sceneCrossfadeDuration)
+    }
+    /// R-HO5 — the scene always draws this much larger than its frame, so a swaying clump never uncovers the plate's
+    /// edge (art-r4 REVIEW §3); the camera breathes from here to `sceneCameraScale`.
+    static let sceneOverscan: CGFloat = 1.01
+    static let sceneCameraScale: CGFloat = 1.028
+    /// 52 s each way ("52 s alternate").
+    static let sceneCameraPeriod: TimeInterval = 104
+    static let sceneCameraDrift = CGSize(width: 12, height: 5)
+    /// Seconds for one cloud to cross, slow lane first (one way only).
+    static let sceneCloudCrossings: [TimeInterval] = [330, 250]
+    /// Degrees either way, from the roots (§5's ceiling is 1.5°).
+    static let sceneGrassAmplitude: Double = 0.75
+    static let sceneGrassGentleAmplitude: Double = 0.25
+    static let sceneGrassMaxAmplitude: Double = 1.5
+    static let sceneGrassPeriodLeft: TimeInterval = 8
+    static let sceneGrassPeriodRight: TimeInterval = 9.5
+    static let sceneGrassGentlePeriod: TimeInterval = 15
+    static let sceneGrassLag: TimeInterval = 2.5
+    static let sceneStarPeriods: ClosedRange<Double> = 3.9...6.3
+    static let sceneStarGentlePeriod: TimeInterval = 8
+    static let sceneFireflyWanderPeriods: ClosedRange<Double> = 13...20
+    static let sceneFireflyGlowPeriods: ClosedRange<Double> = 4.9...7.2
+    static let sceneFireflyGentleGlow: TimeInterval = 9
+    /// Points a side, so the diagonal stays ≤ 17 pt (§5).
+    static let sceneFireflyReach: CGFloat = 12
+    static let sceneSeedCrossings: ClosedRange<Double> = 40...50
+    static let sceneSeedBob: CGFloat = 4.5
+    static let sceneSeedBobPeriod: TimeInterval = 5.6
+    static let sceneSeedTilt: Double = 9
+    static let sceneSeedGentlePulse: TimeInterval = 9
+    static let sceneSeedRestProgress: Double = 0.3
+    static let sceneLightDayPeriod: TimeInterval = 19
+    static let sceneLightNightPeriod: TimeInterval = 23
+    static let sceneLightGentlePeriod: TimeInterval = 34
+    static let sceneLightPeak: Double = 0.22
+}
+
 /// DR-62 — the four curves, with the approved mocks' control points: `out` is their
 /// `cubic-bezier(.23,1,.32,1)`, `drawer` is the drawer curve columns open on, `ease` is CSS `ease`.
 /// `.easeIn` never appears.

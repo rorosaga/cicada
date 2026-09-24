@@ -1,33 +1,9 @@
 import SwiftUI
 
-/// The Welcome's band (R-IB11): the bundled onboarding hero, the scene's
-/// painting by the clock (`SceneStore`, reading it here subscribes) and
-/// Settings → General → Scene — never the theme (round-4 D4, DESIGN_RULES §9
-/// 2026-09-24), filling the band and anchored
-/// at the bottom so the meadow shows. No words: the headline lives on the card
-/// that rises into the grass, so no text ever sits on paint (R-M6). No drifting
-/// sprite — the hero's clouds are painted, and a moving one over them would
-/// double them. A bundle that lost the file falls back to the procedural sky,
-/// never a blank band.
+/// The Welcome's painting (R-IB11; C10's `.fullBleed`): the same living meadow as Home's band, in the person's Scene
+/// over the clock — never the theme (G144) — with the meadow line at 0.66 of the space so the card rises into the low
+/// meadow. No words: the headline lives on the card, so no text ever sits on paint (R-M6, DR-13). Phase B's full-window
+/// Welcome keeps this framing.
 struct WelcomeHero: View {
-    @AppStorage(HeroScenePreference.defaultsKey) private var sceneRaw = HeroScenePreference.automatic.rawValue
-
-    private var scene: SceneTime { HeroScenePreference.stored(sceneRaw).time(clock: SceneStore.shared.time) }
-
-    var body: some View {
-        GeometryReader { geo in
-            if let image = MeadowArt.image(for: .hero, time: scene) {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFill()
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
-                    .clipped()
-            } else {
-                MeadowSky()
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
+    var body: some View { PaintedScene(.fullBleed) }
 }

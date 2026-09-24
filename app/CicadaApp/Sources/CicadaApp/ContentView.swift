@@ -226,6 +226,9 @@ struct ContentView: View {
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
         // R-DS25 — the page under the Settings panel never answers ⌘F.
         .environment(\.pageFindSuppressed, router.settingsOpen)
+        // R-HO7 — Home's band rests while the Welcome covers it; the Welcome's own painting is in the overlay,
+        // outside this environment.
+        .environment(\.scenePaused, showFirstRun)
         // R-DS21 — the Settings panel is modal the same way: ⌘1–8 and page controls are inert.
         .disabled(showFirstRun || router.settingsOpen)
         .accessibilityHidden(showFirstRun || router.settingsOpen)
