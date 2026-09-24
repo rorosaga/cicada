@@ -243,8 +243,7 @@ struct EntityDetailCard: View {
                         .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
                     Spacer(minLength: 0)
                     IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(buildFullMarkdown(), forType: .string)
+                        AppPasteboard.copy(buildFullMarkdown())
                     }
                 }
                 // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
@@ -489,8 +488,7 @@ struct EntityDetailCard: View {
     }
 
     private func copyPath(_ p: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(p, forType: .string)
+        AppPasteboard.copy(p)
     }
 
     private func relativeDate(_ date: Date) -> String {
