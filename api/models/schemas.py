@@ -723,6 +723,11 @@ class EvidenceModel(CamelModel):
     end: int = -1
     kind: str = "reasoning"
     hash: str = ""
+    # Round 4 C3 — derived at read, never stored: for a span of kind `assistant`,
+    # the model and reasoning effort of the agent turn its offset falls in
+    # (`turn_authorship.TurnAuthorship.for_span`); null everywhere else.
+    model: Optional[str] = None
+    effort: Optional[str] = None
 
 
 class ParticipantModel(CamelModel):
@@ -783,6 +788,13 @@ class ClaimModel(CamelModel):
     participants: list[ParticipantModel] = []
     date_basis: Optional[str] = None
     expected_end: Optional[str] = None
+    # Round 4 C2/C3 — additive. `recorded_ts` is stored on MCP writes only;
+    # `author_model`/`author_effort` are joined at read for a harness write
+    # (`turn_authorship.TurnAuthorship.for_claim`) and null when no captured
+    # turn answers — the app then says the model wasn't shared.
+    recorded_ts: Optional[str] = None
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
 
 
 class ClaimListResponse(CamelModel):
@@ -857,6 +869,10 @@ class EpisodeTurn(CamelModel):
     speaker: Optional[str] = None
     ts: Optional[str] = None
     t: Optional[int] = None
+    # Round 4 C4: an agent turn's model and reasoning effort, from the episode's
+    # `turns` sidecar entry at exactly this turn's start; null otherwise.
+    model: Optional[str] = None
+    effort: Optional[str] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -873,6 +889,14 @@ class EpisodeFocus(CamelModel):
     derived: bool = False
     stale: bool = False
     grown: bool = False
+
+
+class EpisodeAgent(CamelModel):
+    """Round 4 C4: the most recent agent turn's model and effort (R4B-15). The
+    field is null when that turn names neither; an older turn never stands in."""
+
+    model: Optional[str] = None
+    effort: Optional[str] = None
 
 
 class EpisodeText(CamelModel):
@@ -899,6 +923,7 @@ class EpisodeText(CamelModel):
     capture_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
+    agent: Optional[EpisodeAgent] = None
 
 
 class ProvenanceSpan(CamelModel):
@@ -923,6 +948,15 @@ class ProvenanceSpan(CamelModel):
     derived: bool = False
 
 
+class ProvenanceModel(CamelModel):
+    """Round 4 C4: one model (and effort) a harness contributor wrote with, and
+    how many of the page's current beliefs it wrote that way."""
+
+    model: str
+    effort: Optional[str] = None
+    beliefs: int = 0
+
+
 class ProvenanceContributor(CamelModel):
     """One author of an entity (R-PB6): ``claims`` = current claims with that
     ``authored_by``; ``commits`` = commits that touched the page with that
@@ -933,6 +967,9 @@ class ProvenanceContributor(CamelModel):
     provider: Optional[str] = None
     claims: int = 0
     commits: int = 0
+    # Round 4 C4: a `harness` contributor's joined turn models; empty when the
+    # app did not share them (no capture hook, or a Codex MCP session).
+    models: list[ProvenanceModel] = []
 
 
 class ProvenanceConversation(CamelModel):

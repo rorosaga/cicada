@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
+from api.models.schemas import EvidenceModel
 from api.services import agent_turns, bank_index, episode_staging, evidence, git_service
 from api.services.claims import Claim, Evidence
 
@@ -104,9 +105,16 @@ class TurnAuthorship:
     `claim_to_model` call; `text` shares the caller's body cache (the timeline's
     `episode_text`, provenance's `_Episodes.body`) so a body is read once."""
 
-    def __init__(self, memory_path: Path | None, *, text: Callable[[str], str | None] | None = None):
+    def __init__(self, memory_path: Path | None, *, text: Callable[[str], str | None] | None = None,
+                 frontmatter: Callable[[str], dict | None] | None = None):
         self._path = Path(memory_path) if memory_path is not None else None
         self._text = text
+        # A caller that already holds an episode's frontmatter (`/citations`
+        # reads its one document) answers `stamps` from it, so a span join
+        # never costs a scan of every episode — that route's parse budget
+        # (`test_only_pages_that_name_the_episode_are_parsed`). None falls
+        # through to `bank_index`.
+        self._frontmatter = frontmatter
         self._files: dict[str, bank_index.IndexedFile] | None = None
         self._by_session: dict[str, str] | None = None
         self._stamps: dict[str, list[agent_turns.Stamp]] = {}
@@ -131,8 +139,11 @@ class TurnAuthorship:
 
     def stamps(self, episode: str) -> list[agent_turns.Stamp]:
         if episode not in self._stamps:
-            f = self._index().get(episode)
-            self._stamps[episode] = agent_turns.stamps(f.frontmatter if f is not None else None)
+            fm = self._frontmatter(episode) if self._frontmatter is not None else None
+            if fm is None:
+                f = self._index().get(episode)
+                fm = f.frontmatter if f is not None else None
+            self._stamps[episode] = agent_turns.stamps(fm)
         return self._stamps[episode]
 
     def _body(self, episode: str) -> str | None:
@@ -174,3 +185,10 @@ class TurnAuthorship:
             return NONE
         hit = next((s for s in stamps if s.offset == starts[i]), None)
         return (hit.model, hit.effort) if hit is not None and hit.speaker == "assistant" else NONE
+
+
+def evidence_model(ev: Evidence, turns: TurnAuthorship | None) -> EvidenceModel:
+    """One span on the wire (G118) with its turn's model (C3). `turns=None`
+    serves the two fields as null — a caller with no bank to read."""
+    model, effort = turns.for_span(ev) if turns is not None else NONE
+    return EvidenceModel(**ev.to_dict(), model=model, effort=effort)

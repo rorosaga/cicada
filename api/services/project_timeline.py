@@ -37,7 +37,7 @@ from api.models.schemas import (
 )
 from api.services import (
     bank_index, claim_expiry, entity_body, evidence, inbox_context, project_state,
-    search_index, session_stats, when,
+    search_index, session_stats, turn_authorship, when,
 )
 from api.services.claim_reconciler import is_human
 from api.services.claims import (
@@ -133,6 +133,8 @@ class _Bank:
         self.scanned = 0
         self.partial = False
         self.transcript_exists = transcript_exists or session_stats.default_transcript_exists
+        # Round 4 C3: one join per request, sharing this request's episode bodies.
+        self.turns = turn_authorship.TurnAuthorship(self.path, text=self.episode_text)
 
     def fm(self, eid: str) -> dict:
         f = self.entities.get(eid)
@@ -722,7 +724,7 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                 done_on=_day(c.valid_from) if c.status == "done" else None,
                 moved=any((t := _link_target(x)) is not None and t != target for x in chain[1:]),
                 source="milestone", on=page if page != root else None, claim_id=c.id,
-                chain=[claim_to_model(x) for x in chain]))
+                chain=[claim_to_model(x, turns=bank.turns) for x in chain]))
     for page in tree:
         for c in bank.claims(page):
             if c.predicate == "due":
@@ -738,7 +740,7 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                 rows.append(MilestoneRow(slug=slug_for(f"due-{target}"), name=_due_name(c, bank.name(page)),
                                          status=status, target=target, source="due",
                                          on=page if page != root else None, claim_id=c.id,
-                                         chain=[claim_to_model(c)]))
+                                         chain=[claim_to_model(c, turns=bank.turns)]))
             elif c.expected_end and _open(c):
                 end = _day(c.expected_end)
                 if end is None:
@@ -746,7 +748,7 @@ def _milestones(bank: _Bank, tree: list[str]) -> list[MilestoneRow]:
                 rows.append(MilestoneRow(slug=slug_for(f"end-{end}"), name=c.text or bank.name(page),
                                          status="planned", target=end, source="expectedEnd",
                                          on=page if page != root else None, claim_id=c.id,
-                                         chain=[claim_to_model(c)]))
+                                         chain=[claim_to_model(c, turns=bank.turns)]))
     planned = sorted((m for m in rows if m.status == "planned"),
                      key=lambda m: (m.target is None, m.target or "", m.slug))
     rest = sorted((m for m in rows if m.status != "planned"), key=lambda m: (m.target or "", m.slug), reverse=True)
@@ -813,7 +815,7 @@ def _happening(bank: _Bank, owner: str | None, c: Claim, page: str) -> TimelineI
     return TimelineItem(kind="happening", id=c.id, day=_day(c.valid_from), date_basis=c.date_basis,
                         state=c.status, project=page, text=c.text or "", participants=participants,
                         participants_total=len(c.participants), quote=quote,
-                        conversation=conversation, claim=claim_to_model(shown), verbatim=is_persons_words(c))
+                        conversation=conversation, claim=claim_to_model(shown, turns=bank.turns), verbatim=is_persons_words(c))
 
 
 def _last_heard(bank: _Bank, c: Claim) -> str:

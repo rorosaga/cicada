@@ -39,6 +39,7 @@ from api.services import (
     provenance,
     sync_service,
     transclusion_resolver,
+    turn_authorship,
 )
 from api.services.claims import Claim, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -46,11 +47,12 @@ from api.services.id_utils import resolve_entity_file
 router = APIRouter()
 
 
-def _claim_to_model(c: Claim) -> ClaimModel:
+def _claim_to_model(c: Claim, turns: turn_authorship.TurnAuthorship | None) -> ClaimModel:
     """Every claim on the wire goes through ``transclusion_resolver.claim_to_model``
     (G118 slice 2, R-PB13): one builder, so this router and ``/transclude``
-    never disagree about a claim's author identity, sessions or evidence."""
-    return transclusion_resolver.claim_to_model(c)
+    never disagree about a claim's author identity, sessions or evidence.
+    ``turns`` is the request's one model join (round 4 C3, R4B-8)."""
+    return transclusion_resolver.claim_to_model(c, turns=turns)
 
 
 def _is_currently_valid(c: Claim) -> bool:
@@ -96,7 +98,8 @@ async def get_entity_claims(
         claims = [c for c in claims if not is_event(c)]
     if not include_superseded:
         claims = [c for c in claims if _is_currently_valid(c)]
-    return ClaimListResponse(claims=[_claim_to_model(c) for c in claims])
+    turns = turn_authorship.TurnAuthorship(settings.memory_path)
+    return ClaimListResponse(claims=[_claim_to_model(c, turns) for c in claims])
 
 
 @router.get("/entities/{entity_id}/timeline", response_model=ClaimTimeline)
@@ -117,11 +120,12 @@ async def get_entity_timeline(
         c for c in claims if c.predicate == predicate and c.context == context
     ]
     key_claims.sort(key=_timeline_sort_key, reverse=True)
+    turns = turn_authorship.TurnAuthorship(settings.memory_path)
     return ClaimTimeline(
         subject=entity_id,
         predicate=predicate,
         context=context,
-        claims=[_claim_to_model(c) for c in key_claims],
+        claims=[_claim_to_model(c, turns) for c in key_claims],
     )
 
 

@@ -296,10 +296,13 @@ LEGACY_AGENT_AUTHOR = "mcp-agentic-write"
 HARNESS_KIND = "harness"
 # R-B10: folded into the ETag `extra` of every read whose body carries an
 # author kind (`/contributors`, `/entities/{id}/provenance`,
-# `/episodes/{id}/citations`). Those bodies changed for the same commits and
-# claims, so an ETag over the inputs alone would 304 the old kinds — the
-# `graph.NODE_SHAPE` rule. Bump it the next time the author buckets move.
-AUTHOR_SHAPE = "harness-1"
+# `/episodes/{id}/citations`) and, since round 4 (R4B-9), a turn's model
+# (`/episodes/{id}/text`, `/projects`, `/projects/{id}/timeline`). Those bodies
+# change for the same commits and claims, so an ETag over the inputs alone would
+# 304 the old shape — the `graph.NODE_SHAPE` rule. Bump it when the author
+# buckets or the joined model fields move.
+# harness-2 (round 4 C3/C4): authorModel/authorEffort, span models, contributor models.
+AUTHOR_SHAPE = "harness-2"
 
 
 def canonical_author(author: str | None) -> str:

@@ -999,7 +999,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "harness",
+      "authorModel": null,
       "authorProvider": null,
       "authoredBy": "claude-code",
       "confidence": 0.8,
@@ -1008,10 +1010,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 241,
         "episode": "ep_2026-09-23_003",
         "hash": "792b9932b2ab",
         "kind": "user",
+        "model": null,
         "start": 186
        }
       ],
@@ -1044,6 +1048,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-09-23",
+      "recordedTs": null,
       "sessionIds": [
        "ses_demo_rover_02"
       ],
@@ -1123,7 +1128,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "harness",
+      "authorModel": null,
       "authorProvider": null,
       "authoredBy": "claude-code",
       "confidence": 0.8,
@@ -1132,10 +1139,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 180,
         "episode": "ep_2026-09-23_003",
         "hash": "792b9932b2ab",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -1174,6 +1183,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-09-23",
+      "recordedTs": null,
       "sessionIds": [
        "ses_demo_rover_02"
       ],
@@ -1680,7 +1690,9 @@
     {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -1689,10 +1701,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 131,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 94
         }
        ],
@@ -1706,6 +1720,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
@@ -1745,7 +1760,9 @@
     "last": {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "harness",
+      "authorModel": null,
       "authorProvider": null,
       "authoredBy": "claude-code",
       "confidence": 0.8,
@@ -1754,10 +1771,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 180,
         "episode": "ep_2026-09-23_003",
         "hash": "792b9932b2ab",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -1796,6 +1815,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-09-23",
+      "recordedTs": null,
       "sessionIds": [
        "ses_demo_rover_02"
       ],
@@ -1885,7 +1905,9 @@
     "next": {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -1894,10 +1916,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 131,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 94
         }
        ],
@@ -1911,6 +1935,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
@@ -2163,7 +2188,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "harness",
+      "authorModel": null,
       "authorProvider": null,
       "authoredBy": "claude-code",
       "confidence": 0.8,
@@ -2172,10 +2199,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 241,
         "episode": "ep_2026-09-23_003",
         "hash": "792b9932b2ab",
         "kind": "user",
+        "model": null,
         "start": 186
        }
       ],
@@ -2208,6 +2237,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-09-23",
+      "recordedTs": null,
       "sessionIds": [
        "ses_demo_rover_02"
       ],
@@ -2287,7 +2317,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "harness",
+      "authorModel": null,
       "authorProvider": null,
       "authoredBy": "claude-code",
       "confidence": 0.8,
@@ -2296,10 +2328,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 180,
         "episode": "ep_2026-09-23_003",
         "hash": "792b9932b2ab",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -2338,6 +2372,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-09-23",
+      "recordedTs": null,
       "sessionIds": [
        "ses_demo_rover_02"
       ],
@@ -2565,7 +2600,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "model",
+      "authorModel": null,
       "authorProvider": "openai",
       "authoredBy": "gpt-5.4-mini",
       "confidence": 0.8,
@@ -2574,10 +2611,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 69,
         "episode": "ep_2026-08-30_002",
         "hash": "529d96e97602",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -2598,6 +2637,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-08-30",
+      "recordedTs": null,
       "sessionIds": [],
       "sourceEpisodes": [
        "ep_2026-08-30_002"
@@ -2709,7 +2749,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "model",
+      "authorModel": null,
       "authorProvider": "openai",
       "authoredBy": "gpt-5.4-mini",
       "confidence": 0.8,
@@ -2718,10 +2760,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 57,
         "episode": "ep_2026-08-09_001",
         "hash": "00f14eee85f4",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -2735,6 +2779,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-08-09",
+      "recordedTs": null,
       "sessionIds": [],
       "sourceEpisodes": [
        "ep_2026-08-09_001"
@@ -2855,7 +2900,9 @@
     {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "model",
+      "authorModel": null,
       "authorProvider": "openai",
       "authoredBy": "gpt-5.4-mini",
       "confidence": 0.8,
@@ -2864,10 +2911,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 41,
         "episode": "ep_2026-07-15_001",
         "hash": "3bc0bed0cbd5",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -2888,6 +2937,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-07-15",
+      "recordedTs": null,
       "sessionIds": [],
       "sourceEpisodes": [
        "ep_2026-07-15_001"
@@ -2968,7 +3018,9 @@
     {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "user",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "user",
        "confidence": 0.8,
@@ -2977,10 +3029,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": -1,
          "episode": "",
          "hash": "",
          "kind": "reasoning",
+         "model": null,
          "start": -1
         }
        ],
@@ -2994,6 +3048,7 @@
        "predicate": "milestone",
        "premises": [],
        "recordedAt": "2026-09-10",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [],
        "sourceTrust": "user_stated",
@@ -3007,7 +3062,9 @@
        "validTo": null
       },
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -3016,10 +3073,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 92,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 67
         }
        ],
@@ -3033,6 +3092,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
@@ -3061,7 +3121,9 @@
     {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -3070,10 +3132,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 131,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 94
         }
        ],
@@ -3087,6 +3151,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
@@ -3115,7 +3180,9 @@
     {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -3124,10 +3191,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 166,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 136
         }
        ],
@@ -3141,6 +3210,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
@@ -3169,7 +3239,9 @@
     {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "user",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "user",
        "confidence": 0.8,
@@ -3178,10 +3250,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": -1,
          "episode": "",
          "hash": "",
          "kind": "reasoning",
+         "model": null,
          "start": -1
         }
        ],
@@ -3195,6 +3269,7 @@
        "predicate": "milestone",
        "premises": [],
        "recordedAt": "2026-08-09",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [],
        "sourceTrust": "user_stated",
@@ -3208,7 +3283,9 @@
        "validTo": null
       },
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -3217,10 +3294,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 65,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 38
         }
        ],
@@ -3234,6 +3313,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
@@ -3274,7 +3354,9 @@
     "last": {
      "at": null,
      "claim": {
+      "authorEffort": null,
       "authorKind": "harness",
+      "authorModel": null,
       "authorProvider": null,
       "authoredBy": "claude-code",
       "confidence": 0.8,
@@ -3283,10 +3365,12 @@
       "epistemic": "explicit",
       "evidence": [
        {
+        "effort": null,
         "end": 180,
         "episode": "ep_2026-09-23_003",
         "hash": "792b9932b2ab",
         "kind": "user",
+        "model": null,
         "start": 6
        }
       ],
@@ -3325,6 +3409,7 @@
       "predicate": "happened",
       "premises": [],
       "recordedAt": "2026-09-23",
+      "recordedTs": null,
       "sessionIds": [
        "ses_demo_rover_02"
       ],
@@ -3414,7 +3499,9 @@
     "next": {
      "chain": [
       {
+       "authorEffort": null,
        "authorKind": "user",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "user",
        "confidence": 0.8,
@@ -3423,10 +3510,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": -1,
          "episode": "",
          "hash": "",
          "kind": "reasoning",
+         "model": null,
          "start": -1
         }
        ],
@@ -3440,6 +3529,7 @@
        "predicate": "milestone",
        "premises": [],
        "recordedAt": "2026-09-10",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [],
        "sourceTrust": "user_stated",
@@ -3453,7 +3543,9 @@
        "validTo": null
       },
       {
+       "authorEffort": null,
        "authorKind": "harness",
+       "authorModel": null,
        "authorProvider": null,
        "authoredBy": "agent",
        "confidence": 0.75,
@@ -3462,10 +3554,12 @@
        "epistemic": "explicit",
        "evidence": [
         {
+         "effort": null,
          "end": 92,
          "episode": "ep_2026-07-22_001",
          "hash": "5c6d1ec3a867",
          "kind": "user",
+         "model": null,
          "start": 67
         }
        ],
@@ -3479,6 +3573,7 @@
        "predicate": "due",
        "premises": [],
        "recordedAt": "2026-09-23",
+       "recordedTs": null,
        "sessionIds": [],
        "sourceEpisodes": [
         "ep_2026-07-22_001"
