@@ -160,7 +160,12 @@ Seven rails hold across all of them:
   skipped by construction. Secrets scrubbed, per-turn and per-session caps applied. **One episode
   per session** — a later Stop rewrites it in place and flips `processed: false`, never two
   episodes for one conversation (G104). Cicada's own `claude -p` and `codex exec` spawns run with
-  `CICADA_CAPTURE=off`.
+  `CICADA_CAPTURE=off`. **Recall is the same move (G149):** the harness's `SessionStart` and
+  `UserPromptSubmit` hooks (`api/hooks/recall.py` → `POST /capture/hook-context`) put Cicada's note
+  in front of the model: the primer at session start, and the pages a message names on every
+  prompt. Recall therefore no longer depends on a model calling `cicada_recall`. The prompt travels
+  in a JSON body and is never logged, and `transcript_extract` drops any block opening with
+  `recall_text.INJECTION_PREFIX`, so a recalled note is never captured back as the person's words.
 - **Transcripts under `~/.claude/` are never read anywhere else.** The MCP seam and the resume path
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.
@@ -452,8 +457,10 @@ cache key), *How to work with me* (standing `skill` pages by confidence alone), 
 durable/evergreen pages — then **Current** — projects, each project with its `now`/`next` (G141),
 pages in focus in the last 14 days, people, recent conversations (G140, schema v2). A test holds R12 for every argument either primer names, for
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the
-connection holds it). Delivered three ways — the MCP `initialize` result's
-`instructions`, the `cicada_handshake` tool, and `GET /handshake`. **R12: a primer naming an
+connection holds it). Delivered four ways: the MCP `initialize` result's
+`instructions` (which Claude Code truncates), the `cicada_handshake` tool, `GET /handshake`, and the
+SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Contract item 8 tells an
+agent what a "From Cicada" note is. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.
 
@@ -490,7 +497,11 @@ Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY
 **IDs and enums only — never claim text, query text or answer text.** The `read` kind (G124) records
 an entity id and a surface enum, filed in a sibling `reads-*.jsonl` that
 `sync_service.components["telemetry"]` deliberately does not stat — the app maps that component onto
-its consumption domain, so a card open must not move it.
+its consumption domain, so a card open must not move it. The `hook_recall` kind (G149) is one row per
+recall-hook firing: harness, event, reason enum, the page ids and their count, token and latency buckets,
+and the model id when the harness sends one. It is filed beside `read` for the same reason, and like
+`capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
+prompt never is.
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
@@ -600,6 +611,29 @@ fact can be checked when there is no claim to write — only a source the person
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
+
+**Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
+same way.
+
+- **The hook.** `api/hooks/recall.py` is stdlib only. One command is registered under both `SessionStart` and
+  `UserPromptSubmit` in `~/.claude/settings.json` and `~/.codex/hooks.json`, owned by its own marker in
+  `api/hooks/registry.py`. It posts to `POST /capture/hook-context` and prints
+  `hookSpecificOutput.additionalContext` (the one shape both harnesses parse) or nothing. It always exits 0,
+  never 2 (which erases a prompt), under a 0.9 s client timeout.
+- **The note.** `hook_recall` answers engine-free from the derived FTS index. SessionStart gets the primer. A
+  prompt gets at most three pages it **names**: a whole name or alias, and one word only for a person, project,
+  company, tool or place. Each page comes with its summary and at most two current claims with their dates,
+  plus at most one open inbox question as a pointer to `cicada_check_nudges`. The note is ≤ 400 tokens or
+  nothing, produced within a hard 300 ms.
+- **The vectors.** They only re-order pages already named, and only when the on-device embedder is already
+  loaded. A hosted embedder is never sent a prompt.
+- **Repeats.** A per-session window keeps a page from being re-sent on consecutive turns.
+- **The bank.** It reads the bank a capture would write into: the real bank while the demo is open, and
+  nothing when there is none.
+- **When it is skipped.** `CICADA_CAPTURE=off` spawns, `CICADA_RECALL=off`, and a Codex sub-agent's prompt.
+  Codex also runs a new hook only after the person trusts it at startup.
+- **The ledger.** One `hook_recall` ledger row per firing, ids and enums only, filed beside `read`.
+- **Remote.** Remote connectors have no hooks.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
 clarification naturally in the flow when the conversation touches its entity, and offer related
@@ -754,9 +788,12 @@ add-folder sheet labels its fields and asks which subfolders an agent wrote as a
 **Agent wiring (Track I T3/T7).** `GET /agents/wiring` is read-only: per harness it reports
 *recall* (the MCP server registered — `claude mcp get cicada` / `codex mcp get cicada --json`, 2 s
 each, a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
-unparseable settings file is `invalid`, never `off`), plus the exact argv install.sh would run. The
-**app** runs them, only after the person's click (spec decision 14, D-1), with
-`CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout; the backend never writes a
+unparseable settings file is `invalid`, never `off`), *auto-recall* (G149: `autorecall`
+= `on|off|stale|invalid|n/a` for the recall hooks, with `autorecallOn` / `autorecallOff` argv kept apart from
+`connect`, which onboarding runs; Settings → Agents → *Remembers automatically* runs them), plus the exact
+argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
+`CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
+events and `registry.py uninstall --hook recall`); the backend never writes a
 harness root.
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
