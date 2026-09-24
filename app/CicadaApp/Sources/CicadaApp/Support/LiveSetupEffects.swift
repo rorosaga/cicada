@@ -47,6 +47,8 @@ struct LiveSetupEffects: SetupEffects {
 
     func recordGettingStarted(_ ids: [FoundItemID]) {
         GettingStartedState.record(bank: store.bank, enabled: ids)
+        // R-HO15 — the Welcome's Start arms *Make it yours*; the demo plan never records Getting started.
+        AppearanceTipPolicy.arm()
         onChecklistChanged()
     }
 

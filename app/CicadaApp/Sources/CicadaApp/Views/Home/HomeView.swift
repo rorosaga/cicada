@@ -26,6 +26,8 @@ struct HomeView: View {
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(AppearanceTipPolicy.armedKey) private var tipArmed = false
+    @AppStorage(AppearanceTipPolicy.dismissedKey) private var tipDismissed = false
 
     var body: some View {
         let showsResults = FindPanelBody.showsBody(placement: .page, query: search.model.query,
@@ -37,14 +39,18 @@ struct HomeView: View {
         // (`HomeLayout`, every number once).
         let gettingStartedVisible = GettingStartedProgress.visible(record: GettingStartedState.load(bank: store.bank))
             || runner.sawDoneThisSession
+        // F-09 (R-HO15) — the first-time "Make it yours", never beside search results.
+        let tipShown = AppearanceTipPolicy.visible(armed: tipArmed, dismissed: tipDismissed) && !showsResults
         GeometryReader { geo in
+            let tipPlacement = AppearanceTipLayout.placement(pageWidth: geo.size.width,
+                                                             scale: CGFloat(CicadaTheme.uiScale))
             VStack(spacing: 0) {
-                // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`).
-                // The framing owns the band's height, crop and fade (C10).
+                // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`). The framing owns
+                // the band's height, crop and fade (C10).
                 HomeHeroBand()
                 VStack(spacing: 0) {
-                    // R-HS2 — the headline is the row under the band, on the window (DR-50), in the
-                    // room pages' title (DR-17): one line, the mock's words.
+                    // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
+                    // title (DR-17): one line, the mock's words.
                     PageTitle(Copy.homeHeadline)
                         .multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
@@ -55,12 +61,11 @@ struct HomeView: View {
                     if !showsResults {
                         ScrollView {
                             VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
+                                if tipShown && tipPlacement == .inline { AppearanceTip() }
                                 // Between the field and TODAY, and only while the blocks show
                                 // (R-IB6): the first keystroke replaces it too.
                                 GettingStartedCard(selectedTab: $selectedTab)
                                 HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
-                                             needsYouSlots: HomeLayout.needsYouSlots(
-                                                 pageWidth: geo.size.width, scale: CGFloat(CicadaTheme.uiScale)),
                                              selectedTab: $selectedTab)
                             }
                             .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
@@ -74,6 +79,17 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, CicadaTheme.spacingGutter)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // F-09 — beside the column at the headline's height, never over the band: an overlay on the page
+                // below it, never a layer over the paint (`HomeBandLayoutTests`). No comment here may spell the
+                // stack type's name — that test greps this file for it.
+                .overlay(alignment: .topTrailing) {
+                    if tipShown && tipPlacement == .side {
+                        AppearanceTip()
+                            .frame(width: CicadaTheme.scaled(AppearanceTipLayout.width))
+                            .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
+                            .padding(.trailing, CicadaTheme.scaled(AppearanceTipLayout.edgeInset))
+                    }
+                }
                 .animation(CicadaMotion.morph(reduceMotion: reduceMotion), value: showsResults)
             }
             .frame(width: geo.size.width, height: geo.size.height)

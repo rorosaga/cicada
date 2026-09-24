@@ -205,6 +205,14 @@ extension CicadaMotion {
     static let sceneLightNightPeriod: TimeInterval = 23
     static let sceneLightGentlePeriod: TimeInterval = 34
     static let sceneLightPeak: Double = 0.22
+
+    /// F-09's "Make it yours" rises once, 300 ms after Home lands, over 240 ms (DR-67's rare first appearance); a fade
+    /// alone under Reduce Motion (DR-66).
+    static let tipRiseDelay: TimeInterval = 0.3
+    static let tipRiseDuration: TimeInterval = 0.24
+    static func tipRise(reduceMotion: Bool) -> Animation {
+        (reduceMotion ? fade : CicadaCurve.out(tipRiseDuration)).delay(tipRiseDelay)
+    }
 }
 
 /// DR-62 — the four curves, with the approved mocks' control points: `out` is their

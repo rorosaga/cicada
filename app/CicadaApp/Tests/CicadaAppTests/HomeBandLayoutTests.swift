@@ -5,7 +5,7 @@ import XCTest
 /// `SceneGeometry`, and nothing over it (DR-13, DR-50: text never sits on paint).
 final class HomeBandLayoutTests: XCTestCase {
     func testTheBandFadesBelowTheMeadowLine() {
-        XCTAssertEqual(HomeBandLayout.bandHeight, 120)   // Task 4 sets F-09's 208
+        XCTAssertEqual(HomeBandLayout.bandHeight, 208, "F-09 (R-HO6)")
         XCTAssertEqual(SceneGeometry.bandFadeStart, 0.72, accuracy: 0.0001)
         XCTAssertGreaterThan(SceneGeometry.bandFadeStart, SceneGeometry.bandHorizon,
                              "the fade starts below the meadow line (ART_DIRECTION §3's note)")
