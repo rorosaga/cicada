@@ -41,10 +41,11 @@ CODEX_HOOKS="${CODEX_HOOKS:-$HOME/.codex/hooks.json}"
 API_DIR="$REPO/api"
 VENV="$API_DIR/.venv"
 VENV_PY="$VENV/bin/python"
-# NOTE: the plist runs `$VENV_PY -m uvicorn`, never $VENV/bin/uvicorn. A venv
-# console script hardcodes its interpreter path in the shebang, so moving the
-# repo silently breaks it (launchd then fails with EX_CONFIG and an empty log).
-# `python -m` resolves through the venv symlink and survives a move.
+# NOTE: the plist (scripts/install-backend-agent.sh) runs `$VENV_PY -m uvicorn`,
+# never $VENV/bin/uvicorn. A venv console script hardcodes its interpreter path
+# in the shebang, so moving the repo silently breaks it (launchd then fails
+# with EX_CONFIG and an empty log). `python -m` resolves through the venv
+# symlink and survives a move.
 ENV_FILE="$API_DIR/.env"
 ENV_EXAMPLE="$API_DIR/.env.example"
 MCP_SERVER="$REPO/mcp/server.py"
@@ -327,61 +328,20 @@ hdr "6. Backend service (launchd)"
 if backend_healthy; then
   ok "A Cicada backend is already serving /healthz on :$PORT — skipping launchd bootstrap"
 else
-  step "Writing launchd plist -> $PLIST_PATH"
-  run mkdir -p "$LAUNCH_AGENTS_DIR"
-  # CICADA_ALLOW_FEED_FETCH=1 is the opt-in for the nightly RSS-feed + ICS-calendar
-  # refresh at the tail of every Sleep cycle (G114 R5); the user-initiated
-  # POST /sources/poll-feeds and POST /sources/poll-calendars are gated by the same
-  # var. Without it an installed backend's subscriptions would never refresh.
-  write_plist() {
-    cat > "$PLIST_PATH" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>$PLIST_LABEL</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>$VENV_PY</string>
-    <string>-m</string><string>uvicorn</string>
-    <string>api.main:app</string>
-    <string>--host</string><string>127.0.0.1</string>
-    <string>--port</string><string>$PORT</string>
-  </array>
-  <key>WorkingDirectory</key><string>$REPO</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>CICADA_MEMORY_PATH</key><string>$MEMORY_PATH</string>
-    <key>PATH</key><string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>
-    <key>PYTHONPATH</key><string>$REPO</string>
-  </dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$REPO/logs/backend.out.log</string>
-  <key>StandardErrorPath</key><string>$REPO/logs/backend.err.log</string>
-</dict>
-</plist>
-EOF
-  }
+  step "Installing the background service (scripts/install-backend-agent.sh)"
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '  \033[2m$ write %s (RunAtLoad+KeepAlive, uvicorn :%s, secrets stay in api/.env)\033[0m\n' "$PLIST_PATH" "$PORT"
+    CICADA_REPO="$REPO" CICADA_MEMORY_PATH="$MEMORY_PATH" LAUNCH_AGENTS_DIR="$LAUNCH_AGENTS_DIR" CICADA_PORT="$PORT" \
+      bash "$REPO/scripts/install-backend-agent.sh" --dry-run
+    ok "launchd bootstrap (dry-run)"
   else
-    mkdir -p "$REPO/logs"
-    write_plist
-  fi
-  step "Bootstrapping launchd agent (bootout-then-bootstrap = idempotent)"
-  run launchctl bootout "gui/$(id -u)/$PLIST_LABEL" 2>/dev/null || true
-  run launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
-  if [ "$DRY_RUN" -eq 0 ]; then
+    CICADA_REPO="$REPO" CICADA_MEMORY_PATH="$MEMORY_PATH" LAUNCH_AGENTS_DIR="$LAUNCH_AGENTS_DIR" CICADA_PORT="$PORT" \
+      bash "$REPO/scripts/install-backend-agent.sh"
     step "Waiting for backend /healthz ..."
     for _ in $(seq 1 10); do
       backend_healthy && break
       sleep 1
     done
     if backend_healthy; then ok "Backend is up on :$PORT"; else warn "Backend not yet healthy — check $REPO/logs/backend.err.log"; fi
-  else
-    ok "launchd bootstrap (dry-run)"
   fi
 fi
 

@@ -13,6 +13,14 @@ import SwiftUI
 /// Scene (round-4 D4, G144) is independent of Appearance: it picks Home's and
 /// the Welcome's painting by the clock (Automatic) or pins it, so a dark window
 /// can show a day painting. Per viewer, in `cicada.heroScene`.
+///
+/// In the background (round-4 D3, G143): Open Cicada at login (`LoginItemService` over `SMAppService.mainApp` —
+/// the switch shows the person's intent, the sentence under it macOS's answer, so an unsigned build macOS never
+/// enables says so, R-FA7) and Keep memory working (the backend's LaunchAgent: a read-only `launchctl print` probe,
+/// and Install runs `scripts/install-backend-agent.sh` only after the click, with the exact command shown first —
+/// spec decision 14, R-FA8/R-FA9). The shape follows the macOS login-item pattern (a switch plus an "Open Login
+/// Items" link only when approval is pending), with DESIGN_RULES winning: neutral controls (DR-40), the command in
+/// a `CommandBox` (DR-19).
 struct SettingsGeneralView: View {
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
     @AppStorage(HeroScenePreference.defaultsKey) private var heroSceneRaw = HeroScenePreference.automatic.rawValue
@@ -23,6 +31,8 @@ struct SettingsGeneralView: View {
     @Environment(AppRouter.self) private var router
     @Environment(Store.self) private var store
     @Environment(SetupRunner.self) private var runner
+    @Environment(LoginItemService.self) private var loginItems
+    @Environment(BackendAgentService.self) private var backendAgent
 
     private var appearance: Binding<AppearancePreference> {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
@@ -93,6 +103,44 @@ struct SettingsGeneralView: View {
                         }
                     }
                 }
+            }
+            SettingsGroupCard(header: Copy.backgroundGroup) {
+                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.detail) {
+                    Toggle(Copy.openAtLogin, isOn: Binding(get: { loginItems.requested },
+                                                           set: { loginItems.setEnabled($0) }))
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                } below: {
+                    if loginItems.state.offersSettings {
+                        TextButton(title: Copy.openLoginItems, help: Copy.openLoginItemsHelp) { loginItems.openSystemSettings() }
+                    }
+                }
+                SettingsDivider()
+                SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
+                            detail: Copy.backgroundDetail(backendAgent.state)) {
+                    switch backendAgent.state {
+                    case .missing, .stopped, .failed:
+                        NeutralButton(title: Copy.backgroundInstall, size: .compact, help: Copy.backgroundInstallHelp) {
+                            Task { await backendAgent.install() }
+                        }
+                    case .unknown:
+                        NeutralButton(title: Copy.foundRetry, size: .compact) { Task { await backendAgent.refresh() } }
+                    case .checking, .installing:
+                        ProgressView().controlSize(.small)
+                    case .running:
+                        EmptyView()
+                    }
+                } below: {
+                    switch backendAgent.state {
+                    case .missing, .stopped, .failed: CommandBox(command: backendAgent.display)
+                    default: EmptyView()
+                    }
+                }
+            }
+            .task { loginItems.refresh(); await backendAgent.refresh() }
+            // The person may have just used System Settings → Login Items (R-FA7).
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                loginItems.refresh()
             }
         }
     }

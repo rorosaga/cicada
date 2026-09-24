@@ -28,6 +28,41 @@ extension Copy {
     static let runSetupAgain = "Run setup again"
     static let runSetupDetail = "Walk through the first steps for this memory again."
 
+    // MARK: General → In the background (round-4 D3, G143)
+    // No price, token or cost words here (the 2026-09-03 ruling, DR-59).
+    static let backgroundGroup = "In the background"
+    static let openAtLogin = "Open Cicada at login"
+    static let loginItemOff = "Cicada opens only when you open it."
+    static let loginItemOn = "Cicada opens when you log in, and keeps working with its window closed."
+    static let loginItemNeedsApproval = "Almost there — allow Cicada in System Settings → General → Login Items."
+    /// R-FA7 — the person asked, macOS did not keep it: an ad-hoc-signed build may never be enabled, and the row
+    /// must never pretend it was (D3).
+    static let loginItemNotKept = "macOS isn't opening Cicada at login. If you didn't turn it off there, "
+        + "this copy of Cicada may need adding by hand in Login Items."
+    static func loginItemFailed(_ why: String) -> String { "macOS didn't accept this: \(why)" }
+    static let openLoginItems = "Open Login Items"
+    static let openLoginItemsHelp = "Opens System Settings → General → Login Items"
+    static let keepMemoryWorking = "Keep memory working when Cicada is closed"
+    /// R-FA9 — "On" means launchd holds the agent (loaded, KeepAlive on), which is exactly what the sentence says.
+    static func backgroundDetail(_ state: BackendAgentState) -> String {
+        switch state {
+        case .running: "On — Cicada's memory keeps working in the background."
+        case .stopped: "Installed, but not running. Install again to restart it."
+        case .missing: "Off — memory only updates while Cicada is open."
+        case .checking: "Checking…"
+        case .installing: "Installing…"
+        case .unknown: "Couldn't check the background service."
+        case .failed(let why): why
+        }
+    }
+    static let backgroundInstall = "Install"
+    static let backgroundInstallHelp = "Runs the command below from your Cicada folder"
+    static let backgroundNoPython = "Cicada's Python environment is missing — run the one-time install under Agents first."
+    static let backgroundLaunchdRefused = "macOS wouldn't start the background service. The log in your Cicada folder says why."
+    static let backgroundRefused = "Cicada only runs its own install script."
+    /// Never `Copy.intakeFailed` ("The import didn't finish.") — that is `AgentConnect`'s import sentence.
+    static let backgroundInstallFailed = "Cicada couldn't set up the background service. Try again in a moment."
+
     // MARK: Engines (A3, R-O8)
     static let engines = "Engines"
     static let enginesSubtitle = "Which model does Cicada's thinking."

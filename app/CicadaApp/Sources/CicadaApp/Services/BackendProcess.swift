@@ -64,13 +64,9 @@ final class BackendProcess {
         }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = [
-            apiPath.appendingPathComponent(".venv/bin/uvicorn").path,
-            "api.main:app",
-            "--host", "127.0.0.1",
-            "--port", "8000",
-        ]
+        let command = Self.spawnCommand(installRoot: apiPath.deletingLastPathComponent())
+        proc.executableURL = command.executable
+        proc.arguments = command.arguments
         proc.currentDirectoryURL = apiPath.deletingLastPathComponent()
         proc.environment = environment
         proc.standardOutput = FileHandle.nullDevice
@@ -89,6 +85,22 @@ final class BackendProcess {
         process?.terminate()
         process = nil
         isRunning = false
+    }
+
+    /// Round-4 D3 (R-FA10) — install.sh's own command: `python -m uvicorn`, the interpreter itself as the executable
+    /// (no `/usr/bin/env`). The venv's `uvicorn` console script hardcodes its interpreter in the shebang, so moving
+    /// the repo broke it — exactly what `install.sh`'s NOTE forbids for the LaunchAgent plist.
+    static func spawnCommand(installRoot: URL) -> (executable: URL, arguments: [String]) {
+        (installRoot.appendingPathComponent("api/.venv/bin/python"),
+         ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"])
+    }
+
+    /// R-FA8 — after the background service is installed, give launchd the port: stop only the child THIS app
+    /// spawned (never a developer's uvicorn that happened to hold :8000 — `start()` spawns nothing then, so
+    /// `process` is nil and this is a no-op).
+    func stopSpawnedChild() {
+        guard process != nil else { return }
+        stop()
     }
 
     /// The Cicada checkout/install root: the repo directory in dev builds, or

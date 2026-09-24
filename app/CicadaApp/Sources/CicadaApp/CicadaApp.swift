@@ -56,7 +56,11 @@ struct CicadaApp: App {
     /// what was left typed on Home.
     @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
-    @State private var backend = BackendProcess()
+    @State private var backend: BackendProcess
+    /// Round-4 D3 (G143) — Settings → General → In the background. App-lifetime so the
+    /// login item's remembered intent and the service probe are one instance per app.
+    @State private var loginItems = LoginItemService()
+    @State private var backendAgent: BackendAgentService
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
@@ -123,6 +127,11 @@ struct CicadaApp: App {
         // independently.
         let store = Store()
         _store = State(initialValue: store)
+        // R-FA8 — once the background service is installed, the app hands launchd :8000 by
+        // stopping only the uvicorn child it spawned itself (never a developer's).
+        let backend = BackendProcess()
+        _backend = State(initialValue: backend)
+        _backendAgent = State(initialValue: BackendAgentService(onInstalled: { [backend] in backend.stopSpawnedChild() }))
         let lights = BrowserWatcher()
         _browserWatcher = State(initialValue: lights)
         _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
@@ -166,6 +175,8 @@ struct CicadaApp: App {
                 .environment(homeSearch)
                 .environment(browserWatcher)
                 .environment(localSources)
+                .environment(loginItems)
+                .environment(backendAgent)
                 .environment(intakeRouter)
                 .environment(setupRunner)
                 .environment(inventory)
