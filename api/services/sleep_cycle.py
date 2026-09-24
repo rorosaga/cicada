@@ -54,12 +54,20 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
-    # G141 PJ-0 (R-CS3): claims Stage 5.56 could not write because their
-    # subject has no page, and how many subjects they were on. Counts only —
-    # G141's M3 measure, carried into the `sleep_run` ledger row; never on
-    # `/sleep/status`.
+    # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
+    # because their subject has no page, and how many page-less subjects there
+    # were. Counts only — G141's M3 measure, carried into the `sleep_run`
+    # ledger row; never on `/sleep/status`.
     claims_page_less: int = 0
     subjects_page_less: int = 0
+    # G141 PJ-0b (R-HP12): the hold, per cycle — claims newly held for a
+    # pending name, held claims released onto their page, claims the per-name
+    # cap refused, and what still waits in the store after the cycle. Counts
+    # only, internal, never on `/sleep/status`.
+    claims_held: int = 0
+    claims_released: int = 0
+    claims_hold_capped: int = 0
+    claims_waiting: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
     # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
@@ -1049,6 +1057,10 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.organic_resolutions = 0
     _state.claims_page_less = 0
     _state.subjects_page_less = 0
+    _state.claims_held = 0
+    _state.claims_released = 0
+    _state.claims_hold_capped = 0
+    _state.claims_waiting = 0
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
@@ -1403,6 +1415,10 @@ async def _run_stages(
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
         _state.subjects_page_less = int(claim_result.get("subjects_skipped", 0) or 0)
+        _state.claims_held = int(claim_result.get("claims_held", 0) or 0)
+        _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
+        _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
+        _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
         nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
@@ -1431,7 +1447,9 @@ async def _run_stages(
             f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
             f"claims across {claim_result.get('subjects_written', 0)} pages "
             f"({claim_result.get('claims_page_less', 0)} claim(s) on "
-            f"{claim_result.get('subjects_skipped', 0)} page-less subject(s) not written), "
+            f"{claim_result.get('subjects_skipped', 0)} page-less subject(s) neither written nor held; "
+            f"{claim_result.get('claims_held', 0)} held for a pending name, "
+            f"{claim_result.get('claims_released', 0)} released onto their page), "
             f"{nudge_result.get('written', 0)} claim nudges written, "
             f"{nudge_result.get('merged', 0)} merged into open items"
         )
@@ -2128,6 +2146,11 @@ async def _finalize(
             # G141 PJ-0 (R-CS3): M3's per-cycle page-less count — integers only.
             "claims_page_less": _state.claims_page_less,
             "subjects_page_less": _state.subjects_page_less,
+            # G141 PJ-0b (R-HP12): the hold — integers only, never a name.
+            "claims_held": _state.claims_held,
+            "claims_released": _state.claims_released,
+            "claims_hold_capped": _state.claims_hold_capped,
+            "claims_waiting": _state.claims_waiting,
         },
     ))
 
