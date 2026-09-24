@@ -257,3 +257,107 @@ enum BeliefWords {
         return (InboxAge.compact(days: days), help)
     }
 }
+
+/// R-DG23 — the Timeline tab's rows: the contested beliefs, and first the one a belief's clock asked for when it is
+/// not one of them (a clock on an uncontested belief still opens its own timeline — the sheet it replaced did).
+enum TimelineKeys {
+    static func rows(claims: [Claim], requested: BeliefKey?) -> [BeliefKey] {
+        let contested = EntityTabs.contested(claims)
+        guard let requested, !contested.contains(requested) else { return contested }
+        return [requested] + contested
+    }
+
+    /// "2 beliefs since Jan 5" — the row's count and its first day (DR-58: an absolute day, no year in a row).
+    static func summary(_ key: BeliefKey, claims: [Claim], locale: Locale = .autoupdatingCurrent) -> String {
+        let group = claims.filter { BeliefKey($0) == key }
+        let first = group.map(\.validFrom).filter { !$0.isEmpty }.min()
+        return Copy.Graph.beliefsSince(group.count, EntityDates.shortDay(first, locale: locale))
+    }
+
+    static func heading(contested: Int) -> String { contested > 0 ? Copy.Graph.contestedBeliefs : Copy.Graph.thisBelief }
+}
+
+/// R-DG24 — where "Show in conversation" goes: the Reader when every session a commit carries maps to one episode
+/// in this bank; otherwise the chooser, whose Resume may still work for a session with no episode here.
+enum HistoryConversation {
+    enum Action: Equatable {
+        case none
+        case open(episode: String)
+        case choose
+    }
+
+    static func action(sessions: [String], openEpisode: [String: String]) -> Action {
+        guard !sessions.isEmpty else { return .none }
+        let episodes = sessions.compactMap { openEpisode[$0] }
+        if episodes.count == sessions.count, let first = episodes.first, Set(episodes).count == 1 {
+            return .open(episode: first)
+        }
+        return .choose
+    }
+}
+
+/// R-DG24 — a history row says its change in words; the per-kind hue it replaced spent data colour on a change
+/// kind (P-c: hue is for data identity).
+enum HistoryWords {
+    static func change(_ type: HistoryChangeType) -> String {
+        switch type {
+        case .created: "Created"
+        case .updated: "Updated"
+        case .statusChange: "Status changed"
+        case .confidenceChange: "Confidence changed"
+        case .relationAdded: "Link added"
+        }
+    }
+}
+
+/// §3b — who believes what: current beliefs grouped by observer, Cicada, then the person, then outside sources.
+/// It was the card's own `observerGroups` / `divergences`; pure so the order and the one-line disagreement are pinned.
+enum PerspectiveGroups {
+    struct Group: Identifiable {
+        let observer: Observer
+        let claims: [Claim]
+        var id: String { observer.id }
+    }
+
+    struct Divergence: Identifiable, Equatable {
+        let key: BeliefKey
+        /// "Cicada: sqlite-vec · You: csv-storage"
+        let line: String
+        var id: String { key.id }
+    }
+
+    static func rank(_ observer: Observer) -> Int {
+        switch observer {
+        case .agent: 0
+        case .rodrigo: 1
+        case .external: 2
+        }
+    }
+
+    static func of(_ claims: [Claim]) -> [Group] {
+        Dictionary(grouping: claims.filter(\.isValid), by: \.observer)
+            .map { Group(observer: $0.key, claims: $0.value) }
+            .sorted { rank($0.observer) != rank($1.observer) ? rank($0.observer) < rank($1.observer)
+                                                             : $0.observer.label < $1.observer.label }
+    }
+
+    static func heading(_ group: Group) -> String { "\(group.observer.label) · \(UsageFormat.count(group.claims.count))" }
+
+    /// Keys where two or more observers hold different current values.
+    static func divergences(_ claims: [Claim]) -> [Divergence] {
+        Dictionary(grouping: claims.filter(\.isValid), by: { BeliefKey($0) })
+            .compactMap { key, group -> Divergence? in
+                guard Set(group.map(\.observer)).count >= 2, Set(group.map(\.object)).count >= 2 else { return nil }
+                let ordered = group.sorted { rank($0.observer) < rank($1.observer) }
+                return Divergence(key: key, line: ordered.map { "\($0.observer.label): \($0.object)" }.joined(separator: " · "))
+            }
+            .sorted { $0.id < $1.id }
+    }
+}
+
+enum BeliefTimelineWords {
+    /// DR-54 — the replacing claim's id belongs in `.help`.
+    static func superseded(by id: String?) -> (text: String, help: String?) {
+        (Copy.Graph.supersededByNewer, id.map { "Claim \($0)" })
+    }
+}

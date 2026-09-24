@@ -44,7 +44,9 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
-    @State private var timelineKey: BeliefKey?
+    /// R-DG23 — the Timeline tab's open rows, and the one a belief's clock asked for.
+    @State private var expandedKeys: Set<BeliefKey> = []
+    @State private var requestedKey: BeliefKey?
 
     // Location listing (issue #7). Loaded lazily on appear for `.location`
     // entities; nil while loading or when no path/endpoint is available.
@@ -202,19 +204,11 @@ struct EntityDetailCard: View {
             case .content: break
             }
         }
-        // Installed ONCE here, before `.sheet` below so the Belief Timeline
-        // sheet's `ClaimChip`s inherit it too — see `View.wikilinkNavigation`
-        // in MarkdownBody.swift. Covers the header's Summary, the rendered body,
-        // transcluded embeds, and every claim chip in Perspectives/Timeline.
+        // Installed ONCE here — see `View.wikilinkNavigation` in MarkdownBody.swift. Covers the header's Summary,
+        // the rendered body, transcluded embeds, and every claim chip in Perspectives and the inline Timeline.
+        // The Belief Timeline sheet (and its step-aside for the Reader) retired with R-DG23.
         .wikilinkNavigation(onSelect: navigate)
-        .sheet(item: $timelineKey) { key in
-            beliefTimelineSheet(key)
-        }
-        // A chip in the Belief Timeline sheet opens the Reader beside this
-        // card; the sheet steps aside so the sentence is not under a modal
-        // (the rule `ContentView` applies to the Ask sheet, R-PU20).
-        .onChange(of: provenanceRouter?.revision ?? 0) { _, _ in timelineKey = nil }
-        // Outermost on purpose: the Belief Timeline sheet's chips read it too.
+        // Outermost on purpose: every evidence chip in the tabs reads it.
         .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
         .task(id: entity.id) { await loadProvenance() }
         // R-DG16 — the tab counts need the claims when the column opens, not when a tab is tapped. At the
@@ -266,7 +260,7 @@ struct EntityDetailCard: View {
             if entity.type == .location { locationSection }
             if !repoContexts.isEmpty { repositorySection }
             if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
-                WhatCicadaKnowsSection(claims: validClaims) { claim in timelineKey = BeliefKey(claim) }
+                WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
             }
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
             // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
@@ -690,85 +684,81 @@ struct EntityDetailCard: View {
 
     // MARK: - History Tab
 
-    // G68 §2.10 — three branches, resolved by `HistoryTabState`: a spinner
-    // while the fetch is in flight, an empty state once it's confirmed there
-    // is nothing, and (the common case) the existing G67 diff-expansion list.
+    // G68 §2.10 — three branches, resolved by `HistoryTabState`: a spinner while the fetch is in flight, an empty
+    // state once it's confirmed there is nothing, and (the common case) the G67 diff-expansion list. Plain words,
+    // no decorative glyph (DR-53); the retry is a neutral button (DR-40).
     @ViewBuilder
     private var historyTab: some View {
         switch historyState {
         case .loading:
             HStack(spacing: CicadaTheme.spacingSM) {
                 ProgressView().controlSize(.small)
-                Text("Reading git history…")
+                Text(Copy.Graph.readingHistory)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
-
         case .empty:
             VStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(CicadaTheme.font(size: 26))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                Text("No commits touch this page yet")
+                Text(Copy.Graph.noCommitsTitle)
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Text("It appears here once a Sleep cycle writes to it.")
+                Text(Copy.Graph.noCommitsDetail)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
-
         case .error:
             VStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(CicadaTheme.font(size: 26))
-                    .foregroundStyle(CicadaTheme.danger)
-                Text("Couldn't load history")
+                Text(Copy.Graph.historyFailed)
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Button("Retry") { Task { await loadHistoryIfNeeded() } }
-                    .buttonStyle(.bordered)
+                NeutralButton(title: Copy.Graph.retry) { Task { await loadHistoryIfNeeded() } }
                     .accessibilityLabel("Retry loading history")
             }
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
-
         case .entries(let rows):
             historyList(rows)
         }
     }
 
+    /// G68 — newest first. R-DG24: a neutral ring per change (hue is for data identity, P-c), the change in words,
+    /// the day and who wrote it; the commit's sentence; then "Show in conversation" and "What changed" (G67). The
+    /// two links are siblings, never one inside the other's label (the PR #20 round-2 rule that pulled
+    /// `FromConversationButton` out of the expand button).
     private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.reversed().enumerated()), id: \.element.id) { index, entry in
+            ForEach(rows.reversed(), id: \.id) { entry in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                    // Timeline
-                    VStack(spacing: 0) {
-                        Circle()
-                            .fill(index == 0
-                                  ? CicadaTheme.success
-                                  : CicadaTheme.historyColor(for: entry.changeType))
-                            .frame(width: 10, height: 10)
-
-                        if index < rows.count - 1 {
-                            Rectangle()
-                                .fill(CicadaTheme.border)
-                                .frame(width: 1)
-                                .frame(maxHeight: .infinity)
-                        }
-                    }
-                    .frame(width: 10)
-
+                    Circle()
+                        .strokeBorder(CicadaTheme.textTertiary, lineWidth: 1.5)
+                        .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
+                        .padding(.top, CicadaTheme.scaled(5))
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        historyRowButton(entry)
-
-                        // The diff for an EXPANDED commit. `entry.diff` (present
-                        // only when history was fetched with includeDiff=true)
-                        // wins so we never re-fetch what we already hold.
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Text(HistoryWords.change(entry.changeType))
+                                .font(CicadaTheme.rowFont)
+                                .foregroundStyle(CicadaTheme.textPrimary)
+                            Text(entry.date).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                            if !entry.author.isEmpty {
+                                AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
+                            }
+                        }
+                        Text(entry.description)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: CicadaTheme.scaled(14)) {
+                            ShowInConversationLink(sessionIds: entry.sessions,
+                                                   openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
+                            if !entry.commitHash.isEmpty { whatChangedToggle(entry) }
+                        }
+                        // The diff for an EXPANDED commit; `entry.diff` (includeDiff=true) wins over a fetch.
                         if isExpanded(entry) {
                             let key = diffKey(entry.commitHash)
                             if let inline = entry.diff {
@@ -784,9 +774,8 @@ struct EntityDetailCard: View {
                             }
                         }
                     }
-                    .padding(.bottom, CicadaTheme.spacingLG)
-
-                    Spacer()
+                    .padding(.bottom, CicadaTheme.scaled(18))
+                    Spacer(minLength: 0)
                 }
             }
         }
@@ -797,64 +786,22 @@ struct EntityDetailCard: View {
         !entry.commitHash.isEmpty && expandedCommits.contains(diffKey(entry.commitHash))
     }
 
-    /// The tappable summary line, plus the "from conversation" affordance as
-    /// its own SIBLING control (PR #20 round-2 review fix). `FromConversationButton`
-    /// used to be nested inside `historyRowLabel`, which is itself the LABEL
-    /// of the row-expansion `Button` below — a `Button` inside a `Button`'s
-    /// label, which makes AppKit/SwiftUI's tap targeting ambiguous (a tap
-    /// meant for the popover could instead toggle diff expansion). Pulling it
-    /// out to a trailing sibling in this `HStack` gives each control its own
-    /// hit region with no ambiguity, while keeping both reachable via the
-    /// same row. A row with no `commitHash` (an older backend that didn't
-    /// surface one) renders its summary as plain, un-tappable text rather
-    /// than a button that could never do anything — the conversation
-    /// affordance still renders independently of that.
-    @ViewBuilder
-    private func historyRowButton(_ entry: EntityHistoryEntry) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
-            if entry.commitHash.isEmpty {
-                historyRowLabel(entry, expandable: false)
-            } else {
-                Button {
-                    toggleCommit(entry.commitHash)
-                } label: {
-                    historyRowLabel(entry, expandable: true)
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Show what changed in this commit")
-                .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
+    private func whatChangedToggle(_ entry: EntityHistoryEntry) -> some View {
+        Button { toggleCommit(entry.commitHash) } label: {
+            HStack(spacing: CicadaTheme.scaled(5)) {
+                Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(Copy.Graph.whatChanged)
             }
-
-            FromConversationButton(sessionIds: entry.sessions,
-                                   openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .contentShape(Rectangle())
         }
-    }
-
-    private func historyRowLabel(_ entry: EntityHistoryEntry, expandable: Bool) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                if expandable {
-                    Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
-                        .font(CicadaTheme.font(size: 9, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                Text(entry.date)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                // M3 (backlog A2): who authored this commit — with the same
-                // face and name the claim footer and the contributors strip
-                // give them (G118 slice 2, §4.6).
-                if !entry.author.isEmpty {
-                    AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
-                }
-            }
-
-            Text(entry.description)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
+        .buttonStyle(.cicadaPlain)
+        .help(Copy.Graph.whatChangedHelp)
+        .accessibilityLabel("\(Copy.Graph.whatChanged), \(entry.date)")
+        .accessibilityValue(isExpanded(entry) ? "Open" : "Closed")
     }
 
     /// Collapse, or expand + fetch. On-demand only (the `LogoStore`/
@@ -900,212 +847,96 @@ struct EntityDetailCard: View {
     }
 
     // MARK: - Perspectives Tab (§3b)
-    //
-    // The subject's claims grouped by observer, each group a labeled section
-    // (Observer.label + sfSymbol badge) of claim chips. Where two observers
-    // disagree on the same (predicate, context), a divergence callout names the
-    // "who believes what" contradiction-across-observers.
 
+    /// §3b — who believes what. R-DG22: rows, grouped under a label with its count; a disagreement between
+    /// observers is one block with the divergence kind's glyph (no tinted fill, DR-7).
     private var perspectivesTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
             if !claimsLoaded {
-                ProgressView().controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else if validClaims.isEmpty {
-                claimsEmptyState
+                Text(Copy.Graph.noBeliefsYet)
+                    .font(CicadaTheme.font(size: 13))
+                    .foregroundStyle(CicadaTheme.textTertiary)
             } else {
-                ForEach(divergences, id: \.self) { d in
-                    divergenceCallout(d)
-                }
-                ForEach(observerGroups, id: \.0.id) { observer, group in
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            ObserverBadge(observer)
-                            Text("\(group.count)")
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
+                ForEach(PerspectiveGroups.divergences(claims)) { d in divergenceBlock(d) }
+                ForEach(PerspectiveGroups.of(claims)) { group in
+                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+                        SectionLabel(PerspectiveGroups.heading(group))
+                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                            ForEach(group.claims) { claim in
+                                BeliefRow(claim: claim) { openTimeline(for: claim) }
+                            }
                         }
-                        ForEach(group) { claim in
-                            ClaimChip(claim: claim, onOpenTimeline: {
-                                timelineKey = BeliefKey(claim)
-                            })
-                        }
+                        .padding(.horizontal, -CicadaTheme.scaled(10))
                     }
                 }
             }
         }
         .modifier(EntityTabInsets(style: style))
+    }
+
+    private func divergenceBlock(_ d: PerspectiveGroups.Divergence) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                KindGlyph(kind: .divergence)
+                Text(Copy.Graph.observersDisagree(d.key.predicate))
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Tag(text: ClaimContext.displayName(d.key.context), dot: CicadaTheme.contextColor(d.key.context))
+            }
+            Text(d.line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
     // MARK: - Timeline Tab (§4)
-    //
-    // Lists the subject's CONTESTED keys — any (predicate, context) with ≥2
-    // claims over time — and drills into BeliefTimelineView on tap.
 
+    /// R-DG23 — a belief's clock: the Timeline tab, that belief open.
+    private func openTimeline(for claim: Claim) {
+        let key = BeliefKey(claim)
+        requestedKey = key
+        expandedKeys.insert(key)
+        selectedTab = .timeline
+    }
+
+    /// §4 — contested beliefs inline (R-DG23): a disclosure row per belief, its `BeliefTimelineView` in place.
     private var timelineTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             if !claimsLoaded {
-                ProgressView().controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else if contestedKeys.isEmpty {
-                VStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: "clock.badge.questionmark")
-                        .font(CicadaTheme.font(size: 24))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Text("No contested beliefs yet.")
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    Text("A belief becomes contested when a (predicate, context) has changed over time.")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, CicadaTheme.spacingXL)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else {
-                Text("Contested beliefs")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                ForEach(contestedKeys, id: \.id) { key in
-                    Button {
-                        timelineKey = key
-                    } label: {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(CicadaTheme.font(size: 12))
-                                .foregroundStyle(CicadaTheme.accent)
-                            Text(key.predicate)
-                                .font(CicadaTheme.bodyFont)
-                                .foregroundStyle(CicadaTheme.textPrimary)
-                            ContextPill(key.context)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(CicadaTheme.font(size: 10))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        .padding(CicadaTheme.spacingMD)
-                        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                let keys = TimelineKeys.rows(claims: claims, requested: requestedKey)
+                if keys.isEmpty {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        Text(Copy.Graph.noContested).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+                        Text(Copy.Graph.noContestedDetail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
-                    .buttonStyle(.cicadaPlain)
+                } else {
+                    SectionLabel(TimelineKeys.heading(contested: contestedKeys.count))
+                    ForEach(keys) { key in
+                        TimelineKeyRow(key: key, summary: TimelineKeys.summary(key, claims: claims),
+                                       expanded: expandedKeys.contains(key)) {
+                            if expandedKeys.contains(key) { expandedKeys.remove(key) } else { expandedKeys.insert(key) }
+                        }
+                        if expandedKeys.contains(key) {
+                            BeliefTimelineView(subject: entity.id, predicate: key.predicate, context: key.context,
+                                               showsHeader: false)
+                                .padding(.leading, CicadaTheme.scaled(7))
+                        }
+                    }
                 }
             }
         }
         .modifier(EntityTabInsets(style: style))
-    }
-
-    private func beliefTimelineSheet(_ key: BeliefKey) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Spacer()
-                Button { timelineKey = nil } label: {
-                    Image(systemName: "xmark")
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .padding(CicadaTheme.spacingMD)
-            }
-            ScrollView {
-                BeliefTimelineView(subject: entity.id, predicate: key.predicate, context: key.context)
-            }
-        }
-        .frame(minWidth: 460, minHeight: 420)
-        .background(CicadaTheme.background)
-    }
-
-    private var claimsEmptyState: some View {
-        VStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "person.2.slash")
-                .font(CicadaTheme.font(size: 24))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            Text("No claims for this subject yet.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, CicadaTheme.spacingXL)
-    }
-
-    private func divergenceCallout(_ d: Divergence) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.bubble.fill")
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.warning)
-                Text("Observers disagree on \(d.predicate)")
-                    .font(CicadaTheme.font(size: 12, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                ContextPill(d.context)
-            }
-            ForEach(Array(d.byObserver.enumerated()), id: \.offset) { _, pair in
-                HStack(spacing: 4) {
-                    ObserverBadge(pair.0)
-                    Text("asserts")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Text(pair.1)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-            }
-        }
-        .padding(CicadaTheme.spacingMD)
-        .background(CicadaTheme.warning.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(CicadaTheme.warning.opacity(0.3), lineWidth: 1)
-        )
     }
 
     // MARK: - Claim derivations
 
     private var validClaims: [Claim] { claims.filter { $0.isValid } }
-
-    /// Valid claims grouped by observer, observer order stable (agent, rodrigo,
-    /// then externals).
-    private var observerGroups: [(Observer, [Claim])] {
-        let grouped = Dictionary(grouping: validClaims, by: { $0.observer })
-        return grouped.sorted { observerRank($0.key) < observerRank($1.key) }
-            .map { ($0.key, $0.value) }
-    }
-
-    private func observerRank(_ o: Observer) -> Int {
-        switch o {
-        case .agent: return 0
-        case .rodrigo: return 1
-        case .external: return 2
-        }
-    }
-
-    struct Divergence: Hashable {
-        let predicate: String
-        let context: String
-        let byObserver: [(Observer, String)]
-        static func == (l: Divergence, r: Divergence) -> Bool {
-            l.predicate == r.predicate && l.context == r.context
-        }
-        func hash(into h: inout Hasher) { h.combine(predicate); h.combine(context) }
-    }
-
-    /// (predicate, context) keys where ≥2 distinct observers assert different
-    /// objects among the currently-valid claims.
-    private var divergences: [Divergence] {
-        let byKey = Dictionary(grouping: validClaims, by: { "\($0.predicate)|\($0.context)" })
-        var out: [Divergence] = []
-        for (_, group) in byKey {
-            let distinctObservers = Set(group.map { $0.observer })
-            let distinctObjects = Set(group.map { $0.object })
-            if distinctObservers.count >= 2 && distinctObjects.count >= 2, let first = group.first {
-                let pairs = group.map { ($0.observer, $0.object) }
-                out.append(Divergence(predicate: first.predicate, context: first.context, byObserver: pairs))
-            }
-        }
-        return out
-    }
 
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
     private var contestedKeys: [BeliefKey] { EntityTabs.contested(claims) }
@@ -1165,6 +996,44 @@ struct EntityDetailCard: View {
 
         \(entity.markdownContent)
         """
+    }
+}
+
+/// One Timeline row (R-DG23): a clock, the predicate, its context as a `Tag`, how many beliefs since when, a
+/// disclosure chevron. 36 units, hover a fill (DR-34, DR-48).
+private struct TimelineKeyRow: View {
+    let key: BeliefKey
+    let summary: String
+    let expanded: Bool
+    let toggle: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: CicadaTheme.scaled(10)) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(CicadaTheme.icon(.list))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
+                Text(key.predicate).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
+                Tag(text: ClaimContext.displayName(key.context), dot: CicadaTheme.contextColor(key.context))
+                Spacer(minLength: 0)
+                Text(summary).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.font(size: 10, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .fill(expanded ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .padding(.horizontal, -CicadaTheme.scaled(10))
+        .onHover { hovering = $0 }
+        .accessibilityValue(expanded ? "Open" : "Closed")
     }
 }
 

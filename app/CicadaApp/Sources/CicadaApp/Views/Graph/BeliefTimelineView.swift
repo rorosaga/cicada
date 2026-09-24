@@ -12,13 +12,15 @@ struct BeliefTimelineView: View {
     let subject: String
     let predicate: String
     let context: String
+    /// R-DG23 — false inline in the Timeline tab, whose disclosure row already names the belief.
+    var showsHeader = true
 
     @State private var timeline: ClaimTimeline?
     @State private var isLoading = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            header
+            if showsHeader { header }
 
             if isLoading {
                 ProgressView().controlSize(.small)
@@ -205,13 +207,16 @@ struct SupersededRow: View {
                 ClaimChip(claim: claim)
 
                 if !isCurrent, claim.supersededBy != nil {
+                    // DR-54 — words on the row; the replacing claim's id only in `.help`.
+                    let words = BeliefTimelineWords.superseded(by: claim.supersededBy)
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.down")
                             .font(CicadaTheme.font(size: 9, weight: .semibold))
-                        Text("superseded by \(claim.supersededBy ?? "")")
+                        Text(words.text)
                             .font(CicadaTheme.captionFont)
                     }
                     .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(words.help ?? "")
                 }
             }
             .padding(.bottom, CicadaTheme.spacingLG)

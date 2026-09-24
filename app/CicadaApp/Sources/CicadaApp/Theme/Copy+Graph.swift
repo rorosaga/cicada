@@ -113,3 +113,27 @@ extension Copy.Graph {
     static func trueSince(_ day: String) -> String { "True since \(day)" }
     static func notedOn(_ day: String) -> String { "; noted \(day)" }
 }
+
+// Task 5 — Perspectives, History, Timeline (R-DG22 … R-DG24)
+extension Copy.Graph {
+    static let noBeliefsYet = "No beliefs are recorded on this page yet."
+    static func observersDisagree(_ predicate: String) -> String { "Observers disagree on \(predicate)" }
+    static let readingHistory = "Reading git history…"
+    static let noCommitsTitle = "No commits touch this page yet"
+    static let noCommitsDetail = "It appears here once a Sleep cycle writes to it."
+    static let historyFailed = "Couldn't load history"
+    static let retry = "Retry"
+    static let showInConversation = "Show in conversation"
+    static let showInConversationHelp = "Open the conversation this change came from"
+    static let whatChanged = "What changed"
+    static let whatChangedHelp = "Show what changed in this commit"
+    static let contestedBeliefs = "Contested beliefs"
+    static let thisBelief = "This belief"
+    static let noContested = "No contested beliefs yet."
+    static let noContestedDetail = "A belief becomes contested when what Cicada holds about it changes over time."
+    static func beliefsSince(_ n: Int, _ day: String?) -> String {
+        let count = "\(UsageFormat.count(n)) \(n == 1 ? "belief" : "beliefs")"
+        return day.map { "\(count) since \($0)" } ?? count
+    }
+    static let supersededByNewer = "Superseded by a newer belief"
+}
