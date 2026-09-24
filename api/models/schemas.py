@@ -2417,6 +2417,25 @@ class AgentSetupResponse(CamelModel):
     note: Optional[str] = None
 
 
+class AgentLiveRow(CamelModel):
+    """One agent's live ✓ (round 4 C8, R-AG5). ``via``: ``mcp`` (Cicada's stdio
+    server saw it initialize), ``remote`` (a connector made for it was used) or
+    ``config`` (its own MCP config names Cicada, not seen yet); null while not
+    connected. ``last_seen_at`` is the latest sighting, even while disconnected."""
+
+    id: str
+    connected: bool = False
+    last_seen_at: Optional[str] = None
+    via: Optional[Literal["mcp", "remote", "config"]] = None
+
+
+class AgentLiveResponse(CamelModel):
+    """``GET /agents/live`` — polled while the Agents page is visible; not a Store
+    domain, no ETag (a tiny body that changes by the second)."""
+
+    agents: list[AgentLiveRow] = []
+
+
 # --- Sources (media ingestion) ---
 
 

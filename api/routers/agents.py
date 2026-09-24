@@ -8,8 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.config import Settings, get_settings
-from api.models.schemas import AgentSetupResponse, AgentWiringResponse
-from api.services import agent_wiring
+from api.models.schemas import AgentLiveResponse, AgentSetupResponse, AgentWiringResponse
+from api.services import agent_live, agent_wiring
 
 router = APIRouter()
 
@@ -30,3 +30,10 @@ async def setup(harness: str = Query(..., max_length=40),
     if data is None:
         raise HTTPException(404, f"No setup for {harness!r}")
     return AgentSetupResponse(**data)
+
+
+@router.get("/agents/live", response_model=AgentLiveResponse)
+def live() -> AgentLiveResponse:
+    """Round 4 C8: the live ✓. Engine-free, subprocess-free, never persisted —
+    see api/services/agent_live.py for the three signals and the one rule."""
+    return AgentLiveResponse(**agent_live.snapshot(home=Path.home()))
