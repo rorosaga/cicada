@@ -801,9 +801,9 @@ detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-
 the page's find row.
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
   remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three
-  beside a card) and "Show all N ›". The detail column hosts the Graph's `EntityDetailCard` unchanged, with its
-  `TopicDetailNavigation` trail. A ⌘K ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age:
-  `/graph` nodes have no `lastReferenced`.
+  beside a card) and "Show all N ›". The detail column hosts DS-3a's `EntityDetailCard` as it is, in its `.card`
+  style, with its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K
+  ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age: `/graph` nodes have no `lastReferenced`.
 - **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
   rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
   and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the

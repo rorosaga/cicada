@@ -124,12 +124,12 @@ struct EntityDetailCard: View {
     /// it passes `false` — the card's ✕ only drives `graphVM.clearSelection()`,
     /// which is a no-op (dead button) outside the graph's selection context.
     let showsCloseButton: Bool
-    /// R-DG13 — `.column` on the Graph, `.card` in Clusters (its page frame is DS-3b's).
+    /// R-DG13 — `.column` on the Graph, `.card` in Clusters (its detail column frames the card, R-DL10).
     let style: EntityCardStyle
     /// The column's × — the page closes the column and its Reader together (R-DG7). Nil: `clearSelection()`.
     let onClose: (() -> Void)?
-    /// DR-28 — the page decides what Esc closes (the Reader first). Clusters passes none, so Esc there no longer
-    /// clears the Graph's selection behind it.
+    /// DR-28 — the page decides what Esc closes (the Reader first). Clusters passes its own Esc order, so Esc there
+    /// no longer clears the Graph's selection behind it. Nil: Esc does nothing here.
     let onEscape: (() -> Void)?
 
     /// `defaultRaw` opens the card on the verbatim Source view — used by the
@@ -1042,7 +1042,7 @@ private struct TimelineKeyRow: View {
 
 /// One card, two hosts: the Graph's detail column and Clusters' card.
 enum EntityCardStyle {
-    /// Clusters' detail page — the card on its block, until DS-3b restyles that page.
+    /// Clusters' detail column (DS-3c, R-DL10) — the card on its block inside the column's gutter.
     case card
     /// The Graph's detail column (§5.3): no card chrome, `bgBase`, the column's leading edge (DR-11).
     case column

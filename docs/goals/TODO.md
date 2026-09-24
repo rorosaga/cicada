@@ -76,8 +76,8 @@ Timeline inline. graph.js gained `backgroundClicked`, `escape` and `setSelectedN
 `GET /entities/{id}/sources`. Measured on the branch: Swift **1863 executed, 0 failures**, graph node tests **8 passed**.
 
 **Round 3, Direction D — DS-3c (2026-09-24, `feat/d-lists`, plan `2026-09-24-d-lists.md`).** Clusters in progressive
-columns: one View menu (the Graph's own types, labels, a remembered *Expand all*), type tabs as navigation, the Graph's
-`EntityDetailCard` unchanged as the detail column. The Feed in progressive columns: sort and kind tabs, 56 pt rows with
+columns: one View menu (the Graph's own types, labels, a remembered *Expand all*), type tabs as navigation, DS-3a's
+`EntityDetailCard` as it is (`.card`, the page's Esc through its `onEscape`) as the detail column. The Feed in progressive columns: sort and kind tabs, 56 pt rows with
 the origin's real mark, a saved item's detail column (preview, "Why it's saved", "Saved from") replacing the preview
 sheet, and the header no longer drawn under the titlebar. Sources in D's material: 96 pt tiles packed by span, a source
 or an author as the detail column, and a compact status light that never draws the Full Disk Access fix (the Safari

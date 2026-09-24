@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// §10 / R-DL10 — the entity card as Clusters' detail column. It hosts the Graph's `EntityDetailCard` unchanged — the
-/// card's restyle is DS-3a's, and editing its internals here would fork it — with the "go deeper, then come back" trail
-/// this page always kept for itself (G108 bug 3, `TopicDetailNavigation`), moved from the retired `TopicDetailView`.
-/// The card's own Esc and its Back ⌘[ stay the card's (a DS-3a seam); the column adds Close × and, when DR-27 hides
-/// the list, "‹ N entities".
+/// §10 / R-DL10 — the entity card as Clusters' detail column. It hosts DS-3a's `EntityDetailCard` as it is — its
+/// internals are DS-3a's, and editing them here would fork it — in the `.card` style (R-DG13): the column frames it in
+/// its gutter like the Inbox's focus card, so the Graph's `.column` (its own edge and 28-unit inset) is not this host's.
+/// It keeps the "go deeper, then come back" trail this page always kept for itself (G108 bug 3,
+/// `TopicDetailNavigation`), moved from the retired `TopicDetailView`. The card's Back ⌘[ is the card's; its Esc is the
+/// page's, through DS-3a's `onEscape` seam (DR-28), so focus inside the card still closes the rightmost column. The
+/// column adds Close × and, when DR-27 hides the list, "‹ N entities".
 struct ClustersCardColumn: View {
     let entity: Entity
     let gutter: CGFloat
@@ -33,7 +35,8 @@ struct ClustersCardColumn: View {
                 IconButton(systemName: "xmark", help: Copy.Lists.closeCard, action: onClose)
             }
             // One card identity per entity (the graph overlay's rule): a wikilink push swaps the shown entity.
-            EntityDetailCard(entity: displayEntity, showsCloseButton: false, navigation: cardNavigation)
+            EntityDetailCard(entity: displayEntity, showsCloseButton: false, navigation: cardNavigation, style: .card,
+                             onEscape: onEscape)
                 .id(displayEntity.id)
         }
         .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth))
