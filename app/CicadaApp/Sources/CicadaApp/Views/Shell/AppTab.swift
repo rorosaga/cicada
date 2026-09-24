@@ -61,7 +61,7 @@ extension AppTab {
     /// it for every other page. Grows as each list page's D track lands.
     var hostsOwnReader: Bool {
         switch self {
-        case .inbox, .clusters: true
+        case .inbox, .clusters, .feed: true
         default: false
         }
     }

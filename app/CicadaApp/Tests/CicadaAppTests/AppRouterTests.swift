@@ -113,4 +113,15 @@ final class AppRouterTests: XCTestCase {
             XCTAssertNil(router.pendingSettings, name)
         }
     }
+
+    func testRouteToFeedItemStagesTheItemAndTheTab() {
+        let router = AppRouter()
+        router.routeToFeedItem("media-example")
+        XCTAssertEqual(router.pendingTab, .feed)
+        XCTAssertEqual(router.consumeFeedItem(), "media-example")
+        XCTAssertNil(router.consumeFeedItem(), "read-then-clear")
+        router.routeToClustersEntity("alpha-project")
+        XCTAssertEqual(router.pendingTab, .clusters)
+        XCTAssertEqual(router.consumeClustersEntity(), "alpha-project")
+    }
 }

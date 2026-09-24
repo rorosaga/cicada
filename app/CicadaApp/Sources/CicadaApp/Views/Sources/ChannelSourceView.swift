@@ -15,6 +15,7 @@ struct ChannelSourceView: View {
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     @Environment(InboxViewModel.self) private var inboxVM
+    @Environment(AppRouter.self) private var router
     @State private var busy = false
     @State private var feedback: ChannelFeedback?
 
@@ -52,8 +53,14 @@ struct ChannelSourceView: View {
                     Text("No saved items from this source yet.")
                         .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
                 } else {
-                    VStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(items) { FeedRow(item: $0, showRelevance: false) }
+                    // R-DL16 — a source's saved item opens in the Feed's detail column ("Open in the Feed").
+                    let now = Date.now
+                    VStack(spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
+                        ForEach(items) { item in
+                            FeedListRow(item: item, style: .triage, selected: false, now: now) {
+                                router.routeToFeedItem(item.mediaEntityId)
+                            }
+                        }
                     }
                 }
             }

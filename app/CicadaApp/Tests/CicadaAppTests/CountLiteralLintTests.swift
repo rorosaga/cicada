@@ -46,6 +46,7 @@ final class CountLiteralLintTests: XCTestCase {
         "/Views/Inbox/",
         "/Views/Provenance/ReaderColumn.swift",
         "/Views/Clusters/",
+        "/Views/Feed/",
         "/Theme/Copy+Lists.swift",
     ]
 

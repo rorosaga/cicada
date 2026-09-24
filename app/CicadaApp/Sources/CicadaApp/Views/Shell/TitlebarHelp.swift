@@ -7,19 +7,21 @@ import SwiftUI
 /// page (R1), so "About these actions" no longer had any actions to describe — `.actions`
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
 /// on. The Sleep page keeps its own page-specific explainer (G125 R10); the list pages answer for
-/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8) — with their subtitle and key map,
+/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed — with their subtitle and key map,
 /// since the eyebrow row that replaced each page header has no room for either.
 enum HelpContent: Equatable {
     case aboutCicada
     case howSleepWorks
     case inbox
     case clusters
+    case feed
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
         case .sleep: .howSleepWorks
         case .inbox: .inbox
         case .clusters: .clusters
+        case .feed: .feed
         default: .aboutCicada
         }
     }
@@ -40,6 +42,7 @@ struct TitlebarHelpButton: View {
                 case .howSleepWorks: HowSleepWorksContent()
                 case .inbox: InboxHelpPopover()
                 case .clusters: ListHelpPopover(page: ListHelp.clusters)
+                case .feed: ListHelpPopover(page: ListHelp.feed)
                 }
             }
     }
@@ -100,6 +103,17 @@ enum ListHelp {
             .init(key: "↑ ↓", does: "Move through the list"),
             .init(key: "⏎", does: "Step into the card"),
             .init(key: "⌘[", does: "Back to the previous card"),
+            .init(key: "Esc", does: "Close the rightmost column"),
+        ])
+
+    static let feed = Page(
+        title: "How the Feed works",
+        subtitle: "Everything Cicada has read. Open an item to see why it was saved and where it came from; + adds a source.",
+        keys: [
+            .init(key: "⌘N", does: "Add a source"),
+            .init(key: "⌘F", does: "Find on this page"),
+            .init(key: "↑ ↓", does: "Move through the list"),
+            .init(key: "⏎", does: "Step into the item"),
             .init(key: "Esc", does: "Close the rightmost column"),
         ])
 }

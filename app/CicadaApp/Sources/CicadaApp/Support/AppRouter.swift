@@ -29,7 +29,7 @@ final class AppRouter {
     var pendingSourceDetail: String?
 
     /// Sets both fields together — a `pendingAddSource` with no matching
-    /// tab-switch would stage a sheet nobody ever sees, since `FeedView`
+    /// tab-switch would stage a sheet nobody ever sees, since `FeedPage`
     /// only consumes it once it's actually on screen.
     func routeToFeedAddSource(_ tile: AddSourceTile) {
         closeSettings()
@@ -44,6 +44,32 @@ final class AppRouter {
         closeSettings()
         pendingTab = .sources
         pendingSourceDetail = sourceID
+        activateMainWindow()
+    }
+
+    /// R-DL16 — a saved item opened from the palette or a source's page lands in the Feed's detail column (DR-30's
+    /// landing rule), by media entity id — the key both of them hold.
+    var pendingFeedItem: String?
+
+    func routeToFeedItem(_ mediaEntityId: String) {
+        closeSettings()
+        pendingTab = .feed
+        pendingFeedItem = mediaEntityId
+        activateMainWindow()
+    }
+
+    @discardableResult
+    func consumeFeedItem() -> String? {
+        defer { pendingFeedItem = nil }
+        return pendingFeedItem
+    }
+
+    /// R-DL15 — a saved item's "About" name opens that page's card in Clusters; the tab and the entity move together,
+    /// for `routeToFeedAddSource`'s reason.
+    func routeToClustersEntity(_ id: String) {
+        closeSettings()
+        pendingTab = .clusters
+        pendingClustersEntity = id
         activateMainWindow()
     }
 
@@ -174,7 +200,7 @@ final class AppRouter {
         return pendingConversationQuery
     }
 
-    /// Reads then clears in one call so a caller (`FeedView.onAppear` AND
+    /// Reads then clears in one call so a caller (`FeedPage.onAppear` AND
     /// its `onChange(of: router.pendingAddSource)`, which can both fire for
     /// the same hand-off) can never re-consume a stale tile.
     @discardableResult

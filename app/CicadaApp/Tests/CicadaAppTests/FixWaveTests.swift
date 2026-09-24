@@ -155,19 +155,20 @@ final class FixWaveTests: XCTestCase {
         XCTAssertFalse(UsageViewModel.showsProgress(isLoadingRange: false, isLoading: false))
     }
 
-    // MARK: Low — Feed sort picker accessibility label
+    // MARK: Low — Feed sort tabs accessibility label
 
     /// Every other segmented control on the restructured pages (Activity,
     /// Usage range, Usage mode) got an `.accessibilityLabel`; the Feed sort
-    /// control was the one VoiceOver couldn't name.
-    func testFeedSortPickerHasAnAccessibilityLabel() throws {
-        let text = try sourceFile("Views/Feed/FeedView.swift")
+    /// control was the one VoiceOver couldn't name. The sort is text tabs in
+    /// the eyebrow since DS-3c (R-DL13), and it keeps its label.
+    func testFeedSortTabsHaveAnAccessibilityLabel() throws {
+        let text = try sourceFile("Views/Feed/FeedPage.swift")
         guard let pickerRange = text.range(of: "viewModel.sort = $0") else {
-            XCTFail("Feed sort picker not found in FeedView.swift")
+            XCTFail("Feed sort tabs not found in FeedPage.swift")
             return
         }
         let tail = String(text[pickerRange.lowerBound...].prefix(400))
         XCTAssertTrue(tail.contains(".accessibilityLabel("),
-                      "the Feed sort picker needs an accessibility label")
+                      "the Feed sort tabs need an accessibility label")
     }
 }

@@ -48,5 +48,35 @@ extension Copy {
         static func entityRow(type: String, name: String, open: Bool) -> String {
             open ? "Open: \(type), \(name)" : "\(type), \(name)"
         }
+
+        // The Feed
+        static let kind = "Kind"
+        static let findFeed = "Search saved media…"
+        static let sortFeed = "Sort saved items"
+        static let relevance = "Relevance"
+        static let recent = "Recent"
+        static let relevanceHelp = "Confidence × recency × your weight"
+        static let recentHelp = "Newest first"
+        static let addSourceShortcut = "Add a source… (⌘N)"
+        static let readingFeed = "Reading what you saved…"
+        static let feedLoadFailed = "Couldn't load the feed"
+        static let nothingSaved = "Nothing saved yet"
+        static let whySaved = "Why it's saved"
+        static let savedFrom = "Saved from"
+        static let about = "About"
+        static let nothingPointsHere = "Nothing in your memory points to this yet."
+        static let copyLink = "Copy link"
+        static let linkCopied = "Link copied"
+        static let showOnGraph = "Show on graph"
+        static let openItem = "Open"
+        static func saved(_ n: Int) -> String { "\(UsageFormat.count(n)) saved" }
+        static func savedBack(_ n: Int) -> String { "‹ \(saved(n))" }
+        static func savedOn(_ day: String) -> String { "Saved \(day)" }
+        static func savedRow(_ day: String) -> String { "saved \(day)" }
+        static func relevanceLine(_ pct: String) -> String { "relevance \(pct)" }
+        static func noFeedMatch(_ q: String) -> String { "Nothing saved matches “\(q)”." }
+        static func openInClusters(_ name: String) -> String { "Open \(name) in Clusters" }
+        static func sourceHelp(_ origin: String) -> String { "Saved from \(origin)" }
+        static func feedRow(title: String, open: Bool) -> String { open ? "Open: \(title)" : title }
     }
 }

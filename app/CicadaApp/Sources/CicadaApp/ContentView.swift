@@ -24,8 +24,6 @@ struct ContentView: View {
     /// G136 — the ⌘K find palette (Find, with Ask as a mode; round-3 design
     /// §3). An overlay on this root, not a sheet (A11).
     @State private var paletteOpen = false
-    /// A palette saved-item row previews the item in place (design §3.3).
-    @State private var previewItem: MediaFeedItem?
     /// "Switch to light/dark" writes the key `CicadaApp` already observes.
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
     @Environment(FindPaletteModel.self) private var find
@@ -148,9 +146,6 @@ struct ContentView: View {
         // aside so the person sees the sentence instead of an overlay
         // covering it (the Ask sheet did the same before G136).
         .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
-        .sheet(item: $previewItem) { item in
-            FeedItemPreviewSheet(item: item)
-        }
     }
 
     /// The two layers that cover the whole window — the ⌘K palette and the Settings panel
@@ -326,8 +321,9 @@ struct ContentView: View {
             router.pendingClustersEntity = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .clusters }
         case .feedItem(let id):
-            if let item = store.sources.value?.first(where: { $0.mediaEntityId == id }) {
-                previewItem = item
+            // R-DL16 — a saved item opens in the Feed's detail column, not a sheet.
+            if store.sources.value?.contains(where: { $0.mediaEntityId == id }) == true {
+                router.routeToFeedItem(id)
             } else {
                 openFind(.entity(id: id))
             }
@@ -435,7 +431,7 @@ struct ContentView: View {
         case .clusters:
             ClustersPage()
         case .feed:
-            FeedView(selectedTab: $selectedTab)
+            FeedPage()
         case .sleep:
             // An entity chip in the consolidation history's expanded detail
             // navigates the same way an Ask citation (or a Sources

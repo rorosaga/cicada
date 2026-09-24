@@ -99,4 +99,47 @@ final class FeedViewModel {
             errorMessage = store.toast
         }
     }
+
+    /// DR-45 — the kind tab; nil is All.
+    var kind: FeedKind?
+    /// §5.3 (R-DL6) — the open item, kept across page switches like the Inbox's (R-DI19); a bank switch or a refresh
+    /// that drops it closes it (`reconcile`).
+    var columns = ListColumns<String>()
+
+    /// The search-filtered items narrowed to the kind tab — the rows ↑/↓ walk, in the order drawn.
+    var visible: [MediaFeedItem] {
+        let base = filteredItems
+        guard let kind else { return base }
+        return base.filter { FeedKind.of($0) == kind }
+    }
+
+    var openItem: MediaFeedItem? { columns.openId.flatMap { id in (store.sources.value ?? []).first { $0.id == id } } }
+    var kindTabs: [TextTab<FeedKind>] { FeedKind.tabs(items) }
+
+    func eyebrow(searching: Bool) -> String {
+        FeedEyebrow.text(total: items.count, kind: kind, visible: visible, openId: columns.openId, searching: searching)
+    }
+
+    /// DR-45 — a tab that does not show the open item closes it (the mock's rule).
+    func setKind(_ kind: FeedKind?) {
+        self.kind = kind
+        if let item = openItem, let kind, FeedKind.of(item) != kind { columns.close() }
+    }
+
+    func reconcile() {
+        let all = store.sources.value ?? []
+        columns.reconcile(present: Set(all.map(\.id)))
+        if let k = kind, !all.contains(where: { FeedKind.of($0) == k }) { kind = nil }
+    }
+
+    /// R-DL16 — a palette or source-page hand-off, by media entity id: every kind shown, the search cleared, that item
+    /// open. False when the snapshot does not hold it.
+    @discardableResult
+    func land(mediaEntityId: String) -> Bool {
+        guard let item = (store.sources.value ?? []).first(where: { $0.mediaEntityId == mediaEntityId }) else { return false }
+        kind = nil
+        searchText = ""
+        columns.open(item.id)
+        return true
+    }
 }
