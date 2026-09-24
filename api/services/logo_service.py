@@ -206,7 +206,12 @@ def _first_source_url(frontmatter: dict) -> str | None:
     host taken from conversation text (G61 final review, finding 1). A source
     with no ``added_by`` is the person's, as ``EntitySource.added_by`` defaults.
     """
-    for entry in frontmatter.get("sources") or []:
+    sources = frontmatter.get("sources")
+    # A hand-edited scalar (`sources: 5`) is not a list of sources; iterating it 500'd all of `GET /graph` once the
+    # picture resolver started asking for a domain (r4-people final review, finding 2).
+    if not isinstance(sources, list):
+        return None
+    for entry in sources:
         if not isinstance(entry, dict):
             continue
         added_by = str(entry.get("added_by") or "user").strip() or "user"
@@ -596,6 +601,19 @@ def cached_ids(bank: str) -> set[str]:
         if isinstance(entry, dict) and not entry.get("miss") and is_fresh(entry)
         and entry.get("ext") and (directory / f"{eid}.{entry['ext']}").exists()
     }
+
+
+def missed_ids(bank: str) -> dict[str, float]:
+    """Every entity id with a FRESH recorded miss, mapped to when it was recorded (epoch seconds). Read-only, no
+    network — the picture precedence's logo rung is "cached, or not yet known to miss" (G146 plan R-PE9), and a page
+    edited after its miss is re-resolved exactly as `page_edited_since_fetch` re-resolves it for the logo endpoint."""
+    out: dict[str, float] = {}
+    for eid, entry in read_meta(bank).items():
+        if isinstance(entry, dict) and entry.get("miss") and is_fresh(entry):
+            fetched = _fetched_at(entry)
+            if fetched is not None:
+                out[eid] = fetched.timestamp()
+    return out
 
 
 # --- concurrency -------------------------------------------------------------

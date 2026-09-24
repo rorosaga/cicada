@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// §10 Clusters in progressive columns (Direction D, DS-3c; DR-25…DR-31, DR-45, DR-46, DR-68). With nothing open, every
-/// entity grouped by type at full width; a click narrows the list and opens the entity card beside it; a belief's
-/// evidence opens the Reader as the third column. It replaced `TopicsView` — a pushed detail page, three filters and a
+/// §10 Clusters in progressive columns (Direction D, DS-3c; F-11 since G146; DR-25…DR-31, DR-45, DR-46, DR-68): with
+/// nothing open, mock A's icon-led cards — each type a card of pictures, names and one line in words; a click narrows
+/// to a list of rows with pictures and opens the entity card beside it; a belief's evidence opens the Reader as the
+/// third column. It replaced `TopicsView` — a pushed detail page, three filters and a
 /// type rail that repeated its own rows (P2/P4, DR-38).
 struct ClustersPage: View {
     @Environment(GraphViewModel.self) private var graphVM
@@ -71,19 +72,33 @@ struct ClustersPage: View {
                 }
             }
         } list: { plan in
-            let lines = ClustersModel.lines(groups: groups, tab: tab, matches: found, expandAll: expandAll,
-                                            cap: ClustersModel.cap(for: plan.listStyle))
-            ClustersListColumn(
-                lines: lines, style: plan.listStyle, query: query, findOpen: $findOpen, findText: $query,
-                state: ClustersListState.of(hasEntities: !graphVM.entities.isEmpty, isLoading: graphVM.isLoading,
-                                            groupsEmpty: groups.isEmpty, matches: found),
-                openId: columns.openId, landingToken: landingToken,
-                open: { openEntity($0) },
-                showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
-                move: { delta in move(delta, visible: lines.compactMap(\.entity)) },
-                focusDetail: { focus = .detail }, escape: { escape() },
-                showEverything: { labels = []; graphVM.filter.types = Set(EntityType.selectableCases) })
-                .focused($focus, equals: .list)
+            let state = ClustersListState.of(hasEntities: !graphVM.entities.isEmpty, isLoading: graphVM.isLoading,
+                                             groupsEmpty: groups.isEmpty, matches: found)
+            if plan.listStyle == .wide, !findOpen, state == .list {
+                // F-11 (R-PE12) — nothing open and find closed: A's icon-led cards. ⌘F shows the list column (its
+                // find row and ranked rows) from the moment it opens, so typing never swaps the view under the field.
+                ClustersGridView(groups: groups, tab: tab, expandAll: expandAll, gutter: plan.gutter,
+                                 open: { openEntity($0) },
+                                 showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
+                                 move: { delta in
+                                     move(delta, visible: ClustersGrid.visible(groups, tab: tab, expandAll: expandAll))
+                                 },
+                                 escape: { escape() })
+                    .focused($focus, equals: .list)
+            } else {
+                let lines = ClustersModel.lines(groups: groups, tab: tab, matches: found, expandAll: expandAll,
+                                                cap: ClustersModel.cap(for: plan.listStyle))
+                ClustersListColumn(
+                    lines: lines, style: plan.listStyle, query: query, findOpen: $findOpen, findText: $query,
+                    state: state,
+                    openId: columns.openId, landingToken: landingToken,
+                    open: { openEntity($0) },
+                    showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
+                    move: { delta in move(delta, visible: lines.compactMap(\.entity)) },
+                    focusDetail: { focus = .detail }, escape: { escape() },
+                    showEverything: { labels = []; graphVM.filter.types = Set(EntityType.selectableCases) })
+                    .focused($focus, equals: .list)
+            }
         } detail: { plan in
             if let entity = open {
                 ClustersCardColumn(entity: entity, gutter: plan.gutter,

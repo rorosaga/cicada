@@ -473,6 +473,18 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
+- `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
+  picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
+  travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
+  for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
+  committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
+  it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
+  precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring
+  monogram), resolved at read onto `/graph` nodes and the entity; the app's `EntityPictureResolver` is its twin over
+  `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no service is sent a person's name (G159).
+- `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
+  absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
+  Written by the Contacts sync only.
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
@@ -966,10 +978,16 @@ detail column, and the Reader as the third column (each list page hosts its own:
 detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
 the page's find row.
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
-  remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three
-  beside a card) and "Show all N ›". The detail column hosts DS-3a's `EntityDetailCard` as it is, in its `.card`
-  style, with its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K
-  ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age: `/graph` nodes have no `lastReferenced`.
+  remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
+  is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
+  rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
+  a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
+  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
+  is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
+  (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
+  its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K ⌥⏎ landing
+  opens the entity's type tab.
 - **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
   rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
   and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the
@@ -1284,6 +1302,20 @@ until G61 S3 serves one, and the page's open inbox question with Open in Inbox; 
 tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
 `.help`. History: Show in conversation (straight to the Reader when one conversation maps here) and What
 changed. Timeline: contested beliefs inline; a belief's clock opens its own.
+
+**Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
+precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
+or "initials" → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
+fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the bearer only for Cicada's own paths, never
+to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
+dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
+picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
+with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
+facts strip whose every cell comes from something the card loaded (`PersonFacts`); then the tabs, and in Content two
+columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
+this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
+own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
+40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`

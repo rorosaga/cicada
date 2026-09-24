@@ -29,7 +29,11 @@ def _split(value: str | None) -> set[str] | None:
 # bank neither F1 migration rewrites would otherwise 304 into the junk graph
 # forever; the bump costs every client one 200. The node hash folds `contexts`
 # and `summary` too (graph_builder), so `GraphDiff` re-pushes those parents.
-NODE_SHAPE = "aliases+f1-facets"
+#
+# C11 (G146, plan R-PE5): "+pictures" — nodes gained `picture`, `pictureSource` (omitted when absent) and
+# `lastReferenced`. The ETag's components did not move for the pages that already exist, so the bump is what makes
+# every client take one 200.
+NODE_SHAPE = "aliases+f1-facets+pictures"
 
 
 @router.get("/graph", response_model=GraphResponse)
