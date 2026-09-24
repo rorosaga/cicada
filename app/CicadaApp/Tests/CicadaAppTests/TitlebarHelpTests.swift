@@ -27,9 +27,9 @@ final class TitlebarHelpTests: XCTestCase {
     /// be added without every call site (and this test) being revisited.
     /// The list pages answer for themselves as each D track lands (R-DL8).
     func testHelpContentCasesAreExhaustive() {
-        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .clusters, .feed] {
+        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .clusters, .feed, .sources] {
             switch content {
-            case .aboutCicada, .howSleepWorks, .inbox, .clusters, .feed: break
+            case .aboutCicada, .howSleepWorks, .inbox, .clusters, .feed, .sources: break
             }
         }
     }
@@ -39,6 +39,7 @@ final class TitlebarHelpTests: XCTestCase {
         XCTAssertEqual(HelpContent.page(.inbox), .inbox)
         XCTAssertEqual(HelpContent.page(.clusters), .clusters)
         XCTAssertEqual(HelpContent.page(.feed), .feed)
+        XCTAssertEqual(HelpContent.page(.sources), .sources)
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
         XCTAssertEqual(HelpContent.page(.graph), .aboutCicada)
         XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// One source's page (G124). A harness shows its conversations; every other
-/// kind shows its channel state, folder counts and items. Back is a chevron
-/// and ⌘[ (R15) — the same key the entity card uses on the Graph tab, which
-/// is never mounted at the same time as this view.
+/// One source, as the Sources page's detail column (G124; R-DL19). A harness shows its conversations; every other kind
+/// shows its channel state, folder counts and items. Close × and ⌘[ return to all sources (R15's key, kept) — the same
+/// key the entity card uses on the Graph tab, which is never mounted at the same time as this view; "‹ N sources" leads
+/// the head when DR-27 hid the list.
 ///
 /// The header (Track D) leads with the source's own mark and one honest
 /// sentence of what Cicada reads from it (`SourceBlurb`); `SourceHeaderCard`
@@ -13,7 +13,9 @@ import SwiftUI
 /// THAT says what's waiting and what has already been folded in.
 struct SourceDetailView: View {
     let source: SourceOverview
-    let onBack: () -> Void
+    var hiddenListCount: Int? = nil
+    var onShowList: () -> Void = {}
+    let onClose: () -> Void
     var onSelectEntity: ((String) -> Void)?
 
     @Environment(SleepViewModel.self) private var sleepVM
@@ -52,16 +54,13 @@ struct SourceDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: source.label, subtitle: SourceBlurb.text(for: source),
-                       leading: AnyView(OriginMark(origin: source.mark, size: 28))) {
-                Button(action: onBack) {
-                    Label("Sources", systemImage: "chevron.left").labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
-                .keyboardShortcut("[", modifiers: .command)
-                .help("Back to all sources (⌘[)")
-                .accessibilityLabel("Back to all sources")
+            DetailHeader(title: source.label, blurb: SourceBlurb.text(for: source),
+                         backLabel: hiddenListCount.map(Copy.Lists.sourcesBack), onShowList: onShowList,
+                         closeHelp: Copy.Lists.closeSource,
+                         closeShortcut: KeyboardShortcut("[", modifiers: .command), onClose: onClose) {
+                OriginMark(origin: source.mark, size: CicadaTheme.scaled(20)).markHover()
             }
+            .padding(.horizontal, CicadaTheme.spacingXL)
             headerCard
             SourceQueueStrip(source: source)
             switch source.kind {
@@ -71,6 +70,8 @@ struct SourceDetailView: View {
                 ChannelSourceView(source: source)
             }
         }
+        .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth + 64), maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
         // sleepVM.queuedEpisodes must be populated for the strip above even
         // when Sources is opened without ever visiting Sleep first this
         // session — mirrors SleepView's own `loadedOnce` guard.

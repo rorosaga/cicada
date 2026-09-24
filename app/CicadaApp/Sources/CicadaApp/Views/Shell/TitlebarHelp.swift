@@ -7,7 +7,7 @@ import SwiftUI
 /// page (R1), so "About these actions" no longer had any actions to describe — `.actions`
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
 /// on. The Sleep page keeps its own page-specific explainer (G125 R10); the list pages answer for
-/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed — with their subtitle and key map,
+/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed, then Sources — with their subtitle and key map,
 /// since the eyebrow row that replaced each page header has no room for either.
 enum HelpContent: Equatable {
     case aboutCicada
@@ -15,6 +15,7 @@ enum HelpContent: Equatable {
     case inbox
     case clusters
     case feed
+    case sources
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
@@ -22,6 +23,7 @@ enum HelpContent: Equatable {
         case .inbox: .inbox
         case .clusters: .clusters
         case .feed: .feed
+        case .sources: .sources
         default: .aboutCicada
         }
     }
@@ -43,6 +45,7 @@ struct TitlebarHelpButton: View {
                 case .inbox: InboxHelpPopover()
                 case .clusters: ListHelpPopover(page: ListHelp.clusters)
                 case .feed: ListHelpPopover(page: ListHelp.feed)
+                case .sources: ListHelpPopover(page: ListHelp.sources)
                 }
             }
     }
@@ -115,6 +118,17 @@ enum ListHelp {
             .init(key: "↑ ↓", does: "Move through the list"),
             .init(key: "⏎", does: "Step into the item"),
             .init(key: "Esc", does: "Close the rightmost column"),
+        ])
+
+    static let sources = Page(
+        title: "How Sources works",
+        subtitle: "Where your memory comes from, and who wrote it. Open a source to see what it brought in.",
+        keys: [
+            .init(key: "⌘F", does: "Filter a source's conversations by title"),
+            .init(key: "↑ ↓", does: "Move through the sources"),
+            .init(key: "⌘[", does: "Back to all sources"),
+            .init(key: "⌥↑ ⌥↓", does: "Previous or next citation"),
+            .init(key: "Esc", does: "Close the Reader, then the source"),
         ])
 }
 

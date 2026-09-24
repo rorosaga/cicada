@@ -78,5 +78,25 @@ extension Copy {
         static func openInClusters(_ name: String) -> String { "Open \(name) in Clusters" }
         static func sourceHelp(_ origin: String) -> String { "Saved from \(origin)" }
         static func feedRow(title: String, open: Bool) -> String { open ? "Open: \(title)" : title }
+
+        // Sources
+        static let whoWrote = "Who wrote your memory"
+        static let addSourceHelp = "Add another source of memory"
+        static let closeSource = "Close (Esc) · back to all sources (⌘[)"
+        static let advancedStatistics = "Advanced statistics"
+        static let advancedHelp = "Counts only: writes, Sleep runs, most written and most read"
+        static let expanded = "Expanded"
+        static let collapsed = "Collapsed"
+        static let shareOfEntities = "share of entities written"
+        static func connected(_ n: Int) -> String { "\(UsageFormat.count(n)) connected" }
+        static func sourcesBack(_ n: Int) -> String { "‹ \(UsageFormat.count(n)) \(n == 1 ? "source" : "sources")" }
+        static func commits(_ n: Int) -> String { n == 1 ? "1 commit" : "\(UsageFormat.count(n)) commits" }
+        static func headline(_ count: Int, noun: String) -> String {
+            "\(UsageFormat.count(count)) \(count == 1 ? noun : noun + "s")"
+        }
+        static func contributorBlurb(commits n: Int, share: Double?) -> String {
+            guard let share else { return commits(n) }
+            return "\(commits(n)) · \(UsageFormat.percent(share * 100)) of entities written"
+        }
     }
 }
