@@ -2344,6 +2344,32 @@ class AgentWiringResponse(CamelModel):
     memory: str = ""
 
 
+class AgentSetupConfig(CamelModel):
+    """A config merge the APP performs (round 4 D5): backup first, merge never
+    replace, an unparseable file left untouched. ``path`` is ``~``-relative."""
+
+    path: str
+    key: str
+    value: dict[str, Any]
+
+
+class AgentSetupResponse(CamelModel):
+    """``GET /agents/setup?harness=`` (round 4 C5, G76). ``kind`` says which of
+    ``prompt`` / ``argv`` / ``display`` (a paste-into-your-agent prompt naming
+    exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
+    ``config`` is set. ``remote`` is reserved: no harness produces it yet."""
+
+    harness: str
+    kind: Literal["prompt", "deeplink", "config-merge", "remote"]
+    title: str
+    prompt: Optional[str] = None
+    argv: Optional[list[list[str]]] = None
+    display: Optional[list[str]] = None
+    deeplink: Optional[str] = None
+    config: Optional[AgentSetupConfig] = None
+    note: Optional[str] = None
+
+
 # --- Sources (media ingestion) ---
 
 
