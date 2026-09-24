@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, tzinfo
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from loguru import logger
 
@@ -296,8 +297,14 @@ def _participants(memory_path: Path, raw, text: str) -> list[dict]:
             # a half-redacted URL points nowhere (G141 final review, R-N3).
             from api.services import episode_scrub
 
-            if episode_scrub.scrub(str(item["url"]))[1] == 0:
-                entry["url"] = str(item["url"])
+            # Only a web link is kept: an agent (a remote one with `record`
+            # scope included) must not be able to store a `file://`, `smb://`
+            # or custom-scheme link the app would open on one click.
+            url = str(item["url"]).strip()
+            parsed = urlsplit(url)
+            if (parsed.scheme.lower() in ("http", "https") and parsed.hostname
+                    and episode_scrub.scrub(url)[1] == 0):
+                entry["url"] = url
         if "surface" in entry or "entity" in entry:
             out.append(entry)
     return clean_participants(out)

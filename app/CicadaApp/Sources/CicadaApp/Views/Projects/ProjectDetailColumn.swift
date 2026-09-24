@@ -275,9 +275,12 @@ struct ProjectDetailColumn: View {
     }
 
     /// M, the menu and "No plan yet — Add a milestone": open the Plan and its field, and bring it into view.
+    /// A collapsed Plan is built in this same update with the already-bumped `addRequest`, so its `.onChange` would
+    /// never fire and the field would stay shut; bump on the next turn, once the section exists (final review).
     private func requestAdd() {
+        let wasClosed = collapsed.contains(.plan)
         setOpen(.plan, true)
-        addRequest &+= 1
+        if wasClosed { DispatchQueue.main.async { addRequest &+= 1 } } else { addRequest &+= 1 }
         pendingScroll = "section.plan"
         scrollToken &+= 1
     }
@@ -288,6 +291,7 @@ struct ProjectDetailColumn: View {
         guard !blocked, !typing, let key = selection, let t = cache.display(projectId) else { return false }
         switch key {
         case .thread(let id):
+            guard t.settleableThread(id) != nil else { return false }
             Task { await write(.settle(claimId: id, status: "done")) }
             return true
         case .milestone(let slug):

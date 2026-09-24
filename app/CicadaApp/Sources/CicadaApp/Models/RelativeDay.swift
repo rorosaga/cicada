@@ -156,14 +156,35 @@ enum RelativeDay {
         spanDays > 180 ? [(-30, "a month ago")] : [(-14, "2 weeks ago"), (14, "in 2 weeks")]
     }
 
-    private static func format(_ day: ISODay, template: String, locale: Locale) -> String {
+    /// Formatters by `template|locale`. A fresh `DateFormatter` + `setLocalizedDateFormatFromTemplate` costs ~97 µs,
+    /// and the Projects detail column formats every Lately and Plan row's date (and the band's) on every body pass —
+    /// each live-resize frame, selection and focus change — so a few hundred items cost 50–110 ms of main thread per
+    /// pass (final review of G141 PJ-5). Called from nonisolated pure code in tests too, so the cache and the
+    /// formatting sit behind one lock (the `BookwormRenderer` pattern).
+    private static let formatterLock = NSLock()
+    nonisolated(unsafe) private static var formatters: [String: DateFormatter] = [:]
+    private static let utcCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
-        let f = DateFormatter()
-        f.locale = locale
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.setLocalizedDateFormatFromTemplate(template)
+        return calendar
+    }()
+
+    private static func format(_ day: ISODay, template: String, locale: Locale) -> String {
+        let calendar = utcCalendar
+        let key = "\(template)|\(locale.identifier)"
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        let f: DateFormatter
+        if let cached = formatters[key] {
+            f = cached
+        } else {
+            f = DateFormatter()
+            f.locale = locale
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.setLocalizedDateFormatFromTemplate(template)
+            formatters[key] = f
+        }
         return f.string(from: day.date(in: calendar))
     }
 }

@@ -533,6 +533,20 @@ struct ProjectTimeline: Decodable, Equatable, Sendable {
         conversations = c.lenient(.conversations, [])
         partial = c.lenient(.partial, false)
     }
+
+    /// Whether a row's page (`thread.on`, `item.project`; nil = the project itself) is in this project's tree — the
+    /// only pages a write can reach. The story also shows the owner's own events that name the project (the server's
+    /// `project_timeline._events`), but `routers/projects._find_event` searches the tree alone, so Done / Still going
+    /// / Stopped, D and Not right on such a row would always 404 and roll back. Final review of G141 PJ-5.
+    func holds(_ page: String?) -> Bool {
+        guard let page else { return true }
+        return page == project.id || project.children.contains(page)
+    }
+
+    /// The open thread D may settle: in Now, on a page of the tree.
+    func settleableThread(_ claimId: String) -> ProjectOpenThread? {
+        now.threads.first { $0.claimId == claimId && holds($0.on) }
+    }
 }
 
 /// What every Projects write answers (`routers/projects.py`): the claim it wrote, the day and how that day was

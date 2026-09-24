@@ -132,4 +132,48 @@ final class ProjectWritesTests: XCTestCase {
         XCTAssertFalse(ProjectWriteGate.blocked(status("idle")))
         XCTAssertFalse(ProjectWriteGate.blocked(nil))
     }
+
+    /// Final review — a `reinforced` answer names a claim that was already there (claim_reconciler rule 2), so the
+    /// Log arms Undo only for a claim it `written`; withdrawing the other would retract a line the person never wrote.
+    func testAReinforcedLogArmsNoUndo() {
+        XCTAssertEqual(ProjectLogWords.undoableClaim(ProjectWriteResponse(action: "written", claimId: "clm_new")), "clm_new")
+        XCTAssertNil(ProjectLogWords.undoableClaim(ProjectWriteResponse(action: "reinforced", claimId: "clm_old")))
+        XCTAssertNil(ProjectLogWords.undoableClaim(ProjectWriteResponse(action: "written")))
+        XCTAssertEqual(Copy.Projects.alreadyNoted("Rover Arm Project"), "Already on Rover Arm Project — noted")
+    }
+
+    /// Final review — the story shows the owner's events that name the project, but a write reaches only the tree
+    /// (`_find_event`), so a row on another page offers no Done / Not right and D leaves it alone.
+    func testOnlyARowInTheTreeCanBeWritten() throws {
+        var t = try ProjectFixtures.timeline("rover-arm-project")
+        t.project.children = ["rover-arm-gripper"]
+        XCTAssertTrue(t.holds(nil))
+        XCTAssertTrue(t.holds("rover-arm-project"))
+        XCTAssertTrue(t.holds("rover-arm-gripper"))
+        XCTAssertFalse(t.holds("bob-example"))
+        t.now.threads = [ProjectOpenThread(claimId: "clm_mine", text: "a", since: "2026-09-01", lastHeard: "2026-09-01"),
+                         ProjectOpenThread(claimId: "clm_owner", text: "b", since: "2026-09-01", lastHeard: "2026-09-01",
+                                           on: "bob-example")]
+        XCTAssertNotNil(t.settleableThread("clm_mine"))
+        XCTAssertNil(t.settleableThread("clm_owner"))
+        XCTAssertNil(t.settleableThread("clm_missing"))
+    }
+
+    /// Final review — ↗ opens only an http(s) link with a host; an agent-stored `file://` or custom scheme draws none.
+    func testAParticipantLinkOpensOnlyOnTheWeb() {
+        XCTAssertEqual(ParticipantChip.webLink("https://example.com/guide.pdf")?.host, "example.com")
+        XCTAssertNotNil(ParticipantChip.webLink("HTTP://example.com"))
+        for bad in ["file:///etc/hosts", "smb://example.com/share", "x-custom://open", "https:///nohost", "example.com", "", nil] {
+            XCTAssertNil(ParticipantChip.webLink(bad), String(describing: bad))
+        }
+    }
+
+    /// Final review — the cached formatters give the same words as before, per locale.
+    func testRelativeDayFormattingIsStableAcrossCalls() {
+        let day = ISODay(year: 2026, month: 9, day: 20)
+        let first = RelativeDay.absolute(day, today: ProjectFixtures.today, locale: us)
+        XCTAssertEqual(RelativeDay.absolute(day, today: ProjectFixtures.today, locale: us), first)
+        XCTAssertEqual(first, "Sep 20")
+        XCTAssertNotEqual(RelativeDay.absolute(day, today: ProjectFixtures.today, locale: Locale(identifier: "de_DE")), "")
+    }
 }

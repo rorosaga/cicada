@@ -4,7 +4,8 @@ import SwiftUI
 /// from the words, decided by the server (`when.py`, the one date grammar); the date chip picks it when the words don't
 /// say it (the server's own 422 sentence points at the chip); else today. Nothing relative is sent as a value (R-PJ6):
 /// the words go as the person wrote them, the chip as `YYYY-MM-DD`. After saving, the day the server chose and how, with
-/// Undo for `CicadaTiming.undoWindow` — Undo withdraws the claim the server wrote; the note keeps the person's words.
+/// Undo for `CicadaTiming.undoWindow` — Undo withdraws the claim the server wrote (never one it only reinforced); the
+/// note keeps the person's words.
 struct ProjectLogField: View {
     let projectName: String
     let today: ISODay
@@ -17,7 +18,7 @@ struct ProjectLogField: View {
     @State private var day: ISODay?
     @State private var pickerOpen = false
     @State private var saving = false
-    @State private var logged: (words: String, claimId: String)?
+    @State private var logged: (words: String, claimId: String?, token: UUID)?
 
     private var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -69,10 +70,11 @@ struct ProjectLogField: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "checkmark").font(CicadaTheme.icon(.inline)).accessibilityHidden(true)
                 Text(logged.words)
-                TextButton(title: Copy.Projects.undo, help: Copy.Projects.undoHelp) {
-                    let claimId = logged.claimId
-                    self.logged = nil
-                    Task { await undo(claimId) }
+                if let claimId = logged.claimId {
+                    TextButton(title: Copy.Projects.undo, help: Copy.Projects.undoHelp) {
+                        self.logged = nil
+                        Task { await undo(claimId) }
+                    }
                 }
             }
             .font(CicadaTheme.metaFont)
@@ -111,12 +113,17 @@ struct ProjectLogField: View {
             let answer = await save(words, status, chosen?.description)
             saving = false
             // A failure keeps the words in the field; the toast said why (R-PP19).
-            guard let answer, let claimId = answer.claimId else { return }
+            guard let answer, answer.claimId != nil else { return }
             text = ""
             day = nil
-            logged = (ProjectLogWords.confirmation(projectName, answer: answer, sentDay: chosen != nil, today: today), claimId)
+            // Undo only for a claim this Log created; a `reinforced` answer names a line that was already there.
+            let undoable = ProjectLogWords.undoableClaim(answer)
+            let words = undoable == nil ? Copy.Projects.alreadyNoted(projectName)
+                : ProjectLogWords.confirmation(projectName, answer: answer, sentDay: chosen != nil, today: today)
+            let token = UUID()
+            logged = (words, undoable, token)
             try? await Task.sleep(for: .seconds(CicadaTiming.undoWindow))
-            if logged?.claimId == claimId { logged = nil }
+            if logged?.token == token { logged = nil }
         }
     }
 }

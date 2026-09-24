@@ -85,7 +85,7 @@ struct ProjectNowSection: View {
                 Spacer(minLength: CicadaTheme.spacingSM)
                 if let followup = followups[thread.claimId] {
                     InlineLink(title: Copy.Projects.howDidItGo, help: Copy.Projects.howDidItGoHelp) { openInbox(followup.id) }
-                } else if let settle {
+                } else if let settle, timeline.holds(thread.on) {
                     HStack(spacing: CicadaTheme.spacingXS) {
                         NeutralButton(title: Copy.Projects.done, size: .compact, isDisabled: writesBlocked,
                                       help: Copy.Projects.doneHelp, disabledHelp: Copy.Projects.sleepRunningHelp) {
@@ -207,7 +207,10 @@ struct ProjectLatelySection: View {
     @ViewBuilder
     private func actions(_ item: ProjectItem) -> some View {
         let resumable = item.conversation.flatMap { c in c.resumable ? c.id : nil }
-        if resumable != nil || (item.kind == "happening" && withdraw != nil) {
+        // "Not right" only where the server can find the claim (`ProjectTimeline.holds`): an owner-page event that
+        // names the project is shown here but lives outside the tree.
+        let withdrawable = item.kind == "happening" && withdraw != nil && timeline.holds(item.project)
+        if resumable != nil || withdrawable {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if let id = resumable, let c = item.conversation {
                     NeutralButton(title: Copy.Projects.resume, systemImage: "arrow.uturn.right", size: .compact,
@@ -216,7 +219,7 @@ struct ProjectLatelySection: View {
                         Task { store.toast = await conversations.resume(id).toast }
                     }
                 }
-                if item.kind == "happening", let withdraw {
+                if withdrawable, let withdraw {
                     TextButton(title: Copy.Projects.notRight, help: writesBlocked ? Copy.Projects.sleepRunningHelp : Copy.Projects.notRightHelp) {
                         withdraw(item.id)
                     }
@@ -273,6 +276,9 @@ struct ProjectPlanSection: View {
             DispatchQueue.main.async { addFocused = true }
         }
         .onChange(of: renaming != nil || adding) { _, editing in onEditingChange(editing) }
+        // Collapsing Plan while Rename or Add is open removes this view before `adding`/`renaming` change, so the
+        // column's `typing` would stay true and L · M · D would stop working (final review of G141 PJ-5).
+        .onDisappear { onEditingChange(false) }
     }
 
     private func planRow(_ row: ProjectPlan.Row) -> some View {

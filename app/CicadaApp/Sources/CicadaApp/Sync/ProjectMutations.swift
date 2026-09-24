@@ -150,4 +150,12 @@ enum ProjectLogWords {
             : (sentDay ? Copy.Projects.fromTheChip : Copy.Projects.noDayInWords)
         return Copy.Projects.logged(name, day: when, how: how)
     }
+
+    /// The claim Undo may withdraw: only one this Log just created. The server folds a note whose words match a line
+    /// already there (an open thread restated, a same-day repeat — `claim_reconciler` rule 2) and answers
+    /// `reinforced` with the EXISTING claim's id; withdrawing that would retract a line the person did not just write,
+    /// and record a false `overruled` verdict for it (G113). Final review of G141 PJ-5.
+    static func undoableClaim(_ answer: ProjectWriteResponse) -> String? {
+        answer.action == "written" ? answer.claimId : nil
+    }
 }

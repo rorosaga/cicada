@@ -193,6 +193,8 @@ extension Copy {
         static let logHint = "⏎ saves it as done · ⌘⏎ as still going · the day comes from your words, or the date chip"
         static let saving = "Saving…"
         static func logged(_ name: String, day: String, how: String) -> String { "Logged on \(name) for \(day) — \(how)" }
+        /// The server folded the note into a line already on the page (rule 2): nothing new to take back.
+        static func alreadyNoted(_ name: String) -> String { "Already on \(name) — noted" }
         static let fromYourWords = "dated from your words"
         static let fromTheChip = "the day you picked"
         static let noDayInWords = "no day in your words, so today"

@@ -107,6 +107,16 @@ struct ParticipantChip: View {
     let open: (String) -> Void
     @State private var hovering = false
 
+    /// ↗ only for an http(s) link with a host (the `LinkPaste` / `MenuBarManager` precedent). A participant's URL can
+    /// come from `cicada_note_progress`, which a remote connector with `record` scope may call, so a `file://`,
+    /// `smb://` or custom-scheme link would otherwise open on one click behind a hover that names no host (final
+    /// review of G141 PJ-5).
+    static func webLink(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https", let host = url.host, !host.isEmpty else { return nil }
+        return url
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             Button { if let id = participant.id { open(id) } } label: {
@@ -124,7 +134,7 @@ struct ParticipantChip: View {
             .onHover { hovering = $0 }
             .help(Copy.Projects.openEntity(participant.name, type: participant.type.label))
             .accessibilityLabel(Copy.Projects.openEntity(participant.name, type: participant.type.label))
-            if let url = participant.url.flatMap(URL.init(string:)) {
+            if let url = Self.webLink(participant.url) {
                 Button { NSWorkspace.shared.open(url) } label: {
                     Image(systemName: "arrow.up.right")
                         .font(CicadaTheme.icon(.inline))

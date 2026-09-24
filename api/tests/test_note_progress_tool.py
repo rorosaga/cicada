@@ -207,3 +207,15 @@ def test_settles_finds_the_thread_anywhere_in_the_projects_tree(bank, commits):
     closed = next(c for c in page if c.id == thread)
     assert closed.valid_to == "2026-09-23" and closed.superseded_by == closer.id
     assert not any(c.predicate == "happened" for c in _claims(bank, "rover-arm-project"))
+
+
+@pytest.mark.parametrize("url", ["file:///etc/hosts", "smb://example.com/share", "x-custom://open", "https:///no-host"])
+def test_a_document_link_is_kept_only_when_it_is_a_web_link(bank, commits, url):
+    """G141 PJ-5 final review: the app opens a participant's link on one click,
+    and a remote connector with `record` scope can call this tool — so only an
+    http(s) link with a host is stored; anything else keeps the participant and
+    drops the link."""
+    mcp_tools.note_progress(_ctx(bank), "pick-and-place-demo", "happened", "Bob read the guide", "done",
+                            when="2026-09-22", participants=[{"name": "guide", "role": "document", "url": url}])
+    docs = [p for c in _claims(bank, "pick-and-place-demo") for p in c.participants if p.get("role") == "document"]
+    assert docs and all("url" not in p for p in docs)
