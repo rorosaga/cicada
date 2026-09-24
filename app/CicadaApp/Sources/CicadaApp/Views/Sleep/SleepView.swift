@@ -630,6 +630,7 @@ struct SleepView: View {
             SleepControlRow(consolidateEnabled: page.consolidateEnabled,
                             queuedCount: page.queuedCount)
                 .accessibilitySortPriority(RoomA11yOrder.control)
+                .tourAnchor(.consolidate)
             whisperRow(page)
                 .accessibilitySortPriority(RoomA11yOrder.whisper)
 

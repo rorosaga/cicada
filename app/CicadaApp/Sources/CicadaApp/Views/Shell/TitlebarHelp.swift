@@ -41,19 +41,27 @@ enum HelpContent: Equatable {
 struct TitlebarHelpButton: View {
     let content: HelpContent
     @State private var showing = false
+    @Environment(TourController.self) private var tour
 
     var body: some View {
         IconButton(systemName: "questionmark.circle", help: Copy.helpForThisPage, size: .titlebar) { showing.toggle() }
             .popover(isPresented: $showing, arrowEdge: .bottom) {
-                switch content {
-                case .aboutCicada: AboutCicadaPopover()
-                case .howSleepWorks: HowSleepWorksContent()
-                case .inbox: InboxHelpPopover()
-                case .graph: GraphHelpPopover()
-                case .clusters: ListHelpPopover(page: ListHelp.clusters)
-                case .feed: ListHelpPopover(page: ListHelp.feed)
-                case .sources: ListHelpPopover(page: ListHelp.sources)
-                case .projects: ListHelpPopover(page: ListHelp.projects)
+                VStack(alignment: .leading, spacing: 0) {
+                    switch content {
+                    case .aboutCicada: AboutCicadaPopover()
+                    case .howSleepWorks: HowSleepWorksContent()
+                    case .inbox: InboxHelpPopover()
+                    case .graph: GraphHelpPopover()
+                    case .clusters: ListHelpPopover(page: ListHelp.clusters)
+                    case .feed: ListHelpPopover(page: ListHelp.feed)
+                    case .sources: ListHelpPopover(page: ListHelp.sources)
+                    case .projects: ListHelpPopover(page: ListHelp.projects)
+                    }
+                    // G152 — every page's `?` replays the tour; the closure is built here, where the environment is.
+                    TourReplayRow {
+                        showing = false
+                        tour.requestStart()
+                    }
                 }
             }
     }

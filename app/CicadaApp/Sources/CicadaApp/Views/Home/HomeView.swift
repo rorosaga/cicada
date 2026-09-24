@@ -25,6 +25,7 @@ struct HomeView: View {
     @Environment(SetupRunner.self) private var runner
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(TourController.self) private var tour
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(AppearanceTipPolicy.armedKey) private var tipArmed = false
     @AppStorage(AppearanceTipPolicy.dismissedKey) private var tipDismissed = false
@@ -62,11 +63,14 @@ struct HomeView: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
                                 if tipShown && tipPlacement == .inline { AppearanceTip() }
+                                // Seam 3 — onboarding's "Open Cicada" asked for the tour's offer; Home asks once.
+                                if tour.offerPending { TourOfferCard() }
                                 // Between the field and TODAY, and only while the blocks show
                                 // (R-IB6): the first keystroke replaces it too.
                                 GettingStartedCard(selectedTab: $selectedTab)
                                 HomeSections(today: today, gettingStartedVisible: gettingStartedVisible,
                                              selectedTab: $selectedTab)
+                                    .tourAnchor(.home)
                             }
                             .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
                             .padding(.top, CicadaTheme.spacingCard)
@@ -95,6 +99,7 @@ struct HomeView: View {
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .background(CicadaTheme.bgBase)
+        .onAppear { tour.adoptOffer() }
         // Sleep history is not disk-cached (design §6.3): fetch it on every
         // arrival so LAST READ is "—" only until it lands, never a stale read.
         // A load whose schedule fetch failed is retried here too, or Getting

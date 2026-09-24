@@ -36,6 +36,8 @@ struct CicadaApp: App {
     /// `sleepEngineVM` above: nothing but the main window's views — the panel
     /// included — and the menu commands observe this.
     @State private var appRouter = AppRouter()
+    /// G152 — the guided tour, app-lifetime like the router: every door asks it, `TourLayer` runs it.
+    @State private var tour = TourController()
     /// G118 slice 2 — the Reader's navigation and its in-memory payload
     /// cache. Main window only: the Settings panel never opens a Reader, and
     /// neither is a Store domain (R-PB11), so neither needs the Store.
@@ -173,6 +175,7 @@ struct CicadaApp: App {
                 .environment(sleepVM)
                 .environment(sleepEngineVM)
                 .environment(appRouter)
+                .environment(tour)
                 .environment(provenanceRouter)
                 .environment(provenanceCache)
                 .environment(projectsCache)

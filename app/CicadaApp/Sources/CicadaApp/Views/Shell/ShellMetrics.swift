@@ -49,9 +49,12 @@ enum RailTooltipTiming {
 struct ShellChrome: Equatable {
     var welcomeShowing = false
     var settingsOpen = false
+    /// G152 — the tour is modal like the Settings panel, but the titlebar stays lit: its first stop points at the
+    /// command bar. Inert, not dimmed (ruling R-DT10).
+    var tourActive = false
 
     var itemsHidden: Bool { welcomeShowing }
-    var itemsDisabled: Bool { welcomeShowing || settingsOpen }
+    var itemsDisabled: Bool { welcomeShowing || settingsOpen || tourActive }
     var itemOpacity: Double { welcomeShowing ? 0 : (settingsOpen ? 0.4 : 1) }
 }
 

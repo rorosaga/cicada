@@ -62,6 +62,7 @@ struct InboxPage: View {
                               open: { open($0) }, undo: { undo() }, move: { move($0) },
                               focusQuestion: { focus = .question }, escape: { escape() })
                 .focused($focus, equals: .list)
+                .tourAnchor(.inbox)
         } detail: { plan in
             if let item = viewModel.openItem {
                 ScrollView {
