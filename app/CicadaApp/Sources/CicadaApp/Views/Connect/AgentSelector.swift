@@ -19,7 +19,8 @@ struct AgentSelector: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(68)), spacing: CicadaTheme.scaled(4))],
+        // 80, not 68: at 68 the live Settings → Agents read "Claude C…" (orchestrator live check, 2026-09-24).
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(80)), spacing: CicadaTheme.scaled(4))],
                   spacing: CicadaTheme.scaled(4)) {
             ForEach(entries) { entry in pill(entry) }
         }
@@ -40,6 +41,7 @@ struct AgentSelector: View {
                     .font(CicadaTheme.font(size: 11, weight: selected ? .medium : .regular))
                     .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .truncationMode(.tail)
             }
             .padding(.vertical, CicadaTheme.spacingSM)
