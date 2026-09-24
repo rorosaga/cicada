@@ -24,8 +24,7 @@ struct CommandBox: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
+                AppPasteboard.copy(command)
                 copied = true
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))

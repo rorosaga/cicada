@@ -1331,6 +1331,97 @@ class ProjectWriteResponse(CamelModel):
     claims: list[ClaimModel] = []
 
 
+# --- G150: a project's backlog (routers/backlog.py) ----------------------------
+
+
+class BacklogLink(CamelModel):
+    kind: str                      # pr | commit | url | doc | entity
+    ref: str
+
+
+class BacklogNoteModel(CamelModel):
+    """One signed note (R-B4). `by` is the author id, `byLabel` the heading's
+    words. `authorModel`/`authorEffort` are the turn's model and effort for a
+    harness note once round 4's C3 join is called in `routers/backlog._note`
+    (R-B6) — null until then, never self-reported."""
+    day: str
+    text: str
+    by: str
+    by_kind: str
+    by_provider: Optional[str] = None
+    by_label: str
+    at: Optional[str] = None
+    session: Optional[str] = None
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
+
+
+class BacklogItemSummary(CamelModel):
+    id: str
+    project: str
+    title: str
+    status: str                    # open | doing | done | dropped
+    triage: Optional[str] = None   # apply | research | decide
+    paid: bool = False
+    created: str
+    updated: str
+    added_by: str
+    added_by_kind: str
+    added_by_label: str
+    note_count: int = 0
+    last_note_day: Optional[str] = None   # the machine zone's day (tzName) — never a relative word
+    last_note_by: Optional[str] = None
+    order: Optional[int] = None
+
+
+class BacklogItemModel(BacklogItemSummary):
+    description: str = ""
+    notes: list[BacklogNoteModel] = []
+    links: list[BacklogLink] = []
+    session: Optional[str] = None
+    path: str = ""
+
+
+class BacklogListResponse(CamelModel):
+    project: str
+    project_name: str
+    prefix: str
+    counts: dict[str, int]
+    items: list[BacklogItemSummary]
+    tz_name: str
+
+
+class BacklogItemCreate(CamelModel):
+    title: str
+    description: str = ""
+    triage: Optional[str] = None
+    paid: bool = False
+
+
+class BacklogNoteCreate(CamelModel):
+    note: str = ""
+    status: Optional[str] = None
+
+
+class BacklogItemPatch(CamelModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+    triage: Optional[str] = None   # "" clears it
+    paid: Optional[bool] = None
+    links: Optional[list[BacklogLink]] = None
+
+
+class BacklogImportRequest(CamelModel):
+    markdown: str
+    prefix: str = "G"
+
+
+class BacklogImportResponse(CamelModel):
+    created: list[str]
+    skipped: list[str]
+    failed: list[str] = []
+
+
 class TransclusionPayload(CamelModel):
     """Resolved ``![[…]]`` embed. ``resolved=False`` → render a soft "not found".
 

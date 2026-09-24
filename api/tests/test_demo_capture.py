@@ -252,6 +252,8 @@ WRITES = {
     "cicada_add_source": lambda ctx: mcp_tools.add_source(ctx, "alpha-project", "https://example.com/team"),
     "cicada_note_progress": lambda ctx: mcp_tools.note_progress(ctx, "alpha-project", "happened",
                                                                 "Shipped the first build.", "done"),
+    "cicada_add_backlog_item": lambda ctx: mcp_tools.add_backlog_item(ctx, "alpha-project", "Cache it", "Slow."),
+    "cicada_add_backlog_note": lambda ctx: mcp_tools.add_backlog_note(ctx, "AP1", "Found it."),
 }
 
 

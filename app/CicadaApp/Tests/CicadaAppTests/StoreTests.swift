@@ -219,6 +219,29 @@ final class FakeSyncAPI: SyncAPI {
         try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
     }
 
+    // MARK: Backlog (G150)
+
+    /// What every backlog write answers; set `backlogError` to drive a rollback.
+    var backlogReply: BacklogItem?
+    var backlogError: (any Error)?
+
+    private func backlogWrite(_ what: String) async throws -> BacklogItem {
+        try await record(what)
+        if let backlogError { throw backlogError }
+        guard let backlogReply else { throw APIError.serverUnreachable }
+        return backlogReply
+    }
+
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
+        try await backlogWrite("addBacklogItem:\(project):\(title)")
+    }
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
+        try await backlogWrite("addBacklogNote:\(project):\(item):\(status ?? "nil")")
+    }
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem {
+        try await backlogWrite("updateBacklogItem:\(project):\(item):\(change.status ?? "nil"):\(change.title ?? "nil")")
+    }
+
     private func connectionFixture(id: String) throws -> ConnectionStatus {
         ConnectionStatus(id: id, label: id, kind: "subscription", available: true,
                          connected: true, plan: "max", planLabel: nil, tier: nil,

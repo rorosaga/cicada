@@ -23,7 +23,7 @@ enum ProjectKey: Hashable, Sendable {
     }
 }
 
-enum ProjectSection: String, CaseIterable, Sendable { case now, lately, plan, around }
+enum ProjectSection: String, CaseIterable, Sendable { case now, lately, plan, backlog, around }
 
 /// R-FA3 × R-PP11 (R4 Task 1, review round 1) — how the column brings a picked key into view. Lately's rows are direct
 /// children of the lazy stack, so `scrollTo` finds one that is not built yet; a Plan milestone's id sits INSIDE the Plan
