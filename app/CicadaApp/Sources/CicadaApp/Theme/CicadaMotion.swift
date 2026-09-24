@@ -114,6 +114,65 @@ enum CicadaMotion {
     static func spanReveal(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeOut(duration: spanRevealDuration)
     }
+
+    // MARK: - Progressive columns (DR-61, DR-66)
+    static let columnDuration: TimeInterval = 0.25
+    static let readerInDuration: TimeInterval = 0.25
+    static let readerOutDuration: TimeInterval = 0.18
+    static let cardFadeDuration: TimeInterval = 0.15
+    static let rowLeaveDuration: TimeInterval = 0.15
+    static let undoFadeDuration: TimeInterval = 0.12
+    /// DR-66 — Reduce Motion removes movement; a fade stays, shortened. The one family here that is
+    /// not nil under Reduce Motion, on purpose: a column appearing with no fade at all reads as a jump.
+    static let reducedFadeDuration: TimeInterval = 0.1
+    static var fade: Animation { .linear(duration: reducedFadeDuration) }
+
+    /// STATE 0 → 1 by pointer: the list's width on the drawer curve. Width is movement, so nil under
+    /// Reduce Motion.
+    static func columns(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.drawer(columnDuration)
+    }
+    static func readerIn(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.drawer(readerInDuration)
+    }
+    static func readerOut(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.drawer(readerOutDuration)
+    }
+    static func cardFade(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(cardFadeDuration)
+    }
+    static func rowLeave(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(rowLeaveDuration)
+    }
+    static func undoFade(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.out(undoFadeDuration)
+    }
+    /// The Reader column arriving: 16 pt of travel plus a fade, leaving by a fade (DR-61, DR-65);
+    /// a fade alone under Reduce Motion.
+    static func readerTransition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion ? .opacity
+            : .asymmetric(insertion: .opacity.combined(with: .offset(x: 16)), removal: .opacity)
+    }
+}
+
+/// DR-62 — the four curves, with the approved mocks' control points: `out` is their
+/// `cubic-bezier(.23,1,.32,1)`, `drawer` is the drawer curve columns open on, `ease` is CSS `ease`.
+/// `.easeIn` never appears.
+enum CicadaCurve {
+    static func out(_ duration: TimeInterval) -> Animation { .timingCurve(0.23, 1, 0.32, 1, duration: duration) }
+    static func inOut(_ duration: TimeInterval) -> Animation { .timingCurve(0.77, 0, 0.175, 1, duration: duration) }
+    static func drawer(_ duration: TimeInterval) -> Animation { .timingCurve(0.32, 0.72, 0, 1, duration: duration) }
+    static func ease(_ duration: TimeInterval) -> Animation { .timingCurve(0.25, 0.1, 0.25, 1, duration: duration) }
+}
+
+/// DR-60 — a keyboard action never animates. `body` runs in a transaction that disables every
+/// implicit animation, so a pointer path's `.animation(_:value:)` on the same value cannot catch it.
+enum Instant {
+    static func run(_ body: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, body)
+    }
 }
 
 // MARK: - Hover lift (R-M14)
