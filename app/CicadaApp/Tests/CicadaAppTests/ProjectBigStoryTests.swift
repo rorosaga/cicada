@@ -108,6 +108,17 @@ final class ProjectBigStoryTests: XCTestCase {
         let column = try text("Views/Projects/ProjectDetailColumn.swift")
         XCTAssertFalse(column.contains("ProjectState.state("), "derivation lives in ProjectDerived (R-FA2)")
         XCTAssertTrue(column.contains("LazyVStack"), "the story is lazy (R-FA3)")
+        XCTAssertTrue(column.contains("ProjectScroll.steps(to:"), "a milestone pick lands the Plan first (review round 1)")
         XCTAssertFalse(try text("Views/Projects/ProjectSections.swift").contains("struct ProjectLatelySection"))
+    }
+
+    /// Review round 1 — a Plan milestone's row lives inside the Plan section, which the lazy stack may not have built
+    /// on a long story, so the scroll lands the section first; every other key is a direct id and scrolls once.
+    func testAMilestonePickScrollsToThePlanSectionFirst() {
+        let milestone = ProjectKey.milestone("alpha-launch").id
+        XCTAssertEqual(ProjectScroll.steps(to: milestone), [ProjectScroll.planSection, milestone])
+        XCTAssertEqual(ProjectScroll.steps(to: ProjectKey.item("h-1").id), [ProjectKey.item("h-1").id])
+        XCTAssertEqual(ProjectScroll.steps(to: ProjectKey.thread("c-1").id), [ProjectKey.thread("c-1").id])
+        XCTAssertEqual(ProjectScroll.steps(to: ProjectScroll.planSection), [ProjectScroll.planSection])
     }
 }

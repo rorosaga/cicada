@@ -184,7 +184,7 @@ struct ProjectDetailColumn: View {
                                            onEditingChange: { planEditing = $0 })
                     }
                     .padding(.top, sectionGap)
-                    .id("section.plan")
+                    .id(ProjectScroll.planSection)
                     if !t.cluster.groups.isEmpty || !t.cluster.alsoUses.isEmpty {
                         section(.around, title: Copy.Projects.around, meta: "") {
                             ProjectAroundSection(cluster: t.cluster, today: today, partial: t.partial, openCard: openCard,
@@ -204,7 +204,17 @@ struct ProjectDetailColumn: View {
                 let target = pendingScroll ?? selection?.id
                 pendingScroll = nil
                 guard let target else { return }
-                Instant.run { proxy.scrollTo(target, anchor: .center) }
+                let steps = ProjectScroll.steps(to: target)
+                guard steps.count > 1 else {
+                    Instant.run { proxy.scrollTo(target, anchor: .center) }
+                    return
+                }
+                // A milestone: land the Plan first so the lazy stack builds it, then centre the row a turn later.
+                Instant.run { proxy.scrollTo(steps[0], anchor: .top) }
+                Task { @MainActor in
+                    await Task.yield()
+                    Instant.run { proxy.scrollTo(target, anchor: .center) }
+                }
             }
         }
     }
@@ -330,7 +340,7 @@ struct ProjectDetailColumn: View {
         let wasClosed = collapsed.contains(.plan)
         setOpen(.plan, true)
         if wasClosed { DispatchQueue.main.async { addRequest &+= 1 } } else { addRequest &+= 1 }
-        pendingScroll = "section.plan"
+        pendingScroll = ProjectScroll.planSection
         scrollToken &+= 1
     }
 

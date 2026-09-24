@@ -67,6 +67,9 @@ struct StorySentence: View {
     var lead = true
     let openEntity: (String) -> Void
     /// R-FA1 — this row's own flag, so "+N more" opens this sentence only.
+    /// Per row, on purpose (review round 1 of R4 Task 1): inside the Lately lazy stack a row scrolled far enough off
+    /// screen is torn down and comes back folded. Folded is the default and "+N more" is one click, so the row forgets
+    /// rather than the column carrying a set of expanded ids for every happening it has ever shown.
     @State private var expanded = false
 
     private var font: Font { lead ? CicadaTheme.detailBodyFont : CicadaTheme.bodyFont }
