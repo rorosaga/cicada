@@ -23,6 +23,7 @@ struct InboxFocusCard: View {
     enum Field: Hashable { case other, answer, merge }
 
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
+    @Environment(Store.self) private var store
     @State private var selection: QuestionSelection
     @State private var otherText = ""
     @State private var showAllLines = false
@@ -241,9 +242,9 @@ struct InboxFocusCard: View {
     private var variantBody: some View {
         switch variant {
         case .options: optionsBody
-        case .informational: InformationalBody(item: item, onAnswer: onAnswer)
+        case .informational: InformationalBody(item: item, names: store.entityNames, onAnswer: onAnswer)
         case .freeText: FreeTextBody(item: item, field: $field, onAnswer: onAnswer)
-        case .merge: MergeBody(item: item, field: $field, onAnswer: onAnswer)
+        case .merge: MergeBody(item: item, names: store.entityNames, field: $field, onAnswer: onAnswer)
         case .legacyDecay: LegacyDecayBody(onAnswer: onAnswer)
         case .dismissOnly: DismissBody(onAnswer: onAnswer)
         }
@@ -252,7 +253,8 @@ struct InboxFocusCard: View {
     private var optionsBody: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.optionGap)) {
             ForEach(Array(item.options.enumerated()), id: \.element.id) { pair in
-                OptionRow(option: pair.element, number: pair.offset < 9 ? pair.offset + 1 : nil,
+                OptionRow(option: pair.element, label: store.entityNames.display(pair.element.label),
+                          number: pair.offset < 9 ? pair.offset + 1 : nil,
                           highlighted: !selection.otherExpanded && selection.index == pair.offset,
                           onHover: { selection.highlight(pair.offset) }) { pick(pair.offset) }
             }

@@ -22,6 +22,8 @@ struct InboxPage: View {
     /// R-DI4 — a field in the card has focus, so ⌘Z is the field's.
     @State private var editingText = false
     @State private var landingToken = 0
+    /// R-DL4 — the column plan's DR-27 answer, mirrored out of the header builder so the focus policy can read it.
+    @State private var listHidden = false
 
     var body: some View {
         Group {
@@ -52,6 +54,7 @@ struct InboxPage: View {
                     get: { viewModel.columns.kindFilter },
                     set: { viewModel.setFilter($0) }))
             }
+            .onChange(of: plan.listHidden, initial: true) { _, hidden in listHidden = hidden }
         } list: { plan in
             InboxQuestionList(entries: viewModel.rows, style: plan.listStyle, width: plan.list,
                               openId: viewModel.columns.openId,
@@ -78,6 +81,11 @@ struct InboxPage: View {
                             // a Reader that closes because the next question cites another conversation
                             // closes with it, never on the drawer curve (DR-60 for 1–9 and ⏎).
                             Instant.run { viewModel.answerAndFollow(item, resolution, reader: provenance) }
+                            // R-DL4 — after an answer the list takes the keys (Undo holds one answer).
+                            DispatchQueue.main.async {
+                                focus = InboxFocusPolicy.afterArrivalOrAnswer(listHidden: listHidden,
+                                                                               questionOpen: viewModel.openItem != nil)
+                            }
                         }
                         .id(item.id)
                         .focused($focus, equals: .question)
@@ -89,6 +97,16 @@ struct InboxPage: View {
             }
         } trailing: { _ in
             ReaderColumn().focused($focus, equals: .reader)
+        }
+        .onAppear { arrive() }
+    }
+
+    /// R-DL4 — the keys land where the policy says, one turn later: a `FocusState` write in the same update that
+    /// inserts the focusable view is dropped by SwiftUI on macOS (the arrival case), and after an answer the card that
+    /// held focus has just been replaced by the next one (keyed by its id).
+    private func arrive() {
+        DispatchQueue.main.async {
+            focus = InboxFocusPolicy.afterArrivalOrAnswer(listHidden: listHidden, questionOpen: viewModel.openItem != nil)
         }
     }
 

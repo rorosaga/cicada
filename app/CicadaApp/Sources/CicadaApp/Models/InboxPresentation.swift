@@ -100,14 +100,15 @@ extension InboxItem {
 /// R-DI5 / DR-42 — what the Undo row says for an answer: the full form in the list, the short
 /// one while the Reader is open ("Answered · Undo"). Words, never the action's wire name.
 enum UndoLabel {
-    static func of(_ r: QuestionResolution, item: InboxItem) -> (full: String, short: String) {
+    /// R-DL5 — `names` shows a picked option that is a page's id as that page's name, as the card did.
+    static func of(_ r: QuestionResolution, item: InboxItem, names: EntityNames = .empty) -> (full: String, short: String) {
         let typed = r.answer?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         switch r.action {
         case "resolve":
             if r.optionKey == "remind_later" { return (Copy.Inbox.notNow, Copy.Inbox.notNow) }
             if !typed.isEmpty { return (Copy.Inbox.answered(typed), Copy.Inbox.answered) }
             if let key = r.optionKey, let option = item.options.first(where: { $0.key == key }) {
-                return (Copy.Inbox.answered(option.label), Copy.Inbox.answered)
+                return (Copy.Inbox.answered(names.display(option.label)), Copy.Inbox.answered)
             }
             return (Copy.Inbox.answered, Copy.Inbox.answered)
         case "answer":

@@ -99,7 +99,7 @@ final class InboxViewModel {
     /// DR-42 — the one tap. The answer is held (`Store.hold`) and its question leaves every list at
     /// once; the POST waits for the Undo window (R-DI2). Nothing to await: there is no request yet.
     func answer(_ item: InboxItem, _ resolution: QuestionResolution) {
-        let words = UndoLabel.of(resolution, item: item)
+        let words = UndoLabel.of(resolution, item: item, names: store.entityNames)
         store.hold(InboxResolve(id: item.id, action: resolution.action, answer: resolution.answer,
                                 optionKey: resolution.optionKey, remindDays: resolution.remindDays,
                                 mergeTarget: resolution.mergeTarget, mergeSurvivor: resolution.mergeSurvivor),
