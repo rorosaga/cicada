@@ -146,19 +146,6 @@ enum SleepHistoryPresentation {
         return f.string(from: date)
     }
 
-    /// Which SF Symbol names an engine (G125) — `nil` (no `Cicada-Engine:`
-    /// trailer; a decay or state-snapshot commit never carries one) gets a
-    /// neutral placeholder rather than defaulting to any one real engine's
-    /// icon.
-    static func engineSymbol(_ engine: String?) -> String {
-        switch engine {
-        case "claude-cli", "codex-cli": "cpu"
-        case "ollama": "desktopcomputer"
-        case "litellm": "key"
-        default: "circle.dashed"
-        }
-    }
-
     /// `authors` are model ids ("gpt-5.4-mini") except the literal `user` —
     /// never shown as the raw literal, since a person reads it as "you", not
     /// as a model that ran.
@@ -173,6 +160,9 @@ enum SleepHistoryPresentation {
 /// flip `expanded` and fetch `details[commit]` if it isn't cached yet — this
 /// view never fetches on its own, mirroring `StudyListCard`'s own "pure
 /// renderer of what the caller already resolved" posture.
+///
+/// R-HS15 — its label over 36 pt rows, no card (DR-37); an engine wears its
+/// real mark (`EngineMark`, DR-52) where the pill used a generic cpu/key glyph.
 struct ConsolidationHistoryCard: View {
     let entries: [SleepHistoryEntry]
     let details: [String: SleepCycleDetail]
@@ -181,72 +171,178 @@ struct ConsolidationHistoryCard: View {
     var onSelectEntity: ((String) -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            SectionLabel("Past nights")
-
+        SleepDetailsSection(title: "Past nights") {
             if entries.isEmpty {
                 Text("Nothing consolidated yet.")
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.vertical, CicadaTheme.spacingSM)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(entries) { entry in
-                        row(entry)
+                        PastNightRow(entry: entry, isExpanded: expanded == entry.commitHash, onToggle: onToggle)
                         if expanded == entry.commitHash {
                             detail(for: entry)
-                                .padding(.leading, CicadaTheme.spacingLG)
+                                // The mock's indent: the detail starts under the headline.
+                                .padding(.leading, CicadaTheme.scaled(142))
+                                .padding(.trailing, CicadaTheme.scaled(40))
                                 .padding(.bottom, CicadaTheme.spacingSM)
                         }
                     }
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
     }
 
-    private func row(_ entry: SleepHistoryEntry) -> some View {
+    /// Everything the row draws, in words — the pill and the `—` are both
+    /// silent marks otherwise.
+    static func rowAccessibilityLabel(_ entry: SleepHistoryEntry) -> String {
+        var parts = [SleepHistoryPresentation.dateText(entry.date)]
+        let time = SleepHistoryPresentation.timeText(entry.date)
+        if time != "—" { parts.append(time) }
+        parts.append(SleepHistoryPresentation.summaryLine(entry))
+        if let pill = SleepHistoryPresentation.enginePill(entry) { parts.append(pill) }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Counts go through `UsageFormat` (DR-21); entity links are `accentText` (DR-5 use 5).
+    @ViewBuilder
+    private func detail(for entry: SleepHistoryEntry) -> some View {
+        if let d = details[entry.commitHash] {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                if !d.episodesByOrigin.isEmpty {
+                    FlowLayout(spacing: 6) {
+                        ForEach(d.episodesByOrigin.sorted(by: { $0.key < $1.key }), id: \.key) { origin, count in
+                            HStack(spacing: 4) {
+                                OriginMark(origin: origin, size: CicadaTheme.scaled(12))
+                                Text(UsageFormat.count(count))
+                                    .font(CicadaTheme.metaFont)
+                                    .monospacedDigit()
+                                    .foregroundStyle(CicadaTheme.textSecondary)
+                            }
+                        }
+                    }
+                }
+
+                Text("\(UsageFormat.count(d.sessions)) conversation\(d.sessions == 1 ? "" : "s") · \(d.authors.map(SleepHistoryPresentation.authorLabel).joined(separator: ", "))")
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+
+                if d.entities.isEmpty {
+                    Text("No entity pages changed.")
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                } else {
+                    FlowLayout(spacing: 6) {
+                        ForEach(d.entities) { entity in
+                            Button(entity.id) { onSelectEntity?(entity.id) }
+                                .buttonStyle(.cicadaPlain)
+                                .font(CicadaTheme.metaFont)
+                                .foregroundStyle(CicadaTheme.accentText)
+                        }
+                        if d.truncated {
+                            Text("+ more")
+                                .font(CicadaTheme.metaFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                        }
+                    }
+                }
+
+                if d.inboxChanges > 0 {
+                    Text("\(UsageFormat.count(d.inboxChanges)) inbox item\(d.inboxChanges == 1 ? "" : "s") changed")
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+        } else {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ProgressView().controlSize(.small)
+                Text("Loading…")
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
+    }
+}
+
+/// One Past nights row (R-HS15): the date and the time side by side (the D-Sleep mock), the
+/// headline, the engine's mark and pill words, the measured duration and the chevron — one row of
+/// at least 36 pt (DR-34) with a `bgHover` fill under the pointer, never a lift. Its own view for
+/// its own `@State hovering`.
+private struct PastNightRow: View {
+    let entry: SleepHistoryEntry
+    let isExpanded: Bool
+    let onToggle: (String) -> Void
+    @State private var hovering = false
+
+    var body: some View {
         // A decay-only commit is arithmetic, not a consolidation an LLM
         // authored (G85) — every part of its row reads as muted so it never
         // looks like the same kind of event as a real cycle.
         let isDecay = entry.kind == "decay"
-        let tone: Color = isDecay ? CicadaTheme.textTertiary : CicadaTheme.textSecondary
-        return Button {
+        Button {
             onToggle(entry.commitHash)
         } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
-                // Date over time (budget row #16). The time exists only since
-                // `--date=iso-strict` (Task 1); a legacy `yyyy-MM-dd` row reads
-                // "—" rather than a fabricated midnight (R-A14).
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(SleepHistoryPresentation.dateText(entry.date))
-                        .font(CicadaTheme.font(size: 11).monospacedDigit())
-                        .foregroundStyle(tone)
-                    Text(SleepHistoryPresentation.timeText(entry.date))
-                        .font(CicadaTheme.font(size: 9).monospacedDigit())
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                .frame(width: 58, alignment: .leading)
+                // The time exists only since `--date=iso-strict` (Task 1); a legacy `yyyy-MM-dd`
+                // row reads "—" rather than a fabricated midnight (R-A14).
+                Text(SleepHistoryPresentation.dateText(entry.date))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
+                    .frame(width: CicadaTheme.scaled(48), alignment: .leading)
+                Text(SleepHistoryPresentation.timeText(entry.date))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: CicadaTheme.scaled(60), alignment: .leading)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    headline(entry, isDecay: isDecay)
-                    enginePill(entry, isDecay: isDecay)
+                headline(isDecay: isDecay)
+
+                // The pill is also set for an author-only commit with no engine; the mark shows
+                // only when there is an engine to mean.
+                if let pill = SleepHistoryPresentation.enginePill(entry) {
+                    HStack(spacing: CicadaTheme.scaled(4)) {
+                        if let engine = entry.engine {
+                            EngineMark(engine: engine, size: CicadaTheme.scaled(12))
+                        }
+                        Text(pill)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: CicadaTheme.scaled(250), alignment: .leading)
                 }
 
                 Spacer(minLength: CicadaTheme.spacingSM)
 
-                durationText(entry)
-
-                Image(systemName: expanded == entry.commitHash ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 9, weight: .semibold))
+                // P18 — a `—` is a value with a reason, and the reason is on hover: the duration
+                // is joined from the `sleep_run` telemetry ledger by commit hash, and there is
+                // simply no row to join when telemetry was off (R5).
+                Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: CicadaTheme.scaled(52), alignment: .trailing)
+                    .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
+
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: CicadaTheme.scaled(28))
             }
+            .padding(.leading, CicadaTheme.scaled(10))
+            .padding(.trailing, CicadaTheme.scaled(4))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .fill(hovering ? CicadaTheme.bgHover : Color.clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .accessibilityLabel(Self.rowAccessibilityLabel(entry))
+        .onHover { hovering = $0 }
+        .accessibilityLabel(ConsolidationHistoryCard.rowAccessibilityLabel(entry))
     }
 
     /// The row's counts, on one line where they fit and on two where they do
@@ -259,7 +355,7 @@ struct ConsolidationHistoryCard: View {
     /// `headlineLines(entry:compact:)` still owns the WORDING of both
     /// candidates, so what the row can say is asserted in a table test and
     /// only which of the two is drawn depends on the layout.
-    private func headline(_ entry: SleepHistoryEntry, isDecay: Bool) -> some View {
+    private func headline(isDecay: Bool) -> some View {
         ViewThatFits(in: .horizontal) {
             headlineText(SleepHistoryPresentation.headlineLines(entry, compact: false), isDecay: isDecay)
             headlineText(SleepHistoryPresentation.headlineLines(entry, compact: true), isDecay: isDecay)
@@ -279,105 +375,6 @@ struct ConsolidationHistoryCard: View {
                     .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// Everything the row draws, in words — the pill and the `—` are both
-    /// silent marks otherwise.
-    static func rowAccessibilityLabel(_ entry: SleepHistoryEntry) -> String {
-        var parts = [SleepHistoryPresentation.dateText(entry.date)]
-        let time = SleepHistoryPresentation.timeText(entry.date)
-        if time != "—" { parts.append(time) }
-        parts.append(SleepHistoryPresentation.summaryLine(entry))
-        if let pill = SleepHistoryPresentation.enginePill(entry) { parts.append(pill) }
-        return parts.joined(separator: ", ")
-    }
-
-    /// The engine·author badge. An absent engine drops the mark with the label
-    /// it belonged to rather than showing a placeholder icon next to an author
-    /// — the icon means "this engine", and there is no engine to mean.
-    @ViewBuilder
-    private func enginePill(_ entry: SleepHistoryEntry, isDecay: Bool) -> some View {
-        if let pill = SleepHistoryPresentation.enginePill(entry) {
-            HStack(spacing: 3) {
-                if entry.engine != nil {
-                    Image(systemName: SleepHistoryPresentation.engineSymbol(entry.engine))
-                        .font(CicadaTheme.font(size: 9))
-                        .foregroundStyle(isDecay ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                }
-                Text(pill)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-        }
-    }
-
-    /// P18 — a `—` is a value with a reason, and the reason is on hover: the
-    /// duration is joined from the `sleep_run` telemetry ledger by commit hash,
-    /// and there is simply no row to join when telemetry was off (R5).
-    private func durationText(_ entry: SleepHistoryEntry) -> some View {
-        Text(SleepHistoryPresentation.durationText(ms: entry.durationMs))
-            .font(CicadaTheme.font(size: 11).monospacedDigit())
-            .foregroundStyle(CicadaTheme.textTertiary)
-            .help(entry.durationMs == nil ? Copy.noTimingRecorded : "")
-    }
-
-    @ViewBuilder
-    private func detail(for entry: SleepHistoryEntry) -> some View {
-        if let d = details[entry.commitHash] {
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                if !d.episodesByOrigin.isEmpty {
-                    FlowLayout(spacing: 6) {
-                        ForEach(d.episodesByOrigin.sorted(by: { $0.key < $1.key }), id: \.key) { origin, count in
-                            HStack(spacing: 4) {
-                                OriginMark(origin: origin, size: 12)
-                                Text("\(count)")
-                                    .font(CicadaTheme.captionFont)
-                                    .foregroundStyle(CicadaTheme.textSecondary)
-                            }
-                        }
-                    }
-                }
-
-                Text("\(d.sessions) conversation\(d.sessions == 1 ? "" : "s") · \(d.authors.map(SleepHistoryPresentation.authorLabel).joined(separator: ", "))")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                if d.entities.isEmpty {
-                    Text("No entity pages changed.")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                } else {
-                    FlowLayout(spacing: 6) {
-                        ForEach(d.entities) { entity in
-                            Button(entity.id) { onSelectEntity?(entity.id) }
-                                .buttonStyle(.cicadaPlain)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.accent)
-                        }
-                        if d.truncated {
-                            Text("+ more")
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                    }
-                }
-
-                if d.inboxChanges > 0 {
-                    Text("\(d.inboxChanges) inbox item\(d.inboxChanges == 1 ? "" : "s") changed")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-            }
-        } else {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                ProgressView().controlSize(.small)
-                Text("Loading…")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
             }
         }
     }

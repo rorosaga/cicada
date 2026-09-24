@@ -24,10 +24,38 @@ extension Copy {
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }
     }
 
+    /// Details (R-HS15): Last cycle's rows, the readout's keys, and the untitled episode.
+    enum SleepDetailsWords {
+        static let failedTitle = "Sleep cycle error"
+        static let cancelledTitle = "Cancelled"
+        static let cancelledText = "Stopped cleanly before any writes — nothing was lost."
+        static func capTitle(_ cap: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "Episode cap reached (\(UsageFormat.count(cap, locale: locale)))"
+        }
+        static func capText(processed: Int, queued: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "\(UsageFormat.count(processed, locale: locale)) of \(UsageFormat.count(queued, locale: locale)) processed — the rest stay queued for the next cycle."
+        }
+        static let warningTitle = "Completed with warnings"
+        static let inMemory = "In memory"
+        static let feedingIt = "Feeding it"
+        static let lastCycleTook = "Last cycle took"
+        static let lastEngine = "Last engine"
+        /// The engine row's dash reason. Not "Sleep hasn't run": `lastEngine` is also nil while the
+        /// status is still loading and on an older backend, and a dash's reason is never a guess (R-A14).
+        static let noEngineYet = "No cycle has reported its engine yet."
+        static let untitled = "Untitled"
+    }
+
     /// Every DS-3b label `HomeSleepCopyTests` holds to DR-59. Later tasks append here.
     static let homeSleepLabels: [String] = [
         EngineMenu.title, EngineMenu.buttonHelp, EngineMenu.model, EngineMenu.howAutoPicks,
         EngineMenu.whenYouStart, EngineMenu.scheduledCycles, EngineMenu.writeFailed, EngineMenu.moreInSettings,
         EngineMenu.plansAndKeys, EngineMenu.signInFirst("ChatGPT plan"),
+        // `capText` is a sentence that passes 60 characters once its counts have four digits, so it
+        // stays off this list (Task 3).
+        SleepDetailsWords.failedTitle, SleepDetailsWords.cancelledTitle, SleepDetailsWords.cancelledText,
+        SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
+        SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
+        SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,
     ]
 }

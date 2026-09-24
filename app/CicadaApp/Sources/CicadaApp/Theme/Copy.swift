@@ -155,18 +155,6 @@ enum Copy {
         count == 1 ? "episode waiting" : "episodes waiting"
     }
 
-    /// The hero tiles' nouns (R-A6). Each takes its own count so the singular
-    /// is right, and an unknown (`nil`) keeps the plural — the tile shows `—`
-    /// beside it, so "— entities in memory" reads correctly and "— entity in
-    /// memory" would not.
-    static func entitiesInMemory(_ count: Int?) -> String {
-        count == 1 ? "entity in memory" : "entities in memory"
-    }
-
-    static func sourcesFeeding(_ count: Int?) -> String {
-        count == 1 ? "source feeding it" : "sources feeding it"
-    }
-
     /// What `Rested n%` is made of, on hover over the meter's label
     /// (round-2 live check). The backend combines two ratios into one
     /// percentage — how full the queue is by volume, and how far its oldest
@@ -178,8 +166,6 @@ enum Copy {
     static func restedBreakdown(volumePct: Int, agePct: Int) -> String {
         "Volume \(volumePct)% · age \(agePct)% of the way to a full backlog"
     }
-
-    static let lastCycle = "Last cycle"
 
     /// R-A14/P18 — every `—` on this page carries a hover reason naming why
     /// the number is unknowable. A cycle's duration is joined from the

@@ -695,11 +695,12 @@ private struct DetailsDisclosureRow: View {
         Button(action: toggle) {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: open ? "chevron.down" : "chevron.right")
-                    .font(CicadaTheme.font(size: 10, weight: .semibold))
+                    .font(CicadaTheme.icon(.inline))
                     .frame(width: 12)
                     .iconHover(hovering: hovering)
+                // DR-16 — 13 medium: a row's title, not one of semibold's short list (R-HS15).
                 Text(Copy.sleepDetails)
-                    .font(CicadaTheme.font(size: 13, weight: .semibold))
+                    .font(CicadaTheme.rowFont)
                 Spacer(minLength: 0)
             }
             .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
