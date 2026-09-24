@@ -115,15 +115,43 @@ def _tag_origin(items: list[RawItem], origin: str) -> list[RawItem]:
     return items
 
 
+#: Round 4 (C9, R-SR2): the Chromium-family browsers whose default-profile
+#: `Bookmarks` JSON the app reads and posts. One parser (`read_chrome_bookmarks`)
+#: serves all five — the file is Chromium's, and each browser's bundle id and
+#: path were verified from public sources (the round-4 sources plan), never from
+#: a real profile. Edge and Opera wait for the same check (G119). Only the
+#: default profile is ever read (R-SR1): profile selection is G119's next slice.
+CHROMIUM_BROWSERS: dict[str, str] = {
+    "chrome": "Chrome", "brave": "Brave", "vivaldi": "Vivaldi", "comet": "Comet", "dia": "Dia",
+}
+SAFARI_ORIGIN = "safari-bookmark"
+
+
+def origin_for(browser: str) -> str:
+    """``brave`` -> ``brave-bookmark`` — the G9 origin every item of that browser carries."""
+    return f"{browser}-bookmark"
+
+
+def channel_for(browser: str) -> str:
+    """``brave`` -> ``brave-bookmarks`` — its one ``sync_state.json`` key and channel row (R4)."""
+    return f"{browser}-bookmarks"
+
+
 # Which `sync_state.json` channel each browser's sync stamps (R4). The old
 # combined "bookmarks" key is read back as a legacy fallback by
 # `channel_registry._sync_channel` and never written again: the catalog has
 # one tile per browser, and a channel must map to exactly one tile.
-CHANNEL_BY_ORIGIN = {"chrome-bookmark": "chrome-bookmarks", "safari-bookmark": "safari-bookmarks"}
+CHANNEL_BY_ORIGIN = {**{origin_for(b): channel_for(b) for b in CHROMIUM_BROWSERS}, SAFARI_ORIGIN: "safari-bookmarks"}
 
 # Display label for a removal item's question text and its hint (R2) — the
-# same two origins `_tag_origin` ever stamps.
-_BROWSER_LABEL = {"chrome-bookmark": "Chrome", "safari-bookmark": "Safari"}
+# same origins `_tag_origin` ever stamps.
+_BROWSER_LABEL = {**{origin_for(b): name for b, name in CHROMIUM_BROWSERS.items()}, SAFARI_ORIGIN: "Safari"}
+
+#: Round 4 (R-SR13, R-SR14): the counts a Safari sync stamps beside `found`, which
+#: `channel_registry` ships as the row's `parts`.
+PART_KEYS = ("reading_list", "favorites")
+SAFARI_FAVORITES_ROOT = "BookmarksBar"
+SAFARI_READING_LIST_ROOT = "com.apple.ReadingList"
 
 # Safari's plist names its top-level folders by internal key; the preview
 # shows the names the user sees in Safari while the PATH keeps the raw key
@@ -201,22 +229,60 @@ def filter_by_folders(items: list[RawItem], folders: list[str] | None) -> list[R
     return out
 
 
-def _batches(chrome_data: bytes | None, safari_data: bytes | None) -> list[tuple[str, list[RawItem]]]:
-    """Parse + origin-tag whichever sources were supplied, in the fixed
-    Chrome-then-Safari order both ``sync_bookmarks`` and ``preview_bookmarks``
-    report — one parse path so a preview can never disagree with the sync."""
+def _root(folder: str | None) -> str:
+    return (folder or "").split("/", 1)[0]
+
+
+def safari_parts(items: list[RawItem]) -> dict[str, int]:
+    """How many of a Safari sync's items are in the Reading List and under Favorites
+    (the `BookmarksBar`, its folders included) — R-SR13's "counts on the wire"."""
+    return {
+        "reading_list": sum(1 for i in items if _root(i.folder) == SAFARI_READING_LIST_ROOT),
+        "favorites": sum(1 for i in items if _root(i.folder) == SAFARI_FAVORITES_ROOT),
+    }
+
+
+def recently_saved_first(items: list[RawItem]) -> list[RawItem]:
+    """Dated items newest first, then the undated in file order — stable both ways.
+
+    R-SR13: "recently saved" is not stored anywhere in Safari's plist; it is the
+    Reading List sorted by `DateAdded`. Ingesting in that order means the newest
+    saves land first, and a sync the person stops keeps the ones they care about.
+    """
+    dated = sorted((i for i in items if i.added), key=lambda i: i.added, reverse=True)
+    return dated + [i for i in items if not i.added]
+
+
+def _batches(
+    chrome_data: bytes | None,
+    safari_data: bytes | None,
+    chromium: list[tuple[str, bytes]] | None = None,
+) -> list[tuple[str, list[RawItem]]]:
+    """Parse + origin-tag whichever sources were supplied — Chrome's legacy field,
+    then each Chromium-family browser in the order sent, then Safari — one parse
+    path so a preview can never disagree with the sync. An unknown browser raises
+    ``ValueError`` before anything is parsed (the router answers 422 first)."""
+    for browser, _ in chromium or []:
+        if browser not in CHROMIUM_BROWSERS:
+            raise ValueError(f"unknown browser {browser!r}")
     batches: list[tuple[str, list[RawItem]]] = []
     if chrome_data is not None:
-        batches.append(("chrome-bookmark", _tag_origin(read_chrome_bookmarks(chrome_data), "chrome-bookmark")))
+        batches.append((origin_for("chrome"), _tag_origin(read_chrome_bookmarks(chrome_data), origin_for("chrome"))))
+    for browser, data in chromium or []:
+        origin = origin_for(browser)
+        batches.append((origin, _tag_origin(read_chrome_bookmarks(data), origin)))
     if safari_data is not None:
-        batches.append((
-            "safari-bookmark",
-            _tag_origin(media_ingestor.parse_safari_bookmarks(safari_data), "safari-bookmark"),
-        ))
+        items = recently_saved_first(media_ingestor.parse_safari_bookmarks(safari_data))
+        batches.append((SAFARI_ORIGIN, _tag_origin(items, SAFARI_ORIGIN)))
     return batches
 
 
-def preview_bookmarks(*, chrome_data: bytes | None = None, safari_data: bytes | None = None) -> dict[str, Any]:
+def preview_bookmarks(
+    *,
+    chrome_data: bytes | None = None,
+    safari_data: bytes | None = None,
+    chromium: list[tuple[str, bytes]] | None = None,
+) -> dict[str, Any]:
     """Folder trees per supplied source — parse only, nothing staged (mirrors
     ``media_ingestor.preview_upload``'s contract for ``?preview=true``), so
     the app can show "Favorites · 500" before the user picks a folder.
@@ -225,7 +291,7 @@ def preview_bookmarks(*, chrome_data: bytes | None = None, safari_data: bytes | 
     """
     return {"sources": [
         {"origin": origin, "total": sum(1 for i in items if i.url), "tree": folder_tree(items)}
-        for origin, items in _batches(chrome_data, safari_data)
+        for origin, items in _batches(chrome_data, safari_data, chromium)
     ]}
 
 
@@ -314,6 +380,7 @@ async def sync_bookmarks(
     *,
     chrome_data: bytes | None = None,
     safari_data: bytes | None = None,
+    chromium: list[tuple[str, bytes]] | None = None,
     folders: list[str] | None = None,
     ingest_fn: IngestFn | None = None,
     propose_removals: bool = True,
@@ -326,6 +393,10 @@ async def sync_bookmarks(
     ``url_index.json`` and only writes episodes/media entities for URLs not
     already present. Nothing is parsed or ingested for a source whose data
     was not supplied (``chrome_data=None`` / ``safari_data=None`` skips it).
+    ``chromium`` (round 4, C9) is ``[(browser, bytes)]`` for the Chromium family;
+    each gets its own origin and channel. A Safari source also carries its
+    ``reading_list`` / ``favorites`` counts (R-SR13), and its items are ingested
+    recently saved first.
 
     ``folders`` (R5) narrows each source to the selected folder paths before
     ingest; omitted, the behaviour is byte-identical to before the option
@@ -377,22 +448,18 @@ async def sync_bookmarks(
     at = episode_ids.utc_now_iso()
     prev_seen = bookmark_seen.read_seen(memory_path) if propose_removals else {}
 
-    for origin, items in _batches(chrome_data, safari_data):
+    for origin, items in _batches(chrome_data, safari_data, chromium):
         items = filter_by_folders(items, folders) if folders else items
         channel = CHANNEL_BY_ORIGIN[origin]
-        if not items:
-            sources.append({"origin": origin, "channel": channel, "found": 0, "new": 0, "skipped": 0})
-        else:
+        created = duplicates = 0
+        if items:
             created, duplicates = await fn(items, memory_path, from_bookmark_file=True)
             total_new += created
             total_skipped += duplicates
-            sources.append({
-                "origin": origin,
-                "channel": channel,
-                "found": len(items),
-                "new": created,
-                "skipped": duplicates,
-            })
+        entry = {"origin": origin, "channel": channel, "found": len(items), "new": created, "skipped": duplicates}
+        if origin == SAFARI_ORIGIN:
+            entry.update(safari_parts(items))
+        sources.append(entry)
 
         if propose_removals:
             current_hashes = sorted({media_ingestor.url_hash(i.url) for i in items})

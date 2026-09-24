@@ -2541,11 +2541,22 @@ class SourceListResponse(CamelModel):
     total: int
 
 
+class ChromiumBookmarksFile(CamelModel):
+    """Round 4 (C9): one Chromium-family browser's default-profile `Bookmarks`
+    JSON, read by the app (the backend never opens a profile). ``browser`` is a
+    `bookmark_sync.CHROMIUM_BROWSERS` key."""
+
+    browser: str
+    data_b64: str
+
+
 class BookmarkSyncRequest(CamelModel):
     # Both optional + base64-encoded so the same endpoint works for an inline
     # hermetic test payload and (when omitted entirely) a local-file sync.
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
+    # Round 4 (C9) — the Chromium family beside Chrome's legacy field.
+    chromium: Optional[list[ChromiumBookmarksFile]] = None
     # R5 — exact folder-path prefixes at segment boundaries; "" = everything;
     # omitted = everything (unchanged behaviour).
     folders: Optional[list[str]] = None
@@ -2560,6 +2571,9 @@ class BookmarkSyncSourceSummary(CamelModel):
     found: int = 0
     new: int = 0
     skipped: int = 0
+    # R-SR13 — Safari only; 0 for every other browser.
+    reading_list: int = 0
+    favorites: int = 0
 
 
 class BookmarkSyncResponse(CamelModel):
@@ -2716,6 +2730,15 @@ class NotesSyncResponse(CamelModel):
 # --- Capture channels (G62) --------------------------------------------------
 
 
+class ChannelPart(CamelModel):
+    """Round 4 (R-SR14): one extra count a channel's last sync stamped — Safari's
+    `reading-list` and `favorites`, a tab-group sync's `tabs`, the `people`
+    Contacts enriched. The key is an enum; the app owns the words."""
+
+    key: str
+    count: int = 0
+
+
 class SourceChannel(CamelModel):
     """One capture channel as the Capture page sees it. `connected` is derived
     from persisted state only (registries, sync_state.json, env, origin counts)
@@ -2747,6 +2770,9 @@ class SourceChannel(CamelModel):
     # the client renders it "+N nouns this sync", the words the server used to
     # bake in itself.
     count_is_delta: bool = False
+    # Round 4 (R-SR14) — additive, `[]` for every channel that stamped none;
+    # rides `CHANNELS_SHAPE = "r4-sources"` (the ETag ship-together rule).
+    parts: list[ChannelPart] = []
     actions: list[str] = []
 
 

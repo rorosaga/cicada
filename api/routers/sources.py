@@ -388,6 +388,8 @@ async def sync_bookmarks(
     preview; there is nothing to preview from the local-file fallback.
     ``folders`` on the body narrows the sync to those folder paths (segment-
     boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
+    ``chromium`` (round 4, C9) carries the Chromium-family browsers; 422 for an
+    unknown browser, one sent twice, or bad base64.
 
     The "diff" is the existing ``url_index.json`` hash dedup in
     ``media_ingestor.ingest_batch`` — already-saved bookmarks are silently
@@ -399,6 +401,7 @@ async def sync_bookmarks(
 
     chrome_data = None
     safari_data = None
+    chromium: list[tuple[str, bytes]] = []
     if request is not None:
         if request.chrome_data_b64:
             try:
@@ -410,23 +413,37 @@ async def sync_bookmarks(
                 safari_data = base64.b64decode(request.safari_data_b64)
             except Exception:
                 raise HTTPException(status_code=422, detail="Invalid safariDataB64")
+        # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
+        # both fields — a browser sent twice would ingest its file twice and write
+        # two seen-sets for one channel.
+        for entry in request.chromium or []:
+            browser = entry.browser.strip().lower()
+            if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+                raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+            if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+                raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+            try:
+                chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
+            except Exception:
+                raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
 
     if preview:
-        if chrome_data is None and safari_data is None:
-            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64 and/or safariDataB64")
+        if chrome_data is None and safari_data is None and not chromium:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
         # Off the event loop, same reason as the upload preview: a plist the
         # size of a real Safari library is a CPU-bound parse and must not
         # stall the SSE stream.
         result = await run_in_threadpool(
-            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data
+            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data, chromium=chromium
         )
         return BookmarkTreePreview(**result)
 
-    if chrome_data is not None or safari_data is not None:
+    if chrome_data is not None or safari_data is not None or chromium:
         result = await bookmark_sync.sync_bookmarks(
             memory_path,
             chrome_data=chrome_data,
             safari_data=safari_data,
+            chromium=chromium,
             folders=request.folders if request is not None else None,
         )
     else:
@@ -441,7 +458,9 @@ async def sync_bookmarks(
     for s in result.get("sources", []):
         channel = s.get("channel") or bookmark_sync.CHANNEL_BY_ORIGIN.get(s.get("origin", ""))
         if channel:
-            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0))
+            # R-SR14: Safari's two counts ride the entry as `extra`, so the row can say them.
+            extra = {k: int(s[k]) for k in bookmark_sync.PART_KEYS if k in s}
+            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0), extra=extra or None)
 
     return BookmarkSyncResponse(**result)
 

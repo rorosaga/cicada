@@ -150,7 +150,11 @@ Seven rails hold across all of them:
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
   A browser is read only after the person turned it on — a Sync now, an all-folders import, or
   onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
-  before this gate keeps syncing (Track I T1).
+  before this gate keeps syncing (Track I T1). Browsers (round 4, C9): Chrome, Safari, Brave,
+  Vivaldi, Comet and Dia — each read from its default profile only (`<browser>-bookmarks`, the
+  Chromium `Bookmarks` JSON through one parser); Safari's Reading List keeps its added date and
+  Safari's excerpt, and a sync reads recently saved first and stamps Reading List / Favorites
+  counts as the channel's `parts`.
 - **Capture must not depend on a model deciding to call a tool** (G105). Every Claude Code and
   Codex session is captured by the harness's own `Stop` hook
   (`api/hooks/capture.py` → `POST /capture/transcript`). **The backend reads the transcript**, and
