@@ -105,7 +105,6 @@ enum TerminalLauncher {
     }
 
     private static func copyToClipboard(_ value: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
+        AppPasteboard.copy(value)
     }
 }
