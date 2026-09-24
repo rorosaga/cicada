@@ -110,3 +110,150 @@ enum EntityDates {
         return date.formatted(year ? style.year() : style)
     }
 }
+
+/// R-DG18 — one G61 source in words. The voices mirror `fact_sources.voiced_hint`, so the card and a conflict's
+/// hint never disagree about who added a source.
+enum FactSourceWords {
+    struct Line: Equatable {
+        let ref: String
+        let isLink: Bool
+        let forFact: String
+        let readBy: String?
+        let addedBy: String
+        /// The app whose mark stands beside `addedBy` (DR-52).
+        let addedByOrigin: String?
+        let note: String?
+        /// The ref in full (a long one is truncated on screen) and, for an agent, its raw id (DR-54).
+        let help: String
+    }
+
+    static func line(_ s: EntitySource, locale: Locale = .autoupdatingCurrent) -> Line {
+        let who = addedBy(s.addedBy)
+        let words = EntityDates.shortDay(s.addedAt, locale: locale).map { "\(who.words) · \($0)" } ?? who.words
+        let rawShown = who.origin != nil || who.words != Copy.Graph.foundByAnAgent
+        return Line(ref: s.ref, isLink: s.url != nil, forFact: forFact(s.predicate),
+                    readBy: readBy(access: s.access, kind: s.kind), addedBy: words, addedByOrigin: who.origin,
+                    note: note(accepted: s.accepted, onlyMe: s.onlyMe),
+                    help: rawShown ? s.ref : "\(s.ref)\n\(Copy.Graph.addedByRaw(s.addedBy))")
+    }
+
+    static func forFact(_ predicate: String?) -> String {
+        let p = (predicate ?? "").trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty else { return Copy.Graph.forAnyFact }
+        return Copy.Graph.forFact(p.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " "))
+    }
+
+    /// The stated access wins (a stated `unknown` says nothing); unstated, only the kind can speak.
+    static func readBy(access: String?, kind: String) -> String? {
+        if let stated = access?.trimmingCharacters(in: .whitespaces).lowercased(), !stated.isEmpty {
+            switch stated {
+            case "public": return Copy.Graph.publicPage
+            case "signed_in": return Copy.Graph.needsSignIn
+            case "local": return Copy.Graph.fileOnThisMac
+            default: return nil
+            }
+        }
+        switch kind {
+        case "path", "repo": return Copy.Graph.fileOnThisMac
+        case "app": return Copy.Graph.anApp
+        default: return nil
+        }
+    }
+
+    static func addedBy(_ raw: String) -> (words: String, origin: String?) {
+        let who = raw.trimmingCharacters(in: .whitespaces)
+        if who.isEmpty || who == "user" { return (Copy.Graph.addedByYou, nil) }
+        if who == ContributorIdentity.systemAuthor { return (Copy.Graph.foundByCicada, nil) }
+        if who != "unknown", OriginIconography.logoName(for: who) != nil || OriginIconography.appBundleId(for: who) != nil {
+            return (Copy.Graph.addedBy(OriginIconography.label(for: who)), who)
+        }
+        return (Copy.Graph.foundByAnAgent, nil)
+    }
+
+    static func note(accepted: Bool?, onlyMe: Bool?) -> String? {
+        if onlyMe == true { return Copy.Graph.onlyYouKnow }
+        if accepted == true { return Copy.Graph.youChoseThis }
+        return nil
+    }
+}
+
+/// R-DG19 — the first visible question about this page, in the Inbox's own order.
+enum EntityOpenQuestion {
+    static func first(in items: [InboxItem], entityId: String) -> InboxItem? {
+        items.first { $0.entityId == entityId }
+    }
+}
+
+/// R-DG21 — a repository in words (`git_service`'s statuses), never a raw id (DR-54).
+enum RepoWords {
+    static func status(_ status: String) -> String {
+        switch status {
+        case "ok": "On this Mac"
+        case "other_device": "On another Mac"
+        case "missing": "Not found on this Mac"
+        case "not_a_repo": "Not a git folder"
+        case "git_unavailable": "git isn't installed"
+        case "timeout": "git didn't answer"
+        default: "Can't tell right now"
+        }
+    }
+
+    /// Neutral tags, never semantic fills (DR-7).
+    static func tags(branch: String?, dirty: Int?, ahead: Int?, behind: Int?) -> [String] {
+        var out: [String] = []
+        if let branch, !branch.isEmpty { out.append(branch) }
+        if let dirty, dirty > 0 { out.append(Copy.Graph.changedFiles(dirty)) }
+        if let ahead, ahead > 0 { out.append(Copy.Graph.ahead(ahead)) }
+        if let behind, behind > 0 { out.append(Copy.Graph.behind(behind)) }
+        return out
+    }
+}
+
+/// R-DG21 — the Details disclosure.
+enum DetailsWords {
+    /// DR-39 — collapsed by default, remembered per viewer.
+    static let openKey = "cicada.entity.detailsOpen"
+
+    /// G66 — how fast it fades, as a person says it.
+    static func fades(_ decay: DecayClass) -> String {
+        switch decay {
+        case .evergreen: "Never"
+        case .durable: "Slowly"
+        case .active: "If it stops coming up"
+        case .volatile: "Quickly — it's expected to change"
+        }
+    }
+
+    /// DR-58 — the day, then the age phrase the inbox uses.
+    static func lastMentioned(_ iso: String, now: Date, locale: Locale = .autoupdatingCurrent) -> String {
+        guard let day = EntityDates.day(iso, locale: locale) else { return "—" }
+        return "\(day) · \(InboxAge.phrase(days: InboxAge.days(since: iso, now: now)))"
+    }
+
+    /// `related:` holds ids or names; a link opens only when one matches a page in the graph.
+    static func relatedTarget(_ related: String, in entities: [Entity]) -> String? {
+        let key = related.trimmingCharacters(in: .whitespaces)
+        if entities.contains(where: { $0.id == key }) { return key }
+        return entities.first { $0.name.caseInsensitiveCompare(key) == .orderedSame }?.id
+    }
+}
+
+/// R-DG22 — what a belief row does not print, and its age.
+enum BeliefWords {
+    static func help(_ claim: Claim) -> String {
+        var parts = [claim.observer.label]
+        if claim.context != "general" { parts.append(ClaimContext.displayName(claim.context)) }
+        let kind = ContributorIdentity.kind(author: claim.authoredBy, serverKind: claim.authorKind)
+        parts.append(Copy.Graph.writtenBy(ContributorIdentity.displayName(author: claim.authoredBy, kind: kind),
+                                          confidence: claim.confidence))
+        return parts.joined(separator: " · ")
+    }
+
+    static func age(_ claim: Claim, now: Date, locale: Locale = .autoupdatingCurrent) -> (text: String, help: String)? {
+        guard let days = InboxAge.days(since: claim.validFrom, now: now),
+              let since = EntityDates.day(claim.validFrom, locale: locale) else { return nil }
+        var help = Copy.Graph.trueSince(since)
+        if let noted = EntityDates.day(claim.recordedAt, locale: locale) { help += Copy.Graph.notedOn(noted) }
+        return (InboxAge.compact(days: days), help)
+    }
+}

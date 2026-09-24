@@ -8,5 +8,7 @@ extension Copy {
     enum Beliefs {
         static let title = "What Cicada knows"
         static let caption = "Nothing's written up about this yet, so here's what Cicada has noted."
+        /// DR-45 — the section label carries its count, grouped in the reader's locale (R-S18).
+        static func heading(_ n: Int) -> String { "\(title) · \(UsageFormat.count(n))" }
     }
 }

@@ -61,7 +61,8 @@ struct EntityDetailCard: View {
     @State private var sources: [EntitySource] = []
     /// G133 — a paper page's two tiers, fetched once per open.
     @State private var paperDetail: PaperDetail?
-    @State private var newSourceRef = ""
+    /// R-DG21 / DR-39 — the Details disclosure, collapsed until this viewer opens it, then remembered.
+    @AppStorage(DetailsWords.openKey) private var detailsOpen = false
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
     // entity body has landed and when the page has no commits, so track the
@@ -239,75 +240,38 @@ struct EntityDetailCard: View {
     // MARK: - Content Tab
 
     private var contentTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            // Rendered/Source toggle + copy
-            HStack(spacing: CicadaTheme.spacingXS) {
-                ViewModeButton(title: "Rendered", icon: "eye", isSelected: !showRawMarkdown) {
-                    showRawMarkdown = false
-                }
-                ViewModeButton(title: "Source", icon: "chevron.left.forwardslash.chevron.right", isSelected: showRawMarkdown) {
-                    showRawMarkdown = true
-                }
-
-                Spacer()
-
-                Button {
-                    let fullMarkdown = buildFullMarkdown()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(fullMarkdown, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(CicadaTheme.font(size: 12))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Copy markdown")
-            }
-
-            // G133: a paper leads with why it is in memory, then the dated
-            // abstract — and never loads arxiv.org in a preview (R-LS19).
-            if let paperDetail {
-                PaperCard(detail: paperDetail)
-                Divider().background(CicadaTheme.border)
-            } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
-                // G11: rich media preview above the body for `media`-type entities.
-                MediaPreview(model: MediaPreviewModel(
-                    block: media,
-                    title: entity.name,
-                    description: mediaDescription
-                ))
-                Divider().background(CicadaTheme.border)
-            }
-
-            if showRawMarkdown {
-                rawMarkdownView
-            } else {
-                renderedMarkdownView
-                if showsBeliefs, !validClaims.isEmpty {
-                    WhatCicadaKnowsSection(claims: validClaims) { claim in
-                        timelineKey = BeliefKey(claim)
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                HStack(spacing: 0) {
+                    TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
+                        get: { showRawMarkdown ? .source : .rendered },
+                        set: { if let view = $0 { showRawMarkdown = view == .source } }))
+                        .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
+                    Spacer(minLength: 0)
+                    IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(buildFullMarkdown(), forType: .string)
                     }
                 }
+                // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
+                // arxiv.org in a preview (R-LS19).
+                if let paperDetail {
+                    PaperCard(detail: paperDetail)
+                } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                    // G11: rich media preview above the body for `media`-type entities.
+                    MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                }
+                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
             }
-
-            if entity.type == .location {
-                Divider().background(CicadaTheme.border)
-                locationSection
+            if entity.type == .location { locationSection }
+            if !repoContexts.isEmpty { repositorySection }
+            if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
+                WhatCicadaKnowsSection(claims: validClaims) { claim in timelineKey = BeliefKey(claim) }
             }
-
-            if !repoContexts.isEmpty {
-                Divider().background(CicadaTheme.border)
-                repositorySection
-            }
-
-            Divider().background(CicadaTheme.border)
-            sourcesSection
-
-            Divider().background(CicadaTheme.border)
-            metadataSection
-
-            Divider().background(CicadaTheme.border)
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
+            // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
+            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            detailsSection
         }
         .modifier(EntityTabInsets(style: style))
         .task(id: entity.id) {
@@ -322,7 +286,6 @@ struct EntityDetailCard: View {
             repoContexts = []
             sources = []
             paperDetail = nil
-            newSourceRef = ""
             pendingDecayClass = nil
             activeEntityId = entity.id
             expandedCommits = []
@@ -369,24 +332,10 @@ struct EntityDetailCard: View {
         let path = locationListing?.path ?? entity.path
         if let path, !path.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Image(systemName: "folder")
-                        .font(CicadaTheme.font(size: 11))
-                        .foregroundStyle(CicadaTheme.entityColor(for: .location))
-                    Text("Path")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(path, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(CicadaTheme.font(size: 11))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .help("Copy path")
+                HStack {
+                    SectionLabel(Copy.Graph.folder)
+                    Spacer(minLength: 0)
+                    IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyPath) { copyPath(path) }
                 }
 
                 Text(path)
@@ -397,8 +346,8 @@ struct EntityDetailCard: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(CicadaTheme.spacingSM)
-                    .background(CicadaTheme.surfaceHover.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgFocus))
+                    .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
 
                 locationContents
             }
@@ -485,240 +434,69 @@ struct EntityDetailCard: View {
     // backend (built in parallel by another agent).
 
     private var repositorySection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.entityColor(for: .tool))
-                Text(repoContexts.count > 1 ? "Repositories" : "Repository")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-
-            ForEach(repoContexts) { repo in
-                repoCard(repo)
-            }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(repoContexts.count > 1 ? Copy.Graph.repositories : Copy.Graph.repository)
+            ForEach(repoContexts) { repoBlock($0) }
         }
     }
 
-    private func repoCard(_ repo: RepoContext) -> some View {
+    /// G9 — live git context, resolved on demand and never cached. R-DG21: words and neutral tags, one block on
+    /// `bgFocus` with a resting ring (DR-7, DR-9). Paths, hashes and branches stay copyable (DR-19).
+    private func repoBlock(_ repo: RepoContext) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let remote = repo.remote, !remote.isEmpty {
-                        Text(remote)
-                            .font(CicadaTheme.font(size: 12, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Text(repo.path)
-                        .font(CicadaTheme.monoFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-                Spacer()
-                repoStatusBadge(repo.status)
+            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                Text(repo.remote?.isEmpty == false ? repo.remote! : repo.path)
+                    .font(CicadaTheme.metaMediumFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Text(RepoWords.status(repo.status))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyPath) { copyPath(repo.path) }
             }
-
-            HStack(spacing: CicadaTheme.spacingXS) {
-                if let branch = repo.currentBranch, !branch.isEmpty {
-                    pill(branch, icon: "arrow.triangle.branch", color: CicadaTheme.accent)
-                }
-                if let dirty = repo.dirtyFiles, dirty > 0 {
-                    pill("\(dirty) dirty", icon: "circle.fill", color: CicadaTheme.warning)
-                }
-                if let ahead = repo.ahead, ahead > 0 {
-                    pill("↑\(ahead)", icon: nil, color: CicadaTheme.success)
-                }
-                if let behind = repo.behind, behind > 0 {
-                    pill("↓\(behind)", icon: nil, color: CicadaTheme.danger)
-                }
+            Text(repo.path)
+                .font(CicadaTheme.monoFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            let tags = RepoWords.tags(branch: repo.currentBranch, dirty: repo.dirtyFiles, ahead: repo.ahead, behind: repo.behind)
+            if !tags.isEmpty {
+                FlowLayout(spacing: 6) { ForEach(tags, id: \.self) { Tag(text: $0) } }
             }
-
             if let commit = repo.lastCommit, !commit.hash.isEmpty {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Text(commit.shortHash)
-                        .font(CicadaTheme.monoFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Text(commit.subject)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(relativeDate(commit.dateValue))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(commit.shortHash).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(commit.subject).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(relativeDate(commit.dateValue)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
             }
-
             if repo.worktrees.count > 1 {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(repo.worktrees, id: \.path) { wt in
-                        HStack(spacing: 4) {
-                            Image(systemName: wt.isMain ? "star.fill" : "arrow.triangle.branch")
-                                .font(CicadaTheme.font(size: 9))
-                                .foregroundStyle(wt.isMain ? CicadaTheme.hubGold : CicadaTheme.textTertiary)
-                            Text(wt.branch ?? wt.path)
-                                .font(CicadaTheme.font(size: 10, design: .monospaced))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .lineLimit(1)
-                            if wt.isDirty == true {
-                                Circle()
-                                    .fill(CicadaTheme.warning)
-                                    .frame(width: 5, height: 5)
-                            }
-                        }
+                        Text(wt.branch ?? wt.path)
+                            .font(CicadaTheme.font(size: 11, design: .monospaced))
+                            .foregroundStyle(wt.isMain ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                            .lineLimit(1)
                     }
                 }
-                .padding(.top, 2)
             }
-
             if let hint = repo.staleHint, !hint.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(CicadaTheme.font(size: 9))
-                    Text(hint)
-                        .font(CicadaTheme.font(size: 10))
-                }
-                .foregroundStyle(CicadaTheme.warning)
+                Text(hint).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             }
         }
         .padding(CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.surfaceHover.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
-    private func repoStatusBadge(_ status: String) -> some View {
-        let (label, color): (String, Color) = {
-            switch status {
-            case "ok": return ("ok", CicadaTheme.success)
-            case "other_device": return ("other device", CicadaTheme.textTertiary)
-            case "missing": return ("missing", CicadaTheme.danger)
-            case "not_a_repo": return ("not a repo", CicadaTheme.danger)
-            case "git_unavailable": return ("git unavailable", CicadaTheme.warning)
-            case "timeout": return ("timeout", CicadaTheme.warning)
-            default: return (status, CicadaTheme.textTertiary)
-            }
-        }()
-        return Text(label)
-            .font(CicadaTheme.font(size: 10, weight: .medium))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.15))
-            .clipShape(Capsule())
-    }
-
-    private func pill(_ text: String, icon: String?, color: Color) -> some View {
-        HStack(spacing: 3) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(CicadaTheme.font(size: 7))
-            }
-            Text(text)
-                .font(CicadaTheme.font(size: 10, weight: .medium))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.12))
-        .clipShape(Capsule())
-    }
-
-    // MARK: - Sources Section (G61)
-
-    /// "Where to look this fact up" — a URL, a path, or a plain-English note.
-    /// Distinct from `source_episodes` (where a belief came from): a source is
-    /// a cheat-sheet for REFRESHING a fact.
-    private var sourcesSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            // G118 slice 2 (§4.5) — renamed from "Sources": this is where to
-            // REFRESH a fact; where a belief CAME FROM is the section below.
-            Text(Copy.Provenance.lookItUpAt)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-
-            ForEach(Array(sources.enumerated()), id: \.element.id) { pair in
-                sourceRow(pair.element, index: pair.offset)
-            }
-
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "plus.circle")
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Add a URL, a path, or a note…", text: $newSourceRef)
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .onSubmit {
-                        let ref = newSourceRef.trimmed
-                        guard !ref.isEmpty else { return }
-                        newSourceRef = ""
-                        Task {
-                            if let updated = try? await APIClient.shared.addEntitySource(
-                                entityId: entity.id, ref: ref
-                            ) {
-                                sources = updated
-                            }
-                        }
-                    }
-            }
-            .padding(CicadaTheme.spacingSM)
-            .background(CicadaTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
-        }
-    }
-
-    private func sourceRow(_ source: EntitySource, index: Int) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: source.icon)
-                .font(CicadaTheme.font(size: 11))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(source.ref)
-                    .font(CicadaTheme.font(size: 12))
-                    .foregroundStyle(source.url == nil ? CicadaTheme.textSecondary : CicadaTheme.accent)
-                    .lineLimit(2)
-                Text([source.predicate, "added by \(source.addedBy)", source.addedAt]
-                        .compactMap { $0 }.joined(separator: " · "))
-                    .font(CicadaTheme.font(size: 10))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            Spacer()
-            if let url = source.url {
-                Button { NSWorkspace.shared.open(url) } label: {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(CicadaTheme.font(size: 11))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Open")
-            }
-            Button {
-                Task {
-                    if let updated = try? await APIClient.shared.deleteEntitySource(
-                        entityId: entity.id, index: index
-                    ) {
-                        sources = updated
-                    }
-                }
-            } label: {
-                Image(systemName: "trash")
-                    .font(CicadaTheme.font(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            .buttonStyle(.cicadaPlain)
-            .help("Remove source")
-        }
-        .padding(.vertical, 2)
+    private func copyPath(_ p: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(p, forType: .string)
     }
 
     private func relativeDate(_ date: Date) -> String {
@@ -788,117 +566,112 @@ struct EntityDetailCard: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CicadaTheme.spacingMD)
-            .background(CicadaTheme.surfaceHover.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+            .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
-    private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            if !entity.tags.isEmpty {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text("Tags")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-
-                    FlowLayout(spacing: 6) {
-                        ForEach(entity.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(CicadaTheme.font(size: 11))
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                                .lineLimit(1)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(CicadaTheme.surfaceHover)
-                                .clipShape(Capsule())
-                        }
+    /// R-DG21 / DR-39 — secondary detail starts collapsed; each viewer's choice is remembered.
+    private var detailsSection: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Button { detailsOpen.toggle() } label: {
+                HStack(spacing: CicadaTheme.scaled(6)) {
+                    Image(systemName: detailsOpen ? "chevron.down" : "chevron.right")
+                        .font(CicadaTheme.font(size: 10, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text(Copy.Graph.details).foregroundStyle(CicadaTheme.textSecondary)
+                    if !detailsOpen {
+                        Text(Copy.Graph.detailsSummary).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
+                .font(CicadaTheme.metaMediumFont)
+                .contentShape(Rectangle())
             }
-
-            if !entity.related.isEmpty {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text("Related")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-
-                    FlowLayout(spacing: 6) {
-                        ForEach(entity.related, id: \.self) { rel in
-                            Text(rel)
-                                .font(CicadaTheme.font(size: 11))
-                                .foregroundStyle(CicadaTheme.accent)
-                                .lineLimit(1)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(CicadaTheme.accent.opacity(0.1))
-                                .clipShape(Capsule())
+            .buttonStyle(.cicadaPlain)
+            .accessibilityValue(detailsOpen ? "Open" : "Closed")
+            if detailsOpen {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
+                     verticalSpacing: CicadaTheme.scaled(10)) {
+                    if !entity.tags.isEmpty {
+                        GridRow {
+                            detailLabel(Copy.Graph.tags)
+                            FlowLayout(spacing: 6) { ForEach(entity.tags, id: \.self) { Tag(text: $0) } }
                         }
                     }
+                    if !entity.related.isEmpty {
+                        GridRow {
+                            detailLabel(Copy.Graph.related)
+                            FlowLayout(spacing: CicadaTheme.spacingMD) {
+                                ForEach(entity.related, id: \.self) { rel in relatedLink(rel) }
+                            }
+                        }
+                    }
+                    GridRow {
+                        detailLabel(Copy.Graph.firstNoted)
+                        detailValue(EntityDates.day(entity.created) ?? "—")
+                    }
+                    GridRow {
+                        detailLabel(Copy.Graph.lastMentioned)
+                        detailValue(DetailsWords.lastMentioned(entity.lastReferenced, now: .now))
+                    }
+                    GridRow {
+                        detailLabel(Copy.Graph.fades)
+                        fadesMenu
+                    }
                 }
-            }
-
-            HStack(spacing: CicadaTheme.spacingLG) {
-                Label(entity.created, systemImage: "calendar")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                Label(entity.lastReferenced, systemImage: "clock")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                decayChip
-
-                Spacer()
             }
         }
     }
 
-    // MARK: - Decay chip (G66 §1.7)
+    private func detailLabel(_ text: String) -> some View {
+        Text(text).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            .frame(width: CicadaTheme.scaled(112), alignment: .leading)
+    }
+
+    private func detailValue(_ text: String) -> some View {
+        Text(text).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+    }
+
+    /// A related name opens its page when one matches (DR-5 link); otherwise it is plain text.
+    @ViewBuilder
+    private func relatedLink(_ rel: String) -> some View {
+        if let id = DetailsWords.relatedTarget(rel, in: graphVM.entities) {
+            Button { navigate(to: id) } label: {
+                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
+            }
+            .buttonStyle(.cicadaPlain)
+        } else {
+            detailValue(rel)
+        }
+    }
+
+    // MARK: - Fades (G66 §1.7)
     //
-    // The raw `decay_rate` number was never meaningful to a reader ("0.05" says
-    // nothing); the class does. Tapping the chip opens a picker that PUTs the
-    // override — the user's authority over how fast the agent forgets.
+    // The raw `decay_rate` number was never meaningful to a reader; the class is. The menu PUTs the override —
+    // the person's authority over how fast the agent forgets.
 
     private var shownDecayClass: DecayClass { pendingDecayClass ?? entity.decayClass }
 
-    private var decayChip: some View {
+    private var fadesMenu: some View {
         Menu {
             ForEach(DecayClass.allCases) { option in
-                Button {
-                    setDecay(option)
-                } label: {
-                    Label(
-                        "\(option.label) — \(option.blurb)",
-                        systemImage: option == shownDecayClass ? "checkmark" : option.icon
-                    )
+                Button { setDecay(option) } label: {
+                    Label("\(DetailsWords.fades(option)) — \(option.blurb)",
+                          systemImage: option == shownDecayClass ? "checkmark" : option.icon)
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: shownDecayClass.icon)
-                    .font(CicadaTheme.font(size: 9))
-                Text(shownDecayClass.chipText)
-                    .font(CicadaTheme.captionFont)
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Text(DetailsWords.fades(shownDecayClass))
+                Image(systemName: "chevron.down").font(CicadaTheme.font(size: 9, weight: .semibold))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(decayChipTint.opacity(0.15))
-            .foregroundStyle(decayChipTint)
-            .clipShape(Capsule())
+            .font(CicadaTheme.font(size: 13))
+            .foregroundStyle(CicadaTheme.textSecondary)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("How fast this entity fades when it stops being mentioned")
-        .accessibilityLabel("Decay class: \(shownDecayClass.label)")
-    }
-
-    private var decayChipTint: Color {
-        switch shownDecayClass {
-        case .evergreen: CicadaTheme.diffAdded
-        case .durable: CicadaTheme.decayDurable
-        case .active: CicadaTheme.textSecondary
-        case .volatile: CicadaTheme.decayVolatile
-        }
+        .help(Copy.Graph.fadesHelp)
+        .accessibilityLabel("\(Copy.Graph.fades): \(DetailsWords.fades(shownDecayClass))")
     }
 
     private func setDecay(_ option: DecayClass) {
@@ -1395,33 +1168,6 @@ struct EntityDetailCard: View {
     }
 }
 
-// MARK: - View Mode Button (Rendered / Source)
-
-private struct ViewModeButton: View {
-    let title: String
-    let icon: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(CicadaTheme.font(size: 10, weight: .medium))
-                Text(title)
-                    .font(CicadaTheme.font(size: 11, weight: .medium))
-            }
-            .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(isSelected ? CicadaTheme.surfaceHover : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-        }
-        .buttonStyle(.cicadaPlain)
-        .help("\(title) view")
-    }
-}
-
 // MARK: - Style (R-DG13)
 
 /// One card, two hosts: the Graph's detail column and Clusters' card.
@@ -1433,6 +1179,16 @@ enum EntityCardStyle {
 
     /// Leading inset in units: the mock's 28 in the column, the card's 16.
     var inset: CGFloat { self == .column ? 28 : 16 }
+}
+
+/// R-DG21 — Rendered · Source as text tabs.
+enum EntityBodyView: Hashable {
+    case rendered, source
+
+    static let tabs: [TextTab<EntityBodyView>] = [
+        TextTab(id: .rendered, label: Copy.Graph.rendered),
+        TextTab(id: .source, label: Copy.Graph.source),
+    ]
 }
 
 private struct EntityCardChrome: ViewModifier {

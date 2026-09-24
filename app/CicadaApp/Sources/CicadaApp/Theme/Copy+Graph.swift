@@ -59,3 +59,57 @@ extension Copy.Graph {
     static let tabHistory = "History"
     static let tabTimeline = "Timeline"
 }
+
+// Task 4 — Content (R-DG18 … R-DG22)
+extension Copy.Graph {
+    static let rendered = "Rendered"
+    static let source = "Source"
+    static let copyMarkdown = "Copy markdown"
+    static let copyPath = "Copy path"
+    static let folder = "Folder"
+    static let repository = "Repository"
+    static let repositories = "Repositories"
+    static func changedFiles(_ n: Int) -> String { "\(UsageFormat.count(n)) changed \(n == 1 ? "file" : "files")" }
+    static func ahead(_ n: Int) -> String { "\(UsageFormat.count(n)) ahead" }
+    static func behind(_ n: Int) -> String { "\(UsageFormat.count(n)) behind" }
+
+    // Look it up at (G61)
+    static let forAnyFact = "For any fact"
+    static func forFact(_ fact: String) -> String { "For \(fact)" }
+    static let publicPage = "Public page"
+    static let needsSignIn = "Needs sign-in"
+    static let fileOnThisMac = "A file on this Mac"
+    static let anApp = "An app"
+    static let addedByYou = "Added by you"
+    static let foundByCicada = "Found by Cicada"
+    static let foundByAnAgent = "Found by an agent"
+    static func addedBy(_ app: String) -> String { "Added by \(app)" }
+    static func addedByRaw(_ id: String) -> String { "Added by \(id)" }
+    static let onlyYouKnow = "Only you know this"
+    static let youChoseThis = "You chose to use this"
+    static let addSourcePlaceholder = "Add a URL, a path, or a note…"
+    static let add = "Add"
+    static func openSource(_ ref: String) -> String { "Open \(ref)" }
+    static let removeSource = "Remove source"
+    static let openInInbox = "Open in Inbox"
+    static let openInInboxHelp = "Open this question in the Inbox (⌘6)"
+
+    // Details
+    static let details = "Details"
+    /// A whole word run, not an interpolation: Task 5 puts `Views/Graph/` under `CountLiteralLintTests`.
+    static let detailsSummary = "· tags, related, dates, how it fades"
+    static let tags = "Tags"
+    static let related = "Related"
+    static let firstNoted = "First noted"
+    static let lastMentioned = "Last mentioned"
+    static let fades = "Fades"
+    static let fadesHelp = "How fast this fades when it stops being mentioned"
+
+    // Beliefs
+    static let beliefTimelineHelp = "How this belief changed over time"
+    static func writtenBy(_ author: String, confidence: Double) -> String {
+        "\(author) at \(String(format: "%.2f", confidence))"
+    }
+    static func trueSince(_ day: String) -> String { "True since \(day)" }
+    static func notedOn(_ day: String) -> String { "; noted \(day)" }
+}
