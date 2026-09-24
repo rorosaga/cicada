@@ -2583,6 +2583,16 @@ extension APIClient: IntakeAPI {
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
     /// and the exact argv `AgentConnect` may run after the person's click.
     func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
+
+    /// Round-4 D5 (C5) — `GET /agents/setup?harness=<id>`: the prompt a person pastes into their agent so it
+    /// installs Cicada itself. A 404 (an unknown harness, or a backend from before C5) throws, and the caller
+    /// shows nothing new. The id is escaped like `fetchRecentConversations`' filters, so no value can smuggle a
+    /// second query key.
+    func fetchAgentSetup(harness: String) async throws -> AgentSetupPrompt {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        return try await get("/agents/setup?harness=\(harness.addingPercentEncoding(withAllowedCharacters: allowed) ?? harness)")
+    }
 }
 
 /// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.

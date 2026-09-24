@@ -35,6 +35,10 @@ struct AgentSetup: Identifiable {
 /// (Desktop, Cursor, Hermes) get literal paths baked in because GUI-launched
 /// apps don't expand shell variables.
 enum AgentSetupCatalog {
+    /// Round-4 C5 — the harnesses `GET /agents/setup` answers for. Only these ask the backend for a setup prompt
+    /// (every other id would be a guaranteed 404), and `AgentQuickSetup` offers Copy setup prompt only to them.
+    static let setupHarnesses = ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop"]
+
     /// `memoryRoot`, when given, is the LIVE backend's own configured
     /// `CICADA_MEMORY_PATH` (from `GET /healthz`) and always wins over the
     /// `<home>/memory` guess — see `ConnectView.refreshLiveMemoryRoot()`.
@@ -216,6 +220,12 @@ struct ConnectView: View {
     /// The one agent whose steps are showing (R-O11): one open at a time,
     /// so the page stays a list of names rather than seven command dumps.
     @State private var openAgent: String?
+    /// Round-4 D5 — the one `/agents/wiring` answer the page holds: Connect for me's steps and the binaries its
+    /// policy checks against (R-FA15). A failed fetch keeps the last answer — never blank.
+    @State private var wiring: AgentWiringResponse?
+    /// Round-4 C5 — `GET /agents/setup` answers, fetched when a row first opens. A failure (today's 404
+    /// included) leaves no entry, so nothing new shows.
+    @State private var setups: [String: AgentSetupPrompt] = [:]
     /// `isConnected` is the app's one backend-reachability signal (the SSE
     /// stream). Keyed into `.task(id:)` below so a backend that comes up
     /// after this page did re-runs the probe — no second poller.
@@ -241,7 +251,16 @@ struct ConnectView: View {
             SettingsGroupCard(header: Copy.agentsOnThisMacGroup) {
                 ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
                     if index > 0 { SettingsDivider() }
-                    AgentSetupRow(agent: agent, isOpen: openAgent == agent.id) {
+                    AgentSetupRow(
+                        agent: agent,
+                        isOpen: openAgent == agent.id,
+                        actions: AgentQuickSetup.actions(catalogId: agent.id, setup: setups[agent.id],
+                                                         wiring: wiring?.agents.first { $0.id == agent.id }),
+                        binaries: Set(wiring?.agents.compactMap(\.binary) ?? []),
+                        home: home,
+                        memoryRoot: probe.liveRoot,
+                        onConnected: { Task { await refreshWiring() } }
+                    ) {
                         openAgent = openAgent == agent.id ? nil : agent.id
                     }
                     .settingsRow(.agent(agent.id))
@@ -267,11 +286,23 @@ struct ConnectView: View {
         }
         // Restarts (cancelling the previous loop) whenever the SSE stream
         // connects or drops, and runs once on appearance.
-        .task(id: store.isConnected) { await refreshLiveMemoryRoot() }
+        .task(id: store.isConnected) {
+            await refreshWiring()
+            await refreshLiveMemoryRoot()
+        }
+        .onChange(of: openAgent) { _, id in
+            guard let id, AgentSetupCatalog.setupHarnesses.contains(id), setups[id] == nil else { return }
+            Task { if let prompt = try? await APIClient.shared.fetchAgentSetup(harness: id) { setups[id] = prompt } }
+        }
         // R-O11: landing on `agent:<id>` (search or a pointer) opens that row.
         .onChange(of: focus?.landedNonce ?? 0) { _, _ in
             if let id = focus?.landed?.item(of: "agent") { openAgent = id }
         }
+    }
+
+    /// `GET /agents/wiring` (Track I T3). Kept on failure: a page that had an answer never goes blank.
+    private func refreshWiring() async {
+        if let fresh = try? await APIClient.shared.fetchAgentWiring() { wiring = fresh }
     }
 
     /// Ask the backend what memory root it's actually configured with
@@ -308,11 +339,17 @@ struct ConnectView: View {
 
 // MARK: - Agent row
 
-/// One agent as a disclosure row: tile, name and blurb; open, its steps and
-/// the deeplink pill (the old card's content, unchanged).
+/// One agent as a disclosure row: tile, name and blurb; open, its one-click
+/// actions (round-4 D5) and then its manual steps, which stay as the fallback
+/// every action's failure points at.
 private struct AgentSetupRow: View {
     let agent: AgentSetup
     let isOpen: Bool
+    let actions: [AgentQuickAction]
+    let binaries: Set<String>
+    let home: String
+    let memoryRoot: String?
+    let onConnected: () -> Void
     let toggle: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -343,24 +380,11 @@ private struct AgentSetupRow: View {
             .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
 
             if isOpen {
-                // Moved from the old AgentSetupCard; only the pill's literal
-                // 5 pt padding became a scaled token.
-                if let deeplink = agent.deeplink {
-                    Button {
-                        NSWorkspace.shared.open(deeplink.url)
-                    } label: {
-                        Text(deeplink.label)
-                            .font(CicadaTheme.font(size: 11, weight: .semibold))
-                            .padding(.horizontal, CicadaTheme.spacingMD)
-                            .padding(.vertical, CicadaTheme.scaled(5))
-                            .background(agent.brand.opacity(0.25))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(agent.brand.opacity(0.5), lineWidth: 1))
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .help("One-click install via the Cursor deeplink")
-                }
+                // DR-40, DR-44 (§9, 2026-09-24): the brand-tinted Cursor capsule
+                // that lived here is gone; its deeplink is Open in Cursor, a
+                // NeutralButton inside the quick-setup block.
+                AgentQuickSetupView(agent: agent, actions: actions, binaries: binaries, home: home,
+                                    memoryRoot: memoryRoot, onConnected: onConnected)
                 ForEach(agent.steps) { step in
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                         Text(step.label)

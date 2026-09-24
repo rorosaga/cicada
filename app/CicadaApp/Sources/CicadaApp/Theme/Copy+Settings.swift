@@ -101,6 +101,26 @@ extension Copy {
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
 
+    // MARK: Agents → one-click setup (round-4 D5, R-FA15)
+    static let agentConnectForMe = "Connect for me"
+    static let agentConnecting = "Connecting…"
+    static let agentConnectHow = "Cicada runs exactly these commands, then new sessions pick it up."
+    static let agentConnected = "Connected — new sessions pick Cicada up."
+    static let agentRefused = "Cicada didn't run these: they aren't the commands it expects. Copy them from below instead."
+    static let agentCopyPrompt = "Copy setup prompt"
+    static let agentCopied = "Copied"
+    static func agentPromptHow(_ name: String) -> String {
+        "Paste this into \(name) — it runs the commands the prompt names itself and changes nothing else."
+    }
+    static let agentOpenInCursor = "Open in Cursor"
+    static let agentOpenInCursorHow = "Cursor asks before it adds Cicada."
+    static let agentSetUpClaude = "Set up Claude"
+    static let agentSetUpClaudeHow = "Adds Cicada to Claude's settings and keeps everything else. Your old file is saved beside it first."
+    static let agentClaudeDone = "Done — quit and reopen Claude to finish."
+    static let agentClaudeAlready = "Claude is already set up — quit and reopen it if the tools don't show."
+    static let agentClaudeNotSetUp = "Open Claude once, then try again."
+    static let agentClaudeUnreadable = "Cicada couldn't read Claude's settings file, so it left it untouched. Add the snippet below by hand."
+
     // MARK: Integrations → Calendar on this Mac (round-4 D2, R-FA11 … R-FA13)
     /// Never "Calendar": that is the ICS feed row's label (`calendar` channel), and the two sit in one section.
     static let calendarAppTitle = "Calendar on this Mac"
