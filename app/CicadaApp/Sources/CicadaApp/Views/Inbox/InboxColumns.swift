@@ -171,3 +171,14 @@ enum InboxTabs {
             + order.compactMap { k in counts[k].map { TextTab(id: k, label: k.label, count: $0) } }
     }
 }
+
+/// R-DL4 (DR-60, DR-68) — where the Inbox's keys land when the page appears and after an answer: the list, so ↑/↓
+/// reach every question and ⏎ steps into the open one. After an answer it is the LIST on purpose: Undo holds exactly
+/// one answer (R-DI2 — the next answer sends the held one), so a repeated digit must not sweep the queue past its own
+/// Undo. When DR-27 has hidden the list the question takes the keys, so a key is never dropped.
+enum InboxFocusPolicy {
+    static func afterArrivalOrAnswer(listHidden: Bool, questionOpen: Bool) -> InboxPage.Focus? {
+        if !listHidden { return .list }
+        return questionOpen ? .question : nil
+    }
+}

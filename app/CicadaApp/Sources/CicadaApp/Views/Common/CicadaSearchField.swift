@@ -27,6 +27,9 @@ struct CicadaSearchField: View {
     var style: Style = .content
     var findEnabled = true
     var width: CGFloat? = nil
+    /// DR-46 — a field that exists only because ⌘F (or its magnifier) opened it takes the keys as it appears: a
+    /// list page's find row (`PageFindRow`) and the Graph's find overlay (R-DG5). One mechanism for both, below.
+    var autofocus = false
     var onSubmit: () -> Void = {}
     var onMove: ((Int) -> Void)? = nil
     var onFocusChange: (Bool) -> Void = { _ in }
@@ -35,9 +38,6 @@ struct CicadaSearchField: View {
     /// Esc with `.handled`, and whether AppKit gives the key to it or to the panel's
     /// `.cancelAction` first is not something a test can observe, so the field defers.
     var onEscape: (() -> Void)? = nil
-    /// `autofocus` — a field that exists only because ⌘F opened it takes the focus as it appears (the
-    /// Graph's find overlay, R-DG5).
-    var autofocus = false
 
     @FocusState private var focused: Bool
     @Environment(FindPaletteModel.self) private var palette: FindPaletteModel?
@@ -84,8 +84,13 @@ struct CicadaSearchField: View {
         .frame(width: width, height: CicadaTheme.scaled(28))
         .modifier(SearchFieldChrome(style: style))
         .onChange(of: focused) { _, now in onFocusChange(now) }
-        .task { if autofocus { focused = true } }
         .publishesPageFind(enabled: findEnabled && !(palette?.isPresented ?? false)) { focused = true }
+        // DR-46 — a find row opened by ⌘F or its magnifier takes the keys at once (deferred one turn: a FocusState
+        // write in the update that inserts the field is dropped on macOS).
+        .onAppear {
+            guard autofocus else { return }
+            DispatchQueue.main.async { focused = true }
+        }
     }
 
     private func move(_ delta: Int) -> KeyPress.Result {

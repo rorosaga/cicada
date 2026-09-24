@@ -28,10 +28,12 @@ import SwiftUI
 /// non-empty kind. `isRefreshing` is gone (R-S10) — it was read by nothing,
 /// and the never-blank rule already means the grid shows last-known-good all
 /// the way through a refresh.
-struct SourceCardGrid: View {
+struct SourceCardGrid<Trailing: View>: View {
     let rows: [SourceOverview]
     let hasLoaded: Bool
     let onOpen: (SourceOverview) -> Void
+    /// What follows the sections — the contributors block — so it can take the space the last row leaves (P4).
+    @ViewBuilder let trailing: () -> Trailing
 
     /// 0 until the first layout pass; `SourceGridColumns.count` floors at 2, so
     /// the first frame draws a valid grid rather than a crash or a blank.
@@ -50,52 +52,85 @@ struct SourceCardGrid: View {
     var body: some View {
         Group {
             if !hasLoaded {
-                skeleton
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) { skeleton; trailing() }
             } else if rows.isEmpty {
-                EmptyStateView(
-                    title: "Nothing here yet",
-                    message: Copy.emptySourcesMessage,
-                    actionLabel: "Add a source",
-                    settingsSection: .integrations,
-                    onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sources)) }
-                )
-            } else {
-                // ONE `today` per body evaluation, handed down to every tile,
-                // so two cards can never straddle a UTC midnight inside one
-                // render — the posture every `ActivitySeries.swift` caller holds.
-                let today = Date()
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    ForEach(SourceSections.group(rows), id: \.kind) { section in
-                        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                            SectionLabel(section.title)
-                            LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                                ForEach(section.rows) { row in
-                                    SourceCardTile(source: row, today: today, onOpen: { onOpen(row) })
-                                }
-                            }
-                        }
-                    }
+                    EmptyStateView(
+                        title: "Nothing here yet",
+                        message: Copy.emptySourcesMessage,
+                        actionLabel: "Add a source",
+                        settingsSection: .integrations,
+                        onDropFiles: { intake.accept(urls: $0, from: .emptyState(.sources)) }
+                    )
+                    trailing()
                 }
+            } else {
+                packed
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingXL)
+        // Fill the offered width BEFORE measuring: `packed` is fixed-width frames, so an unframed group would report
+        // the width those frames were given — 0 on the first pass — and the grid would never grow out of it.
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        // The INNER width (measured before the gutter): both the column count and a span's width read it.
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(key: SourceGridWidthKey.self, value: proxy.size.width)
             }
         )
         .onPreferenceChange(SourceGridWidthKey.self) { containerWidth = $0 }
+        .padding(.horizontal, CicadaTheme.spacingGutter)
+    }
+
+    private var gap: CGFloat { CicadaTheme.spacingMD }
+
+    /// R-DL19 — a section spans `span` of the grid's columns; widths come from the one measured width.
+    private func width(_ span: Int, columns: Int) -> CGFloat {
+        let unit = max(0, (containerWidth - gap * CGFloat(columns - 1)) / CGFloat(columns))
+        return unit * CGFloat(span) + gap * CGFloat(span - 1)
+    }
+
+    /// P4 — sections share a row (`SourceGridPacking`); the contributors block takes what the last row leaves when that
+    /// is two columns or more. ONE `today` per body evaluation, handed to every tile (Sources v2's midnight rule).
+    private var packed: some View {
+        let today = Date()
+        let cols = columnCount
+        let sections = SourceSections.group(rows)
+        let packedRows = SourceGridPacking.rows(tileCounts: sections.map(\.rows.count), columns: cols)
+        let contributors = SourceGridPacking.contributorsSpan(rows: packedRows, columns: cols)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+            ForEach(Array(packedRows.enumerated()), id: \.offset) { index, placements in
+                HStack(alignment: .top, spacing: gap) {
+                    ForEach(placements, id: \.section) { p in
+                        section(sections[p.section].title, rows: sections[p.section].rows, span: p.span, today: today)
+                            .frame(width: width(p.span, columns: cols), alignment: .topLeading)
+                    }
+                    if index == packedRows.count - 1 && contributors.joinsLastRow {
+                        trailing().frame(width: width(contributors.span, columns: cols), alignment: .topLeading)
+                    }
+                }
+            }
+            if !contributors.joinsLastRow { trailing() }
+        }
+    }
+
+    private func section(_ title: String, rows: [SourceOverview], span: Int, today: Date) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(title)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: gap), count: span),
+                      alignment: .leading, spacing: gap) {
+                ForEach(rows) { row in
+                    SourceCardTile(source: row, today: today, onOpen: { onOpen(row) })
+                }
+            }
+        }
     }
 
     /// Six placeholder tiles — the real height, the real columns, no motion.
-    /// A centred "Reading your sources…" spinner replaced the whole page with
-    /// something that looked like a different screen; this one looks like the
-    /// screen that is about to arrive.
     private var skeleton: some View {
-        LazyVGrid(columns: columns, alignment: .leading, spacing: CicadaTheme.spacingMD) {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: gap) {
             ForEach(0..<6, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius)
-                    .fill(CicadaTheme.textTertiary.opacity(0.08))
+                CicadaTheme.shape(CicadaTheme.cornerRadius)
+                    .fill(CicadaTheme.bgSelected)
                     .frame(height: SourceCardMetrics.tileHeight)
             }
         }
@@ -114,18 +149,35 @@ private struct SourceGridWidthKey: PreferenceKey {
     }
 }
 
-/// How a liveness tone paints. Four tones, not nine colours: the verb carries
-/// the meaning and the tone carries only "fine / act / broken / dormant"
-/// (R-S2). Lives here rather than on `SourceLiveness` so that type stays a
-/// pure, `SwiftUI`-colour-free decision the tests can table-drive.
+/// R-DL20 (DR-7) — four tones: live keeps `success` (the approved mock; dated in §9), a warning or a failure speaks in
+/// `warning` — DR-7's "first clause of a failed source" — and `danger` stays for destructive actions only. A failing
+/// source's verb says it in words, so its dot is hidden.
 extension SourceLiveness.Tone {
     var color: Color {
         switch self {
         case .live: CicadaTheme.success
-        case .warning: CicadaTheme.warning
-        case .danger: CicadaTheme.danger
-        case .dormant: CicadaTheme.textTertiary.opacity(0.5)
+        case .warning, .danger: CicadaTheme.warning
+        case .dormant: CicadaTheme.textQuaternary
         }
+    }
+
+    var showsDot: Bool { self == .live || self == .dormant }
+    var isAlarm: Bool { self == .warning || self == .danger }
+}
+
+/// The tile's and the list row's words, one place (R-S19's rule: one projection, many renderings).
+enum SourceCardText {
+    static func noun(_ headline: (count: Int, noun: String)) -> String {
+        headline.count == 1 ? headline.noun : headline.noun + "s"
+    }
+
+    /// A list row's second line: "Captured by hook · Nothing new since September".
+    static func rowDetail(liveness: SourceLiveness, delta: String) -> String { Eyebrow.text(liveness.verb, delta) }
+
+    /// Neutral text steps (P2): a flat line is `textQuaternary`, a dormant one `textTertiary`, a live one `textSecondary`.
+    static func sparkColor(_ points: [Int], tone: SourceLiveness.Tone) -> Color {
+        if points.allSatisfy({ $0 == 0 }) { return CicadaTheme.textQuaternary }
+        return tone == .dormant ? CicadaTheme.textTertiary : CicadaTheme.textSecondary
     }
 }
 
@@ -157,12 +209,10 @@ private struct SourceCardTile: View {
     @State private var hovering = false
     @State private var busy = false
     @FocusState private var actionFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var watchState: BrowserWatchState? {
         source.channelId.flatMap { watcher.state(for: $0) }
-    }
-    private var watchError: BrowserFileError? {
-        source.channelId.flatMap { watcher.error(for: $0) }
     }
 
     /// `channel: nil` on purpose: `source_overview.build_overview` already
@@ -198,28 +248,26 @@ private struct SourceCardTile: View {
         ZStack(alignment: .topTrailing) {
             Button(action: onOpen) {
                 SourceCard(source: source, liveness: liveness, points: points, dots: dots,
-                           delta: SourceDeltaText.text(points: points,
-                                                       lastActivity: source.lastActivityDate,
-                                                       today: today),
-                           watchState: watchState, watchError: watchError)
+                           delta: SourceDeltaText.text(points: points, lastActivity: source.lastActivityDate, today: today),
+                           watchState: watchState, reservesAction: action != nil)
             }
             .buttonStyle(.cicadaPlain)
             .accessibilityLabel(SourceCard.accessibilityLabel(for: source, watchState: watchState))
 
             if let action {
-                quickActionButton(action)
-                    .padding(CicadaTheme.spacingSM)
+                // D4 — always in the hierarchy (tab order, VoiceOver), faded in on hover or focus. DR-40: neutral.
+                NeutralButton(title: action, size: .compact, isDisabled: busy, help: action) { run(action) }
+                    .focused($actionFocused)
+                    .padding(.top, CicadaTheme.scaled(34))
+                    .padding(.trailing, CicadaTheme.scaled(12))
                     .opacity(hovering || actionFocused ? 1 : 0)
             }
         }
+        // DR-63 — a sparse tile that opens something: the strong ring and a 1 pt lift, never a scale or a shadow.
+        .ringed(hovering ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .offset(y: hovering && !reduceMotion ? -CicadaTheme.scaled(1) : 0)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .onHover { hovering = $0 }
-    }
-
-    private func quickActionButton(_ title: String) -> some View {
-        Button(title) { run(title) }
-            .buttonStyle(.bordered).controlSize(.mini).disabled(busy)
-            .focused($actionFocused)
-            .accessibilityLabel(title)
     }
 
     private func run(_ title: String) {
@@ -238,25 +286,15 @@ private struct SourceCardTile: View {
     }
 }
 
-/// One card, five bands on a fixed-height tile (R-S1 … R-S4):
+/// The five facts in D's material (R-DL19): the bare mark, brand and lifetime total; the verb; the week-dots, delta and
+/// 14-day line. Sources v2's semantics hold (R-S1 … R-S4): the **brand** name (`SourceDisplayName`, R-S4), the one verb
+/// that names what the source is doing (`SourceLiveness`, R-S2/D1), the LIFETIME total in the row's own unit beside a
+/// line of CAPTURES (R-S3 — two nouns, so 506 bookmarks never read as 506 recent captures), and the week-dots beside
+/// the delta (D3). The duplicate "Nothing yet" went: the delta already says it.
 ///
-/// 1. the mark and the **brand** name (`SourceDisplayName`, R-S4 — never the
-///    catalog's long `label`, which truncated to "Chrome bookm…", A1);
-/// 2. the status band — the G129 light where a browser watch exists, else a
-///    dot tinted by the liveness tone, followed by the one verb that names
-///    what this source is actually doing (R-S2/D1: the old dot was
-///    `source.connected`, which `build_overview` sets to `episodes > 0`, so a
-///    live-watched Chrome and a July import painted the same green);
-/// 3. the 14-day capture sparkline beside the LIFETIME total in the row's own
-///    unit (R-S3 — two nouns, so 506 bookmarks never read as 506 recent
-///    captures);
-/// 4. four week-dots beside the delta sentence (D3 — nothing on the old card
-///    said whether the number was still growing).
-///
-/// `watchState`/`watchError` and every derived series are passed in rather
-/// than read from the environment or a clock, so the card stays a plain,
-/// previewable value view — `SourceCardTile` is the one place that talks to
-/// `BrowserWatcher` and the one place that resolves `today`.
+/// `watchState` and every derived series are passed in rather than read from the environment or a clock, so the card
+/// stays a plain, previewable value view — `SourceCardTile` is the one place that talks to `BrowserWatcher` and the
+/// one place that resolves `today`. No watch error travels here at all (R-DL21): the fix is the detail column's.
 struct SourceCard: View {
     let source: SourceOverview
     let liveness: SourceLiveness
@@ -264,116 +302,99 @@ struct SourceCard: View {
     let dots: [Int]
     let delta: String
     var watchState: BrowserWatchState? = nil
-    var watchError: BrowserFileError? = nil
+    /// The quick action sits over the status line; its verb stops short of it.
+    var reservesAction = false
+
+    private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.cornerRadius) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+        VStack(alignment: .leading, spacing: 0) {
             nameBand
             statusBand
+                .padding(.top, CicadaTheme.scaled(6))
+                .padding(.trailing, reservesAction ? CicadaTheme.scaled(64) : 0)
             Spacer(minLength: 0)
-            volumeBand
             rhythmBand
         }
-        .frame(maxWidth: .infinity, minHeight: SourceCardMetrics.tileHeight,
-               maxHeight: SourceCardMetrics.tileHeight, alignment: .topLeading)
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .glassCard()
-        .contentShape(Rectangle())
-    }
-
-    private var nameBand: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            OriginMark(origin: source.mark, size: SourceCardMetrics.markSize * 0.72)
-                .frame(width: SourceCardMetrics.markSize, height: SourceCardMetrics.markSize)
-                .background(OriginIconography.color(for: source.mark).opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.scaled(6)))
-            Text(SourceDisplayName.of(source))
-                .font(CicadaTheme.font(size: 14, weight: .semibold))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
-    }
-
-    /// D2 — the reason a source is broken belongs ON the card. The old card
-    /// said "Needs attention" and hid the message in a tooltip; the verb now
-    /// folds in the error's first clause and `.help` still carries the whole
-    /// message, so nothing is lost and the card stops being a riddle.
-    private var statusBand: some View {
-        HStack(spacing: CicadaTheme.spacingXS) {
-            // R-S11: where a `BrowserWatchState` exists the G129 light is
-            // reused byte-for-byte (R-D6); everywhere else the dot is tinted by
-            // the liveness tone, never by `connected` — "has ever fed memory"
-            // is why the row exists (G124 R2), not what it is doing.
-            if let watchState {
-                BrowserStatusLight(state: watchState, error: watchError, compact: true, channelId: source.channelId)
-            } else {
-                Circle().fill(liveness.tone.color).frame(width: 7, height: 7)
-            }
-            Text(liveness.verb)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(liveness.tone == .danger ? CicadaTheme.danger : CicadaTheme.textSecondary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-        }
+        .padding(EdgeInsets(top: CicadaTheme.scaled(14), leading: CicadaTheme.scaled(16),
+                            bottom: CicadaTheme.scaled(13), trailing: CicadaTheme.scaled(16)))
+        .frame(maxWidth: .infinity, minHeight: SourceCardMetrics.tileHeight, maxHeight: SourceCardMetrics.tileHeight,
+               alignment: .topLeading)
+        .background(shape.fill(CicadaTheme.bgFocus))
+        // R-DL21 — nothing draws outside its tile, whatever a status sentence grows into.
+        .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .contentShape(shape)
         .help(source.lastError ?? liveness.verb)
     }
 
-    private var volumeBand: some View {
-        HStack(alignment: .lastTextBaseline, spacing: CicadaTheme.spacingSM) {
-            sparkline
-            Spacer(minLength: 0)
+    /// The mark stands bare (DR-52), the brand name (R-S4), and the LIFETIME total in the row's own unit (R-S3).
+    private var nameBand: some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            OriginMark(origin: source.mark, size: SourceCardMetrics.markSize)
+            Text(SourceDisplayName.of(source))
+                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .lineLimit(1)
+            Spacer(minLength: CicadaTheme.spacingSM)
             if let headline = source.headline {
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.scaled(4)) {
                     Text(UsageFormat.count(headline.count))
-                        .font(CicadaTheme.font(size: 15, weight: .semibold, design: .rounded))
+                        .font(CicadaTheme.font(size: 15, weight: .medium))
+                        .monospacedDigit()
                         .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(headline.count == 1 ? headline.noun : headline.noun + "s")
-                        .font(CicadaTheme.captionFont)
+                    Text(SourceCardText.noun(headline))
+                        .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
                 .lineLimit(1)
-            } else {
-                Text("Nothing yet")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize()
             }
         }
+        .frame(height: CicadaTheme.scaled(20))
     }
 
-    /// Decorative in the accessibility sense — `accessibilityLabel(for:)`
-    /// carries the number, and R-A13's motion budget means it never animates.
-    private var sparkline: some View {
-        GeometryReader { geo in
-            sparklinePath(points, in: geo.size)
-                .stroke(liveness.tone.color.opacity(0.8),
-                        style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+    /// R-S2 / R-S11 — the G129 light where a watch exists (dot only: `error: nil`, R-DL21), else the tone's dot, which a
+    /// failure hides because its verb says it (R-DL20).
+    private var statusBand: some View {
+        HStack(spacing: CicadaTheme.scaled(6)) {
+            if let watchState {
+                BrowserStatusLight(state: watchState, error: nil, compact: true, channelId: source.channelId)
+            } else if liveness.tone.showsDot {
+                Circle().fill(liveness.tone.color).frame(width: CicadaTheme.scaled(6), height: CicadaTheme.scaled(6))
+            }
+            Text(liveness.verb)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(liveness.tone.isAlarm ? CicadaTheme.warning : CicadaTheme.textSecondary)
+                .lineLimit(1)
         }
-        .frame(width: CicadaTheme.scaled(56), height: CicadaTheme.scaled(16))
-        .accessibilityHidden(true)
     }
 
+    /// Four week-dots and the captures delta (R-S3, D3), then the 14-day line — all neutral (P2).
     private var rhythmBand: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            // State, not quantity — the sparkline already encodes how much, so
-            // a second graded mark twelve points away would ask the reader to
-            // tell two charts apart by weight (G125 R1, as Track A's week dots
-            // first read it; the series live in `ActivitySeries.swift`).
-            HStack(spacing: 3) {
+            HStack(spacing: CicadaTheme.scaled(3)) {
                 ForEach(Array(dots.enumerated()), id: \.offset) { _, count in
                     Circle()
-                        .fill(count > 0 ? liveness.tone.color.opacity(0.65) : CicadaTheme.border)
-                        .frame(width: 4, height: 4)
+                        .fill(count > 0 ? CicadaTheme.textSecondary : Color.clear)
+                        .overlay(Circle().strokeBorder(count > 0 ? Color.clear : CicadaTheme.textQuaternary, lineWidth: 1))
+                        .frame(width: CicadaTheme.scaled(5), height: CicadaTheme.scaled(5))
                 }
             }
+            .accessibilityHidden(true)
             Text(delta)
-                .font(CicadaTheme.captionFont)
+                .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            GeometryReader { geo in
+                sparklinePath(points, in: geo.size)
+                    .stroke(SourceCardText.sparkColor(points, tone: liveness.tone),
+                            style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+            }
+            .frame(width: CicadaTheme.scaled(64), height: CicadaTheme.scaled(16))
+            .accessibilityHidden(true)
         }
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(delta)
     }
 

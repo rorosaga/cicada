@@ -12,9 +12,9 @@ import SwiftUI
 ///
 /// What replaces it: a chip row over ONE stacked bar with ONE named scale
 /// (`ContributorShare`), and a sentence (`ContributorSummary`). The drill-down
-/// is unchanged — it moved into `ContributorDrillDown` and opens in a sheet
-/// (R-S15), so the page stays one screen tall and ⌘[ keeps meaning exactly one
-/// thing on this page (`SourcesRoute`'s Back).
+/// is unchanged — it lives in `ContributorDrillDown` — and it opens as the
+/// page's detail column (R-DL22), not a sheet: a sheet hid the Reader its own
+/// "from conversation" opens. A chip is a button that opens that column.
 ///
 /// The four states of the old section move with it and are not dropped: error →
 /// never-loaded → loaded-but-empty → content. The never-loaded branch matters
@@ -36,21 +36,28 @@ import SwiftUI
 /// `ContributorSummary.sentence` supplies the true line, which for that bank is
 /// its maintenance-only branch: "Cicada's own maintenance wrote this bank."
 struct ContributorsStrip: View {
-    @Environment(ContributorsViewModel.self) private var viewModel
+    /// R-DL22 — a chip opens this author as Sources' detail column.
+    let onOpen: (Contributor) -> Void
 
-    /// The author whose drill-down is open, or nil. One at a time by
-    /// construction: a sheet is modal, where the old in-place expansion had to
-    /// police itself with an `expandedAuthor` guard.
-    @State private var sheetAuthor: Contributor?
+    @Environment(ContributorsViewModel.self) private var viewModel
 
     private var segments: [ContributorShare.Segment] {
         ContributorShare.segments(viewModel.contributors)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            SectionLabel("Who wrote your memory")
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(Copy.Lists.whoWrote)
+            block
+        }
+        // No `.task { load() }`: `ContributorsViewModel` is a thin projection
+        // over `Store.contributors`, already hydrated + kept live by the
+        // Store — this strip renders instantly from the snapshot on revisit.
+    }
 
+    /// D's material (R-DL19): a `bgFocus` block with the resting ring, like the tiles beside it.
+    private var block: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             if let err = viewModel.errorMessage {
                 errorState(err)
             } else if !viewModel.hasLoaded {
@@ -68,24 +75,24 @@ struct ContributorsStrip: View {
                 content
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingXL)
-        // No `.task { load() }`: `ContributorsViewModel` is a thin projection
-        // over `Store.contributors`, already hydrated + kept live by the
-        // Store — this strip renders instantly from the snapshot on revisit.
-        .sheet(item: $sheetAuthor) { c in
-            drillDownSheet(c)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(CicadaTheme.scaled(16))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             FlowLayout(spacing: CicadaTheme.spacingSM) {
-                ForEach(segments) { chip($0) }
+                ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                    chip(segment, rank: index)
+                }
+                Text(Copy.Lists.shareOfEntities)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(height: CicadaTheme.scaled(28))
             }
             bar
-            Text("share of entities written")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
             Text(ContributorSummary.sentence(viewModel.contributors))
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
@@ -97,8 +104,12 @@ struct ContributorsStrip: View {
     /// maintenance, the provider's PNG for a model that ships one, initials
     /// otherwise — never a re-derived glyph.
     @ViewBuilder
-    private func chip(_ segment: ContributorShare.Segment) -> some View {
+    private func chip(_ segment: ContributorShare.Segment, rank: Int) -> some View {
         let label = HStack(spacing: CicadaTheme.spacingXS) {
+            // The chip's key to its slice of the bar — the same rank colour (R-DL22).
+            CicadaTheme.shape(CicadaTheme.scaled(2))
+                .fill(Self.color(of: segment, rank: rank))
+                .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
             if let c = segment.contributor {
                 ContributorAvatar(contributor: c, kind: ContributorIdentity.kind(of: c))
             }
@@ -110,13 +121,12 @@ struct ContributorsStrip: View {
                 .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
-        .padding(.horizontal, CicadaTheme.spacingSM)
-        .padding(.vertical, CicadaTheme.spacingXS)
-        .background(CicadaTheme.surfaceHover.opacity(0.4))
-        .clipShape(Capsule())
+        // DR-44 — a chip is not a pill: the list row's surface, hover fill only.
+        .listRowSurface(height: 28, selected: false)
+        .fixedSize(horizontal: true, vertical: false)
 
         if let c = segment.contributor {
-            Button { sheetAuthor = c } label: { label.contentShape(Capsule()) }
+            Button { onOpen(c) } label: { label }
                 .buttonStyle(.cicadaPlain)
                 // E3 — a long model id is elided in a chip, so the full,
                 // honest `Cicada-Author` value stays one hover away.
@@ -140,9 +150,9 @@ struct ContributorsStrip: View {
     private var bar: some View {
         GeometryReader { geo in
             HStack(spacing: 1) {
-                ForEach(segments) { segment in
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Self.color(of: segment))
+                ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                    CicadaTheme.shape(2)
+                        .fill(Self.color(of: segment, rank: index))
                         .frame(width: max(2, geo.size.width * segment.fraction))
                 }
                 Spacer(minLength: 0)
@@ -150,22 +160,19 @@ struct ContributorsStrip: View {
             .frame(width: geo.size.width, alignment: .leading)
         }
         .frame(height: CicadaTheme.scaled(8))
-        .background(CicadaTheme.border)
-        .clipShape(RoundedRectangle(cornerRadius: 2))
+        .background(CicadaTheme.bgSelected)
+        .clipShape(CicadaTheme.shape(2))
         .accessibilityHidden(true)  // the chips above already speak every share
     }
 
-    /// The same rule the old row's `accent` used, so a chip and its slice can
-    /// never disagree: the user's own colour, the neutral tone for a legacy
-    /// untrailered author, and otherwise the provider's colour — which is
-    /// deliberately neutral for a router or an open-weight family (R-L6).
-    private static func color(of segment: ContributorShare.Segment) -> Color {
-        guard let c = segment.contributor else { return CicadaTheme.border }
-        switch ContributorIdentity.kind(of: c) {
-        case "user": return CicadaTheme.info
-        case "unknown": return CicadaTheme.textTertiary
-        case "system": return CicadaTheme.accent
-        default: return ContributorAvatar.providerColor(c.provider)
+    /// R-DL22 — the share is data, never the accent (DR-5) and never a provider's hue (P2): neutral text steps by rank,
+    /// the folded remainder the quietest.
+    private static func color(of segment: ContributorShare.Segment, rank: Int) -> Color {
+        if segment.isRemainder { return CicadaTheme.bgBadge }
+        switch rank {
+        case 0: return CicadaTheme.textTertiary
+        case 1: return CicadaTheme.textQuaternary
+        default: return CicadaTheme.bgBadge
         }
     }
 
@@ -176,43 +183,12 @@ struct ContributorsStrip: View {
         UsageFormat.percent(fraction * 100)
     }
 
-    private func drillDownSheet(_ c: Contributor) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                ContributorAvatar(contributor: c, kind: ContributorIdentity.kind(of: c))
-                Text(ContributorIdentity.displayName(author: c.author,
-                                                     kind: ContributorIdentity.kind(of: c)))
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Spacer()
-                Button { sheetAuthor = nil } label: {
-                    Image(systemName: "xmark")
-                        .font(CicadaTheme.font(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .accessibilityLabel("Close")
-            }
-            .padding(CicadaTheme.spacingMD)
-            ScrollView {
-                ContributorDrillDown(contributor: c)
-                    .padding(CicadaTheme.spacingMD)
-            }
-        }
-        .frame(minWidth: 520, minHeight: 460)
-        .background(CicadaTheme.background)
-    }
-
     private func errorState(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(message)
                 .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.danger)
-            Button("Retry") { Task { await viewModel.load() } }
-                .buttonStyle(.bordered)
+                .foregroundStyle(CicadaTheme.warning)  // DR-7 — danger is for destructive actions
+            NeutralButton(title: Copy.Inbox.retry, size: .compact) { Task { await viewModel.load() } }
                 .accessibilityLabel("Retry loading contributors")
         }
     }

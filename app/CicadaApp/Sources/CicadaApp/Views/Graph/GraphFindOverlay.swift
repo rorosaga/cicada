@@ -22,8 +22,8 @@ struct GraphFindOverlay: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: CicadaTheme.spacingXS) {
-                CicadaSearchField(text: $query, prompt: Copy.Graph.findOnCanvas, findEnabled: isActive,
-                                  onSubmit: submit, onMove: move, onEscape: escape, autofocus: true)
+                CicadaSearchField(text: $query, prompt: Copy.Graph.findOnCanvas, findEnabled: isActive, autofocus: true,
+                                  onSubmit: submit, onMove: move, onEscape: escape)
                 IconButton(systemName: "xmark", help: Copy.Graph.closeFind, action: close)
             }
             .padding(CicadaTheme.spacingXS)

@@ -75,6 +75,17 @@ Timeline inline. graph.js gained `backgroundClicked`, `escape` and `setSelectedN
 (R-DG1…R-DG25), six dated in DESIGN_RULES §9. No backend change; one gap reported: `effectiveAccess` on
 `GET /entities/{id}/sources`. Measured on the branch: Swift **1863 executed, 0 failures**, graph node tests **8 passed**.
 
+**Round 3, Direction D — DS-3c (2026-09-24, `feat/d-lists`, plan `2026-09-24-d-lists.md`).** Clusters in progressive
+columns: one View menu (the Graph's own types, labels, a remembered *Expand all*), type tabs as navigation, DS-3a's
+`EntityDetailCard` as it is (`.card`, the page's Esc through its `onEscape`) as the detail column. The Feed in progressive columns: sort and kind tabs, 56 pt rows with
+the origin's real mark, a saved item's detail column (preview, "Why it's saved", "Saved from") replacing the preview
+sheet, and the header no longer drawn under the titlebar. Sources in D's material: 96 pt tiles packed by span, a source
+or an author as the detail column, and a compact status light that never draws the Full Disk Access fix (the Safari
+overflow). The Inbox list takes the keys on arrival and after every answer, a slug reads as its page's name, and quotes
+and Reader turns read as clean text with every span exact. 27 rulings (R-DL1…R-DL27), twelve of them dated in
+DESIGN_RULES §9. No backend change. Measured on the branch: Swift **1866 executed, 0 failures**, graph node tests
+**7 passed**.
+
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 **Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
@@ -235,6 +246,9 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   save or paste) still reads a page on `_TIMEOUT` (5 s) with `resp.text[:_MAX_READ]` (the whole body
   downloaded, then cut to 1.5 MB); S0 moved only Sleep's own read onto `default_fetch`, and the same
   one-function change applies there. Two sources with one ref and two predicates share the app's `EntitySource.id` (`kind|ref`), so the entity card's Sources `ForEach` sees a duplicate id until S5 rebuilds that section; deleting still addresses by index, so the right entry goes (plan R-AC43). `InboxItem.check` reads two inputs no `/inbox` ETag component covers — a bank's `_predicates.yaml` (as `informational` already does) and today's date (clamp 4, as `age_days` already does); no screen reads `check` yet, and S6, its first reader, closes both (plan R-AC40).
+- **DS-3c seams for other tracks:** `EntityDetailCard`'s own Esc clears the Graph's selection and cannot close
+  Clusters' column (DS-3a); Settings' local-folder Manage popover opens toward the panel's trailing edge
+  (`LocalSourceRows.swift`, `arrowEdge: .trailing`), which is DS-3b's.
 
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
@@ -329,8 +343,9 @@ demo bank, never the live one, after the next visual change.
 
 **Direction D, next (after DS-3b merges):** Home, Sleep and the Settings panel are done. The remaining page tracks
 adopt `ProgressiveColumns` and retire their use of the shell's trailing Reader (`ShellReaderHost`) — **Graph and the
-entity card**, **Clusters**, **Feed**, **Sources** and **Projects** (G141 PJ-5), each per DESIGN_RULES §10 and each
-updating its CLAUDE.md page paragraph in the same PR.
+entity card** (DS-3a restyled both; the Graph still takes its Reader from `ShellReaderHost`), ~~**Clusters**, **Feed**,
+**Sources**~~ (DS-3c) and **Projects** (G141 PJ-5), each per DESIGN_RULES §10 and each updating its CLAUDE.md page
+paragraph in the same PR.
 
 **Filed 2026-09-23 — G141 project timelines.** The spec is committed
 (`docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`). Three backend tracks can start
@@ -777,6 +792,13 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 - **Demo-bank inbox coverage (DS-2 R-DI21)** — `demo_bank.py` should also write a removal, a divergence, a
   normalization and an informational item, so DR-43's "the app reaches every variant through the demo bank" holds;
   until then `InboxFocusCardFitTests` renders them from the server's shapes — XS, backend only
+- **Demo bank's saved guide in the Feed (DS-3c R-DL18)** — `demo_bank._write_scenario` writes the media page but not
+  `sources/url_index.json` (`media_ingestor.save_url_index`), so the Feed on the demo reads nothing saved — XS, backend
+  only
+- **`/graph` nodes carry `lastReferenced` (DS-3c R-DL11)** — Clusters rows would show an age (DR-58). It must be added
+  to `graph.NODE_SHAPE` and the node's hash, per the ETag rail — XS, backend only
+- **`/sources` items carry their saving episode (DS-3c R-DL15)** — for the Feed detail's "Show in conversation" — XS,
+  backend only
 - **Home's "Recently learned" (DS-3b R-HS3)** — the history detail (`GET /sleep/history/{commit}`) lists the pages a
   cycle changed but not the claims it wrote with their evidence spans; a claims list on it (claim ids + spans, no claim
   text in the commit) would let Home show what a cycle learned with its source lines, as DESIGN_RULES §10 first

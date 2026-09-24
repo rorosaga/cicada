@@ -24,8 +24,6 @@ struct ContentView: View {
     /// G136 — the ⌘K find palette (Find, with Ask as a mode; round-3 design
     /// §3). An overlay on this root, not a sheet (A11).
     @State private var paletteOpen = false
-    /// A palette saved-item row previews the item in place (design §3.3).
-    @State private var previewItem: MediaFeedItem?
     /// "Switch to light/dark" writes the key `CicadaApp` already observes.
     @AppStorage(ThemeStore.defaultsKey) private var colorSchemeRaw = AppColorScheme.dark.rawValue
     @Environment(FindPaletteModel.self) private var find
@@ -148,9 +146,6 @@ struct ContentView: View {
         // aside so the person sees the sentence instead of an overlay
         // covering it (the Ask sheet did the same before G136).
         .onChange(of: provenance.revision) { _, _ in if paletteOpen { closePalette() } }
-        .sheet(item: $previewItem) { item in
-            FeedItemPreviewSheet(item: item)
-        }
     }
 
     /// The two layers that cover the whole window — the ⌘K palette and the Settings panel
@@ -196,8 +191,8 @@ struct ContentView: View {
             // together. Content, not chrome, so it is never glass (R-M5).
             // DR-31 / R-DI6 — the Reader is a column beside whatever is open, sized first; the page gets
             // the rest. It replaced a trailing `.inspector`, whose width was not the page's to give.
-            // The Inbox hosts its own Reader, as its third progressive column (R-DI6, §5.3).
-            ShellReaderHost(showsReader: provenance.isPresented && selectedTab != .inbox,
+            // The list pages host their own Reader as their third progressive column (R-DI6, R-DL7).
+            ShellReaderHost(showsReader: provenance.isPresented && !selectedTab.hostsOwnReader,
                             navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) {
                 detailContent
                     .background(CicadaTheme.background)
@@ -327,8 +322,9 @@ struct ContentView: View {
             router.pendingClustersEntity = id
             withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .clusters }
         case .feedItem(let id):
-            if let item = store.sources.value?.first(where: { $0.mediaEntityId == id }) {
-                previewItem = item
+            // R-DL16 — a saved item opens in the Feed's detail column, not a sheet.
+            if store.sources.value?.contains(where: { $0.mediaEntityId == id }) == true {
+                router.routeToFeedItem(id)
             } else {
                 openFind(.entity(id: id))
             }
@@ -438,9 +434,9 @@ struct ContentView: View {
         case .graph:
             EmptyView()
         case .clusters:
-            TopicsView(selectedTab: $selectedTab)
+            ClustersPage()
         case .feed:
-            FeedView(selectedTab: $selectedTab)
+            FeedPage()
         case .sleep:
             // An entity chip in the consolidation history's expanded detail
             // navigates the same way an Ask citation (or a Sources

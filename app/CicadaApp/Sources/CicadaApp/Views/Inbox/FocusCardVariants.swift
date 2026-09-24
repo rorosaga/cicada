@@ -10,6 +10,8 @@ import SwiftUI
 /// exist), and "Got it" removes the item without touching a claim.
 struct InformationalBody: View {
     let item: InboxItem
+    /// R-DL5 — a value that is a page's id reads as that page's name (display only).
+    var names: EntityNames = .empty
     let onAnswer: (QuestionResolution) -> Void
 
     var body: some View {
@@ -25,7 +27,7 @@ struct InformationalBody: View {
                         .font(CicadaTheme.icon(.list))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .accessibilityHidden(true)
-                    Text(option.label)
+                    Text(names.display(option.label))
                         .font(CicadaTheme.font(size: 14, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
@@ -36,7 +38,7 @@ struct InformationalBody: View {
                 .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
                 .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
                 .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                .help(option.description ?? option.label)
+                .help(option.description ?? names.display(option.label))
             }
             HStack {
                 Spacer(minLength: 0)
@@ -92,6 +94,9 @@ struct FreeTextBody: View {
 /// one on a merge, and the view never invents what the server withheld.
 struct MergeBody: View {
     let item: InboxItem
+    /// R-DL5 — the survivor row and the "A → B" line show the existing page's name when the hint is its id;
+    /// `existingName`, which the buttons send, stays exactly what it was (the wire never changes).
+    var names: EntityNames = .empty
     let field: FocusState<InboxFocusCard.Field?>.Binding
     let onAnswer: (QuestionResolution) -> Void
 
@@ -128,11 +133,11 @@ struct MergeBody: View {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.optionGap)) {
                 SectionLabel(Copy.Inbox.keepAsCanonical)
                 survivorRow(mentionName, note: mentionNote, on: survivor == .mention) { survivor = .mention }
-                survivorRow(existingName, note: Copy.Inbox.existingPage, on: survivor == .existing) { survivor = .existing }
+                survivorRow(names.display(existingName), note: Copy.Inbox.existingPage, on: survivor == .existing) { survivor = .existing }
             }
 
             if let direction = MergeDirection.line(survivorIsMention: survivor == .mention,
-                                                   mention: mentionName, existing: existingName) {
+                                                   mention: mentionName, existing: names.display(existingName)) {
                 Text(direction)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)

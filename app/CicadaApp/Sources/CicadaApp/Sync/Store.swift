@@ -50,6 +50,10 @@ final class Store {
     /// un-hiding it here would flash the card back for one refresh cycle.
     var hiddenInboxIds: Set<String> = []
 
+    /// R-DL5 — `entityNames`' memo (`Models/EntityNames.swift`). Ignored by observation: it is a cache, and the
+    /// getter already reads `graph`, which is what views must track.
+    @ObservationIgnored var entityNamesMemo: (stamp: Date?, count: Int, names: EntityNames)?
+
     /// DR-42 (R-DI2) — the one answer inside its Undo window, and the ids whose held answer is on
     /// the wire. Both leave `visibleInbox`, so the rail badge, Home and the palette drop a question
     /// the moment it is tapped — not five seconds later, and not only on the Inbox.

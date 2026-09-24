@@ -7,6 +7,9 @@ import SwiftUI
 /// ring; hover one step up; highlighted a 1.5 pt accent ring (DR-5 use 3). A click answers at once.
 struct OptionRow: View {
     let option: InboxOption
+    /// R-DL5 — the label as shown: an id the graph holds reads as its page's name. `nil` shows `option.label`.
+    var label: String? = nil
+    private var shownLabel: String { label ?? option.label }
     /// 1…9; nil past the ninth row.
     let number: Int?
     let highlighted: Bool
@@ -23,7 +26,7 @@ struct OptionRow: View {
             HStack(spacing: CicadaTheme.spacingMD) {
                 RadioMark(on: highlighted)
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
-                    Text(option.label)
+                    Text(shownLabel)
                         .font(CicadaTheme.font(size: 14, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
@@ -52,9 +55,9 @@ struct OptionRow: View {
                 .strokeBorder(highlighted ? CicadaTheme.accent : CicadaTheme.ring(.resting), lineWidth: highlighted ? 1.5 : 1))
         }
         .buttonStyle(.cicadaPlain)
-        .help(option.description ?? option.label)
+        .help(option.description ?? shownLabel)
         .onHover { hovering = $0; if $0 { onHover() } }
-        .accessibilityLabel(option.recommended ? "\(option.label), \(Copy.Inbox.recommended.lowercased())" : option.label)
+        .accessibilityLabel(option.recommended ? "\(shownLabel), \(Copy.Inbox.recommended.lowercased())" : shownLabel)
         .accessibilityHint(number.map(Copy.Inbox.pressKey) ?? "")
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }

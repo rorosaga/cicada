@@ -51,8 +51,10 @@ struct SourceHeaderCard: View {
             Spacer(minLength: CicadaTheme.spacingMD)
             volume
         }
-        .padding(CicadaTheme.spacingMD)
-        .glassCard()
+        // D's material (R-DL19): a `bgFocus` card with the resting ring, never glass or a shadow (DR-9, DR-10).
+        .padding(CicadaTheme.scaled(16))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .padding(.horizontal, CicadaTheme.spacingXL)
         .padding(.top, CicadaTheme.spacingSM)
     }
@@ -60,10 +62,8 @@ struct SourceHeaderCard: View {
     private var identity: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(spacing: CicadaTheme.spacingSM) {
-                OriginMark(origin: source.mark, size: SourceCardMetrics.markSize * 0.72)
-                    .frame(width: SourceCardMetrics.markSize, height: SourceCardMetrics.markSize)
-                    .background(OriginIconography.color(for: source.mark).opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.scaled(6)))
+                // DR-52 — the mark stands bare, never on a tinted tile.
+                OriginMark(origin: source.mark, size: SourceCardMetrics.markSize)
                 Text(SourceDisplayName.of(source))
                     .font(CicadaTheme.font(size: 15, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -79,12 +79,13 @@ struct SourceHeaderCard: View {
                 // R-S12 rules out.
                 if let watchState {
                     BrowserStatusLight(state: watchState, error: nil, compact: true, channelId: source.channelId)
-                } else {
-                    Circle().fill(liveness.tone.color).frame(width: 7, height: 7)
+                } else if liveness.tone.showsDot {
+                    // R-DL20 — a failure hides its dot: the sentence says it, in `warning`.
+                    Circle().fill(liveness.tone.color).frame(width: CicadaTheme.scaled(6), height: CicadaTheme.scaled(6))
                 }
                 Text(Self.sentence(liveness: liveness, fullError: source.lastError))
                     .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(liveness.tone == .danger ? CicadaTheme.danger : CicadaTheme.textSecondary)
+                    .foregroundStyle(liveness.tone.isAlarm ? CicadaTheme.warning : CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -98,9 +99,10 @@ struct SourceHeaderCard: View {
             if let headline = source.headline {
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text(UsageFormat.count(headline.count))
-                        .font(CicadaTheme.font(size: 20, weight: .semibold, design: .rounded))
+                        .font(CicadaTheme.font(size: 20, weight: .medium))
+                        .monospacedDigit()
                         .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(headline.count == 1 ? headline.noun : headline.noun + "s")
+                    Text(SourceCardText.noun(headline))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textTertiary)
                 }
@@ -124,7 +126,7 @@ struct SourceHeaderCard: View {
     private var sparkline: some View {
         GeometryReader { geo in
             sparklinePath(points, in: geo.size)
-                .stroke(liveness.tone.color.opacity(0.8),
+                .stroke(SourceCardText.sparkColor(points, tone: liveness.tone),
                         style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
         }
         .frame(width: CicadaTheme.scaled(140), height: CicadaTheme.scaled(28))

@@ -13,9 +13,11 @@ import SwiftUI
 enum SourceCardMetrics {
     /// A fixed height is how critique C1 — the "Files & links offset" — stops
     /// existing: a `LazyVGrid` row is as tall as its tallest card and centres
-    /// the shorter ones vertically, so cards of equal height cannot misalign.
-    static var tileHeight: CGFloat { CicadaTheme.scaled(112) }
-    static var markSize: CGFloat { CicadaTheme.scaled(28) }
+    /// the shorter ones vertically, so cards of equal height cannot misalign. It is the whole tile, padding included —
+    /// 128 → 96 (R-DL19, §10: the duplicate "Nothing yet" lines are gone).
+    static var tileHeight: CGFloat { CicadaTheme.scaled(96) }
+    /// DR-52 — a bare mark, never on a tinted tile.
+    static var markSize: CGFloat { CicadaTheme.scaled(20) }
     /// The sparkline's window, in days, and the dot row's, in weeks. Handed to
     /// Track A's `sparklinePoints(activity:days:today:)` and
     /// `weekDots(activity:weeks:today:)` (`ActivitySeries.swift`) unchanged

@@ -8,7 +8,8 @@ import SwiftUI
 /// The style carries the honesty rule (§4.9): an asserted span is WASHED, a
 /// derived match is BOLD (found by name, not quoted), and a stale quote is
 /// PLAIN — shown so the person has something to read, never highlighted as if
-/// its offsets still held.
+/// its offsets still held. Markup and role labels are stripped through
+/// `ExcerptText.quoteParts` (R-DL2).
 struct QuoteBlock: View {
     enum Style: Hashable { case wash, bold, plain }
 
@@ -29,7 +30,9 @@ struct QuoteBlock: View {
                 .fill(EvidenceLabel.ruleColor(kind))
                 .frame(width: 2)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text(Self.attributed(before: before, span: span, after: after, style: style))
+                // R-DL2 — the one door: a quote reads without markup or role labels, the span kept exact.
+                let clean = ExcerptText.quoteParts(before: before, span: span, after: after)
+                Text(Self.attributed(before: clean.before, span: clean.span, after: clean.after, style: style))
                     .font(CicadaTheme.font(size: 12))
                     .lineLimit(lineLimit)
                     .fixedSize(horizontal: false, vertical: true)

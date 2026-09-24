@@ -104,14 +104,15 @@ extension InboxItem {
 /// R-DI5 / DR-42 — what the Undo row says for an answer: the full form in the list, the short
 /// one while the Reader is open ("Answered · Undo"). Words, never the action's wire name.
 enum UndoLabel {
-    static func of(_ r: QuestionResolution, item: InboxItem) -> (full: String, short: String) {
+    /// R-DL5 — `names` shows a picked option that is a page's id as that page's name, as the card did.
+    static func of(_ r: QuestionResolution, item: InboxItem, names: EntityNames = .empty) -> (full: String, short: String) {
         let typed = r.answer?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         switch r.action {
         case "resolve":
             if r.optionKey == "remind_later" { return (Copy.Inbox.notNow, Copy.Inbox.notNow) }
             if !typed.isEmpty { return (Copy.Inbox.answered(typed), Copy.Inbox.answered) }
             if let key = r.optionKey, let option = item.options.first(where: { $0.key == key }) {
-                return (Copy.Inbox.answered(option.label), Copy.Inbox.answered)
+                return (Copy.Inbox.answered(names.display(option.label)), Copy.Inbox.answered)
             }
             return (Copy.Inbox.answered, Copy.Inbox.answered)
         case "answer":
@@ -274,7 +275,10 @@ extension ExcerptText {
 enum QuoteSegments {
     static func of(_ item: InboxItem) -> [CitedSpan.Segment]? {
         guard item.hasCause, let cause = item.cause, !cause.excerpt.isEmpty else { return nil }
-        let parts = QuoteBlock.parts(excerpt: cause.excerpt, mentionOffsets: cause.mentionOffsets)
+        let raw = QuoteBlock.parts(excerpt: cause.excerpt, mentionOffsets: cause.mentionOffsets)
+        // R-DL2 — markup and role labels leave the WHOLE excerpt first, the mention mapped through the cut, so a
+        // `**` around it is paired and the wash covers exactly the words; `clean` then does wikilinks and spacing.
+        let parts = ExcerptText.quoteParts(before: raw.before, span: raw.span, after: raw.after)
         let mark: CitedSpan.Mark = cause.spanKind == "asserted" ? .current : .mention
         let pieces: [(String, CitedSpan.Mark)] = [(parts.before, .plain), (parts.span, mark), (parts.after, .plain)]
         // Only `before` opens on a real line start; the span and the rest begin mid-line (R-DI22).

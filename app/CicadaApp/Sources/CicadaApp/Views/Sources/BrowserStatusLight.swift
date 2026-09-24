@@ -37,13 +37,21 @@ struct BrowserStatusLight: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if state == .blocked, let error {
+            if let error, Self.showsFixHint(state: state, hasError: true, compact: compact) {
                 FullDiskAccessHint(error: error)
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(Self.title(for: state)). \(Self.explanation(for: state, channelId: channelId))")
         .help(Self.explanation(for: state, channelId: channelId))
+    }
+
+    /// R-DL21 — the fix is a paragraph and a button; a compact light (a tile, a Feed row) is one line and never draws
+    /// it. The Safari tile that grew a paragraph inside its fixed height was this rule missing. The fix stays where R-D6
+    /// put it: the detail column's full light (`ChannelSourceView`). `hasError`, not the error itself: every
+    /// `BrowserFileError` case carries a payload the rule never reads.
+    static func showsFixHint(state: BrowserWatchState, hasError: Bool, compact: Bool) -> Bool {
+        state == .blocked && hasError && !compact
     }
 
     static func color(for state: BrowserWatchState) -> Color {

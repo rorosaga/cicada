@@ -23,12 +23,13 @@ final class TitlebarHelpTests: XCTestCase {
         }
     }
 
-    /// Exhaustive switch — a compile-time guarantee that a FIFTH case can't
+    /// Exhaustive switch — a compile-time guarantee that a new case can't
     /// be added without every call site (and this test) being revisited.
-    func testHelpContentIsExactlyFourCases() {
-        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .graph] {
+    /// The pages answer for themselves as each D track lands (R-DG6, R-DL8).
+    func testHelpContentCasesAreExhaustive() {
+        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources] {
             switch content {
-            case .aboutCicada, .howSleepWorks, .inbox, .graph: break
+            case .aboutCicada, .howSleepWorks, .inbox, .graph, .clusters, .feed, .sources: break
             }
         }
     }
@@ -36,6 +37,9 @@ final class TitlebarHelpTests: XCTestCase {
     /// R-DI17 / DR-25 — the Inbox's old subtitle and its keys live behind its `?`.
     func testTheInboxAnswersForItself() {
         XCTAssertEqual(HelpContent.page(.inbox), .inbox)
+        XCTAssertEqual(HelpContent.page(.clusters), .clusters)
+        XCTAssertEqual(HelpContent.page(.feed), .feed)
+        XCTAssertEqual(HelpContent.page(.sources), .sources)
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
         XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])
