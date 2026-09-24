@@ -17,6 +17,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let runSetup = SettingsRowID("runSetup")
     // General → In the background (round-4 D3, G143)
     static let openAtLogin = SettingsRowID("openAtLogin")
+    // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)
+    static let showInMenuBar = SettingsRowID("showInMenuBar")
     static let backgroundService = SettingsRowID("backgroundService")
     // Sleep (Task 2)
     static let sleepRuns = SettingsRowID("sleepRuns")

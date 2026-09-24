@@ -65,8 +65,10 @@ enum ContributorIdentity {
     }
 
     /// The bundled logo for a provider, or nil when the provider has no mark
-    /// we ship (a router — `openrouter` bills but has no committed mark — or
-    /// an open-weight family whose glyph is not in `Resources/logos`). nil
+    /// we ship (an open-weight family whose glyph is not in `Resources/logos`).
+    /// `openrouter` wears OpenRouter's mark (R-AG9): a model billed through
+    /// OpenRouter is OpenRouter's to the contributor list, the same routing
+    /// `git_service._ROUTER_PREFIXES` applies server-side. nil
     /// means "fall back to the coloured circle with initials", never a blank.
     ///
     /// Deliberately a provider→file map and not an identity: the provider ids
@@ -79,6 +81,7 @@ enum ContributorIdentity {
         case "openai": "chatgpt"
         case "google": "gemini"
         case "ollama": "ollama"
+        case "openrouter": "openrouter"
         default: nil
         }
     }
@@ -104,7 +107,7 @@ enum ContributorIdentity {
     /// `LogoAssetTests.testEveryBundledMarkIsClaimedBySomeMap` concatenates it
     /// into the claimed-names list — this is the only thing that stops a
     /// provider mark from reading as an orphaned asset.
-    static let allProviderMarks: [String] = ["claude", "chatgpt", "gemini", "ollama"]
+    static let allProviderMarks: [String] = ["claude", "chatgpt", "gemini", "ollama", "openrouter"]
 
     /// Initials for the badge when no mark applies. Delegates to
     /// `LogoImage.monogram(for:)` so a contributor badge and a platform tile

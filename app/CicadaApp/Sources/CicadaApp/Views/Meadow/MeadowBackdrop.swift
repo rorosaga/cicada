@@ -72,7 +72,7 @@ struct GrassEdge: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        if let image = MeadowArt.image(for: .grassEdge, mode: CicadaTheme.mode) {
+        if let image = MeadowArt.image(for: .grassEdge, time: .forTheme(CicadaTheme.mode)) {
             Image(nsImage: image)
                 .resizable(capInsets: EdgeInsets(), resizingMode: .tile)
                 .frame(height: image.size.height)

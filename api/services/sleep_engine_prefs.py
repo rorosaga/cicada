@@ -15,6 +15,8 @@ model list.
 """
 from __future__ import annotations
 
+import re
+
 from fastapi import HTTPException
 
 from api.config import Settings
@@ -23,9 +25,11 @@ from api.models.schemas import (
     SleepEngineChoice,
     SleepEnginePreview,
     SleepEnginePreviews,
+    SleepEngineProvider,
     SleepEngineResponse,
 )
 from api.services import agent_engine, codex_app_server, codex_engine, engine_select
+from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
 PREF_KEY = engine_select.SLEEP_ENGINE_PREF_KEY
@@ -38,6 +42,18 @@ VALID_MODES = engine_select._VALID_PREF_MODES
 # already configured (so an existing non-default choice never disappears
 # from the list just because this page hasn't seen it before).
 _AGENT_MODEL_CHOICES = ("sonnet", "haiku", "opus")
+
+# R-AG12: a key model is handed to LiteLLM as-is, so the PUT checks its shape
+# before it is stored — a leading letter or digit (never `-`, never a space),
+# then the characters real provider ids use (`openrouter/~openai/…`,
+# `groq/openai/gpt-oss-120b`, `…:free`, `…@latest`), at most 200 in all.
+_LITELLM_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/~@-]{0,199}")
+
+
+def selected_card(mode: str, model: str | None) -> str:
+    """R-AG12: the card a choice belongs to. OpenRouter is `byok` with an
+    `openrouter/` model; every other card is its own mode."""
+    return "openrouter" if mode == "byok" and (model or "").startswith("openrouter/") else mode
 
 
 def _configured_choice(settings: Settings, reg) -> tuple[str, str]:
@@ -94,8 +110,8 @@ def _resolved_model_pair(settings: Settings, reg, mode: str, source: str) -> tup
     return model, disambiguation
 
 
-async def _candidates(settings: Settings, reg) -> list[SleepEngineCandidate]:
-    """The picker's five cards (R-E4). Probes the whole registry once
+async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) -> list[SleepEngineCandidate]:
+    """The picker's six cards (R-E4; OpenRouter joined in R-AG12). Probes the whole registry once
     (``statuses`` is 30 s cached, so this is usually free) rather than
     one-off probing each connection — the same shared-cache pattern every
     other read of the registry already uses. The ChatGPT roster comes from
@@ -126,6 +142,25 @@ async def _candidates(settings: Settings, reg) -> list[SleepEngineCandidate]:
     except Exception:
         ollama_models = []
 
+    # R-AG12: OpenRouter is a `byok` card with its own key. Its models are the
+    # stored `openrouter/` model while that card is chosen (so a pick never
+    # disappears), then its default — a tap writes the first (R-HS7).
+    openrouter = byok.provider("openrouter")
+    or_models = [model] if selected_card(mode, model) == "openrouter" and model else []
+    if openrouter.default_model not in or_models:
+        or_models.append(openrouter.default_model)
+    or_connected = secrets.has_secret(openrouter.env)
+
+    # R-AG12 + R-HS7: a tap writes the card's first model, and the app omits a nil one. From the
+    # OpenRouter card (or when the env default itself is an `openrouter/` id) a bare `{mode: byok}`
+    # would keep an `openrouter/` model and the API-key card could never be chosen — so it carries a
+    # key model then: the first picker provider with a key, else the picker's first. Otherwise `[]`,
+    # exactly as before (a tap keeps the stored or env model).
+    key_models: list[str] = []
+    if selected_card(mode, model) == "openrouter" or (settings.litellm_model or "").startswith("openrouter/"):
+        with_key = [p for p in byok.PICKER if secrets.has_secret(p.env)]
+        key_models = [(with_key or list(byok.PICKER))[0].default_model]
+
     return [
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
@@ -145,13 +180,18 @@ async def _candidates(settings: Settings, reg) -> list[SleepEngineCandidate]:
                     else (chatgpt.detail if chatgpt else None)),
         ),
         SleepEngineCandidate(
+            id="openrouter", label="OpenRouter", mode="byok", available=True, connected=or_connected,
+            models=or_models,
+            detail="Signed in to OpenRouter." if or_connected else "Sign in with OpenRouter, or paste a key.",
+        ),
+        SleepEngineCandidate(
             id="local", label="Ollama",
             available=bool(ollama and ollama.available), connected=bool(ollama and ollama.connected),
             models=ollama_models, detail=ollama.detail if ollama else None,
         ),
         SleepEngineCandidate(
-            id="byok", label="API key", available=True, connected=True,
-            detail="Uses the model configured on the Plans & keys page.",
+            id="byok", label="API key", available=True, connected=True, models=key_models,
+            detail="Your own key from Anthropic, OpenAI, Gemini, xAI, Groq or Mistral.",
         ),
     ]
 
@@ -183,7 +223,9 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     was actually persisted."""
     mode, source = _configured_choice(settings, reg)
     model, disambiguation_model = _resolved_model_pair(settings, reg, mode, source)
-    candidates = await _candidates(settings, reg)
+    # Kept BEFORE the two `resolve_settings` calls: it warms the registry's
+    # status cache their cheap probes read (a cold cache falls back to a CLI spawn).
+    candidates = await _candidates(settings, reg, mode=mode, model=model)
 
     manual_settings, manual_why = await engine_select.resolve_settings(settings, reg, user_triggered=True)
     scheduled_settings, scheduled_why = await engine_select.resolve_settings(
@@ -198,9 +240,25 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
     # either one is what a cycle would honour, so the card shows it on.
     allow_overage = (bool((reg.prefs().get(PREF_KEY) or {}).get("allow_overage"))
                      or bool(settings.agent_allow_overage))
+    # R-AG12 / R-AG14: the key provider the chosen card reads through — the stored key model's for
+    # `byok` (the picker's selection), or, for Auto, the model Auto resolved to when that runs on a key.
+    if mode == "byok":
+        provider = byok.provider_for_model(model)
+    elif mode == "auto" and preview.manual.engine == "litellm":
+        provider = byok.provider_for_model(preview.manual.model)
+    else:
+        provider = None
+    # R-AG11: the picker — ids, names and key PRESENCE only, never a value.
+    providers = [
+        SleepEngineProvider(id=p.id, label=p.brand, connection_id=p.connection_id,
+                            has_key=secrets.has_secret(p.env), default_model=p.default_model,
+                            key_url=p.key_url)
+        for p in byok.PICKER
+    ]
     return SleepEngineResponse(
         mode=mode, model=model, disambiguation_model=disambiguation_model,
         source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
+        selected=selected_card(mode, model), provider=provider, providers=providers,
     )
 
 
@@ -227,6 +285,15 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
             raise HTTPException(status_code=422, detail="model must not be blank")
         if body.disambiguation_model is not None and not body.disambiguation_model.strip():
             raise HTTPException(status_code=422, detail="disambiguation model must not be blank")
+    elif body.mode == "byok":
+        # R-AG12: LiteLLM routes on the id's prefix, so a key model is
+        # checked for shape before it is stored; an explicit null still clears.
+        if body.model is not None and not _LITELLM_ID.fullmatch(body.model):
+            raise HTTPException(status_code=422, detail="invalid model id for this engine")
+        if body.disambiguation_model is not None and not _LITELLM_ID.fullmatch(body.disambiguation_model):
+            raise HTTPException(
+                status_code=422, detail="invalid disambiguation model id for this engine"
+            )
 
     # Cross-mode staleness guard: `model`/`disambiguation_model` share ONE
     # untyped string slot per `sleep-engine` pref entry, tagged only by the
@@ -255,3 +322,8 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     # so an opted-out bank's prefs file reads exactly as one that never chose.
     if "allow_overage" in body.model_fields_set:
         reg.set_pref(PREF_KEY, "allow_overage", True if body.allow_overage else None)
+    # R-AG13: a key's model pins its judge — the env default judge (`gpt-5.4-nano`)
+    # is an OpenAI model and cannot run on an Anthropic, Groq or OpenRouter key.
+    if (body.mode == "byok" and "model" in body.model_fields_set and body.model
+            and "disambiguation_model" not in body.model_fields_set):
+        reg.set_pref(PREF_KEY, "disambiguation_model", body.model)

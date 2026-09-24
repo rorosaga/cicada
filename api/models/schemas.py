@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -461,6 +461,28 @@ class EntityDecay(CamelModel):
     mention_weeks: int
 
 
+class PictureInputsModel(CamelModel):
+    """C11 — the rung inputs `entity_picture.resolve` read (plan R-PE5), so the app's twin can paint a removal before
+    the server answers (R-PE10). `choice` is the person's (`upload` | `initials`); `logo` is already the logo rung's
+    eligibility AND availability, decided server-side. On the entity and the write answers only — never on `/graph`."""
+
+    type: str
+    choice: Optional[str] = None
+    upload_sha: Optional[str] = None
+    contacts_sha: Optional[str] = None
+    logo: bool = False
+    thumbnail: Optional[str] = None
+
+
+class EntityPictureResponse(CamelModel):
+    """What every picture write answers (C11): the page's picture after the write, and its inputs."""
+
+    entity_id: str
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: PictureInputsModel
+
+
 class EntityResponse(CamelModel):
     id: str
     name: str
@@ -493,6 +515,13 @@ class EntityResponse(CamelModel):
     # builds an EntityResponse without a page. Additive: an older client
     # ignores it and keeps showing the class.
     decay: Optional[EntityDecay] = None
+    # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
+    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`) or a media page's https thumbnail it loads without it
+    # (plan R-PE6); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
+    # all three.
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: Optional[PictureInputsModel] = None
 
 
 class PaperSummary(CamelModel):
@@ -1491,6 +1520,21 @@ class GraphNode(CamelModel):
     # app's instant search tier. Shipped after measuring the payload (plan
     # R-SU23; the number is on the G136 row). Additive/defaulted.
     aliases: list[str] = []
+    # C11 (G146) — the page's resolved picture and its rung, and the day it was last mentioned (F-12's ages and
+    # Clusters' recency order, plan R-PE13). Additive. `picture`/`pictureSource` are OMITTED when there is none: this is
+    # the app's largest snapshot and most pages have no picture, so an absent one costs nothing (R-PE5).
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    last_referenced: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_picture(self, handler) -> dict[str, Any]:
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("picture", "pictureSource", "picture_source"):
+                if key in data and data[key] is None:
+                    del data[key]
+        return data
 
 
 class GraphLink(CamelModel):
@@ -2181,6 +2225,20 @@ class SleepEngineCandidate(CamelModel):
     connected: bool = False
     models: list[str] = Field(default_factory=list)
     detail: Optional[str] = None
+    # R-AG12: what a tap writes, when it is not the card's own id — the
+    # OpenRouter card is `byok` under the hood, so ruling 4 never sees a new mode.
+    mode: Optional[str] = None
+
+
+class SleepEngineProvider(CamelModel):
+    """One row of the API-key card's provider picker (R-AG11). Names and ids
+    only; ``has_key`` is presence, never a value; no price (G124)."""
+    id: str
+    label: str
+    connection_id: str
+    has_key: bool = False
+    default_model: str
+    key_url: str
 
 
 class SleepEnginePreview(CamelModel):
@@ -2217,6 +2275,16 @@ class SleepEngineResponse(CamelModel):
     candidates: list[SleepEngineCandidate]
     preview: SleepEnginePreviews
     allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
+    # R-AG12: ``mode`` is what runs; ``selected`` is the CARD that choice
+    # belongs to (``openrouter`` for a ``byok`` mode with an ``openrouter/``
+    # model, else the mode itself), so the app highlights the right card
+    # without a second mode that ruling 4 would have to learn. ``provider``
+    # is the key provider the chosen card reads through (the stored ``byok``
+    # model's, or Auto's resolved key model's — R-AG14's "leaves your Mac"
+    # note names it); ``providers`` is the API-key card's picker (R-AG11).
+    selected: str = ""
+    provider: Optional[str] = None
+    providers: list[SleepEngineProvider] = Field(default_factory=list)
 
 
 class SleepEngineChoice(CamelModel):
@@ -2490,7 +2558,12 @@ class AgentSetupResponse(CamelModel):
     """``GET /agents/setup?harness=`` (round 4 C5, G76). ``kind`` says which of
     ``prompt`` / ``argv`` / ``display`` (a paste-into-your-agent prompt naming
     exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
-    ``config`` is set. ``remote`` is reserved: no harness produces it yet."""
+    ``config`` is set. A ``prompt`` with ``argv: []`` (OpenCode, Hermes,
+    OpenClaw) is a config registration the agent performs itself, with
+    ``config`` riding along for doing it by hand (round 4 C8, R-AG3).
+    ``remote`` is produced by ``claude``/``chatgpt``/``grok``: ``display`` holds
+    exactly the two steps before Confirm on the G135 connector and ``note`` the
+    honesty line; nothing is set to run (R-AG19)."""
 
     harness: str
     kind: Literal["prompt", "deeplink", "config-merge", "remote"]
@@ -2501,6 +2574,25 @@ class AgentSetupResponse(CamelModel):
     deeplink: Optional[str] = None
     config: Optional[AgentSetupConfig] = None
     note: Optional[str] = None
+
+
+class AgentLiveRow(CamelModel):
+    """One agent's live ✓ (round 4 C8, R-AG5). ``via``: ``mcp`` (Cicada's stdio
+    server saw it initialize), ``remote`` (a connector made for it was used) or
+    ``config`` (its own MCP config names Cicada, not seen yet); null while not
+    connected. ``last_seen_at`` is the latest sighting, even while disconnected."""
+
+    id: str
+    connected: bool = False
+    last_seen_at: Optional[str] = None
+    via: Optional[Literal["mcp", "remote", "config"]] = None
+
+
+class AgentLiveResponse(CamelModel):
+    """``GET /agents/live`` — polled while the Agents page is visible; not a Store
+    domain, no ETag (a tiny body that changes by the second)."""
+
+    agents: list[AgentLiveRow] = []
 
 
 # --- Sources (media ingestion) ---
@@ -3176,7 +3268,7 @@ class ConnectionKind(str, Enum):
 
 
 class LoginHint(CamelModel):
-    mode: str  # terminal | device-code | key | none
+    mode: str  # terminal | device-code | key | oauth (R-AG10: a key card that also signs in) | none
     command: Optional[str] = None
 
 

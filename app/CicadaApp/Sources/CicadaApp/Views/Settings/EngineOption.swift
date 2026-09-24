@@ -4,20 +4,24 @@ import Foundation
 /// G139) makes, as pure functions with table tests, so `EngineChooser` is a
 /// renderer.
 ///
-/// The row is `GET /sleep/engine`'s five candidates in the server's order
-/// (Auto, Claude plan, ChatGPT plan, Ollama, API key). Marks come through
+/// The row is `GET /sleep/engine`'s six candidates in the server's order
+/// (Auto, Claude plan, ChatGPT plan, OpenRouter, Ollama, API key — R-AG12). Marks come through
 /// `ConnectionMark` — the translation Plans & keys uses — so the two surfaces
 /// never disagree about what a plan looks like.
 enum EngineOption {
     /// The two cards that spend a subscription (ruling 4's `SUBSCRIPTION_MODES`).
     static let planIds: Set<String> = ["agent", "codex"]
 
-    /// R-E25: a plan card is selectable once that plan is signed in, or when
+    /// The cards that need a sign-in before they can run: the two plans, and OpenRouter (R-AG12),
+    /// which is a key card but one you sign in to. It is NOT a plan — ruling 4 never sees it.
+    static let signInIds: Set<String> = planIds.union(["openrouter"])
+
+    /// R-E25: a sign-in card is selectable once it is signed in, or when
     /// it is already the saved choice — a signed-out current pick stays
     /// visible (and says why) instead of vanishing. The server accepts any
-    /// valid mode; this is UX, not validation.
+    /// valid mode; this is UX, not validation. `selectedMode` is the selected CARD.
     static func isSelectable(_ candidate: SleepEngineCandidate, selectedMode: String) -> Bool {
-        guard planIds.contains(candidate.id) else { return true }
+        guard signInIds.contains(candidate.id) else { return true }
         return candidate.connected || candidate.id == selectedMode
     }
 
@@ -43,6 +47,8 @@ enum EngineOption {
         case "agent": "claude-plan"
         case "codex": "chatgpt-plan"
         case "local": "ollama-local"
+        // R-AG12/R-AG9 — the OpenRouter card is its own card and wears OpenRouter's mark.
+        case "openrouter": "byok-openrouter"
         default: nil
         }
     }
@@ -52,26 +58,58 @@ enum EngineOption {
     }
 
     /// The mark beside a "What runs" line — the same vendor mark the chosen
-    /// card wears, from the engine id the preview reports.
-    static func previewMark(engine: String) -> String? {
+    /// card wears, from the engine id the preview reports. R-AG12 / DR-52: a
+    /// `litellm` run on an `openrouter/` model is the OpenRouter card, so it
+    /// wears OpenRouter's mark rather than the key card's glyph.
+    static func previewMark(engine: String, model: String? = nil) -> String? {
         switch engine {
         case "claude-cli": logoName(for: "agent")
         case "codex-cli": logoName(for: "codex")
         case "ollama": logoName(for: "local")
+        case "litellm" where runsOnOpenRouter(model): logoName(for: "openrouter")
         default: nil
         }
     }
 
     /// The card a preview's engine belongs to — `previewMark`'s inverse — so a line that names what
-    /// will run uses the card's own label ("Claude plan"), never a fresh coinage (R-HS8).
-    static func candidateId(forEngine engine: String) -> String? {
-        switch engine {
-        case "claude-cli": "agent"
-        case "codex-cli": "codex"
-        case "ollama": "local"
-        case "litellm": "byok"
-        default: nil
-        }
+    /// will run uses the card's own label ("Claude plan"), never a fresh coinage (R-HS8). R-AG12:
+    /// OpenRouter and the API key are both `litellm`; the model tells them apart, as the server's
+    /// `selected_card` does.
+    static func candidateId(forEngine engine: String, model: String? = nil) -> String? {
+        EngineReadiness.candidateId(forEngine: engine, model: model)
+    }
+
+    /// R-AG12 — the server's `selected_card` rule, on the app side: a key model routed through
+    /// OpenRouter is spelled `openrouter/…`.
+    static func runsOnOpenRouter(_ model: String?) -> Bool {
+        (model ?? "").hasPrefix("openrouter/")
+    }
+
+    /// What the OpenRouter card's Model field writes (Round 4 final review): OpenRouter's own site lists ids
+    /// without the `openrouter/` prefix (`anthropic/claude-sonnet-4.5`), and a pasted one is a valid LiteLLM
+    /// id that routes straight to that provider — billing a different key, or failing Sleep with none. So the
+    /// prefix is added unless it is already there; an empty field stays empty (no write).
+    static func openRouterModelID(_ typed: String) -> String {
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !runsOnOpenRouter(trimmed) else { return trimmed }
+        return "openrouter/" + trimmed
+    }
+
+    /// The engine word a preview line prints: exactly `Copy.engineLabel`, except a key run through
+    /// OpenRouter, which reads "OpenRouter" — "API key · openrouter/…" named the wrong card (R-AG12).
+    static func previewName(engine: String, model: String?) -> String {
+        engine == "litellm" && runsOnOpenRouter(model) ? Copy.openRouterName : Copy.engineLabel(engine)
+    }
+
+    /// R-AG14 / DR-44 — Ollama is the one engine that reads on this Mac; its card wears a Local tag
+    /// instead of a "slower" warning.
+    static func isLocal(_ id: String) -> Bool { id == "local" }
+
+    /// R-AG11 — a provider pick writes that provider's default model on the key card (selecting it when another
+    /// card was chosen); the same model again writes nothing.
+    static func providerWrite(_ provider: SleepEngineProvider, selectedCard: String, currentModel: String) -> EngineWrite? {
+        guard selectedCard != "byok" || currentModel != provider.defaultModel else { return nil }
+        return EngineWrite(mode: "byok", model: provider.defaultModel)
     }
 
     static func symbol(for candidateId: String) -> String {
@@ -106,6 +144,7 @@ enum EngineOption {
         case "agent", "codex": Copy.costModelPlan
         case "local": Copy.costModelLocal
         case "byok": Copy.costModelKey
+        case "openrouter": Copy.costModelOpenRouter
         default: nil
         }
     }
@@ -141,11 +180,17 @@ struct EngineWrite: Equatable {
     /// A tap on another selectable engine writes it with its first model — the plan's own default
     /// first (R-E17); `nil` when it lists none (an API key's model lives on Plans & keys). A tap on
     /// the current engine, or on a plan that is not signed in (R-E25), writes nothing.
+    /// `current` is the selected CARD (`SleepEngineResponse.selected`), so OpenRouter and the API-key
+    /// card — both `byok` — are told apart.
     static func choosing(_ candidate: SleepEngineCandidate, current: String) -> EngineWrite? {
         guard candidate.id != current, EngineOption.isSelectable(candidate, selectedMode: current) else { return nil }
         let first = candidate.models.first ?? ""
-        return EngineWrite(mode: candidate.id, model: first.isEmpty ? nil : first)
+        return EngineWrite(mode: mode(of: candidate), model: first.isEmpty ? nil : first)
     }
+
+    /// R-AG12 — the ONE place a card becomes a mode. The OpenRouter card writes `byok`; spelling
+    /// `mode: candidate.id` anywhere else would PUT `openrouter`, which the server refuses (422).
+    static func mode(of candidate: SleepEngineCandidate) -> String { candidate.mode ?? candidate.id }
 
     /// A model pick on the chosen engine. The same model again, or a blank one, writes nothing.
     static func model(_ model: String, mode: String, current: String) -> EngineWrite? {

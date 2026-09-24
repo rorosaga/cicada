@@ -94,7 +94,11 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     }
 
     var isSubscription: Bool { billing == "subscription" }
-    var isKeyBased: Bool { login?.mode == "key" }
+    /// A card that holds a pasted key. OpenRouter's `oauth` card is one too (R-AG10): signing in only adds a
+    /// second way to fill the same key, so its paste field and Remove stay.
+    var isKeyBased: Bool { login?.mode == "key" || login?.mode == "oauth" }
+    /// R-AG10 — the key card that can also sign in through the browser (OpenRouter's PKCE flow).
+    var signsIn: Bool { login?.mode == "oauth" }
 
     /// "Sleep extraction · Ask · clarification wording", or nil when this
     /// connection isn't powering anything.

@@ -7,9 +7,10 @@ import Foundation
 /// name a typo could break (CLAUDE.md, Brand marks: one map, one precedence).
 /// The Claude plan wears Claude's mark and the ChatGPT plan ChatGPT's (spec
 /// R-E4) — the card is named for the plan the person pays for, not for the
-/// CLI Cicada drives. `nil` keeps the card's SF Symbol: OpenRouter ships no
-/// committed mark, and fetching one is a maintainer's `scripts/fetch-logos.sh`
-/// step, never a runtime one.
+/// CLI Cicada drives. OpenRouter wears its own mark, fetched by a maintainer
+/// from the vendor's repository at a pinned commit (R-AG9, origin `repo` in
+/// `scripts/fetch-logos.sh` — never a runtime fetch). `nil` keeps the card's SF
+/// Symbol: xAI, Groq and Mistral ship no sourced mark yet.
 enum ConnectionMark {
     /// The vendor behind a connection, in `ContributorIdentity`'s provider ids.
     static func provider(connectionId: String) -> String? {
@@ -18,6 +19,7 @@ enum ConnectionMark {
         case "chatgpt-plan", "byok-openai": "openai"
         case "byok-gemini": "google"
         case "ollama-local": "ollama"
+        case "byok-openrouter": "openrouter"
         default: nil
         }
     }

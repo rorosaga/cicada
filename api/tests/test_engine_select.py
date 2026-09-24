@@ -471,3 +471,16 @@ def test_powered_connection_follows_the_configured_mode_and_never_probes():
     assert pick(Settings(), _NoStatus(prefs={"claude-plan": {"use_for_sleep": True}}), both) == "claude-plan"
     assert pick(Settings(), _NoStatus(), both) == "byok-openai"
     assert pick(Settings(), _NoStatus(), {"claude-plan"}) is None
+
+
+def test_powered_connection_reads_the_byok_pref_model_before_the_env_model():
+    """Round 4 final review: the OpenRouter card and the key-provider picker
+    write the byok pref's model; POWERS and /status must name the card that
+    model bills, not the env default's (or none)."""
+    prefs = {"sleep-engine": {"mode": "byok", "model": "openrouter/~openai/gpt-mini-latest"}}
+    pick = engine_select.powered_connection_id
+    assert pick(Settings(), _FakeRegistry(prefs=prefs), {"byok-openrouter"}) == "byok-openrouter"
+    assert pick(Settings(), _FakeRegistry(prefs=prefs), {"byok-openai", "byok-openrouter"}) == "byok-openrouter"
+    # A model slot written for another mode never leaks into the byok answer.
+    stale = {"sleep-engine": {"mode": "local", "model": "openrouter/x"}}
+    assert pick(Settings(llm_mode="byok"), _FakeRegistry(prefs=stale), {"byok-openai", "byok-openrouter"}) == "byok-openai"

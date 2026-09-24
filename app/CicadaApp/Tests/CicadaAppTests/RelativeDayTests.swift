@@ -69,7 +69,8 @@ final class RelativeDayTests: XCTestCase {
 
     /// DR-58 — "Today"/"Yesterday"/"Tomorrow" are spelled once, in `RelativeDay`; the Projects files never spell them.
     func testRelativeWordsAreSpelledOnlyByRelativeDay() throws {
-        let scope = ["/Views/Projects/", "/Models/Project", "/Theme/Copy+Projects.swift"]
+        let scope = ["/Views/Projects/", "/Models/Project", "/Theme/Copy+Projects.swift", "/Views/People/", "/Models/PersonCard.swift",
+                     "/Theme/Copy+People.swift"]
         let needles = [#""Today""#, #""Yesterday""#, #""Tomorrow""#, #""today""#, #""yesterday""#, #""tomorrow""#]
         var offenders: [String] = []
         var scanned = 0

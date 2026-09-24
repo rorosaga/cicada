@@ -68,4 +68,25 @@ def test_the_manifest_records_a_licence_and_a_restriction_for_every_asset():
     for asset in _manifest()["assets"]:
         assert asset["licence"].strip(), asset["id"]
         assert asset["restrictions"].strip(), asset["id"]
-        assert asset["origin"] in {"commons", "recut", "legacy"}, asset["id"]
+        assert asset["origin"] in {"commons", "repo", "recut", "legacy"}, asset["id"]
+
+
+def test_a_repo_mark_is_pinned_to_a_commit_on_the_vendor_s_own_repository():
+    """R-AG9 — a vendor-repo mark is fetched from one immutable commit, never a
+    branch, and carries the same upstream-drift guard (`svgSha256`) a Commons
+    mark does: a redraw on the vendor's `main` must never reach the app unreviewed."""
+    import re
+
+    pinned = re.compile(r"^https://raw\.githubusercontent\.com/[^/]+/[^/]+/[0-9a-f]{40}/.+\.svg$")
+    repo_assets = [a for a in _manifest()["assets"] if a["origin"] == "repo"]
+    assert {a["id"] for a in repo_assets} == {"opencode", "opencode-dark", "openrouter"}
+    for asset in repo_assets:
+        assert pinned.match(asset["sourceUrl"]), asset["id"]
+        assert re.fullmatch(r"[0-9a-f]{64}", asset.get("svgSha256", "")), asset["id"]
+
+
+def test_the_two_identical_claude_rasters_are_retired():
+    """R-AG8 — Claude Code is the Claude mark plus an app-drawn badge; the two
+    byte-identical legacy rasters are unlicensed dead bytes once nothing draws them."""
+    ids = {a["id"] for a in _manifest()["assets"]}
+    assert not ids & {"claude-code", "claude-desktop"}

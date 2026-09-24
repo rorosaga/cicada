@@ -60,6 +60,9 @@ SCAFFOLD_SUBDIRS = (
     "sources",
     "candidates",
     "_procedures",
+    # G146 (plan R-PE1) — the person's uploaded pictures (`assets/pictures/`): their own record, so versioned and
+    # carried by an export. Empty until the first upload; git does not track an empty folder.
+    "assets",
 )
 
 # Derived artifacts that live INSIDE a bank dir but are not memory: rebuildable

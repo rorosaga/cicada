@@ -494,6 +494,18 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   the tooltip (DR-54).
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
+- `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
+  picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
+  travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
+  for "Use initials instead". Written only by `POST|DELETE /entities/{id}/picture` and `…/picture/initials`, each
+  committed alone as `user`, 409 while Sleep runs; never by an agent. The app shrinks a picture to ≤ 512 px before
+  it leaves the Mac; the server keeps only a PNG or JPEG ≤ 512 KB (no Pillow). `entity_picture.resolve` is the one
+  precedence (the person's choice → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring
+  monogram), resolved at read onto `/graph` nodes and the entity; the app's `EntityPictureResolver` is its twin over
+  `api/tests/fixtures/entity_picture.json`. A person never gets a logo and no service is sent a person's name (G159).
+- `contacts_photo:` (G154, read by G146) — `{sha, ext}` on a `person` page Contacts matched (`ext` jpg|png, jpg when
+  absent); the thumbnail itself is a cache at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`, never in a bank.
+  Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
   field is that resolved value.
@@ -817,11 +829,13 @@ G147's *How things fade*: pace suggestions from the person's own "Still tracking
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
 announces the row (G139). `SettingsSection` raw values did not move. General's appearance offers System, which
-follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General also
-holds Scene, Open Cicada at login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does
-not keep says so) and Keep memory working when Cicada is closed (`BackendAgentService`: a read-only `launchctl print`,
-and Install runs `scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`,
-then hands launchd the port). ⌘K and ⌘F are
+follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
+Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
+login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
+menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays) and Keep memory working when
+Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
+`scripts/install-backend-agent.sh` from the app's own checkout after the click, `CICADA_CAPTURE=off`, then hands
+launchd the port). ⌘K and ⌘F are
 menu commands in `Support/FindCommands.swift` (`HiddenShortcutLintTests`); ⌘, and ⌃⌘S live in
 `Support/ShellCommands.swift`. Track P's audit removed the global Sleep button, because a cycle starts from the Sleep
 page's one Consolidate control (G125 R10) or the menu-bar bookworm.
@@ -845,24 +859,29 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b).** The front door at ⌘1: the painted `hero-day` band — its
-`-dark` sibling at dusk and night by the clock (`SceneClock`: NOAA's sun over the Mac's time zone's tzdb point, no
-location; `SceneStore` re-checks at each crossing, on a time-zone change and on wake) and Settings → General → Scene
-(Automatic · Always day · Always night), never the theme (G144; DESIGN_RULES §9 2026-09-24) —
-(`HomeHeroBand`, paint only, 120 pt, faded into the window), "What would you like to remember?" as a
-`PageTitle` on the row under it — text never sits on paint — then the palette's own `FindPanelBody` in
-`.page` placement in a 640 pt block: a second `FindPaletteModel` sharing the one Ask and keeping no
-recents; ⌘K on Home focuses it, a pasted `http(s)` link offers *Save this link*. Below it, in one
-760 pt column, labelled `glassCard` blocks of 36 pt rows: Getting started (while it lasts), Today
-(captured today, UTC, with the three busiest marks), Needs you (the Inbox's own `InboxRow`s, landing in
-STATE 1) and Last read (the newest Sleep commit, its pages as `Tag`s) — each number once, each a link
-(`InlineLink`) to the page that owns it; the waiting count links to Sleep, never a Consolidate.
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band —
+`PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
+person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
+over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil
+dusk), never the theme (G144); its meadow line at two thirds of the band, faded into the window from 72 %. Slow
+one-way clouds, grass swaying from its roots, seeds by day, fireflies and stars by night and a slow camera breath run
+in one `TimelineView` at ≤ 30 fps (15 under Low Power) that rests while the window cannot be seen, while the Welcome
+covers the shell and off-tab; Reduce Motion or Low Power make it gentler, never frozen (DR-66); a scene change
+crossfades the same composition in 1.2 s. Under it, "What would you like to remember?" as a `PageTitle` — text never
+sits on paint — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
+`FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
+*Save this link*. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
+captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
+question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
+pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
+Consolidate. Right after the Welcome's Start, *Make it yours* (Appearance and Scene; `AppearanceTipPolicy`, per
+viewer) sits beside the column where it fits, else atop it; once hidden it lives only in Settings.
 
 **Onboarding (G117, Track I part b).** One full-window Welcome, shown by the unchanged
-`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero`, the same scene rule as Home's:
-day or its `-dark` sibling by the clock and Settings → General → Scene, never the theme — G144), the headline on the card that
-rises into it, what Cicada found on this Mac as a checklist whose ticks are the consent (own acts, no
-new permission prompt, no other app — `FoundPolicy`), a chat-export drop zone that stages rows and
+`FirstRunGate` (unknown is never empty): the hero meadow as its band (`WelcomeHero` = `PaintedScene(.fullBleed)`,
+Home's living painting and scene rule — G144), the headline on the card that rises into it, what Cicada found on this
+Mac as a checklist whose ticks are the consent (own acts, no new permission prompt, no other app — `FoundPolicy`), a
+chat-export drop zone that stages rows and
 imports nothing before Start, the engine cards with each one's cost model (`EngineChoice`, never
 blocking — an untouched choice keeps the install's configured engine, and Getting started asks
 "who reads" only if that cannot run), and one meadow pill whose text twin says exactly what it
@@ -876,7 +895,7 @@ Export reminders (`ExportWaits`) ask for notification permission only when the p
 delay; the Feed strip, the menu bar and the card say the same with notifications off.
 
 **Settings → Engines: the engine picker (G122, Track E; moved by G139 A3).** A row of cards with real marks — Auto,
-Claude plan, ChatGPT plan, Ollama, API key — over the connections registry's candidates writes
+Claude plan, ChatGPT plan, OpenRouter, Ollama (tagged *Local*), API key — over the connections registry's candidates writes
 `PUT /sleep/engine`, which lands in the same bank-independent `~/.cicada/connections.json` prefs
 `use_for_sleep` already uses, never `api/.env`. A plan card is selectable once that plan is signed
 in. The card shows both `preview.manual` and `preview.scheduled` lines rather than hiding **ruling
@@ -894,6 +913,14 @@ same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
 only: the Max-tier cost-estimate picker is gone (the no-price ruling).
+**Who reads (round 4, R-AG10…R-AG14).** OpenRouter is its own card: *Sign in with OpenRouter* (PKCE, the nonce in
+the callback path) or *Paste a key instead*; under the hood it is `byok` with an `openrouter/` model, so ruling 4 is
+unchanged and `PUT {mode: "openrouter"}` is a 422 — every card becomes a mode through `EngineWrite.mode(of:)`, and
+`selected` on the wire names the card. The API key card is a provider picker (Anthropic, OpenAI, Gemini, xAI, Groq,
+Mistral), each writing its tested default model and offering its key field in place; a key's model pins its judge.
+Ollama wears a *Local* tag and no card says "slower". Under the cards, `LeavesMacNote` — a pure function — says
+where reads leave the Mac and to whom, only for engines that send data out (never Ollama, nor Auto resolving to it).
+A preview line or the Sleep page's button that runs on an `openrouter/` model names and marks OpenRouter.
 
 **Settings → Integrations (G126).** A categorized, logo-first page over the existing
 `GET /sources/channels` registry — no new adapters, just a frame. The rule this page draws: a
@@ -939,7 +966,13 @@ Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `Ag
 setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
 Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
 desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
-the value itself).
+the value itself). Round 4 C8: Settings → Agents is one selector of ten agents (`AgentCatalog`, pinned to
+`agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`) with numbered steps below (`AgentSetupSteps`),
+reused by onboarding. OpenCode, Hermes and OpenClaw register by editing their own config from a pasted prompt — Cicada
+runs nothing for them and only reads that file (`agent_wiring.config_state`, ≤ 256 KB, parse-only); Claude, ChatGPT and
+Grok go through From anywhere (`kind: remote`). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
+rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
+`~/.claude.json`; polled every 3 s while the page is visible.
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
@@ -990,10 +1023,16 @@ detail column, and the Reader as the third column (each list page hosts its own:
 detail; one that find (or Clusters' View menu) hides stays open. Keys follow DR-68: ↑/↓ swap in place, ⏎ steps in, Esc closes the rightmost column, and ⌘F opens
 the page's find row.
 - **Clusters has one filter:** a View menu with the Graph's own types (`graphVM.filter.types`), labels, and a
-  remembered *Expand all*. Its tabs are navigation: All plus each present type. All's groups show five rows (three
-  beside a card) and "Show all N ›". The detail column hosts DS-3a's `EntityDetailCard` as it is, in its `.card`
-  style, with its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K
-  ⌥⏎ landing opens the entity's type tab. Rows carry no logo and no age: `/graph` nodes have no `lastReferenced`.
+  remembered *Expand all*. Its tabs are navigation: All plus each present type, by plural name. With nothing open it
+  is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
+  rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
+  a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
+  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
+  is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
+  (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
+  its `TopicDetailNavigation` trail and the page's Esc order passed through the card's `onEscape`. A ⌘K ⌥⏎ landing
+  opens the entity's type tab.
 - **The Feed** has sort tabs (Relevance · Recent) and kind tabs (`FeedKind`: paper, video, bookmark, link). Its
   rows are 56 pt, each with the origin's real mark. The Connected strip and the export waits scroll with the list,
   and only with nothing open, so the eyebrow is the only fixed band. That fixed the header drawn under the
@@ -1125,12 +1164,16 @@ Apple Notes resolve through `NSWorkspace` by bundle id, then their own SF Symbol
 is fetched once by a maintainer with `scripts/fetch-logos.sh`, declared in
 `Resources/logos/logos.manifest.json` (source, licence, trademark restriction, sha256) and
 attributed in `Resources/logos/LOGOS.md` — marks committed before the pipeline are declared
-`legacy` (12 of the 27): the script never fetches them, their sha256 is verified on every run, and
-their licence line records the commit that introduced them rather than an upstream grant. **No
+`legacy` (10 of the 30): the script never fetches them, their sha256 is verified on every run, and
+their licence line records the commit that introduced them rather than an upstream grant. Origins are
+`commons | repo | recut | legacy`; a `repo` mark (R-AG9: OpenCode, OpenRouter) is pinned to a 40-hex
+commit on the vendor's own repository, with the same upstream-drift guard as Commons. **No
 runtime network:** none of the three outbound gates is involved. A raster whose background IS the
-mark (`claude-code`, `claude-desktop`, `hermes`) is never recut — every surface that draws one
-clips it to its own curvature instead, and `LogoAssetTests` names them so a fourth cannot arrive
-unnoticed. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
+mark (`hermes`, the only one) is never recut — every surface that draws one clips it to its own
+curvature instead, and `LogoAssetTests` names any opaque plate so another cannot arrive unnoticed.
+**Claude Code is the Claude mark plus an app-drawn `>_` badge** (R-AG8, `BrandMark`, composed in
+`LogoImage`: `claude-code` → `claude.png` + badge, `claude-desktop` → the plain `claude.png`); callers
+keep passing the logical name, and no mark file is edited. Nominative use only — a vendor mark is never restyled or recoloured; the one permitted
 transform is an exact luminance inversion of a *monochrome* mark into its `-dark` sibling, which
 `LogoImage` picks under a dark theme. Drawn brand glyphs are gone and do not come back.
 
@@ -1160,10 +1203,11 @@ an inset ring, never a shadow in dark and one soft shadow on a light floating su
 only, never a data encoding and never behind a row — `progressFill` (§3.8) is the one exception, for Projects.
 **Liquid Glass lives in the chrome layer only**, through `Theme/LiquidGlass.swift` (gated on macOS 26 with a material
 fallback, opaque under Reduce Transparency); a lint fails the build on any glass API elsewhere. **Painted art**
-(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every file has a `-dark`
-sibling) appears only on non-data surfaces — never the graph, a list, a grid, a form or a number, and text never sits
-directly on paint — enforced by an allowlist lint; the Welcome's hero band (`WelcomeHero`) and Home's sky band
-(`HomeHeroBand`) are composed inside `Views/Meadow/`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+(`Resources/art/`, `art.manifest.json` with generator, prompt, date, licence and sha256; every painting ships as day,
+afternoon and night of one composition — `docs/design/ART_DIRECTION.md`) appears only on non-data surfaces — never the
+graph, a list, a grid, a form or a number, and text never sits directly on paint — enforced by an allowlist lint;
+Home's band and the Welcome are `PaintedScene` (C10), composed inside `Views/Meadow/`, and its particle colours are
+the art's (`ScenePaint`), never theme tokens. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
@@ -1210,8 +1254,10 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 32 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
-**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, and an OAuth adapter's
-`GET /sources/connectors/{id}/callback` requires `Authorization: Bearer <token>`, from
+**Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
+`GET /sources/connectors/{id}/callback`, and OpenRouter's sign-in landing
+`GET /connections/byok-openrouter/callback/<nonce>` (R-AG10 — gated by its own single-use, 10-minute nonce
+carried in the path, since OpenRouter appends only `code`; the PKCE verifier never leaves the backend) requires `Authorization: Bearer <token>`, from
 `~/.cicada/api_token` (`CICADA_API_TOKEN` overrides; `CICADA_API_AUTH=off` for tests). The Telegram
 webhook is exempt because Telegram's servers cannot send the header — today it is gated only by
 Telegram being configured, not by a per-request secret (**see G57**). Each OAuth callback lands in
@@ -1308,6 +1354,20 @@ until G61 S3 serves one, and the page's open inbox question with Open in Inbox; 
 tags, related, dates, how it fades. Beliefs are rows — the sentence, its evidence chip and its age, the rest in
 `.help`. History: Show in conversation (straight to the Reader when one conversation maps here) and What
 changed. Timeline: contested beliefs inline; a belief's clock opens its own.
+
+**Pictures and the person card (G146, round 4).** Every entity avatar is `EntityPicture` over the one picture
+precedence (`entity_picture.resolve` and its Swift twin `EntityPictureResolver`, one fixture): the person's own upload
+or "initials" → a person's Contacts photo → a brand's logo → a media page's thumbnail → a ring monogram, never a solid
+fill; `PictureStore` holds uploads, Contacts photos and thumbnails by URL (the bearer only for Cicada's own paths, never
+to a provider), `LogoStore` the logos. Any editable picture opens the image picker on a click, takes a dropped image,
+dims under a camera on hover and offers "Use initials instead" / "Remove picture" on right-click; the app shrinks the
+picture (ImageIO, ≤ 512 px) and `EntityPictureWrite` paints the answer before the server gives it. A `person` opens
+with mock C's top (F-12): an 88 pt picture, the name at 24, the Summary as a standfirst, the picture's source line and a
+facts strip whose every cell comes from something the card loaded (`PersonFacts`); then the tabs, and in Content two
+columns — beliefs signed with who wrote them (`SignedLine`: harness, model and effort from the captured turn), Where
+this came from, the page behind a remembered disclosure — beside *How you know <name>* (`PersonMapLayout`, the graph's
+own edges) and *What's happening* (`PersonHappenings`, from `ProjectsCache`). Every other type keeps this header with a
+40 pt picture. In Clusters a person's card may grow to 1024 units; the header adds "Show on the graph".
 
 ### 2/3. Unified inbox (`memory/inbox/`)
 Nudges and clarifications live in **one store**: `memory/inbox/inbox-NNN.md`, each with a `kind`
@@ -1467,8 +1527,9 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
   through `link_enrichment.default_fetch`, the rail's reference transport — and paper details
   (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
-  A user-initiated `sync_now`, `POST /maintenance/enrich-links` and every OAuth
-  `authorize_url`/`exchange_code` call are **never** gated by it — they always need the network to
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, every OAuth
+  `authorize_url`/`exchange_code` call and OpenRouter's sign-in key exchange (`openrouter.ai/api/v1/auth/keys`,
+  R-AG10; the key lands only in `secrets.env`) are **never** gated by it — they always need the network to
   do what the user just asked.
 - **`CICADA_ALLOW_FEED_FETCH`** gates RSS/ICS polling and is **opt-IN** (`=1`). A fresh install's
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an

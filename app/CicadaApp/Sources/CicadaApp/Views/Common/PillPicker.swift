@@ -13,6 +13,8 @@ struct PillPicker<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [PillOption<Value>]
+    /// F-09 — a card's picker: 6 pt of horizontal padding so four scene pills fit *Make it yours*' 240 pt (R-HO15).
+    var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -23,7 +25,7 @@ struct PillPicker<Value: Hashable>: View {
                     Text(option.label)
                         .font(CicadaTheme.font(size: 12, weight: selected ? .semibold : .regular))
                         .foregroundStyle(selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                        .padding(.horizontal, CicadaTheme.spacingMD)
+                        .padding(.horizontal, compact ? CicadaTheme.scaled(6) : CicadaTheme.spacingMD)
                         .padding(.vertical, CicadaTheme.scaled(5))
                         .background(Capsule().fill(selected ? CicadaTheme.surfaceElevated : Color.clear))
                         .overlay(Capsule().stroke(selected ? CicadaTheme.border : Color.clear, lineWidth: 1))

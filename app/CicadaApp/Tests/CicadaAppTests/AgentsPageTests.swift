@@ -38,9 +38,12 @@ final class AgentsPageTests: XCTestCase {
         XCTAssertFalse(connect.contains("isOnboarding"), "no caller since G117 (R-O11)")
     }
 
-    func testAgentsAreDisclosureRowsThatLandingOpens() throws {
+    func testAgentsAreASelectorThatLandingSelects() throws {
         let connect = try source("Views/Connect/ConnectView.swift")
-        XCTAssertTrue(connect.contains(".settingsRow(.agent(agent.id))"))
-        XCTAssertTrue(connect.contains("landedNonce"), "landing on agent:<id> opens that row")
+        XCTAssertTrue(connect.contains("AgentSelector("))
+        XCTAssertTrue(connect.contains("AgentSetupSteps("))
+        XCTAssertTrue(connect.contains(".settingsRow(.agent(selected))"))
+        XCTAssertTrue(connect.contains("landedNonce"), "landing on agent:<id> selects that pill")
+        XCTAssertTrue(connect.contains("live.run()"), "the ✓ is polled while the page is visible (R-AG15)")
     }
 }

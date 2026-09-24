@@ -130,13 +130,14 @@ struct RemoteSetupStep: Equatable {
     var snippet: String? = nil
 }
 
-/// The nine apps of the New connector grid (R-R26). `harness` is the id their
+/// The ten apps of the New connector grid (R-R26; Grok since round 4, R-AG7). `harness` is the id their
 /// episodes and commits carry — and the key `OriginIconography` marks them by,
 /// so the grid, the Sources card and the contributor strip draw one picture.
 enum RemoteApp: String, CaseIterable, Identifiable {
     case claude
     case chatgpt
     case perplexity
+    case grok
     case claudeCode = "claude-code"
     case codex
     case cursor
@@ -151,6 +152,7 @@ enum RemoteApp: String, CaseIterable, Identifiable {
         case .claude: "Claude"
         case .chatgpt: "ChatGPT"
         case .perplexity: "Perplexity"
+        case .grok: "Grok"
         case .claudeCode: "Claude Code"
         case .codex: "Codex"
         case .cursor: "Cursor"
@@ -165,6 +167,7 @@ enum RemoteApp: String, CaseIterable, Identifiable {
         case .claude: "claude-web"
         case .chatgpt: "chatgpt"
         case .perplexity: "perplexity"
+        case .grok: "grok"
         case .claudeCode: "claude-code-remote"
         case .codex: "codex-remote"
         case .cursor: "cursor"
@@ -176,7 +179,7 @@ enum RemoteApp: String, CaseIterable, Identifiable {
 
     var delivery: String {
         switch self {
-        case .claude, .chatgpt, .perplexity: "link"
+        case .claude, .chatgpt, .perplexity, .grok: "link"
         case .other: "both"
         default: "header"
         }
@@ -194,6 +197,7 @@ enum RemoteApp: String, CaseIterable, Identifiable {
         case .claude: "Free plans allow one custom connector. Tip: set the saving tools to “Needs approval”."
         case .chatgpt: "Works on the web with Plus, Pro, Business, Enterprise and Edu. Phone support for custom apps isn't documented yet."
         case .perplexity: "Paid plans only."
+        case .grok: "Grok runs in the cloud, so it reaches your memory while this Mac is awake and online."
         default: nil
         }
     }
@@ -220,6 +224,14 @@ enum RemoteApp: String, CaseIterable, Identifiable {
             return [
                 .init(text: "Open Settings → Connectors → + Custom connector → Remote."),
                 .init(text: "Paste this link, choose no authentication and Streamable HTTP.", snippet: link),
+            ]
+        // R-AG7: Grok registers a server from a chat message, so the link rides
+        // inside the message — never a header, which it has nowhere to put.
+        case .grok:
+            return [
+                .init(text: "Send Grok this message, with your link inside:",
+                      snippet: "Please add this MCP server to your connectors so you can read and add to my memory in Cicada: \(link)"),
+                .init(text: "Grok adds the link itself. Revoke it here any time."),
             ]
         case .claudeCode:
             return [

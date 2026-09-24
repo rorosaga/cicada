@@ -94,4 +94,35 @@ final class EntityHeaderTests: XCTestCase {
             XCTAssertLessThanOrEqual(size.width, width + 0.5, "\(scale): \(size.width)")
         }
     }
+
+    /// F-12 (R-PE16) — the person hero and a six-cell strip never want more than the column, at every zoom.
+    @MainActor
+    func testThePersonHeroNeverWantsMoreThanItsColumn() throws {
+        let store = Store(cache: SnapshotCache(
+            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        ), api: FakeSyncAPI())
+        let entity = Entity(id: "leo-example", name: String(repeating: "Leo Example ", count: 6), type: .person,
+                            status: .active, confidence: 0.92, created: "2026-03-12", lastReferenced: "2026-09-24",
+                            decayRate: 0.05, sourceEpisodes: [], tags: [], related: [], version: 1,
+                            markdownContent: "## Summary\n" + String(repeating: "Robotics engineer at Northwind. ", count: 8),
+                            history: [])
+        let facts = [PersonFact.Kind.worksAt, .role, .knownSince, .lastMentioned, .conversations, .contacts].map {
+            PersonFact(kind: $0, label: "Last mentioned", value: String(repeating: "Northwind ", count: 5),
+                       line: "Claude Code · 10:42", marks: ["claude-code", "codex"])
+        }
+        for scale in [0.8, 1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            let width = GraphColumns.entityMin * CGFloat(scale)
+            let header = EntityCardHeader(
+                entity: entity, summary: EntityHeaderWords.summary(markdown: entity.markdownContent, isStub: false),
+                isStub: false, canGoBack: false, backTargetName: nil, onBack: {}, showsClose: true, onClose: {},
+                tabs: EntityTabs.tabs(claims: [], historyCount: 3), selection: .constant(.content),
+                inset: EntityCardStyle.card.inset, facts: facts, onShowOnGraph: {}
+            ).environment(store)
+            let renderer = ImageRenderer(content: header)
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            let size = try XCTUnwrap(renderer.nsImage).size
+            XCTAssertLessThanOrEqual(size.width, width + 0.5, "\(scale): \(size.width)")
+        }
+    }
 }

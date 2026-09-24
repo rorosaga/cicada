@@ -75,6 +75,9 @@ APPS: dict[str, RemoteApp] = {a.id: a for a in (
     RemoteApp("claude", "Claude", "claude-web", "link"),
     RemoteApp("chatgpt", "ChatGPT", "chatgpt", "link"),
     RemoteApp("perplexity", "Perplexity", "perplexity", "link"),
+    # Round 4 C8 (R-AG7): Grok runs on xAI's servers, so the connector is its only
+    # way to this Mac, and it registers a server from a chat message — a link.
+    RemoteApp("grok", "Grok", "grok", "link"),
     RemoteApp("claude-code", "Claude Code", "claude-code-remote", "header"),
     RemoteApp("codex", "Codex", "codex-remote", "header"),
     RemoteApp("cursor", "Cursor", "cursor", "header"),

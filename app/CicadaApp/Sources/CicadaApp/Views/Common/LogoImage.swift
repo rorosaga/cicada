@@ -6,7 +6,9 @@ import AppKit
 /// **Bundled mode** (`LogoImage(name:)`) is the original: a small square PNG
 /// from `Resources/logos/<name>.png` keyed by a provider id (`claude-code`,
 /// `codex`, `chrome`, …), loaded off the main thread and cached for the life
-/// of the process.
+/// of the process. A logical name maps to its file through
+/// `BrandMark.composition(for:)` (R-AG8): `claude-code` is `claude.png` plus an
+/// app-drawn `>_` badge, `claude-desktop` the plain `claude.png`.
 ///
 /// **Entity mode** (`LogoImage(entityId:name:type:)`, G59) renders an entity's
 /// own logo: `GET /entities/{id}/logo` via `LogoStore` (memory + disk cached),
@@ -38,8 +40,8 @@ struct LogoImage: View {
     var body: some View {
         Group {
             switch source {
-            case .bundled:
-                bundledBody
+            case let .bundled(name):
+                bundledBody(name)
             case let .entity(_, name, type):
                 entityBody(name: name, type: type)
             }
@@ -60,15 +62,25 @@ struct LogoImage: View {
         }
     }
 
-    @ViewBuilder
-    private var bundledBody: some View {
-        if let image {
-            Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-        } else {
-            Image(systemName: "app")
-                .resizable().scaledToFit()
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .padding(size * 0.2)
+    /// R-AG8 — the badge sits INSIDE the mark's frame, bottom-trailing, so a
+    /// caller's layout never changes when a mark gains one. A caller that clips
+    /// the mark (~0.2 × size radius) shaves the badge plate's outer corner by a
+    /// hair against its own 0.14 × size radius — accepted.
+    private func bundledBody(_ name: String) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                    .frame(width: size, height: size)
+            } else {
+                Image(systemName: "app")
+                    .resizable().scaledToFit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(size * 0.2)
+                    .frame(width: size, height: size)
+            }
+            if BrandMark.composition(for: name).badge != nil {
+                MarkBadgeView(side: BrandMark.badgeSide(for: size))
+            }
         }
     }
 
@@ -131,11 +143,17 @@ struct LogoImage: View {
     /// A name that already carries the suffix is returned untouched: the
     /// sibling is a file in its own right and asking for it by name must never
     /// look for `x-dark-dark`.
+    ///
+    /// R-AG8 — a logical name is first mapped to the FILE it draws from
+    /// (`claude-code` → `claude`), and that file is what this returns, so
+    /// `taskKey` and the image cache stay keyed by the bytes actually loaded.
     static func resolvedName(for name: String) -> String? {
-        if CicadaTheme.mode == .dark, !name.hasSuffix("-dark"), exists(name: "\(name)-dark") {
-            return "\(name)-dark"
+        guard !name.isEmpty else { return nil }
+        let file = BrandMark.composition(for: name).file
+        if CicadaTheme.mode == .dark, !file.hasSuffix("-dark"), fileExists("\(file)-dark") {
+            return "\(file)-dark"
         }
-        return exists(name: name) ? name : nil
+        return fileExists(file) ? file : nil
     }
 
     /// Cheap synchronous existence check for a *bundled* logo (a bundle
@@ -154,8 +172,17 @@ struct LogoImage: View {
     /// `Bundle.cicadaResource`, which is also what makes this lookup answer
     /// the same in a `swift test` bundle and in a shipped `Cicada.app` — read
     /// its docstring before changing the subdirectory here.
+    ///
+    /// R-AG8 — answers for the logical name through `BrandMark`, so
+    /// `claude-code` and `claude-desktop` still gate their callers in even
+    /// though no file of that name ships any more.
     static func exists(name: String) -> Bool {
-        Bundle.cicadaResources.cicadaResource(name, ext: "png", in: "logos") != nil
+        guard !name.isEmpty else { return false }
+        return fileExists(BrandMark.composition(for: name).file)
+    }
+
+    private static func fileExists(_ file: String) -> Bool {
+        Bundle.cicadaResources.cicadaResource(file, ext: "png", in: "logos") != nil
     }
 
     // MARK: - Bundled cache
@@ -188,9 +215,9 @@ struct LogoImage: View {
     /// Linear-style "Connected accounts" tile: a rounded-square card with a
     /// subtle background and a hairline border, the brand mark centered, inset
     /// and clipped to the card's curvature so a full-bleed source PNG
-    /// (`claude-code`, `claude-desktop`, `hermes` — the three rasters whose
-    /// background IS the mark) and a transparent-cornered one (Instagram,
-    /// Reddit, …) read the same. Radius scales proportionally with `size` (8pt
+    /// (`hermes` is the one full-bleed plate; R-AG8 retired the two Claude
+    /// rasters) and a transparent-cornered one (Instagram, Reddit, …) read the
+    /// same. Radius scales proportionally with `size` (8pt
     /// at the reference 40pt).
     ///
     /// Missing-logo fallback is `systemFallback` — the tile's OWN existing SF
@@ -242,21 +269,16 @@ private struct PlatformTile: View {
                 // The clip stays, at the CARD's own curvature scaled to the
                 // mark (`cornerRadius * markSize / size` — a constant 0.2 of
                 // whatever it is drawn at). R-L5 dropped it on a premise that
-                // measurement disproved: recutting `x` and `codex` with alpha
-                // did not leave "no full-bleed square", because `claude-code`
-                // and `claude-desktop` are 256 px rasters whose every pixel is
-                // opaque (corners 0.996, sampled minimum 1.00) and `hermes` is
-                // a black plate with only a 1-px feathered edge (corner 0.02,
-                // 0.91 one pixel in). All three reach here — `claude-desktop`
-                // through `chat-export:claude` on the Feed strip and Settings →
-                // Integrations, `claude-code` through `claude-plan` — and drew
-                // hard corners inside a rounded card. The old radius was
-                // `cornerRadius * 0.5`, which read SQUARER than the card
-                // because 0.5 is not the card's ratio; this one is, so the mark
-                // and the card curve alike. It is a no-op for every mark whose
-                // corners are already transparent (25 of the 27 bundled), which
-                // is why it costs nothing to apply unconditionally rather than
-                // maintaining a list of which rasters are opaque.
+                // measurement disproved: `hermes` is a black plate with only a
+                // 1-px feathered edge (corner 0.02, 0.91 one pixel in) and drew
+                // hard corners inside a rounded card. `hermes` is the one
+                // full-bleed plate; R-AG8 retired the two opaque Claude
+                // rasters (Claude Code is now `claude.png` plus a badge). The
+                // radius is the card's own ratio so the mark and the card curve
+                // alike, and it is a no-op for every mark whose corners are
+                // already transparent — which is why it costs nothing to apply
+                // unconditionally rather than maintaining a list of which
+                // rasters are opaque.
                 LogoImage(name: name, size: markSize)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius * (markSize / size)))
             } else {

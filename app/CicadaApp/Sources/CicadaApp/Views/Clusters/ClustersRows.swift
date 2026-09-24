@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// §5.3 / §10 — the Clusters list in its three styles: one line with nothing open, two lines beside a card, titles
-/// beside a card and the Reader. A type dot only where types mix (R-DL11: a glyph or a dot, never both, DR-48), no
-/// per-row logo, no age (the graph carries none). Selection is `bgSelected`, never the accent.
+/// §5.3 / §10 — the Clusters list in its three styles: one line while find is open (STATE 0 is the grid, F-11), two
+/// lines beside a card, titles beside a card and the Reader. Each row its picture and, beside a card, its age
+/// (R-PE12, reversing R-DL11) — a picture or a glyph, never a dot beside it (DR-48). Selection is `bgSelected`, never
+/// the accent.
 struct ClustersListColumn: View {
     let lines: [ClustersModel.ClusterLine]
     let style: ColumnPlan.ListStyle
@@ -81,14 +82,22 @@ struct ClustersListColumn: View {
     @ViewBuilder
     private func lineView(_ line: ClustersModel.ClusterLine) -> some View {
         switch line {
-        case .header(let type, let count, let first):
+        case .header(let type, let count, let first, let recency):
             HStack(spacing: CicadaTheme.spacingSM) {
-                TypeDot(type: type)
-                SectionLabel(type.label)
+                Image(systemName: EntityPictureLayout.glyph(type))
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.entityColor(for: type))
+                    .accessibilityHidden(true)
+                Text(type.groupLabel)
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .foregroundStyle(CicadaTheme.textPrimary)
                 Text(UsageFormat.count(count))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
+                if recency {
+                    Text(Copy.People.recencySuffix).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                }
             }
             .padding(.horizontal, CicadaTheme.scaled(10))
             .padding(.top, first ? 0 : CicadaTheme.scaled(14))
@@ -167,34 +176,37 @@ struct ClusterRow: View {
     @ViewBuilder
     private var content: some View {
         switch style {
-        case .wide:
+        case .wide:   // only while find is open (All's groups, then its ranked matches); STATE 0 is the grid
             HStack(spacing: CicadaTheme.spacingMD) {
-                if showsType { TypeDot(type: entity.type) }
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 24)
                 name.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
-                Spacer(minLength: 0)
-                if !entity.tags.isEmpty {
-                    Text(entity.tags.joined(separator: ", "))
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(metaColor)
-                        .lineLimit(1)
-                        .frame(maxWidth: CicadaTheme.scaled(220), alignment: .trailing)
+                if let detail = ClustersModel.detail(entity, showsType: showsType) {
+                    Text(detail).font(CicadaTheme.metaFont).foregroundStyle(metaColor).lineLimit(1)
                 }
-                Text(UsageFormat.percent(entity.confidence * 100))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(metaColor)
-                    .help(Copy.Lists.confidenceHelp)
+                Spacer(minLength: 0)
             }
-        case .triage:
-            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                name
-                Text(ClustersModel.detail(entity, showsType: showsType))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(metaColor)
-                    .lineLimit(1)
+        case .triage:   // F-12's list: picture, name, age; the line under them
+            HStack(spacing: CicadaTheme.spacingMD) {
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 32)
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        name
+                        Spacer(minLength: 0)
+                        Text(ClustersModel.age(entity, today: ISODay.today()))
+                            .font(CicadaTheme.metaFont)
+                            .monospacedDigit()
+                            .foregroundStyle(metaColor)
+                    }
+                    if let detail = ClustersModel.detail(entity, showsType: showsType) {
+                        Text(detail).font(CicadaTheme.metaFont).foregroundStyle(metaColor).lineLimit(1)
+                    }
+                }
             }
         case .titles, .hidden:
-            name.help(entity.name)
+            HStack(spacing: CicadaTheme.spacingSM) {
+                EntityPicture(id: entity.id, name: entity.name, type: entity.type, size: 20)
+                name.help(entity.name)
+            }
         }
     }
 }

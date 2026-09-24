@@ -38,9 +38,6 @@ extension Copy {
     static func homeWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "\(UsageFormat.count(n, locale: locale)) waiting to be read"
     }
-    static func homeAllInbox(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "All \(UsageFormat.count(n, locale: locale)) ›"
-    }
     static func homeMoreChips(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "+\(UsageFormat.count(n, locale: locale))"
     }
@@ -49,7 +46,8 @@ extension Copy {
 
     // MARK: Who reads (Task 2, R-IB13)
     static let costModelPlan = "Uses your plan"
-    static let costModelLocal = "Free, on this Mac. Slower."
+    // R-AG14 — Ollama wears a Local tag; no card ever says "slower".
+    static let costModelLocal = "Free, on this Mac"
     static let costModelKey = "Billed per use by your provider"
     static let engineKeySaved = "Key saved"
     static let engineAddKey = "Add a key in \(plansAndKeys)"

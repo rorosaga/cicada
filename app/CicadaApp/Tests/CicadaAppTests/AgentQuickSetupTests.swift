@@ -101,7 +101,9 @@ final class AgentQuickSetupTests: XCTestCase {
                        "today's backend: no prompt, no wiring — nothing new to show")
         XCTAssertEqual(AgentQuickSetup.actions(catalogId: "cursor", setup: nil, wiring: nil), [.openCursor])
         XCTAssertEqual(AgentQuickSetup.actions(catalogId: "claude-desktop", setup: nil, wiring: nil), [.setUpClaude])
-        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "hermes", setup: prompt, wiring: nil), [])
-        XCTAssertEqual(AgentSetupCatalog.setupHarnesses, ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop"])
+        XCTAssertEqual(AgentQuickSetup.actions(catalogId: "hermes", setup: prompt, wiring: nil), [.copyPrompt("Hi")])
+        XCTAssertEqual(AgentCatalog.setupHarnesses,
+                       ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop", "opencode", "hermes", "openclaw",
+                        "claude", "chatgpt", "grok"])
     }
 }

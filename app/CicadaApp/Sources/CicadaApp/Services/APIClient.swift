@@ -1216,6 +1216,54 @@ actor APIClient {
         return data
     }
 
+    /// C11 — `GET <path>` for a picture on this API (`/entities/{id}/picture?v=…`), with the bearer (plan R-PE6). nil on a
+    /// 404 — "no picture" is an ordinary answer — and for any path that is not an entity picture.
+    func fetchPictureBytes(path: String) async throws -> Data? {
+        guard path.hasPrefix("/entities/"), !path.contains("..") else { return nil }
+        var request = makeRequest(path, method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
+    /// C11 — `POST /entities/{id}/picture`: bytes `PictureImport` already shrank, as multipart `file`.
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        var request = makeRequest("/entities/\(encodedID(entityId))/picture", method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"picture.\(ext)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(ext == "png" ? "image/png" : "image/jpeg")\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return try decoder.decode(EntityPictureAnswer.self, from: reply)
+    }
+
+    /// C11 / F-12 — "Use initials instead" (plan R-PE4).
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await post("/entities/\(encodedID(entityId))/picture/initials")
+    }
+
+    /// C11 — back to what was detected.
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        let data = try await delete("/entities/\(encodedID(entityId))/picture")
+        return try decoder.decode(EntityPictureAnswer.self, from: data)
+    }
+
     func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
         // FastAPI query params use the snake_case Python name (not the
         // camelCase body/response alias), so this is include_diff, not includeDiff.
@@ -2617,6 +2665,10 @@ extension APIClient: IntakeAPI {
     /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
     /// and the exact argv `AgentConnect` may run after the person's click.
     func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
+
+    /// Round 4 C8 (R-AG5) — `GET /agents/live`: which agents Cicada has seen connect, engine-free and
+    /// subprocess-free on the server, so the Agents page can poll it every few seconds (R-AG15).
+    func fetchAgentLive() async throws -> AgentLiveResponse { try await get("/agents/live") }
 
     /// Round-4 D5 (C5) — `GET /agents/setup?harness=<id>`: the prompt a person pastes into their agent so it
     /// installs Cicada itself. A 404 (an unknown harness, or a backend from before C5) throws, and the caller

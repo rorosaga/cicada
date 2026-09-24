@@ -163,6 +163,15 @@ final class RemoteConnectorTests: XCTestCase {
         XCTAssertNotEqual(OriginIconography.symbol(for: "perplexity"), "tray")
     }
 
+    func testGrokGetsItsLinkInsideAMessageNeverAHeader() {
+        let snippets = RemoteApp.grok.steps(link: link, mcpURL: mcpURL, token: token).compactMap(\.snippet)
+        XCTAssertEqual(snippets.count, 1)
+        XCTAssertTrue(snippets[0].contains(link))
+        XCTAssertFalse(snippets[0].contains("Bearer"))
+        XCTAssertEqual(OriginIconography.label(for: "grok"), "Grok")
+        XCTAssertNil(OriginIconography.logoName(for: "grok"))
+    }
+
     func testCreatingSendsTheChosenExpiry() async throws {
         MockURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")

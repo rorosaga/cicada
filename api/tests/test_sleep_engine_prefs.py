@@ -24,7 +24,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path / "memory"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
-    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY"):
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY",
+              "XAI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     config.get_settings.cache_clear()
     reg_mod.reset_registry()
@@ -57,7 +58,7 @@ def test_get_default_shape(client):
     assert body["mode"] == "byok"
     assert body["source"] == "default"
     ids = {c["id"] for c in body["candidates"]}
-    assert ids == {"auto", "agent", "codex", "local", "byok"}
+    assert ids == {"auto", "agent", "codex", "openrouter", "local", "byok"}
     codex = next(c for c in body["candidates"] if c["id"] == "codex")
     # Track E Task 4: the ChatGPT plan is a live card now — the fixture's
     # `which` finds `codex`, and `codex login status` is rc 1 (signed out).
@@ -180,3 +181,78 @@ def test_get_never_returns_a_price_or_token_field(client):
     text = resp.text.lower()
     assert "price" not in text
     assert "token" not in text
+
+
+# --- R-AG12 / R-AG13: the OpenRouter card, the key-provider list, the selected card ---
+
+
+def test_openrouter_is_a_byok_card_that_needs_a_key(client):
+    body = client.get("/sleep/engine").json()
+    card = next(c for c in body["candidates"] if c["id"] == "openrouter")
+    assert card["mode"] == "byok" and card["connected"] is False
+    assert card["models"] == ["openrouter/~openai/gpt-mini-latest"]
+    assert [c["id"] for c in body["candidates"]] == ["auto", "agent", "codex", "openrouter", "local", "byok"]
+    assert body["selected"] == body["mode"] == "byok"
+
+
+def test_the_picker_lists_six_providers_and_which_have_a_key(client, monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-EXAMPLE")   # has_secret reads the environment; undone after the test
+    providers = client.get("/sleep/engine").json()["providers"]
+    assert [p["id"] for p in providers] == ["anthropic", "openai", "gemini", "xai", "groq", "mistral"]
+    groq = next(p for p in providers if p["id"] == "groq")
+    assert (groq["hasKey"], groq["connectionId"], groq["defaultModel"]) == (True, "byok-groq", "groq/openai/gpt-oss-120b")
+    assert all("EXAMPLE" not in str(p) for p in providers)
+
+
+def test_choosing_openrouter_selects_its_card_pins_the_judge_and_runs_on_a_schedule(client):
+    model = "openrouter/~openai/gpt-mini-latest"
+    body = client.put("/sleep/engine", json={"mode": "byok", "model": model}).json()
+    assert (body["mode"], body["selected"], body["provider"]) == ("byok", "openrouter", "openrouter")
+    assert body["disambiguationModel"] == model                               # R-AG13
+    manual, scheduled = body["preview"]["manual"], body["preview"]["scheduled"]
+    # ruling 4 untouched: a key is not a plan, so the schedule runs exactly what you would start
+    assert (scheduled["engine"], scheduled["model"]) == (manual["engine"], manual["model"]) == ("litellm", model)
+
+
+def test_openrouter_is_never_a_mode(client):
+    from api.services import engine_select
+
+    assert client.put("/sleep/engine", json={"mode": "openrouter"}).status_code == 422
+    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex")
+
+
+def test_a_provider_pick_writes_its_default_and_its_own_judge(client):
+    body = client.put("/sleep/engine", json={"mode": "byok", "model": "anthropic/claude-haiku-4-5"}).json()
+    assert (body["selected"], body["provider"], body["disambiguationModel"]) == \
+        ("byok", "anthropic", "anthropic/claude-haiku-4-5")
+
+
+def test_a_malformed_key_model_is_refused(client):
+    for bad in (" gpt", "gpt 5", "-rm", "a" * 201, ""):
+        assert client.put("/sleep/engine", json={"mode": "byok", "model": bad}).status_code == 422, bad
+
+
+def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
+    """R-HS7: a tap writes the card's first model, and the app OMITS a nil model — so a bare
+    `{mode: byok}` from the OpenRouter card would keep the `openrouter/` model and never leave it."""
+    assert next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")["models"] == []
+    client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/~openai/gpt-mini-latest"})
+    key = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")
+    assert key["models"] == ["anthropic/claude-haiku-4-5"]      # no key stored: the picker's first provider
+    assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
+
+
+def test_auto_on_a_key_names_that_key_s_provider(client, monkeypatch):
+    """R-AG14's note needs the provider when Auto lands on a key, not only when `byok` is chosen."""
+    async def signed_out(argv):
+        if argv[:3] == ["claude", "auth", "status"]:
+            return CliResult(0, json.dumps({"loggedIn": False}), "")
+        if argv[:3] == ["codex", "login", "status"]:
+            return CliResult(1, "", "Not logged in")
+        return CliResult(0, "", "")
+
+    monkeypatch.setattr(base, "run_cli", signed_out)
+    reg_mod.reset_registry()
+    body = client.put("/sleep/engine", json={"mode": "auto"}).json()
+    assert body["preview"]["manual"]["engine"] == "litellm"
+    assert (body["selected"], body["provider"]) == ("auto", "openai")      # gpt-5.4-mini, the env default

@@ -35,10 +35,20 @@ own switch (G160), Contacts enriching known people (G154), and `SourceRow` + `Sy
 Sources, Integrations and Home. Phase B builds onboarding on `BrowserInventory`, `SourceRow`, `TabGroupWatcher` and
 `ContactsReader`.
 
+**Phase A, T-People (G146, G159 slice 1)** — built on `feat/r4-people` (plan `docs/superpowers/plans/2026-09-24-r4-people.md`): pictures
+for every page (upload, initials, the local-first precedence), Clusters as A's cards, the person card as C's top and
+body. Contacts photos wait for T-Sources' `contacts_photo` (the seam is in the plan's R-PE7).
+
 **Next session:** G156 (browser history — decide the unit and the default denylist, then plan) → G157 (CLI —
 decide the command set over the HTTP API) → G158 (website — How it works with interactive charts, SEO, llms.txt
 and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,
 pixel palette first).
+
+**T-Home (phase A, `feat/r4-home`):** `PaintedScene` (C10) with its three framings, the afternoon, Scene × 4, the
+pastel set, Home per F-09 and Settings per F-10 with *Show in menu bar*; rulings R-HO1–R-HO18 in DESIGN_RULES §9. For
+phase B: call `AppearanceTipPolicy.arm()` when onboarding ends, add each onboarding file that draws `PaintedScene` to
+`MeadowPlacementLintTests.allowed`, and set `\.scenePaused` on a page behind another. Getting started's last-sync line
+arrives with T-Sources' `SourceRow`.
 
 ### Round 4 — G150, backlogs live in memory
 
@@ -48,7 +58,7 @@ over MCP (`cicada_add_backlog_item`, `cicada_add_backlog_note`, `cicada_backlog`
 page, found by ⌘K, every note signed; the primer tells an agent what to do when the person says "put it in the
 backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently
 (it refuses, writing nothing, while the backend runs a Sleep cycle and on a demo bank) —
-**importing the owner's real backlog into his bank waits for his OK** (the orchestrator runs it after merge). 27
+**the owner's backlog was imported into his bank on 2026-09-24 with his OK** (159 items onto the Cicada project, one `Backlog import` commit; a re-run skips all 159). 27
 rulings (R-B1…R-B27), five dated in DESIGN_RULES §9. Merge notes: `CONTRACT_VERSION` 8 (G149's item 8 took 7 on its own branch, so the merge moved past both, R-H13) / remote 5, `_state.md` v4 and
 the FTS `SCHEMA_VERSION` "4" take the next number past any other round-4 bump; a note's `authorModel`/`authorEffort`
 are filled by round 4's per-turn join (now on `dev`).
@@ -704,6 +714,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 | **G119 / G154 / G160 sources (round 4, T-Sources)** | **Built — all seven tasks.** Tasks 1–3 merged (PR #109); tasks 4–7 on `feat/r4-sources-2` (plan `2026-09-24-r4-sources-2.md`). Chrome's open tab groups: the app's SNSS reader and `TabGroupWatcher` behind their own switch, `POST /sources/tab-groups/sync`, one snapshot episode per group, and G160 written with its follow-ups. Contacts enriching the people Cicada knows: `ContactsReader` and `POST /sources/contacts-local/sync` write `sources:` entries and `contacts_photo: {sha, ext}`, with the thumbnail at `contacts_local.photo_path(bank, id, ext)`. | Restart the launchd backend with the app, then run the plan's live check; merge; tell T-People that `contacts_local.photo_path` has landed, so `entity_picture.contacts_path` can become a call to it. |
 | **G149 implicit recall (round 4)** | Built on `feat/r4-implicit-recall` (plan `2026-09-24-r4-implicit-recall.md`): the recall hook (SessionStart primer + UserPromptSubmit note), `POST /capture/hook-context`, contract item 8, Settings → Agents → Remembers automatically. | Orchestrator install + live check (the plan's Verification), then merge; the owner decides whether onboarding / the C5 prompt turn it on by default. |
 | **G147 frequency-aware decay (round 4)** | Built on `feat/r4-decay` (plan `2026-09-24-r4-frequency-aware-decay.md`): pages and claims fade by distinct mention weeks (f(w) = max(0.25, 1/(1+0.6·ln w))), "keep" counts as a week (`kept_on`), per-type pace suggestions from the bank's own decay answers with Apply · Not now in Settings → Memory, and the pace in words on the entity card. | Orchestrator verification (both suites; the 12-week vs 1-week simulation; suggestions on a synthetic history; live check of Settings → Memory and a card's Details on the demo bank), then merge to `dev`. |
+| **Round 4 T-Agents — more agents, the live check, who reads (G76, G122, G135)** | Built on `feat/r4-agents` (plan `2026-09-24-r4-agents.md`): OpenCode, Hermes, OpenClaw, Claude, ChatGPT and Grok in `/agents/setup` and `/agents/wiring` (Grok joins the remote catalog); `GET /agents/live`, the live ✓ from handshakes, used connectors and each agent's own config; Sign in with OpenRouter (PKCE) and xAI, Groq and Mistral keys; the OpenRouter engine card, the API-key provider picker, Ollama's Local tag and the leaves-your-Mac note (R-AG10…R-AG14); `AgentSelector` + `AgentSetupSteps` in Settings → Agents. Measured at the last task: backend 4075 passed, 1 skipped; Swift 2130 tests, 0 failures; graph JS 8/8. One flag: R-AG5 reads remote liveness from the connector store's `last_used_at` (the store is opened, never created). Ruling 4 unchanged. | Orchestrator install + live check (the plan's Verification), then merge to `dev`. |
 | **Direction D — DS-1 (tokens, type, shell, Settings panel)** | Built on `feat/d-shell` (plan `2026-09-23-d-shell.md`): graphite + the Mac's accent + rings, SF only with one `SectionLabel`, the icon rail ⇄ labelled sidebar (⌃⌘S), the titlebar command bar (the one bank selector, search, the page's `?`), the eyebrow/tabs components, Settings as an in-app panel. | Orchestrator live check (both themes, 1.0×/1.4×, every page by rail and ⌘1–7, ⌘K from the bar, a bank switch, Settings search landing on a row, Esc), then merge; DS-2 (Inbox columns + Reader) next, then the page tracks and G141 PJ-5 at ⌘8. |
 | **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
 | **G118 slice 2** | **Server merged** (PR #72, plan `2026-09-23-provenance-backend.md`). **App merged** (PR #78) from `feat/provenance-ui` (plan `2026-09-23-provenance-ui.md`): evidence chips with a hover quote, the Reader inspector (turns, washed span, honest banners, navigator, "Noted from this conversation"), "Where this came from" on the entity card, contributor faces in the claim footer and History, "Show in conversation" from the inbox, evidence under Ask answers. | Orchestrator live check on the demo bank (the plan's Verification), then merge. P6 (palette → Reader) rides Track S; the server hand-offs are listed in the G118 row. |

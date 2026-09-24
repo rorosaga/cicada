@@ -63,22 +63,6 @@
       "svgSha256": "5de1221c77cc91e748066fd642ad0eee1c1fa65328814f5178166f901e599709"
     },
     {
-      "file": "claude-code.png",
-      "id": "claude-code",
-      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
-      "origin": "legacy",
-      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
-      "sha256": "91f02260c48c86ddb34e30014eec84c132e2e5d9fe623506bb7898d249809db0"
-    },
-    {
-      "file": "claude-desktop.png",
-      "id": "claude-desktop",
-      "licence": "Vendor mark — no upstream licence recorded (committed 2026-07-03, 1a4811d)",
-      "origin": "legacy",
-      "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
-      "sha256": "91f02260c48c86ddb34e30014eec84c132e2e5d9fe623506bb7898d249809db0"
-    },
-    {
       "derivedFrom": "1a4811d:app/CicadaApp/Sources/CicadaApp/Resources/logos/codex.png — alphakey <src> codex.png light",
       "file": "codex.png",
       "id": "codex",
@@ -192,6 +176,50 @@
       "origin": "legacy",
       "restrictions": "Trademarked — nominative use only; identifies the product, never restyled or recoloured.",
       "sha256": "e97fba414e122b9758ed032397223c3fb8792dd9e33026961c11a973fc58d5cf"
+    },
+    {
+      "artist": "anomalyco/opencode",
+      "file": "opencode.png",
+      "id": "opencode",
+      "licence": "MIT (the repository's licence; the mark is used nominatively)",
+      "origin": "repo",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "804c5798c7aa0094298d9522d5349cba3d02d52796a9e84250c488f20f430390",
+      "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/0f549842ee746e400b1f72516b0b2e292e267e2c/packages/console/app/src/asset/brand/opencode-logo-light-square.svg",
+      "svgSha256": "b1c48d82ebd304eab820658387642bcf4c9b8350d6860894d0fe21ddca25ef3f"
+    },
+    {
+      "artist": "anomalyco/opencode",
+      "file": "opencode-dark.png",
+      "id": "opencode-dark",
+      "licence": "MIT (the repository's licence; the mark is used nominatively)",
+      "origin": "repo",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "4af9b8a611987ebade5591336d2d9c42540f366cf22bddf2c7314ca87ccd0992",
+      "sourceUrl": "https://raw.githubusercontent.com/anomalyco/opencode/0f549842ee746e400b1f72516b0b2e292e267e2c/packages/console/app/src/asset/brand/opencode-logo-dark-square.svg",
+      "svgSha256": "d6a0e3b8a295f413543f41cb73957e670351b5cb088c8d9dbd186b9e9d633cca"
+    },
+    {
+      "artist": "OpenRouterTeam",
+      "file": "openrouter.png",
+      "id": "openrouter",
+      "licence": "MIT (the repository's licence; the mark is used nominatively)",
+      "origin": "repo",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "0bda2b24dd165c4cffc5833a022fa19844514279bf7d84694bfc96cdead700bf",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenRouterTeam/sign-in-with-openrouter/872aaa56b2df753b6ff3812f71a6964870e2ff30/public/openrouter-logo.svg",
+      "svgSha256": "49792684966fedc218e86db0a019b1180e7941ff699aab818c66f2a387d1cea6"
+    },
+    {
+      "artist": "OpenRouterTeam",
+      "derivedFrom": "openrouter.png (this manifest) — monoflip openrouter.png openrouter-dark.png",
+      "file": "openrouter-dark.png",
+      "id": "openrouter-dark",
+      "licence": "MIT (the repository's licence; the mark is used nominatively)",
+      "origin": "recut",
+      "restrictions": "Nominative use only; identifies the product, never restyled or recoloured.",
+      "sha256": "ddbe2e0f6d99ef51c37ab611025ab33f8e9ad8a83fc74962278e29d80ba42b1d",
+      "sourceUrl": "https://raw.githubusercontent.com/OpenRouterTeam/sign-in-with-openrouter/872aaa56b2df753b6ff3812f71a6964870e2ff30/public/openrouter-logo.svg"
     },
     {
       "file": "pinterest.png",

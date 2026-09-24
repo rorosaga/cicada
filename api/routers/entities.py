@@ -5,7 +5,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from api.config import Settings, get_settings
@@ -18,6 +18,7 @@ from api.models.schemas import (
     EntityDiff,
     EntityHistoryEntry,
     EntityMedia,
+    EntityPictureResponse,
     EntityReadRequest,
     EntityReadResponse,
     EntityResponse,
@@ -27,6 +28,7 @@ from api.models.schemas import (
     LocationEntry,
     LocationListing,
     PaperDetailResponse,
+    PictureInputsModel,
     RepoContext,
     RepoContextList,
     RepoInput,
@@ -36,6 +38,7 @@ from api.models.schemas import (
 from api.services import (
     decay_policy,
     decay_tuning,
+    entity_picture,
     fact_sources,
     git_service,
     logo_service,
@@ -81,6 +84,9 @@ async def get_entity(
     effective = decay_policy.effective(
         fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
     )
+    # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+    picture, picture_inputs = entity_picture.resolve_page(
+        settings.memory_path, entity_id, fm, parsed.body, page_mtime=entity_path.stat().st_mtime)
 
     return EntityResponse(
         id=entity_id,
@@ -106,6 +112,9 @@ async def get_entity(
             effective_rate_per_week=round(effective.rate, 6),
             mention_weeks=effective.mention_weeks,
         ),
+        picture=picture.url,
+        picture_source=picture.source,
+        picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
     )
 
 
@@ -168,6 +177,99 @@ async def get_entity_logo(
 
     media_type = _LOGO_MEDIA_TYPES.get(path.suffix.lstrip("."), "application/octet-stream")
     return FileResponse(path, media_type=media_type, headers=headers)
+
+
+PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a moment."
+#: One picture write at a time in this process (`projects._write_lock`'s reason): an upload and a quick "Use initials"
+#: would otherwise both read the page, and the second rewrite — or its `_drop_uploads` — would land between the first's
+#: write and its commit, leaving that commit to stage a file that is already gone.
+_PICTURE_LOCK = asyncio.Lock()
+
+
+def _picture_guard() -> None:
+    """G146 plan R-PE8 — 409 while Sleep runs (`projects._guard`'s reason): Sleep rewrites the same pages, and a picture
+    written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        raise HTTPException(409, PICTURE_BUSY)
+
+
+def _entity_page(settings: Settings, entity_id: str) -> Path:
+    page = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not page.is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return page
+
+
+def _picture_payload(memory_path: Path, entity_id: str) -> EntityPictureResponse:
+    page = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(page)
+    resolved, inputs = entity_picture.resolve_page(memory_path, entity_id, parsed.frontmatter, parsed.body,
+                                                   page_mtime=page.stat().st_mtime)
+    return EntityPictureResponse(entity_id=entity_id, picture=resolved.url, picture_source=resolved.source,
+                                 picture_inputs=PictureInputsModel(**inputs.to_fields()))
+
+
+@router.get("/entities/{entity_id}/picture")
+async def get_entity_picture(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """C11 — the page's uploaded or Contacts picture (G146). 404 means neither exists (a logo is `/logo`'s, a thumbnail
+    the provider's). The `v=` query the wire adds is the bytes' own hash and is only for the app's caches."""
+    page = _entity_page(settings, entity_id)
+    found = entity_picture.picture_file(settings.memory_path, entity_id, markdown_parser.parse(page).frontmatter)
+    if found is None:
+        raise HTTPException(404, "no picture for this entity")
+    path, media_type = found
+    data = path.read_bytes()
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+@router.post("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+async def set_entity_picture(entity_id: str, file: UploadFile, settings: Settings = Depends(get_settings)):
+    """C11 — the person's own picture for this page (G146; round-4 decision 9). Kept in the bank at
+    `assets/pictures/<id>.<png|jpg>` and committed alone as `Cicada-Author: user` (plan R-PE1, R-PE8). The app sends it
+    already shrunk; the server only bounds it (R-PE2)."""
+    _picture_guard()
+    _entity_page(settings, entity_id)
+    data = await file.read(entity_picture.MAX_UPLOAD_BYTES + 1)
+    async with _PICTURE_LOCK:
+        try:
+            ext = entity_picture.validate_upload(data)
+            write = await asyncio.to_thread(entity_picture.write_upload, settings.memory_path, entity_id, data, ext,
+                                            today=date.today())
+        except entity_picture.InvalidPicture as exc:   # a bound refused, or an id no picture path can hold
+            raise HTTPException(exc.status, str(exc)) from exc
+        await entity_picture.commit(settings.memory_path, write)
+        return _picture_payload(settings.memory_path, entity_id)
+
+
+@router.post("/entities/{entity_id}/picture/initials", response_model=EntityPictureResponse)
+async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_settings)):
+    """C11 / F-12 — "Use initials instead": the person's choice, kept (plan R-PE4)."""
+    _picture_guard()
+    _entity_page(settings, entity_id)
+    async with _PICTURE_LOCK:
+        write = await asyncio.to_thread(entity_picture.write_initials, settings.memory_path, entity_id,
+                                        today=date.today())
+        await entity_picture.commit(settings.memory_path, write)
+        return _picture_payload(settings.memory_path, entity_id)
+
+
+@router.delete("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+async def clear_entity_picture(entity_id: str, settings: Settings = Depends(get_settings)):
+    """C11 — back to what was detected (plan R-PE4): the person's upload or initials go; nothing to clear commits
+    nothing."""
+    _picture_guard()
+    _entity_page(settings, entity_id)
+    async with _PICTURE_LOCK:
+        write = await asyncio.to_thread(entity_picture.write_clear, settings.memory_path, entity_id)
+        if write is not None:
+            await entity_picture.commit(settings.memory_path, write)
+        return _picture_payload(settings.memory_path, entity_id)
 
 
 # Body section whose prose becomes EntityMedia.description (M4 media entities

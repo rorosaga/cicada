@@ -8,20 +8,19 @@ import SwiftUI
 /// R10 in steady state).
 ///
 /// In Direction D's list grammar (DS-3b): a `SectionLabel` over one grouped
-/// block, 36 pt rows, links in `accentText` (R-HS6).
+/// block, 36 pt rows, links in `accentText` (R-HS6). F-09: Today is one row to
+/// Sources (R-HO11), Needs you the Inbox's icon rows with *Open Inbox* (R-HO12).
 ///
 /// Internal, not `private`: `HomeView.swift` composes them from another file.
 struct HomeSections: View {
     let today: Date
     let gettingStartedVisible: Bool
-    /// R-HS4 — the Inbox's slot floors, measured from Home's own column (`HomeLayout`).
-    let needsYouSlots: InboxRowSlots
     @Binding var selectedTab: AppTab
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
             TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, selectedTab: $selectedTab)
-            NeedsYouSection(needsYouSlots: needsYouSlots, selectedTab: $selectedTab)
+            NeedsYouSection(selectedTab: $selectedTab)
             LastReadSection(selectedTab: $selectedTab)
         }
     }
@@ -35,12 +34,19 @@ struct HomeSections: View {
 /// R-HS6).
 struct HomeBlock<Content: View>: View {
     let title: String
+    /// F-09 — a block may carry one link at its label's right (Needs you's *Open Inbox*, DR-5 use 5).
+    var linkTitle: String? = nil
+    var linkAction: (() -> Void)? = nil
     @ViewBuilder let content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.labelGap)) {
-            SectionLabel(title)
-                .padding(.horizontal, CicadaTheme.scaled(10))
+            HStack(alignment: .firstTextBaseline) {
+                SectionLabel(title)
+                Spacer(minLength: CicadaTheme.spacingSM)
+                if let linkTitle, let linkAction { InlineLink(title: linkTitle, action: linkAction) }
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
             VStack(alignment: .leading, spacing: 0) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(CicadaTheme.scaled(HomeLayout.blockInset))
@@ -82,7 +88,6 @@ struct TodaySection: View {
 
     @Environment(Store.self) private var store
     @Environment(SleepViewModel.self) private var sleepVM
-    @Environment(AppRouter.self) private var router
 
     var body: some View {
         let figures = HomeFigures.today(store.sourcesOverview.value, today: today)
@@ -103,34 +108,53 @@ struct TodaySection: View {
 
     @ViewBuilder
     private func captured(_ figures: HomeToday) -> some View {
-        HomeLine {
-            switch figures.captured {
-            case nil:
-                HomeUnknown()
-            case 0?:
+        switch figures.captured {
+        case nil:
+            HomeLine { HomeUnknown() }
+        case 0?:
+            HomeLine {
                 Text(Copy.homeNothingCapturedToday)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
-            case let n?:
-                Text(Copy.homeCapturedToday(n))
-                    .font(CicadaTheme.bodyFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .help(Copy.homeCapturedHelp)
-                Spacer(minLength: CicadaTheme.spacingSM)
-                ForEach(figures.origins, id: \.sourceId) { chip in
-                    // DR-52 — the service's real mark, bare, nodding on hover (`markHover`).
-                    Button { router.routeToSourceDetail(chip.sourceId) } label: {
-                        OriginMark(origin: chip.mark, size: CicadaTheme.scaled(16))
-                            .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
-                            .contentShape(Rectangle())
-                            .markHover()
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .help(chip.label + " · " + Copy.homeCapturedToday(chip.count))
-                    .accessibilityLabel(chip.label + ", " + Copy.homeCapturedToday(chip.count))
-                }
             }
+        case let n?:
+            // F-09 (R-HO11) — one row, one link: the Sources page owns what came in.
+            Button { selectedTab = .sources } label: {
+                HomeLine {
+                    Text(Copy.homeCapturedToday(n))
+                        .font(CicadaTheme.bodyFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    if !figures.origins.isEmpty {
+                        HStack(spacing: CicadaTheme.scaled(6)) {
+                            Text(Copy.homeMostly)
+                                .font(CicadaTheme.metaFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                            ForEach(Array(figures.origins.enumerated()), id: \.element.sourceId) { index, chip in
+                                if index > 0 {
+                                    Text(Copy.Inbox.dot).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                                }
+                                // DR-52 — the service's real mark beside its name.
+                                OriginMark(origin: chip.mark, size: CicadaTheme.scaled(14))
+                                Text(Copy.homeOriginCount(chip.label, chip.count))
+                                    .font(CicadaTheme.metaFont)
+                                    .monospacedDigit()
+                                    .foregroundStyle(CicadaTheme.textSecondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    Image(systemName: "chevron.right")
+                        .font(CicadaTheme.icon(.list))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.cicadaPlain)
+            .help(Copy.homeCapturedHelp)
+            .accessibilityLabel(Copy.homeTodayAccessibility(n, origins: figures.origins.map { ($0.label, $0.count) }))
         }
     }
 
@@ -163,7 +187,6 @@ struct TodaySection: View {
 // MARK: - Needs you
 
 struct NeedsYouSection: View {
-    let needsYouSlots: InboxRowSlots
     @Binding var selectedTab: AppTab
 
     @Environment(Store.self) private var store
@@ -173,7 +196,10 @@ struct NeedsYouSection: View {
         let figures = HomeFigures.needsYou(store.visibleInbox)
         // DR-58 — an age is computed when read, never stored.
         let now = Date.now
-        HomeBlock(title: Copy.homeNeedsYou) {
+        // F-09 (R-HO12) — the count on the label and the one link at its right; the Inbox's own rows cut to glyph ·
+        // question · age (no entity or source column, no chevron — the row opens the question in STATE 1).
+        HomeBlock(title: Copy.homeNeedsYouCount(figures.total), linkTitle: Copy.homeOpenInbox,
+                  linkAction: { selectedTab = .inbox }) {
             if figures.shown.isEmpty {
                 HomeLine {
                     Text(Copy.homeNothingNeedsYou)
@@ -182,16 +208,10 @@ struct NeedsYouSection: View {
                 }
             } else {
                 ForEach(figures.shown) { item in
-                    // R-HS4 — the Inbox's own STATE 0 row, so a question reads here exactly as it does
-                    // there; the palette's hand-off (`pendingInboxItem`) lands it in STATE 1.
-                    InboxRow(item: item, style: .wide, slots: needsYouSlots, selected: false, now: now) {
+                    InboxRow(item: item, style: .wide, slots: InboxRowSlots(entity: false, source: false),
+                             selected: false, now: now, showsOpenButton: false) {
                         router.pendingInboxItem = item.id
                         selectedTab = .inbox
-                    }
-                }
-                if figures.total > HomeFigures.needsYouLimit {
-                    HomeLine {
-                        InlineLink(title: Copy.homeAllInbox(figures.total)) { selectedTab = .inbox }
                     }
                 }
             }
