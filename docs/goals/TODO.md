@@ -33,6 +33,12 @@ decide the command set over the HTTP API) → G158 (website — How it works wit
 and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,
 pixel palette first).
 
+**T-Home (phase A, `feat/r4-home`):** `PaintedScene` (C10) with its three framings, the afternoon, Scene × 4, the
+pastel set, Home per F-09 and Settings per F-10 with *Show in menu bar*; rulings R-HO1–R-HO18 in DESIGN_RULES §9. For
+phase B: call `AppearanceTipPolicy.arm()` when onboarding ends, add each onboarding file that draws `PaintedScene` to
+`MeadowPlacementLintTests.allowed`, and set `\.scenePaused` on a page behind another. Getting started's last-sync line
+arrives with T-Sources' `SourceRow`.
+
 ### Round 3 (PRs #71–#98)
 
 **Nothing is in flight except the README screenshot PR.** Round 3 (owner brief 2026-09-22/23: a
