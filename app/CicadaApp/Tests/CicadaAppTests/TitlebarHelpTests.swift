@@ -23,12 +23,12 @@ final class TitlebarHelpTests: XCTestCase {
         }
     }
 
-    /// Exhaustive switch — a compile-time guarantee that a FOURTH case can't
+    /// Exhaustive switch — a compile-time guarantee that a FIFTH case can't
     /// be added without every call site (and this test) being revisited.
-    func testHelpContentIsExactlyThreeCases() {
-        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox] {
+    func testHelpContentIsExactlyFourCases() {
+        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox, .graph] {
             switch content {
-            case .aboutCicada, .howSleepWorks, .inbox: break
+            case .aboutCicada, .howSleepWorks, .inbox, .graph: break
             }
         }
     }
@@ -37,8 +37,11 @@ final class TitlebarHelpTests: XCTestCase {
     func testTheInboxAnswersForItself() {
         XCTAssertEqual(HelpContent.page(.inbox), .inbox)
         XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
-        XCTAssertEqual(HelpContent.page(.graph), .aboutCicada)
+        XCTAssertEqual(HelpContent.page(.graph), .graph)
         XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])
+        // R-DG6 — the Graph's `?` says its keys and gestures in words.
+        XCTAssertEqual(GraphHelp.keys.map(\.key), ["⌘F", "⌘K", "Esc", "⌘[", "Shift"])
+        XCTAssertEqual(GraphHelp.gestures.map(\.key), ["Double-click", "Click empty space"])
     }
 
     /// Track P R1 survives the move: no page offers a global Sleep or Upload button — the `?`

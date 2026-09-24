@@ -10,7 +10,7 @@ enum FindKeyAction: Equatable {
 
 /// The palette's keys (design §3.4; R-SU11) as one pure map, so every
 /// binding is tested. Plain ⏎ is `.none` on purpose: it stays on the field's
-/// `onSubmit`, the path `GraphSearchField` proved; everything else arrives
+/// `onSubmit`, the path the Graph's find overlay uses; everything else arrives
 /// through ONE `.onKeyPress` handler.
 enum FindKeymap {
     /// What a Shift-Tab keypress can report as its key (backtab).

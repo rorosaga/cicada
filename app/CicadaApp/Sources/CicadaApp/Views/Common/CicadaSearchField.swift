@@ -35,6 +35,9 @@ struct CicadaSearchField: View {
     /// Esc with `.handled`, and whether AppKit gives the key to it or to the panel's
     /// `.cancelAction` first is not something a test can observe, so the field defers.
     var onEscape: (() -> Void)? = nil
+    /// `autofocus` — a field that exists only because ⌘F opened it takes the focus as it appears (the
+    /// Graph's find overlay, R-DG5).
+    var autofocus = false
 
     @FocusState private var focused: Bool
     @Environment(FindPaletteModel.self) private var palette: FindPaletteModel?
@@ -81,6 +84,7 @@ struct CicadaSearchField: View {
         .frame(width: width, height: CicadaTheme.scaled(28))
         .modifier(SearchFieldChrome(style: style))
         .onChange(of: focused) { _, now in onFocusChange(now) }
+        .task { if autofocus { focused = true } }
         .publishesPageFind(enabled: findEnabled && !(palette?.isPresented ?? false)) { focused = true }
     }
 
