@@ -13,6 +13,7 @@ from api.models.schemas import (
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityDecay,
     EntityDecayUpdate,
     EntityDiff,
     EntityHistoryEntry,
@@ -34,6 +35,7 @@ from api.models.schemas import (
 )
 from api.services import (
     decay_policy,
+    decay_tuning,
     fact_sources,
     git_service,
     logo_service,
@@ -72,6 +74,13 @@ async def get_entity(
     fm = parsed.frontmatter
     history = await git_service.get_entity_history(entity_id, settings.memory_path)
     decay_class, decay_rate = decay_policy.resolve(fm)
+    # G147 — the pace the decay pass actually charges, from the SAME function
+    # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
+    # pace Sleep does not charge. Read time only; nothing is stored.
+    alpha, floor = decay_policy.spacing_params(settings)
+    effective = decay_policy.effective(
+        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
+    )
 
     return EntityResponse(
         id=entity_id,
@@ -92,6 +101,11 @@ async def get_entity(
         history=history,
         media=_build_media_block(fm, parsed.body),
         is_owner=bool(fm.get("owner")),
+        decay=EntityDecay(
+            decay_class=effective.decay_class,
+            effective_rate_per_week=round(effective.rate, 6),
+            mention_weeks=effective.mention_weeks,
+        ),
     )
 
 

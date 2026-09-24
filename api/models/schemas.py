@@ -450,6 +450,17 @@ class EntityMedia(CamelModel):
     kind: Optional[str] = None
 
 
+class EntityDecay(CamelModel):
+    """G147 — the pace Sleep charges this page, derived at read by
+    ``decay_policy.effective`` (the pass's own function) and never stored.
+    ``class`` by explicit alias (a Python keyword as a field name is not an
+    option); ``decayRate`` beside it keeps meaning the base (plan R-FD9)."""
+
+    decay_class: DecayClass = Field(alias="class")
+    effective_rate_per_week: float
+    mention_weeks: int
+
+
 class EntityResponse(CamelModel):
     id: str
     name: str
@@ -478,6 +489,10 @@ class EntityResponse(CamelModel):
     # G117 — mirrors GraphNode.is_owner (same `owner:` frontmatter key), so
     # the detail card can render "Name (you)" without a second lookup.
     is_owner: bool = False
+    # G147 — derived at read (never stored); None only for a caller that
+    # builds an EntityResponse without a page. Additive: an older client
+    # ignores it and keeps showing the class.
+    decay: Optional[EntityDecay] = None
 
 
 class PaperSummary(CamelModel):
