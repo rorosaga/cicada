@@ -1,14 +1,14 @@
 import XCTest
 @testable import CicadaApp
 
-/// G68 §1 — seven rows (G108 added Home at ⌘1), stable identities, and a decoder that survives a
+/// G68 §1 — eight rows (G108 added Home at ⌘1; G141 PJ-5 added Projects at ⌘8), stable identities, and a decoder that survives a
 /// selection written by an older build.
 @MainActor
 final class SidebarTabTests: XCTestCase {
 
     /// G108 ruled (spec decision 12): Home is the front door at ⌘1, Graph follows at ⌘2.
-    func testTheSidebarIsSevenRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources])
+    func testTheSidebarIsEightRowsInVisualOrder() {
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources, .projects])
     }
 
     /// Raw values ARE the persisted identity. A surviving tab must never
@@ -21,6 +21,7 @@ final class SidebarTabTests: XCTestCase {
         XCTAssertEqual(AppTab.sleep.rawValue, "Sleep")
         XCTAssertEqual(AppTab.inbox.rawValue, "Inbox")
         XCTAssertEqual(AppTab.sources.rawValue, "Sources")
+        XCTAssertEqual(AppTab.projects.rawValue, "Projects")
     }
 
     /// The six retired raw values still exist in some user's defaults. Each
@@ -53,9 +54,9 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// ⌘1–7 follow the visual order, and every row has an icon.
+    /// ⌘1–8 follow the visual order, and every row has an icon.
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 7)
+        XCTAssertEqual(AppTab.allCases.count, 8)
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
         XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
         for (index, tab) in AppTab.allCases.enumerated() {

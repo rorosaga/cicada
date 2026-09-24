@@ -7,7 +7,8 @@ import SwiftUI
 /// page (R1), so "About these actions" no longer had any actions to describe — `.actions`
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
 /// on. The Sleep page keeps its own page-specific explainer (G125 R10); the list pages answer for
-/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed, then Sources — with their subtitle and key map,
+/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8), then the Feed, then Sources, then
+/// Projects — with their subtitle and key map,
 /// since the eyebrow row that replaced each page header has no room for either; and the Graph its keys and gestures
 /// (R-DG6), which nothing on a canvas explains otherwise.
 enum HelpContent: Equatable {
@@ -18,6 +19,7 @@ enum HelpContent: Equatable {
     case clusters
     case feed
     case sources
+    case projects
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
@@ -27,6 +29,7 @@ enum HelpContent: Equatable {
         case .clusters: .clusters
         case .feed: .feed
         case .sources: .sources
+        case .projects: .projects
         default: .aboutCicada
         }
     }
@@ -50,6 +53,7 @@ struct TitlebarHelpButton: View {
                 case .clusters: ListHelpPopover(page: ListHelp.clusters)
                 case .feed: ListHelpPopover(page: ListHelp.feed)
                 case .sources: ListHelpPopover(page: ListHelp.sources)
+                case .projects: ListHelpPopover(page: ListHelp.projects)
                 }
             }
     }
@@ -133,6 +137,18 @@ enum ListHelp {
             .init(key: "⌘[", does: "Back to all sources"),
             .init(key: "⌥↑ ⌥↓", does: "Previous or next citation"),
             .init(key: "Esc", does: "Close the Reader, then the source"),
+        ])
+
+    /// G141 PJ-5 — the Projects page's `?`: what the band means, and its keys (DR-68). Task 3 adds the band's keys and
+    /// Task 5 the Log's, each with the code that answers them.
+    static let projects = Page(
+        title: "How Projects works",
+        subtitle: "Where each project stands today: a green bar that fills up to today, what's in motion, what happened lately and what's planned. Open a project to see the rest.",
+        keys: [
+            .init(key: "⌘F", does: "Find on this page"),
+            .init(key: "↑ ↓", does: "Move through projects"),
+            .init(key: "⏎", does: "Step into the project"),
+            .init(key: "Esc", does: "Close the rightmost column"),
         ])
 }
 

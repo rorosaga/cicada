@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The seven primary views. Raw values are this tab's **stable identity** —
+/// The eight primary views. Raw values are this tab's **stable identity** —
 /// the persisted selection (`cicada.selectedTab`) and the ⌘-slot order in
 /// `allCases` — so a surviving tab's raw value must never move, even when its
 /// label changes.
@@ -25,6 +25,9 @@ enum AppTab: String, CaseIterable {
     case sleep = "Sleep"
     case inbox = "Inbox"
     case sources = "Sources"
+    /// G141 PJ-5 — the eighth page, ⌘8 (owner ruling 2026-09-23: the first free cell after Sources, so no existing
+    /// shortcut moves; DESIGN_RULES §9, DR-22). A new raw value, so `restored(from:)` needs no mapping.
+    case projects = "Projects"
 
     /// Decodes a persisted selection, mapping every retired tab to whichever
     /// page inherited its content. Anything unrecognised falls back to Home.
@@ -48,6 +51,7 @@ enum AppTab: String, CaseIterable {
         case .sleep: "moon"
         case .inbox: "tray"
         case .sources: "tray.2"
+        case .projects: "point.topleft.down.to.point.bottomright.curvepath"
         }
     }
 
@@ -58,10 +62,10 @@ enum AppTab: String, CaseIterable {
 
 extension AppTab {
     /// DR-31 / R-DL7 — pages that draw the Reader as their own rightmost progressive column; `ShellReaderHost` draws
-    /// it for every other page. Grows as each list page's D track lands.
+    /// it for every other page. Grows as each list page's D track lands, and Projects (G141 PJ-5).
     var hostsOwnReader: Bool {
         switch self {
-        case .inbox, .clusters, .feed, .sources: true
+        case .inbox, .clusters, .feed, .sources, .projects: true
         default: false
         }
     }

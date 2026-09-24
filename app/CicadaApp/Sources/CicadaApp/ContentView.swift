@@ -46,6 +46,7 @@ struct ContentView: View {
     /// closes it and empties the cache (R-PU26).
     @Environment(ProvenanceRouter.self) private var provenance
     @Environment(ProvenanceCache.self) private var provenanceCache
+    @Environment(ProjectsCache.self) private var projectsCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -84,10 +85,12 @@ struct ContentView: View {
         // episode ids restart every day in every bank, so a switch closes the
         // Reader and forgets every cached document rather than show another
         // bank's conversation under this one.
-        // R-DI19 — and the Inbox's open question and tab go with it: ids repeat across banks.
+        // R-DI19 — and the Inbox's open question and tab go with it: ids repeat across banks — and the Projects
+        // cache: project ids repeat across banks (R-PP3).
         .onChange(of: store.bank) { _, _ in
             provenance.close()
             provenanceCache.reset()
+            projectsCache.reset()
             inboxVM.resetColumns()
         }
         // A cached hover preview has no validator, so any change to the
@@ -219,11 +222,11 @@ struct ContentView: View {
         // The Welcome is an overlay, not a modal sheet, so without this the
         // shell under it stays live: Home's field takes keyboard focus and
         // swallows typing, Tab and VoiceOver reach the hidden rail and cards,
-        // ⌘1–7 switch a hidden tab, and in rerun mode Home's Esc answers before
+        // ⌘1–8 switch a hidden tab, and in rerun mode Home's Esc answers before
         // the Welcome's (I-b final review, finding 3). Inert while it shows.
         // R-DS25 — the page under the Settings panel never answers ⌘F.
         .environment(\.pageFindSuppressed, router.settingsOpen)
-        // R-DS21 — the Settings panel is modal the same way: ⌘1–7 and page controls are inert.
+        // R-DS21 — the Settings panel is modal the same way: ⌘1–8 and page controls are inert.
         .disabled(showFirstRun || router.settingsOpen)
         .accessibilityHidden(showFirstRun || router.settingsOpen)
         // Track I T5 (R-IA24) — drop anywhere: one window-level target, the veil
@@ -313,6 +316,9 @@ struct ContentView: View {
     /// and opens through `AppRouter.openSettings` (R-HS20).
     private func openFind(_ destination: FindDestination) {
         switch destination {
+        case .entity(let id) where ProjectsModel.isProject(id, in: store.graph.value):
+            // G141 PJ-5 (R-PP24, spec §11.1) — a project opens where it is tracked: Projects, its detail open.
+            router.routeToProject(id)
         case .entity(let id), .belief(let id, _):
             // Seam (Track P): a belief should also open the card on
             // Perspectives, scrolled to the claim — the card is Track P's.
@@ -456,6 +462,8 @@ struct ContentView: View {
                 withAnimation(CicadaMotion.standard(reduceMotion: reduceMotion)) { selectedTab = .graph }
                 graphVM.revealEntity(id: entityId)
             }
+        case .projects:
+            ProjectsPage()
         }
     }
 }

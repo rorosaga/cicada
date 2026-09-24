@@ -250,6 +250,9 @@ enum CicadaTheme {
 
     // MARK: - Progress (§3.8 — the Projects band; the one Meadow-derived data hue)
     static var progressFill: Color { mode == .dark ? Dark.progressFill : Light.progressFill }
+    /// §3.8 / R-PP9 — an unplanned project's open end: the approved mock's dash (white 22 % / black 22 %). It is drawn
+    /// only past today on a bar with no plan, so it never reads as a grey remainder ("almost done").
+    static var progressOpenEnd: Color { mode == .dark ? Color.white.opacity(0.22) : Color.black.opacity(0.22) }
 
     // MARK: - Meadow nature tokens (G137, spec R-M2)
     // Ambient ONLY: washes, art, onboarding / empty-state / header bands.

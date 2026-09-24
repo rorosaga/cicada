@@ -19,6 +19,7 @@ final class NavRailTests: XCTestCase {
         XCTAssertEqual(RailItem.shortcut(for: .home), "⌘1")
         XCTAssertEqual(RailItem.shortcut(for: .inbox), "⌘6")
         XCTAssertEqual(RailItem.shortcut(for: .sources), "⌘7")
+        XCTAssertEqual(RailItem.shortcut(for: .projects), "⌘8", "the eighth page, after Sources — no shortcut moved")
         XCTAssertEqual(RailItem.key(for: .graph), KeyEquivalent("2"))
     }
 

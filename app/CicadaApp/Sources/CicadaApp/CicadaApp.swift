@@ -41,6 +41,8 @@ struct CicadaApp: App {
     /// neither is a Store domain (R-PB11), so neither needs the Store.
     @State private var provenanceRouter = ProvenanceRouter()
     @State private var provenanceCache = ProvenanceCache()
+    /// G141 PJ-5 (R-PP3) — the Projects page's in-memory cache; app-level so a tab switch keeps what was read.
+    @State private var projectsCache = ProjectsCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -151,6 +153,7 @@ struct CicadaApp: App {
                 .environment(appRouter)
                 .environment(provenanceRouter)
                 .environment(provenanceCache)
+                .environment(projectsCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)

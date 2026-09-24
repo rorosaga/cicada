@@ -15,7 +15,7 @@ import SwiftUI
 /// Inbox numeral is neutral: `bgBadge`, with a 2 pt `bgRail` knockout. Sleep shows a spinner
 /// while a cycle runs.
 ///
-/// **Keys.** ⌘1–7 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
+/// **Keys.** ⌘1–8 are the cells' own shortcuts, in `AppTab.allCases` order (`RailItem`). A
 /// switch is instant, pointer and key alike (DR-60/61).
 ///
 /// **Tooltips.** Each cell names its page and shortcut ("Inbox ⌘6"). The first waits 450 ms and
