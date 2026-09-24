@@ -4,7 +4,71 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (end of 2026-09-06)
+## Where things stand (end of 2026-09-24) — round 3
+
+**Nothing is in flight except the README screenshot PR.** Round 3 (owner brief 2026-09-22/23: a
+friendlier "nature and technology in harmony" look, Codex + Hermes-style Claude engines, a connector for
+any AI app and the phone, folders and papers, Wispr Flow, a provenance viewer, fast search, Settings with
+search, an interactive mascot page, onboarding/import, the Instinct ideas; then, after his live review, a
+Linear-inspired design pass and two new ideas — project timelines and agent-first clarification) landed as
+PRs **#71–#98** on opus Workflow tracks (the owner allowed opus for this round; coding subagents at medium
+effort, see [[cicada-opus-coding-effort]] in the orchestrator's memory). Specs:
+`docs/superpowers/specs/2026-09-23-round3-meadow-reach-provenance-design.md` (+ its three design docs),
+`…/2026-09-23-g141-project-timelines-design.md`, `…/2026-09-23-g61-agent-first-clarification-design.md`.
+
+**What merged, in order:** #71 Meadow foundation · #72 provenance backend (G118 s2) · #73 engines (Codex
+device sign-in, hardened claude-cli) · #74 search backend (FTS5, G136) · #75 remote connector (G135) · #76
+Sleep room v4 · #77 local sources (folders, papers, Wispr — G133/G134) · #78 provenance UI (Reader, "Where
+this came from") · #79 one intake (Track I-a) · #80/#82 ⌘K find palette · #81 memory quality (G140) · #83
+Settings v3 (G139) · #84 mascot page b · #85 owner feedback 1 (real contexts, no raw claims, SF Pro
+Display) · #86 Welcome + search-first Home at ⌘1 (G108/G117) · #87 backend batch 2 (one git writer per
+bank + write-ahead ledger, authorship re-staging, readable agent labels) · #88 G141 capture side (PJ-0,
+per-turn Stop-hook times, capture never into a demo bank) · #89 G61 S0–S2 (gated link fetch, truthful
+hints, checkable sources, `/inbox/check-census`) · #90/#91 Direction D shell (graphite + system accent,
+SF only, icon rail, the command bar that owns the ONE bank selector, Settings as an in-app panel; #91:
+`.onHover` above a Button in a toolbar item makes AppKit drop it on macOS 26 — `.onContinuousHover`,
+linted) · #92 G141 backend (`/projects`, `cicada_project`, event claims + `cicada_note_progress` +
+in-app writes, the `followup` inbox kind) · #93 PJ-0b (page-less claims held until promotion) · #94 D
+Inbox + Reader (progressive columns, one tap with a 5 s Undo as a send delay — verified live) · #95 D
+Home + the Sleep page's engine/model menu + Settings fixes + every setting in ⌘K · #96 D Graph (one
+floating group, the entity card as a column) · #97 D Clusters/Feed/Sources + Inbox polish · #98 the
+Projects page (⌘8, a green band that fills up to Today, clickable nodes).
+
+**Binding decisions from this round** (each recorded where it lives): Direction D is the design target
+(`docs/design/DESIGN_RULES.md`, DR-n ids + dated §9 rulings — a UI PR cites the ids it applies);
+Instrument Serif and New York retired for SF; Settings is a panel inside the window; G127 becomes a
+character/mascot selector (Strawberry browser as the reference); G141's rulings (Projects ⌘8, the green
+band, page-less claims held, per-turn Stop-hook times); G61's D-AC rulings (shadow first; a refused host
+gets an agent check only in the person's own open session, inform-only; the `source` evidence kind;
+`cicada` authors a check-executed write; contract step 2 lets an agent check first).
+
+**Measured on the owner's bank (counts only):** the G61 census — 35 open inbox items, 0 checkable today,
+22 need a source first, 13 merge suggestions inform-only — so the next G61 step is getting sources onto
+pages (Sleep's cited-link attach, `cicada_add_source`, a "what source would settle this?" prompt), not the
+checker. The `/graph` junk facets fell from 3,929 to 2,626 nodes after #85. The live bank has not been
+consolidated in ~97 days (357 episodes waiting); the owner's ChatGPT plan is signed in, so the first-pass
+consolidation on a small OpenAI model he asked for is one click on the Sleep page's engine menu.
+
+**Open owner questions:** (1) should a pending name heard once and never again expire, taking its held
+claims (PJ-0b; changes the promotion model — R7/D2)? (2) when a folder's authorship rule later marks a
+file as agent-written, should beliefs Sleep already formed from it be re-judged (R-B8; today they keep
+"You said" as history)? (3) promote `dev` to `main` — his call, as always.
+
+**Next, in order:** README screenshots PR (in review) → polish from the live checks (a Projects happening
+that cites many papers should show a few chips + "+N more"; long source-tile names truncate; legacy
+clarification titles are bare names; the demo's Feed "0 items" traced to a missing backend file) → G61
+"what source would settle this?" prompt, then S3+ once the census moves → PJ-7 only after the owner grades
+derived moments (M1–M3) → G127 character selector → G112 steps 2–4 → G76 install story. Owner-only: the
+Tailscale Funnel live test from claude.ai/phone, the codex measurements owed (signed-in Stage-1 tokens, the
+sqlite privacy sentinel).
+
+**Baselines (2026-09-24, dev after #98):** backend `3775 passed, 1 skipped`; Swift `2003 tests, 0 failures`
+(the SleepViewModelTests poll flake was fixed in #90); graph JS 8/8.
+
+**Live checks after a merge** use `scripts/dev/` (winall, axfind, cgclick — see its README): synthetic
+clicks and keystrokes do not reach SwiftUI rows. Test answering on the demo bank, never the owner's.
+
+## Where things stand (round 2, end of 2026-09-06)
 
 **Nothing is in flight.** Round 2 (owner brief, evening of 2026-09-05: "improve the Sleep and Sources
 pages by a wide margin, the Chrome logo is wonky, an in-app video renderer, a cuter Sleep page like

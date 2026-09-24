@@ -146,10 +146,12 @@ merges; agents never push.
 
 ### Next
 
-**G118 slice 2 — the provenance viewer** (item 6 below), then **G93** (item 7), then the bigger rocks.
-**In parallel, backend-only: G61 phase 2 S0–S2** (item 9 below) — no app surface, no owner ruling needed
-until S3. (G90's README screenshots were re-taken from the demo bank on 2026-09-06.) Start a track by
-writing a brief from its entry and following §2.
+**Round 3 closed on 2026-09-24 (#71–#98) — read TODO.md "Where things stand (end of 2026-09-24)" first.**
+G118 slice 2, G141 PJ-0…PJ-6, G61 S0–S2 and Direction D on every page have shipped. Next, in order: the
+polish list from the live checks → G61's "what source would settle this?" prompt (the census says 0 of 35
+items are checkable because pages lack sources) → G61 S3+ once the census moves → G141 PJ-7 only after the
+owner grades derived moments → G127 (character selector) → G93 (cross-stream ask) → G112 steps 2–4 → G76.
+Start a track by writing a brief from its entry and following §2; UI work cites DESIGN_RULES DR ids.
 
 ### Done on 2026-09-05, kept here for the reasoning
 
