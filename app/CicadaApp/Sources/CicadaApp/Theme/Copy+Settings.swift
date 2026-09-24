@@ -15,6 +15,12 @@ extension Copy {
     static let appearanceSystem = "System"
     static let appearanceLight = "Light"
     static let appearanceDark = "Dark"
+    // Round-4 D4 (G144) — Settings → General → Scene: Home's painting by the clock, never by location.
+    static let scene = "Scene"
+    static let sceneDetail = "Home's painting follows sunrise and sunset in your Mac's time zone. No location is used."
+    static let sceneAutomatic = "Automatic"
+    static let sceneAlwaysDay = "Always day"
+    static let sceneAlwaysNight = "Always night"
     static let textSize = "Text size"
     static let textSizeDetail = "⌘+ and ⌘− do the same from any page."
     static let actualSize = "Actual size"

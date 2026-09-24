@@ -9,8 +9,13 @@ import SwiftUI
 /// Appearance writes the same `cicada.colorScheme` key the sidebar's sun/moon
 /// toggle already writes, so the two never disagree; `"system"` is the one new
 /// value, and `ThemeStore` resolves it against the Mac's own appearance.
+///
+/// Scene (round-4 D4, G144) is independent of Appearance: it picks Home's and
+/// the Welcome's painting by the clock (Automatic) or pins it, so a dark window
+/// can show a day painting. Per viewer, in `cicada.heroScene`.
 struct SettingsGeneralView: View {
     @AppStorage(ThemeStore.defaultsKey) private var appearanceRaw: String = AppearancePreference.dark.rawValue
+    @AppStorage(HeroScenePreference.defaultsKey) private var heroSceneRaw = HeroScenePreference.automatic.rawValue
     // G117 — "Run setup again" needs the active bank (to clear the right
     // per-bank `OnboardingState` flag) and the cross-scene hand-off
     // (Settings is its own window, same reasoning as every other
@@ -21,6 +26,10 @@ struct SettingsGeneralView: View {
 
     private var appearance: Binding<AppearancePreference> {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
+    }
+
+    private var heroScene: Binding<HeroScenePreference> {
+        Binding(get: { HeroScenePreference.stored(heroSceneRaw) }, set: { heroSceneRaw = $0.rawValue })
     }
 
     /// A direct `Binding` onto `CicadaTheme.uiScale` — not a locally-drafted
@@ -39,6 +48,11 @@ struct SettingsGeneralView: View {
                 SettingsRow(.appearance, title: Copy.appearance) {
                     PillPicker(title: Copy.appearance, selection: appearance,
                                options: AppearancePreference.allCases.map { PillOption(value: $0, label: $0.label) })
+                }
+                SettingsDivider()
+                SettingsRow(.heroScene, title: Copy.scene, detail: Copy.sceneDetail) {
+                    PillPicker(title: Copy.scene, selection: heroScene,
+                               options: HeroScenePreference.allCases.map { PillOption(value: $0, label: $0.label) })
                 }
                 SettingsDivider()
                 SettingsRow(.textSize, title: Copy.textSize, detail: Copy.textSizeDetail) {

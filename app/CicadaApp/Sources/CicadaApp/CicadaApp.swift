@@ -112,6 +112,8 @@ struct CicadaApp: App {
         // G139 final review: the System-appearance observer lives at app
         // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
         ThemeStore.shared.observeSystemAppearance()
+        // Round-4 D4 — the hero's clock, app scope like the appearance observer.
+        SceneStore.shared.start()
 
         // Build the Store as a plain local value first — referencing `self`
         // (which `store` would, via the property wrapper) isn't allowed yet
