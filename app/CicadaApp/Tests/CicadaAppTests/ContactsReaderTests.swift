@@ -41,9 +41,10 @@ final class ContactsReaderTests: XCTestCase {
     private func defaults() -> UserDefaults { UserDefaults(suiteName: "contacts-\(UUID())")! }
 
     private func reader(_ store: FakeContactStore, _ api: FakeContactsAPI, _ defaults: UserDefaults,
-                        activity: SyncActivity? = nil, debounce: Duration = .seconds(30)) -> ContactsReader {
+                        activity: SyncActivity? = nil, debounce: Duration = .seconds(30),
+                        retryAfter: Duration = .seconds(60)) -> ContactsReader {
         ContactsReader(store: store, api: api, defaults: defaults, activity: activity, now: { [now] in now },
-                       debounce: debounce, bank: { "alpha" })
+                       debounce: debounce, retryAfter: retryAfter, bank: { "alpha" })
     }
 
     private func eventually(_ what: String, _ condition: () -> Bool) async throws {
@@ -144,6 +145,25 @@ final class ContactsReaderTests: XCTestCase {
         let r = reader(FakeContactStore(), api, defaults())
         await r.connect()
         XCTAssertEqual(r.status, .failed("Cicada is tidying up your memory right now — Contacts will sync again in a minute."))
+    }
+
+    /// Round-4 final review, finding 2: the Sleep refusal says "again in a minute", so the reader keeps that promise —
+    /// one delayed retry per refusal, capped so a demo bank's 409 does not ask forever.
+    func testASleepRefusalIsRetriedOnItsOwnAndTheRetriesAreCapped() async throws {
+        let api = FakeContactsAPI()
+        let refusal = APIError.httpError(409, #"{"detail":"Cicada is tidying up your memory right now."}"#)
+        api.replies = [.failure(refusal)]
+        let r = reader(FakeContactStore(), api, defaults(), retryAfter: .milliseconds(20))
+        await r.connect()
+        try await eventually("the retry") { api.payloads.count == 2 && r.status == .watching }
+
+        let demo = FakeContactsAPI()
+        demo.replies = Array(repeating: .failure(refusal), count: ContactsReader.maxRefusedRetries + 5)
+        let d = reader(FakeContactStore(), demo, defaults(), retryAfter: .milliseconds(5))
+        await d.connect()
+        try await eventually("the capped retries") { demo.payloads.count == ContactsReader.maxRefusedRetries + 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(demo.payloads.count, ContactsReader.maxRefusedRetries + 1)
     }
 
     func testStopEndsTheRunWithoutAFailure() async throws {

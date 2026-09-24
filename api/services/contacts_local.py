@@ -10,7 +10,8 @@ A contact matches a page when its given and family name (either order), folded l
 one of its aliases — exactly one page, and no other contact on that page. For each fact the card holds, the page
 gains a G61 source `{ref: addressbook://<contact id>, kind: app, predicate, added_by: cicada}`: where to look it up,
 not a copy. A sync owns exactly the entries whose ref is `addressbook://…` and whose `added_by` is `cicada` — it adds,
-keeps and removes those, and never touches one the person or an agent added. Unmatched contacts are counted, never
+keeps and removes those in place, never touches one the person or an agent added, and never re-adds one the person
+removed (`_contacts_rejected.yaml`, final review finding 1). Unmatched contacts are counted, never
 stored. The contact's thumbnail (≤ 64 KB, JPEG or PNG) is cached at `$CICADA_HOME/pictures/<bank>/contacts/<id>.<ext>`
 — never in a bank (the logo rule, G59/G146) — and the page carries `contacts_photo: {sha, ext}` so the graph's ETag
 moves; `photo_path(bank, entity_id, ext)` builds that one path, the rung C11's `entity_picture.resolve` reads with the
@@ -27,6 +28,8 @@ import os
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 from api.services import bank_index, fact_sources, markdown_parser, text_fold
 from api.services.auth import cicada_home
 
@@ -35,6 +38,8 @@ LABEL = "Contacts"
 REF_SCHEME = "addressbook://"
 ADDED_BY = fact_sources.CICADA
 FRONTMATTER_KEY = "contacts_photo"
+#: The person's removals of this sync's entries — `(entity, ref, predicate)` rows it never re-adds (final review, 1).
+REFUSED_FILE = "_contacts_rejected.yaml"
 MAX_CONTACTS = 20000
 PHOTO_CAP = 64 * 1024
 #: R-SR9 — what a thumbnail may be (by its magic bytes), and the only exts `photo_path` answers for.
@@ -143,6 +148,64 @@ def _remove_photo(bank: str, entity_id: str) -> None:
             path.unlink(missing_ok=True)
 
 
+def _rebuilt(current: list[dict], desired: dict[tuple, dict]) -> list[dict]:
+    """The page's `sources:` with this sync's entries updated IN PLACE (round-4 final review, finding 1).
+
+    The first slice rebuilt Cicada's entries from scratch and appended them after everyone else's, which (a) dropped
+    the `accepted` / `access` / `only_me` the person set on one (`fact_sources._apply_persons_fields`), (b) moved
+    Cicada's entries behind any source the person added later — one spurious "Contacts sync" commit per such source —
+    and (c) shifted the indices the index-based `DELETE /entities/{id}/sources/{index}` removes by, so a card left
+    open across a sync could delete the wrong row. So: every entry keeps its position; an owned one that is still
+    wanted is `{**kept, <owned fields>}`, one that is not is dropped where it stood (and a duplicate of an owned key
+    too), and only a new one is appended."""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for source in current:
+        if not _is_mine(source):
+            out.append(source)
+            continue
+        key = (source.get("ref"), source.get("predicate"))
+        if key in desired and key not in seen:
+            out.append({**source, **desired[key]})
+            seen.add(key)
+    out.extend(entry for key, entry in desired.items() if key not in seen)
+    return out
+
+
+def load_refused(memory_path: Path) -> set[tuple[str, str, str]]:
+    """Every `(entity id, addressbook ref, predicate)` the person removed from a page (round-4 final review, finding
+    1). Without it the next sync — at the latest a day later, on every launch for a bank not named `default` — put a
+    removed entry back under `Cicada-Author: user`, so a wrong name match could only be undone by disconnecting
+    Contacts. The `_merge_rejected.yaml` precedent (G113): a small bank file, the person's ruling, versioned."""
+    path = Path(memory_path) / REFUSED_FILE
+    if not path.exists():
+        return set()
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, OSError):
+        return set()
+    rows = data.get("removed") if isinstance(data, dict) else None
+    out: set[tuple[str, str, str]] = set()
+    for row in rows or []:
+        if isinstance(row, (list, tuple)) and len(row) == 3 and all(isinstance(x, str) for x in row):
+            out.add((row[0], row[1], row[2]))
+    return out
+
+
+def remember_removal(memory_path: Path, entity_id: str, source: dict) -> str | None:
+    """Record that the person removed one of this sync's entries, so `sync` never re-adds it. Returns the bank-relative
+    path to commit with the removal, or None when the entry was not Contacts' own (a person's or an agent's source
+    is theirs to remove and ours to forget)."""
+    if not isinstance(source, dict) or not _is_mine(source):
+        return None
+    refused = load_refused(memory_path)
+    refused.add((str(entity_id), str(source.get("ref")), str(source.get("predicate") or "")))
+    path = Path(memory_path) / REFUSED_FILE
+    path.write_text(yaml.safe_dump({"removed": [list(r) for r in sorted(refused)]}, allow_unicode=True,
+                                   sort_keys=False), encoding="utf-8")
+    return REFUSED_FILE
+
+
 def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     """One whole address book (R-SR8). `payload` has snake_case keys. Returns the counts and the bank-relative
     paths to commit."""
@@ -152,6 +215,7 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     if len(contacts) > MAX_CONTACTS:
         raise PayloadError(f"at most {MAX_CONTACTS} contacts per sync")
     keys, carrying = _index(memory_path)
+    refused = load_refused(memory_path)
     claims: dict[str, list[dict]] = {}
     unmatched = ambiguous = 0
     for contact in contacts:
@@ -177,20 +241,19 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         fm = dict(parsed.frontmatter)
         current = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
         mine = {(s.get("ref"), s.get("predicate")): s for s in current if _is_mine(s)}
-        others = [s for s in current if not _is_mine(s)]
         contact = matched.get(eid)
-        desired: list[dict] = []
+        desired: dict[tuple, dict] = {}
         if contact is not None:
             ref = f"{REF_SCHEME}{str(contact['id']).strip()}"
             for fact, predicate in FACT_PREDICATES:
-                if contact.get(fact):
+                if contact.get(fact) and (eid, ref, predicate) not in refused:
                     kept = mine.get((ref, predicate))
-                    desired.append({"ref": ref, "kind": fact_sources.KIND_APP, "predicate": predicate,
-                                    "added_by": ADDED_BY, "added_at": (kept or {}).get("added_at") or today})
-        wanted = {(s["ref"], s["predicate"]) for s in desired}
-        added += len(wanted - set(mine))
-        removed += len(set(mine) - wanted)
-        sources = others + desired
+                    desired[(ref, predicate)] = {"ref": ref, "kind": fact_sources.KIND_APP, "predicate": predicate,
+                                                 "added_by": ADDED_BY,
+                                                 "added_at": (kept or {}).get("added_at") or today}
+        added += len(set(desired) - set(mine))
+        removed += len(set(mine) - set(desired))
+        sources = _rebuilt(current, desired)
         if sources:
             fm["sources"] = sources
         else:

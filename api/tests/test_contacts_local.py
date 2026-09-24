@@ -200,3 +200,44 @@ def test_the_always_listed_contacts_row_moves_the_channels_etag_shape():
     from api.services import channel_registry
 
     assert channel_registry.CHANNELS_SHAPE not in ("g142", "r4-sources")
+
+
+def test_a_sync_keeps_the_persons_choices_and_every_sources_place(client):
+    """Final review, finding 1: Cicada's entries are updated in place — the person's `accepted`/`access`/`only_me`
+    survive, a source the person added later stays after them, and a second sync commits nothing."""
+    c, memory = client
+    _post(c, [_contact("C1", "Bob", "Example", org=True, email=True)])
+    fact_sources.add_source(memory, "bob-example", "addressbook://C1", predicate="works-at", added_by="user",
+                            accepted=True, access="signed_in")
+    fact_sources.add_source(memory, "bob-example", "https://example.com/bob", predicate="role")
+    before = fact_sources.list_sources(memory, "bob-example")
+    subprocess.run(["git", "-C", str(memory), "commit", "-qam", "person"], check=True, capture_output=True)
+    head = subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+    body = _post(c, [_contact("C1", "Bob", "Example", org=True, email=True)]).json()
+    assert (body["sourcesAdded"], body["sourcesRemoved"]) == (0, 0)
+    after = fact_sources.list_sources(memory, "bob-example")
+    assert after == before
+    assert after[0].get("accepted") is True and after[0].get("access") == "signed_in"
+    assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True, text=True).stdout == head
+    # A dropped fact leaves the person's source at the same index it had.
+    _post(c, [_contact("C1", "Bob", "Example", email=True)])
+    assert [s["ref"] for s in fact_sources.list_sources(memory, "bob-example")] == [
+        "addressbook://C1", "https://example.com/bob"]
+
+
+def test_an_entry_the_person_removes_is_never_put_back(client):
+    """Final review, finding 1: removing a Contacts entry on the card is remembered in `_contacts_rejected.yaml`,
+    committed with the removal, and the next sync skips exactly that (page, ref, predicate)."""
+    c, memory = client
+    _post(c, [_contact("C1", "Bob", "Example", org=True, email=True)])
+    r = c.delete("/entities/bob-example/sources/0")
+    assert r.status_code == 200, r.text
+    assert (memory / contacts_local.REFUSED_FILE).exists()
+    status = subprocess.run(["git", "-C", str(memory), "status", "--porcelain"], capture_output=True, text=True).stdout
+    assert contacts_local.REFUSED_FILE not in status, "committed with the removal"
+    body = _post(c, [_contact("C1", "Bob", "Example", org=True, email=True)]).json()
+    assert body["sourcesAdded"] == 0
+    assert [s["predicate"] for s in fact_sources.list_sources(memory, "bob-example")] == ["email"]
+    # A person's own source is theirs to remove and is never recorded.
+    fact_sources.add_source(memory, "bob-example", "https://example.com/bob", predicate="role")
+    assert contacts_local.remember_removal(memory, "bob-example", {"ref": "https://example.com/bob"}) is None

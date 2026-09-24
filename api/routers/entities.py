@@ -518,17 +518,16 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
     )
 
 
-async def _commit_sources(memory_path: Path, entity_id: str, verb: str) -> None:
+async def _commit_sources(memory_path: Path, entity_id: str, verb: str, extra: tuple[str, ...] = ()) -> None:
+    paths = [f"entities/{entity_id}.md", *extra]
     message = git_service.build_commit_message(
         f"{verb} fact source {date.today().isoformat()}",
-        [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
+        [f"{p}: updated (trigger: user/companion_app)" for p in paths],
         authors=["user"],
     )
     # Scoped, never ``git add -A``: adding one fact source must not sweep an
     # unrelated dirty file in memory/ into an "Add fact source" commit.
-    await git_service.commit_paths(
-        memory_path, message, [f"entities/{entity_id}.md"]
-    )
+    await git_service.commit_paths(memory_path, message, paths)
 
 
 @router.get("/entities/{entity_id}/sources", response_model=EntitySourceList)
@@ -605,9 +604,18 @@ async def delete_entity_source(
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
+    # The same list `delete_source` indexes (every dict entry, file order) — `list_sources` also drops ref-less ones.
+    raw = markdown_parser.parse(entity_path).frontmatter.get("sources") or []
+    current = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+    removing = current[index] if 0 <= index < len(current) else None
     if not fact_sources.delete_source(settings.memory_path, entity_id, index):
         raise HTTPException(404, f"No source at index {index} on {entity_id}")
-    await _commit_sources(settings.memory_path, entity_id, "Remove")
+    # Round-4 final review, finding 1: a Contacts entry the person removes stays removed — the next Contacts sync
+    # would otherwise put it back under the person's own name. Committed with the removal, one `user` commit.
+    from api.services import contacts_local
+
+    refused = contacts_local.remember_removal(settings.memory_path, entity_id, removing or {})
+    await _commit_sources(settings.memory_path, entity_id, "Remove", (refused,) if refused else ())
     return _sources_payload(settings.memory_path, entity_id)
 
 

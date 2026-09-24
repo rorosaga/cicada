@@ -31,13 +31,17 @@ final class ContactsReader {
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private var running: Task<String, Error>?
+    @ObservationIgnored private let retryAfter: Duration
+    /// How many refused (409) runs in a row have been retried — capped so a demo bank's refusal stops asking.
+    @ObservationIgnored private var refusedRetries = 0
+    nonisolated static let maxRefusedRetries = 10
 
     init(store: ContactStore = SystemContactStore(), api: any ContactsSyncAPI = APIClient.shared,
          defaults: UserDefaults = .standard, activity: SyncActivity? = nil, now: @escaping () -> Date = Date.init,
-         debounce: Duration = .seconds(30), staleAfter: TimeInterval = 24 * 3600,
+         debounce: Duration = .seconds(30), staleAfter: TimeInterval = 24 * 3600, retryAfter: Duration = .seconds(60),
          bank: @escaping @MainActor () -> String = { "default" }) {
         self.store = store; self.api = api; self.defaults = defaults; self.activity = activity; self.now = now
-        self.debounce = debounce; self.staleAfter = staleAfter; self.bank = bank
+        self.debounce = debounce; self.staleAfter = staleAfter; self.retryAfter = retryAfter; self.bank = bank
         self.enabled = defaults.bool(forKey: Self.enabledKey)
     }
 
@@ -121,7 +125,15 @@ final class ContactsReader {
         activity?.ended(Self.channel)
         switch result {
         case .success:
+            refusedRetries = 0
             status = enabled ? .watching : .off
+        case .failure(APIError.httpError(409, let body)):
+            // Round-4 final review, finding 2: the server's Sleep refusal promises "Contacts will sync again in a
+            // minute", and nothing else re-reads the book until it changes — so a launch or bank-switch sync that
+            // lands during a Consolidate retries itself through the same `pending` slot. Capped: a demo bank's 409
+            // is the same status and stops after `maxRefusedRetries`.
+            status = enabled ? .failed(Self.failureMessage(APIError.httpError(409, body))) : .off
+            scheduleRefusedRetry()
         case .failure(let error) where SyncCancellation.isCancellation(error):
             status = enabled ? .watching : .off
         case .failure(ContactsReadError.empty):
@@ -150,6 +162,17 @@ final class ContactsReader {
         let stream = store.changes()
         watch = Task { [weak self] in
             for await _ in stream { self?.scheduleDebounced() }
+        }
+    }
+
+    private func scheduleRefusedRetry() {
+        guard enabled, refusedRetries < Self.maxRefusedRetries else { return }
+        refusedRetries += 1
+        pending?.cancel()
+        pending = Task { [weak self, retryAfter] in
+            try? await Task.sleep(for: retryAfter)
+            guard !Task.isCancelled else { return }
+            await self?.sync()
         }
     }
 
