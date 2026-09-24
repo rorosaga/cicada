@@ -60,7 +60,7 @@ async def login(connection_id: str, reg: Registry = Depends(_registry),
     if isinstance(adapter, openrouter.OpenRouterAdapter):
         # R-AG10: the consent page sends the browser back to THIS backend, so the
         # callback URL is built from the address it actually listens on.
-        return await adapter.begin_login(base_url=f"http://{settings.host}:{settings.port}")
+        return await adapter.begin_login(base_url=openrouter.callback_base(settings.host, settings.port))
     return await adapter.begin_login()
 
 
