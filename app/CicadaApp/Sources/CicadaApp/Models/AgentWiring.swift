@@ -34,11 +34,20 @@ struct AgentWiring: Codable, Hashable, Identifiable {
     let autosave: String
     let connect: [AgentWiringStep]
     let detail: String?
+    /// G149 — the recall hooks' state (`on | off | stale | invalid | n/a`) and
+    /// the two command sets Settings → Agents → Remembers automatically may
+    /// run. They are kept apart from `connect` because onboarding's Turn on
+    /// runs `connect` and nothing else (R-H11).
+    let autorecall: String
+    let autorecallOn: [AgentWiringStep]
+    let autorecallOff: [AgentWiringStep]
 
     init(id: String, installed: Bool, binary: String?, recall: String, autosave: String,
-         connect: [AgentWiringStep], detail: String?) {
+         connect: [AgentWiringStep], detail: String?, autorecall: String = "n/a",
+         autorecallOn: [AgentWiringStep] = [], autorecallOff: [AgentWiringStep] = []) {
         self.id = id; self.installed = installed; self.binary = binary; self.recall = recall
         self.autosave = autosave; self.connect = connect; self.detail = detail
+        self.autorecall = autorecall; self.autorecallOn = autorecallOn; self.autorecallOff = autorecallOff
     }
 
     /// A missing `recall` reads as `unknown`, never `off`: `off` is the state
@@ -53,6 +62,10 @@ struct AgentWiring: Codable, Hashable, Identifiable {
         autosave = (try? c.decodeIfPresent(String.self, forKey: .autosave)) ?? "n/a"
         connect = (try? c.decodeIfPresent([AgentWiringStep].self, forKey: .connect)) ?? []
         detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        // An older backend sends none of the three: `n/a` lists no row (R-H18).
+        autorecall = (try? c.decodeIfPresent(String.self, forKey: .autorecall)) ?? "n/a"
+        autorecallOn = (try? c.decodeIfPresent([AgentWiringStep].self, forKey: .autorecallOn)) ?? []
+        autorecallOff = (try? c.decodeIfPresent([AgentWiringStep].self, forKey: .autorecallOff)) ?? []
     }
 }
 

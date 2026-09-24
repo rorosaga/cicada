@@ -75,7 +75,7 @@ enum SettingsIndex {
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchIndex, .enrichLinks,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
-        .agentsInstall, .agentsCloud, .agentsSkill,
+        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
@@ -117,6 +117,9 @@ enum SettingsIndex {
         SettingsEntry(.agentsInstall, .agents, Copy.agentsInstallTitle, keywords: ["make install", "setup", "python", "service"]),
         SettingsEntry(.agentsCloud, .agents, Copy.agentsCloudTitle, keywords: ["web", "cloud", "mobile", "claude.ai", "chatgpt"]),
         SettingsEntry(.agentsSkill, .agents, Copy.agentsSkillTitle, keywords: ["skill", "SKILL.md", "claude code"]),
+        SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
+                      keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
+                      detail: Copy.autoRecallDetail),
         // Cicada's own skills (G138) — per-item ids, so outside the bare-name lint
         SettingsEntry(.skill(CicadaSkillBundle.cicada.rawValue), .skills, CicadaSkillBundle.cicada.title,
                       keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),

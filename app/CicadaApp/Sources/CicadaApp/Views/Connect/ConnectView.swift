@@ -251,6 +251,7 @@ struct ConnectView: View {
                     SettingsInlineLink(section: .skills, row: .skill(CicadaSkillBundle.cicada.rawValue), label: Copy.openSkills)
                 }
             }
+            AutoRecallGroup()
             SettingsGroupCard {
                 SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
                     SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)

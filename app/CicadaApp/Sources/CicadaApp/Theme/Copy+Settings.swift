@@ -60,6 +60,25 @@ extension Copy {
     static let agentsCloudTitle = "claude.ai, ChatGPT and your phone"
     static let agentsCloudDetail = "Cloud apps can't start a program on your Mac, so they reach Cicada through a link. You can also bring web chats in from the Feed."
 
+    // MARK: Remembers automatically (G149) — plain words; no prices, no token counts (DR-59)
+    static let autoRecallGroup = "Remembers automatically"
+    static let autoRecallTitle = "Add what Cicada knows to your chats"
+    static let autoRecallDetail = "Before your agent answers, Cicada adds a short note about the people and projects you mention, so it doesn't have to think to ask. It only reads your memory and never saves anything."
+    static let autoRecallChecking = "Checking the agents on this Mac…"
+    // Names no agent: a service named in the UI wears its mark, and this line has none.
+    static let autoRecallNone = "None of the agents on this Mac can do this yet."
+    static let autoRecallOn = "On. Your agent sees a short note when you mention something Cicada remembers."
+    static let autoRecallOff = "Off. Your agent only sees your memory when it asks for it."
+    static let autoRecallStale = "Needs an update, because Cicada moved since this was set up."
+    static let autoRecallUnreadable = "Its settings file can't be read, so Cicada won't touch it."
+    static let autoRecallTurnOn = "Turn on"
+    static let autoRecallTurnOff = "Turn off"
+    static let autoRecallUpdate = "Update"
+    static let autoRecallWorking = "Working…"
+    static let autoRecallWorkingHelp = "Cicada is changing this agent's settings."
+    static let autoRecallCodexTrust = "The next time you open Codex, it asks whether to trust Cicada's hooks. Choose to trust them, or Codex won't run them."
+    static func autoRecallChanges(_ files: [String]) -> String { "Changes " + files.joined(separator: ", ") }
+
     // MARK: Search (design §2.4)
     static let searchSettings = "Search settings"
     static func noSettingsMatch(_ query: String) -> String { "No settings match \u{201C}\(query)\u{201D}" }
