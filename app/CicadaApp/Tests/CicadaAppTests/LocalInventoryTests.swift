@@ -75,4 +75,16 @@ final class LocalInventoryTests: XCTestCase {
         await inventory.refresh()
         XCTAssertEqual(inventory.items.first?.readiness, .alreadyOn, "a Full Disk Access grant or a Turn on shows on the next scan")
     }
+
+    /// Round 4 (C9) — a Chromium-family browser is found by the same presence probe as Chrome, named by its catalog row.
+    func testAnInstalledChromiumBrowserIsFoundLikeChrome() {
+        let items = LocalInventory.items(from: InventorySnapshot(
+            wiring: nil, installedBundles: [],
+            browsers: ["chrome-bookmarks": .absent, "safari-bookmarks": .absent, "brave-bookmarks": .off,
+                       "dia-bookmarks": .blocked],
+            claudeDesktopHasCicada: nil))
+        XCTAssertEqual(items.map(\.id), [.browser("brave-bookmarks"), .browser("dia-bookmarks")])
+        XCTAssertEqual(items.map(\.title), ["Brave", "Dia"])
+        XCTAssertEqual(items.map(\.readiness), [.ready, .needsPermission])
+    }
 }

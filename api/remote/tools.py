@@ -222,6 +222,38 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
            "evidence": {"type": "array", "items": {"type": "object", "required": ["episode", "quote"], "properties": {
                "episode": {"type": "string"}, "quote": {"type": "string"}}}}},
           ("project", "kind", "summary", "status"), read_only=False),
+    # G150 (R-B13). The read names no write tool — it is `read` scope, and a
+    # connection may hold only that (G75 R12); the two writes are `record`.
+    _tool("cicada_backlog",
+          "A project's backlog: the tasks and ideas the person keeps for later, each with its id, status (open, "
+          "doing, done, dropped), triage and latest note. Pass `item` to read one in full — its description and "
+          "every note, signed by who wrote it.",
+          {"project": {"type": "string", "description": "A project's id or name."},
+           "status": {"type": "string", "enum": ["open", "doing", "done", "dropped", "all"],
+                      "description": "Optional: which items to list. Default: open and doing."},
+           "item": {"type": "string", "description": "Optional: one item's id (e.g. 'RAP3') to read in full."}},
+          ("project",), read_only=True),
+    _tool("cicada_add_backlog_item",
+          "Put something on one of the person's project backlogs when they ask ('put it in the backlog', 'keep this "
+          "for later'). The title is the brief task in one line; the description is the reasoning — the problem, "
+          "the evidence, what a fix must respect. One item per idea: if it is already there, add a note to it with "
+          "cicada_add_backlog_note instead.",
+          {"project": {"type": "string", "description": "The project page (id or name)."},
+           "title": {"type": "string", "description": "The brief task, one line."},
+           "description": {"type": "string", "description": "The reasoning: the problem, the evidence, the "
+                                                            "constraint a fix must respect."},
+           "triage": {"type": "string", "enum": ["apply", "research", "decide"],
+                      "description": "Optional: apply, research or decide."},
+           "paid": {"type": "boolean", "description": "Optional: true when doing it needs paid AI usage."}},
+          ("project", "title", "description"), read_only=False),
+    _tool("cicada_add_backlog_note",
+          "Add what you learned to an existing backlog item — a finding, a measurement, a decision — and optionally "
+          "move it (doing, done, dropped). Notes are appended and signed with this app; nothing is overwritten.",
+          {"item": {"type": "string", "description": "The item's id (e.g. 'RAP3'), or '<project>/<id>'."},
+           "note": {"type": "string", "description": "What you found, in a few sentences."},
+           "status": {"type": "string", "enum": ["open", "doing", "done", "dropped"],
+                      "description": "Optional: move the item as you note it."}},
+          ("item", "note"), read_only=False),
     _tool("cicada_resolve_inbox",
           "Record the person's own answer to one of Cicada's questions: the option_key they chose, defer=true "
           "to ask again later, reject=true when two names are NOT the same, or skip=true when they did not "

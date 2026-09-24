@@ -41,13 +41,14 @@ from api.models.schemas import SearchHit, SearchResponse
 from api.services import bank_index, evidence, inbox_questions, inbox_service, search_index, text_fold
 from api.services.claims import EVENT_PREDICATES
 
-KINDS = ("entity", "claim", "episode", "media", "inbox")
+KINDS = ("entity", "claim", "episode", "media", "inbox", "backlog")
 _KIND_ALIASES = {
     "entity": "entity", "entities": "entity",
     "claim": "claim", "claims": "claim", "belief": "claim", "beliefs": "claim",
     "episode": "episode", "episodes": "episode", "conversation": "episode", "conversations": "episode",
     "media": "media", "source": "media", "sources": "media", "paper": "media", "papers": "media",
     "inbox": "inbox",
+    "backlog": "backlog", "task": "backlog", "tasks": "backlog",
 }
 MODES = ("prefix", "hybrid")
 MAX_PER_KIND = 20
@@ -60,6 +61,10 @@ CANDIDATE_FACTOR = 4
 # items at most, so this is "all of them" in practice — and when it is not,
 # the kind's total is omitted rather than guessed.
 INBOX_SCAN = 200
+# G150 (R-B25): backlog items read before the dropped-last re-rank — a
+# project's backlog is hundreds of rows at most; past that the total is
+# omitted rather than guessed, as the inbox's is.
+BACKLOG_SCAN = 200
 _TIERS = 5  # QuickMatch: score = Σ (5 − tier) × weight
 
 
@@ -630,6 +635,37 @@ def _inbox_kind(ctx: _Ctx) -> tuple[list[SearchHit], int | None]:
     return [hit for _k, hit in ranked][: ctx.per_kind], total
 
 
+# --- backlog ----------------------------------------------------------------------------
+
+
+def _backlog_kind(ctx: _Ctx) -> tuple[list[SearchHit], int | None]:
+    """G150 (R-B25): backlog items, ranked like the inbox — QuickMatch tiers
+    over title, id and keywords, then bm25 — with a dropped item after every
+    live one. The palette groups them as "Backlog" and opens the item."""
+    rows = ctx.reader.ranked("blg", ctx.match, BACKLOG_SCAN)
+    docs = ctx.reader.docs([d for d, _ in rows])
+    ranked: list[tuple[tuple, SearchHit]] = []
+    for doc_id, bm in rows:
+        doc = docs.get(doc_id)
+        if doc is None:
+            continue
+        meta = doc.meta
+        keywords = " ".join(x for x in (meta.get("project"), meta.get("status"), meta.get("triage")) if x)
+        fields = [(meta.get("title", ""), 1.0, "name"), (meta.get("id", ""), 0.9, "alias"), (keywords, 0.7, "keyword")]
+        score, label = quick_score(ctx.tokens, fields)
+        snippet, offsets = snippet_window(meta.get("title", ""), ctx.tokens)
+        hit = SearchHit(
+            id=meta.get("id") or doc.ref, name=meta.get("title") or doc.ref, type=meta.get("triage") or "backlog",
+            status=meta.get("status") or "open", confidence=0.0, score=score, snippet=snippet, kind="backlog",
+            snippet_offsets=offsets, matched_field=label, subject_id=meta.get("project") or None,
+            timestamp=meta.get("updated"),
+        )
+        ranked.append(((meta.get("status") == "dropped", -score, bm), hit))
+    ranked.sort(key=lambda r: r[0])
+    total = len(ranked) if len(rows) < BACKLOG_SCAN else None
+    return [hit for _k, hit in ranked][: ctx.per_kind], total
+
+
 # --- the two paths ------------------------------------------------------------------------
 
 
@@ -661,6 +697,10 @@ def _search_indexed(ctx: _Ctx) -> tuple[dict[str, list[SearchHit]], dict[str, in
         out["inbox"], total = _inbox_kind(ctx)
         if total is not None:
             totals["inbox"] = total
+    if "backlog" in ctx.kinds and tokens:
+        out["backlog"], total = _backlog_kind(ctx)
+        if total is not None:
+            totals["backlog"] = total
     return out, totals
 
 

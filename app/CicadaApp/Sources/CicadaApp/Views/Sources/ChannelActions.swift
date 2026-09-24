@@ -35,8 +35,9 @@ enum ChannelActions {
         case calendarLocal
     }
 
-    /// The browser rows whose files the app reads and posts (R1).
-    static let browserFileChannels: Set<String> = ["safari-tabs", "safari-bookmarks", "chrome-bookmarks"]
+    /// The browser rows whose files the app reads and posts (R1): iCloud tabs, then every supported browser's
+    /// bookmarks from `BrowserInventory` (round 4, C9) — one catalog, so a browser added there is routed here too.
+    static let browserFileChannels: Set<String> = Set(["safari-tabs"] + BrowserInventory.catalog.compactMap(\.bookmarksChannel))
     /// `api/services/connectors/__init__.py::ADAPTERS`.
     static let connectorChannels: Set<String> = ["pinterest", "reddit", "x"]
     static let folderPrefix = "folder:"
@@ -72,8 +73,20 @@ enum ChannelActions {
     /// far as the watch knew, and the watcher re-read the whole file on its
     /// next event. `watcher` is optional only so a caller without one still
     /// syncs; every view caller passes the environment's.
+    ///
+    /// Round 4 (R-SR11): a sync the person stopped with the row's × comes back as
+    /// `Copy.syncStopped` — said as a stop, never as an error.
     static func sync(_ channelId: String, store: Store, watcher: BrowserWatcher? = nil,
                      local: LocalSourceWatcher, calendar: CalendarReader? = nil) async throws -> String {
+        do {
+            return try await route(channelId, store: store, watcher: watcher, local: local, calendar: calendar)
+        } catch let error where SyncCancellation.isCancellation(error) {
+            return Copy.syncStopped   // R-SR11: a stop is said as a stop, never as an error
+        }
+    }
+
+    private static func route(_ channelId: String, store: Store, watcher: BrowserWatcher?,
+                              local: LocalSourceWatcher, calendar: CalendarReader?) async throws -> String {
         switch syncRoute(for: channelId) {
         case .browserFile:
             if let watcher, BrowserWatcher.isWatched(channelId) {

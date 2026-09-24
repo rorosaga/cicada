@@ -124,4 +124,14 @@ final class AppRouterTests: XCTestCase {
         XCTAssertEqual(router.pendingTab, .clusters)
         XCTAssertEqual(router.consumeClustersEntity(), "alpha-project")
     }
+
+    /// G150 (R-B25) — a palette landing carries the item to the Projects page with its project, read-then-clear.
+    func testABacklogLandingCarriesTheItemWithItsProject() {
+        let router = AppRouter()
+        router.routeToBacklogItem(project: "rover-arm-project", item: "RAP3")
+        XCTAssertEqual(router.pendingTab, .projects)
+        XCTAssertEqual(router.consumeProject(), "rover-arm-project")
+        XCTAssertEqual(router.consumeBacklogItem(), "RAP3")
+        XCTAssertNil(router.consumeBacklogItem(), "read-then-clear")
+    }
 }

@@ -22,7 +22,7 @@ TZ = "UTC"
 # rewrites an earlier task's expectations; a step that does not exist yet is
 # simply not patched.
 _STEPS = {"events": "_write_scenario_events", "person": "_write_scenario_person",
-          "followups": "_write_scenario_followups"}
+          "followups": "_write_scenario_followups", "backlog": "_write_scenario_backlog"}
 
 
 def d(offset: int) -> str:
@@ -30,10 +30,10 @@ def d(offset: int) -> str:
 
 
 def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
-         followups: bool = True) -> Path:
+         followups: bool = True, backlog: bool = True) -> Path:
     bank = tmp_path / "demo"
     bank_registry.scaffold_bank(bank)
-    wanted = {"events": events, "person": person, "followups": followups}
+    wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog}
     with ExitStack() as stack:
         for flag, name in _STEPS.items():
             if not wanted[flag] and hasattr(demo_bank, name):
@@ -46,8 +46,9 @@ def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: boo
 
 
 def day_one(tmp_path: Path, **kw) -> Path:
-    """PJ-1's bank: what every bank already holds, before any event writer ran."""
-    return demo(tmp_path, events=False, person=False, followups=False, **kw)
+    """PJ-1's bank: what every bank already holds, before any event writer ran,
+    and no backlog (G150): PJ-1's expectations predate it."""
+    return demo(tmp_path, events=False, person=False, followups=False, backlog=False, **kw)
 
 
 def treat_as_real(monkeypatch) -> None:

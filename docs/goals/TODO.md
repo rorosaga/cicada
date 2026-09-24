@@ -37,6 +37,19 @@ decide the command set over the HTTP API) → G158 (website — How it works wit
 and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,
 pixel palette first).
 
+### Round 4 — G150, backlogs live in memory
+
+(2026-09-24, `feat/r4-backlog-in-memory`, plan
+`2026-09-24-r4-backlog-in-memory.md`). A project's backlog is one markdown file per item in the bank, filed by agents
+over MCP (`cicada_add_backlog_item`, `cicada_add_backlog_note`, `cicada_backlog`) and by the person on the Projects
+page, found by ⌘K, every note signed; the primer tells an agent what to do when the person says "put it in the
+backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently
+(it refuses, writing nothing, while the backend runs a Sleep cycle and on a demo bank) —
+**importing the owner's real backlog into his bank waits for his OK** (the orchestrator runs it after merge). 27
+rulings (R-B1…R-B27), five dated in DESIGN_RULES §9. Merge notes: `CONTRACT_VERSION` 8 (G149's item 8 took 7 on its own branch, so the merge moved past both, R-H13) / remote 5, `_state.md` v4 and
+the FTS `SCHEMA_VERSION` "4" take the next number past any other round-4 bump; a note's `authorModel`/`authorEffort`
+are filled by round 4's per-turn join (now on `dev`).
+
 ### Round 3 (PRs #71–#98)
 
 **Nothing is in flight except the README screenshot PR.** Round 3 (owner brief 2026-09-22/23: a
@@ -85,7 +98,8 @@ consolidation on a small OpenAI model he asked for is one click on the Sleep pag
 **Open owner questions:** (1) should a pending name heard once and never again expire, taking its held
 claims (PJ-0b; changes the promotion model — R7/D2)? (2) when a folder's authorship rule later marks a
 file as agent-written, should beliefs Sleep already formed from it be re-judged (R-B8; today they keep
-"You said" as history)? (3) promote `dev` to `main` — his call, as always.
+"You said" as history)? (3) promote `dev` to `main` — his call, as always. (4) G150: once the Cicada backlog lives in the bank, does
+`docs/goals/` stay its public mirror (and which way does it sync), or become a pointer?
 
 **Next, in order:** README screenshots PR (in review) → polish from the live checks (a Projects happening
 that cites many papers should show a few chips + "+N more"; long source-tile names truncate; legacy
@@ -684,6 +698,7 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **G119 / G154 / G160 sources (round 4, T-Sources)** | **Partial — tasks 1–3 of 7** on `feat/r4-sources` (plan `2026-09-24-r4-sources.md`): Chromium-family bookmarks (Brave, Vivaldi, Comet, Dia via the Chrome parser; C9 `BrowserInventory`, Arc/Firefox listed as not supported yet), Safari's Reading List and Favorites with their counts on the wire, and `SourceRow` + `SyncActivity` (× to stop, "Last synced …") on Sources, Integrations and Home. Final review hardened `POST /sources/sync-bookmarks`: a body is data or a 422 (`extra="forbid"`; the local-file fallback only with no body at all), and one sync per bank at a time (409, "still finishing"). **Not built:** tasks 4–5 Chrome-family tab groups (`POST /sources/tab-groups/sync`, the SNSS reader, its consent switch; G160 has no backlog row yet — write it with task 4), tasks 6–7 Contacts (`ContactsReader`, `POST /sources/contacts-local/sync`, and C11's `contacts_photo` source that T-People's picture ladder reads — until it lands that rung resolves to nothing), and task 7's docs. A partial, uncommitted task-4 draft was set aside in the session scratchpad, not on the branch. | **Before the live check, restart the launchd backend with the app**: a pre-round-4 backend drops `chromium` and falls back to reading the Chrome file (finding 3). Then either merge 1–3 and re-dispatch 4–7 on a fresh branch, or finish 4–7 here; tell T-People that `contacts_photo` is not yet served. |
 | **G149 implicit recall (round 4)** | Built on `feat/r4-implicit-recall` (plan `2026-09-24-r4-implicit-recall.md`): the recall hook (SessionStart primer + UserPromptSubmit note), `POST /capture/hook-context`, contract item 8, Settings → Agents → Remembers automatically. | Orchestrator install + live check (the plan's Verification), then merge; the owner decides whether onboarding / the C5 prompt turn it on by default. |
 | **G147 frequency-aware decay (round 4)** | Built on `feat/r4-decay` (plan `2026-09-24-r4-frequency-aware-decay.md`): pages and claims fade by distinct mention weeks (f(w) = max(0.25, 1/(1+0.6·ln w))), "keep" counts as a week (`kept_on`), per-type pace suggestions from the bank's own decay answers with Apply · Not now in Settings → Memory, and the pace in words on the entity card. | Orchestrator verification (both suites; the 12-week vs 1-week simulation; suggestions on a synthetic history; live check of Settings → Memory and a card's Details on the demo bank), then merge to `dev`. |
 | **Direction D — DS-1 (tokens, type, shell, Settings panel)** | Built on `feat/d-shell` (plan `2026-09-23-d-shell.md`): graphite + the Mac's accent + rings, SF only with one `SectionLabel`, the icon rail ⇄ labelled sidebar (⌃⌘S), the titlebar command bar (the one bank selector, search, the page's `?`), the eyebrow/tabs components, Settings as an in-app panel. | Orchestrator live check (both themes, 1.0×/1.4×, every page by rail and ⌘1–7, ⌘K from the bar, a bank switch, Settings search landing on a row, Esc), then merge; DS-2 (Inbox columns + Reader) next, then the page tracks and G141 PJ-5 at ⌘8. |

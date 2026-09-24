@@ -138,8 +138,7 @@ struct AgentQuickSetupView: View {
             HStack(spacing: CicadaTheme.spacingSM) {
                 NeutralButton(title: copied ? Copy.agentCopied : Copy.agentCopyPrompt,
                               systemImage: copied ? "checkmark" : "doc.on.doc") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
+                    AppPasteboard.copy(text)
                     copied = true
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(CicadaTiming.copiedConfirmation))

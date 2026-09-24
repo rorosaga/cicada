@@ -100,10 +100,11 @@ final class LogoAssetTests: XCTestCase {
     /// (`OriginIconographyTests.testEveryDeclaredLogoExistsInTheBundle`),
     /// which nothing tested before Track L.
     func testEveryBundledMarkIsClaimedBySomeMap() throws {
-        // Reserved for G119 (Arc/Firefox/Brave as *channels*): the marks are
-        // fetched and licence-recorded now, while the channel ids that will
-        // claim them do not exist yet (R1 — a deliberate, reviewed state).
-        let reservedForG119: Set<String> = ["firefox", "brave"]
+        // Reserved for G119 (Firefox as a *channel*): the mark is fetched and
+        // licence-recorded now, while the channel id that will claim it does
+        // not exist yet (R1 — a deliberate, reviewed state). Brave's mark is
+        // claimed by its origin since round 4 (C9).
+        let reservedForG119: Set<String> = ["firefox"]
         // The contributors list's own map (task 6): the marks a provider badge
         // can wear. Task 4 inlined these four names while `ContributorIdentity`
         // did not exist yet; now that it does, T2 reads the real map, so

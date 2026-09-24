@@ -123,6 +123,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _commit_history(bank_dir, today)
     scenario = _write_scenario(bank_dir, today)
     _commit_scenario(bank_dir, today, scenario)
+    _write_scenario_backlog(bank_dir, today)   # G150 R-B26 — before the events: a test reads their commits as newest
     _expire_scenario(bank_dir, today)
     _write_scenario_events(bank_dir, today, scenario)
     _write_scenario_person(bank_dir, today)
@@ -808,3 +809,76 @@ def _write_scenario_followups(bank_dir: Path, today: date) -> None:
     report = followups.propose(bank_dir, today, tz_name="UTC")
     if report.written:
         _run_commit(bank_dir, followups.commit_message(report, today), report.written)
+
+
+# --- G150 (R-B26): the scenario's backlog, through the one backlog writer ------
+#
+# (offset, author, session, title, triage, description), filed in this order so
+# the ids read RAP1…RAP5 oldest first; then (offset, item, author, session,
+# note, status). Every write commits at once under its own author, so an item
+# the person and an agent both touched keeps exact provenance.
+
+_BACKLOG_ITEMS = (
+    (-40, "user", None, "Write the assembly checklist", "apply",
+     "Assembly took three tries because nothing was written down. A checklist with the torque values and the "
+     "cable routing would make the next build one afternoon."),
+    (-20, "user", None, "Try a second tray camera", None,
+     "A second angle might help the grasp planner with parts that hide behind each other."),
+    (-12, "claude-code", _AGENT_SESSION, "Swap the gripper camera for a global-shutter one", "research",
+     "The gripper camera smears the tray edges when the arm moves at full speed, and calibration drifts "
+     "afterwards. A global-shutter camera should fix both; it has to fit the current wrist mount."),
+    (-6, "user", None, "Add a soft stop when the arm leaves the tray", "apply",
+     "The arm can swing past the tray's edge when a grasp fails. A soft stop at the tray bounds keeps it off "
+     "the bench."),
+    (-5, "claude-code", _AGENT_SESSION, "Pick a wrist servo", "decide",
+     "Two servos fit the wrist: a cheaper one with more backlash and a quieter one with less torque. It needs "
+     "the person's call."),
+)
+_BACKLOG_NOTES = (
+    (-30, "RAP1", "claude-code", _AGENT_SESSION, "The checklist is in the project notes, one step per line.",
+     "done"),
+    (-10, "RAP3", "claude-code", _AGENT_SESSION,
+     "Measured at full speed: the smear starts above half speed, and the drift follows it.", None),
+    (-8, "RAP2", "user", None, "One camera is enough once the shutter is fixed.", "dropped"),
+    (-3, "RAP3", "user", None, "Hana Example has a spare global-shutter camera in the lab.", None),
+    (-2, "RAP5", "user", None, "", "doing"),
+)
+
+
+def _write_scenario_backlog(bank_dir: Path, today: date) -> None:
+    """Five items on the rover project and five notes (spec R-B26), through
+    `backlog` — the writer every live path uses — each committed at once under
+    whoever wrote it: the person's as `Backlog update` / `user/companion_app`
+    (what the app commits), the agent's as `Agent write` / `mcp/claude-code`
+    with its session (what MCP commits). A pinned `now` per write and
+    `tz_name="UTC"`, like the rest of the scenario (R-PJB7), so no real clock
+    reaches a file and the app fixture never moves. `populate` calls this
+    BEFORE the scenario's events, whose two commits a test reads as the
+    newest."""
+    from datetime import datetime, time, timezone
+
+    from api.services import backlog
+
+    def at(offset: int) -> datetime:
+        return datetime.combine(today + timedelta(days=offset), time(15, 0), tzinfo=timezone.utc)
+
+    def commit(result: dict, author: str, session: str | None, action: str) -> None:
+        paths = result.get("paths") or []
+        if not paths:
+            return
+        if author == backlog.USER:
+            message = backlog.commit_message(paths, action=action, subject="Backlog update",
+                                             trigger="user/companion_app", day=str(today))
+        else:
+            message = backlog.commit_message(paths, action=action, subject="Agent write", trigger=f"mcp/{author}",
+                                             day=str(today), author=author, session=session)
+        _run_commit(bank_dir, message, paths)
+
+    for offset, author, session, title, triage, description in _BACKLOG_ITEMS:
+        commit(backlog.add_item(bank_dir, project="rover-arm-project", title=title, description=description,
+                                triage=triage, author=author, session=session, now=at(offset), tz_name="UTC"),
+               author, session, "created")
+    for offset, item, author, session, text, status in _BACKLOG_NOTES:
+        commit(backlog.add_note(bank_dir, project="rover-arm-project", item=item, note=text, status=status,
+                                author=author, session=session, now=at(offset), tz_name="UTC"),
+               author, session, "updated")

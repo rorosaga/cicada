@@ -236,3 +236,77 @@ extension Copy {
         static let noPlanAdd = "No plan yet —"
     }
 }
+
+extension Copy.Projects {
+    /// G150 — the Backlog section and its item card. For a person (DR-59): no ids but an item's own address (R-B24),
+    /// no prices ("Paid AI" says what a task needs, never what it costs), no day words — `RelativeDay` spells those
+    /// (DR-58) — and never "Timeline" (R-PP12).
+    enum Backlog {
+        static let title = "Backlog"
+        static let tabMenu = "Backlog"
+        static let open = "Open"
+        static let doing = "Doing"
+        static let done = "Done"
+        static let dropped = "Dropped"
+        static let all = "All"
+        static let apply = "Apply"
+        static let research = "Research"
+        static let decide = "Decide"
+        static let paid = "Paid AI"
+        static let add = "Add to backlog"
+        static let addHelp = "Keep a task or an idea for later, with why it matters"
+        static let titleLabel = "Task"
+        static let titlePlaceholder = "The task, in a line"
+        static let descriptionLabel = "Why"
+        static let descriptionPlaceholder = "Why it matters — the problem, what you saw, what a fix must respect (optional)"
+        static let reading = "Reading the backlog…"
+        static let readingItem = "Reading the item…"
+        static let failedTitle = "The backlog didn't load"
+        static let itemFailedTitle = "This item didn't load"
+        static let gone = "This item isn't on the project's backlog any more."
+        static let saveFailed = "That change wasn't saved. Try again in a moment."
+        static let description = "Description"
+        static let noDescription = "No description yet."
+        static let notes = "Notes"
+        static let noNotes = "No notes yet."
+        static let links = "Links"
+        static let addNote = "Add a note"
+        static let notePlaceholder = "What you found, decided or measured"
+        static let saveNote = "Add note"
+        static let saveNoteHelp = "Add this note, signed as you"
+        static let editTitle = "Edit title"
+        static let editTitleHelp = "Change how the task is worded"
+        static let saveTitle = "Save"
+        static let closeHelp = "Close the item"
+        static let start = "Start"
+        static let markDone = "Mark done"
+        static let drop = "Drop"
+        static let reopen = "Reopen"
+        static let startHelp = "Mark it as being worked on"
+        static let markDoneHelp = "Mark it done"
+        static let dropHelp = "Set it aside for good — it stays under All"
+        static let reopenHelp = "Put it back on the open list"
+        static let emptyOpen = "Nothing open."
+        static let emptyDoing = "Nothing in progress."
+        static let emptyDone = "Nothing done yet."
+        static let emptyDropped = "Nothing set aside."
+        static let emptyAll = "Nothing on this backlog yet. Add a task, or ask an agent to put one here."
+
+        static func openCount(_ n: Int) -> String { "\(UsageFormat.count(n)) open" }
+        static func notesTitle(_ n: Int) -> String { n == 0 ? notes : "\(notes) · \(UsageFormat.count(n))" }
+        static func addedBy(_ who: String) -> String { "Added by \(who)" }
+        static func addedBy(_ who: String, day: String) -> String { "Added by \(who) · \(day)" }
+        static func rowHelp(_ id: String) -> String { "Open \(id)" }
+        static func itemHelp(_ id: String, path: String) -> String { path.isEmpty ? id : "\(id) · \(path)" }
+        static func pullRequest(_ ref: String) -> String { "Pull request \(ref)" }
+
+        /// A turn's reasoning effort in words (round 4's C1 enum: minimal, low, medium, high, xhigh, max).
+        static func effort(_ raw: String) -> String {
+            switch raw.lowercased() {
+            case "xhigh": "extra-high effort"
+            case "max": "maximum effort"
+            default: "\(raw.lowercased()) effort"
+            }
+        }
+    }
+}
