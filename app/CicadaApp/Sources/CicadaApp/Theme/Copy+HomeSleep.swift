@@ -46,6 +46,27 @@ extension Copy {
         static let untitled = "Untitled"
     }
 
+    /// The add-folder and Manage sheets (the owner's report; R-HS17).
+    enum Folders {
+        static let addTitle = "Add a folder"
+        static let name = "Name"
+        static let project = "Project"
+        static let projectHelp = "Notes from this folder are kept under this project."
+        static let writtenByAnAgent = "Written by an agent"
+        static let writtenByAnAgentHelp =
+            "Research an agent wrote for you is kept and searchable, but never counted as your own words."
+        static func filesIn(_ folder: String) -> String { "Files in \(folder) (and its subfolders)" }
+        /// Renders a saved rule verbatim — the one place a glob can appear, and only if the person
+        /// typed one before DS-3b (R-HS17: a round trip never drops a rule).
+        static func filesMatching(_ rule: String) -> String { "Files matching \(rule)" }
+        static let noSubfolders = "No subfolders here — everything in this folder counts as yours."
+        static let chooseSubfolder = "Choose a subfolder…"
+        static func pickInside(_ folder: String) -> String { "Pick a folder inside \(folder)." }
+        static let manageHelp = "Changing this re-reads the folder so every file is credited to the right author."
+    }
+    /// A Settings sheet's close × (R-HS16).
+    static let sheetClose = "Close"
+
     /// Every DS-3b label `HomeSleepCopyTests` holds to DR-59. Later tasks append here.
     static let homeSleepLabels: [String] = [
         EngineMenu.title, EngineMenu.buttonHelp, EngineMenu.model, EngineMenu.howAutoPicks,
@@ -57,5 +78,10 @@ extension Copy {
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
         SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,
+        // `writtenByAnAgentHelp`, `noSubfolders` and `manageHelp` are sentences over 60 characters,
+        // so they stay off this list (Task 4).
+        Folders.addTitle, Folders.name, Folders.project, Folders.projectHelp, Folders.writtenByAnAgent,
+        Folders.filesIn("research"), Folders.filesMatching("*.draft.md"), Folders.chooseSubfolder,
+        Folders.pickInside("example-notes"), sheetClose,
     ]
 }

@@ -212,7 +212,7 @@ private struct IntegrationChannelRow: View {
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var vendor: WalkthroughVendor = .claude
-    @State private var showConnectorPopover = false
+    @State private var showConnector = false
     @State private var busy = false
     @State private var feedback: String?
 
@@ -233,10 +233,11 @@ private struct IntegrationChannelRow: View {
                 Spacer()
                 trailingAction
             }
-            .popover(isPresented: $showConnectorPopover, arrowEdge: .trailing) {
-                ConnectorSetupPanel(connectorId: channel.id, vendors: tile?.vendors ?? [], vendor: $vendor)
-                    .padding(CicadaTheme.spacingLG)
-                    .frame(width: 320)
+            // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
+            .sheet(isPresented: $showConnector) {
+                SettingsSheet(title: channel.label, onClose: { showConnector = false }) {
+                    ConnectorSetupPanel(connectorId: channel.id, vendors: tile?.vendors ?? [], vendor: $vendor)
+                }
             }
             if let feedback {
                 Text(feedback)
@@ -259,18 +260,14 @@ private struct IntegrationChannelRow: View {
         let logoName = ConnectedChannelRow.logoName(for: channel.id)
         let bundleId = OriginIconography.appBundleId(for: ConnectedChannelRow.origin(forChannel: channel.id))
         if logoName != nil || bundleId != nil {
-            LogoImage.platformTile(name: logoName ?? "", bundleId: bundleId, size: 28,
+            LogoImage.platformTile(name: logoName ?? "", bundleId: bundleId, size: CicadaTheme.scaled(28),
                                    systemFallback: ConnectedChannelRow.icon(for: channel.id))
         } else {
-            ZStack {
-                Circle()
-                    .fill(ConnectedChannelRow.tint(for: channel.id).opacity(0.12))
-                    .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-                Image(systemName: ConnectedChannelRow.icon(for: channel.id))
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
-                    .foregroundStyle(ConnectedChannelRow.tint(for: channel.id))
-            }
-            .frame(width: 28, height: 28)
+            // DR-52 — a mark never sits on a tinted tile; with no mark, the bare symbol.
+            Image(systemName: ConnectedChannelRow.icon(for: channel.id))
+                .font(CicadaTheme.font(size: 18))
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
         }
     }
 
@@ -278,10 +275,10 @@ private struct IntegrationChannelRow: View {
     /// is the only action `channel_registry` ever pairs with a bare,
     /// unconnected connector row (`_connector_channel`'s `["connect"]`
     /// branch), so it's checked first and opens the same
-    /// `ConnectorSetupPanel` the Feed's catalog uses (in a `.popover`
-    /// attached to the row's `HStack` in `body`, so both this branch and the
-    /// "disconnect" branch below can drive the one `showConnectorPopover`
-    /// flag without duplicating the popover modifier). Once connected, a
+    /// `ConnectorSetupPanel` the Feed's catalog uses (in a `SettingsSheet`
+    /// (R-HS16) attached to the row's `HStack` in `body`, so both this branch
+    /// and the "disconnect" branch below can drive the one `showConnector`
+    /// flag without duplicating the sheet modifier). Once connected, a
     /// connector's actions become `["sync", "disconnect"]`: a plain "Sync
     /// now" button plus a "Manage" button that reopens the same panel — the
     /// panel's own `status.connected` branch is what actually renders
@@ -298,14 +295,14 @@ private struct IntegrationChannelRow: View {
     @ViewBuilder
     private var trailingAction: some View {
         if channel.actions.contains("connect") {
-            Button("Connect") { showConnectorPopover = true }
+            Button("Connect") { showConnector = true }
                 .buttonStyle(.bordered)
         } else if channel.actions.contains("disconnect") {
             HStack(spacing: CicadaTheme.spacingSM) {
                 if channel.actions.contains("sync") {
                     actionButton("Sync now") { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: localSources) }
                 }
-                Button("Manage") { showConnectorPopover = true }
+                Button("Manage") { showConnector = true }
                     .buttonStyle(.bordered)
             }
         } else if channel.actions.contains("sync") {
@@ -342,15 +339,19 @@ private struct IntegrationHarnessRow: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            ZStack {
-                Circle()
-                    .fill(CicadaTheme.accent.opacity(0.12))
-                    .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
-                    .foregroundStyle(CicadaTheme.accent)
+            // R-HS18, DR-52 — the harness's own mark, bare. The clip is Track L's rule, not
+            // decoration: `claude-code` is an opaque square raster that is never recut, so every
+            // surface clips it to its own curvature (`PlatformTile`'s 0.2 ratio); a no-op for a mark
+            // whose corners are already transparent. No `.markHover()`: the row opens nothing.
+            if let origin = IntegrationHarnessRows.markOrigin(for: source) {
+                OriginMark(origin: origin, size: CicadaTheme.scaled(28))
+                    .clipShape(CicadaTheme.shape(CicadaTheme.scaled(28) * 0.2))
+            } else {
+                Image(systemName: IntegrationHarnessRows.otherAgentsSymbol)
+                    .font(CicadaTheme.font(size: 18))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
             }
-            .frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.label)
                     .font(CicadaTheme.font(size: 13, weight: .medium))
@@ -378,17 +379,13 @@ private struct IntegrationExportOnlyRow: View {
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             if let logoName = tile.logoName {
-                LogoImage.platformTile(name: logoName, size: 28, systemFallback: tile.icon)
+                LogoImage.platformTile(name: logoName, size: CicadaTheme.scaled(28), systemFallback: tile.icon)
             } else {
-                ZStack {
-                    Circle()
-                        .fill(CicadaTheme.textSecondary.opacity(0.12))
-                        .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-                    Image(systemName: tile.icon)
-                        .font(CicadaTheme.font(size: 13, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-                .frame(width: 28, height: 28)
+                // DR-52 — no tinted tile behind a fallback symbol.
+                Image(systemName: tile.icon)
+                    .font(CicadaTheme.font(size: 18))
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(width: CicadaTheme.scaled(28), height: CicadaTheme.scaled(28))
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(tile.title)
