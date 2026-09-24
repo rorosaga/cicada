@@ -110,12 +110,10 @@ final class LogoAssetTests: XCTestCase {
         // dropping a provider mark there fails here instead of leaving the
         // file behind as dead bytes.
         let providerMarks: [String] = ContributorIdentity.allProviderMarks
-        // `ConnectView.AgentTile` ids: the setup catalog's own map, which is a
-        // tile list rather than an origin list and so is not reachable from
-        // any of the three switches below.
-        let agentTileMarks: [String] = [
-            "claude-code", "cursor", "openclaw", "codex", "claude-desktop", "hermes", "gemini-cli", "opencode",
-        ]
+        // `AgentCatalog`'s marks (Round 4 C8): the Agents selector's own map,
+        // which is a pill list rather than an origin list and so is not
+        // reachable from any of the three switches below.
+        let agentTileMarks: [String] = AgentCatalog.all.compactMap(\.mark)
         // Assembled step by step, not as one `+` chain: the chain was a single
         // expression the type-checker gave up on ("unable to type-check this
         // expression in reasonable time").

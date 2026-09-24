@@ -169,7 +169,7 @@ enum SettingsIndex {
     /// so typing in Settings never matches — or displays — a secret.
     static func dynamicEntries(channels: [SourceChannel], harnessRows: [SourceOverview],
                                exportOnly: [AddSourceTile], connections: [ConnectionStatus],
-                               agents: [AgentSetup], skills: [RecommendedSkill] = []) -> [SettingsEntry] {
+                               agents: [AgentCatalogEntry], skills: [RecommendedSkill] = []) -> [SettingsEntry] {
         var out: [SettingsEntry] = []
         // R-FA13 — `calendar-local` is `.calendarApp`'s row, never a second search entry.
         out += channels.filter { $0.id != CalendarRow.channelId }.map { SettingsEntry(.channel($0.id), .integrations, $0.label,

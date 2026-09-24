@@ -42,7 +42,7 @@ final class SettingsIndexTests: XCTestCase {
                                           available: true, connected: true, plan: nil, planLabel: nil,
                                           tier: nil, account: "bob-example@example.com", priceUsdMonth: nil,
                                           priceNote: nil, billing: "usage", engineRole: nil, detail: nil, login: nil)
-        let agents = AgentSetupCatalog.all(home: "/x/repo")
+        let agents = AgentCatalog.all
         let entries = SettingsIndex.dynamicEntries(channels: [], harnessRows: [], exportOnly: [.youtube],
                                                    connections: [connection], agents: agents)
         XCTAssertTrue(entries.contains { $0.id == .connection("byok-openai") && $0.section == .plansAndKeys })

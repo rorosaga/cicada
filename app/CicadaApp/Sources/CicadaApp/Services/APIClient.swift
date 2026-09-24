@@ -2596,6 +2596,10 @@ extension APIClient: IntakeAPI {
     /// and the exact argv `AgentConnect` may run after the person's click.
     func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
 
+    /// Round 4 C8 (R-AG5) — `GET /agents/live`: which agents Cicada has seen connect, engine-free and
+    /// subprocess-free on the server, so the Agents page can poll it every few seconds (R-AG15).
+    func fetchAgentLive() async throws -> AgentLiveResponse { try await get("/agents/live") }
+
     /// Round-4 D5 (C5) — `GET /agents/setup?harness=<id>`: the prompt a person pastes into their agent so it
     /// installs Cicada itself. A 404 (an unknown harness, or a backend from before C5) throws, and the caller
     /// shows nothing new. The id is escaped like `fetchRecentConversations`' filters, so no value can smuggle a

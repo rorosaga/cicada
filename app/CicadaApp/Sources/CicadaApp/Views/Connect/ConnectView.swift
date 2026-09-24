@@ -35,9 +35,9 @@ struct AgentSetup: Identifiable {
 /// (Desktop, Cursor, Hermes) get literal paths baked in because GUI-launched
 /// apps don't expand shell variables.
 enum AgentSetupCatalog {
-    /// Round-4 C5 — the harnesses `GET /agents/setup` answers for. Only these ask the backend for a setup prompt
-    /// (every other id would be a guaranteed 404), and `AgentQuickSetup` offers Copy setup prompt only to them.
-    static let setupHarnesses = ["claude-code", "codex", "gemini-cli", "cursor", "claude-desktop"]
+    // The harnesses `GET /agents/setup` answers for moved to `AgentCatalog.setupHarnesses` (Round 4 R-AG1): the
+    // selector's ten agents, pinned to the backend by one fixture. These manual steps are each pill's
+    // "Do it by hand" (R-AG17).
 
     /// `memoryRoot`, when given, is the LIVE backend's own configured
     /// `CICADA_MEMORY_PATH` (from `GET /healthz`) and always wins over the
@@ -178,6 +178,31 @@ enum AgentSetupCatalog {
                     ),
                 ]
             ),
+            // Round 4 C8 (R-AG3) — OpenCode registers through its own config; the pill's prompt asks OpenCode to
+            // write this entry itself, and this is the same entry for someone doing it by hand.
+            AgentSetup(
+                id: "opencode",
+                name: "OpenCode",
+                monogram: "Op",
+                brand: CicadaTheme.textSecondary,
+                blurb: "The open-source terminal coding agent.",
+                steps: [
+                    .init(
+                        label: "Merge this into ~/.config/opencode/opencode.json under \"mcp\"",
+                        command: """
+                        {
+                          "cicada": {
+                            "type": "local",
+                            "command": ["\(SnippetEscape.json(python))", "\(SnippetEscape.json(server))"],
+                            "environment": { "CICADA_MEMORY_PATH": "\(SnippetEscape.json(memory))" },
+                            "enabled": true
+                          }
+                        }
+                        """,
+                        note: "Start a new OpenCode session afterwards."
+                    ),
+                ]
+            ),
             AgentSetup(
                 id: "gemini-cli",
                 name: "Gemini CLI",
@@ -198,12 +223,11 @@ enum AgentSetupCatalog {
 
 // MARK: - Agents page
 
-/// Settings → Agents — "On this Mac" (G139 re-lay of the Connect page): the
-/// one-time install, one disclosure row per MCP-capable agent (one open at a
-/// time; seven expanded command cards WERE the page), and a pointer to From
-/// anywhere for cloud apps. The onboarding mode had no caller after G117's
-/// first-run sheet replaced it and is gone (R-O11); so is the segmented
-/// picker, now that From anywhere is its own row (A1).
+/// Settings → Agents — the one-time install, then "Your agents" (Round 4 C8): one selector of ten agents with a
+/// live ✓ (`AgentSelector`), the selected agent's numbered steps below it (`AgentSetupSteps`), and — for an
+/// agent with manual steps — "Do it by hand" under a disclosure (R-AG17). Then the skill row, the automatic
+/// recall group and the From anywhere pointer. The two components are self-contained so phase B's onboarding
+/// hosts them too; this page only owns the fetches.
 struct ConnectView: View {
     private let home = BackendProcess.installRoot().path
     @State private var agents: [AgentSetup] = []
@@ -217,20 +241,37 @@ struct ConnectView: View {
     /// until this arrives, or if the backend never answers). The probe
     /// owns the retry/never-regress rules — see `LiveMemoryRootProbe`.
     @State private var probe = LiveMemoryRootProbe()
-    /// The one agent whose steps are showing (R-O11): one open at a time,
-    /// so the page stays a list of names rather than seven command dumps.
-    @State private var openAgent: String?
+    /// The pill whose steps are showing. Claude Code first: the most common agent and Cicada's primary target.
+    @State private var selected = "claude-code"
+    /// R-AG15 — `GET /agents/live`, polled while this page is visible.
+    @State private var live = AgentLiveProbe()
+    /// `GET /remote/status`: whether From anywhere is on with a reachable address, so a cloud agent's
+    /// Create a link is enabled (a link without a tunnel reaches nothing). A failed fetch keeps the last answer.
+    @State private var remote: RemoteStatus?
+    /// R-AG18 — the app a new connector sheet opens preselected for; nil = no sheet.
+    @State private var linkFor: RemoteApp?
+    @State private var showManual = false
     /// Round-4 D5 — the one `/agents/wiring` answer the page holds: Connect for me's steps and the binaries its
     /// policy checks against (R-FA15). A failed fetch keeps the last answer — never blank.
     @State private var wiring: AgentWiringResponse?
-    /// Round-4 C5 — `GET /agents/setup` answers, fetched when a row first opens. A failure (today's 404
-    /// included) leaves no entry, so nothing new shows.
+    /// Round-4 C5 — `GET /agents/setup` answers, fetched when a pill is first selected. A failure leaves no
+    /// entry, and the step says it is getting the setup ready rather than offering nothing silently.
     @State private var setups: [String: AgentSetupPrompt] = [:]
     /// `isConnected` is the app's one backend-reachability signal (the SSE
     /// stream). Keyed into `.task(id:)` below so a backend that comes up
     /// after this page did re-runs the probe — no second poller.
     @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
     @Environment(SettingsFocus.self) private var focus: SettingsFocus?
+
+    private var entry: AgentCatalogEntry { AgentCatalog.entry(for: selected) ?? AgentCatalog.all[0] }
+    /// The manual steps under "Do it by hand": the Claude pill's are the Claude app's (R-AG2).
+    private var manual: AgentSetup? {
+        let manualId = entry.id == "claude" ? "claude-desktop" : entry.id
+        return agents.first { $0.id == manualId }
+    }
+    private var agentWiring: AgentWiring? { wiring?.agents.first { $0.id == entry.id } }
+    private var remoteReady: Bool { remote?.enabled == true && remote?.effectiveUrl != nil }
 
     var body: some View {
         SettingsPage(section: .agents) {
@@ -248,23 +289,29 @@ struct ConnectView: View {
                     }
                 }
             }
-            SettingsGroupCard(header: Copy.agentsOnThisMacGroup) {
-                ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
-                    if index > 0 { SettingsDivider() }
-                    AgentSetupRow(
-                        agent: agent,
-                        isOpen: openAgent == agent.id,
-                        actions: AgentQuickSetup.actions(catalogId: agent.id, setup: setups[agent.id],
-                                                         wiring: wiring?.agents.first { $0.id == agent.id }),
+            SettingsGroupCard(header: Copy.agentsYourAgents, trailingHeader: Copy.agentsConnectedSummary(live.connectedCount)) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    AgentSelector(entries: AgentCatalog.all, selection: $selected, connected: live.connected,
+                                  justConnected: live.justConnected)
+                    AgentSetupSteps(
+                        entry: entry,
+                        steps: AgentSteps.steps(for: entry, setups: setups, wiring: agentWiring,
+                                                live: live.rows[entry.id], remoteReady: remoteReady),
+                        header: AgentSteps.header(for: entry, wiring: agentWiring),
+                        honesty: AgentSteps.honesty(for: entry),
+                        connected: live.connected.contains(entry.id),
                         binaries: Set(wiring?.agents.compactMap(\.binary) ?? []),
                         home: home,
                         memoryRoot: probe.liveRoot,
-                        onConnected: { Task { await refreshWiring() } }
-                    ) {
-                        openAgent = openAgent == agent.id ? nil : agent.id
-                    }
-                    .settingsRow(.agent(agent.id))
+                        deeplink: manual?.deeplink?.url,
+                        onConnected: { Task { await refreshWiring() } },
+                        onOpenFromAnywhere: openFromAnywhere,
+                        onCreateLink: { linkFor = $0 }
+                    )
+                    .settingsRow(.agent(selected))
+                    if let manual { manualSteps(manual) }
                 }
+                .padding(CicadaTheme.spacingMD)
                 SettingsDivider()
                 SettingsRow(.agentsSkill, title: Copy.agentsSkillTitle, detail: Copy.agentsSkillDetail) {
                     SettingsInlineLink(section: .skills, row: .skill(CicadaSkillBundle.cicada.rawValue), label: Copy.openSkills)
@@ -283,22 +330,70 @@ struct ConnectView: View {
             // same pass, before this view exists, so the `onChange` below never
             // sees that nonce. The row is still washed (`highlighted`) for the
             // hold, which is exactly "was just landed on".
-            if let id = focus?.highlighted?.item(of: "agent") { openAgent = id }
+            if let id = focus?.highlighted?.item(of: "agent") { selected = AgentCatalog.entry(for: id)?.id ?? selected }
         }
+        // R-AG15 — cancelled by SwiftUI when the page leaves, so nothing polls behind a closed panel.
+        .task { await live.run() }
         // Restarts (cancelling the previous loop) whenever the SSE stream
-        // connects or drops, and runs once on appearance.
+        // connects or drops, and runs once on appearance. The remote status
+        // sits BETWEEN the two: the memory-root probe retries with backoff
+        // while the backend is down, so anything after it could wait minutes.
         .task(id: store.isConnected) {
             await refreshWiring()
+            if let fresh = try? await APIClient.shared.fetchRemoteStatus() { remote = fresh }
             await refreshLiveMemoryRoot()
         }
-        .onChange(of: openAgent) { _, id in
-            guard let id, AgentSetupCatalog.setupHarnesses.contains(id), setups[id] == nil else { return }
-            Task { if let prompt = try? await APIClient.shared.fetchAgentSetup(harness: id) { setups[id] = prompt } }
+        .onChange(of: selected, initial: true) { _, id in
+            showManual = false
+            guard let pill = AgentCatalog.entry(for: id) else { return }
+            for harness in pill.setupHarnesses where setups[harness] == nil {
+                Task { if let prompt = try? await APIClient.shared.fetchAgentSetup(harness: harness) { setups[harness] = prompt } }
+            }
         }
-        // R-O11: landing on `agent:<id>` (search or a pointer) opens that row.
+        // R-O11: landing on `agent:<id>` (search or a pointer) selects that pill.
         .onChange(of: focus?.landedNonce ?? 0) { _, _ in
-            if let id = focus?.landed?.item(of: "agent") { openAgent = id }
+            if let id = focus?.landed?.item(of: "agent") { selected = AgentCatalog.entry(for: id)?.id ?? selected }
         }
+        // R-AG18 — the sheet shows the link once, with that app's own steps; closing it re-reads From anywhere.
+        .sheet(item: $linkFor) { app in
+            NewConnectorSheet(initialApp: app) {
+                linkFor = nil
+                Task { if let fresh = try? await APIClient.shared.fetchRemoteStatus() { remote = fresh } }
+            }
+        }
+    }
+
+    /// "Do it by hand" — the agent's manual steps as they always were (label, command, note): the fallback every
+    /// one-click action's failure points at (R-AG17).
+    private func manualSteps(_ agent: AgentSetup) -> some View {
+        DisclosureGroup(isExpanded: $showManual) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                ForEach(agent.steps) { step in
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        Text(step.label)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        if let command = step.command { CommandBox(command: command) }
+                        if let note = step.note {
+                            Text(note)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .padding(.top, CicadaTheme.spacingSM)
+        } label: {
+            Text(Copy.agentsDoItByHand)
+                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+    }
+
+    /// In the panel, the in-place door `SettingsInlineLink` itself uses; hosted outside it, the one door in.
+    private func openFromAnywhere() {
+        if let focus { focus.go(.remote) } else { _ = router.openSettings(.remote) }
     }
 
     /// `GET /agents/wiring` (Track I T3). Kept on failure: a page that had an answer never goes blank.
@@ -335,129 +430,6 @@ struct ConnectView: View {
             guard let delay = probe.nextDelay else { return }
             try? await Task.sleep(for: .seconds(delay))
         }
-    }
-}
-
-// MARK: - Agent row
-
-/// One agent as a disclosure row: tile, name and blurb; open, its one-click
-/// actions (round-4 D5) and then its manual steps, which stay as the fallback
-/// every action's failure points at.
-private struct AgentSetupRow: View {
-    let agent: AgentSetup
-    let isOpen: Bool
-    let actions: [AgentQuickAction]
-    let binaries: Set<String>
-    let home: String
-    let memoryRoot: String?
-    let onConnected: () -> Void
-    let toggle: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            Button(action: toggle) {
-                HStack(spacing: CicadaTheme.spacingMD) {
-                    AgentTile(agent: agent)
-                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                        Text(agent.name)
-                            .font(CicadaTheme.font(size: 13, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                        Text(agent.blurb)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .lineLimit(isOpen ? nil : 1)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(agent.name)
-            .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
-
-            if isOpen {
-                // DR-40, DR-44 (§9, 2026-09-24): the brand-tinted Cursor capsule
-                // that lived here is gone; its deeplink is Open in Cursor, a
-                // NeutralButton inside the quick-setup block.
-                AgentQuickSetupView(agent: agent, actions: actions, binaries: binaries, home: home,
-                                    memoryRoot: memoryRoot, onConnected: onConnected)
-                ForEach(agent.steps) { step in
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        Text(step.label)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                        if let command = step.command {
-                            CommandBox(command: command)
-                        }
-                        if let note = step.note {
-                            Text(note)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.vertical, CicadaTheme.spacingSM + CicadaTheme.scaled(2))
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(CicadaMotion.snap(reduceMotion: reduceMotion), value: isOpen)
-    }
-}
-
-// MARK: - Square identity tile
-
-/// 44pt square brand tile. Prefers a bundled `Resources/logos/<id>.png`; falls
-/// back to a brand-colored monogram so the tile is always identifiable.
-///
-/// The white plate this tile used to draw under the mark is gone (R-L5). It
-/// existed for one asset — `codex.png` shipped as black ink on an opaque white
-/// square, invisible on a dark card — and it "fixed" that by putting EVERY
-/// mark, colour ones included, on a white chip in dark mode. Track L recut
-/// `codex` and `x` with alpha and gave the monochrome marks a `-dark` sibling
-/// `LogoImage.resolvedName(for:)` picks up, so the plate has nothing left to
-/// hide and the tile keeps only its own border. `hermes` is the one full-bleed
-/// plate; R-AG8 retired the two Claude rasters (Claude Code is now the
-/// transparent-cornered Claude mark plus an app-drawn badge). A full-bleed
-/// plate reads fine on a dark card — a clipping problem, not a plate one — and
-/// the `clipShape` below is what answers it.
-private struct AgentTile: View {
-    let agent: AgentSetup
-
-    var body: some View {
-        Group {
-            if LogoImage.exists(name: agent.id) {
-                // Clipped to the tile's own border radius, for the same reason
-                // `PlatformTile` clips: `hermes` is the one full-bleed plate
-                // (corner alpha 0.02, 0.91 one pixel in; R-AG8 retired the two
-                // Claude rasters), so drawn unclipped at the full 44 pt it
-                // pushes square corners outside the 10 pt rounded stroke this
-                // tile overlays. A no-op for every transparent-cornered mark.
-                LogoImage(name: agent.id, size: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
-                Text(agent.monogram)
-                    .font(CicadaTheme.font(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(LinearGradient(
-                                colors: [agent.brand, agent.brand.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                    )
-            }
-        }
-        .frame(width: 44, height: 44)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(CicadaTheme.border, lineWidth: 1))
     }
 }
 

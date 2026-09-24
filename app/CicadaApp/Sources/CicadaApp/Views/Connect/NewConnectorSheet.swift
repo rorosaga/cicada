@@ -7,13 +7,20 @@ import SwiftUI
 struct NewConnectorSheet: View {
     var onClose: () -> Void
 
-    @State private var app: RemoteApp = .claude
+    @State private var app: RemoteApp
     @State private var label = ""
     @State private var scopes: Set<RemoteScope> = RemoteScope.defaults
     @State private var expiry: RemoteExpiry = .thirtyDays
     @State private var busy = false
     @State private var problem: String?
     @State private var created: RemoteConnectorCreated?
+
+    /// R-AG18 — Settings → Agents opens the sheet already on Claude, ChatGPT or Grok; From anywhere's own
+    /// "New connector" keeps starting on Claude. The link is still shown once, here, with that app's steps.
+    init(initialApp: RemoteApp = .claude, onClose: @escaping () -> Void) {
+        self.onClose = onClose
+        _app = State(initialValue: initialApp)
+    }
 
     var body: some View {
         Group {

@@ -44,6 +44,8 @@ enum OriginIconography {
         "codex-remote", "vscode", "remote-app",
         // Round 4 R-AG7: Grok's connector.
         "grok",
+        // Round 4 C8 — agent pills, ready for the day G48 stamps a harness label for their stdio episodes.
+        "opencode", "hermes", "openclaw",
     ]
 
     static func label(for origin: String) -> String {
@@ -97,6 +99,10 @@ enum OriginIconography {
         // spelled once, above: a second copy here was unreachable (Swift takes
         // the first match) and told the next editor a lie about where to edit.
         case "gemini-cli": "Gemini CLI"
+        // Round 4 C8 — the three local agents the Agents page connects (R-AG3).
+        case "opencode": "OpenCode"
+        case "hermes": "Hermes"
+        case "openclaw": "OpenClaw"
         case "folder": "Folder"
         case "wispr-flow": "Wispr Flow"
         // Not an origin a writer stamps: the mark of the "Obsidian vault" row
@@ -148,7 +154,7 @@ enum OriginIconography {
         // `terminal` for them. `gemini-cli` is the one id here that is not
         // shadowed, and `terminal` is its live answer — narrowing the case,
         // not deleting it, is what keeps that true.
-        case "gemini-cli": "terminal"
+        case "gemini-cli", "opencode", "hermes", "openclaw": "terminal"
         case "folder": "folder"
         case "wispr-flow": "waveform"
         case "obsidian": "doc.text"
@@ -221,6 +227,10 @@ enum OriginIconography {
         case "claude-export", "claude-desktop": "claude-desktop"
         case "cursor": "cursor"
         case "gemini-cli": "gemini-cli"
+        // Round 4 C8 — the agent pills' own marks (OpenCode through the `repo` origin, R-AG9).
+        case "opencode": "opencode"
+        case "hermes": "hermes"
+        case "openclaw": "openclaw"
         case "chatgpt-export": "chatgpt"
         case "gemini-export": "gemini"
         case "chrome-bookmark": "chrome"

@@ -41,7 +41,7 @@ struct SettingsPanel: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Names and ids only feed the index (never a command).
-    private let agents = AgentSetupCatalog.all(home: BackendProcess.installRoot().path)
+    private let agents = AgentCatalog.all
 
     // Carried over unchanged from the retired scene — the index is the same index.
     private var entries: [SettingsEntry] {

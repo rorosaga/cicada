@@ -876,7 +876,13 @@ Settings → Agents (round-4 D5) adds, per harness, Connect for me (the same `Ag
 setup prompt (`GET /agents/setup`'s prompt shown verbatim, then copied — the agent runs the install itself), Open in
 Cursor (the catalog's own deeplink) and Set up Claude (`ClaudeDesktopConfig` merges `mcpServers.cicada` into Claude
 desktop's config: backup first, merge never replace, an unreadable file left untouched; the app computes the path and
-the value itself).
+the value itself). Round 4 C8: Settings → Agents is one selector of ten agents (`AgentCatalog`, pinned to
+`agent_live.LIVE_AGENTS` by `api/tests/fixtures/agent_catalog.json`) with numbered steps below (`AgentSetupSteps`),
+reused by onboarding. OpenCode, Hermes and OpenClaw register by editing their own config from a pasted prompt — Cicada
+runs nothing for them and only reads that file (`agent_wiring.config_state`, ≤ 256 KB, parse-only); Claude, ChatGPT and
+Grok go through From anywhere (`kind: remote`). `GET /agents/live` lights a pill's ✓ from the local handshake ledger
+rows, a used connector (`last_used_at`) or the agent's own config — no subprocess, never `~/Library`, never
+`~/.claude.json`; polled every 3 s while the page is visible.
 
 **Settings → Skills (G138).** A reviewed catalog (`api/data/recommended_skills.json`: source,
 licence, the reviewed commit and SKILL.md hash, needs, agents, a terms note, the Cicada tool it
