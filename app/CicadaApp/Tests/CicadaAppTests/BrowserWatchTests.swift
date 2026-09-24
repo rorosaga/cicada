@@ -243,6 +243,7 @@ final class BrowserWatcherTests: XCTestCase {
         try atomicallyReplace(with: "{}")
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        turnOn()   // final review, finding 4: only a browser the person chose is probed
         var synced: [String] = []
         let watcher = makeWatcher { synced.append($0) }
         watcher.start(store: store)
@@ -258,6 +259,24 @@ final class BrowserWatcherTests: XCTestCase {
         XCTAssertEqual(synced, ["chrome-bookmarks"])
         XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
         XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        watcher.stop()
+    }
+
+    /// Final review, finding 4 (R-IA3): a refused file nobody turned on is never "Needs Full Disk Access" with a hint
+    /// and a Try again for something never tried.
+    func testARefusedFileNobodyTurnedOnIsOffNotBlocked() async throws {
+        try atomicallyReplace(with: "{}")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: dir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir.path) }
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        try await Task.sleep(for: .milliseconds(200))
+        // Not opened, so it reads as not found — the round-1 path, whose row offers Turn on with "Nothing from … yet".
+        XCTAssertNotEqual(watcher.state(for: "chrome-bookmarks"), .blocked)
+        XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .absent)
+        XCTAssertNil(watcher.error(for: "chrome-bookmarks"))
+        XCTAssertTrue(synced.isEmpty)
         watcher.stop()
     }
 

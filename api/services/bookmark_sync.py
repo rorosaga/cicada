@@ -247,7 +247,11 @@ def recently_saved_first(items: list[RawItem]) -> list[RawItem]:
 
     R-SR13: "recently saved" is not stored anywhere in Safari's plist; it is the
     Reading List sorted by `DateAdded`. Ingesting in that order means the newest
-    saves land first, and a sync the person stops keeps the ones they care about.
+    saves are staged first — the order every later reader of the batch sees.
+    It is NOT a stop guarantee: the app's × cancels only its own request, and
+    the route runs the whole batch to the end regardless (round 4 phase A final
+    review, finding 2); the per-bank lock in the route is what keeps a second
+    sync from racing it.
     """
     dated = sorted((i for i in items if i.added), key=lambda i: i.added, reverse=True)
     return dated + [i for i in items if not i.added]

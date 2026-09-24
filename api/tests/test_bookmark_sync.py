@@ -282,12 +282,8 @@ def _make_client(tmp_path, monkeypatch):
 
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
-    # A body the route does not recognise (an older route meeting a newer test's
-    # `chromium` field, say) falls through to `sync_from_local_files`, which
-    # reads the machine's real bookmark files. Point both at absent paths for
-    # every endpoint test, so a red run can never read a real profile (round 4).
-    monkeypatch.setattr(bookmark_sync, "chrome_bookmarks_path", lambda: tmp_path / "absent-chrome")
-    monkeypatch.setattr(bookmark_sync, "safari_bookmarks_path", lambda: tmp_path / "absent-safari.plist")
+    # Real bookmark files are never read: conftest's `_no_real_browser_files`
+    # points both paths at absent tmp files for every test (final review, finding 5).
     return TestClient(main.app), memory
 
 
@@ -728,3 +724,51 @@ def test_safari_parts_ride_sync_state_to_the_channel_row(tmp_path, monkeypatch):
     assert (body["sources"][0]["readingList"], body["sources"][0]["favorites"]) == (1, 3)
     row = next(ch for ch in client.get("/sources/channels").json()["channels"] if ch["id"] == "safari-bookmarks")
     assert row["parts"] == [{"key": "reading-list", "count": 1}, {"key": "favorites", "count": 3}]
+
+
+# --- round 4 phase A final review: findings 2 and 3 --------------------------
+
+
+def test_a_body_with_no_bookmark_data_is_a_422_never_the_local_file_fallback(tmp_path, monkeypatch):
+    """Finding 3: a pre-round-4 route dropped `chromium`, saw no data and read
+    the Chrome file nobody turned on. A body is now data or a 422."""
+    _offline_enrich(monkeypatch)
+    client, _ = _make_client(tmp_path, monkeypatch)
+
+    def _refuse(*_a, **_k):
+        raise AssertionError("a body reached the local-file fallback")
+
+    monkeypatch.setattr(bookmark_sync, "sync_from_local_files", _refuse)
+    assert client.post("/sources/sync-bookmarks", json={}).status_code == 422
+    assert client.post("/sources/sync-bookmarks", json={"folders": ["Bar"]}).status_code == 422
+    assert client.post("/sources/sync-bookmarks", json={"chromium": []}).status_code == 422
+
+
+def test_an_unknown_field_is_a_422_not_silently_dropped(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    client, _ = _make_client(tmp_path, monkeypatch)
+    b64 = base64.b64encode(json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")).decode()
+    r = client.post("/sources/sync-bookmarks", json={"chromeDataB64": b64, "tabGroups": []})
+    assert r.status_code == 422
+
+
+def test_a_second_sync_of_the_same_bank_while_one_runs_is_a_409(tmp_path, monkeypatch):
+    """Finding 2: the app's × stops only its own request; the backend's run
+    goes on. A second sync of the same bank then answers 409 instead of
+    racing the first over `url_index.json`."""
+    from api.routers import sources
+
+    _offline_enrich(monkeypatch)
+    client, memory = _make_client(tmp_path, monkeypatch)
+
+    class _Held:
+        def locked(self):
+            return True
+
+    monkeypatch.setitem(sources._bookmark_sync_locks, str(memory.resolve()), _Held())
+    b64 = base64.b64encode(json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")).decode()
+    r = client.post("/sources/sync-bookmarks", json={"chromeDataB64": b64})
+    assert r.status_code == 409
+    assert r.json()["detail"] == sources.BOOKMARK_SYNC_BUSY
+    # A preview stages nothing and takes no lock.
+    assert client.post("/sources/sync-bookmarks?preview=true", json={"chromeDataB64": b64}).status_code == 200

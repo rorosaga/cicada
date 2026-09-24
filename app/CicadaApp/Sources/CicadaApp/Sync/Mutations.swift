@@ -534,6 +534,16 @@ struct SyncSafariTabs: Mutation {
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status] }
 }
 
+/// `POST /sources/sync-bookmarks` answers 409 while another bookmark sync of the same bank is still running (round 4
+/// phase A final review, finding 2): the row's × stops only the app's request, so the backend's run goes on, and a
+/// Sync now right after it must not start a second one. Said in plain words, and never lit as a failure.
+enum BookmarkSyncBusy {
+    static func matches(_ error: Error) -> Bool {
+        if case APIError.httpError(409, _) = error { return true }
+        return false
+    }
+}
+
 struct SyncBrowserBookmarks: Mutation {
     let chromeData: Data?
     let safariData: Data?
@@ -544,9 +554,15 @@ struct SyncBrowserBookmarks: Mutation {
 
     var result: BookmarkSyncResult? { memo.value }
     func optimistic(_ store: Store) async {}
-    func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncBookmarks(chromeData: chromeData, safariData: safariData, folders: folders) }
+    func request(_ api: any SyncAPI) async throws {
+        do { memo.value = try await api.syncBookmarks(chromeData: chromeData, safariData: safariData, folders: folders) }
+        catch { busy.value = BookmarkSyncBusy.matches(error); throw error }
+    }
     func rollback(_ store: Store) async {}
-    var failureMessage: String { "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
+    /// Whether the server answered 409 — another sync of this bank still running (`BookmarkSyncBusy`).
+    var wasBusy: Bool { busy.value == true }
+    private let busy = MutationMemo<Bool>()
+    var failureMessage: String { wasBusy ? Copy.bookmarkSyncBusy : "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
     // `.inbox` added for G129 slice 2: a sync that proposes a `removal` item
     // writes to the inbox domain, and without it here the Deletions
     // subsection would wait for the next SSE/poll tick instead of updating
@@ -565,8 +581,13 @@ struct SyncChromiumBookmarks: Mutation {
 
     var result: BookmarkSyncResult? { memo.value }
     func optimistic(_ store: Store) async {}
-    func request(_ api: any SyncAPI) async throws { memo.value = try await api.syncChromiumBookmarks(browser: browser, data: data) }
+    func request(_ api: any SyncAPI) async throws {
+        do { memo.value = try await api.syncChromiumBookmarks(browser: browser, data: data) }
+        catch { busy.value = BookmarkSyncBusy.matches(error); throw error }
+    }
     func rollback(_ store: Store) async {}
-    var failureMessage: String { "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
+    var wasBusy: Bool { busy.value == true }
+    private let busy = MutationMemo<Bool>()
+    var failureMessage: String { wasBusy ? Copy.bookmarkSyncBusy : "Couldn't finish syncing those bookmarks — the Feed shows what landed" }
     var refreshDomains: Set<SyncDomain> { [.channels, .sources, .status, .inbox] }
 }

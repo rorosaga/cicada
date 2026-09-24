@@ -26,12 +26,20 @@ enum BrowserImportActions {
         case "safari-bookmarks":
             let data = try await BrowserFileReader.read(.safariBookmarks)
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
-            guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else {
+                try Task.checkCancellation()
+                if m.wasBusy { throw ImportActionError.busy }
+                throw ImportActionError.failed(store.toast ?? "Sync failed")
+            }
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
             let data = try await BrowserFileReader.read(.chromeBookmarks)
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
-            guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else {
+                try Task.checkCancellation()
+                if m.wasBusy { throw ImportActionError.busy }
+                throw ImportActionError.failed(store.toast ?? "Sync failed")
+            }
             return BrowserImportSummary.bookmarks(r)
         default:
             // Round 4 (C9): a Chromium-family browser beyond Chrome — the same read, its own entry on the wire.
@@ -45,15 +53,24 @@ enum BrowserImportActions {
             let m = SyncChromiumBookmarks(browser: spec.id, data: data)
             guard await store.perform(m), let r = m.result else {
                 try Task.checkCancellation()
+                if m.wasBusy { throw ImportActionError.busy }
                 throw ImportActionError.failed(store.toast ?? "Sync failed")
             }
             return BrowserImportSummary.bookmarks(r)
         }
     }
 
-    enum ImportActionError: Error, LocalizedError {
+    enum ImportActionError: Error, LocalizedError, Equatable {
         case failed(String)
-        var errorDescription: String? { if case .failed(let m) = self { return m }; return nil }
+        /// The backend is still finishing an earlier bookmark sync of this bank (a 409, `BookmarkSyncBusy`) — not a
+        /// failure: the watcher lights nothing and records nothing, so the next change or Sync now reads again.
+        case busy
+        var errorDescription: String? {
+            switch self {
+            case .failed(let m): return m
+            case .busy: return Copy.bookmarkSyncBusy
+            }
+        }
     }
 }
 

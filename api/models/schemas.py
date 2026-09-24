@@ -2553,6 +2553,10 @@ class ChromiumBookmarksFile(CamelModel):
 class BookmarkSyncRequest(CamelModel):
     # Both optional + base64-encoded so the same endpoint works for an inline
     # hermetic test payload and (when omitted entirely) a local-file sync.
+    # `forbid` (round 4 phase A final review, finding 3): an unknown field is
+    # a 422, never silently dropped into the no-data local-file fallback —
+    # that is how a pre-round-4 route read Chrome for a `chromium`-only body.
+    model_config = ConfigDict(extra="forbid")
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
     # Round 4 (C9) — the Chromium family beside Chrome's legacy field.

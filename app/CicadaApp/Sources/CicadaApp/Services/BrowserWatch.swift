@@ -385,7 +385,10 @@ final class BrowserWatcher {
         // Task 3 review, round 1: a missing signature may be TCC's "no such file" — ask an open which it is, so a
         // blocked Safari offers its fix instead of reading as absent. Recomputed on every refresh (never sticky), so
         // granting access and pressing Try again clears it.
-        if current == nil, case .blocked(let path) = BrowserFileAccess.probe(paths(file)) {
+        // Final review, finding 4: only for a browser the person turned on. A browser nobody chose reads Off, never
+        // "Needs Full Disk Access" (R-IA3) — and is not even opened; its first Turn on reads it and, if refused,
+        // the hint appears once the person has chosen.
+        if current == nil, isEnabled(channel), case .blocked(let path) = BrowserFileAccess.probe(paths(file)) {
             refused[channel] = .notReadable(file, path)
         } else {
             refused[channel] = nil
@@ -479,6 +482,10 @@ final class BrowserWatcher {
         } catch let error where SyncCancellation.isCancellation(error) {
             // R-SR11: stopped, not failed — no light, no error, and no signature recorded.
             result = .failure(CancellationError())
+        } catch BrowserImportActions.ImportActionError.busy {
+            // Final review, finding 2: an earlier sync of this bank is still saving on the backend (409). Not a
+            // failure — no light, no signature recorded, so the next change or Sync now reads the file again.
+            result = .failure(BrowserImportActions.ImportActionError.busy)
         } catch let error as BrowserFileError {
             errors[channel] = error
             if case .notReadable = error {} else { failedChannels.insert(channel) }

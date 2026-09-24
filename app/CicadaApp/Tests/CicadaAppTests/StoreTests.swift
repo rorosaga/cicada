@@ -85,6 +85,8 @@ final class FakeSyncAPI: SyncAPI {
     var writes: [String] = []
     /// When true, every write throws — drives the rollback paths.
     var failWrites = false
+    /// Thrown by every write when set — a specific server answer (a 409, say) rather than `failWrites`' unreachable.
+    var writeError: Error?
     /// Parks the next write until `releaseWriteGate()`, so a test can inspect
     /// the Store while a mutation is mid-flight.
     var gateWrites = false
@@ -122,6 +124,7 @@ final class FakeSyncAPI: SyncAPI {
             }
         }
         if failWrites { throw APIError.serverUnreachable }
+        if let writeError { throw writeError }
     }
 
     func resolveInbox(id: String, action: String, answer: String?,

@@ -14,6 +14,8 @@ extension Copy {
     static let stopSyncing = "Stop syncing"
     static let stopSyncingHelp = "Stop syncing — what already came in stays"
     static let syncStopped = "Stopped — what already came in stays."
+    /// A 409 from the bookmark route: the last sync (perhaps one just stopped) is still saving on this Mac.
+    static let bookmarkSyncBusy = "Your last bookmark sync is still finishing. Try again in a minute."
     static let sourceNeedsAccess = "Needs Full Disk Access"
     static let sourceSyncFailed = "The last sync didn't finish"
 

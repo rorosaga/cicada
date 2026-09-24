@@ -422,6 +422,26 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — the Feed shows what landed")
     }
 
+    /// Round 4 phase A final review, finding 2 — a 409 means an earlier bookmark sync of this bank is still saving
+    /// (the × stops only the app's request). Said plainly, and the mutation says why so the watcher lights nothing.
+    func testABusyBookmarkSyncSaysSoInPlainWords() async {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        api.writeError = APIError.httpError(409, "A bookmark sync is still finishing")
+        api.replies[.channels] = .notModified
+        api.replies[.sources] = .notModified
+        let chromium = SyncChromiumBookmarks(browser: "brave", data: Data("{}".utf8))
+        let ok = await store.perform(chromium)
+        XCTAssertFalse(ok)
+        XCTAssertTrue(chromium.wasBusy)
+        XCTAssertEqual(store.toast, Copy.bookmarkSyncBusy)
+
+        api.writeError = APIError.serverUnreachable
+        let other = SyncBrowserBookmarks(chromeData: Data("{}".utf8), safariData: nil, folders: nil)
+        _ = await store.perform(other)
+        XCTAssertFalse(other.wasBusy, "only a 409 is busy")
+    }
+
     /// R-SR11 — a request the person stopped is not a failure: no toast.
     func testACancelledRequestRaisesNoToast() async {
         struct Stopped: Mutation {
