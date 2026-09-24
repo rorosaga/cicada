@@ -56,7 +56,7 @@ extension Copy {
         static let existingEntity = "Existing entity"
         static let existingPrompt = "Existing entity…"
         static let keepAsCanonical = "Keep as canonical"
-        static let newFromExtraction = "New from extraction"
+        static let newFromExtraction = "Newly noticed"
         static let existingPage = "Existing page"
         static let answer = "Answer"
         static let merge = "Merge"

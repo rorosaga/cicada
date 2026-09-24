@@ -159,7 +159,7 @@ struct MergeBody: View {
         }
     }
 
-    /// The extractor's side: "New from extraction · tool". Composed outside `Text(` (R-DI23).
+    /// The extractor's side: "Newly noticed · tool". Composed outside `Text(` (R-DI23).
     private var mentionNote: String {
         [Copy.Inbox.newFromExtraction, item.suggestedClassification].compactMap { $0 }
             .filter { !$0.isEmpty }.joined(separator: " · ")
