@@ -27,6 +27,8 @@ struct CicadaSearchField: View {
     var style: Style = .content
     var findEnabled = true
     var width: CGFloat? = nil
+    /// DR-46 — a find row opened by ⌘F or its magnifier (`PageFindRow`) takes the keys as it appears.
+    var autofocus = false
     var onSubmit: () -> Void = {}
     var onMove: ((Int) -> Void)? = nil
     var onFocusChange: (Bool) -> Void = { _ in }
@@ -82,6 +84,12 @@ struct CicadaSearchField: View {
         .modifier(SearchFieldChrome(style: style))
         .onChange(of: focused) { _, now in onFocusChange(now) }
         .publishesPageFind(enabled: findEnabled && !(palette?.isPresented ?? false)) { focused = true }
+        // DR-46 — a find row opened by ⌘F or its magnifier takes the keys at once (deferred one turn: a FocusState
+        // write in the update that inserts the field is dropped on macOS).
+        .onAppear {
+            guard autofocus else { return }
+            DispatchQueue.main.async { focused = true }
+        }
     }
 
     private func move(_ delta: Int) -> KeyPress.Result {

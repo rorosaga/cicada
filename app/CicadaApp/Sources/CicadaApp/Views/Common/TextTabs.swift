@@ -17,6 +17,10 @@ enum TextTabSelection {
     static func accessibilityLabel(label: String, count: Int?) -> String {
         count.map { "\(label), \(UsageFormat.count($0))" } ?? label
     }
+    /// "Project · 42" — the narrow form's tooltip and the menu's item (R-DL25).
+    static func menuLabel(label: String, count: Int?) -> String {
+        count.map { "\(label) · \(UsageFormat.count($0))" } ?? label
+    }
 }
 
 /// Text tabs with counts (DR-45) — "All 6 · Decay 1 · Conflict 2 …".
@@ -36,11 +40,13 @@ struct TextTabs<ID: Hashable>: View {
 
     let tabs: [TextTab<ID>]
     @Binding var selection: ID?
+    /// R-DL25 — false in `AdaptiveTextTabs`' narrow form: each count moves to its tab's `.help`.
+    var showsCounts = true
 
     var body: some View {
         HStack(spacing: CicadaTheme.scaled(2)) {
             ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
-                TextTabButton(tab: tab, isActive: tab.id == selection) {
+                TextTabButton(tab: tab, isActive: tab.id == selection, showsCount: showsCounts) {
                     selection = TextTabSelection.next(tapping: tab.id, current: selection)
                 }
             }
@@ -52,6 +58,7 @@ struct TextTabs<ID: Hashable>: View {
 private struct TextTabButton<ID: Hashable>: View {
     let tab: TextTab<ID>
     let isActive: Bool
+    let showsCount: Bool
     let action: () -> Void
     @State private var hovering = false
 
@@ -59,7 +66,7 @@ private struct TextTabButton<ID: Hashable>: View {
         Button(action: action) {
             HStack(spacing: CicadaTheme.scaled(5)) {
                 Text(tab.label)
-                if let count = tab.count {
+                if showsCount, let count = tab.count {
                     Text(UsageFormat.count(count))
                         .monospacedDigit()
                         .foregroundStyle(isActive ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary)
@@ -77,5 +84,43 @@ private struct TextTabButton<ID: Hashable>: View {
         .onHover { hovering = $0 }
         .accessibilityLabel(TextTabSelection.accessibilityLabel(label: tab.label, count: tab.count))
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
+        .help(showsCount ? "" : TextTabSelection.menuLabel(label: tab.label, count: tab.count))
+    }
+}
+
+/// R-DL25 (DR-45) — tabs that give way before they would overflow the eyebrow row: with counts, then without (each
+/// count moves to its tab's `.help`, the mock's narrow state), then one menu naming the active tab. Clusters can show
+/// twelve tabs; at 1200 pt and 1.4× they do not fit, and a clipped tab is a tab nobody can reach.
+struct AdaptiveTextTabs<ID: Hashable>: View {
+    let tabs: [TextTab<ID>]
+    @Binding var selection: ID?
+    /// The menu's accessibility name ("Type", "Kind").
+    let menuTitle: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            TextTabs(tabs: tabs, selection: $selection)
+            TextTabs(tabs: tabs, selection: $selection, showsCounts: false)
+            Menu {
+                ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
+                    Button {
+                        selection = tab.id
+                    } label: {
+                        if tab.id == selection {
+                            Label(TextTabSelection.menuLabel(label: tab.label, count: tab.count), systemImage: "checkmark")
+                        } else {
+                            Text(TextTabSelection.menuLabel(label: tab.label, count: tab.count))
+                        }
+                    }
+                }
+            } label: {
+                Text(tabs.first { $0.id == selection }?.label ?? tabs.first?.label ?? "")
+                    .font(CicadaTheme.metaMediumFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel(menuTitle)
+        }
     }
 }

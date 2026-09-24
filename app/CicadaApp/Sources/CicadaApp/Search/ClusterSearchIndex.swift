@@ -2,8 +2,9 @@ import Foundation
 
 /// Clusters' search, precomputed (G136 S5; design §3.7). The old filter
 /// lowercased every entity's name, tags and summary on every keystroke
-/// (`TopicsView.filteredEntities`); this folds them once per graph snapshot
-/// (`GraphViewModel.clusterSearchIndex()`) and ranks through `QuickMatch`.
+/// (the retired `TopicsView.filteredEntities`); this folds them once per graph
+/// snapshot (`GraphViewModel.clusterSearchIndex()`) and ranks through
+/// `QuickMatch` for `ClustersPage`'s find row (R-DL9).
 struct ClusterSearchIndex {
     struct Entry {
         let entity: Entity

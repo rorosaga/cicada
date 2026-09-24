@@ -196,8 +196,8 @@ struct ContentView: View {
             // together. Content, not chrome, so it is never glass (R-M5).
             // DR-31 / R-DI6 — the Reader is a column beside whatever is open, sized first; the page gets
             // the rest. It replaced a trailing `.inspector`, whose width was not the page's to give.
-            // The Inbox hosts its own Reader, as its third progressive column (R-DI6, §5.3).
-            ShellReaderHost(showsReader: provenance.isPresented && selectedTab != .inbox,
+            // The list pages host their own Reader as their third progressive column (R-DI6, R-DL7).
+            ShellReaderHost(showsReader: provenance.isPresented && !selectedTab.hostsOwnReader,
                             navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) {
                 detailContent
                     .background(CicadaTheme.background)
@@ -433,7 +433,7 @@ struct ContentView: View {
         case .graph:
             EmptyView()
         case .clusters:
-            TopicsView(selectedTab: $selectedTab)
+            ClustersPage()
         case .feed:
             FeedView(selectedTab: $selectedTab)
         case .sleep:

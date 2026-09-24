@@ -5,8 +5,8 @@ import XCTest
 /// `EntityNavigationStack` is a pure value type (no SwiftUI, no Observation)
 /// so push/pop/reset can be asserted directly without constructing a real
 /// `Entity` or spinning up a view. A tiny local stub stands in for whatever
-/// `Element` the production owners (`GraphViewModel`, `TopicsView`'s
-/// `TopicDetailView`) actually store.
+/// `Element` the production owners (`GraphViewModel`, `ClustersCardColumn`)
+/// actually store.
 final class EntityNavigationStackTests: XCTestCase {
 
     private struct Stub: Equatable {

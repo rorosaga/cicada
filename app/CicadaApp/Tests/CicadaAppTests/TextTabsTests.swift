@@ -31,4 +31,10 @@ final class TextTabsTests: XCTestCase {
         XCTAssertEqual(TextTabs<String>.height, 26)
         XCTAssertEqual(TextTabs<String>.horizontalPadding, 9)
     }
+
+    /// R-DL25 — the narrow form moves each count into `.help`; VoiceOver hears it either way.
+    func testTheMenuLabelCarriesTheCount() {
+        XCTAssertEqual(TextTabSelection.menuLabel(label: "Project", count: 42), "Project · 42")
+        XCTAssertEqual(TextTabSelection.menuLabel(label: "All", count: nil), "All")
+    }
 }

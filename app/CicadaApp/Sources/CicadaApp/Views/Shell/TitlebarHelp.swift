@@ -6,17 +6,20 @@ import SwiftUI
 /// what Cicada is (R-DS18). Track P: the audit removed the Sleep and Upload buttons from every
 /// page (R1), so "About these actions" no longer had any actions to describe — `.actions`
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
-/// on. The Sleep page keeps its own page-specific explainer (G125 R10), and the Inbox its subtitle
-/// and key map (R-DI17, DR-25) — the eyebrow row that replaced its page header has no room for either.
+/// on. The Sleep page keeps its own page-specific explainer (G125 R10); the list pages answer for
+/// themselves — the Inbox (R-DI17, DR-25), then Clusters (R-DL8) — with their subtitle and key map,
+/// since the eyebrow row that replaced each page header has no room for either.
 enum HelpContent: Equatable {
     case aboutCicada
     case howSleepWorks
     case inbox
+    case clusters
 
     static func page(_ tab: AppTab) -> HelpContent {
         switch tab {
         case .sleep: .howSleepWorks
         case .inbox: .inbox
+        case .clusters: .clusters
         default: .aboutCicada
         }
     }
@@ -36,6 +39,7 @@ struct TitlebarHelpButton: View {
                 case .aboutCicada: AboutCicadaPopover()
                 case .howSleepWorks: HowSleepWorksContent()
                 case .inbox: InboxHelpPopover()
+                case .clusters: ListHelpPopover(page: ListHelp.clusters)
                 }
             }
     }
@@ -65,6 +69,50 @@ struct InboxHelpPopover: View {
             SectionLabel("How the inbox works")
             Text(Copy.inboxSubtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textPrimary)
             ForEach(InboxHelp.keys, id: \.key) { k in
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    KeyHint(k.key).frame(minWidth: CicadaTheme.scaled(44), alignment: .leading)
+                    Text(k.does).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(width: CicadaTheme.scaled(340))
+        .background(CicadaTheme.bgMenu)
+    }
+}
+
+// MARK: - The list pages' ? (R-DL8, DR-25)
+
+/// A list page's `?`: the subtitle its eyebrow row has no room for, and the keys that act on it, each with its pointer
+/// twin on the page (DR-49, DR-68).
+enum ListHelp {
+    struct Page: Equatable {
+        let title: String
+        let subtitle: String
+        let keys: [InboxHelp.Key]
+    }
+
+    static let clusters = Page(
+        title: "How Clusters works",
+        subtitle: "Every entity, grouped by type. Pick a type, open a card, then follow a belief to the conversation it came from.",
+        keys: [
+            .init(key: "⌘F", does: "Find on this page"),
+            .init(key: "↑ ↓", does: "Move through the list"),
+            .init(key: "⏎", does: "Step into the card"),
+            .init(key: "⌘[", does: "Back to the previous card"),
+            .init(key: "Esc", does: "Close the rightmost column"),
+        ])
+}
+
+struct ListHelpPopover: View {
+    let page: ListHelp.Page
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            SectionLabel(page.title)
+            Text(page.subtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(page.keys, id: \.key) { k in
                 HStack(spacing: CicadaTheme.spacingSM) {
                     KeyHint(k.key).frame(minWidth: CicadaTheme.scaled(44), alignment: .leading)
                     Text(k.does).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)

@@ -5,7 +5,8 @@ import XCTest
 /// brightness plus one neutral fill. The scope grows as the shell and the page tracks add files.
 final class SelectionTintLintTests: XCTestCase {
     static let scoped = ["Views/Shell/NavRail.swift", "Views/Common/TextTabs.swift", "Views/Settings/SettingsPanel.swift",
-                         "Views/Inbox/InboxQuestionList.swift"]
+                         "Views/Inbox/InboxQuestionList.swift", "Views/Clusters/ClustersRows.swift",
+                         "Views/Common/ListColumns.swift", "Views/Clusters/ClustersViewMenu.swift"]
     static let needles = ["CicadaTheme.accent", "CicadaTheme.wash", "CicadaTheme.onAccent", "accentColor"]
 
     func testNavigationAndTabStateNeverSpendTheAccent() throws {

@@ -10,7 +10,7 @@ import Foundation
 // Pure value type — no SwiftUI, no Observation — so push/pop/reset can be
 // unit tested directly (`EntityNavigationStackTests`) without constructing a
 // real `Entity` or spinning up a view. `GraphViewModel` owns one directly and
-// `TopicDetailView` owns one through `TopicDetailNavigation`, each an
+// `ClustersCardColumn` owns one through `TopicDetailNavigation`, each an
 // independent instance keyed on `Entity`.
 struct EntityNavigationStack<Element> {
     /// Entities visited before the current one, oldest first. The CURRENT

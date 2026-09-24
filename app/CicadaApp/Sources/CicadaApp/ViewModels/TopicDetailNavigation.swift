@@ -17,7 +17,8 @@ import Foundation
 //    bank doesn't have never mints a Back target (the same rule as
 //    `GraphViewModel.pushEntity`).
 //
-// PR #29 round 2. `TopicDetailView` owns one instance as `@State` and cancels
+// PR #29 round 2. `ClustersCardColumn` owns one instance as `@State` (moved
+// from the retired `TopicDetailView`, R-DL10) and cancels
 // the previous fetch Task on every `navigate`/`goBack`; the token check here
 // is what makes that cancellation safe to miss.
 struct TopicDetailNavigation<Element: Identifiable> {

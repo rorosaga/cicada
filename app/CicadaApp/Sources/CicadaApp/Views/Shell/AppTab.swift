@@ -55,3 +55,14 @@ enum AppTab: String, CaseIterable {
     /// renamed pages (Plans & keys, Agents) are Settings tabs now, not rows.
     var title: String { rawValue }
 }
+
+extension AppTab {
+    /// DR-31 / R-DL7 — pages that draw the Reader as their own rightmost progressive column; `ShellReaderHost` draws
+    /// it for every other page. Grows as each list page's D track lands.
+    var hostsOwnReader: Bool {
+        switch self {
+        case .inbox, .clusters: true
+        default: false
+        }
+    }
+}
