@@ -25,6 +25,20 @@ enum ProjectKey: Hashable, Sendable {
 
 enum ProjectSection: String, CaseIterable, Sendable { case now, lately, plan, around }
 
+/// R-FA3 × R-PP11 (R4 Task 1, review round 1) — how the column brings a picked key into view. Lately's rows are direct
+/// children of the lazy stack, so `scrollTo` finds one that is not built yet; a Plan milestone's id sits INSIDE the Plan
+/// section, one lazy child below every Lately row, and on a long story that child does not exist when the band is
+/// clicked. So a milestone scrolls in two steps: first to the Plan section (a direct child, always findable), then —
+/// on the next main-actor turn, once the section is built — to the row itself.
+enum ProjectScroll {
+    static let planSection = "section.plan"
+
+    /// The ids to scroll to, in order, one main-actor turn apart.
+    static func steps(to target: String) -> [String] {
+        target.hasPrefix(ProjectKey.milestone("").id) ? [planSection, target] : [target]
+    }
+}
+
 /// §3.8 / §9 (2026-09-23) / R-PP10 — the band, pure: every mark at the approved mock's coordinates, in units that
 /// `ProjectBandView` scales (DR-70). The green is the band's one hue; every mark is a neutral shape in the text ladder
 /// (R-PJ21 as the owner settled it); every mark is a button.

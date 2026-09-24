@@ -81,6 +81,9 @@ extension Copy.Provenance {
     static func said(_ name: String) -> String { "\(name) said" }
     static let inferredLabel = "Inferred"
     static let mentionedHere = "Mentioned here"
+    /// Round-4 D1 — an app with no capture hook (Claude desktop, ChatGPT,
+    /// Cursor) never tells Cicada its model; said in the hover, never guessed.
+    static let modelNotShared = "model not shared by this app"
 
     /// The two captions the brief asked for by name (2026-09-23): whether the
     /// words were QUOTED by whoever wrote the belief, or FOUND afterwards.

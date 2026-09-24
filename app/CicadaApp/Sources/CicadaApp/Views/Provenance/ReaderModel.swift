@@ -16,9 +16,9 @@ enum EvidenceSpeaker {
     /// A product name for the agent in a conversation, or nil when nothing
     /// says which agent it was. The harness wins (a Stop-hook or MCP episode
     /// stamps it); an imported export names its vendor; `mcp`/`unknown` name
-    /// no product, so they fall through to "The agent". Never the MODEL:
-    /// conversation `model` is reserved-null (§4.9) and "who spoke" is not
-    /// "who wrote the belief".
+    /// no product, so they fall through to "The agent". The app's name only:
+    /// the model a turn ran with (round-4 D1) is added by `ModelNames.agentLine`
+    /// where a surface has one.
     static func agentName(harness: String?, origin: String?) -> String? {
         if let h = harness?.trimmingCharacters(in: .whitespaces), !h.isEmpty, h != "unknown", h != "mcp" {
             return OriginIconography.label(for: h)
@@ -62,7 +62,12 @@ enum EvidenceSpeaker {
     static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?) -> String {
         switch turn.role {
         case "assistant":
-            return agentName(harness: harness, origin: origin) ?? Copy.Provenance.theAgent
+            // R-FA14 — the turn's own model when capture recorded one (C4).
+            // harness: nil — "model not shared" belongs on the header, once,
+            // not on every turn of the conversation.
+            return ModelNames.agentLine(agent: agentName(harness: harness, origin: origin) ?? Copy.Provenance.theAgent,
+                                        harness: nil, model: turn.model, effort: turn.effort)
+                ?? Copy.Provenance.theAgent
         case "page":
             return ""
         case "speaker":
@@ -398,8 +403,12 @@ enum ReaderHeader {
         var parts: [String] = []
         if doc.isPage {
             parts.append(Copy.Provenance.fromThePage)
-        } else if let agent = EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin) {
-            parts.append(agent)
+        } else if let line = ModelNames.agentLine(
+            agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin),
+            harness: doc.harness, model: doc.agent?.model, effort: doc.agent?.effort) {
+            // R-FA14 (C4) — "Claude Code · Opus 5.5 · high effort"; an app with
+            // no capture says its model is not shared; a pre-D1 capture adds nothing.
+            parts.append(line)
         }
         if let day = ReaderTime.day(timestamp: doc.timestamp, episode: doc.episode, locale: locale,
                                     timeZone: timeZone) {

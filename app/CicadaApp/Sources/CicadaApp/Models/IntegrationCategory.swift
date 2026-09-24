@@ -10,9 +10,9 @@ import Foundation
 /// `.import` apart.
 ///
 /// `of(channelId:)` mirrors `api/services/channel_registry.py::CHANNEL_IDS`
-/// (13 ids, verified against `dev` @ `2312887`) — a future 14th id needs
-/// this switch AND `IntegrationsViewTests.testEveryChannelIdHasACategory`
-/// updated together. The `default` case is unreachable given that list, but
+/// (13 ids, verified against `dev` @ `2312887`, plus round-4's
+/// `calendar-local`, C6) — a new id needs this switch AND
+/// `IntegrationsViewTests.testEveryChannelIdHasACategory` updated together. The `default` case is unreachable given that list, but
 /// returns `.filesAndImports` rather than crashing: an unrecognised id from
 /// a newer backend degrades to "somewhere on the page" instead of taking
 /// the app down.
@@ -47,7 +47,8 @@ enum IntegrationCategory: String, CaseIterable, Identifiable {
             return .browsers
         case "pinterest", "reddit", "x":
             return .socialAndSaved
-        case "rss", "calendar":
+        // Round-4 D2 (C6, R-FA13): `calendar-local` is the Calendar app read on this Mac, drawn by `CalendarRow`.
+        case "rss", "calendar", "calendar-local":
             return .feedsAndCalendars
         case "telegram":
             return .messaging

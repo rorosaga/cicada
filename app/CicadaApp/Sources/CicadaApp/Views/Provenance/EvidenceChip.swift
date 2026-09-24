@@ -193,10 +193,25 @@ struct EvidencePreview: View {
     }
 
     private var headerLine: String {
-        var parts = [EvidenceLabel.speaker(kind: model.kind, agent: EvidenceLabel.agent(meta))]
+        var parts = [speakerLine]
         if let title = meta?.title, !title.isEmpty { parts.append(title) }
         if let day = ReaderTime.day(timestamp: nil, episode: model.episode, withYear: false) { parts.append(day) }
         return parts.joined(separator: " · ")
+    }
+
+    /// R-FA14 — the hover names the model the way the chip does, and is where
+    /// an app with no capture says "model not shared by this app". A line that
+    /// adds nothing to the agent's bare name (a pre-D1 Claude Code turn) keeps
+    /// today's "Claude Code replied".
+    private var speakerLine: String {
+        let agent = EvidenceLabel.agent(meta)
+        if model.kind == .assistant,
+           let line = ModelNames.agentLine(agent: agent ?? (model.model == nil ? nil : Copy.Provenance.theAgent),
+                                           harness: meta?.harness, model: model.model, effort: model.effort),
+           line != agent {
+            return line
+        }
+        return EvidenceLabel.speaker(kind: model.kind, agent: agent)
     }
 
     private func caption(_ style: QuoteBlock.Style) -> String? {

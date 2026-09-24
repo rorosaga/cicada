@@ -31,6 +31,8 @@ enum ChannelActions {
         case connector
         case folder(id: String)
         case wisprFlow
+        /// Round-4 G142: the Calendar app, read on this Mac by `CalendarReader` (EventKit) and posted whole.
+        case calendarLocal
     }
 
     /// The browser rows whose files the app reads and posts (R1).
@@ -38,12 +40,15 @@ enum ChannelActions {
     /// `api/services/connectors/__init__.py::ADAPTERS`.
     static let connectorChannels: Set<String> = ["pinterest", "reddit", "x"]
     static let folderPrefix = "folder:"
+    /// Round-4 G142 (C6): the backend lists `calendar-local` with `sync`; the app is the only reader of EventKit.
+    static let calendarLocalChannel = "calendar-local"
 
     static func syncRoute(for channelId: String) -> SyncRoute? {
         if browserFileChannels.contains(channelId) { return .browserFile }
         if connectorChannels.contains(channelId) { return .connector }
         if channelId == "notes" { return .notes }
         if channelId == LocalSourceWatcher.wisprChannel { return .wisprFlow }
+        if channelId == calendarLocalChannel { return .calendarLocal }
         if channelId.hasPrefix(folderPrefix), channelId.count > folderPrefix.count {
             return .folder(id: String(channelId.dropFirst(folderPrefix.count)))
         }
@@ -68,7 +73,7 @@ enum ChannelActions {
     /// next event. `watcher` is optional only so a caller without one still
     /// syncs; every view caller passes the environment's.
     static func sync(_ channelId: String, store: Store, watcher: BrowserWatcher? = nil,
-                     local: LocalSourceWatcher) async throws -> String {
+                     local: LocalSourceWatcher, calendar: CalendarReader? = nil) async throws -> String {
         switch syncRoute(for: channelId) {
         case .browserFile:
             if let watcher, BrowserWatcher.isWatched(channelId) {
@@ -85,6 +90,19 @@ enum ChannelActions {
             return try await local.syncNow(folderId: id)
         case .wisprFlow:
             return try await local.syncWisprNowReporting()
+        case .calendarLocal:
+            // The backend never reads EventKit (the ~/Library rail): Sync now runs the app's reader, and only
+            // after the person connected Calendar — never a silent first read from a Sources card.
+            guard let calendar, calendar.isEnabled else {
+                throw BrowserImportActions.ImportActionError.failed(Copy.calendarConnectFirst)
+            }
+            await calendar.syncNow()
+            switch calendar.status {
+            case .failed(let why): throw BrowserImportActions.ImportActionError.failed(why)
+            case .denied: throw BrowserImportActions.ImportActionError.failed(Copy.calendarConnectFirst)
+            case .synced(_, let events): return Copy.calendarSyncedSummary(events)
+            default: return Copy.calendarSyncedSummary(nil)
+            }
         case nil:
             throw BrowserImportActions.ImportActionError.failed("This source can't be synced from here.")
         }

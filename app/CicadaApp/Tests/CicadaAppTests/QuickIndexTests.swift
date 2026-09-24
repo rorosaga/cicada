@@ -30,7 +30,8 @@ final class QuickIndexTests: XCTestCase {
     }
 
     func testSettingsActionsAndBanksReflectTheirState() {
-        XCTAssertEqual(ids(index.query("integrations"), .settings), [SettingsSection.integrations.rawValue])
+        // The page first; round-4 D2's "Calendar on this Mac" is Integrations' first static row, so it may follow.
+        XCTAssertEqual(ids(index.query("integrations"), .settings).first, SettingsSection.integrations.rawValue)
         XCTAssertEqual(index.query("consolidate").rows.first { $0.key.kind == .action }?.title, "Consolidate now")
         XCTAssertEqual(index.query("beta").rows.first { $0.key.kind == .bank }?.destination, .bank(name: "beta-bank"))
         XCTAssertTrue(index.query("switch to default").rows.filter { $0.key.kind == .bank }.isEmpty,

@@ -136,6 +136,14 @@ struct WhereThisCameFromSection: View {
                 Text(ProvenanceSummary.chipCount(c))
                     .font(CicadaTheme.font(size: 10))
                     .foregroundStyle(CicadaTheme.textTertiary)
+                // Round-4 C4 (R-FA14) — which models this app wrote with, or
+                // that it never says; nothing for a pre-D1 capture.
+                if let models = ProvenanceSummary.modelsLine(c) {
+                    Text(models)
+                        .font(CicadaTheme.font(size: 10))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.leading, 4)
@@ -145,9 +153,16 @@ struct WhereThisCameFromSection: View {
         .clipShape(Capsule())
         // What the two numbers count (§4.5 item 2), in plain words — never
         // the raw author id or "commit".
-        .help(c.kind == "unknown" ? Copy.Provenance.beforeProvenanceHelp
-                                  : Copy.Provenance.contributorHelp(ProvenanceSummary.sentenceName(c)))
+        .help(contributorHelp(c))
         .accessibilityElement(children: .combine)
+    }
+
+    /// Today's sentence, then one line per model the chip's third line
+    /// summarises (C4) — the full list, since the chip shows only two.
+    private func contributorHelp(_ c: ProvenanceContributor) -> String {
+        let sentence = c.kind == "unknown" ? Copy.Provenance.beforeProvenanceHelp
+                                           : Copy.Provenance.contributorHelp(ProvenanceSummary.sentenceName(c))
+        return ([sentence] + ProvenanceSummary.modelsHelp(c)).joined(separator: "\n")
     }
 
     // MARK: Conversations
