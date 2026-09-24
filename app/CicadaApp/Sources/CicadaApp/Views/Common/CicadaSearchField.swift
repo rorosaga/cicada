@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The one in-page search field (G136 S5; round-3 design §1.3, §3.7). Graph,
-/// Clusters, the Feed, a source's conversations and the Inbox all use it, so
+/// Clusters, the Feed and a source's conversations all use it, so
 /// the keys are learned once: Esc clears and a second Esc leaves the field;
 /// ↑/↓ reach the page's result list when it has one; ⏎ submits. A 28 pt
 /// capsule — magnifier, prompt, a clear button when there is text, a "⌘F"

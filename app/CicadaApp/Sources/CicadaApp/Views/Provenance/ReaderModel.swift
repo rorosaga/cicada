@@ -1,7 +1,7 @@
 import Foundation
 
 // The Reader's decisions, pure and tested (design §4.4, §4.10
-// `ReaderTurnsTests`), so `ReaderInspector` is a renderer: who is speaking,
+// `ReaderTurnsTests`), so `ReaderColumn` is a renderer: who is speaking,
 // what to wash, what to say about it, and where to land.
 
 // MARK: - Who is speaking
@@ -141,15 +141,46 @@ enum ReaderTime {
 
 // MARK: - What to wash
 
+/// R-DI11 — a turn's washes as `CitedSpan` segments: the cited span `.current` (the wash and the
+/// accent underline, DR-18), another span the same entity cites `.other` (`washSoft`), a derived
+/// match `.mention` (semibold, never washed, DR-57). Scalar offsets, as `ReaderLayout` computes them;
+/// a wash that does not fit, or starts inside an earlier one, is skipped — never trapped on. At one
+/// offset the cited span wins over a soft one.
+enum ReaderText {
+    static func segments(_ block: ReaderBlock) -> [CitedSpan.Segment] {
+        let text = ScalarText(block.text)
+        func rank(_ s: ReaderWash.Style) -> Int { s == .other ? 1 : 0 }
+        let washes = block.washes
+            .filter { $0.range.lowerBound >= 0 && $0.range.upperBound <= text.count && !$0.range.isEmpty }
+            .sorted { ($0.range.lowerBound, rank($0.style)) < ($1.range.lowerBound, rank($1.style)) }
+        var out: [CitedSpan.Segment] = []
+        var cursor = 0
+        for wash in washes where wash.range.lowerBound >= cursor {
+            if wash.range.lowerBound > cursor {
+                out.append(.init(text: text.slice(cursor, wash.range.lowerBound), mark: .plain))
+            }
+            let mark: CitedSpan.Mark = switch wash.style {
+            case .focus: .current
+            case .other: .other
+            case .mention: .mention
+            }
+            out.append(.init(text: text.slice(wash.range.lowerBound, wash.range.upperBound), mark: mark))
+            cursor = wash.range.upperBound
+        }
+        if cursor < text.count { out.append(.init(text: text.slice(cursor, text.count), mark: .plain)) }
+        return out
+    }
+}
+
 /// One highlighted stretch inside a turn, as scalar offsets LOCAL to the
 /// turn's text.
 struct ReaderWash: Hashable {
     enum Style: Hashable {
-        /// The cited span: the dandelion wash plus the margin bar (§4.4).
+        /// The cited span: the accent wash plus its underline (DR-18, R-DI11).
         case focus
         /// A derived match: bold, never washed (§4.9).
         case mention
-        /// Another span the same entity cites: a fainter wash, no bar (P4).
+        /// Another span the same entity cites: the soft wash, no underline (P4).
         case other
     }
     let range: Range<Int>
@@ -184,7 +215,7 @@ struct ReaderBlock: Hashable, Identifiable {
     /// Only a turn's first chunk draws the speaker line and joins the Turns
     /// rotor; the rest read on as the same turn.
     var startsTurn: Bool { chunk == 0 }
-    /// The block the margin bar and the landing belong to.
+    /// The block the landing and the cited-passages rotor belong to.
     var holdsFocus: Bool { washes.contains { $0.style == .focus || $0.style == .mention } }
 }
 

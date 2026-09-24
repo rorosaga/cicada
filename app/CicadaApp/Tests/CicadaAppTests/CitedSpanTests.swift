@@ -29,4 +29,13 @@ final class CitedSpanTests: XCTestCase {
         XCTAssertNil(runs[2].swiftUI.underlineStyle)
         XCTAssertNotEqual(runs[1].swiftUI.backgroundColor, runs[2].swiftUI.backgroundColor, "wash vs washSoft")
     }
+
+    /// R-DI11 / DR-57 — a mention found by name is emphasised and never washed; `reveal` fades the wash.
+    func testAMentionIsEmphasisedNotWashedAndRevealScalesTheWash() {
+        let s = CitedSpan.fallback([.init(text: "found", mark: .mention), .init(text: "cited", mark: .current)], reveal: 0)
+        let runs = Array(s.runs).map(\.attributes)
+        XCTAssertNil(runs[0].swiftUI.backgroundColor)
+        XCTAssertEqual(runs[0].inlinePresentationIntent, .stronglyEmphasized)
+        XCTAssertEqual(runs[1].swiftUI.backgroundColor, CicadaTheme.wash.opacity(0), "the frame before spanReveal")
+    }
 }

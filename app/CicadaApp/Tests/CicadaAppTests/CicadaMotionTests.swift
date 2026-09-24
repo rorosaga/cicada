@@ -87,4 +87,17 @@ final class CicadaMotionTests: XCTestCase {
         XCTAssertTrue(MarkHover.showsRing(hovering: true, reduceMotion: true))
         XCTAssertFalse(MarkHover.showsRing(hovering: true, reduceMotion: false))
     }
+
+    /// DR-61 / DR-66 — the columns move on the drawer curve under 300 ms; under Reduce Motion the
+    /// widths jump and the Reader, the card and the Undo row still fade (100 ms, linear).
+    func testTheColumnMotionStaysUnderTheUICeilingAndKeepsAFadeUnderReduceMotion() {
+        for d in [CicadaMotion.columnDuration, CicadaMotion.readerInDuration, CicadaMotion.readerOutDuration,
+                  CicadaMotion.cardFadeDuration, CicadaMotion.rowLeaveDuration, CicadaMotion.undoFadeDuration] {
+            XCTAssertLessThanOrEqual(d, 0.3)
+        }
+        XCTAssertLessThan(CicadaMotion.readerOutDuration, CicadaMotion.readerInDuration, "DR-65: exits are faster")
+        XCTAssertNil(CicadaMotion.columns(reduceMotion: true))
+        XCTAssertEqual(CicadaMotion.readerIn(reduceMotion: true), CicadaMotion.fade)
+        XCTAssertEqual(CicadaMotion.undoFade(reduceMotion: true), CicadaMotion.fade)
+    }
 }

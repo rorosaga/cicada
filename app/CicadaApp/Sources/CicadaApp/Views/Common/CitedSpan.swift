@@ -8,8 +8,13 @@ import SwiftUI
 /// behind each tagged run. The package floor is 14, where `AttributedString` can carry a fill
 /// and an underline colour but neither an offset nor a radius, so `fallback(_:)` is the honest
 /// approximation there. The owner runs 26.
+///
+/// `.mention` — a match found by name (G118 §4.9, DR-57): semibold, never washed; the wash and the
+/// underline are for words someone quoted (R-DI11). `reveal` (0…1) scales the wash and the
+/// underline so `spanReveal` fades them in (DR-61) instead of popping them; every existing call
+/// site passes nothing and gets 1.
 enum CitedSpan {
-    enum Mark: Equatable { case plain, current, other }
+    enum Mark: Equatable { case plain, current, other, mention }
     struct Segment: Equatable {
         let text: String
         let mark: Mark
@@ -29,17 +34,20 @@ enum CitedSpan {
     /// macOS 14 — the fill and the underline colour; no offset, no radius. Written through the
     /// SwiftUI scope explicitly: AppKit's scope has its own `backgroundColor` (an `NSColor`) and
     /// `underlineStyle`, and the bare names are ambiguous on macOS.
-    static func fallback(_ segments: [Segment]) -> AttributedString {
+    static func fallback(_ segments: [Segment], reveal: Double = 1) -> AttributedString {
         segments.reduce(into: AttributedString()) { out, segment in
             var piece = AttributedString(segment.text)
             var marks = AttributeContainer()
             switch segment.mark {
             case .plain: break
             case .current:
-                marks.swiftUI.backgroundColor = CicadaTheme.wash
-                marks.swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: CicadaTheme.accent)
+                marks.swiftUI.backgroundColor = CicadaTheme.wash.opacity(reveal)
+                marks.swiftUI.underlineStyle = Text.LineStyle(pattern: .solid, color: CicadaTheme.accent.opacity(reveal))
             case .other:
-                marks.swiftUI.backgroundColor = CicadaTheme.washSoft
+                marks.swiftUI.backgroundColor = CicadaTheme.washSoft.opacity(reveal)
+            case .mention:
+                // Found, not quoted: emphasis only, no fill (R-DI11).
+                marks.inlinePresentationIntent = .stronglyEmphasized
             }
             piece.mergeAttributes(marks)
             out.append(piece)
@@ -55,6 +63,7 @@ enum CitedSpan {
                 case .plain: text + Text(segment.text)
                 case .current: text + Text(segment.text).customAttribute(CitedSpanTag(current: true))
                 case .other: text + Text(segment.text).customAttribute(CitedSpanTag(current: false))
+                case .mention: text + Text(segment.text).fontWeight(.semibold)
                 }
             }
         }
@@ -72,6 +81,13 @@ struct CitedSpanRenderer: TextRenderer {
     let wash: Color
     let washSoft: Color
     let underline: Color
+    /// DR-61 — 0 → 1 over `spanReveal`; animatable so the wash fades rather than pops.
+    var reveal: Double = 1
+
+    var animatableData: Double {
+        get { reveal }
+        set { reveal = newValue }
+    }
 
     /// The underline sits below the last line's box; ask for the room so it is never clipped.
     var displayPadding: EdgeInsets {
@@ -86,8 +102,10 @@ struct CitedSpanRenderer: TextRenderer {
                     let bounds = run.typographicBounds.rect
                     ctx.fill(Path(roundedRect: CitedSpan.washRect(for: bounds), cornerRadius: CitedSpan.cornerRadius,
                                   style: .continuous),
-                             with: .color(tag.current ? wash : washSoft))
-                    if tag.current { ctx.fill(Path(CitedSpan.underlineRect(for: bounds)), with: .color(underline)) }
+                             with: .color((tag.current ? wash : washSoft).opacity(reveal)))
+                    if tag.current {
+                        ctx.fill(Path(CitedSpan.underlineRect(for: bounds)), with: .color(underline.opacity(reveal)))
+                    }
                 }
                 ctx.draw(run)
             }
@@ -99,10 +117,10 @@ extension View {
     /// Draws `CitedSpan.text(_:)`'s tagged runs (macOS 15+); a no-op on 14, where the fallback
     /// string already carries its marks.
     @ViewBuilder
-    func citedSpans() -> some View {
+    func citedSpans(reveal: Double = 1) -> some View {
         if #available(macOS 15, *) {
             textRenderer(CitedSpanRenderer(wash: CicadaTheme.wash, washSoft: CicadaTheme.washSoft,
-                                           underline: CicadaTheme.accent))
+                                           underline: CicadaTheme.accent, reveal: reveal))
         } else {
             self
         }

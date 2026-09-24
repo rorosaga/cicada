@@ -48,6 +48,25 @@ extension Copy {
         static let close = "Close the conversation"
         static let back = "Back to the previous conversation"
         static func citedPassage(_ text: String) -> String { "Cited passage: \(text)" }
+
+        // MARK: The Reader as a column (DS-2 Task 4, R-DI6)
+
+        static let closeHelp = "Close (Esc)"
+        static func resumeHelp(_ agent: String?) -> String { "Resume this conversation in \(agent ?? "its app")" }
+        /// "Noted from this conversation (3)" — the count through `UsageFormat` (R-DI23).
+        static func noted(count: Int, isPage: Bool) -> String {
+            "\(isPage ? notedFromThisPage : notedFromThisConversation) (\(UsageFormat.count(count)))"
+        }
+        /// A rotor entry's words, composed here so no `Text(` line interpolates a count (R-DI23).
+        static func rotorLabel(speaker: String, turn n: Int) -> String { "\(speaker), \(turn(n))" }
+        /// A turn's accessibility label: who spoke, which turn, the words.
+        static func turnLabel(speaker: String, turn n: Int, text: String) -> String {
+            "\(rotorLabel(speaker: speaker, turn: n)): \(text)"
+        }
+        /// "Noted" row's who-line when the belief was since replaced.
+        static func notCurrent(_ label: String) -> String { "\(label) · \(noLongerCurrent)" }
+        /// The header mark's hover — an id only ever in `.help` (DR-54).
+        static func episodeHelp(_ id: String) -> String { "Episode \(id)" }
     }
 }
 

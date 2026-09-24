@@ -184,6 +184,20 @@ final class ProvenanceRouterTests: XCTestCase {
         if case .failed = offline {} else { XCTFail("no last-known-good copy survives a bank switch") }
         XCTAssertNil(api.lastTextETag, "the old bank's validator is forgotten too")
     }
+
+    /// R-DI9 — a swap onto the same conversation re-lands in place: no new Back step.
+    func testRefocusReplacesTheTopForTheSameDocumentAndOpensAnyOther() {
+        let router = ProvenanceRouter()
+        router.open(ReaderTarget(episode: "ep_1", focus: .span(start: 1, end: 5, hash: nil, derived: true)))
+        let before = router.revision
+        let next = ReaderTarget(episode: "ep_1", focus: .span(start: 9, end: 14, hash: nil, derived: true))
+        router.refocus(next)
+        XCTAssertEqual(router.stack, [next])
+        XCTAssertGreaterThan(router.revision, before, "the palette and the Belief Timeline still step aside")
+        router.refocus(ReaderTarget(episode: "ep_2"))
+        XCTAssertEqual(router.stack.map(\.episode), ["ep_1", "ep_2"], "another document is a real step")
+        XCTAssertTrue(router.canGoBack)
+    }
 }
 
 /// A scripted `ProvenanceAPI` for the cache and view-model tests.

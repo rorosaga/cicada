@@ -28,12 +28,19 @@ struct QuickIndexInputs: Sendable {
     /// Changes whenever an input could have (R-SU5) — timestamps, counts and
     /// flags only, never a name or a query. `unprocessed` enters as a flag: a
     /// capture on every agent turn must not rebuild the index each time.
+    ///
+    /// DR-42 final review: `visibleInbox` also hides the answer inside its Undo window and the ones
+    /// on the wire (`graceHiddenIds`), and neither moves a snapshot stamp or `hiddenInboxIds`. The
+    /// grace set enters as its sorted inbox ids (opaque `inbox-NNN`, never a title), so a tap drops
+    /// the question from ⌘K and Home's search at once and an Undo puts it back at once — a count
+    /// alone would read a hold-then-undo, or one hold replacing another, as no change.
     @MainActor
     static func token(_ store: Store, askHistoryCount: Int) -> String {
         let stamps = [store.graph.loadedAt, store.sources.loadedAt, store.sourcesOverview.loadedAt,
                       store.inbox.loadedAt, store.banks.loadedAt]
             .map { $0.map { String($0.timeIntervalSince1970) } ?? "-" }
-        let flags = ["\(store.hiddenInboxIds.count)", "\(askHistoryCount)",
+        let flags = ["\(store.hiddenInboxIds.count)", store.graceHiddenIds.sorted().joined(separator: ","),
+                     "\(askHistoryCount)",
                      store.status.value?.sleep.status ?? "",
                      (store.status.value?.episodes.unprocessed ?? 0) > 0 ? "waiting" : "rested",
                      CicadaTheme.mode.rawValue]

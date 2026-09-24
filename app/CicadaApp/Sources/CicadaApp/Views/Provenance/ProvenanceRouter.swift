@@ -94,7 +94,7 @@ struct ReaderTarget: Hashable, Identifiable {
     }
 }
 
-/// The Reader's navigation (design §1.4): a stack of targets, one inspector.
+/// The Reader's navigation (design §1.4): a stack of targets, one Reader column.
 /// Injected into the main window's environment (`CicadaApp`) and read as an
 /// OPTIONAL environment value by every chip, so a view hosted anywhere else
 /// (a preview, a test) renders its chip without a click-through rather than
@@ -107,9 +107,9 @@ final class ProvenanceRouter {
     static let maxDepth = 20
 
     private(set) var stack: [ReaderTarget] = []
-    /// Bound to `.inspector(isPresented:)`. The inspector's own toggle writes
-    /// `false` here; the stack is kept so the closing animation never shows
-    /// an empty Reader, and the next `open` from closed starts a fresh one.
+    /// Read by the Reader column's host; the stack is kept so the closing
+    /// animation never shows an empty Reader, and the next `open` from closed
+    /// starts a fresh one.
     var isPresented = false
     /// Bumped on every `open`, including re-opening the target already on
     /// top — the one signal a presenter (the Ask sheet, T6) can watch to get
@@ -124,6 +124,19 @@ final class ProvenanceRouter {
         if stack.last != target { stack.append(target) }
         if stack.count > Self.maxDepth { stack.removeFirst(stack.count - Self.maxDepth) }
         isPresented = true
+        revision &+= 1
+    }
+
+    /// DR-29 / R-DI9 — the next question cites the conversation already open: re-land on its span in
+    /// place. The top target is replaced, not pushed — Back is for moving between documents, and
+    /// answering five questions beside one conversation must not build five Back steps. Anything
+    /// else is an ordinary `open`.
+    func refocus(_ target: ReaderTarget) {
+        guard isPresented, let top = stack.last, top.episode == target.episode else {
+            open(target)
+            return
+        }
+        stack[stack.count - 1] = target
         revision &+= 1
     }
 

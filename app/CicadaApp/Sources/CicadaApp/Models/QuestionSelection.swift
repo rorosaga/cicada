@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure keyboard-navigation model for `QuestionView` (G60 §2.6, extended by
+/// Pure keyboard-navigation model for `InboxFocusCard` (G60 §2.6, extended by
 /// G115 Phase 1 with `1–4`, `Esc` and the recommended-first highlight).
 ///
 /// Rows are the options, followed by the "Other…" row when `allowOther`.
@@ -47,6 +47,13 @@ struct QuestionSelection: Equatable {
     mutating func moveUp() {
         guard rowCount > 0 else { return }
         index = (index - 1 + rowCount) % rowCount
+    }
+
+    /// DR-42 — the pointer highlights too: hovering row `i` moves the ⏎ target there. The Other row
+    /// is `optionCount`; anything out of range is ignored.
+    mutating func highlight(_ i: Int) {
+        guard i >= 0, i < rowCount else { return }
+        index = i
     }
 
     /// Jump straight to the free-text row (the `o` shortcut).

@@ -522,8 +522,8 @@ enum CicadaTheme {
 
     // MARK: - Inbox Kind Colors
     // Leading-icon hue per inbox card kind. Decay amber, conflict red,
-    // clarification indigo, merge yellow. Used by InboxCardView and the
-    // sidebar/filter chrome.
+    // clarification indigo, merge yellow. Used by `KindGlyph`, the one
+    // place an inbox kind shows its hue.
     static func inboxColor(for kind: InboxKind) -> Color {
         mode == .dark ? Dark.inboxColor(for: kind) : Light.inboxColor(for: kind)
     }

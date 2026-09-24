@@ -23,14 +23,22 @@ final class TitlebarHelpTests: XCTestCase {
         }
     }
 
-    /// Exhaustive switch — a compile-time guarantee that a THIRD case can't
+    /// Exhaustive switch — a compile-time guarantee that a FOURTH case can't
     /// be added without every call site (and this test) being revisited.
-    func testHelpContentIsExactlyTwoCases() {
-        for content: HelpContent in [.aboutCicada, .howSleepWorks] {
+    func testHelpContentIsExactlyThreeCases() {
+        for content: HelpContent in [.aboutCicada, .howSleepWorks, .inbox] {
             switch content {
-            case .aboutCicada, .howSleepWorks: break
+            case .aboutCicada, .howSleepWorks, .inbox: break
             }
         }
+    }
+
+    /// R-DI17 / DR-25 — the Inbox's old subtitle and its keys live behind its `?`.
+    func testTheInboxAnswersForItself() {
+        XCTAssertEqual(HelpContent.page(.inbox), .inbox)
+        XCTAssertEqual(HelpContent.page(.sleep), .howSleepWorks)
+        XCTAssertEqual(HelpContent.page(.graph), .aboutCicada)
+        XCTAssertEqual(InboxHelp.keys.map(\.key), ["1–9", "↑ ↓", "⏎", "O", "L", "⌘Z", "Esc", "Tab"])
     }
 
     /// Track P R1 survives the move: no page offers a global Sleep or Upload button — the `?`

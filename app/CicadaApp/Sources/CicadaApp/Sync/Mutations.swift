@@ -428,6 +428,9 @@ struct ActivateBank: Mutation {
     init(name: String) { self.name = name }
 
     func optimistic(_ store: Store) async {
+        // DR-42 (R-DI3) — a held answer is sent before the bank moves: the POST goes to the bank that
+        // is active on the server, and `hydrate` clears every hide. Every switch path is this mutation.
+        await store.flushHeld()
         memo.value = (store.bank, store.banks.value)
         store.bank = name
         // Instant swap from cache. Must happen before the roster flag below:

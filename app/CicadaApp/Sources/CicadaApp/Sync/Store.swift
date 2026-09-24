@@ -50,10 +50,23 @@ final class Store {
     /// un-hiding it here would flash the card back for one refresh cycle.
     var hiddenInboxIds: Set<String> = []
 
-    /// The inbox as the UI should see it: the snapshot minus anything hidden
-    /// by an in-flight or already-confirmed resolve.
+    /// DR-42 (R-DI2) — the one answer inside its Undo window, and the ids whose held answer is on
+    /// the wire. Both leave `visibleInbox`, so the rail badge, Home and the palette drop a question
+    /// the moment it is tapped — not five seconds later, and not only on the Inbox.
+    var heldResolve: ResolveGrace?
+    var sendingInboxIds: Set<String> = []
+    @ObservationIgnored var graceTask: Task<Void, Never>?
+    @ObservationIgnored var graceToken = 0
+    /// How the window waits; tests replace it (it is the only seam `ResolveGraceTests` needs).
+    @ObservationIgnored var graceWait: @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    /// Wired by `InboxViewModel` to the menu-bar badge's refresh, the hook `resolve` used to call.
+    @ObservationIgnored var onHeldResolveSent: (() async -> Void)?
+
+    /// The inbox as the UI should see it: the snapshot minus anything hidden by an in-flight or
+    /// already-confirmed resolve, and minus an answer inside its Undo window (DR-42).
     var visibleInbox: [InboxItem] {
-        (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) }
+        let grace = graceHiddenIds
+        return (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) && !grace.contains($0.id) }
     }
 
     /// Transient one-line error surfaced by the UI. Set only when a refresh
@@ -177,6 +190,15 @@ final class Store {
                 banks.refreshedAt = nil
                 if let active = roster.value.active, !active.isEmpty { bank = active }
             }
+        }
+        // R-DI3 — a held answer belongs to the bank it was made in. `ActivateBank` sends it before
+        // the switch; a switch that arrives from elsewhere (another client moved the roster) drops
+        // it with a word rather than post it into the wrong bank.
+        if let held = heldResolve, held.bank != bank {
+            graceTask?.cancel()
+            graceTask = nil
+            heldResolve = nil
+            toast = Copy.Inbox.answerNotSaved
         }
         var loaded: [String] = banks.value == nil ? [] : ["banks"]
         /// Load one domain for `bank`. On a MISS the snapshot is **reset**, not

@@ -88,39 +88,38 @@ final class InboxQuestionTests: XCTestCase {
         }
         XCTAssertNil(capsule(nil))
         XCTAssertEqual(capsule(0), "today")
-        XCTAssertEqual(capsule(5), "5 d")
-        XCTAssertEqual(capsule(20), "3 wk")
-        XCTAssertEqual(capsule(193), "6 mo")
-        XCTAssertEqual(capsule(800), "2 y")
+        XCTAssertEqual(capsule(5), "5d")
+        XCTAssertEqual(capsule(20), "3w")
+        XCTAssertEqual(capsule(193), "6mo")
+        XCTAssertEqual(capsule(800), "2y")
     }
 
     // MARK: - Mutation
 
-    func testResolvePassesOptionKeyAndRemindDaysThrough() async throws {
+    private func heldStore() throws -> (Store, FakeSyncAPI, InboxViewModel, InboxItem) {
         let api = FakeSyncAPI()
         let store = Store(cache: SnapshotCache(
             root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         ), api: api)
         api.replies[.inbox] = .notModified
+        let item = try decode(#"{"id":"inbox-001","kind":"conflict","requiredInput":"choice","title":"t","options":[{"key":"b","label":"B"}]}"#)
+        store.inbox.value = [item]
+        return (store, api, InboxViewModel(store: store), item)
+    }
 
-        let vm = InboxViewModel(store: store)
-        let ok = await vm.resolve(id: "inbox-001", action: "resolve", optionKey: "b")
-
-        XCTAssertTrue(ok)
+    func testAnswerPassesOptionKeyThroughWhenTheWindowCloses() async throws {
+        let (store, api, vm, item) = try heldStore()
+        vm.answer(item, QuestionResolution(action: "resolve", optionKey: "b"))
+        XCTAssertEqual(api.writes, [], "held for its Undo window (DR-42)")
+        await store.flushHeld()
         XCTAssertTrue(api.writes.contains("resolveInbox:inbox-001:resolve:b:nil"))
     }
 
-    func testDeferPassesRemindDaysAndHidesTheCard() async throws {
-        let api = FakeSyncAPI()
-        let store = Store(cache: SnapshotCache(
-            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        ), api: api)
-        api.replies[.inbox] = .notModified
-
-        let vm = InboxViewModel(store: store)
-        let ok = await vm.resolve(id: "inbox-001", action: "defer", remindDays: 14)
-
-        XCTAssertTrue(ok)
+    func testDeferPassesRemindDaysThroughWhenTheWindowCloses() async throws {
+        let (store, api, vm, item) = try heldStore()
+        vm.answer(item, QuestionResolution(action: "defer", remindDays: 14))
+        XCTAssertEqual(store.visibleInbox.map(\.id), [], "a deferred question leaves the list on the tap")
+        await store.flushHeld()
         XCTAssertTrue(api.writes.contains("resolveInbox:inbox-001:defer:nil:14"))
     }
 }
@@ -205,5 +204,16 @@ final class QuestionSelectionTests: XCTestCase {
         XCTAssertEqual(s.escape(), .closeOther)
         XCTAssertFalse(s.otherExpanded)
         XCTAssertEqual(s.escape(), .collapse)
+    }
+
+    /// DR-42 — the pointer highlights too; a row out of range is ignored.
+    func testThePointerMovesTheHighlight() {
+        var s = QuestionSelection(optionCount: 3, allowOther: true)
+        s.highlight(2)
+        XCTAssertEqual(s.index, 2)
+        s.highlight(3)
+        XCTAssertTrue(s.isOtherRow)
+        s.highlight(9)
+        XCTAssertEqual(s.index, 3)
     }
 }

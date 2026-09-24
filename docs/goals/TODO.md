@@ -44,6 +44,15 @@ sheet and F2 retired), Home at ⌘1 with Getting started, and export reminders w
 live pass and screenshots) is the orchestrator's. Measured on the branch: Swift **1539 executed, 0
 failures**, backend **2902 passed** (unchanged — no Python in this track).
 
+**Round 3, Direction D — DS-2 (2026-09-24, `feat/d-inbox-reader`, plan `2026-09-24-d-inbox-reader.md`).** The Inbox
+in progressive columns (the questions alone → the question as C's focus card → the Reader as the third column), one tap
+with a 5 s send-delay Undo (`ResolveGrace` in the `Store`, flushed on the next answer, a bank switch, the window closing
+and quit; an undone answer makes no commit, claim or G113 event), every kind inside the card, the source in a person's
+words, the Reader as a column (`ReaderColumn`, hosted by `ShellReaderHost` on pages that have not adopted
+`ProgressiveColumns`) with `CitedSpan` turns, Resume and the pinned navigator, and the Sources page's Deletions on the
+same card. 26 rulings (R-DI1…R-DI26), eleven of them dated in DESIGN_RULES §9. No backend change. Measured on the
+branch: Swift **1815 executed, 0 failures**, graph node tests **7 passed**.
+
 **Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
 green. (`working-method.md` carries the standing notes on the order-dependent case.)
 **Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
@@ -295,6 +304,10 @@ rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — now a ch
 any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.
+
+**Direction D, next (after DS-2 merges):** the page tracks adopt `ProgressiveColumns` and retire their use of the
+shell's trailing Reader (`ShellReaderHost`) — **Clusters**, **Feed**, **Sources** and **Projects** (G141 PJ-5), each
+per DESIGN_RULES §10 and each updating its CLAUDE.md page paragraph in the same PR.
 
 **Filed 2026-09-23 — G141 project timelines.** The spec is committed
 (`docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`). Three backend tracks can start
@@ -738,6 +751,9 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 - **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
 
 ### Small & cheap — grab when passing
+- **Demo-bank inbox coverage (DS-2 R-DI21)** — `demo_bank.py` should also write a removal, a divergence, a
+  normalization and an informational item, so DR-43's "the app reaches every variant through the demo bank" holds;
+  until then `InboxFocusCardFitTests` renders them from the server's shapes — XS, backend only
 - **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Sources
   entity chips through `revealEntity` so they land on the node too — XS
 G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this

@@ -6,12 +6,20 @@ import SwiftUI
 /// what Cicada is (R-DS18). Track P: the audit removed the Sleep and Upload buttons from every
 /// page (R1), so "About these actions" no longer had any actions to describe — `.actions`
 /// became `.aboutCicada`, one paragraph per half of Awake/Sleep, true on every page it renders
-/// on. The Sleep page keeps its own page-specific explainer (G125 R10).
+/// on. The Sleep page keeps its own page-specific explainer (G125 R10), and the Inbox its subtitle
+/// and key map (R-DI17, DR-25) — the eyebrow row that replaced its page header has no room for either.
 enum HelpContent: Equatable {
     case aboutCicada
     case howSleepWorks
+    case inbox
 
-    static func page(_ tab: AppTab) -> HelpContent { tab == .sleep ? .howSleepWorks : .aboutCicada }
+    static func page(_ tab: AppTab) -> HelpContent {
+        switch tab {
+        case .sleep: .howSleepWorks
+        case .inbox: .inbox
+        default: .aboutCicada
+        }
+    }
 }
 
 /// The page's `?` — the titlebar's rightmost control, one per window, answering for the visible
@@ -27,8 +35,45 @@ struct TitlebarHelpButton: View {
                 switch content {
                 case .aboutCicada: AboutCicadaPopover()
                 case .howSleepWorks: HowSleepWorksContent()
+                case .inbox: InboxHelpPopover()
                 }
             }
+    }
+}
+
+// MARK: - The Inbox's ?
+
+/// R-DI17 / DR-25 — the Inbox's `?`: the subtitle the page no longer prints, and the keys that act on
+/// it, each with its pointer twin on the page (DR-49, DR-68).
+enum InboxHelp {
+    struct Key: Equatable { let key: String; let does: String }
+    static let keys: [Key] = [
+        .init(key: "1–9", does: "Answer with an option"),
+        .init(key: "↑ ↓", does: "Move through the questions, or the answers"),
+        .init(key: "⏎", does: "Answer with the highlighted option"),
+        .init(key: "O", does: "Other… — say what's actually true"),
+        .init(key: "L", does: "Not now — ask again in 7 days"),
+        .init(key: "⌘Z", does: "Undo the last answer"),
+        .init(key: "Esc", does: "Close Other…, then the rightmost column"),
+        .init(key: "Tab", does: "Move between the list, the question and the conversation"),
+    ]
+}
+
+struct InboxHelpPopover: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            SectionLabel("How the inbox works")
+            Text(Copy.inboxSubtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textPrimary)
+            ForEach(InboxHelp.keys, id: \.key) { k in
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    KeyHint(k.key).frame(minWidth: CicadaTheme.scaled(44), alignment: .leading)
+                    Text(k.does).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            }
+        }
+        .padding(CicadaTheme.spacingLG)
+        .frame(width: CicadaTheme.scaled(340))
+        .background(CicadaTheme.bgMenu)
     }
 }
 
