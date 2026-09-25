@@ -139,8 +139,19 @@ def _write_showcase(bank_dir: Path, today: date) -> None:
     demo_showcase.write(bank_dir, today, commit=_run_commit)
 
 
+def _roster_day(kind: str, entity_id: str, day: date) -> str:
+    """The day a roster page was created and last mentioned. The people the showcase draws pictures for
+    (`demo_showcase.PICTURED_PEOPLE`) are the ones the demo's today is about — Leo's conversation, the calendar's
+    standup, lunch and paper reading — so they are dated today; the rest of the roster's people, yesterday. Clusters
+    orders a card recently mentioned first, A→Z on a tie (R-PE13): with every person tied on today, the People card
+    opened on six alphabetical monograms and the showcase's pictures sat out of sight. One day is data the app already
+    reads honestly; nothing decays or goes quiet over it."""
+    if kind == "person" and entity_id not in demo_showcase.PICTURED_PEOPLE:
+        return str(day - timedelta(days=1))
+    return str(day)
+
+
 def _write_entities(bank_dir: Path, day: date) -> None:
-    today = str(day)
     for kind, ids in (
         ("person", _PEOPLE),
         ("project", _PROJECTS),
@@ -149,13 +160,14 @@ def _write_entities(bank_dir: Path, day: date) -> None:
         ("concept", _CONCEPTS),
     ):
         for entity_id in ids:
+            when = _roster_day(kind, entity_id, day)
             fm = {
                 "name": entity_id.replace("-", " ").title(),
                 "type": kind,
                 "status": "active",
                 "confidence": 0.7,
-                "created": today,
-                "last_referenced": today,
+                "created": when,
+                "last_referenced": when,
                 **decay_policy.frontmatter_fields(decay_policy.default_class_for(kind)),
                 "source_episodes": [],
                 "tags": [],

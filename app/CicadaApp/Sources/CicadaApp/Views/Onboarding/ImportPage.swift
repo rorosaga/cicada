@@ -31,7 +31,7 @@ struct ImportPage: View {
         let two = OnboardingLayout.importColumns(columnWidth: columnWidth, scale: CGFloat(CicadaTheme.uiScale)) == 2
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
             VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                privacyBanner
+                ImportPrivacyBanner(memoryRoot: memoryRoot)
                 OnboardingHeadline(title: Copy.importTitle, subline: Copy.importSubline)
                 if let browsersGroup = groups.first(where: { $0.category == .browsers }) {
                     category(browsersGroup.category, browsersGroup.entries, now: context.date) {
@@ -60,27 +60,6 @@ struct ImportPage: View {
             }
         }
         .onAppear { revealed = true }
-    }
-
-    // MARK: Banner
-
-    private var privacyBanner: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "laptopcomputer").foregroundStyle(CicadaTheme.textSecondary)
-            Text(Copy.importPrivateLead).font(CicadaTheme.font(size: 13, weight: .medium))
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text(Copy.importPrivateTail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
-                .lineLimit(1)
-            Spacer(minLength: CicadaTheme.spacingSM)
-            TextButton(title: Copy.showInFinder) {
-                if let memoryRoot { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: memoryRoot)]) }
-            }
-            .disabled(memoryRoot == nil)
-        }
-        .padding(CicadaTheme.spacingMD)
-        .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        .privacySensitive()
     }
 
     // MARK: A category
@@ -218,6 +197,59 @@ struct ImportPage: View {
         panel.message = Copy.intakeDropTitle
         guard panel.runModal() == .OK else { return }
         intake.accept(urls: panel.urls, from: .welcome)
+    }
+}
+
+/// F-02's "Private by design" banner: the promise is read in full or it is not made. Laid out as one row (title,
+/// sentence and *Show in Finder* side by side), the live pass saw the title wrap to three lines and the sentence cut
+/// mid-word at the column's real width. The title now sits over its sentence, and *Show in Finder* trails them only
+/// while both read as one line each (`ViewThatFits` measures, so ⌘+ and a narrow window need no width threshold);
+/// otherwise it drops under the text, which wraps and never truncates. DR-16, DR-40, DR-70.
+struct ImportPrivacyBanner: View {
+    let memoryRoot: String?
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                glyph
+                words
+                Spacer(minLength: CicadaTheme.spacingSM)
+                showInFinder
+            }
+            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+                glyph
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    words
+                    showInFinder
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(CicadaTheme.spacingMD)
+        .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .privacySensitive()
+    }
+
+    private var glyph: some View {
+        Image(systemName: "laptopcomputer").foregroundStyle(CicadaTheme.textSecondary)
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(Copy.importPrivateLead).font(CicadaTheme.font(size: 13, weight: .medium))
+                .foregroundStyle(CicadaTheme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Copy.importPrivateTail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var showInFinder: some View {
+        TextButton(title: Copy.showInFinder) {
+            if let memoryRoot { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: memoryRoot)]) }
+        }
+        .disabled(memoryRoot == nil)
     }
 }
 

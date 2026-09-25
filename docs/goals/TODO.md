@@ -4,7 +4,17 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (end of 2026-09-24) — round 3
+## Where things stand (2026-09-25) — round 4 closed
+
+**Round 4 is merged (PRs #101–#117, all on `dev`, promoted to `main` on the owner's instruction).** Phase A: the
+per-turn model/effort join (#104/#105), frequency-aware decay G147 (#102), implicit recall G149 (#106), backlogs in
+memory G150 (#107), the clipboard fix (#108), browsers + Safari extras + `SourceRow` (#109), pictures + Clusters + the
+person card G146 (#110), the living painting + Home + Settings F-10 (#111), more agents + the live ✓ + OpenRouter (#112,
+#113), tab groups G160 + Contacts G154 (#114). Phase B: the demo that shows everything + the tour G152 (#115), the paged
+onboarding G145/G153 + the quiet login start G143 (#116), live-pass polish (#117). **Pick up here:** the owner's clean
+run of onboarding with his own ChatGPT and Claude exports; then the parked findings in the live pass (a guessed logo,
+repeated paper titles, a raw predicate in a belief row, the Codex card's wording) and the rows in *Next session* below.
+
 
 ### Round 4 (2026-09-24) — owner decisions and queue
 
@@ -63,12 +73,13 @@ Every row, the topbar, You're set and Getting started read one projection, `Setu
 Dock icon brings the window; `-CicadaLaunchKind loginItem` exercises it without a logout. No backend change; seams 1–3
 used as given. **Seam 4 shipped (2026-09-25, same branch):** a Contacts row under "Calendar & contacts" and Chrome's
 open tab-group sub-row under Chrome — one `ImportEntry` + one `AppSourceDriver` each, registered on the Import page
-and Home's Getting started. **Verified by the
-orchestrator on install:** the plan's end checks — both suites green, the two lints that must bite, each page live at
-1440 × 900 and 1200 × 800 in both themes and scenes (a tick reading before Continue, × stopping a browser run, Safari's
-Full Disk Access fix starting it by itself, Codex's four commands, F-05 leaving `connections.json` untouched without a
-click, F-06 agreeing with Settings, the same quote on a rerun, Open Cicada landing on Home with the tour offer pending),
-the rerun path, and the quiet start by launch argument and by Dock click.
+and Home's Getting started. **Live pass by the orchestrator (2026-09-25, the installed debug build, 1200 × 910, dark theme, night scene, a
+throwaway bank):** every page F-01 → F-07 read as designed; See how opened on Claude's steps; Open Cicada landed on Home
+with *Make it yours* and the tour offer; the tour's stops navigate and Skip works; Settings → General → *Explore the
+demo* opened the demo with the tour and the F-08 banner, and *Finish setting up →* returned to the real bank left most
+recently with the Welcome. Three findings were fixed in #117 (the F-02 banner, equal engine-card heights, the demo's
+pictured people first). **Not yet checked live:** the light theme and day/afternoon scenes, × stopping a browser run,
+Safari's Full Disk Access fix starting it by itself, and the quiet start after a real login.
 
 **Phase B, T-Demo (G117 round 4, G152)** — built on `feat/r4-demo` (plan `docs/superpowers/plans/2026-09-24-r4-demo.md`):
 the demo shows everything (`demo_showcase`), `/banks` says which bank is the demo, `POST /banks/demo` re-opens it,
@@ -986,6 +997,15 @@ the report for what was checked)*
 ---
 
 ## 🩹 Known-broken, not yet queued
+- **Round-4 live pass (2026-09-25), seen and not fixed:** (1) `logo_service._slug_guess` turns a one-word *tool*
+  name into `<name>.com`, and a real site there can serve someone else's favicon (a model's page showed a social app's
+  mark in Clusters) — guess only for `company`, or refuse an icon identical to a known brand's; (2) several saved papers
+  share one garbled title starting with "!" — suspect G133's folder-paper title extraction; (3) a claim with no prose
+  renders its raw predicate in a belief row ("X works-at Y") — humanise the fallback; (4) Codex shows no ✓ while its Stop
+  hook captures, because MCP recall is off — honest, but the card should say "your sessions already save; connect so
+  Codex can read your memory"; (5) a demo generated before #115 is re-opened with its old content — delete it in
+  Settings → Privacy & data and open the demo again (a generator version on `_bank.yaml` would let the route replace an
+  untouched old demo) — each XS–S
 - Sidebar footer: the sun/moon button next to the gear writes `cicada.colorScheme` but the owner reports
   nothing happens on press (2026-09-03) — verify whether the scheme is applied at the root (`preferredColorScheme`)
   and whether the graph page (hard-coded dark d3 palette, see GraphView.swift comment) masks it — XS

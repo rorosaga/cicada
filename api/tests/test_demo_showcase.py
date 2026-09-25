@@ -62,6 +62,23 @@ def test_people_and_a_company_have_pictures_the_app_can_load(bank, client):
     assert nodes[demo_showcase.ARTICLE_ID]["picture"] == demo_showcase.ARTICLE_THUMBNAIL
 
 
+def test_the_people_card_opens_on_the_pictured_people(client):
+    """Clusters orders a card recently mentioned first, A→Z on a tie (R-PE13, `ClustersModel.filtered`), and the first
+    row of cards shows six tiles (`ClustersGrid.firstRowTiles`). With every roster person dated today the card opened
+    on six alphabetical monograms; the pictured people are today's, the rest of the roster yesterday's."""
+    people = [n for n in client.get("/graph").json()["nodes"] if n.get("type") == "person"]
+    by_name = sorted(people, key=lambda n: n["name"].casefold())
+    card = sorted(by_name, key=lambda n: n.get("lastReferenced") or "", reverse=True)
+    first_row = [n["id"] for n in card[:6]]
+    assert set(demo_showcase.PICTURED_PEOPLE) <= set(first_row), first_row
+    pictured = {n["id"]: n for n in people if n["id"] in demo_showcase.PICTURED_PEOPLE}
+    assert all(n.get("pictureSource") == "upload" for n in pictured.values())
+    # The owner and the scenario's labmate are dated by their own writers (`ensure_owner_entity`, the G141 scenario).
+    newest_monogram = max(n["lastReferenced"] for n in people
+                          if n["id"] not in pictured and not n.get("isOwner") and n["id"] != "hana-example")
+    assert all(n["lastReferenced"] > newest_monogram for n in pictured.values()), "the roster's others are older"
+
+
 def test_the_feed_holds_a_video_an_article_a_paper_and_the_scenarios_guide(client):
     rows = {r["mediaEntityId"]: r for r in client.get("/sources").json()["items"]}
     video = rows[demo_showcase.VIDEO_ID]
