@@ -15,10 +15,11 @@ memory. Covers:
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
-from api.services import agentic_write, markdown_parser, predicates
+from api.services import agentic_write, markdown_parser, owner_identity, predicates
 from api.services.claims import Claim, parse_claims, write_claims
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -352,7 +353,15 @@ def test_cicada_write_claim_registered_in_tools():
 
     tool = {t["name"]: t for t in server.TOOLS}["cicada_write_claim"]
     desc = tool["description"].lower()
-    assert "observer='rodrigo'" in desc or "observer= 'rodrigo'" in desc or "rodrigo" in desc
+    # Track P R8 — the legacy observer VALUE stays accepted, but the tool
+    # description stops advertising it: an agent should send 'owner', and the
+    # compatibility promise now lives where a client can act on it (the pattern),
+    # not in prose that reaches every agent on `initialize` carrying a real
+    # person's name. Read from the constant so no test types the name.
+    assert "observer='owner'" in desc
+    assert owner_identity.LEGACY_OBSERVER not in desc
+    assert re.fullmatch(tool["inputSchema"]["properties"]["observer"]["pattern"],
+                        owner_identity.LEGACY_OBSERVER), "still accepted (Q-R11), never advertised"
     assert "agent" in desc
     assert set(tool["inputSchema"]["required"]) == {"subject", "predicate", "object"}
 
@@ -498,3 +507,24 @@ def test_write_claim_without_origin_is_unchanged(tmp_path):
     write_claim(tmp_path, "media-a-recipe", "relates-to", "cooking", observer="rodrigo")
     claims = parse_claims(markdown_parser.parse(entities / "media-a-recipe.md").body)
     assert [c.origin for c in claims if c.predicate == "relates-to"] == ["manual_edit"]
+
+
+def test_a_new_page_opens_with_a_sentence_from_the_claim_it_was_created_for(tmp_path):
+    """F1 R-FX9 — no placeholder; the fence follows the Summary as on every page."""
+    from api.services.claims import strip_claims_block
+
+    agentic_write.write_claim(tmp_path, "alpha-project", "depends-on", "sqlite-vec", observer="agent")
+    body = markdown_parser.parse(tmp_path / "entities" / "alpha-project.md").body
+    assert "created via agentic write" not in body
+    assert strip_claims_block(body) == "## Summary\nAlpha-project depends on sqlite-vec."
+    assert body.rstrip().endswith("`" * 3)
+
+
+def test_the_agents_own_claim_text_wins_and_a_later_claim_never_rewrites_it(tmp_path):
+    from api.services.claims import strip_claims_block
+
+    agentic_write.write_claim(tmp_path, "Alpha Project", "runs-on", "a Raspberry Pi", observer="agent",
+                              text="Alpha Project runs on a Raspberry Pi")
+    agentic_write.write_claim(tmp_path, "alpha-project", "uses", "sqlite-vec", observer="agent")
+    body = markdown_parser.parse(tmp_path / "entities" / "alpha-project.md").body
+    assert strip_claims_block(body) == "## Summary\nAlpha Project runs on a Raspberry Pi."

@@ -21,8 +21,8 @@ from api.services.connections.base import CliResult
 def test_argv_pins_the_verified_flag_set():
     argv = agent_engine.build_argv(model="sonnet", system_prompt="SYS")
     assert argv[0] == "claude"
-    for flag in ("-p", "--output-format", "json", "--safe-mode",
-                 "--strict-mcp-config", "--tools", "--no-session-persistence"):
+    for flag in ("-p", "--output-format", "stream-json", "--verbose", "--setting-sources",
+                 "--safe-mode", "--strict-mcp-config", "--tools", "--no-session-persistence"):
         assert flag in argv
     # `--tools ""` is the empty-string value right after the flag.
     assert argv[argv.index("--tools") + 1] == ""
@@ -440,3 +440,143 @@ def test_probe_rejects_non_plan_auth_with_the_login_fix():
 def test_probe_reports_a_missing_binary():
     ok, detail = agent_engine.probe(runner=lambda argv, **kw: CliResult(127, "", "not found"))
     assert not ok and "not installed" in detail
+
+
+def test_is_valid_model_id_matches_build_argvs_charset():
+    """G122 — `sleep_engine_prefs` validates a PUT body's model id through
+    this public wrapper rather than reaching into the private `_MODEL_ID_RE`
+    `build_argv` itself enforces (see that function's own docstring)."""
+    for ok in ("sonnet", "claude-sonnet-5", "ollama/llama3.1:8b"):
+        assert agent_engine.is_valid_model_id(ok), ok
+    for bad in ("", "-oops", "rm -rf"):
+        assert not agent_engine.is_valid_model_id(bad), bad
+
+
+# --------------------------------------------------------------------------- #
+# R-E1 — stream-json, the stop rules, capped retries, effort, the Stage-1 schema
+# --------------------------------------------------------------------------- #
+
+def test_argv_v2_pins_stream_json_verbose_and_no_setting_sources():
+    argv = agent_engine.build_argv(model="sonnet", system_prompt="SYS")
+    assert argv[argv.index("--output-format") + 1] == "stream-json" and "--verbose" in argv
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    assert "--effort" not in argv
+
+
+def test_argv_carries_a_valid_effort_and_rejects_a_flag_shaped_one():
+    argv = agent_engine.build_argv(model="sonnet", system_prompt="S", effort="low")
+    assert argv[argv.index("--effort") + 1] == "low"
+    with pytest.raises(engine_errors.EngineModelNotFound):
+        agent_engine.build_argv(model="sonnet", system_prompt="S", effort="--bare")
+
+
+def test_complete_caps_the_clis_own_retries(agent_runner, agent_envelopes):
+    runner = agent_runner(agent_envelopes["success"])
+    agent_engine.complete(messages=[{"role": "user", "content": "x"}], model="sonnet", runner=runner)
+    assert runner.calls[0]["env_overrides"] == {"CLAUDE_CODE_MAX_RETRIES": "2"}
+
+
+def test_the_stage1_schema_ships_only_behind_its_flag(agent_runner, agent_envelopes):
+    runner = agent_runner(agent_envelopes["success"])
+    msgs = [{"role": "user", "content": "x"}]
+    agent_engine.complete(messages=msgs, model="sonnet", stage="extraction", want_json=True, runner=runner)
+    assert "--json-schema" not in runner.calls[0]["argv"]
+    agent_engine.complete(messages=msgs, model="sonnet", stage="extraction", want_json=True,
+                          runner=runner, policy=agent_engine.CallPolicy(extraction_schema=True))
+    argv = runner.calls[1]["argv"]
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    assert "evidence_quote" in schema["properties"]["relationships"]["items"]["properties"]
+
+
+def test_a_stop_on_a_failed_call_raises_the_right_error(agent_runner, claude_stream):
+    msgs = [{"role": "user", "content": "x"}]
+    overage = CliResult(1, claude_stream("rate_limited", rate_limits=[
+        {"status": "rejected", "rateLimitType": "overage", "isUsingOverage": True}]), "")
+    with pytest.raises(engine_errors.EngineOverage):
+        agent_engine.complete(messages=msgs, model="sonnet", runner=agent_runner(overage))
+    weekly = CliResult(1, claude_stream("rate_limited", rate_limits=[
+        {"status": "rejected", "rateLimitType": "seven_day", "resetsAt": 1790000000}]), "")
+    with pytest.raises(engine_errors.EngineExhausted) as info:
+        agent_engine.complete(messages=msgs, model="sonnet", runner=agent_runner(weekly))
+    assert info.value.resets_at == 1790000000
+    five = CliResult(1, claude_stream("rate_limited", rate_limits=[
+        {"status": "rejected", "rateLimitType": "five_hour"}]), "")
+    with pytest.raises(engine_errors.EngineThrottled):
+        agent_engine.complete(messages=msgs, model="sonnet", runner=agent_runner(five))
+
+
+def test_a_near_limit_stop_on_a_failed_call_keeps_the_failures_real_class(agent_runner, claude_stream):
+    """Final review H1: past 90% of the 5-hour window, an unrelated failure (a
+    bad model id) must not be re-raised as EngineThrottled — that would trip
+    the breaker for a throttle the plan never enforced. The stop still
+    reaches ``on_signals``."""
+    seen = {}
+    bad_model = CliResult(1, claude_stream("model_not_found", rate_limits=[
+        {"status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.95}]), "")
+    with pytest.raises(engine_errors.EngineError) as info:
+        agent_engine.complete(messages=[{"role": "user", "content": "x"}], model="sonnet",
+                              runner=agent_runner(bad_model),
+                              on_signals=lambda stream, stop: seen.update(stop=stop))
+    assert not isinstance(info.value, engine_errors.EngineThrottled)
+    assert seen["stop"].kind == "near_limit"
+
+
+def test_a_stop_on_a_successful_call_keeps_the_answer_and_reports_the_stop(agent_runner, claude_stream):
+    seen = {}
+    runner = agent_runner(CliResult(0, claude_stream("success", rate_limits=[
+        {"status": "allowed_warning", "rateLimitType": "five_hour", "utilization": 0.93}]), ""))
+    envelope = agent_engine.complete(
+        messages=[{"role": "user", "content": "x"}], model="sonnet", runner=runner,
+        on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop))
+    assert envelope["subtype"] == "success"
+    assert seen["stop"].kind == "near_limit" and "93% used" in seen["stop"].sentence
+
+
+def test_an_opted_in_overage_does_not_stop(agent_runner, claude_stream):
+    seen = {}
+    runner = agent_runner(CliResult(0, claude_stream("success", rate_limits=[
+        {"status": "allowed", "rateLimitType": "overage", "isUsingOverage": True}]), ""))
+    agent_engine.complete(messages=[{"role": "user", "content": "x"}], model="sonnet", runner=runner,
+                          policy=agent_engine.CallPolicy(allow_overage=True),
+                          on_signals=lambda stream, stop: seen.update(stop=stop))
+    assert seen["stop"] is None
+
+
+def test_a_rate_limit_retry_that_runs_out_the_clock_is_a_throttle_not_a_timeout():
+    stdout = json.dumps({"type": "system", "subtype": "api_retry", "error": "rate_limit",
+                         "error_status": 429}) + "\n"
+    with pytest.raises(engine_errors.EngineThrottled):
+        agent_engine.parse_envelope(CliResult(124, stdout, "claude timed out after 300s"))
+    with pytest.raises(engine_errors.EngineTimeout):
+        agent_engine.parse_envelope(CliResult(124, "", "claude timed out after 300s"))
+
+
+def test_a_billing_retry_is_exhaustion(claude_stream):
+    stdout = claude_stream("unclassified_error", retries=[{"error": "billing_error"}])
+    with pytest.raises(engine_errors.EngineExhausted):
+        agent_engine.parse_envelope(CliResult(1, stdout, ""))
+
+
+def test_a_truncated_stream_is_a_retryable_protocol_error(claude_stream):
+    with pytest.raises(engine_errors.EngineProtocolError):
+        agent_engine.parse_envelope(CliResult(0, claude_stream(None), ""))
+
+
+def test_shim_prefers_the_validated_structured_output():
+    env = {"type": "result", "subtype": "success", "is_error": False, "result": "prose",
+           "structured_output": {"ok": True}, "usage": {}}
+    assert agent_engine.response_shim(env, "sonnet").choices[0].message.content == '{"ok": true}'
+
+
+def test_a_live_shaped_event_with_no_top_level_utilization_still_stops(agent_runner, claude_stream):
+    """claude 2.1.280 reports the fraction only under `unifiedWindows`
+    (fixtures/claude_stream_live.jsonl) — the 90 % rule must still fire."""
+    seen = {}
+    runner = agent_runner(CliResult(0, claude_stream("success", rate_limits=[{
+        "status": "allowed", "rateLimitType": "five_hour", "resetsAt": 1790000000,
+        "overageStatus": "rejected", "isUsingOverage": False,
+        "unifiedWindows": {"five_hour": {"utilization": 0.92, "resetsAt": 1790000000},
+                           "seven_day": {"utilization": 0.4, "resetsAt": 1790100000}}}]), ""))
+    agent_engine.complete(messages=[{"role": "user", "content": "x"}], model="sonnet", runner=runner,
+                          on_signals=lambda stream, stop: seen.update(stop=stop))
+    assert seen["stop"].kind == "near_limit" and "92% used" in seen["stop"].sentence

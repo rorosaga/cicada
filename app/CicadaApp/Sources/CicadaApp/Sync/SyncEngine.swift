@@ -21,9 +21,16 @@ final class SyncEngine {
     private var task: Task<Void, Never>?
 
     /// Backoff bounds and the disconnected poll cadence, in seconds.
-    private let minBackoff: Double = 1
-    private let maxBackoff: Double = 30
-    private let pollInterval: Double = 3
+    ///
+    /// `nonisolated static` rather than private instance lets, because these
+    /// numbers are the definition of how long `store.isConnected` can be false
+    /// over a perfectly healthy backend, and one reader outside this file
+    /// depends on that: `SleepLiveness.staleAfter` must clear `maxBackoff`, or
+    /// the Sleep page calls itself stale on every reconnect (final review,
+    /// finding 1). A test asserts the relation against these, not a copy.
+    nonisolated static let minBackoff: Double = 1
+    nonisolated static let maxBackoff: Double = 30
+    nonisolated static let pollInterval: Double = 3
 
     init(api: any SyncAPI) {
         self.api = api
@@ -40,7 +47,7 @@ final class SyncEngine {
     func start() {
         task?.cancel()
         task = Task { [weak self] in
-            var backoff = self?.minBackoff ?? 1
+            var backoff = Self.minBackoff
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
@@ -53,7 +60,7 @@ final class SyncEngine {
                     // Clear the decks on every (re)connect.
                     self.store.resetInFlight()
                     self.store.isConnected = true
-                    backoff = self.minBackoff
+                    backoff = Self.minBackoff
                     var parser = SSEParser()
                     for try await line in lines {
                         if Task.isCancelled { return }
@@ -72,9 +79,9 @@ final class SyncEngine {
                     if let version = try? await self.api.fetchSyncVersion() {
                         await self.store.apply(version: version)
                     }
-                    try? await Task.sleep(for: .seconds(self.pollInterval))
+                    try? await Task.sleep(for: .seconds(Self.pollInterval))
                 } while Date() < until && !Task.isCancelled
-                backoff = min(self.maxBackoff, backoff * 2)
+                backoff = min(Self.maxBackoff, backoff * 2)
             }
         }
     }

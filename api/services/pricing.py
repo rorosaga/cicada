@@ -24,6 +24,13 @@ TIERED: dict[tuple[str, str], tuple[str, ...]] = {
 
 _BRAND = {"claude-plan": "Claude", "chatgpt-plan": "ChatGPT", "gemini-plan": "Google AI", "copilot-plan": "Copilot"}
 
+#: Plan strings the vendor reports that Cicada names but does not price
+#: (R-E29): `codex app-server`'s `account/read` returned `prolite` live on
+#: 2026-09-23. No price is shown in the app regardless (2026-09-03 ruling);
+#: the name must still read as a plan, not "Prolite".
+PLAN_NAMES: dict[tuple[str, str], str] = {("chatgpt-plan", "prolite"): "Pro Lite"}
+UNPRICED_NOTE = "price not tracked for this plan"
+
 
 def price_for(connection_id: str, plan: str | None, tier: str | None = None) -> tuple[float | None, str]:
     if not plan:
@@ -38,6 +45,8 @@ def price_for(connection_id: str, plan: str | None, tier: str | None = None) -> 
         return None, f"{plan.capitalize()} is {options} — pick your tier"
     if plan in table:
         return table[plan], f"verified {PRICES_VERIFIED}"
+    if (connection_id, plan) in PLAN_NAMES:
+        return None, UNPRICED_NOTE
     return None, f"price unknown for '{plan}'"
 
 
@@ -45,7 +54,10 @@ def plan_label(connection_id: str, plan: str | None, tier: str | None) -> str | 
     if not plan:
         return None
     brand = _BRAND.get(connection_id, connection_id)
-    label = f"{brand} {plan.replace('-', ' ').title()}"
+    # Any other vendor enum value (`self_serve_business_prolite`, …) reads as
+    # words rather than an identifier (R-E29).
+    name = PLAN_NAMES.get((connection_id, plan.lower())) or plan.replace("-", " ").replace("_", " ").title()
+    label = f"{brand} {name}"
     if tier and TIERED.get((connection_id, plan.lower())):
         label += f" {tier}"
     return label

@@ -31,12 +31,15 @@ final class GraphViewModel {
     /// Distinct contexts present across nodes/edges. Drives the §2 context
     /// legend. Derived client-side from the loaded graph.
     private(set) var contextRoster: [String] = []
+    /// The whose-beliefs tab that is on (`nil` = All). It lived in the retired `ObserverFilterBar`'s own
+    /// `@State`, which a rebuilt view forgot while the filter kept dimming (R-DG3).
+    private(set) var observerSelection: String?
     private var lastSyncedLoadedAt: Date?
 
     /// True only when the graph has more than one distinct observer. A
     /// single-observer graph (e.g. everything asserted by `agent`) can't be
     /// meaningfully filtered — every segment would show the same slice — so
-    /// `ObserverFilterBar` gates its visibility on this rather than just
+    /// the whose-beliefs tabs show only on this rather than just
     /// `observerRoster.isEmpty`.
     var hasObserverDiversity: Bool {
         observerRoster.count > 1
@@ -54,7 +57,21 @@ final class GraphViewModel {
     var backTargetName: String? { navHistory.backTarget?.name }
     var isGraphReady = false
     var zoomAction: ZoomAction?
-    var showFilterPopover = false
+    /// Sticky pan mode from the toolbar toggle; `GraphView.updateNSView` mirrors
+    /// it into graph.js (`setPanToggle`). Holding Shift is the momentary twin.
+    var panModeOn = false
+    /// G123: a node id the web view should land on (zoom to its neighbourhood)
+    /// on the next update; consumed by `GraphView.updateNSView`.
+    var pendingReveal: String?
+    /// DS-3a R-DG11 — the last canvas event the PAGE answers (Esc, a click on empty canvas), and a counter
+    /// so two identical events in a row are two changes `onChange` sees.
+    private(set) var canvasEvent: CanvasEvent?
+    private(set) var canvasEventCount = 0
+
+    func receive(_ event: CanvasEvent) {
+        canvasEvent = event
+        canvasEventCount &+= 1
+    }
     var pendingFilterUpdate = false
     /// Flips true whenever a fresh graph snapshot lands (initial load, a
     /// Sleep cycle, an SSE-driven refresh) so `GraphView.updateNSView` knows
@@ -172,6 +189,9 @@ final class GraphViewModel {
             entities = []
             observerRoster = []
             contextRoster = []
+            // A bank switch drops the lens with the roster it was chosen from.
+            observerSelection = nil
+            filter.observers = []
             selectedEntity = nil
             // A bank switch invalidates any "go deeper" trail just as much
             // as the selection itself — the entities in it belong to a graph
@@ -191,10 +211,8 @@ final class GraphViewModel {
         } else {
             observerRoster = Array(Set(response.nodes.flatMap { $0.observers })).sorted()
         }
-        var ctxs = Set(response.nodes.flatMap { $0.contexts })
-        for n in response.nodes { if let c = n.context { ctxs.insert(c) } }
-        for e in response.links { if let c = e.context { ctxs.insert(c) } }
-        contextRoster = ctxs.sorted()
+        // F1 R-FX3 — real contexts only; see `ClaimContext`.
+        contextRoster = ClaimContext.roster(nodes: response.nodes, links: response.links)
         entities = response.nodes.map { node in
             // Stub entity: the full markdown body is loaded lazily via
             // `selectEntity`/`store.entity(_:)`. §5.7 — seed `markdownContent`
@@ -208,7 +226,7 @@ final class GraphViewModel {
                 status: node.status,
                 confidence: node.confidence,
                 created: "",
-                lastReferenced: "",
+                lastReferenced: node.lastReferenced ?? "",
                 decayRate: 0,
                 sourceEpisodes: [],
                 tags: node.tags,
@@ -216,7 +234,9 @@ final class GraphViewModel {
                 version: 0,
                 markdownContent: node.summary ?? "",
                 history: [],
-                decayClass: node.decayClass
+                decayClass: node.decayClass,
+                pictureURL: node.picture,
+                pictureSource: node.pictureSource
             )
         }
         edges = response.links
@@ -376,9 +396,18 @@ final class GraphViewModel {
     /// `external:*` observer in the roster. Non-matching nodes are dimmed (not
     /// deleted) by graph.js via the same focus-alpha mechanism.
     func setObserver(_ wire: String?) {
+        observerSelection = wire
         guard let wire else { filter.observers = []; return }
         if wire == "external" {
             filter.observers = Set(observerRoster.filter { $0.hasPrefix("external:") })
+        } else if wire == "__owner__" {
+            // G117 R2 — mirrors the "external" branch immediately above: the
+            // roster scan is the same not-agent/not-external rule
+            // Observer.init now applies, kept in sync deliberately (both
+            // read the SAME three-keyword protocol) so the "You" segment
+            // selects every observer the backend resolved as the owner,
+            // whatever slug that turned out to be.
+            filter.observers = Set(observerRoster.filter { $0 != "agent" && !$0.hasPrefix("external:") })
         } else {
             filter.observers = [wire]
         }
@@ -409,6 +438,67 @@ final class GraphViewModel {
     func selectEntity(id: String) {
         navHistory.reset()
         applySelection(id: id)
+    }
+
+    /// G123: zoom the graph to a node's neighbourhood and open its card.
+    /// Every navigation that arrives from outside the canvas goes through here
+    /// — the search field's ⏎, an Ask answer's citation, an entity chip on a
+    /// source page — so they all land on the node instead of opening a card
+    /// while the viewport stays wherever it was left. A click on the canvas
+    /// itself does not: you are already looking at the node you hit.
+    func revealEntity(id: String) {
+        pendingReveal = id
+        selectEntity(id: id)
+    }
+
+    /// A typeahead row: the node and the scalar runs to bold in its name.
+    struct SearchHit {
+        let node: GraphNode
+        let ranges: [[Int]]
+    }
+
+    /// G123 through `QuickMatch` (G136 S5): the name, then tags — the
+    /// palette's ranker, so the two never order one name differently. Over
+    /// the graph snapshot already in memory — no request per keystroke.
+    func searchHits(_ query: String, limit: Int = 8) -> [SearchHit] {
+        QuickMatch.rank(nodes, query: query, limit: limit, fields: Self.searchFields,
+                        tieBreak: { Double($0.degree) }, name: { $0.name.lowercased() })
+            .map { SearchHit(node: $0.item, ranges: $0.match.ranges(inField: 0)) }
+    }
+
+    nonisolated static func searchFields(_ node: GraphNode) -> [QuickMatch.Field] {
+        [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
+            + node.aliases.map { QuickMatch.Field($0, weight: QuickMatch.Weight.alias) }
+            + node.tags.map { QuickMatch.Field($0, weight: QuickMatch.Weight.keyword) }
+    }
+
+    func searchMatches(_ query: String, limit: Int = 8) -> [GraphNode] {
+        searchHits(query, limit: limit).map(\.node)
+    }
+
+    @ObservationIgnored private var clusterSearchCache: (stamp: Date?, count: Int, index: ClusterSearchIndex)?
+
+    /// Clusters' index (G136 S5): folded once per graph snapshot, on the first
+    /// keystroke after it changed — never per keystroke, and never for a
+    /// snapshot nobody searches. `entities` and `lastSyncedLoadedAt` move
+    /// together in `syncFromStore`, so the pair is the snapshot's identity.
+    func clusterSearchIndex() -> ClusterSearchIndex {
+        if let cache = clusterSearchCache, cache.stamp == lastSyncedLoadedAt, cache.count == entities.count {
+            return cache.index
+        }
+        let index = ClusterSearchIndex(entities)
+        clusterSearchCache = (lastSyncedLoadedAt, entities.count, index)
+        return index
+    }
+
+    /// G123's ranking, now `QuickMatch`'s (G136 R-SU4): the palette and this
+    /// typeahead can never order one name differently. `GraphSearchRankTests`
+    /// pins the behaviour it had before.
+    nonisolated static func rankNames(_ items: [(id: String, name: String, degree: Int)], query: String, limit: Int = 8) -> [String] {
+        QuickMatch.rank(items, query: query, limit: limit,
+                        fields: { [QuickMatch.Field($0.name, weight: QuickMatch.Weight.name)] },
+                        tieBreak: { Double($0.degree) },
+                        name: { $0.name.lowercased() }).map { $0.item.id }
     }
 
     /// Navigate DEEPER from within an already-open card — a wikilink tap, a
@@ -449,6 +539,7 @@ final class GraphViewModel {
     /// entity data from the Store's memoised entity cache. No manual
     /// main-actor hop needed — the whole VM is already @MainActor.
     private func applySelection(id: String) {
+        let id = ClaimContext.cardTarget(for: id, in: nodes)
         if let existing = entities.first(where: { $0.id == id }) {
             selectedEntity = existing
         }
@@ -491,6 +582,10 @@ final class GraphViewModel {
         guard let fullEntity = await store.entity(id) else { return }
         if let idx = entities.firstIndex(where: { $0.id == id }) {
             entities[idx] = fullEntity
+            // The body just grew from the node summary to the full page, and
+            // Clusters searches it (G136 S5) — refold on the next keystroke
+            // rather than serve the stub's text from `clusterSearchIndex()`.
+            clusterSearchCache = nil
         }
         if selectedEntity?.id == id {
             selectedEntity = fullEntity

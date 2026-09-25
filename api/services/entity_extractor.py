@@ -11,7 +11,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import decay_policy, engine_errors
+from api.services import decay_policy, engine_errors, evidence
 from api.services.json_parse import parse_json_object
 
 EXTRACTION_SYSTEM_PROMPT = """You are an entity extraction system for a personal knowledge graph.
@@ -43,7 +43,8 @@ Output valid JSON with this exact structure:
     {
       "source": "Entity Name A",
       "target": "Entity Name B",
-      "label": "specific relationship verb phrase"
+      "label": "specific relationship verb phrase",
+      "evidence_quote": "the exact words from the transcript this relationship rests on (verbatim, at most 240 characters)"
     }
   ]
 }
@@ -119,7 +120,12 @@ EXTRACTION GUIDELINES:
   and the string is a slash/tilde path, prefer `directory`.
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase (e.g. "works at", "built with", "supervised by", "depends on", "evaluated against",
-  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to"."""
+  "replaced by", "due"). Use short verb phrases, not full sentences or generic "related to".
+- EVIDENCE QUOTE (required on every relationship): copy the shortest passage of the transcript,
+  VERBATIM and at most 240 characters, that states this relationship — the sentence the user or
+  assistant actually wrote, not your paraphrase. If the relationship is your own inference across
+  several passages and no single passage states it, omit evidence_quote entirely. Never invent one:
+  a quote that is not in the transcript is discarded and the relationship is recorded as inference."""
 
 # Max concurrent LLM calls — stay under rate limits
 MAX_CONCURRENCY = 10
@@ -185,11 +191,17 @@ def sanitize_decay_class(entity: dict) -> None:
         entity["decay_class"] = cls.value
 
 
-def _chunk_content(content: str) -> list[str]:
-    """Split long content into overlapping chunks."""
+def _chunk_spans(content: str) -> list[tuple[int, int]]:
+    """Chunk boundaries as ``(start, end)`` offsets into ``content``.
+
+    Boundaries are unchanged from the original ``_chunk_content``; exposing
+    them is what lets G118's evidence verification prefer a quote's
+    occurrence inside the chunk the model actually saw (R11) while recording
+    offsets into the WHOLE body — the stored text a viewer will slice.
+    """
     if len(content) <= CHUNK_SIZE:
-        return [content]
-    chunks = []
+        return [(0, len(content))]
+    spans: list[tuple[int, int]] = []
     start = 0
     while start < len(content):
         end = start + CHUNK_SIZE
@@ -198,9 +210,14 @@ def _chunk_content(content: str) -> list[str]:
             newline_pos = content.rfind("\n", end - 200, end)
             if newline_pos > start:
                 end = newline_pos + 1
-        chunks.append(content[start:end])
+        spans.append((start, end))
         start = end - CHUNK_OVERLAP
-    return chunks
+    return spans
+
+
+def _chunk_content(content: str) -> list[str]:
+    """Split long content into overlapping chunks."""
+    return [content[s:e] for s, e in _chunk_spans(content)]
 
 
 async def _extract_chunk(
@@ -259,6 +276,7 @@ async def extract(
     *,
     cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[], None] | None = None,
+    on_episode_done: Callable[[dict], None] | None = None,
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
 
@@ -281,6 +299,14 @@ async def extract(
     ``update(1)``, which fires on every one of those paths already). This is
     what makes ``SleepStatusResponse``'s live "Progress %" during Stage 1
     possible without waiting for the whole fan-out to finish.
+
+    ``on_episode_done`` (G125 R3): an optional one-arg callback fired with
+    the episode dict itself, on every one of the same outcomes as
+    ``progress_callback`` above (right after it, in ``process_one``'s
+    ``finally``) — the study list's per-source countdown needs the
+    episode's ``origin`` to know WHICH source just finished, which the
+    zero-arg ``progress_callback`` can't carry without breaking its
+    existing callers.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
@@ -296,6 +322,12 @@ async def extract(
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
         leave=True,
     )
+    # R-E22: the per-episode reasons name the engine that actually ran.
+    from api.services import engine_select
+
+    _engine = engine_select.engine_label(settings)
+    plan_name = engine_select.PLAN_NAMES.get(_engine, "Claude plan")
+    tool_name = "Codex" if _engine == "codex-cli" else "Claude Code"
     entities_so_far = 0
 
     async def _do_process(i: int, episode: dict) -> None:
@@ -323,7 +355,8 @@ async def extract(
             success += 1
             return
 
-        chunks = _chunk_content(content)
+        spans = _chunk_spans(content)
+        chunks = [content[s:e] for s, e in spans]
 
         async with semaphore:
             # Sleep-control checkpoint 2: this task may have waited a while
@@ -339,7 +372,13 @@ async def extract(
                 for ci, chunk in enumerate(chunks):
                     parsed = await _extract_chunk(ep_id, chunk, ci, len(chunks), settings)
                     all_entities.extend(parsed.get("entities", []))
-                    all_relationships.extend(parsed.get("relationships", []))
+                    chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
+                    # G118: verify the cited passage against the body this
+                    # chunk came from, preferring the chunk window (R11). The
+                    # quote is consumed here — nothing downstream sees it.
+                    for rel in chunk_rels:
+                        evidence.attach_relationship_evidence(rel, ep_id, content, window=spans[ci], kind_override=episode.get("evidence_kind"))
+                    all_relationships.extend(chunk_rels)
 
                 ep_origin = episode.get("origin", "unknown")
                 for entity in all_entities:
@@ -382,18 +421,18 @@ async def extract(
             # for a plan that has no credits to check.
             except engine_errors.EngineThrottled as e:
                 failed += 1
-                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan throttled: {e}")
+                logger.error(f"  [{i+1}/{total}] {ep_id} — {plan_name} throttled: {e}")
             except engine_errors.EngineExhausted as e:
                 failed += 1
-                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude plan budget exhausted: {e}")
+                logger.error(f"  [{i+1}/{total}] {ep_id} — {plan_name} budget exhausted: {e}")
             except engine_errors.EngineUnavailable as e:
                 failed += 1
-                logger.error(f"  [{i+1}/{total}] {ep_id} — Claude Code is signed out or missing: {e}")
+                logger.error(f"  [{i+1}/{total}] {ep_id} — {tool_name} is signed out or missing: {e}")
             except engine_errors.EngineModelNotFound as e:
                 failed += 1
                 logger.error(
-                    f"  [{i+1}/{total}] {ep_id} — model not accepted by the Claude CLI "
-                    f"({settings.agent_model}): {e}"
+                    f"  [{i+1}/{total}] {ep_id} — model not accepted by the {tool_name} CLI "
+                    f"({engine_select.author_model(settings)}): {e}"
                 )
             except engine_errors.EngineError as e:
                 failed += 1
@@ -409,6 +448,8 @@ async def extract(
             progress.update(1)
             if progress_callback is not None:
                 progress_callback()
+            if on_episode_done is not None:
+                on_episode_done(episode)
 
     # Fire all tasks with semaphore-controlled concurrency
     try:
@@ -456,7 +497,9 @@ def _emit_claim_id(subject: str, predicate: str, obj: str, valid_from: str) -> s
     return f"clm_{base}_{digest}"
 
 
-def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
+def entities_to_claims(
+    extracted: list[dict], memory_path: Path | None, *, resolve_id: Callable[[str], str] | None = None,
+) -> list:
     """Project Stage-1 extraction output into perspectival ``Claim`` objects.
 
     Each relationship ``{source, target, label}`` becomes one claim
@@ -468,15 +511,22 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
     ``memory_path`` resolves the predicate normalizer; ``None`` slugifies labels
     deterministically (used by hermetic tests). Deterministic claim ids keep the
     projection idempotent across Sleep cycles.
+
+    ``resolve_id`` (G141 PJ-0, R-CS1) maps an endpoint's raw name to a page id:
+    Sleep passes ``claim_pipeline.subject_resolver`` over Stage 2's own
+    ``name_to_id``, so a claim lands on the page its edge does. Without it the
+    id is ``sanitize_id(name)`` — the pre-PJ-0 key every hermetic caller keeps.
     """
     from api.services import predicates
-    from api.services.claims import Claim
+    from api.services.claims import Claim, Evidence
     from api.services.id_utils import sanitize_id
+
+    to_id = resolve_id or sanitize_id
 
     normalize = predicates.load_normalizer(memory_path) if memory_path is not None else None
 
     claims: list = []
-    seen_ids: set[str] = set()
+    by_id: dict[str, Claim] = {}
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id", "") or "")
         origin = str(extraction.get("origin") or "unknown")
@@ -486,8 +536,8 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
             raw_label = str(rel.get("label", "") or "").strip() or "relates to"
             if not source or not target:
                 continue
-            subject = sanitize_id(source)
-            obj = sanitize_id(target)
+            subject = to_id(source)
+            obj = to_id(target)
             if subject == obj:
                 continue
             if normalize is not None:
@@ -497,9 +547,17 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
             ep = str(rel.get("source_episode", "") or episode_id)
             valid_from = _claim_date(rel.get("source_episode_timestamp"), ep)
             cid = _emit_claim_id(subject, predicate, obj, valid_from)
-            if cid in seen_ids:
+            rel_evidence = [
+                Evidence.from_dict(e) for e in (rel.get("evidence") or []) if isinstance(e, dict)
+            ]
+            if cid in by_id:
+                # Overlapping chunks re-emit the same triple; the first claim
+                # wins and only gains the later chunk's evidence (G118).
+                first = by_id[cid]
+                for ev in rel_evidence:
+                    if ev not in first.evidence:
+                        first.evidence.append(ev)
                 continue
-            seen_ids.add(cid)
             claim = Claim(
                 id=cid,
                 text=f"{source} {raw_label} {target}",
@@ -515,9 +573,11 @@ def entities_to_claims(extracted: list[dict], memory_path: Path | None) -> list:
                 valid_from=valid_from or None,
                 source_episodes=[ep] if ep else [],
                 origin=origin,
+                evidence=rel_evidence,
             )
             # The pre-normalization label (for the Stage-3 normalization audit).
             setattr(claim, "predicate_raw", raw_label)
+            by_id[cid] = claim
             claims.append(claim)
     return claims
 

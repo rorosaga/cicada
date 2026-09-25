@@ -85,12 +85,18 @@ final class FakeSyncAPI: SyncAPI {
     var writes: [String] = []
     /// When true, every write throws — drives the rollback paths.
     var failWrites = false
+    /// Thrown by every write when set — a specific server answer (a 409, say) rather than `failWrites`' unreachable.
+    var writeError: Error?
     /// Parks the next write until `releaseWriteGate()`, so a test can inspect
     /// the Store while a mutation is mid-flight.
     var gateWrites = false
     private var writeGate: CheckedContinuation<Void, Never>?
     /// Set once a gated write has actually parked.
     private(set) var writeIsParked = false
+    /// When true, a write from a cancelled task throws `CancellationError` before it is recorded, as
+    /// `URLSession.data(for:)` does with `URLError.cancelled`. Task 2 review round 1: a send running
+    /// inside the task it cancelled never left the app, and a fake that ignored cancellation hid it.
+    var honorsCancellation = false
 
     func releaseWriteGate() {
         let g = writeGate
@@ -109,6 +115,7 @@ final class FakeSyncAPI: SyncAPI {
     }
 
     private func record(_ what: String) async throws {
+        if honorsCancellation { try Task.checkCancellation() }
         writes.append(what)
         if gateWrites {
             await withCheckedContinuation { c in
@@ -117,6 +124,7 @@ final class FakeSyncAPI: SyncAPI {
             }
         }
         if failWrites { throw APIError.serverUnreachable }
+        if let writeError { throw writeError }
     }
 
     func resolveInbox(id: String, action: String, answer: String?,
@@ -168,6 +176,10 @@ final class FakeSyncAPI: SyncAPI {
         try await record("syncBookmarks:\(folders?.count ?? 0)")
         return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
     }
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
+        try await record("syncChromiumBookmarks:\(browser)")
+        return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
+    }
     func activateBank(name: String) async throws {
         try await record("activateBank:\(name)")
     }
@@ -176,6 +188,79 @@ final class FakeSyncAPI: SyncAPI {
         return try JSONDecoder().decode(
             SleepTriggerResponse.self,
             from: Data(#"{"status":"started","cycleId":"c1","message":"started"}"#.utf8))
+    }
+
+    // MARK: Projects (G141 PJ-5)
+
+    /// What every Projects write answers; set `projectWriteError` to drive a rollback (a 409 with the server's words).
+    var projectWriteReply = ProjectWriteResponse(action: "created", claimId: "clm_fake", day: "2026-09-23",
+                                                 dateBasis: "person")
+    var projectWriteError: (any Error)?
+
+    private func projectWrite(_ what: String) async throws -> ProjectWriteResponse {
+        try await record(what)
+        if let projectWriteError { throw projectWriteError }
+        return projectWriteReply
+    }
+
+    func addProjectMilestone(project: String, name: String, target: String?) async throws -> ProjectWriteResponse {
+        try await projectWrite("addProjectMilestone:\(project):\(name):\(target ?? "nil")")
+    }
+    func changeProjectMilestone(project: String, slug: String, change: MilestoneChange) async throws -> ProjectWriteResponse {
+        try await projectWrite("changeProjectMilestone:\(project):\(slug):\(change.status ?? "nil"):\(change.name ?? "nil")")
+    }
+    func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse {
+        try await projectWrite("logProjectHappening:\(project):\(status):\(when ?? "nil")")
+    }
+    func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse {
+        try await projectWrite("settleProjectThread:\(project):\(claimId):\(status)")
+    }
+    func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
+        try await projectWrite("withdrawProjectHappening:\(project):\(claimId)")
+    }
+
+    // MARK: Entity pictures (C11)
+
+    var pictureAnswer = EntityPictureAnswer(entityId: "bob-example", picture: nil, pictureSource: nil, pictureInputs: nil)
+    var pictureError: (any Error)?
+
+    private func pictureWrite(_ what: String) async throws -> EntityPictureAnswer {
+        try await record(what)
+        if let pictureError { throw pictureError }
+        return pictureAnswer
+    }
+
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("setEntityPicture:\(entityId):\(ext):\(data.count)")
+    }
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("useEntityInitials:\(entityId)")
+    }
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        try await pictureWrite("clearEntityPicture:\(entityId)")
+    }
+
+    // MARK: Backlog (G150)
+
+    /// What every backlog write answers; set `backlogError` to drive a rollback.
+    var backlogReply: BacklogItem?
+    var backlogError: (any Error)?
+
+    private func backlogWrite(_ what: String) async throws -> BacklogItem {
+        try await record(what)
+        if let backlogError { throw backlogError }
+        guard let backlogReply else { throw APIError.serverUnreachable }
+        return backlogReply
+    }
+
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
+        try await backlogWrite("addBacklogItem:\(project):\(title)")
+    }
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
+        try await backlogWrite("addBacklogNote:\(project):\(item):\(status ?? "nil")")
+    }
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem {
+        try await backlogWrite("updateBacklogItem:\(project):\(item):\(change.status ?? "nil"):\(change.title ?? "nil")")
     }
 
     private func connectionFixture(id: String) throws -> ConnectionStatus {
@@ -200,9 +285,23 @@ final class FakeSyncAPI: SyncAPI {
     var conversationIdFetches: [String] = []
     var failConversationById = false
 
-    func fetchRecentConversations(limit: Int) async throws -> [ConversationSummary] {
+    /// G136 R-SU22 — every `query` the fake was asked with, `nil` for a plain load.
+    var recentQueries: [String?] = []
+
+    /// G124 R5 — the fake filters the way the backend does: `harness`/`origin`
+    /// match exactly, and `harness == "unknown"` matches rows with an empty
+    /// harness (an MCP episode that never stamped one). G136 R17: `query`
+    /// filters titles, and all of it runs BEFORE the cap, as the server does.
+    func fetchRecentConversations(limit: Int, harness: String?, origin: String?, query: String?) async throws -> [ConversationSummary] {
+        recentQueries.append(query)
         if failRecentConversations { throw APIError.serverUnreachable }
-        return recentConversations
+        let rows = recentConversations.filter { row in
+            if let harness, !(row.harness == harness || (harness == "unknown" && row.harness.isEmpty)) { return false }
+            if let origin, row.origin != origin { return false }
+            return true
+        }
+        let matched = query.map { ConversationFilter.apply(rows, query: $0) } ?? rows
+        return Array(matched.prefix(limit))
     }
 
     func fetchConversation(id: String) async throws -> ConversationSummary? {
@@ -265,6 +364,10 @@ final class FakeSyncAPI: SyncAPI {
     func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]> {
         try answer(.origins, fallback: [])
     }
+    var sourcesOverview: [SourceOverview] = []
+    func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]> {
+        try answer(.sourcesOverview, fallback: sourcesOverview)
+    }
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]> {
         try answer(.connections, fallback: [])
     }
@@ -316,6 +419,94 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(store.inbox.etag, "\"i\"")
         XCTAssertEqual(store.banks.value?.active, "work")
         XCTAssertTrue(api.calls.isEmpty, "hydrate must not hit the network")
+    }
+
+    /// G125 v3 Task 8, review round 2. `loadedAt` moves on a disk hydrate —
+    /// it is a change token (`GraphViewModel` re-maps the graph off it), not a
+    /// freshness claim. The Sleep page's `as of HH:MM` chip needs the second
+    /// meaning, so `refreshedAt` exists and a hydrate must leave it nil:
+    /// otherwise a cold launch with the backend stopped prints the minute the
+    /// app opened over data that could be days old.
+    ///
+    /// The assertion is written all the way through to the page's own
+    /// decision, because that is the bug: a never-refreshed page is `.live`,
+    /// with no hour to print, exactly as `sleepLiveness`'s third refusal says.
+    func testDiskHydrateLeavesRefreshedAtNilSoTheStalenessChipHasNoHourToFabricate() async throws {
+        let cache = tempCache()
+        let banks: BanksResponse = try decodeFixture(banksJSON)
+        let status: StatusSnapshot = try decodeFixture(statusJSON)
+        await cache.save(banks, etag: "\"b\"", domain: .banks, bank: Store.rosterBank)
+        await cache.save(status, etag: nil, domain: .status, bank: "work")
+        await cache.save([SourceOverview(id: "claude-code", label: "Claude Code", kind: .harness)],
+                         etag: "\"o\"", domain: .sourcesOverview, bank: "work")
+        await cache.flush()
+
+        let store = Store(cache: cache, api: FakeSyncAPI())
+        await store.hydrate()
+
+        XCTAssertNotNil(store.status.value, "the hydrate did land")
+        XCTAssertNotNil(store.status.loadedAt, "loadedAt stays a change token and must still move")
+        XCTAssertNotNil(store.sourcesOverview.loadedAt)
+        XCTAssertNil(store.status.refreshedAt, "a disk read is not a backend confirmation")
+        XCTAssertNil(store.sourcesOverview.refreshedAt)
+        XCTAssertNil(store.banks.refreshedAt)
+
+        XCTAssertFalse(store.isConnected)
+        let liveness = sleepLiveness(
+            isConnected: store.isConnected,
+            refreshedAt: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                          store.sourcesOverview.refreshedAt),
+            isError: false)
+        XCTAssertEqual(liveness, .live,
+                       "a page the backend has never confirmed must show no chip, not the launch minute")
+        XCTAssertNil(liveness.asOf)
+    }
+
+    /// The other half of round 2: `refreshedAt` has to be *stamped* somewhere,
+    /// or the chip could never appear. Both landed outcomes count — a 200 with
+    /// a new body and a 304 saying the body we hold is current — because both
+    /// mean the backend answered just now; only a failure leaves the last
+    /// confirmation standing.
+    func testALandedResponseStampsRefreshedAtOnBoth200And304() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+
+        await store.refresh([.sourcesOverview, .status])
+        XCTAssertNotNil(store.sourcesOverview.refreshedAt, "a 200 is a confirmation")
+        XCTAssertNotNil(store.status.refreshedAt)
+
+        // A 304 moves it too — a domain that rarely changes is not stale.
+        let longAgo = Date(timeIntervalSinceReferenceDate: 0)
+        store.sourcesOverview.refreshedAt = longAgo
+        api.replies[.sourcesOverview] = .notModified
+        await store.refresh([.sourcesOverview])
+        XCTAssertGreaterThan(store.sourcesOverview.refreshedAt ?? longAgo, longAgo,
+                             "a 304 confirms the value we hold is current")
+
+        // A failure does not: the last real confirmation is what the chip must
+        // date the page by, so the reader sees the moment contact was lost.
+        let confirmed = store.sourcesOverview.refreshedAt
+        api.replies[.sourcesOverview] = .failure
+        await store.refresh([.sourcesOverview])
+        XCTAssertEqual(store.sourcesOverview.refreshedAt, confirmed,
+                       "a failed fetch confirms nothing and must not move the chip forward")
+
+        store.isConnected = false
+        let stalest = SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                       store.sourcesOverview.refreshedAt)
+        // `now` is explicit and past `staleAfter`, because a disconnect alone
+        // is not staleness (final review, finding 1): the confirmations above
+        // were stamped a millisecond ago, and at the real clock this page is
+        // still `.live` — the reconnect backoff is exactly that case.
+        XCTAssertEqual(
+            sleepLiveness(isConnected: false, refreshedAt: stalest, isError: false,
+                          now: Date().addingTimeInterval(SleepLiveness.staleAfter + 1)),
+            .stale(asOf: stalest!),
+            "once the backend HAS confirmed something and then gone quiet, the page is dated by it")
+        XCTAssertEqual(
+            sleepLiveness(isConnected: false, refreshedAt: stalest, isError: false, now: Date()),
+            .live,
+            "a confirmation from a moment ago is not stale, whatever the stream is doing")
     }
 
     /// (b) A 304 keeps the existing value instead of blanking it.

@@ -28,7 +28,7 @@ final class BookwormStateTests: XCTestCase {
     }
 
     func testRunningCycleOutranksError() {
-        let s = snapshot(status: "running", stage: 2, error: "stale error from the previous cycle")
+        let s = snapshot(status: "running", stage: 1, error: "stale error from the previous cycle")
         XCTAssertEqual(deriveBookwormState(s, justFinishedAt: nil, now: now), .sleeping(stage: 2))
     }
 
@@ -51,6 +51,18 @@ final class BookwormStateTests: XCTestCase {
         XCTAssertEqual(BookwormState.error.caseName, "error")
         XCTAssertEqual(BookwormState.error.spriteKey, "error")
         XCTAssertEqual(BookwormState.error.badgeCount, 0)
+    }
+
+    /// G125 Task 5: `.reading` copy/identity — the badge/stage accessors
+    /// treat it like every other non-curious/non-sleeping case (0 for both),
+    /// and `spriteKey` falls to `caseName` alone (no baked count or stage).
+    func testReadingCopyAndIdentity() {
+        XCTAssertEqual(BookwormState.reading.title, "Reading")
+        XCTAssertEqual(BookwormState.reading.detail, "reading what's waiting")
+        XCTAssertEqual(BookwormState.reading.caseName, "reading")
+        XCTAssertEqual(BookwormState.reading.spriteKey, "reading")
+        XCTAssertEqual(BookwormState.reading.badgeCount, 0)
+        XCTAssertEqual(BookwormState.reading.stageNumber, 0)
     }
 
     func testErrorFramesHaveRedPupilsAndMove() {

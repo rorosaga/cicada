@@ -57,7 +57,8 @@ def test_finalize_records_sleep_run_event(repo):
 
 
 def test_agentic_write_event(repo, monkeypatch):
-    from mcp import server
+    from _stdio_server import stdio_server
+    server = stdio_server()
 
     monkeypatch.setattr(server, "get_memory_path", lambda: repo)
     # Pin the identity instead of comparing against the live module-level

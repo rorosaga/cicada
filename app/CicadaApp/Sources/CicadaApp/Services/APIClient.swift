@@ -52,27 +52,37 @@ struct MemoryBank: Codable, Identifiable {
     let episodeCount: Int
     let createdAt: String
     let description: String?
+    /// G139 (R-O18) — the bank IS the memory folder (a pre-banks layout
+    /// served in place). Privacy & data never offers it for deletion; an older
+    /// backend that omits the field decodes as `false`.
+    let legacy: Bool
+    /// G117 round 4 (T-Demo) — the server's `demo_guard.is_demo` answer for this bank, never its name (R-CS10): the
+    /// demo banner and the tour's demo stops key off it. An older backend that omits it decodes as `false`.
+    let demo: Bool
 
     var id: String { name }
 
     enum CodingKeys: String, CodingKey {
-        case name, active, entityCount, episodeCount, createdAt, description
+        case name, active, entityCount, episodeCount, createdAt, description, legacy, demo
     }
 
     /// Memberwise init (the `init(from:)` below suppresses the synthesized
     /// one). `ActivateBank`'s optimistic apply needs to flip `active` on a
     /// roster row before the server echoes the new roster back.
     init(name: String, active: Bool, entityCount: Int, episodeCount: Int,
-         createdAt: String, description: String?) {
+         createdAt: String, description: String?, legacy: Bool = false, demo: Bool = false) {
         self.name = name; self.active = active
         self.entityCount = entityCount; self.episodeCount = episodeCount
         self.createdAt = createdAt; self.description = description
+        self.legacy = legacy
+        self.demo = demo
     }
 
     /// A copy with `active` replaced.
     func settingActive(_ isActive: Bool) -> MemoryBank {
         MemoryBank(name: name, active: isActive, entityCount: entityCount,
-                   episodeCount: episodeCount, createdAt: createdAt, description: description)
+                   episodeCount: episodeCount, createdAt: createdAt, description: description,
+                   legacy: legacy, demo: demo)
     }
 
     init(from decoder: Decoder) throws {
@@ -83,6 +93,8 @@ struct MemoryBank: Codable, Identifiable {
         episodeCount = (try? c.decode(Int.self, forKey: .episodeCount)) ?? 0
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         description = try c.decodeIfPresent(String.self, forKey: .description)
+        legacy = (try? c.decode(Bool.self, forKey: .legacy)) ?? false
+        demo = (try? c.decode(Bool.self, forKey: .demo)) ?? false
     }
 }
 
@@ -121,12 +133,21 @@ struct BanksResponse: Codable {
 /// follow-up).
 struct HealthSnapshot: Codable {
     let memoryRoot: String?
+    /// G139 — Settings → Advanced's backend line. `/healthz` has always sent
+    /// these; each is still `try?` so a probe that answers oddly never costs
+    /// the `memoryRoot` read `ConnectView` depends on.
+    let version: String?
+    let entityCount: Int?
+    let episodeCount: Int?
 
-    enum CodingKeys: String, CodingKey { case memoryRoot }
+    enum CodingKeys: String, CodingKey { case memoryRoot, version, entityCount, episodeCount }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         memoryRoot = try? c.decode(String.self, forKey: .memoryRoot)
+        version = try? c.decode(String.self, forKey: .version)
+        entityCount = try? c.decode(Int.self, forKey: .entityCount)
+        episodeCount = try? c.decode(Int.self, forKey: .episodeCount)
     }
 }
 
@@ -216,6 +237,33 @@ struct MediaFeedItem: Codable, Identifiable {
     /// existing readers). `nil` means unknown, never a guess. Use
     /// `recencyDate` for any "most recent first" sort.
     let contentSavedAt: String?
+    /// G102: the link's own description excerpt (OpenGraph at ingest, or the
+    /// nightly backfill's summary) and the ids of the entities the page is
+    /// `about`. Both optional: an older backend omits them and the row still
+    /// decodes; `nil` means "not described / related yet", never a guess.
+    let description: String?
+    let about: [String]?
+    /// G124 R6 — the media page's own origin / folder (bookmark folder, board,
+    /// device). Optional: an older backend or a pre-origin page has neither.
+    /// The Sources page filters the Feed's items to one source by `origin`
+    /// and groups them by `folder`; nothing else reads them.
+    let origin: String?
+    let folder: String?
+    /// Track V / R-V2 — the two video keys, decoded here BEFORE the backend
+    /// emits them (plan R16): an older `/sources` payload carries neither and
+    /// the row must still decode, which is what `MediaBlockDecodeTests` pins.
+    ///
+    /// `provider` is **redundant** with what `VideoRef.resolve(url)` derives
+    /// and nothing in the app dispatches on it — it rides the wire only so a
+    /// non-Swift reader can see which provider's oEmbed answered. `durationS`
+    /// is the one thing a url cannot tell you, which is why the Feed row's
+    /// duration pill reads it; absent means absent, never an estimate (R17).
+    let provider: String?
+    let durationS: Int?
+    /// G133 — `paper` for a paper page, with its byline; `nil` on every other
+    /// row and from an older backend.
+    let kind: String?
+    let paper: PaperSummary?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -259,6 +307,10 @@ struct MediaFeedItem: Codable, Identifiable {
         case mediaEntityId, url, title, mediaType, site, channel, thumbnail
         case savedAt, tags, status, relatedCount, relevance, personalRelevance
         case contentSavedAt
+        case description, about
+        case origin, folder
+        case provider, durationS
+        case kind, paper
     }
 
     init(from decoder: Decoder) throws {
@@ -277,7 +329,17 @@ struct MediaFeedItem: Codable, Identifiable {
         relevance = (try? c.decode(Double.self, forKey: .relevance)) ?? 0
         personalRelevance = try c.decodeIfPresent(String.self, forKey: .personalRelevance)
         contentSavedAt = try c.decodeIfPresent(String.self, forKey: .contentSavedAt)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        about = try c.decodeIfPresent([String].self, forKey: .about)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        folder = try c.decodeIfPresent(String.self, forKey: .folder)
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
     }
+
+    var isPaper: Bool { kind == "paper" }
 }
 
 struct SourceListResponse: Codable {
@@ -309,14 +371,42 @@ struct BookmarkSyncSourceSummary: Codable {
     let found: Int
     let new: Int
     let skipped: Int
+    /// R-SR13 — Safari's Reading List and Favorites tallies (0 for every other browser). Optional so a backend from
+    /// before round 4 still decodes; declared last so the memberwise init keeps its order.
+    var readingList: Int? = nil
+    var favorites: Int? = nil
 }
 
 /// `POST /sources/sync-bookmarks` result — aggregate new/skipped plus the
 /// per-browser breakdown.
-struct BookmarkSyncResult: Codable {
+struct BookmarkSyncResult {
     let new: Int
     let skipped: Int
     let sources: [BookmarkSyncSourceSummary]
+    /// G129 slice 2 — how many `removal` inbox items this sync proposed.
+    /// Defaulted so the pre-existing 3-arg call sites still compile.
+    var removalsProposed: Int = 0
+    /// Non-nil only when the correctness rails refused to compute removals
+    /// this sync (a folder-scope change since the last sync on some channel).
+    var removalsSkipped: String? = nil
+}
+
+// `Codable` conformance lives in an extension, not the primary declaration,
+// for the same reason `InboxItem.InboxOption` does this: a custom
+// `init(from:)` on the struct itself would suppress the synthesized
+// memberwise init that `BrowserImportModelTests.swift` and call sites across
+// the app construct `BookmarkSyncResult` with directly.
+extension BookmarkSyncResult: Codable {
+    enum CodingKeys: String, CodingKey { case new, skipped, sources, removalsProposed, removalsSkipped }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        new = try c.decode(Int.self, forKey: .new)
+        skipped = try c.decode(Int.self, forKey: .skipped)
+        sources = try c.decodeIfPresent([BookmarkSyncSourceSummary].self, forKey: .sources) ?? []
+        removalsProposed = try c.decodeIfPresent(Int.self, forKey: .removalsProposed) ?? 0
+        removalsSkipped = try c.decodeIfPresent(String.self, forKey: .removalsSkipped)
+    }
 }
 
 /// `POST /sources/sync-notes` result — Apple Notes one-way sync tally. Mirrors
@@ -656,6 +746,11 @@ struct SleepStatusResponse: Codable {
     /// number: idle, or Stage 1 has already finished (see the backend's
     /// `sleep_cycle.progress_pct` docstring for the full contract).
     let progressPct: Int?
+    /// G125 R3 — this cycle's selected episodes by source, and how many of
+    /// each Stage 1 has finished. Both `[:]` when idle, and on an older
+    /// backend that predates these fields.
+    let queueByOrigin: [String: Int]
+    let readByOrigin: [String: Int]
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
@@ -663,7 +758,7 @@ struct SleepStatusResponse: Codable {
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
         case episodeCap, episodesQueued, cancelRequested, cancelled
-        case debt, progressPct
+        case debt, progressPct, queueByOrigin, readByOrigin
     }
 
     init(from decoder: Decoder) throws {
@@ -689,6 +784,8 @@ struct SleepStatusResponse: Codable {
         cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
         debt = try c.decodeIfPresent(SleepDebtInfo.self, forKey: .debt) ?? .unknown
         progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
+        queueByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin) ?? [:]
+        readByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .readByOrigin) ?? [:]
     }
 }
 
@@ -718,10 +815,14 @@ struct EpisodeQueueItem: Codable, Identifiable {
     let origin: String
     let title: String?
     let preview: String
+    /// G125 R9 — body length in characters, for the Sleep page's book pile
+    /// (a log-scale spine height). 0 on an older backend that predates this
+    /// field, and for an episode whose body genuinely is empty.
+    let chars: Int
     let processed: Bool
 
     enum CodingKeys: String, CodingKey {
-        case id, timestamp, source, origin, title, preview, processed
+        case id, timestamp, source, origin, title, preview, chars, processed
     }
 
     init(from decoder: Decoder) throws {
@@ -732,24 +833,155 @@ struct EpisodeQueueItem: Codable, Identifiable {
         origin = try c.decodeIfPresent(String.self, forKey: .origin) ?? "unknown"
         title = try c.decodeIfPresent(String.self, forKey: .title)
         preview = try c.decode(String.self, forKey: .preview)
+        chars = try c.decodeIfPresent(Int.self, forKey: .chars) ?? 0
         processed = try c.decode(Bool.self, forKey: .processed)
     }
 }
 
+/// When Sleep runs on its own (G125 (4)). `mode` is the truth; `enabled` is a
+/// WIRE convenience the backend always sends for an older reader of
+/// `/status.nextSleepAt` (R6) — never this struct's own source of truth. A
+/// naive `Codable` synthesis would try to assign a decoded `enabled` straight
+/// into a stored property; there is none, so `init(from:)`/`encode(to:)` are
+/// both hand-written below.
 struct ScheduleConfig: Codable, Equatable {
-    var enabled: Bool
+    var mode: String          // manual | daily | interval | after_import
     var hour: Int
     var minute: Int
+    var intervalHours: Int
+    var enabled: Bool { mode != "manual" }
+
+    init(mode: String, hour: Int, minute: Int, intervalHours: Int = 6) {
+        self.mode = mode; self.hour = hour; self.minute = minute; self.intervalHours = intervalHours
+    }
+
+    enum CodingKeys: String, CodingKey { case mode, enabled, hour, minute, intervalHours }
+
+    /// The backend always sends `enabled` (R6), on every version — so it is
+    /// read here ONLY to derive `mode` when `mode` itself is absent (a
+    /// pre-G125 backend); once decoded, `mode` alone drives everything else.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? false
+        let decodedMode = (try? c.decodeIfPresent(String.self, forKey: .mode)) ?? nil   // flatten `String??`
+        mode = decodedMode ?? (decodedEnabled ? "daily" : "manual")
+        hour = (try? c.decodeIfPresent(Int.self, forKey: .hour)) ?? 3
+        minute = (try? c.decodeIfPresent(Int.self, forKey: .minute)) ?? 0
+        intervalHours = (try? c.decodeIfPresent(Int.self, forKey: .intervalHours)) ?? 6
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(hour, forKey: .hour)
+        try c.encode(minute, forKey: .minute)
+        try c.encode(intervalHours, forKey: .intervalHours)
+    }
 }
 
-/// Minimal mirror of the API's `SleepHistoryEntry` (camelCase on the wire). Only
-/// `date` is consumed by the status compose fallback; the rest are decoded for
-/// completeness so a future caller can reuse the model.
-struct SleepHistoryEntry: Codable {
+/// Mirror of the API's `SleepHistoryEntry` (camelCase on the wire) — one
+/// consolidation as the Sleep page's history lists it (G125 R4). Counts are
+/// parsed server-side; `durationMs` is joined from the `sleep_run` ledger and
+/// is `nil` — never estimated — when no row exists (R5). Every field beyond
+/// the original four is defaulted so an older backend still decodes.
+struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     let commitHash: String
     let date: String
     let message: String
     let filesChanged: [String]
+    let engine: String?
+    /// "sleep" | "decay" (the G85 split's `(decay)` commit) | "inbox".
+    let kind: String
+    let entitiesCreated: Int
+    let entitiesUpdated: Int
+    let episodes: Int
+    let sessions: Int
+    let authors: [String]
+    let durationMs: Int?
+
+    var id: String { commitHash }
+
+    enum CodingKeys: String, CodingKey {
+        case commitHash, date, message, filesChanged, engine, kind
+        case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = try c.decode(String.self, forKey: .date)
+        message = try c.decode(String.self, forKey: .message)
+        filesChanged = try c.decodeIfPresent([String].self, forKey: .filesChanged) ?? []
+        engine = try c.decodeIfPresent(String.self, forKey: .engine)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "sleep"
+        entitiesCreated = try c.decodeIfPresent(Int.self, forKey: .entitiesCreated) ?? 0
+        entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
+        episodes = try c.decodeIfPresent(Int.self, forKey: .episodes) ?? 0
+        sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+    }
+}
+
+/// `GET /sleep/history/{commit}` — one manifest line (G125).
+struct SleepCycleEntity: Codable, Identifiable, Equatable {
+    let id: String
+    let action: String
+    let trigger: String
+    let sourceEpisode: String?
+}
+
+/// `GET /sleep/history/{commit}` — what one cycle consolidated (G125). A
+/// superset of `SleepHistoryEntry`'s fields (decoded independently here
+/// rather than via inheritance — Swift has no struct subclassing) plus the
+/// per-cycle detail: the resolved entity list, per-origin episode counts and
+/// whether the entity list was capped server-side.
+struct SleepCycleDetail: Codable, Identifiable, Equatable {
+    let commitHash: String
+    let date: String
+    let message: String
+    let filesChanged: [String]
+    let engine: String?
+    let kind: String
+    let entitiesCreated: Int
+    let entitiesUpdated: Int
+    let episodes: Int
+    let sessions: Int
+    let authors: [String]
+    let durationMs: Int?
+    let entities: [SleepCycleEntity]
+    let truncated: Bool
+    let episodesByOrigin: [String: Int]
+    let inboxChanges: Int
+
+    var id: String { commitHash }
+
+    enum CodingKeys: String, CodingKey {
+        case commitHash, date, message, filesChanged, engine, kind
+        case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs
+        case entities, truncated, episodesByOrigin, inboxChanges
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        commitHash = try c.decode(String.self, forKey: .commitHash)
+        date = try c.decode(String.self, forKey: .date)
+        message = try c.decode(String.self, forKey: .message)
+        filesChanged = try c.decodeIfPresent([String].self, forKey: .filesChanged) ?? []
+        engine = try c.decodeIfPresent(String.self, forKey: .engine)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "sleep"
+        entitiesCreated = try c.decodeIfPresent(Int.self, forKey: .entitiesCreated) ?? 0
+        entitiesUpdated = try c.decodeIfPresent(Int.self, forKey: .entitiesUpdated) ?? 0
+        episodes = try c.decodeIfPresent(Int.self, forKey: .episodes) ?? 0
+        sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
+        authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
+        durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        entities = try c.decodeIfPresent([SleepCycleEntity].self, forKey: .entities) ?? []
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        episodesByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .episodesByOrigin) ?? [:]
+        inboxChanges = try c.decodeIfPresent(Int.self, forKey: .inboxChanges) ?? 0
+    }
 }
 
 enum APIError: Error, LocalizedError {
@@ -906,6 +1138,25 @@ actor APIClient {
         return expectedSlug
     }
 
+    /// `POST /banks/demo` (G117) → one click, a populated synthetic bank
+    /// (`api/services/demo_bank.py`), already ACTIVATED server-side. The
+    /// echoed roster is what the first-run sheet's demo button hands to
+    /// `store.refresh([.banks])`, which notices `active` moved and re-hydrates
+    /// on its own (`Store.refresh`'s bank-switch fan-out) — no second
+    /// activate call needed.
+    @discardableResult
+    func createDemoBank() async throws -> BanksResponse {
+        try await post("/banks/demo")
+    }
+
+    /// `POST /banks/leave-demo` (G117 round 4, F-08) → the demo banner's way home: the server activates the real bank
+    /// left most recently (`last_active_at`), or makes one, and echoes the roster — `createDemoBank`'s shape, so the
+    /// caller hands it to `store.refresh([.banks])` the same way.
+    @discardableResult
+    func leaveDemo() async throws -> BanksResponse {
+        try await post("/banks/leave-demo")
+    }
+
     /// `POST /banks/{name}/activate` → switch the active bank.
     func activateBank(name: String) async throws {
         try await post("/banks/\(encodedBank(name))/activate")
@@ -934,41 +1185,6 @@ actor APIClient {
             return landed
         }
         return expectedSlug
-    }
-
-    /// `POST /banks/{name}/import` (multipart file) → stage parsed conversations
-    /// into bank `name` as dated episodes. Format is auto-detected server-side.
-    func importToBank(name: String, fileURL: URL) async throws -> BankImportResponse {
-        var request = makeRequest("/banks/\(encodedBank(name))/import", method: "POST", json: false)
-
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
-
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-        request.httpBody = body
-
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverUnreachable
-        }
-        guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 401 { Self.invalidateToken() }
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw APIError.httpError(http.statusCode, msg)
-        }
-        do {
-            return try decoder.decode(BankImportResponse.self, from: data)
-        } catch {
-            throw APIError.decodingError("\(error)")
-        }
     }
 
     // MARK: - Entities
@@ -1011,6 +1227,54 @@ actor APIClient {
             throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
         }
         return data
+    }
+
+    /// C11 — `GET <path>` for a picture on this API (`/entities/{id}/picture?v=…`), with the bearer (plan R-PE6). nil on a
+    /// 404 — "no picture" is an ordinary answer — and for any path that is not an entity picture.
+    func fetchPictureBytes(path: String) async throws -> Data? {
+        guard path.hasPrefix("/entities/"), !path.contains("..") else { return nil }
+        var request = makeRequest(path, method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
+    /// C11 — `POST /entities/{id}/picture`: bytes `PictureImport` already shrank, as multipart `file`.
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer {
+        var request = makeRequest("/entities/\(encodedID(entityId))/picture", method: "POST", json: false)
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"picture.\(ext)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(ext == "png" ? "image/png" : "image/jpeg")\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        let (reply, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: reply, encoding: .utf8) ?? "Unknown error")
+        }
+        return try decoder.decode(EntityPictureAnswer.self, from: reply)
+    }
+
+    /// C11 / F-12 — "Use initials instead" (plan R-PE4).
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer {
+        try await post("/entities/\(encodedID(entityId))/picture/initials")
+    }
+
+    /// C11 — back to what was detected.
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer {
+        let data = try await delete("/entities/\(encodedID(entityId))/picture")
+        return try decoder.decode(EntityPictureAnswer.self, from: data)
     }
 
     func fetchEntityHistory(id: String, includeDiff: Bool = false) async throws -> [EntityHistoryEntry] {
@@ -1151,16 +1415,64 @@ actor APIClient {
         }
     }
 
+    /// G124 R14 — one contributor's memory-write calendar. On demand, like the
+    /// commit drill-down: no Store domain, no ETag on the app side. Same
+    /// author encoding as `fetchContributorCommits` so a `+` in a model id
+    /// never decodes to a space server-side.
+    func fetchContributorCalendar(author: String, weeks: Int = 53) async throws -> ContributorCalendar {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let a = author.addingPercentEncoding(withAllowedCharacters: allowed) ?? author
+        return try await get("/contributors/calendar?author=\(a)&weeks=\(weeks)")
+    }
+
+    /// G124 — most-written / most-read entity pages, counts only.
+    func fetchTopEntities(limit: Int = 10, range: String = "all") async throws -> TopEntities {
+        try await get("/contributors/top-entities?limit=\(limit)&range=\(range)")
+    }
+
+    /// G124 R11 — the app opened an entity card. Fire-and-forget: a ledger
+    /// miss, a 404 (the page vanished between click and open) or an old
+    /// backend must never surface on the card, so every error is swallowed.
+    /// The body is ids-only — an entity id and the surface enum, never a
+    /// title or body text — by the telemetry rail on the G124 row.
+    func recordEntityRead(id: String) async {
+        _ = try? await post("/entities/\(id)/read", body: ["surface": "app"]) as Data
+    }
+
     // MARK: - Conversations (G48)
 
-    /// `GET /conversations/recent?limit=` — conversations that wrote to
-    /// memory, newest write first. On demand only, like `/contributors/commits`
-    /// — no Store domain, no ETag. A 404 means the backend predates this
-    /// endpoint, not that the fetch failed, so it degrades to an empty list
-    /// rather than throwing.
-    func fetchRecentConversations(limit: Int = 20) async throws -> [ConversationSummary] {
+    /// `GET /conversations/recent?limit=&harness=&origin=` — conversations
+    /// that wrote to memory, newest write first. On demand only, like
+    /// `/contributors/commits` — no Store domain, no ETag. A 404 means the
+    /// backend predates this endpoint, not that the fetch failed, so it
+    /// degrades to an empty list rather than throwing.
+    ///
+    /// G124 R5: the filters are applied by the backend BEFORE its 200-row cap,
+    /// so a harness's page never loses an older conversation to the cap.
+    /// `harness: "unknown"` travels literally — the backend matches it to an
+    /// empty harness. Values are percent-encoded the way
+    /// `fetchContributorCommits` encodes `author`.
+    ///
+    /// G136 R-SU22: `query` becomes `q=`, a title filter the backend also
+    /// applies before the cap (G136 R17) — how a source's conversation list
+    /// finds a title older than its newest 200. Sent only when non-blank.
+    func fetchRecentConversations(limit: Int = 20, harness: String? = nil, origin: String? = nil,
+                                  query: String? = nil) async throws -> [ConversationSummary] {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        var path = "/conversations/recent?limit=\(limit)"
+        if let harness {
+            path += "&harness=\(harness.addingPercentEncoding(withAllowedCharacters: allowed) ?? harness)"
+        }
+        if let origin {
+            path += "&origin=\(origin.addingPercentEncoding(withAllowedCharacters: allowed) ?? origin)"
+        }
+        if let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            path += "&q=\(query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query)"
+        }
         do {
-            return try await get("/conversations/recent?limit=\(limit)")
+            return try await get(path)
         } catch APIError.httpError(404, _) {
             return []
         }
@@ -1293,6 +1605,10 @@ actor APIClient {
 
     func fetchHarnessStats() async throws -> HarnessStats {
         try await get("/consumption/harness")
+    }
+
+    func fetchConsumptionFeedback(range: String) async throws -> ConsumptionFeedback {
+        try await get("/consumption/feedback?range=\(range)")
     }
 
     // MARK: - Inbox
@@ -1433,6 +1749,14 @@ actor APIClient {
         return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
     }
 
+    /// `POST /sources/sync-bookmarks` with `chromium` (round 4, C9): one Chromium-family browser's default-profile file,
+    /// read by the app (the backend never opens a profile).
+    @discardableResult
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult {
+        try await post("/sources/sync-bookmarks",
+                       body: ["chromium": [["browser": browser, "dataB64": data.base64EncodedString()]]])
+    }
+
     /// `POST /sources/sync-safari-tabs` — CloudTabs.db bytes the app read,
     /// plus the WAL sidecar when one exists (R2) and an exact-name device
     /// filter (nil = every device).
@@ -1451,6 +1775,83 @@ actor APIClient {
     @discardableResult
     func syncNotes() async throws -> NoteSyncResult {
         return try await post("/sources/sync-notes")
+    }
+
+    // MARK: - Local sources (G133 / G134)
+
+    /// `GET /sources/folders` — the active memory's watched folders.
+    func fetchFolders() async throws -> [FolderRegistration] {
+        let response: FolderListResponse = try await get("/sources/folders")
+        return response.folders
+    }
+
+    /// `POST /sources/folders` — register (or re-pick) a folder; the backend
+    /// stamps the device and anchors the project by name (R-LS9, R-LS13).
+    func registerFolder(label: String, path: String, projectName: String,
+                        authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await post("/sources/folders", body: [
+            "label": label, "path": path, "projectName": projectName,
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func updateFolder(id: String, authorship: [FolderAuthorshipRule]) async throws -> FolderRegistration {
+        try await put("/sources/folders/\(encodedID(id))", body: [
+            "authorship": authorship.map { ["glob": $0.glob, "authorship": $0.authorship] },
+        ])
+    }
+
+    func removeFolder(id: String) async throws {
+        _ = try await delete("/sources/folders/\(encodedID(id))")
+    }
+
+    /// `POST /sources/folders/{id}/sync` — file bytes as base64 (R-LS8).
+    func syncFolder(id: String, files: [FolderUpload], deleted: [String], preview: Bool,
+                    resolve: Bool) async throws -> FolderSyncResult {
+        let body: [String: Any] = [
+            "files": files.map { ["relpath": $0.relpath, "mtime": $0.mtime, "sha256": $0.sha256,
+                                  "contentB64": $0.data.base64EncodedString()] },
+            "deleted": deleted,
+        ]
+        return try await post("/sources/folders/\(encodedID(id))/sync?preview=\(preview)&resolve=\(resolve)", body: body)
+    }
+
+    func fetchWisprSettings() async throws -> WisprFlowSettings {
+        try await get("/capture/local-source/wispr-flow/settings")
+    }
+
+    func saveWisprSettings(_ settings: WisprFlowSettings) async throws -> WisprFlowSettings {
+        try await put("/capture/local-source/wispr-flow/settings", body: [
+            "enabled": settings.enabled, "includeDictation": settings.includeDictation,
+            "ownerSpeakerNames": settings.ownerSpeakerNames,
+        ])
+    }
+
+    /// `POST /capture/local-source/wispr-flow` — a projection already serialised
+    /// off the main actor by `WisprFlowReader`, so only `Data` crosses into the actor.
+    func postWisprFlow(_ json: Data) async throws -> WisprFlowSyncResult {
+        try await postData("/capture/local-source/wispr-flow", json: json)
+    }
+
+    /// `POST /sources/calendar-local/sync` (round-4 D2, C6) — the Calendar app's events in the window, read by the
+    /// app through EventKit (`CalendarReader`); the backend stages, scrubs and tombstones them like any source.
+    func syncLocalCalendar(_ payload: CalendarSyncPayload) async throws -> CalendarSyncResult {
+        try await postData("/sources/calendar-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// G154: the whole address book, as names and which facts each card holds (never a value).
+    func syncLocalContacts(_ payload: ContactsSyncPayload) async throws -> ContactsSyncResult {
+        try await postData("/sources/contacts-local/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
+    func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
+        try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))
+    }
+
+    /// `GET /entities/{id}/paper` — the paper card's two tiers (G133 / G121).
+    func fetchPaperDetail(id: String) async throws -> PaperDetail {
+        try await get("/entities/\(encodedID(id))/paper")
     }
 
     // MARK: - RSS feed subscriptions (G9)
@@ -1625,6 +2026,18 @@ actor APIClient {
         return resp.results
     }
 
+    /// G136 — the ⌘K palette's server tier (`GET /search`, "The wire" in the
+    /// search-backend plan). `mode=prefix` is FTS only and never embeds;
+    /// `hybrid` adds the stored vectors. The query is percent-encoded the way
+    /// `fetchRecentConversations` encodes its filters, and it goes nowhere
+    /// else — no log, no cache, no telemetry (design §3.8).
+    func searchMemory(_ query: String, kinds: [String], mode: String, perKind: Int) async throws -> MemorySearchResponse {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
+        return try await get("/search?q=\(q)&kinds=\(kinds.joined(separator: ","))&mode=\(mode)&per_kind=\(perKind)")
+    }
+
     // MARK: - Sleep
 
     func fetchSleepStatus() async throws -> SleepStatusResponse {
@@ -1659,45 +2072,196 @@ actor APIClient {
         return try await get("/sleep/schedule")
     }
 
+    /// G125: hand-builds the PUT body rather than `JSONEncoder`-ing `cfg`
+    /// (this client's request helper takes `[String: Any]`, not `Encodable`).
+    /// Before this fix the body only ever carried `enabled/hour/minute` —
+    /// `mode`/`intervalHours` never reached the server, so picking "Every N
+    /// hours" in Settings silently saved as whatever `mode` the (unsent,
+    /// thus default) `enabled` field derived server-side. Every field of
+    /// `ScheduleConfig` must be listed here explicitly.
     func updateSchedule(_ cfg: ScheduleConfig) async throws -> ScheduleConfig {
         return try await put("/sleep/schedule", body: [
+            "mode": cfg.mode,
             "enabled": cfg.enabled,
             "hour": cfg.hour,
             "minute": cfg.minute,
+            "intervalHours": cfg.intervalHours,
         ])
     }
 
-    // MARK: - Upload
+    /// `GET /sleep/engine` — the G122 picker's current mode/model and both
+    /// ruling-4 previews (`manual`/`scheduled`).
+    func fetchSleepEngine() async throws -> SleepEngineResponse {
+        return try await get("/sleep/engine")
+    }
 
-    func uploadFile(fileURL: URL) async throws -> UploadResponse {
-        var request = makeRequest("/conversations/upload", method: "POST", json: false)
+    /// `PUT /sleep/engine`. Hand-builds the body (same reasoning as
+    /// `updateSchedule`'s own doc comment: the `put<T>` helper takes
+    /// `[String: Any]`, not `Encodable`) and — unlike `updateSchedule`,
+    /// which always sends every field — omits `model`/`disambiguationModel`
+    /// from the dict entirely when `nil` rather than sending JSON `null`.
+    /// The backend tells "omitted" from "explicitly cleared" via
+    /// `SleepEngineChoice.model_fields_set` (`sleep_engine_prefs.
+    /// validate_and_write`'s cross-mode staleness guard), so sending a
+    /// `null` here would read as "clear this field" instead of "leave it
+    /// alone". `allowOverage` (R-E13) follows the same rule: the backend's
+    /// `SleepEngineChoice.allow_overage` is `None` when omitted, which leaves
+    /// the stored opt-in untouched.
+    func updateSleepEngine(
+        mode: String, model: String? = nil, disambiguationModel: String? = nil,
+        allowOverage: Bool? = nil
+    ) async throws -> SleepEngineResponse {
+        var body: [String: Any] = ["mode": mode]
+        if let model { body["model"] = model }
+        if let disambiguationModel { body["disambiguationModel"] = disambiguationModel }
+        if let allowOverage { body["allowOverage"] = allowOverage }
+        return try await put("/sleep/engine", body: body)
+    }
 
-        let boundary = UUID().uuidString
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    /// `GET /sleep/history?limit=` — the consolidation history the Sleep
+    /// page's history card lists, newest first (G125 R4).
+    func fetchSleepHistory(limit: Int = 15) async throws -> [SleepHistoryEntry] {
+        return try await get("/sleep/history?limit=\(limit)")
+    }
 
-        let fileData = try Data(contentsOf: fileURL)
-        let filename = fileURL.lastPathComponent
+    /// `GET /sleep/history/{commit}` — what one cycle consolidated (G125
+    /// R12). The commit hash is `[0-9a-f]+` so no percent-encoding is
+    /// actually needed, but this mirrors every other id-in-path call here.
+    func fetchSleepCycleDetail(_ commit: String) async throws -> SleepCycleDetail {
+        let encoded = commit.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? commit
+        return try await get("/sleep/history/\(encoded)")
+    }
 
-        var body = Data()
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        body.append("Content-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
-        body.append(fileData)
-        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+    /// `GET /settings/owner` — the first-run sheet's identity step reads
+    /// this to pre-fill the name field when "Run setup again" reopens it
+    /// (G117).
+    func fetchOwnerSettings() async throws -> OwnerSettings {
+        return try await get("/settings/owner")
+    }
 
-        request.httpBody = body
+    /// `PUT /settings/owner`. `handle`/`email` are omitted from the body
+    /// entirely when `nil` rather than sent as JSON `null` — the same
+    /// conditional-assignment shape `updateSleepEngine` uses just above,
+    /// for the same reason: boxing a `nil` optional as `Any` inside a
+    /// `[String: Any]` is not JSON-null, it's an
+    /// `Optional<Any>.some(Optional<String>.none)`, which
+    /// `JSONSerialization.data(withJSONObject:)` (`put`'s own
+    /// implementation, below) cannot serialize and throws at runtime —
+    /// exactly what happens every time the person leaves handle/email
+    /// blank, the common case.
+    func updateOwnerSettings(
+        name: String, handle: String? = nil, email: String? = nil
+    ) async throws -> OwnerSettings {
+        var body: [String: Any] = ["name": name]
+        if let handle { body["handle"] = handle }
+        if let email { body["email"] = email }
+        return try await put("/settings/owner", body: body)
+    }
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverUnreachable
+    // MARK: - Settings v3 (G139)
+
+    /// `DELETE /banks/{name}` — moves the bank to `<root>/.trash/` (R-O19).
+    /// 409 (in plain words) for the active bank and for the memory folder
+    /// itself; the Privacy page hides both, this is the backstop.
+    func deleteBank(name: String) async throws -> BankTrashResult {
+        let data = try await delete("/banks/\(encodedBank(name))")
+        do {
+            return try decoder.decode(BankTrashResult.self, from: data)
+        } catch {
+            throw APIError.decodingError("\(error)")
         }
+    }
+
+    /// `GET /banks/{name}/export` downloaded to a temporary file the caller
+    /// moves to where the person chose (R-O20). A large bank with its history
+    /// can take a while, hence the long timeout.
+    func exportBank(name: String) async throws -> URL {
+        var request = makeRequest("/banks/\(encodedBank(name))/export", method: "GET", json: false)
+        request.timeoutInterval = 300
+        let (tmp, response) = try await session.download(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
         guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 401 { Self.invalidateToken() }
-            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            let msg = (try? String(contentsOf: tmp, encoding: .utf8)) ?? "Export failed"
+            try? FileManager.default.removeItem(at: tmp)
             throw APIError.httpError(http.statusCode, msg)
         }
+        // URLSession deletes its download file when this call returns, so it
+        // is moved somewhere this process owns first.
+        let kept = FileManager.default.temporaryDirectory.appendingPathComponent("cicada-export-\(UUID().uuidString).zip")
+        try FileManager.default.moveItem(at: tmp, to: kept)
+        return kept
+    }
 
-        return try decoder.decode(UploadResponse.self, from: data)
+    /// `GET /maintenance/search-index` — asking may start the catch-up (it is
+    /// the same `ensure_fresh` every read path calls).
+    func fetchSearchIndexStatus() async throws -> SearchIndexStatus { try await get("/maintenance/search-index") }
+
+    /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
+    /// already chosen. Not a Store domain, no ETag.
+    func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
+
+    /// `PUT /memory/decay-tuning` (G147) — `nil` clears a kind back to the usual pace. 409
+    /// while Sleep runs; 422 with a plain sentence for a pace outside what the server allows.
+    func setDecayTuning(_ changes: [String: Double?]) async throws -> DecayTuningResponse {
+        var body: [String: Any] = [:]
+        for (type, value) in changes { body[type] = value.map { $0 as Any } ?? NSNull() }
+        return try await put("/memory/decay-tuning", body: body)
+    }
+
+    /// 409 while Sleep or another rebuild runs; 503 with a plain sentence if
+    /// the rebuild fails. The rebuild itself is CPU on the backend's side,
+    /// which can outlast the default 60 s on a large bank — a timeout here
+    /// only means the app stopped waiting.
+    func rebuildSearchIndex() async throws -> SearchIndexStatus { try await post("/maintenance/search-index/rebuild") }
+
+    /// `GET /skills/recommended` (G138) — the reviewed catalog with install
+    /// state derived per request. No ETag and no Store domain (R-O23).
+    func fetchRecommendedSkills() async throws -> RecommendedSkillsResponse { try await get("/skills/recommended") }
+
+    /// `POST /maintenance/enrich-links` — the on-demand twin of the Sleep-tail
+    /// backfill (G102); 409 while Sleep or another run is going. `limit=10`,
+    /// not the backend's per-cycle 20: each link is a ≤ 4 s fetch plus a
+    /// summary, and `post` keeps URLSession's 60 s default, so a bigger batch
+    /// would time out on the app's side while the backend kept going. The
+    /// report's `remaining` tells the person whether another click is worth it.
+    func enrichLinksNow() async throws -> EnrichLinksReport { try await post("/maintenance/enrich-links?limit=10") }
+
+    // MARK: - Remote connector (G135)
+
+    /// `GET /remote/status`. `probe: true` also checks the public address
+    /// (3 s server-side), so it gets a longer client timeout than the default poll.
+    func fetchRemoteStatus(probe: Bool = false) async throws -> RemoteStatus {
+        try await get("/remote/status" + (probe ? "?probe=true" : ""), timeout: probe ? 15 : nil)
+    }
+
+    /// `PUT /remote/settings` — omitted fields are left alone (the backend reads
+    /// `model_fields_set`); an empty `publicBaseURL` clears it.
+    func updateRemoteSettings(enabled: Bool? = nil, publicBaseURL: String? = nil) async throws -> RemoteStatus {
+        var body: [String: Any] = [:]
+        if let enabled { body["enabled"] = enabled }
+        if let publicBaseURL { body["publicBaseUrl"] = publicBaseURL }
+        return try await put("/remote/settings", body: body)
+    }
+
+    func fetchRemoteConnectors() async throws -> [RemoteConnector] {
+        try await get("/remote/connectors")
+    }
+
+    /// `expiresInDays` is 7, 30 or 90 — every connector expires (R-R3); the
+    /// backend refuses anything else, `null` included.
+    func createRemoteConnector(app: String, label: String, scopes: [String], expiresInDays: Int) async throws -> RemoteConnectorCreated {
+        let body: [String: Any] = ["app": app, "label": label, "scopes": scopes, "expiresInDays": expiresInDays]
+        return try await post("/remote/connectors", body: body)
+    }
+
+    func rotateRemoteConnector(id: String) async throws -> RemoteConnectorCreated {
+        try await post("/remote/connectors/\(encodedID(id))/rotate")
+    }
+
+    func revokeRemoteConnector(id: String) async throws -> RemoteConnector {
+        let data = try await delete("/remote/connectors/\(encodedID(id))")
+        return try decoder.decode(RemoteConnector.self, from: data)
     }
 
     // MARK: - Generic Helpers
@@ -1731,6 +2295,21 @@ actor APIClient {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverUnreachable
+        }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(http.statusCode, msg)
+        }
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func postData<T: Decodable>(_ path: String, json: Data) async throws -> T {
+        var request = makeRequest(path, method: "POST")
+        request.httpBody = json
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.serverUnreachable
@@ -1914,6 +2493,18 @@ extension APIClient: SyncAPI {
         }
     }
 
+    /// G124 — `GET /sources/overview`. A 404 means the backend predates the
+    /// endpoint: keep whatever snapshot the page already has rather than
+    /// blanking the grid.
+    func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]> {
+        do {
+            let c: Conditional<SourceOverviewResponse> = try await getConditional("/sources/overview", etag: etag)
+            return c.map(\.sources)
+        } catch APIError.httpError(404, _) {
+            return .unavailable(etag: etag)
+        }
+    }
+
     /// `/connections` has no ETag support server-side yet; `getConditional`
     /// simply never sees a 304 and this behaves as a plain GET.
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]> {
@@ -1936,11 +2527,13 @@ extension APIClient: SyncAPI {
         // tolerant of a missing key, so decoding "{}" can never throw.
         try! JSONDecoder().decode(ConsumptionStats.self, from: Data("{}".utf8))
 
-    /// Fans out to all five `/consumption/*` endpoints for the Store's
+    /// Fans out to all six `/consumption/*` endpoints for the Store's
     /// default view (range "month", 53-week calendar) and folds them into one
     /// `ConsumptionBundle`. Only `/summary`, `/calendar` and `/stats` carry a
-    /// server-side ETag (see `api/routers/consumption.py`) — `/connections`
-    /// and `/harness` are always refetched.
+    /// server-side ETag (see `api/routers/consumption.py`) — `/connections`,
+    /// `/harness` and `/feedback` are always refetched. `/feedback` is fetched
+    /// unconditionally and a 404 there means only that section is missing
+    /// (older backend), never that the dashboard is.
     ///
     /// A 304 on any of the three ETag'd endpoints must only short-circuit
     /// *that* section, never the whole bundle: `/connections`/`/harness` are
@@ -1970,13 +2563,18 @@ extension APIClient: SyncAPI {
             async let st: Conditional<ConsumptionStats> = getConditional("/consumption/stats?range=\(range)", etag: parts[2])
             async let conn: ConsumptionConnections = get("/consumption/connections?range=\(range)")
             async let h: HarnessStats = get("/consumption/harness")
-            let (summaryResult, calendarResult, statsResult, connections, harness) = try await (s, c, st, conn, h)
+            async let fb: ConsumptionFeedback? = {
+                do { return try await self.fetchConsumptionFeedback(range: range) }
+                catch APIError.httpError(404, _) { return nil }
+            }()
+            let (summaryResult, calendarResult, statsResult, connections, harness, feedback) = try await (s, c, st, conn, h, fb)
             let bundle = ConsumptionBundle(
                 summary: summaryResult.value ?? current?.summary ?? ConsumptionSummary(),
                 calendar: calendarResult.value ?? current?.calendar ?? ConsumptionCalendar(days: [], weeks: weeks),
                 stats: statsResult.value ?? current?.stats ?? Self.emptyConsumptionStats,
                 connections: connections,
-                harness: harness
+                harness: harness,
+                feedback: feedback
             )
             let newEtag = [summaryResult.etag ?? parts[0] ?? "", calendarResult.etag ?? parts[1] ?? "", statsResult.etag ?? parts[2] ?? ""]
                 .joined(separator: "|")
@@ -2046,5 +2644,129 @@ extension APIClient: SyncAPI {
         // NOT `bytes.lines`: Foundation's AsyncLineSequence swallows empty
         // lines, and an empty line is what terminates an SSE frame.
         return (SSELineSplitter.lines(from: bytes), http)
+    }
+}
+
+// MARK: - One intake (Track I T5)
+
+extension APIClient: IntakeAPI {
+    private static func bankQuery(_ bank: String?) -> String {
+        guard let bank else { return "" }
+        // `.urlQueryAllowed` keeps `&`, `=` and `+`, which would split or
+        // re-read the one parameter; a bank slug never has them, but a name
+        // typed into "New memory…" is not a slug until the backend says so.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?#")
+        return "?bank=" + (bank.addingPercentEncoding(withAllowedCharacters: allowed) ?? bank)
+    }
+
+    /// `POST /intake/sniff` — stages nothing (G71 §4.3); safe on every drop.
+    func sniffIntake(fileURL: URL, bank: String?) async throws -> IntakeSniff {
+        try await uploadMultipart(path: "/intake/sniff" + Self.bankQuery(bank), fileURL: fileURL)
+    }
+
+    /// `POST /intake/import` — 200 with counts, or 202 with `job` (Track I T2b).
+    func importIntake(fileURL: URL, bank: String?) async throws -> IntakeImportResponse {
+        try await uploadMultipart(path: "/intake/import" + Self.bankQuery(bank), fileURL: fileURL)
+    }
+
+    func intakeJob(id: String) async throws -> IntakeJobStatus { try await get("/intake/jobs/\(id)") }
+
+    /// A `kind: saved` file commits through the path that previewed it (R-IA32).
+    func uploadSaved(fileURL: URL) async throws -> UploadResponse { try await uploadSource(fileURL: fileURL) }
+
+    /// `GET /agents/wiring` (Track I T3) — read-only: which agents are wired
+    /// and the exact argv `AgentConnect` may run after the person's click.
+    func fetchAgentWiring() async throws -> AgentWiringResponse { try await get("/agents/wiring") }
+
+    /// Round 4 C8 (R-AG5) — `GET /agents/live`: which agents Cicada has seen connect, engine-free and
+    /// subprocess-free on the server, so the Agents page can poll it every few seconds (R-AG15).
+    func fetchAgentLive() async throws -> AgentLiveResponse { try await get("/agents/live") }
+
+    /// Round-4 D5 (C5) — `GET /agents/setup?harness=<id>`: the prompt a person pastes into their agent so it
+    /// installs Cicada itself. A 404 (an unknown harness, or a backend from before C5) throws, and the caller
+    /// shows nothing new. The id is escaped like `fetchRecentConversations`' filters, so no value can smuggle a
+    /// second query key.
+    func fetchAgentSetup(harness: String) async throws -> AgentSetupPrompt {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        return try await get("/agents/setup?harness=\(harness.addingPercentEncoding(withAllowedCharacters: allowed) ?? harness)")
+    }
+}
+
+/// G133 / G134 — `LocalSourceWatcher` talks to the backend through this seam.
+extension APIClient: LocalSourcesAPI {}
+
+// MARK: - Projects (G141 PJ-5) — the person's five writes
+
+extension APIClient {
+    /// `/projects/<id>/<tail…>`, every component encoded the way `provenancePath` encodes an id: a slug or a claim id
+    /// never reshapes the URL.
+    nonisolated static func projectPath(_ id: String, _ tail: String...) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        return "/projects/" + ([id] + tail).map { $0.addingPercentEncoding(withAllowedCharacters: allowed) ?? $0 }
+            .joined(separator: "/")
+    }
+
+    func addProjectMilestone(project: String, name: String, target: String?) async throws -> ProjectWriteResponse {
+        var body: [String: Any] = ["name": name]
+        if let target { body["target"] = target }
+        return try await post(Self.projectPath(project, "milestones"), body: body)
+    }
+
+    func changeProjectMilestone(project: String, slug: String, change: MilestoneChange) async throws -> ProjectWriteResponse {
+        try await patch(Self.projectPath(project, "milestones", slug), body: change.body)
+    }
+
+    func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse {
+        var body: [String: Any] = ["text": text, "status": status]
+        if let when { body["when"] = when }
+        return try await post(Self.projectPath(project, "happenings"), body: body)
+    }
+
+    func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse {
+        try await post(Self.projectPath(project, "threads", claimId), body: ["status": status])
+    }
+
+    func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse {
+        try await post(Self.projectPath(project, "withdraw"), body: ["claimId": claimId])
+    }
+
+    /// The PATCH twin of `put` — `PATCH /projects/{id}/milestones/{slug}` is the one PATCH the app sends.
+    private func patch<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
+        var request = makeRequest(path, method: "PATCH")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw APIError.decodingError("\(error)")
+        }
+    }
+}
+
+// MARK: - Backlog (G150) — the person's three writes
+
+extension APIClient {
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem {
+        var body: [String: Any] = ["title": title]
+        if !description.isEmpty { body["description"] = description }
+        return try await post(Self.projectPath(project, "backlog"), body: body)
+    }
+
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem {
+        var body: [String: Any] = ["note": note]
+        if let status { body["status"] = status }
+        return try await post(Self.backlogPath(project, item, "notes"), body: body)
+    }
+
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem {
+        try await patch(Self.backlogPath(project, item), body: change.body)
     }
 }

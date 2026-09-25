@@ -35,6 +35,10 @@ struct AgentSetup: Identifiable {
 /// (Desktop, Cursor, Hermes) get literal paths baked in because GUI-launched
 /// apps don't expand shell variables.
 enum AgentSetupCatalog {
+    // The harnesses `GET /agents/setup` answers for moved to `AgentCatalog.setupHarnesses` (Round 4 R-AG1): the
+    // selector's ten agents, pinned to the backend by one fixture. These manual steps are each pill's
+    // "Do it by hand" (R-AG17).
+
     /// `memoryRoot`, when given, is the LIVE backend's own configured
     /// `CICADA_MEMORY_PATH` (from `GET /healthz`) and always wins over the
     /// `<home>/memory` guess — see `ConnectView.refreshLiveMemoryRoot()`.
@@ -82,10 +86,9 @@ enum AgentSetupCatalog {
                         command: "claude mcp add cicada --scope user --env CICADA_MEMORY_PATH=\(SnippetEscape.shell(memory)) -- \(SnippetEscape.shell(python)) \(SnippetEscape.shell(server))",
                         note: "Verify with `claude mcp list` or `/mcp` inside a session. New sessions pick it up automatically."
                     ),
-                    .init(
-                        label: "Optional: install the Cicada skill so Claude knows when to recall and save",
-                        command: "mkdir -p ~/.claude/skills/cicada && cp \(SnippetEscape.shell("\(home)/SKILL.md")) ~/.claude/skills/cicada/SKILL.md"
-                    ),
+                    // G138 — the skill step lives on Settings → Skills now,
+                    // which writes Cicada's own skill with a marker (R-O26)
+                    // instead of asking the person to paste a `cp`.
                 ]
             ),
             AgentSetup(
@@ -175,6 +178,31 @@ enum AgentSetupCatalog {
                     ),
                 ]
             ),
+            // Round 4 C8 (R-AG3) — OpenCode registers through its own config; the pill's prompt asks OpenCode to
+            // write this entry itself, and this is the same entry for someone doing it by hand.
+            AgentSetup(
+                id: "opencode",
+                name: "OpenCode",
+                monogram: "Op",
+                brand: CicadaTheme.textSecondary,
+                blurb: "The open-source terminal coding agent.",
+                steps: [
+                    .init(
+                        label: "Merge this into ~/.config/opencode/opencode.json under \"mcp\"",
+                        command: """
+                        {
+                          "cicada": {
+                            "type": "local",
+                            "command": ["\(SnippetEscape.json(python))", "\(SnippetEscape.json(server))"],
+                            "environment": { "CICADA_MEMORY_PATH": "\(SnippetEscape.json(memory))" },
+                            "enabled": true
+                          }
+                        }
+                        """,
+                        note: "Start a new OpenCode session afterwards."
+                    ),
+                ]
+            ),
             AgentSetup(
                 id: "gemini-cli",
                 name: "Gemini CLI",
@@ -193,15 +221,14 @@ enum AgentSetupCatalog {
     }
 }
 
-// MARK: - Connect page
+// MARK: - Agents page
 
-/// The "Connect your AI" page: how to wire any MCP-capable agent to this
-/// machine's Cicada memory. Doubles as the first-launch onboarding step when
-/// presented as a sheet (`isOnboarding` adds the intro + done affordances).
+/// Settings → Agents — the one-time install, then "Your agents" (Round 4 C8): one selector of ten agents with a
+/// live ✓ (`AgentSelector`), the selected agent's numbered steps below it (`AgentSetupSteps`), and — for an
+/// agent with manual steps — "Do it by hand" under a disclosure (R-AG17). Then the skill row, the automatic
+/// recall group and the From anywhere pointer. The two components are self-contained so phase B's onboarding
+/// hosts them too; this page only owns the fetches.
 struct ConnectView: View {
-    var isOnboarding = false
-    var onDone: (() -> Void)? = nil
-
     private let home = BackendProcess.installRoot().path
     @State private var agents: [AgentSetup] = []
     /// The live backend's own configured memory root, once `/healthz`
@@ -214,57 +241,164 @@ struct ConnectView: View {
     /// until this arrives, or if the backend never answers). The probe
     /// owns the retry/never-regress rules — see `LiveMemoryRootProbe`.
     @State private var probe = LiveMemoryRootProbe()
+    /// The pill whose steps are showing. Claude Code first: the most common agent and Cicada's primary target.
+    @State private var selected = "claude-code"
+    /// R-AG15 — `GET /agents/live`, polled while this page is visible.
+    @State private var live = AgentLiveProbe()
+    /// `GET /remote/status`: whether From anywhere is on with a reachable address, so a cloud agent's
+    /// Create a link is enabled (a link without a tunnel reaches nothing). A failed fetch keeps the last answer.
+    @State private var remote: RemoteStatus?
+    /// R-AG18 — the app a new connector sheet opens preselected for; nil = no sheet.
+    @State private var linkFor: RemoteApp?
+    @State private var showManual = false
+    /// Round-4 D5 — the one `/agents/wiring` answer the page holds: Connect for me's steps and the binaries its
+    /// policy checks against (R-FA15). A failed fetch keeps the last answer — never blank.
+    @State private var wiring: AgentWiringResponse?
+    /// Round-4 C5 — `GET /agents/setup` answers, fetched when a pill is first selected. A failure leaves no
+    /// entry, and the step says it is getting the setup ready rather than offering nothing silently.
+    @State private var setups: [String: AgentSetupPrompt] = [:]
     /// `isConnected` is the app's one backend-reachability signal (the SSE
     /// stream). Keyed into `.task(id:)` below so a backend that comes up
     /// after this page did re-runs the probe — no second poller.
     @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
+    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
+
+    private var entry: AgentCatalogEntry { AgentCatalog.entry(for: selected) ?? AgentCatalog.all[0] }
+    /// The manual steps under "Do it by hand": the Claude pill's are the Claude app's (R-AG2).
+    private var manual: AgentSetup? {
+        let manualId = entry.id == "claude" ? "claude-desktop" : entry.id
+        return agents.first { $0.id == manualId }
+    }
+    private var agentWiring: AgentWiring? { wiring?.agents.first { $0.id == entry.id } }
+    private var remoteReady: Bool { remote?.enabled == true && remote?.effectiveUrl != nil }
 
     var body: some View {
-        VStack(spacing: 0) {
-            PageHeader(
-                title: isOnboarding ? "Welcome to Cicada" : Copy.agents,
-                subtitle: Copy.agentsSubtitle
-            ) {
-                if isOnboarding {
-                    Button {
-                        onDone?()
-                    } label: {
-                        Text("Get started")
-                            .font(.system(size: 13, weight: .semibold))
-                            .padding(.horizontal, CicadaTheme.spacingLG)
-                            .padding(.vertical, CicadaTheme.spacingSM)
-                            .background(CicadaTheme.accent.opacity(0.9))
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
+        SettingsPage(section: .agents) {
+            SettingsGroupCard(header: Copy.agentsInstallGroup) {
+                SettingsRow(.agentsInstall, title: Copy.agentsInstallTitle, detail: Copy.agentsInstallDetail) {
+                    EmptyView()
+                } below: {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        CommandBox(command: "cd \(SnippetEscape.shell(home)) && make install")
+                        Text(Copy.agentsHomeCaption(home))
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .privacySensitive()
                     }
-                    .buttonStyle(.cicadaPlain)
                 }
             }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    if isOnboarding {
-                        introCard
-                    }
-                    prereqCard
-
-                    ForEach(agents) { agent in
-                        AgentSetupCard(agent: agent)
-                    }
-
-                    webNoteCard
+            SettingsGroupCard(header: Copy.agentsYourAgents, trailingHeader: Copy.agentsConnectedSummary(live.connectedCount)) {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    AgentSelector(entries: AgentCatalog.all, selection: $selected, connected: live.connected,
+                                  justConnected: live.justConnected)
+                    AgentSetupSteps(
+                        entry: entry,
+                        steps: AgentSteps.steps(for: entry, setups: setups, wiring: agentWiring,
+                                                live: live.rows[entry.id], remoteReady: remoteReady),
+                        header: AgentSteps.header(for: entry, wiring: agentWiring),
+                        honesty: AgentSteps.honesty(for: entry),
+                        connected: live.connected.contains(entry.id),
+                        binaries: Set(wiring?.agents.compactMap(\.binary) ?? []),
+                        home: home,
+                        memoryRoot: probe.liveRoot,
+                        deeplink: manual?.deeplink?.url,
+                        onConnected: { Task { await refreshWiring() } },
+                        onOpenFromAnywhere: openFromAnywhere,
+                        onCreateLink: { linkFor = $0 }
+                    )
+                    .settingsRow(.agent(selected))
+                    if let manual { manualSteps(manual) }
                 }
-                .padding(.horizontal, CicadaTheme.spacingXL)
-                .padding(.bottom, CicadaTheme.spacingXXL)
+                .padding(CicadaTheme.spacingMD)
+                SettingsDivider()
+                SettingsRow(.agentsSkill, title: Copy.agentsSkillTitle, detail: Copy.agentsSkillDetail) {
+                    SettingsInlineLink(section: .skills, row: .skill(CicadaSkillBundle.cicada.rawValue), label: Copy.openSkills)
+                }
+            }
+            AutoRecallGroup()
+            SettingsGroupCard {
+                SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
+                    SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)
+                }
             }
         }
-        .background(CicadaTheme.background)
         .onAppear {
             if agents.isEmpty { agents = AgentSetupCatalog.all(home: home, memoryRoot: probe.liveRoot) }
+            // A landing from another section selects this page and lands in the
+            // same pass, before this view exists, so the `onChange` below never
+            // sees that nonce. The row is still washed (`highlighted`) for the
+            // hold, which is exactly "was just landed on".
+            if let id = focus?.highlighted?.item(of: "agent") { selected = AgentCatalog.entry(for: id)?.id ?? selected }
         }
+        // R-AG15 — cancelled by SwiftUI when the page leaves, so nothing polls behind a closed panel.
+        .task { await live.run() }
         // Restarts (cancelling the previous loop) whenever the SSE stream
-        // connects or drops, and runs once on appearance.
-        .task(id: store.isConnected) { await refreshLiveMemoryRoot() }
+        // connects or drops, and runs once on appearance. The remote status
+        // sits BETWEEN the two: the memory-root probe retries with backoff
+        // while the backend is down, so anything after it could wait minutes.
+        .task(id: store.isConnected) {
+            await refreshWiring()
+            if let fresh = try? await APIClient.shared.fetchRemoteStatus() { remote = fresh }
+            await refreshLiveMemoryRoot()
+        }
+        .onChange(of: selected, initial: true) { _, id in
+            showManual = false
+            guard let pill = AgentCatalog.entry(for: id) else { return }
+            for harness in pill.setupHarnesses where setups[harness] == nil {
+                Task { if let prompt = try? await APIClient.shared.fetchAgentSetup(harness: harness) { setups[harness] = prompt } }
+            }
+        }
+        // R-O11: landing on `agent:<id>` (search or a pointer) selects that pill.
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in
+            if let id = focus?.landed?.item(of: "agent") { selected = AgentCatalog.entry(for: id)?.id ?? selected }
+        }
+        // R-AG18 — the sheet shows the link once, with that app's own steps; closing it re-reads From anywhere.
+        .sheet(item: $linkFor) { app in
+            NewConnectorSheet(initialApp: app) {
+                linkFor = nil
+                Task { if let fresh = try? await APIClient.shared.fetchRemoteStatus() { remote = fresh } }
+            }
+        }
+    }
+
+    /// "Do it by hand" — the agent's manual steps as they always were (label, command, note): the fallback every
+    /// one-click action's failure points at (R-AG17).
+    private func manualSteps(_ agent: AgentSetup) -> some View {
+        DisclosureGroup(isExpanded: $showManual) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                ForEach(agent.steps) { step in
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        Text(step.label)
+                            .font(CicadaTheme.captionFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        if let command = step.command { CommandBox(command: command) }
+                        if let note = step.note {
+                            Text(note)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textTertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            .padding(.top, CicadaTheme.spacingSM)
+        } label: {
+            Text(Copy.agentsDoItByHand)
+                .font(CicadaTheme.font(size: 13, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
+        }
+    }
+
+    /// In the panel, the in-place door `SettingsInlineLink` itself uses; hosted outside it, the one door in.
+    private func openFromAnywhere() {
+        if let focus { focus.go(.remote) } else { _ = router.openSettings(.remote) }
+    }
+
+    /// `GET /agents/wiring` (Track I T3). Kept on failure: a page that had an answer never goes blank.
+    private func refreshWiring() async {
+        if let fresh = try? await APIClient.shared.fetchAgentWiring() { wiring = fresh }
     }
 
     /// Ask the backend what memory root it's actually configured with
@@ -296,160 +430,6 @@ struct ConnectView: View {
             guard let delay = probe.nextDelay else { return }
             try? await Task.sleep(for: .seconds(delay))
         }
-    }
-
-    private var introCard: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            BookwormView(state: .happy, pointSize: 48)
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("Your agents share one memory")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Conversations become episodes; the nightly Sleep cycle consolidates them into the knowledge graph you see here. Connect the tools you use below — each one gets recall, save, and nudge tools automatically.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var prereqCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("STEP 0 — ONE-TIME INSTALL")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-            Text("Sets up the Python environment, registers the backend service, and schedules the nightly Sleep cycle. Skip if you've already run it.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            CommandBox(command: "cd \(SnippetEscape.shell(home)) && make install")
-            Text("Cicada home: \(home) — commands below use this path; adjust if your checkout lives elsewhere.")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private var webNoteCard: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            Image(systemName: "globe")
-                .font(.system(size: 16))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 10).fill(CicadaTheme.surfaceElevated))
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text("claude.ai / ChatGPT on the web")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Web apps only reach hosted (remote) MCP connectors served from the public internet — they can't launch the local Cicada server on your Mac. Use Claude Desktop or a terminal agent instead, or import your web conversations with the Upload button on the Graph page: exports from claude.ai, ChatGPT, and Gemini consolidate into the same memory. (A hosted Cicada connector — Streamable HTTP behind a tunnel with OAuth — is possible future work.)")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-}
-
-// MARK: - Agent card
-
-private struct AgentSetupCard: View {
-    let agent: AgentSetup
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingMD) {
-                AgentTile(agent: agent)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(agent.name)
-                        .font(CicadaTheme.headingFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                    Text(agent.blurb)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-                if let deeplink = agent.deeplink {
-                    Button {
-                        NSWorkspace.shared.open(deeplink.url)
-                    } label: {
-                        Text(deeplink.label)
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, CicadaTheme.spacingMD)
-                            .padding(.vertical, 5)
-                            .background(agent.brand.opacity(0.25))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(agent.brand.opacity(0.5), lineWidth: 1))
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .help("One-click install via the Cursor deeplink")
-                }
-            }
-
-            ForEach(agent.steps) { step in
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text(step.label)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    if let command = step.command {
-                        CommandBox(command: command)
-                    }
-                    if let note = step.note {
-                        Text(note)
-                            .font(CicadaTheme.captionFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-}
-
-// MARK: - Square identity tile
-
-/// 44pt square brand tile. Prefers a bundled `Resources/logos/<id>.png` (drop
-/// official marks there to upgrade the page); falls back to a brand-colored
-/// monogram so the tile is always identifiable.
-private struct AgentTile: View {
-    let agent: AgentSetup
-
-    var body: some View {
-        Group {
-            if LogoImage.exists(name: agent.id) {
-                LogoImage(name: agent.id, size: 44)
-                    .padding(6)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.92)))
-            } else {
-                Text(agent.monogram)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(LinearGradient(
-                                colors: [agent.brand, agent.brand.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ))
-                    )
-            }
-        }
-        .frame(width: 44, height: 44)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(CicadaTheme.border, lineWidth: 1))
     }
 }
 

@@ -12,6 +12,12 @@ struct ConnectedChannelsStrip: View {
     let onManage: (AddSourceTile?) -> Void
 
     @Environment(Store.self) private var store
+    /// Track I T1: a browser row's Sync now is consent, routed through the watcher.
+    @Environment(CalendarReader.self) private var calendarReader: CalendarReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
+    @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(BrowserWatcher.self) private var watcher
+    @Environment(LocalSourceWatcher.self) private var localSources
     @AppStorage("cicada.feedChannelsCollapsed") private var isCollapsed = false
     /// PR #19 round-4 review: keyed by channel id — two rows acting
     /// concurrently used to share a single `busyChannel: String?` /
@@ -21,6 +27,7 @@ struct ConnectedChannelsStrip: View {
     /// another's slot, regardless of which action started or finished first.
     @State private var busyChannels: Set<String> = []
     @State private var feedback: [String: ChannelFeedback] = [:]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
     private var connected: [SourceChannel] { SourceChannel.sortedConnected(channels) }
@@ -28,7 +35,7 @@ struct ConnectedChannelsStrip: View {
 
     /// The count is the point of a collapsible strip, so it survives collapsing.
     static func stripTitle(connected: Int) -> String {
-        connected == 0 ? "CONNECTED" : "CONNECTED (\(connected))"
+        connected == 0 ? "Connected" : "Connected (\(UsageFormat.count(connected)))"
     }
 
     /// PR #19 review: `store.channels` missing is not one state, it's two — a
@@ -55,17 +62,14 @@ struct ConnectedChannelsStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { isCollapsed.toggle() }
+                withAnimation(CicadaMotion.snap(reduceMotion: reduceMotion)) { isCollapsed.toggle() }
             } label: {
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(CicadaTheme.font(size: 9, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                    Text(Self.stripTitle(connected: connected.count))
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .tracking(1.2)
+                    SectionLabel(Self.stripTitle(connected: connected.count))
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -87,7 +91,7 @@ struct ConnectedChannelsStrip: View {
                 case .failed(let message):
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 12))
+                            .font(CicadaTheme.font(size: 12))
                             .foregroundStyle(CicadaTheme.danger)
                         Text(message)
                             .font(CicadaTheme.bodyFont)
@@ -132,7 +136,17 @@ struct ConnectedChannelsStrip: View {
         feedback[channel.id] = nil
         switch action {
         case "poll": Task { await run(channel) { try await Self.poll(channel) } }
-        case "sync": Task { await run(channel) { try await Self.sync(channel, store: store) } }
+        case "sync":
+            let local = localSources
+            let watcher = watcher
+            let calendar = calendarReader
+            let tabGroups = self.tabGroups
+            let contacts = self.contacts
+            Task { await run(channel) { try await ChannelActions.sync(channel.id, store: store, watcher: watcher, local: local, calendar: calendar, tabGroups: tabGroups, contacts: contacts) } }
+        // A folder or Wispr Flow row is itself the Settings → Integrations link
+        // (`ConnectedChannelRow.rowLink`); it has no Feed tile, and the generic
+        // add-source sheet is the wrong answer (L final review, finding 1).
+        case _ where ChannelActions.managesInIntegrations(channel.id): break
         default: onManage(AddSourceTile.forChannel(channel.id))
         }
     }
@@ -158,19 +172,5 @@ struct ConnectedChannelsStrip: View {
         }
         let r = try await APIClient.shared.pollFeeds()
         return r.skippedNoNetwork > 0 ? Self.fetchDisabledHint : "\(r.new) new item(s)"
-    }
-
-    /// Notes syncs server-side (osascript runs where the backend does); the
-    /// three browser rows read their files HERE and post bytes (R1) — the
-    /// old body-less `syncBookmarks()` left the launchd backend, which has
-    /// no Full Disk Access, to silently sync nothing. A read failure
-    /// surfaces as the row's feedback with the Full Disk Access fix (R9).
-    @MainActor
-    private static func sync(_ channel: SourceChannel, store: Store) async throws -> String {
-        if channel.id == "notes" {
-            let r = try await APIClient.shared.syncNotes()
-            return "\(r.new) new · \(r.skipped) unchanged"
-        }
-        return try await BrowserImportActions.syncChannel(channel.id, store: store)
     }
 }

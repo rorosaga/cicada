@@ -6,11 +6,12 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic.alias_generators import to_camel
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     CalendarDay, ConnectionConsumption, ConsumptionCalendar, ConsumptionConnections,
-    ConsumptionStats, ConsumptionSummary, HarnessStats,
+    ConsumptionFeedback, ConsumptionStats, ConsumptionSummary, HarnessStats,
 )
 from api.services import consumption_stats, harness_stats, sync_service, telemetry
 from api.services.connections.registry import get_registry
@@ -95,6 +96,28 @@ async def stats(
     return ConsumptionStats(**data)
 
 
+@router.get("/feedback", response_model=ConsumptionFeedback)
+async def feedback(
+    request: Request,
+    response: Response,
+    range_: str = Depends(_range),
+    settings: Settings = Depends(get_settings),
+):
+    memory_path = settings.memory_path
+    today = _utc_today()
+    # Feedback numbers come only from the telemetry ledger and never depend
+    # on the bank's git state (unlike /summary and /stats), so "git_head"
+    # isn't part of this ETag; the "feedback:" extra prefix keeps it distinct
+    # from /summary's ETag for the same range and day.
+    etag = sync_service.etag_for(memory_path, "telemetry", extra=f"feedback:{range_}:{today}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    data = await consumption_stats.feedback(memory_path, range_=range_, today=today)
+    for key in ("agreement", "calibration", "by_action"):
+        data[key] = _camel_rows(data[key])
+    return ConsumptionFeedback(**data)
+
+
 @router.get("/connections", response_model=ConsumptionConnections)
 async def connections(range_: str = Depends(_range), settings: Settings = Depends(get_settings)):
     statuses = [s.model_dump() for s in await get_registry(settings).statuses()]
@@ -109,4 +132,11 @@ async def connections(range_: str = Depends(_range), settings: Settings = Depend
 
 @router.get("/harness", response_model=HarnessStats)
 async def harness():
-    return HarnessStats(claude_code=harness_stats.claude_code_stats(), codex=harness_stats.codex_rate_limits())
+    # Off the event loop (G124 final review M2): `codex_rate_limits` rglobs
+    # `~/.codex/sessions` and reads up to 20 files, `claude_code_stats` reads
+    # the Claude config — both synchronous, and this endpoint is refetched
+    # whenever the app's `.consumption` domain ticks. Inline, that stalled the
+    # SSE stream the same way `/origins`' cold origin scan did.
+    claude_code = await run_in_threadpool(harness_stats.claude_code_stats)
+    codex = await run_in_threadpool(harness_stats.codex_rate_limits)
+    return HarnessStats(claude_code=claude_code, codex=codex)

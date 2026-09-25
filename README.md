@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/graph.png" alt="Cicada's graph explorer on a demo bank" width="920" />
+  <img src="docs/screenshots/home.png" alt="Cicada's Home page on a demo bank" width="920" />
 </p>
 
 Cicada captures what you read, save, decide and talk about, consolidates it overnight into a
@@ -91,13 +91,19 @@ agent can reason over the record structurally instead of re-reading prose. Every
 
 All screenshots come from a synthetic demo bank. Nothing in them is real.
 
-| Inbox — questions Sleep left for you | Sleep — the queue and the last cycle |
+Home (above) — what was captured today, what needs you, and what the last Sleep read.
+
+| Graph — every entity, clustered; pick one to see what Cicada knows and where it came from | Projects — a project's timeline: a green band that fills up to today, with every moment clickable |
+|---|---|
+| ![Graph](docs/screenshots/graph.png) | ![Projects](docs/screenshots/projects.png) |
+
+| Inbox — a question Sleep left for you, with the conversation it came from open beside it | Sleep — the study room, what's waiting, and the readout |
 |---|---|
 | ![Inbox](docs/screenshots/inbox.png) | ![Sleep](docs/screenshots/sleep.png) |
 
-Activity — what was spent, where memory came from, who authored what:
+Sources — where memory comes from, whether each source is live, and who wrote it:
 
-![Activity](docs/screenshots/activity.png)
+![Sources](docs/screenshots/sources.png)
 
 The app is the management layer, not the primary interface. The primary interface is whatever
 agent you already talk to.
@@ -119,6 +125,10 @@ make dev              # build the app, install to ~/Applications, launch
 the backend as a `launchd` agent that starts on login, and registers the `cicada` MCP server with
 Claude Code. Check health any time with `make doctor`.
 
+First launch opens a four-step sheet — your name, a consolidation engine, one capture channel, and
+your first Sleep cycle — or "try a demo bank first" if you'd rather look around before wiring in
+your own life. Re-open it any time from Settings → General → "Run setup again".
+
 Pick a consolidation engine in `api/.env`:
 
 ```sh
@@ -135,7 +145,7 @@ Day-to-day commands:
 | `make dev` | Rebuild debug, reinstall over `~/Applications/Cicada.app`, relaunch |
 | `make install-app` | Release build, install without relaunch |
 | `make doctor` | Backend, MCP, and environment health checks |
-| `curl -X POST localhost:8000/sleep/trigger` | Run a Sleep cycle now (also a button in the app) |
+| `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Run a Sleep cycle now (also a button in the app) |
 | `api/.venv/bin/python -m pytest api/tests -q` | Backend suite |
 | `cd app/CicadaApp && swift test` | App suite |
 

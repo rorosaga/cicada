@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from api.services import decay_policy, inbox_questions, markdown_parser
+from api.services import decay_policy, inbox_questions, markdown_parser, predicates
 from api.services.conflict_resolver import apply_changes
 from api.services.id_utils import sanitize_id
 
@@ -131,23 +131,6 @@ def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     return True
 
 
-def _refresh_hint(path: Path, hint: str | None) -> None:
-    """Refresh the ``hint`` on an already-open item after a merge (G61).
-
-    A merge-on-collision keeps the original item, so a source added after it
-    was first written would otherwise never surface. ``None`` leaves the
-    existing hint untouched — a merge with no computable hint should not
-    erase one set by an earlier cycle.
-    """
-    if hint is None:
-        return
-    parsed = markdown_parser.parse(path)
-    if parsed.frontmatter.get("hint") == hint:
-        return
-    parsed.frontmatter["hint"] = hint
-    markdown_parser.write(path, parsed.frontmatter, parsed.body)
-
-
 async def generate(
     changes: list[dict],
     skills: list[dict],
@@ -210,19 +193,10 @@ async def generate(
         elif action == "conflict_nudge":
             entity_id = change["id"]
             entity_name = change.get("entity", {}).get("name", entity_id.replace("-", " ").title())
-            hint = None
-            try:
-                from api.services import fact_sources
-
-                # Entity-path conflicts carry no predicate (key on the literal
-                # "description"), so ANY url-kind source is a match here.
-                hint = fact_sources.hint_for(memory_path, entity_id, "description")
-            except Exception:
-                hint = None
+            # G61 phase 2 S0: no hint is stored — it is served at read (fact_sources.served_hint).
             open_path = find_open(memory_path, "conflict", entity_id, "description")
             if open_path is not None:
                 merge_options_into(open_path, change.get("options") or [], str(date.today()))
-                _refresh_hint(open_path, hint)
                 continue
             item_id = f"inbox-{next_num:03d}"
             next_num += 1
@@ -240,7 +214,10 @@ async def generate(
                 "question": change.get("question"),
                 "allow_other": True,
                 "allow_defer": True,
-                "hint": hint,
+                # G97: `conflict_resolver` already puts the raising episode on
+                # the change (`conflict_resolver.py:137`); the entity path used
+                # to drop it at the write, so the card had no cause to show.
+                "source_episode": change.get("source_episode") or None,
             }
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
             markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
@@ -282,20 +259,22 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
     inbox item, **reusing the same ``inbox-NNN`` allocator** so it never collides
     with the legacy entity-path nudges written earlier in the same Stage 5.
 
-    Returns ``{"written": n, "merged": m}`` — ``written`` counts inbox items
-    newly created, ``merged`` counts conflict nudges folded into an
-    already-open item on the same ``(entity, predicate)`` key instead of
-    spawning a duplicate. A subject without an entity page still gets a
-    nudge (the page may be promoted next cycle).
+    Returns ``{"written": n, "merged": m, "skipped_multi_valued": s}`` —
+    ``written`` counts inbox items newly created, ``merged`` counts conflict
+    nudges folded into an already-open item on the same ``(entity, predicate)``
+    key instead of spawning a duplicate, and ``skipped_multi_valued`` counts
+    conflict nudges dropped by the G98 rule below. A subject without an entity
+    page still gets a nudge (the page may be promoted next cycle).
     """
     if not nudges:
-        return {"written": 0, "merged": 0}
+        return {"written": 0, "merged": 0, "skipped_multi_valued": 0}
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     next_num = _next_inbox_num(inbox_dir)
     written = 0
     merged = 0
+    skipped_multi = 0
 
     for nudge in nudges:
         action = nudge.get("action", "")
@@ -313,19 +292,20 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             except Exception:
                 pass
 
-        hint = None
         if action == "conflict_nudge":
             predicate = str(nudge.get("predicate", "") or "description")
-            try:
-                from api.services import fact_sources
-
-                hint = fact_sources.hint_for(memory_path, entity_id, predicate)
-            except Exception:
-                hint = None
+            # G61 phase 2 S0: no hint is stored — it is served at read (fact_sources.served_hint).
+            # G98 (2026-09-03 evidence): a predicate the vocabulary marks
+            # multi-valued never opens a conflict — seven true `uses` values
+            # are a set, not a contradiction. The reconciler already gates on
+            # its cardinality oracle; this is the belt for a legacy caller or a
+            # bank map that predates the seed. Counted, never silent.
+            if predicates.cardinality(memory_path, predicate) == "multi":
+                skipped_multi += 1
+                continue
             open_path = find_open(memory_path, "conflict", entity_id, predicate)
             if open_path is not None:
                 merge_options_into(open_path, nudge.get("options") or [], str(date.today()))
-                _refresh_hint(open_path, hint)
                 merged += 1
                 continue
             kind, priority, required = "conflict", 0.8, "choice"
@@ -364,9 +344,16 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             # claim provenance so the companion app can resolve a specific belief.
             "claim_id": nudge.get("claim_id"),
             "existing_claim_id": nudge.get("existing_claim_id"),
+            # G97: the conversation that raised this question, persisted so the
+            # card's cause survives the claim being closed later.
+            "source_episode": nudge.get("source_episode"),
             "trigger": nudge.get("trigger", "sleep/conflict_resolution"),
-            # G61 — which declared source refreshes this fact, "conflict"-only.
-            "hint": hint,
+            # G113 slice 3 — "normalization"-only; null for every other kind,
+            # the same way `predicate`/`question` already go null for
+            # kinds that don't use them (`markdown_parser.write` does not
+            # strip `None` values, and that's fine and consistent).
+            "raw_predicate": nudge.get("raw_predicate"),
+            "canonical_predicate": nudge.get("canonical_predicate"),
         }
         body = nudge.get("conflict_context") or (
             f"{entity_name} hasn't been mentioned recently; confidence dropped to "
@@ -377,7 +364,7 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
         markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
         written += 1
 
-    return {"written": written, "merged": merged}
+    return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi}
 
 
 def _write_graph_edges(memory_path: Path, new_edges: list[dict]) -> None:

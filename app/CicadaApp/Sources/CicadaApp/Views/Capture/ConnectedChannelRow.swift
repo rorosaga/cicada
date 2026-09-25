@@ -33,7 +33,9 @@ struct ConnectedChannelRow: View {
     /// row itself is activated.
     let onAction: (String) -> Void
 
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -60,11 +62,19 @@ struct ConnectedChannelRow: View {
 
     /// The row's leading 28pt icon. A busy row always shows the plain
     /// circle+spinner (a platform tile mid-spin would look like a broken
-    /// logo load, not "working"); otherwise a channel with a bundled brand
-    /// mark (Task 13) gets the Linear-style tile, and everything else keeps
-    /// the original tint-circle + SF Symbol treatment.
+    /// logo load, not "working"); otherwise a channel with a brand mark gets
+    /// the Linear-style tile, and everything else keeps the original
+    /// tint-circle + SF Symbol treatment.
+    ///
+    /// R6 — one precedence, three surfaces: the tile is taken when EITHER
+    /// rung exists, because Safari and Apple Notes have an installed-app icon
+    /// and no bundled PNG (R2 forbids theirs). Keying only on `logoName`
+    /// would draw a tint circle here where the Sleep desk draws the app's own
+    /// icon.
     @ViewBuilder
     private var rowIcon: some View {
+        let logoName = Self.logoName(for: channel.id)
+        let bundleId = OriginIconography.appBundleId(for: Self.origin(forChannel: channel.id))
         if isBusy {
             ZStack {
                 Circle()
@@ -73,48 +83,80 @@ struct ConnectedChannelRow: View {
                 ProgressView().controlSize(.small)
             }
             .frame(width: 28, height: 28)
-        } else if let logoName = Self.logoName(for: channel.id) {
-            LogoImage.platformTile(name: logoName, size: 28, systemFallback: Self.icon(for: channel.id))
+        } else if logoName != nil || bundleId != nil {
+            LogoImage.platformTile(name: logoName ?? "", bundleId: bundleId, size: 28,
+                                   systemFallback: Self.icon(for: channel.id))
         } else {
             ZStack {
                 Circle()
                     .fill(Self.tint(for: channel.id).opacity(0.12))
                     .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
                 Image(systemName: Self.icon(for: channel.id))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(CicadaTheme.font(size: 13, weight: .medium))
                     .foregroundStyle(Self.tint(for: channel.id))
             }
             .frame(width: 28, height: 28)
         }
     }
 
+    private var rowLabel: some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            rowIcon
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Text(channel.label)
+                        .font(CicadaTheme.font(size: 13, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                    // G129: a watched browser wears its light here
+                    // too, so "is this live" is answerable from the
+                    // Feed without opening the source page. Compact —
+                    // the dot only; the sentence lives on that page.
+                    if let watchState = watcher.state(for: channel.id) {
+                        BrowserStatusLight(state: watchState,
+                                           error: watcher.error(for: channel.id),
+                                           compact: true, channelId: channel.id)
+                    }
+                }
+                .lineLimit(1)
+                // R-S5 — `detail` no longer carries the count; the
+                // composer adds it back in the reader's locale.
+                if let detail = ChannelDetailLine.text(channel) {
+                    Text(detail)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// The row itself opens "Manage…". A folder or Wispr Flow keeps its
+    /// settings in Settings → Integrations and has no `AddSourceTile`, so its
+    /// row is a `SettingsSectionLink` there instead of a closure that would
+    /// open the generic add-source sheet (L final review, finding 1).
+    @ViewBuilder
+    private var rowLink: some View {
+        let spoken = ChannelDetailLine.text(channel).map { "\(channel.label). \($0)" } ?? channel.label
+        if ChannelActions.managesInIntegrations(channel.id) {
+            SettingsSectionLink(section: .integrations, accessibilityText: spoken) { rowLabel }
+        } else {
+            Button { onAction("manage") } label: { rowLabel }
+                .buttonStyle(.cicadaPlain)
+                // The same composed line VoiceOver would otherwise miss: the
+                // count lives outside `detail` since R-S5.
+                .accessibilityLabel(spoken)
+        }
+    }
+
     private var rowContent: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            Button { onAction("manage") } label: {
-                HStack(spacing: CicadaTheme.spacingMD) {
-                    rowIcon
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(channel.label)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .lineLimit(1)
-                        if let detail = channel.detail {
-                            Text(detail)
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(channel.detail.map { "\(channel.label). \($0)" } ?? channel.label)
+            rowLink
 
             Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(CicadaTheme.font(size: 10, weight: .semibold))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .opacity(isHovered ? 1 : 0)
                 .accessibilityHidden(true)
@@ -125,7 +167,7 @@ struct ConnectedChannelRow: View {
                 }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(width: 24, height: 24)
             }
@@ -142,7 +184,7 @@ struct ConnectedChannelRow: View {
                 .fill(isHovered ? CicadaTheme.surfaceHover : .clear)
         )
         .onHover { isHovered = $0 }
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: isHovered)
     }
 
     /// The backend lists what a channel supports; "Manage…" is appended
@@ -150,8 +192,14 @@ struct ConnectedChannelRow: View {
     /// it and nothing on screen advertised that. "remove" is dropped: nothing
     /// implements it — it was routed to the same manage sheet as everything
     /// else, so the item lied about what it did.
+    ///
+    /// A folder or Wispr Flow row gets no menu "Manage…": its settings are in
+    /// Settings → Integrations, reached through the one door,
+    /// `SettingsSectionLink`, which the row itself is (L final review,
+    /// finding 1; R-DS22).
     static func menuActions(for channel: SourceChannel) -> [String] {
-        channel.actions.filter { $0 != "manage" && $0 != "remove" } + ["manage"]
+        let actions = channel.actions.filter { $0 != "manage" && $0 != "remove" }
+        return ChannelActions.managesInIntegrations(channel.id) ? actions : actions + ["manage"]
     }
 
     static func actionTitle(_ action: String, channel: SourceChannel) -> String {
@@ -166,19 +214,29 @@ struct ConnectedChannelRow: View {
 
     /// Icons/tints mirror `OriginPill` so a channel and its origin pill read as
     /// the same thing on the same page.
+    ///
+    /// R7 — `icon`/`tint` deliberately do NOT delegate to `OriginIconography`
+    /// the way `logoName` now does. They are the fallback circle's own
+    /// palette, already non-`tray` for every channel id
+    /// (`ChannelMarkTests.testNoChannelFallsThroughToTheGenericTray`), and
+    /// routing them through the origin map would silently change `files` from
+    /// `link` to `bookmark.fill` for no gain.
     static func icon(for id: String) -> String {
-        switch id {
+        if id.hasPrefix("folder:") { return "folder" }
+        return switch id {
         case "rss": "dot.radiowaves.up.forward"
         case "calendar": "calendar"
-        case "chrome-bookmarks": "globe"
+        // Round 4 (C9): the Chromium family's fallback circle is Chrome's globe.
+        case "chrome-bookmarks", "brave-bookmarks", "vivaldi-bookmarks", "comet-bookmarks", "dia-bookmarks": "globe"
         case "safari-bookmarks", "safari-tabs": "safari"
         case "notes": "note.text"
         case "telegram": "paperplane.fill"
-        case "chat-export:claude", "chat-export:chatgpt": "bubble.left.and.bubble.right"
+        case "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini": "bubble.left.and.bubble.right"
         case "files": "link"
         case "pinterest": "pin.fill"
         case "reddit": "bubble.left.and.text.bubble.right.fill"
         case "x": "x.circle"
+        case "wispr-flow": "waveform"
         default: "tray"
         }
     }
@@ -192,7 +250,7 @@ struct ConnectedChannelRow: View {
         case "safari-bookmarks", "safari-tabs": Color(hex: 0x00A2E8)
         case "notes": Color(hex: 0xFFCC00)
         case "telegram": Color(hex: 0x26A5E4)
-        case "chat-export:claude", "chat-export:chatgpt": CicadaTheme.accent
+        case "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini": CicadaTheme.accent
         case "files": Color(hex: 0x8896FF)
         case "pinterest": Color(hex: 0xE60023)
         case "reddit": Color(hex: 0xFF4500)
@@ -200,18 +258,52 @@ struct ConnectedChannelRow: View {
         }
     }
 
-    /// Task 13 — the bundled brand-mark PNG for a connector-backed channel
-    /// (Pinterest, Reddit, X, Telegram; `AddSourceTile.logoName` is the same
-    /// mapping on the catalog side). Every other channel id keeps its SF
-    /// Symbol circle — no single brand mark exists for a bookmarks sync that
-    /// reads both Chrome and Safari, or for a multi-vendor chat export.
-    static func logoName(for id: String) -> String? {
-        switch id {
-        case "pinterest": "pinterest"
-        case "reddit": "reddit"
-        case "x": "x"
-        case "telegram": "telegram"
-        default: nil
+    /// The origin id the backend's own catalog gives this channel —
+    /// `source_overview.SourceSpec.mark`, mirrored (R-L4). The channel id
+    /// space (`chrome-bookmarks`, what the user connects) and the origin id
+    /// space (`chrome-bookmark`, what an episode is stamped with) are not the
+    /// same strings, so this function is the seam that lets one map answer
+    /// both.
+    ///
+    /// Total on purpose: an id the backend adds before this switch does
+    /// resolves to itself rather than trapping, and
+    /// `ChannelMarkTests.testNoChannelFallsThroughToTheGenericTray` is what
+    /// makes the missing row loud instead of silent.
+    static func origin(forChannel id: String) -> String {
+        // G133: every `folder:<id>` row's episodes carry the one `folder` origin.
+        if id.hasPrefix("folder:") { return "folder" }
+        // Round 4 (C9): every supported browser's bookmarks row is its catalog origin (Chrome and Safari resolve to
+        // the same strings as before).
+        if let spec = BrowserInventory.spec(forBookmarksChannel: id) { return spec.origin }
+        return switch id {
+        case "chat-export:claude": "claude-export"
+        case "chat-export:chatgpt": "chatgpt-export"
+        case "chat-export:gemini": "gemini-export"
+        case "chrome-bookmarks": "chrome-bookmark"
+        case "safari-bookmarks": "safari-bookmark"
+        case "safari-tabs": "safari-tab"
+        // Round 4 (G160): Chrome's open tab groups wear Chrome's own mark.
+        case "chrome-tab-groups": "chrome-tab-group"
+        case "notes": "apple-notes"
+        case "reddit": "reddit-saved"
+        case "x": "x-bookmarks"
+        // `files` is `bookmark`, not `saved-link`: `saved-link` is in that
+        // row's `origins` tuple, while `mark` — the column the app reads — is
+        // `bookmark`.
+        case "files": "bookmark"
+        // `rss`, `calendar`, `pinterest`, `telegram` name themselves.
+        default: id
         }
+    }
+
+    /// The bundled brand mark for a channel — one line, because
+    /// `OriginIconography.logoName` is the only id → asset map there is
+    /// (R-L4). This used to be a second, shorter switch returning only
+    /// `pinterest|reddit|x|telegram`, which is why Chrome was a plain blue
+    /// globe in Settings → Integrations while being a drawn glyph on the
+    /// Sleep desk, and why the two chat exports rendered as one shared SF
+    /// bubble: one source, three pictures.
+    static func logoName(for id: String) -> String? {
+        OriginIconography.logoName(for: origin(forChannel: id))
     }
 }

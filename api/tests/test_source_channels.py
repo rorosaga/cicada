@@ -73,7 +73,8 @@ def test_rss_channel_connected_when_a_feed_is_subscribed(tmp_path):
     assert ch["count"] == 1
     assert ch["label"] == "RSS feeds"
     assert ch["actions"] == ["poll", "manage"]
-    assert "1 feed" in ch["detail"]
+    assert (ch["count"], ch["count_noun"]) == (1, "feed")
+    assert ch["detail"] == "not polled yet", "R-S5: the count left the line"
 
 
 def test_calendar_channel_disconnected_with_empty_registry(tmp_path):
@@ -95,7 +96,8 @@ def test_bookmarks_and_notes_channels_read_sync_state(tmp_path):
         assert row["connected"] is True
         assert row["count"] == 412
         assert row["last_sync"] == "2026-08-29T10:00:00Z"
-        assert row["detail"].startswith("412 bookmarks")
+        assert row["count_noun"] == "bookmark" and row["count_is_delta"] is False
+        assert row["detail"] == "synced 2026-08-29", "R-S5: the count left the line"
         assert row["actions"] == ["sync"]
     assert chans["notes"]["connected"] is False
 
@@ -122,7 +124,8 @@ def test_telegram_channel_follows_the_env_flag_and_counts_episodes(tmp_path):
     ch = _channels(tmp_path, telegram_enabled=True)["telegram"]
     assert ch["connected"] is True
     assert ch["count"] == 1
-    assert ch["detail"] == "Bot configured · 1 capture"
+    assert ch["count_noun"] == "capture"
+    assert ch["detail"] == "Bot configured", "R-S5: the count left the line"
     assert ch["actions"] == []
 
 
@@ -139,6 +142,18 @@ def test_chat_export_channels_come_from_origin_counts(tmp_path):
     assert claude["label"] == "Claude chat export"
     assert claude["actions"] == ["import"]
     assert chans["chat-export:chatgpt"]["count"] == 1
+
+
+def test_a_gemini_takeout_has_its_own_channel(tmp_path):
+    """D11 / R-IA14: counted by origin, in prompts."""
+    episodes = tmp_path / "episodes"
+    episodes.mkdir(parents=True)
+    (episodes / "ep_2026-02-24_001.md").write_text(
+        "---\nid: ep_2026-02-24_001\norigin: gemini-export\ntimestamp: '2026-02-24T12:39:02+00:00'\n---\nuser: alpha-project\n",
+        encoding="utf-8")
+    gemini = _channels(tmp_path)["chat-export:gemini"]
+    assert gemini["count"] == 1 and gemini["count_noun"] == "prompt"
+    assert gemini["label"] == "Gemini chat export" and gemini["actions"] == ["import"]
 
 
 # --- G71: the direct Pinterest + Reddit connectors as capture channels ------
@@ -167,8 +182,8 @@ def test_connector_channel_reports_a_successful_sync(tmp_path):
     sync_state.record_sync(tmp_path, "pinterest", count=42, at="2026-08-30T10:00:00Z")
     ch = _channels(tmp_path, connectors_connected={"pinterest": True})["pinterest"]
     assert ch["count"] == 42
-    assert "42 pins" in ch["detail"]
-    assert "2026-08-30" in ch["detail"]
+    assert ch["count_noun"] == "pin" and ch["count_is_delta"] is True
+    assert ch["detail"] == "synced 2026-08-30"
     assert ch["last_error"] is None
 
 
@@ -176,8 +191,8 @@ def test_reddit_channel_reports_a_successful_sync(tmp_path):
     sync_state.record_sync(tmp_path, "reddit", count=42, at="2026-08-30T10:00:00Z")
     ch = _channels(tmp_path, connectors_connected={"reddit": True})["reddit"]
     assert ch["count"] == 42
-    assert "42 saved items" in ch["detail"]
-    assert "2026-08-30" in ch["detail"]
+    assert ch["count_noun"] == "saved item" and ch["count_is_delta"] is True
+    assert ch["detail"] == "synced 2026-08-30"
     assert ch["last_error"] is None
 
 
@@ -221,8 +236,8 @@ def test_x_channel_reports_a_successful_sync_with_the_cost_note(tmp_path):
     sync_state.record_sync(tmp_path, "x", count=17, at="2026-08-30T10:00:00Z")
     ch = _channels(tmp_path, connectors_connected={"x": True})["x"]
     assert ch["count"] == 17
-    assert "17 bookmarks" in ch["detail"]
-    assert "2026-08-30" in ch["detail"]
+    assert ch["count_noun"] == "bookmark" and ch["count_is_delta"] is True
+    assert ch["detail"].startswith("synced 2026-08-30")
     assert ch["detail"].endswith(x_connector.PRICE_NOTE)
     assert ch["last_error"] is None
 
@@ -242,8 +257,9 @@ def test_channel_ids_now_include_all_three_connectors(client):
     c, _ = client
     ids = [ch["id"] for ch in c.get("/sources/channels").json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "chrome-bookmarks", "safari-bookmarks",
-        "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
+        "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
+        "telegram", "files", "calendar-local", "contacts-local",
     ]
 
 
@@ -261,6 +277,41 @@ def test_channels_etag_covers_connector_connectedness(client, monkeypatch):
     assert resp.status_code == 200, "connecting Pinterest must break the ETag"
 
 
+def test_channels_etag_recipe_is_unchanged_by_the_two_new_fields(client):
+    """ETag ship-together: `count_noun` and `count_is_delta` (R-S5) are derived
+    from the same registries and sync_state the recipe already names, so the
+    recipe must NOT move and no `VersionVector.mapping` change is owed. Pinned
+    behaviourally, the way test_source_overview.py:305 pins the overview's —
+    note this one has no `overview|` prefix."""
+    from api.routers.sources import ADAPTERS
+    from api.services import channel_registry, sync_service
+
+    c, path = client
+    r = c.get("/sources/channels")
+    assert r.status_code == 200
+    assert "countNoun" in r.json()["channels"][0]
+    tag = ",".join(f"{k}:{a.is_connected()}" for k, a in sorted(ADAPTERS.items()))
+    expected = sync_service.etag_for(
+        path, "sources", "episodes", "entities",
+        extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:False|connectors:{tag}",
+    )
+    assert r.headers["etag"] == expected
+    assert c.get("/sources/channels", headers={"If-None-Match": expected}).status_code == 304
+
+
+def test_channels_etag_moves_when_the_always_listed_rows_change(client, monkeypatch):
+    """Round 4 final review #3: the Apple Calendar row joined the body with no
+    bank file changing, so a client's cached list 304'd without it. The body's
+    shape rides the ETag like `graph.NODE_SHAPE`; a bump must break it."""
+    from api.services import channel_registry
+
+    c, _ = client
+    etag = c.get("/sources/channels").headers["etag"]
+    assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 304
+    monkeypatch.setattr(channel_registry, "CHANNELS_SHAPE", "next-shape")
+    assert c.get("/sources/channels", headers={"If-None-Match": etag}).status_code == 200
+
+
 def test_files_channel_counts_the_url_index(tmp_path):
     sources = tmp_path / "sources"
     sources.mkdir(parents=True)
@@ -269,7 +320,7 @@ def test_files_channel_counts_the_url_index(tmp_path):
         encoding="utf-8")
     ch = _channels(tmp_path)["files"]
     assert ch["connected"] is True and ch["count"] == 2
-    assert ch["detail"] == "2 saved items"
+    assert ch["count_noun"] == "saved item" and ch["detail"] is None
     assert ch["actions"] == ["import"]
 
 
@@ -293,8 +344,9 @@ def test_get_sources_channels_returns_every_known_channel(client):
     assert resp.status_code == 200, resp.text
     ids = [ch["id"] for ch in resp.json()["channels"]]
     assert ids == [
-        "chat-export:claude", "chat-export:chatgpt", "chrome-bookmarks", "safari-bookmarks",
-        "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x", "telegram", "files",
+        "chat-export:claude", "chat-export:chatgpt", "chat-export:gemini", "chrome-bookmarks",
+        "safari-bookmarks", "safari-tabs", "notes", "rss", "calendar", "pinterest", "reddit", "x",
+        "telegram", "files", "calendar-local", "contacts-local",
     ]
     assert all(ch["connected"] is False for ch in resp.json()["channels"])
 
@@ -379,3 +431,19 @@ def test_build_channels_runs_off_the_event_loop(client, monkeypatch):
     monkeypatch.setattr(sources_router.channel_registry, "build_channels", spy)
     assert client[0].get("/sources/channels").status_code == 200
     assert seen == [False], "build_channels must not run on the event loop"
+
+
+def test_a_chromium_browser_row_appears_only_once_it_has_synced(tmp_path):
+    """R-SR15: the app's inventory offers Brave before its first sync; the registry lists it only after, so an
+    install without Brave never carries a Brave row."""
+    assert "brave-bookmarks" not in _channels(tmp_path)
+    sync_state.record_sync(tmp_path, "brave-bookmarks", count=5, at="2026-09-24T10:00:00Z")
+    ch = _channels(tmp_path)["brave-bookmarks"]
+    assert (ch["label"], ch["connected"], ch["count"], ch["count_noun"], ch["actions"], ch["parts"]) == (
+        "Brave bookmarks", True, 5, "bookmark", ["sync"], [])
+
+
+def test_parts_ship_only_positive_known_counts(tmp_path):
+    sync_state.record_sync(tmp_path, "safari-bookmarks", count=9,
+                           extra={"reading_list": 2, "favorites": 0, "surprise": 4})
+    assert _channels(tmp_path)["safari-bookmarks"]["parts"] == [{"key": "reading-list", "count": 2}]

@@ -116,3 +116,63 @@ def test_get_perspective_missing_subject(tmp_path, monkeypatch):
     server = _load_server()
     out = server.handle_get_perspective("nonexistent")
     assert "No subject" in out
+
+
+def _events():
+    return [
+        _claim("clm_fact", "alpha-project", "Alpha uses sqlite-vec.", predicate="uses", object="sqlite-vec"),
+        _claim("clm_thread", "alpha-project", "Connecting to the lab cluster", predicate="happened",
+               object="connecting to the lab cluster", object_kind="literal", valid_from="2026-09-10",
+               status="ongoing"),
+        _claim("clm_plan", "alpha-project", "First grasp", predicate="milestone", object="first-grasp",
+               object_kind="literal", valid_from="2026-09-10", status="planned", target="2026-10-01"),
+        _claim("clm_done", "alpha-project", "Got the guide from Hana Example", predicate="happened",
+               object="got the guide from hana example", object_kind="literal", valid_from="2026-09-22",
+               valid_to="2026-09-22", status="done"),
+        _claim("clm_old", "alpha-project", "Alpha used Postgres.", predicate="uses", object="postgres",
+               valid_to="2026-05-05", superseded_by="clm_fact"),
+    ]
+
+
+def test_get_perspective_renders_events_as_dated_lines(tmp_path, monkeypatch):
+    """G141 R-PJ3: an open thread or plan reads `day · status · sentence`; a
+    born-closed done happening is not current, and with history it sits in its
+    own "Happened" block — never "was X until D"."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    _write_subject(tmp_path, "alpha-project", "Alpha Project", _events())
+    out = server.handle_get_perspective("alpha-project")
+    assert "- 2026-09-10 · ongoing · Connecting to the lab cluster\n" in out
+    assert "- 2026-09-10 · planned · First grasp (target 2026-10-01)\n" in out
+    assert "Got the guide" not in out
+    assert "3 valid claim" in out
+
+    out = server.handle_get_perspective("alpha-project", None, None, True)
+    earlier, happened = out.split("Happened and earlier states, newest first (1):")
+    assert "Postgres" in earlier and "Got the guide" not in earlier
+    assert happened.strip() == "- 2026-09-22 · done · Got the guide from Hana Example"
+
+
+def test_get_perspective_history_says_a_happening_was_withdrawn(tmp_path, monkeypatch):
+    """Task 4 review r1 (finding 2): a withdrawn happening listed bare as
+    `day · done · X` would be repeated as fact; a replaced milestone state
+    names what it became."""
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    claims = _events()
+    claims[3] = _claim("clm_done", "alpha-project", "Got the guide from Hana Example", predicate="happened",
+                       object="got the guide from hana example", object_kind="literal", valid_from="2026-09-22",
+                       valid_to="2026-09-22", status="done", superseded_by="clm_retract")
+    claims.append(_claim("clm_retract", "alpha-project", "It was a different guide.", predicate="retracts",
+                         object="clm_done", valid_from="2026-09-23", valid_to="2026-09-23",
+                         authored_by="claude-code"))
+    claims[2] = _claim("clm_plan", "alpha-project", "First grasp", predicate="milestone", object="first-grasp",
+                       object_kind="literal", valid_from="2026-09-10", valid_to="2026-09-23", status="planned",
+                       target="2026-10-01", superseded_by="clm_plan_done")
+    claims.append(_claim("clm_plan_done", "alpha-project", "First grasp", predicate="milestone",
+                         object="first-grasp", object_kind="literal", valid_from="2026-09-23", status="done"))
+    _write_subject(tmp_path, "alpha-project", "Alpha Project", claims)
+    out = server.handle_get_perspective("alpha-project", None, None, True)
+    happened = out.split("Happened and earlier states, newest first (2):")[1]
+    assert "- 2026-09-22 · done · Got the guide from Hana Example (withdrawn by claude-code: " in happened
+    assert "- 2026-09-10 · planned · First grasp (then done)" in happened

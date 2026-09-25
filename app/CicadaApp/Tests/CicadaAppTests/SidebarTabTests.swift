@@ -1,41 +1,51 @@
 import XCTest
 @testable import CicadaApp
 
-/// G68 §1 — six rows, stable identities, and a decoder that survives a
+/// G68 §1 — eight rows (G108 added Home at ⌘1; G141 PJ-5 added Projects at ⌘8), stable identities, and a decoder that survives a
 /// selection written by an older build.
 @MainActor
 final class SidebarTabTests: XCTestCase {
 
-    func testTheSidebarIsSixRowsInVisualOrder() {
-        XCTAssertEqual(AppTab.allCases, [.graph, .clusters, .feed, .sleep, .inbox, .activity])
+    /// G108 ruled (spec decision 12): Home is the front door at ⌘1, Graph follows at ⌘2.
+    func testTheSidebarIsEightRowsInVisualOrder() {
+        XCTAssertEqual(AppTab.allCases, [.home, .graph, .clusters, .feed, .sleep, .inbox, .sources, .projects])
     }
 
     /// Raw values ARE the persisted identity. A surviving tab must never
     /// change its own.
     func testSurvivingRawValuesAreUnchanged() {
+        XCTAssertEqual(AppTab.home.rawValue, "Home")
         XCTAssertEqual(AppTab.graph.rawValue, "Graph")
         XCTAssertEqual(AppTab.clusters.rawValue, "Clusters")
         XCTAssertEqual(AppTab.feed.rawValue, "Feed")
         XCTAssertEqual(AppTab.sleep.rawValue, "Sleep")
         XCTAssertEqual(AppTab.inbox.rawValue, "Inbox")
-        XCTAssertEqual(AppTab.activity.rawValue, "Activity")
+        XCTAssertEqual(AppTab.sources.rawValue, "Sources")
+        XCTAssertEqual(AppTab.projects.rawValue, "Projects")
     }
 
-    /// The five retired raw values still exist in some user's defaults. Each
+    /// The six retired raw values still exist in some user's defaults. Each
     /// must land on the page that inherited its content — never trap, never
-    /// silently show the wrong thing.
+    /// silently show the wrong thing. G124: Activity itself retired into
+    /// Sources, taking the two G68 aliases with it.
     func testRetiredTabsFallBackToWhereTheirContentWent() {
         XCTAssertEqual(AppTab.restored(from: "Capture"), .feed)
-        XCTAssertEqual(AppTab.restored(from: "Contributors"), .activity)
-        XCTAssertEqual(AppTab.restored(from: "Usage"), .activity)
+        XCTAssertEqual(AppTab.restored(from: "Activity"), .sources)
+        XCTAssertEqual(AppTab.restored(from: "Contributors"), .sources)
+        XCTAssertEqual(AppTab.restored(from: "Usage"), .sources)
         XCTAssertEqual(AppTab.restored(from: "Connections"), .graph)
         XCTAssertEqual(AppTab.restored(from: "Connect"), .graph)
     }
 
-    func testUnknownOrMissingSelectionsFallBackToGraph() {
-        XCTAssertEqual(AppTab.restored(from: nil), .graph)
-        XCTAssertEqual(AppTab.restored(from: ""), .graph)
-        XCTAssertEqual(AppTab.restored(from: "Nudges"), .graph)
+    func testUnknownOrMissingSelectionsFallBackToHome() {
+        XCTAssertEqual(AppTab.restored(from: nil), .home, "a fresh install opens on the front door")
+        XCTAssertEqual(AppTab.restored(from: ""), .home)
+        XCTAssertEqual(AppTab.restored(from: "Nudges"), .home)
+    }
+
+    /// Relaunch restores the last tab, so nobody who lives in the graph is moved (D-3b: no).
+    func testAStoredGraphSelectionStaysOnGraph() {
+        XCTAssertEqual(AppTab.restored(from: "Graph"), .graph)
     }
 
     func testRoundTrippingASurvivingTabIsIdentity() {
@@ -44,12 +54,15 @@ final class SidebarTabTests: XCTestCase {
         }
     }
 
-    /// ⌘1–6 follow the visual order, and every row has an icon.
+    /// ⌘1–8 follow the visual order, and every row has an icon.
     func testEveryTabHasAShortcutSlotAndAnIcon() {
-        XCTAssertEqual(AppTab.allCases.count, 6)
+        XCTAssertEqual(AppTab.allCases.count, 8)
+        XCTAssertEqual(AppTab.allCases.firstIndex(of: .home), 0, "⌘1 is Home")
+        XCTAssertEqual(AppTab.allCases.firstIndex(of: .graph), 1, "⌘2 is Graph")
         for (index, tab) in AppTab.allCases.enumerated() {
             XCTAssertLessThan(index, 9, "\(tab.rawValue) has no ⌘ slot")
             XCTAssertFalse(tab.icon.isEmpty, tab.rawValue)
+            XCTAssertFalse(tab.icon.hasSuffix(".fill"), "DR-53: outline glyphs")
             XCTAssertEqual(tab.title, tab.rawValue, "the label and the identity must agree")
         }
     }

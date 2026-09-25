@@ -8,7 +8,7 @@ The ladder, cheapest first, never guessing where a guess would be wrong:
 4. ``media.url`` (a saved link's own site);
 5. a heuristic, and **only** for ``company``/``tool`` pages: a ``website``
    claim's host if one exists, else ``<slug>.com`` when the name is a single
-   token. Never for a ``person`` — "Rodrigo" is not rodrigo.com.
+   token. Never for a ``person`` — a surname is not a domain.
 
 Fetching is keyless (apple-touch-icon → the homepage's ``<link rel=icon>`` →
 DuckDuckGo's icon service) behind an injectable ``fetcher`` so tests never
@@ -54,7 +54,7 @@ from urllib.parse import urljoin, urlparse
 
 from loguru import logger
 
-from api.services import entity_body, markdown_parser
+from api.services import entity_body, markdown_parser, net_guard
 from api.services.auth import cicada_home
 from api.services.claims import parse_claims
 
@@ -145,18 +145,9 @@ def _resolve_host(host: str) -> list[str]:
 
 
 def _is_public_ip(ip_str: str) -> bool:
-    try:
-        ip = ipaddress.ip_address(ip_str)
-    except ValueError:
-        return False
-    return not (
-        ip.is_loopback
-        or ip.is_private
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_unspecified
-        or ip.is_multicast
-    )
+    """One rule for the whole backend (G135 R-R10): `net_guard.is_public_ip`,
+    which also refuses the tailnet range this copy used to let through."""
+    return net_guard.is_public_ip(ip_str)
 
 
 def _is_safe_url(url: str, *, resolver: Resolver) -> bool:
@@ -206,8 +197,25 @@ def _host(raw: str | None) -> str | None:
 
 
 def _first_source_url(frontmatter: dict) -> str | None:
-    for entry in frontmatter.get("sources") or []:
+    """The first ``url`` source the PERSON named (or accepted) — never a model's.
+
+    G61 S1's Stage 5.56 attaches cited links (``fact_sources.attach_cited_urls``)
+    as ``url`` sources added by the extractor. Read as the page's own domain,
+    one Sleep over a sentence with a URL re-branded a tool and gave a person a
+    site's favicon as an avatar — and started an unattended favicon fetch to a
+    host taken from conversation text (G61 final review, finding 1). A source
+    with no ``added_by`` is the person's, as ``EntitySource.added_by`` defaults.
+    """
+    sources = frontmatter.get("sources")
+    # A hand-edited scalar (`sources: 5`) is not a list of sources; iterating it 500'd all of `GET /graph` once the
+    # picture resolver started asking for a domain (r4-people final review, finding 2).
+    if not isinstance(sources, list):
+        return None
+    for entry in sources:
         if not isinstance(entry, dict):
+            continue
+        added_by = str(entry.get("added_by") or "user").strip() or "user"
+        if added_by != "user" and not entry.get("accepted"):
             continue
         if str(entry.get("kind") or "").strip().lower() != "url":
             continue
@@ -593,6 +601,19 @@ def cached_ids(bank: str) -> set[str]:
         if isinstance(entry, dict) and not entry.get("miss") and is_fresh(entry)
         and entry.get("ext") and (directory / f"{eid}.{entry['ext']}").exists()
     }
+
+
+def missed_ids(bank: str) -> dict[str, float]:
+    """Every entity id with a FRESH recorded miss, mapped to when it was recorded (epoch seconds). Read-only, no
+    network — the picture precedence's logo rung is "cached, or not yet known to miss" (G146 plan R-PE9), and a page
+    edited after its miss is re-resolved exactly as `page_edited_since_fetch` re-resolves it for the logo endpoint."""
+    out: dict[str, float] = {}
+    for eid, entry in read_meta(bank).items():
+        if isinstance(entry, dict) and entry.get("miss") and is_fresh(entry):
+            fetched = _fetched_at(entry)
+            if fetched is not None:
+                out[eid] = fetched.timestamp()
+    return out
 
 
 # --- concurrency -------------------------------------------------------------

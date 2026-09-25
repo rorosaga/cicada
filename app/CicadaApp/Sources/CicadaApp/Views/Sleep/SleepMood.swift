@@ -52,6 +52,23 @@ func resolveProgressPct(sse: SleepEventPayload?, status: SleepStatusResponse?) -
     sse?.progressPct ?? status?.progressPct
 }
 
+/// Same SSE-first, REST-fallback precedence again (G125 Task 7), for the two
+/// per-origin dicts the desk card's book pile and study list both read.
+/// `sse`'s own dict wins only when it is non-nil — an SSE payload predating
+/// G125 R3, or one that hasn't ticked since reconnect, decodes both as `nil`
+/// and must fall back to the last REST `/sleep/status` fetch rather than
+/// being read as "nothing queued". Neither source ever returns `nil` itself
+/// (both `SleepStatusResponse` fields default to `[:]` on decode), so the
+/// only genuinely empty result is "no status has loaded yet at all".
+func resolveOriginCounts(
+    sse: SleepEventPayload?,
+    status: SleepStatusResponse?
+) -> (queueByOrigin: [String: Int], readByOrigin: [String: Int]) {
+    let queue = sse?.queueByOrigin ?? status?.queueByOrigin ?? [:]
+    let read = sse?.readByOrigin ?? status?.readByOrigin ?? [:]
+    return (queue, read)
+}
+
 // MARK: - Mood derivation (reuses BookwormState — see MenuBar/BookwormState.swift)
 
 /// The Sleep page's OWN mood derivation. Reuses the same `BookwormState`
@@ -67,21 +84,36 @@ func resolveProgressPct(sse: SleepEventPayload?, status: SleepStatusResponse?) -
 /// - `justFinishedAt`: set by the caller the moment its own poll observes a
 ///   running -> idle transition (mirrors `MenuBarManager`'s own tracking);
 ///   `.digesting` shows for 6s after, matching the menu bar's window.
+/// - a cancelled cycle never reads as `.digesting` (Track Z §6.5)
+/// - `intakeInFlight`: `Store.intakeInFlight` (G125 R2) — the upload overlay
+///   sets this while an import/upload is landing. It forces `.reading` ahead
+///   of happy/hungry (the worm is visibly busy consuming what just arrived,
+///   even if the queue reads 0 because the fetch hasn't caught up yet) but
+///   never ahead of sleeping/error/digesting — those three are already-true
+///   facts about the LAST or CURRENT cycle, and intake-in-flight is only a
+///   hint about what is about to be queued.
 func deriveSleepPageMood(
     status: SleepStatusResponse?,
     debt: SleepDebtView?,
     justFinishedAt: Date?,
+    intakeInFlight: Bool = false,
     now: Date = .now
 ) -> BookwormState {
     guard let status else { return .awake }
     if status.status == "running" {
-        return .sleeping(stage: max(1, min(5, status.stage)))
+        return .sleeping(stage: activeStage(completed: status.stage))
     }
     if let err = status.error, !err.isEmpty {
         return .error   // R6: the failure is the news, not the six-second chew
     }
-    if let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
+    // Track Z §6.5: a CANCELLED cycle filed nothing, so it never chews. The
+    // caller stamps `justFinishedAt` on any running→idle edge (SleepView), and
+    // this is the one place that edge becomes a mood.
+    if !status.cancelled, let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
         return .digesting
+    }
+    if intakeInFlight {
+        return .reading
     }
     guard let debt else { return .awake }
     if debt.unprocessedCount == 0 {
@@ -95,7 +127,11 @@ func deriveSleepPageMood(
     if largeDebt || longGap {
         return .hungry
     }
-    return .curious(count: debt.unprocessedCount)
+    // R2: the Sleep page reads a non-empty, non-overdue queue as "reading",
+    // never "curious" — `.curious` on this page would collide with the menu
+    // bar's own meaning of the same case (inbox items), and the study desk's
+    // whole point is showing the worm at work on what's queued.
+    return .reading
 }
 
 // MARK: - Bracket caption (G107: rendered under the page mascot)
@@ -108,25 +144,23 @@ func deriveSleepPageMood(
 /// that, and the text survived as the caption rather than the character.
 /// It still reuses the SAME `BookwormState` `deriveSleepPageMood` produces,
 /// so the worm and its caption can never disagree about the mood.
+///
+/// Since G125 v3 (R-A4/P8) the sprite has no visible caption at all — the
+/// study room positions the worm by its own box, and a VStack'd caption would
+/// move it off the cushion — so this line survives as the hero group's
+/// VoiceOver label. It is **re-composed, never rewritten**: the numeral is
+/// `heroCount`, the phrase after it is `bracketTail`, and both live in
+/// `SleepHero.swift` beside `heroQualifier`, which the visible chip renders.
+/// One switch, three readers, so the chip and the caption cannot drift apart.
+/// The twelve strings `SleepMoodTests.test_bracketText_*` asserts must
+/// survive this composition byte-for-byte — `SleepHeroTests` re-asserts every
+/// one of them from the other side for exactly that reason.
 func sleepDebtBracketText(_ state: BookwormState, debt: SleepDebtView?) -> String {
-    switch state {
-    case .awake:
-        return "[ awake ]"
-    case .sleeping(let stage):
-        return "[ sleeping · stage \(stage) of 5 ]"
-    case .digesting:
-        return "[ digesting ]"
-    case .happy:
-        return "[ caught up ]"
-    case .curious(let count):
-        return "[ \(count) episode\(count == 1 ? "" : "s") behind ]"
-    case .hungry:
-        let count = debt?.unprocessedCount ?? 0
-        guard count > 0 else { return "[ overdue — hasn't consolidated in a while ]" }
-        return "[ \(count) episode\(count == 1 ? "" : "s") behind — overdue ]"
-    case .error:
-        return "[ last cycle failed ]"
-    }
+    let numeral = heroCount(state, debt: debt).map(String.init)
+    let parts = [numeral, bracketTail(state, debt: debt)]
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
+    return "[ " + parts.joined(separator: " ") + " ]"
 }
 
 /// Semantic color per mood, drawn entirely from `CicadaTheme` — no new
@@ -140,6 +174,7 @@ func sleepDebtBracketColor(_ state: BookwormState) -> Color {
     case .sleeping, .digesting: CicadaTheme.accent
     case .happy: CicadaTheme.success
     case .curious: CicadaTheme.textSecondary
+    case .reading: CicadaTheme.textSecondary
     case .hungry: CicadaTheme.warning
     case .error: CicadaTheme.danger
     }

@@ -2,80 +2,19 @@ import SwiftUI
 
 // M3 (backlog A2): "which model authored which belief" — repo-wide attribution
 // parsed from Cicada-Author commit trailers.
-/// The Contributors half of the Activity page: repo-wide model/user
-/// attribution parsed from `Cicada-Author` commit trailers. No page header of
-/// its own — `ActivityView` owns the title.
-struct ContributorsSection: View {
-    @Environment(ContributorsViewModel.self) private var viewModel
-
-    /// At most one contributor is expanded at a time — the drill-down is tall
-    /// and two open at once makes the list unreadable.
-    @State private var expandedAuthor: String?
-
-    private func toggle(_ author: String) {
-        expandedAuthor = expandedAuthor == author ? nil : author
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            // Error → never-loaded → loaded-but-empty → list. Without the
-            // never-loaded branch a cold launch with the backend down showed
-            // "No attributed commits yet", which is a claim about the repo, not
-            // about the request that failed.
-            if let err = viewModel.errorMessage {
-                errorState(err)
-            } else if !viewModel.hasLoaded {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    ProgressView().controlSize(.small)
-                    Text("Reading commit trailers…")
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-            } else if viewModel.contributors.isEmpty {
-                Text("No attributed commits yet.")
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                ScrollView {
-                    VStack(spacing: CicadaTheme.spacingSM) {
-                        ForEach(viewModel.contributors) { c in
-                            ContributorRow(
-                                contributor: c,
-                                totalCommits: viewModel.totalCommits,
-                                isExpanded: expandedAuthor == c.author,
-                                onToggle: { toggle(c.author) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, CicadaTheme.spacingXL)
-        // No `.task { load() }`: `ContributorsViewModel` is a thin projection
-        // over `Store.contributors`, already hydrated + kept live by the
-        // Store — this tab renders instantly from the snapshot on revisit.
-    }
-
-    private func errorState(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(message)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.danger)
-            Button("Retry") { Task { await viewModel.load() } }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Retry loading contributors")
-        }
-    }
-}
-
-private struct ContributorRow: View {
+/// One contributor's drill-down: the 53-week calendar of when they wrote
+/// memory (G124 R14) and their recent commits, each listing the entity pages it
+/// touched with a per-chip diff (G67).
+///
+/// R-S14 — this body, its caches and its two loaders moved **verbatim** out of
+/// the old `ContributorRow` when `ContributorsSection` became
+/// `ContributorsStrip`. It is one definition on purpose: the strip presents it
+/// in a sheet (R-S15), and a second copy would let two surfaces disagree about
+/// what an author actually wrote. The only change is the trigger — a `.task`
+/// on appear, because a sheet that is on screen is already "expanded", where
+/// the row keyed its fetch to `isExpanded`.
+struct ContributorDrillDown: View {
     let contributor: Contributor
-    let totalCommits: Int
-    let isExpanded: Bool
-    let onToggle: () -> Void
 
     // G67 — the drill-down: this author's recent commits, each listing the
     // entities it touched. Fetched once per row on first expand and kept for
@@ -94,43 +33,51 @@ private struct ContributorRow: View {
     @State private var loadingDiffs: Set<DiffCacheKey> = []
     @State private var diffErrors: Set<DiffCacheKey> = []
 
-    // Prefer the backend-derived `kind`; fall back to the author string so the
-    // row still classifies correctly against an older backend (no `kind`).
-    private var kind: String {
-        if let k = contributor.kind, !k.isEmpty { return k }
-        if contributor.author == "user" { return "user" }
-        if contributor.author == "unknown" { return "unknown" }
-        return "model"
-    }
-
-    private var accent: Color {
-        switch kind {
-        case "user": CicadaTheme.info
-        case "unknown": CicadaTheme.textTertiary
-        default: ContributorAvatar.providerColor(contributor.provider)
-        }
-    }
-
-    private var share: Double {
-        guard totalCommits > 0 else { return 0 }
-        return Double(contributor.commitCount) / Double(totalCommits)
-    }
+    // G124 R14 — when this contributor wrote memory: one 53-week calendar
+    // per `Cicada-Author`, fetched on first expand alongside the commits and
+    // kept for the life of the view. A failure sets `calendarFailed` rather
+    // than caching an empty grid as "never wrote anything".
+    @State private var calendar: ContributorCalendar?
+    @State private var calendarFailed = false
+    @State private var selectedDay: CalendarDay?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Button(action: onToggle) { summary }
-                .buttonStyle(.cicadaPlain)
-                .accessibilityLabel("\(contributor.author), \(contributor.commitCount) commits")
-
-            if isExpanded { drillDown }
+            // G124 R14 — when this contributor wrote memory. The same
+            // `HeatmapView` the old Usage page used, fed per author; levels
+            // come from writes alone, so the tooltip and the selected-day
+            // line never mention tokens or cost.
+            if let calendar {
+                HeatmapView(days: calendar.days, selected: $selectedDay)
+                if let day = selectedDay {
+                    Text("\(day.date) · \(UsageFormat.count(day.memoryWrites)) memory write\(day.memoryWrites == 1 ? "" : "s")")
+                        .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                }
+            } else if calendarFailed {
+                Text("Couldn't load this contributor's calendar")
+                    .font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+            commitsDrillDown
         }
-        .padding(CicadaTheme.spacingMD)
-        .background(CicadaTheme.surfaceHover.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .task(id: isExpanded) {
-            // Re-expanding after a failure retries: `commits` is still nil.
-            guard isExpanded, commits == nil else { return }
-            await loadCommits()
+        .task {
+            // Re-presenting after a failure retries: `commits` (or `calendar`)
+            // is still nil. The two fetches are independent, so one failing
+            // never blocks the other from rendering.
+            if commits == nil { await loadCommits() }
+            if calendar == nil { await loadCalendar() }
+        }
+    }
+
+    /// G124 R14 — this author's memory-write calendar. Same cancellation
+    /// rule as `loadCommits`: a collapsed row mid-flight is neither a failure
+    /// nor a result, so re-expanding simply fetches again.
+    private func loadCalendar() async {
+        calendarFailed = false
+        do {
+            calendar = try await APIClient.shared.fetchContributorCalendar(author: contributor.author)
+        } catch {
+            guard !Self.isCancellation(error) else { return }
+            calendarFailed = true
         }
     }
 
@@ -162,49 +109,8 @@ private struct ContributorRow: View {
         return false
     }
 
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                ContributorAvatar(contributor: contributor, kind: kind)
-                Text(contributor.author)
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Spacer()
-                Text("\(contributor.commitCount) commits")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                Text("\(contributor.entityCount) entities")
-                Text("\(contributor.fileCount) files")
-                if !contributor.lastActive.isEmpty {
-                    Text("last \(contributor.lastActive)")
-                }
-            }
-            .font(CicadaTheme.captionFont)
-            .foregroundStyle(CicadaTheme.textTertiary)
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(CicadaTheme.border)
-                        .frame(height: 4)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(accent)
-                        .frame(width: geo.size.width * share, height: 4)
-                }
-            }
-            .frame(height: 4)
-        }
-        .contentShape(Rectangle())
-    }
-
     @ViewBuilder
-    private var drillDown: some View {
+    private var commitsDrillDown: some View {
         if isLoadingCommits {
             HStack(spacing: CicadaTheme.spacingXS) {
                 ProgressView().controlSize(.small)
@@ -253,7 +159,7 @@ private struct ContributorRow: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .lineLimit(1)
                 Spacer()
-                Text("\(commit.filesChanged) files")
+                Text("\(UsageFormat.count(commit.filesChanged)) files")
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                 FromConversationButton(sessionIds: commit.sessions)
@@ -298,15 +204,15 @@ private struct ContributorRow: View {
     /// "+N more" — a non-interactive sibling of `entityChip`, styled as muted
     /// so it doesn't read as a tappable entity.
     private func moreEntitiesCapsule(_ hidden: Int) -> some View {
-        Text("+\(hidden) more")
-            .font(.system(size: 11))
+        Text("+\(UsageFormat.count(hidden)) more")
+            .font(CicadaTheme.font(size: 11))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(CicadaTheme.surfaceHover)
             .foregroundStyle(CicadaTheme.textTertiary)
             .clipShape(Capsule())
-            .help("\(hidden) more entity page(s) changed in this commit")
+            .help("\(UsageFormat.count(hidden)) more entity page(s) changed in this commit")
             .accessibilityLabel("\(hidden) more entities changed, not shown")
     }
 
@@ -317,7 +223,7 @@ private struct ContributorRow: View {
             toggleEntityDiff(key)
         } label: {
             Text(entityId)
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .lineLimit(1)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -356,39 +262,86 @@ private struct ContributorRow: View {
                 diffErrors.insert(key)
             }
         }
-    }
-}
+    }}
 
 // G15 — a per-contributor avatar (GitHub-repo-contributors style).
 //   user    -> the user's GitHub profile picture (rounded), falling back to a
 //              person glyph if there's no URL or the image fails to load.
-//   model   -> a provider badge: a colored circle with a 1-letter monogram
-//              (provider brand-ish colors; "other" neutral). Real logo assets
-//              are a follow-up; the monogram badge is the v1.
-//   unknown -> a muted question-mark glyph.
-private struct ContributorAvatar: View {
-    let contributor: Contributor
+//   system  -> the bookworm itself (Track L R8): Cicada's own maintenance
+//              commits are neither a model nor a person, and drawing them as
+//              an unknown model was the loudest instance of the "?" bug.
+//   model   -> the provider's REAL mark when one is bundled (R-L6), else a
+//              coloured circle carrying the author's initials. The "logo
+//              assets are a follow-up" note this comment used to carry is
+//              what Track L delivered.
+//   unknown -> a muted question-mark glyph — the ONE place a "?" is honest,
+//              because a legacy untrailered commit genuinely has no author.
+//
+//   harness -> the app's own mark (G118 slice 2): a remote write is authored
+//              by the connector's app label (`Cicada-Author: claude-web`, R-R5),
+//              which `author_identity` buckets as `harness` — the same
+//              `OriginMark` every other surface draws for that app.
+//
+// R-S14 — internal, not `private`: the chip strip reuses this exact view
+// rather than re-deriving a mark, so a chip and its drill-down can never wear
+// two different faces for one author. G118 slice 2 widens it to any size and
+// to the bare `(author, kind, provider)` a claim or a history row carries, so
+// the ClaimChip footer, the History tab and "Where this came from" draw the
+// SAME face the strip does (design §4.6).
+struct ContributorAvatar: View {
+    let author: String
     let kind: String
+    let provider: String?
+    let avatarUrl: String?
+    var size: CGFloat = 22
 
-    private static let size: CGFloat = 22
+    init(contributor: Contributor, kind: String, size: CGFloat = 22) {
+        self.init(author: contributor.author, kind: kind, provider: contributor.provider,
+                  avatarUrl: contributor.avatarUrl, size: size)
+    }
+
+    init(author: String, kind: String, provider: String?, avatarUrl: String? = nil, size: CGFloat = 22) {
+        self.author = author
+        self.kind = kind
+        self.provider = provider
+        self.avatarUrl = avatarUrl
+        self.size = size
+    }
 
     var body: some View {
         switch kind {
         case "user":
             userAvatar
+        case "system":
+            systemAvatar
+        case "harness":
+            OriginMark(origin: author, size: size)
         case "unknown":
             Image(systemName: "questionmark.circle.fill")
-                .font(.system(size: Self.size))
+                .font(CicadaTheme.font(size: size))
                 .foregroundStyle(CicadaTheme.textTertiary)
-                .frame(width: Self.size, height: Self.size)
+                .frame(width: size, height: size)
         default:
             providerBadge
         }
     }
 
+    /// A STATIC frame 0 of the bookworm, not a `BookwormView` (R8): a 22 pt
+    /// sprite animating inside a scrolling table is motion nobody asked for,
+    /// and frame 0 at this size is a `BookwormRenderer` cache hit the menu bar
+    /// has usually already paid for. `.interpolation(.none)` keeps the pixel
+    /// grid hard at a non-multiple scale, exactly as the menu bar draws it.
+    private var systemAvatar: some View {
+        Image(nsImage: BookwormRenderer.cachedImage(state: .happy, frameIndex: 0, pointSize: 24))
+            .interpolation(.none)
+            .resizable()
+            .frame(width: size, height: size)
+            .clipShape(Circle())
+    }
+
     @ViewBuilder
     private var userAvatar: some View {
-        if let urlStr = contributor.avatarUrl, let url = URL(string: urlStr) {
+        if let urlStr = avatarUrl, let url = URL(string: urlStr) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):
@@ -399,7 +352,7 @@ private struct ContributorAvatar: View {
                     userFallback
                 }
             }
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
             .clipShape(Circle())
         } else {
             userFallback
@@ -408,39 +361,57 @@ private struct ContributorAvatar: View {
 
     private var userFallback: some View {
         Image(systemName: "person.crop.circle.fill")
-            .font(.system(size: Self.size))
+            .font(CicadaTheme.font(size: size))
             .foregroundStyle(CicadaTheme.info)
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
     }
 
+    /// R8 — the real mark when the provider ships one, else the provider's
+    /// colour carrying the AUTHOR's initials. Initials, not a per-provider
+    /// letter: `openrouter/z-ai/glm-5.2` and a bare `glm-5.2` are two
+    /// different authors and must not collapse into one badge.
+    ///
+    /// The `exists` half is not belt-and-braces: it is the R6 rung check every
+    /// other mark surface runs (`PlatformTile`, `ConnectedChannelRow`), and
+    /// this was the one call site without it. `ContributorIdentity.logoName`
+    /// is a static provider→file map, so it says "anthropic wears claude.png"
+    /// whether or not that file resolves; without the check the else-branch
+    /// its own docstring promises ("never a blank") was skipped and
+    /// `LogoImage`'s missing-asset placeholder — SF Symbol `app`, an empty
+    /// rounded square — went on screen instead of the author's initials.
+    @ViewBuilder
     private var providerBadge: some View {
-        Circle()
-            .fill(Self.providerColor(contributor.provider))
-            .frame(width: Self.size, height: Self.size)
-            .overlay(
-                Text(Self.monogram(contributor.provider))
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-            )
+        if let logo = ContributorIdentity.logoName(provider: provider),
+           LogoImage.exists(name: logo) {
+            LogoImage(name: logo, size: size)
+        } else {
+            Circle()
+                .fill(Self.providerColor(provider))
+                .frame(width: size, height: size)
+                .overlay(
+                    // 10 pt at the strip's 22 pt: the initials scale with the
+                    // circle so a 14 pt claim-chip avatar stays legible.
+                    Text(ContributorIdentity.monogram(for: author))
+                        .font(CicadaTheme.font(size: size * 10 / 22, weight: .bold))
+                        .foregroundStyle(.white)
+                )
+        }
     }
 
     /// Brand-ish color per provider; "other"/unknown -> a neutral tone.
+    ///
+    /// The R-L6 providers that have no bundled mark deliberately stay neutral:
+    /// a router (`openrouter`, `ollama`) did not make the model, and painting
+    /// an open-weight family in a vendor's colour would claim a brand the id
+    /// does not carry. Colour here means "we know whose model this was", and
+    /// the initials carry the rest. Still used by `ContributorsStrip`, which
+    /// tints each bar segment and its chip by the same rule (R-S6).
     static func providerColor(_ provider: String?) -> Color {
         switch provider {
         case "anthropic": Color(hex: 0xD97757)  // Anthropic clay/terracotta
         case "openai": Color(hex: 0x10A37F)      // OpenAI teal-green
         case "google": Color(hex: 0x4285F4)      // Google blue
-        default: CicadaTheme.textTertiary        // "other" / unknown — neutral
-        }
-    }
-
-    /// 1-letter monogram per provider.
-    static func monogram(_ provider: String?) -> String {
-        switch provider {
-        case "anthropic": "A"
-        case "openai": "O"
-        case "google": "G"
-        default: "?"
+        default: CicadaTheme.textTertiary        // router / open-weight / "other" — neutral
         }
     }
 }

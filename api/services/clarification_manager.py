@@ -75,6 +75,19 @@ class ClarificationManager:
             if is_duplicate
             else (uncertainty_type or "")
         )
+        # G113 slice 3b (R5) — a pair the user already rejected ("these are NOT
+        # the same entity") is never re-proposed. Checked only for a duplicate
+        # suggestion: a plain clarification's `second` is the uncertainty type,
+        # not an entity, so it is never a pair `merge_rejections` would hold.
+        if is_duplicate and second:
+            from api.services import merge_rejections
+
+            if merge_rejections.is_rejected(self.memory_path, sanitize_id(entity_name), second):
+                logger.info(
+                    "clarification: merge pair (%s, %s) was rejected by the user — not re-proposing",
+                    entity_name, second,
+                )
+                return None
         open_path = find_open(self.memory_path, kind, sanitize_id(entity_name), second)
         if open_path is not None:
             parsed = markdown_parser.parse(open_path)
@@ -92,7 +105,17 @@ class ClarificationManager:
             "priority": confidence,
             "entity_id": sanitize_id(entity_name),
             "entity_name": entity_name,
-            "title": entity_name,
+            # G97: for every non-conflict kind the card renders `entity_name`
+            # on line 1 and `title` on line 2 (`InboxCardView.swift:64,69`) —
+            # an identical string twice ("<name> / <name>") was the duplicated
+            # subtitle. The title is now the question (G115 §1). The merge form
+            # names the CANDIDATE as the person wrote it, never
+            # `_merge_target_hint`'s slug — that helper returns a file stem
+            # (`bob-example`), which is a page id, not copy.
+            "title": (
+                f"Is {entity_name} the same as {self._duplicate_candidate(uncertainty_type) or 'an existing entity'}?"
+                if is_duplicate else f"Who or what is {entity_name}?"
+            ),
             "uncertainty_type": uncertainty_type,
             "suggested_classification": suggested_classification,
             "suggested_confidence": confidence,
@@ -112,6 +135,22 @@ class ClarificationManager:
         markdown_parser.write(filepath, frontmatter, source_context.strip())
         logger.info(f"Clarification created: {clar_id} ({entity_name})")
         return clar_id
+
+    def _duplicate_candidate(self, uncertainty_type: str) -> str | None:
+        """The candidate name in "Possible duplicate of X", verbatim.
+
+        The twin of :meth:`_merge_target_hint`, which resolves the same text to
+        a page SLUG for `merge_target_hint`. G115 Phase 1 needs the display form
+        for the item title — a slug in a question reads as a bug to the person
+        answering it.
+        """
+        text = (uncertainty_type or "").strip()
+        if not text.lower().startswith(_DUPLICATE_PREFIX):
+            return None
+        candidate = text[len(_DUPLICATE_PREFIX):].strip()
+        if candidate.lower().startswith("of "):
+            candidate = candidate[3:].strip()
+        return candidate or None
 
     def _merge_target_hint(self, uncertainty_type: str) -> str | None:
         """Resolve the candidate name in 'Possible duplicate of X' to a slug."""

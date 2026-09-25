@@ -313,8 +313,9 @@ final class MutationTests: XCTestCase {
         XCTAssertTrue(ok)
         // `.askHistory` (G52) has no server endpoint to reconcile against —
         // `Store.refresh` skips it explicitly — so it never generates an API
-        // call even though it's part of `allCases`.
-        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases).subtracting([.askHistory]),
+        // call even though it's part of `allCases`. `.quickRecents` (G136) is
+        // the palette's cache-only twin of it.
+        XCTAssertEqual(Set(api.calls), Set(SyncDomain.allCases).subtracting([.askHistory, .quickRecents]),
                        "a successful activate reconciles the whole bank")
         XCTAssertEqual(api.calls.first, .banks, "the roster is refreshed first")
     }
@@ -419,5 +420,39 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(api.writes, ["syncBookmarks:1"])
         XCTAssertNil(mutation.result, "a failed sync leaves no result to show")
         XCTAssertEqual(store.toast, "Couldn't finish syncing those bookmarks — the Feed shows what landed")
+    }
+
+    /// Round 4 phase A final review, finding 2 — a 409 means an earlier bookmark sync of this bank is still saving
+    /// (the × stops only the app's request). Said plainly, and the mutation says why so the watcher lights nothing.
+    func testABusyBookmarkSyncSaysSoInPlainWords() async {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        api.writeError = APIError.httpError(409, "A bookmark sync is still finishing")
+        api.replies[.channels] = .notModified
+        api.replies[.sources] = .notModified
+        let chromium = SyncChromiumBookmarks(browser: "brave", data: Data("{}".utf8))
+        let ok = await store.perform(chromium)
+        XCTAssertFalse(ok)
+        XCTAssertTrue(chromium.wasBusy)
+        XCTAssertEqual(store.toast, Copy.bookmarkSyncBusy)
+
+        api.writeError = APIError.serverUnreachable
+        let other = SyncBrowserBookmarks(chromeData: Data("{}".utf8), safariData: nil, folders: nil)
+        _ = await store.perform(other)
+        XCTAssertFalse(other.wasBusy, "only a 409 is busy")
+    }
+
+    /// R-SR11 — a request the person stopped is not a failure: no toast.
+    func testACancelledRequestRaisesNoToast() async {
+        struct Stopped: Mutation {
+            func optimistic(_ store: Store) async {}
+            func request(_ api: any SyncAPI) async throws { throw CancellationError() }
+            func rollback(_ store: Store) async {}
+            var failureMessage: String { "must not show" }
+        }
+        let store = Store(cache: tempCache(), api: FakeSyncAPI())
+        let ok = await store.perform(Stopped())
+        XCTAssertFalse(ok)
+        XCTAssertNil(store.toast)
     }
 }

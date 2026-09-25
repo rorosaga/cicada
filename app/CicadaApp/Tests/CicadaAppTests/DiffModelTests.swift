@@ -354,7 +354,7 @@ final class DiffModelTests: XCTestCase {
     // Sleep-cycle commit routinely touches several entity files, so the same
     // hash commonly appears in more than one entity's history. `DiffCacheKey`
     // is the shared (entityId, commitHash) composite key both `EntityDetailCard`
-    // and `ContributorsSection` cache their diff state under; this is the pure,
+    // and `ContributorDrillDown` cache their diff state under; this is the pure,
     // testable seam that composition rule lives in.
 
     func testTheSameCommitHashInTwoDifferentEntitiesProducesDistinctKeys() {

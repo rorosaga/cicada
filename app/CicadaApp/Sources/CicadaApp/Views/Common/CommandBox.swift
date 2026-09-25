@@ -15,6 +15,7 @@ import AppKit
 struct CommandBox: View {
     let command: String
     @State private var copied = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
@@ -23,8 +24,7 @@ struct CommandBox: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
+                AppPasteboard.copy(command)
                 copied = true
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
@@ -32,7 +32,7 @@ struct CommandBox: View {
                 }
             } label: {
                 Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(CicadaTheme.font(size: 11, weight: .medium))
                     .foregroundStyle(copied ? CicadaTheme.success : CicadaTheme.textSecondary)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -51,7 +51,7 @@ struct CommandBox: View {
             RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
                 .stroke(CicadaTheme.border, lineWidth: 1)
         )
-        .animation(.easeInOut(duration: 0.15), value: copied)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: copied)
     }
 
     private var snippet: some View {

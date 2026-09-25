@@ -69,9 +69,47 @@ final class ConsumptionDecodingTests: XCTestCase {
     func testHeatRampCoversTheFullRangeAndClampsOutOfBounds() {
         CicadaTheme.mode = .dark
         XCTAssertEqual(CicadaTheme.heatRamp(level: 0), CicadaTheme.surfaceElevated)
-        XCTAssertEqual(CicadaTheme.heatRamp(level: 4), CicadaTheme.accent)
+        // R-DS6 / DR-8: the ramp is a data hue, so its top step is the frozen indigo the
+        // "active" status reads, not the Mac's accent (which is now chrome only).
+        XCTAssertEqual(CicadaTheme.heatRamp(level: 4), CicadaTheme.statusColor(for: .active))
         XCTAssertEqual(CicadaTheme.heatRamp(level: -1), CicadaTheme.heatRamp(level: 0), "clamps below 0")
         XCTAssertEqual(CicadaTheme.heatRamp(level: 9), CicadaTheme.heatRamp(level: 4), "clamps above 4")
+    }
+
+    /// G113: the feedback section is optional on the wire (an older backend
+    /// has no `/consumption/feedback`) and in the disk cache (a bundle
+    /// written before this build has no `feedback` key) — both must decode.
+    func testBundleWithoutFeedbackDecodesToNil() throws {
+        let json = """
+        {"summary":{"costUsd":2.5,"range":"month"},
+         "calendar":{"days":[],"weeks":53},
+         "stats":{"byModel":[],"byStage":[],"byConnection":[],"byBank":[],"hourHistogram":[0],"series":[],"range":"month"},
+         "connections":{"connections":[],"range":"month"},
+         "harness":{}}
+        """.data(using: .utf8)!
+        let bundle = try JSONDecoder().decode(ConsumptionBundle.self, from: json)
+        XCTAssertNil(bundle.feedback)
+    }
+
+    func testFeedbackDecodesWithMissingFieldsAndRoundTrips() throws {
+        let sparse = try JSONDecoder().decode(ConsumptionFeedback.self, from: Data(#"{"range":"month"}"#.utf8))
+        XCTAssertEqual(sparse.resolutions, 0)
+        XCTAssertNil(sparse.rate)
+        let full = try JSONDecoder().decode(ConsumptionFeedback.self, from: Data("""
+        {"range":"month","since":"2026-09-01","resolutions":12,"corrections":3,"rate":0.7,
+         "agreement":[{"kind":"conflict","total":5,"agreed":3,"overruled":1,"rate":0.75}],
+         "calibration":[{"bucket":"<0.5","n":0,"agreedRate":null}],
+         "byAction":[{"action":"pick:1","n":4}],
+         "audits":{"supersede":7,"rejected":2},
+         "dedup":{"same":1,"different":3,"unsure":1,"merged":1}}
+        """.utf8))
+        XCTAssertEqual(full.resolutions, 12)
+        XCTAssertEqual(full.corrections, 3)
+        XCTAssertEqual(full.rate, 0.7)
+        XCTAssertEqual(full.agreement.count, 1)
+        let back = try JSONDecoder().decode(ConsumptionFeedback.self, from: JSONEncoder().encode(full))
+        XCTAssertEqual(back.rate, 0.7)
+        XCTAssertEqual(back.audits["supersede"], 7)
     }
 }
 

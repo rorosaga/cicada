@@ -64,6 +64,24 @@ def clear_embed_cache() -> None:
         _EMBED_INFLIGHT.clear()
 
 
+def warm_local_embed_fn(model_id: str | None) -> EmbedFn | None:
+    """The query embedder for ``model_id`` only when it runs ON THIS MAC and is
+    ALREADY loaded in this process; ``None`` otherwise. Never a build.
+
+    G149 R-H4: the recall hook may re-order pages with the stored vectors, but
+    it fires on every prompt. It must never pay a multi-second model load inside
+    a 300 ms budget (``cached_embed_fn_for_model`` builds on a miss), and it
+    must never send the person's words to a hosted embedding API (OpenAI,
+    OpenRouter). The palette's opt-in hybrid search has that data flow; an
+    automatic per-prompt hook must not."""
+    mid = (model_id or "").strip()
+    if not mid or mid == "unknown" or _model_is_openai(mid) or _model_is_openrouter(mid):
+        return None
+    with _EMBED_LOCK:
+        hit = _EMBED_CACHE.get(mid)
+    return hit[0] if hit else None
+
+
 def cached_embed_fn_for_model(model_id: str, settings: Settings | None = None) -> tuple[EmbedFn, str]:
     """Memoised :func:`resolve_embed_fn_for_model` — the model is loaded once per process.
 
@@ -175,6 +193,42 @@ def _agent_semaphore(limit: int) -> threading.BoundedSemaphore:
         return sem
 
 
+def _reasoning_off(extra_body) -> bool:
+    """The caller's "no reasoning" intent (Stage 1, Stage 2's judge). The
+    Claude CLI expresses it as `--effort` (R-E11); it used to be dropped."""
+    reasoning = extra_body.get("reasoning") if isinstance(extra_body, dict) else None
+    return isinstance(reasoning, dict) and reasoning.get("enabled") is False
+
+
+def _claude_refs(envelope: dict, stream) -> dict:
+    """R1 gap G: one spawn can be several upstream requests (Hermes' finding),
+    so `num_turns` makes that visible; `api_key_source` is the CLI's own enum
+    for which credential answered. Enums and counts only (telemetry rail)."""
+    refs: dict = {}
+    turns = envelope.get("num_turns")
+    if isinstance(turns, int) and not isinstance(turns, bool):
+        refs["num_turns"] = turns
+    source = getattr(stream, "api_key_source", None)
+    if source:
+        refs["api_key_source"] = source
+    return refs
+
+
+def _throttle_refs(stream) -> dict:
+    """The last rate-limit signal as enums: window, state, a coarse bucket,
+    overage. Never a number finer than the bucket, never text."""
+    signals = list(getattr(stream, "rate_limits", None) or [])
+    if not signals:
+        return {}
+    last = signals[-1]
+    refs = {"rate_limit_type": last.limit_type or "unknown", "status": last.status,
+            "overage": bool(last.using_overage)}
+    if last.utilization is not None:
+        u = last.utilization
+        refs["utilization_bucket"] = "<50" if u < 0.5 else "50-80" if u < 0.8 else "80-95" if u < 0.95 else ">95"
+    return refs
+
+
 def resolve_llm_fn(
     settings: Settings,
     *,
@@ -207,21 +261,24 @@ def resolve_llm_fn(
             ``telemetry.bank_name(settings)``.
         is_async: force the AGENT rung's returned callable to be awaitable
             (``True``) or blocking (``False``). Outside ``llm_mode="agent"``
+            (or ``"codex"``)
             this is a no-op (fix round 1, L4) — the byok/local ``_call``
             always branches on ``inspect.isawaitable(completion(...))`` at
             call time, exactly as before this parameter existed. Defaults to
             ``inspect.iscoroutinefunction(completion)``: verified sound
             (``litellm.acompletion`` is a coroutine function,
-            ``litellm.completion`` is not), but in ``llm_mode="agent"`` the
+            ``litellm.completion`` is not), but in ``llm_mode="agent"`` (or
+            ``"codex"``) the
             injected ``completion`` is never called, so the override exists
             for callers that pass neither.
-        runner: injected subprocess runner for ``llm_mode="agent"``
+        runner: injected subprocess runner for ``llm_mode="agent"`` or ``"codex"``
             (``runner(argv, *, stdin, timeout, cwd) -> CliResult``). Tests
             always pass one; production leaves it ``None`` and gets
             ``connections.base.run_cli_sync``.
         scope: the ``agent_engine`` throttle-breaker bucket this call's
             AGENT-rung requests check/trip — only meaningful when
-            ``llm_mode == "agent"``. Defaults to ``agent_engine.current_scope()``
+            ``llm_mode == "agent"`` or ``"codex"`` (one breaker for both plans,
+            R-E19). Defaults to ``agent_engine.current_scope()``
             (a Sleep cycle wraps its whole run in ``agent_engine.use_scope(...)``,
             so every stage's ``resolve_llm_fn`` call inherits that cycle's
             scope with no explicit passing needed); pass an explicit value to
@@ -240,6 +297,9 @@ def resolve_llm_fn(
         When ``settings.llm_mode == "agent"``, the call is routed through
         ``agent_engine.complete`` (a ``claude -p`` subprocess on the user's own
         subscription) instead — see the module docstring for the seam contract.
+        When it is ``"codex"``, the call is one ``codex exec`` in Cicada's own
+        Codex home on the person's ChatGPT plan (``codex_engine``, R-E2),
+        behind the same semaphore, breaker, telemetry and models ledger.
 
         Every call is timed and reported as one ``UsageEvent`` to ``sink``
         (default: the telemetry ledger) tagged with ``stage`` — the single
@@ -251,8 +311,10 @@ def resolve_llm_fn(
     # unresolved "auto" reaching this synchronous seam degrades to byok rather
     # than blocking a request thread on a subprocess probe.
     mode = (settings.llm_mode or "byok").strip().lower()
-    is_agent = mode == "agent"
-    if completion is None and not is_agent:
+    # R-E2: both plan engines are CLI rungs behind one seam — the Claude plan
+    # (`claude -p`) and the ChatGPT plan (`codex exec`).
+    is_cli = mode in ("agent", "codex")
+    if completion is None and not is_cli:
         # Fix round 1, N2: never imported on the agent rung — a multi-second
         # import for a callable that branch is built specifically to avoid
         # calling. `iscoroutinefunction(None)` below is False, same as
@@ -268,39 +330,49 @@ def resolve_llm_fn(
     if is_async is None:
         is_async = inspect.iscoroutinefunction(completion)
 
-    is_local = (not is_agent) and (mode == "local" or resolved_model.startswith("ollama/"))
+    is_local = (not is_cli) and (mode == "local" or resolved_model.startswith("ollama/"))
     if is_local and not resolved_model.startswith("ollama/"):
         resolved_model = f"ollama/{settings.ollama_model}"
 
     is_openrouter = resolved_model.startswith("openrouter/")
     headers = _openrouter_headers(settings) if is_openrouter else None
 
-    if is_agent:
+    if is_cli:
         from api.services import agent_engine
 
         # A plan call is not money and does not belong to the disconnected
         # BYOK API-key card. `connection` must EQUAL the adapter id —
         # consumption_stats.per_connection joins strictly on it.
-        engine_label, connection, billing = "claude-cli", "claude-plan", "subscription"
-        # `litellm_model` ids mean nothing to `claude --model`; the rung has
-        # its own model pair (settings.agent_model / agent_disambiguation_model).
-        argv_model = agent_engine.model_for_stage(settings, stage)
+        if mode == "agent":
+            engine_label, connection, billing = "claude-cli", "claude-plan", "subscription"
+            # `litellm_model` ids mean nothing to `claude --model`; the rung has
+            # its own model pair (settings.agent_model / agent_disambiguation_model).
+            argv_model = agent_engine.model_for_stage(settings, stage)
+        else:
+            from api.services import codex_engine
+
+            # R-E2: the ChatGPT plan's own card and model pair. "" = no `-m`
+            # (the plan's default, R-E17).
+            engine_label, connection, billing = "codex-cli", "chatgpt-plan", "subscription"
+            argv_model = codex_engine.model_for_stage(settings, stage)
     else:
         engine_label = "litellm"
         connection, billing = telemetry.connection_for_model(resolved_model)
         argv_model = resolved_model
 
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
-              equiv_override: float | None = None) -> None:
+              equiv_override: float | None = None, refs: dict | None = None) -> None:
         try:
             usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
-            event_model = model_used or (argv_model if is_agent else resolved_model)
-            if is_agent:
+            event_model = model_used or (argv_model if is_cli else resolved_model)
+            if is_cli:
                 # `costBasis: "list"` says the envelope's figure is metering,
                 # not money charged — so it is an equivalent, never a spend.
                 cost = None
                 equiv = equiv_override
-                if equiv is None:
+                # `codex exec` reports no metering, and estimating would
+                # import litellm on the one rung built to avoid it (N2).
+                if equiv is None and mode == "agent":
                     equiv = pricing.estimate_cost(
                         event_model, usage["input_tokens"], usage["output_tokens"],
                         usage["cache_read_tokens"], usage["cache_write_tokens"])
@@ -319,27 +391,31 @@ def resolve_llm_fn(
                 cache_write_tokens=usage["cache_write_tokens"],
                 cost_usd=cost, equiv_cost_usd=equiv,
                 duration_ms=int((time.perf_counter() - started) * 1000), ok=ok,
+                refs=refs or {},
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
 
-    def _emit_throttle(exc: Exception) -> None:
+    def _emit_throttle(reason, stream=None) -> None:
         """The first ``kind="throttle"`` event this codebase has ever written.
 
         ``telemetry.KINDS`` has listed it and ``consumption_stats:249`` has
-        counted ``throttle_events`` since G51; nothing produced one.
+        counted ``throttle_events`` since G51; nothing produced one. R-E12:
+        the last rate-limit signal rides along as enums (``_throttle_refs``).
         """
         try:
             sink(telemetry.UsageEvent(
                 kind="throttle", stage=stage or "unknown", connection=connection,
                 engine=engine_label, model=argv_model, bank=bank_label, billing=billing,
-                invocations=0, throttled=True, ok=False, refs={"detail": str(exc)[:300]},
+                invocations=0, throttled=True, ok=False,
+                refs={"detail": str(reason)[:300], **_throttle_refs(stream)},
             ))
         except Exception as sink_exc:
             logger.warning(f"telemetry sink failed: {sink_exc}")
 
-    def _agent_invoke(messages, response_format, timeout: float):
-        """One `claude -p` call, the response shim, and telemetry.
+    def _agent_invoke(messages, response_format, timeout: float, reasoning_off: bool = False):
+        """One plan-CLI call (`claude -p` or `codex exec`), the response shim,
+        and telemetry.
 
         Fix round 1, M1: the shim and cost extraction now sit INSIDE the
         guarded region, and the catch is widened from
@@ -354,22 +430,63 @@ def resolve_llm_fn(
         finding 1): ``resolved_scope`` is captured ONCE so the check inside
         ``agent_engine.complete`` and the trip below always agree, even
         though ``agent_engine.current_scope()`` is re-readable at any point.
+
+        R-E12 — ``EngineExhausted`` trips the breaker like a throttle (every
+        remaining episode would otherwise spawn once and fail), and a stop
+        the engine saw on a SUCCESSFUL call (``on_signals``) trips it after
+        the answer is recorded. Both new trips apply only inside a workload
+        scope: the ``_unscoped`` bucket is never reset (``use_scope`` purges
+        only its own), so a trip there would outlive the window it measured,
+        until the backend restarts. Final review H1: a plain throttle still
+        trips in any scope, so every caller that resolves a plan through
+        Settings → Engines runs in its own purging scope — Sleep
+        (``sleep:<id>``), each Ask call (``ask:<uuid>``) and each link
+        backfill, tail or on-demand (``links:<uuid>``). What still lands in
+        ``_unscoped`` reaches a plan only through an explicit
+        ``CICADA_LLM_MODE`` (e.g. the dedup sweep) — the pre-R-E23 status quo.
         """
         resolved_scope = scope or agent_engine.current_scope()
+        in_workload = resolved_scope != agent_engine.DEFAULT_SCOPE
         started = time.perf_counter()
+        seen: dict = {}
         try:
-            envelope = agent_engine.complete(
-                messages=messages, model=argv_model, stage=stage,
-                want_json=response_format is not None, timeout=timeout, runner=runner,
-                scope=resolved_scope,
-            )
-            resp = agent_engine.response_shim(envelope, argv_model)
-            used = resp["model"]
+            if mode == "agent":
+                envelope = agent_engine.complete(
+                    messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner,
+                    scope=resolved_scope,
+                    policy=agent_engine.CallPolicy.from_settings(settings, reasoning_off=reasoning_off),
+                    on_signals=lambda stream, stop: seen.update(stream=stream, stop=stop),
+                )
+                resp = agent_engine.response_shim(envelope, argv_model)
+                used = resp["model"]
+                equiv = agent_engine.equiv_cost_from_envelope(envelope)
+                refs = _claude_refs(envelope, seen.get("stream"))
+            else:
+                from api.services import codex_engine
+
+                # R-E2/R-E19: the ChatGPT plan through the same breaker scope,
+                # semaphore and ledger. Effort is every stage's `low`
+                # (R-E17), so `reasoning_off` has nothing further to lower.
+                parsed = codex_engine.complete(
+                    messages=messages, model=argv_model, stage=stage,
+                    want_json=response_format is not None, timeout=timeout, runner=runner,
+                    scope=resolved_scope, effort=codex_engine.effort_for(settings),
+                )
+                resp = codex_engine.response_shim(parsed, argv_model)
+                # exec does not echo the served model: record the one asked
+                # for, or nothing when the plan's default ran (R-E17).
+                used = argv_model or None
+                equiv = None
+                # A count, never the warning text (telemetry is ids and enums).
+                refs = {"warnings": len(parsed.warnings)} if parsed.warnings else {}
             agent_engine.record_model_used(used)
-            equiv = agent_engine.equiv_cost_from_envelope(envelope)
-        except engine_errors.EngineThrottled as exc:
-            # Trip BEFORE emitting so a concurrent caller cannot also trip.
-            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope)
+        except (engine_errors.EngineThrottled, engine_errors.EngineExhausted) as exc:
+            # R-E12: a throttle trips in any scope (unchanged). An exhaustion
+            # trips only inside a workload scope. Trip BEFORE emitting so a
+            # concurrent caller cannot also trip.
+            trips = isinstance(exc, engine_errors.EngineThrottled) or in_workload
+            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope) if trips else False
             # Fix round 1, L1: a fail-fast call (the breaker was ALREADY
             # tripped before this call — `agent_engine.complete` tags it
             # `.spawned = False`) never touched the runner, so it is not a
@@ -382,19 +499,23 @@ def resolve_llm_fn(
             if getattr(exc, "spawned", True):
                 _emit(None, started, ok=False)
             if newly_tripped:
-                _emit_throttle(exc)
+                _emit_throttle(str(exc), seen.get("stream"))
             raise
         except Exception:
             _emit(None, started, ok=False)
             raise
-        _emit(resp, started, ok=True, model_used=used, equiv_override=equiv)
+        _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
+        stop = seen.get("stop")
+        if (stop is not None and in_workload
+                and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope)):
+            _emit_throttle(stop.sentence, seen.get("stream"))
         return resp
 
-    def _agent_invoke_sync(messages, response_format, timeout: float):
+    def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
         with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-            return _agent_invoke(messages, response_format, timeout)
+            return _agent_invoke(messages, response_format, timeout, reasoning_off)
 
-    async def _agent_invoke_async(messages, response_format, timeout: float):
+    async def _agent_invoke_async(messages, response_format, timeout: float, reasoning_off: bool = False):
         # Round 2 finding 2: the acquire, the call, and the release all
         # happen INSIDE this one `asyncio.to_thread` dispatch, sharing the
         # exact same `threading.BoundedSemaphore` a sync caller blocks on —
@@ -402,18 +523,19 @@ def resolve_llm_fn(
         # loop, while still drawing from the ONE process-wide capacity pool.
         def _run_with_permit():
             with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):
-                return _agent_invoke(messages, response_format, timeout)
+                return _agent_invoke(messages, response_format, timeout, reasoning_off)
 
         return await asyncio.to_thread(_run_with_permit)
 
     def _agent_call(*, messages, response_format=None, **kw):
-        # Accept-and-drop every unknown kwarg (`extra_body`, `temperature`,
-        # `max_tokens`, `api_base`, ...) — none of them have an argv form.
-        # `timeout` is the exception: it is the only wall-clock guard Stage 1
-        # has (entity_extractor.py:138). Coerced defensively (fix round 1,
-        # L3): a non-numeric or non-positive value falls back to the default
-        # rather than raising out of the seam before any telemetry is
-        # emitted for the call.
+        # Accept-and-drop every unknown kwarg (`temperature`, `max_tokens`,
+        # `api_base`, ...) — none of them have an argv form. Two are read:
+        # `timeout`, the only wall-clock guard Stage 1 has
+        # (entity_extractor.py:138), and `extra_body.reasoning` — "enabled:
+        # False" becomes `--effort low` (R-E11), where it used to be dropped.
+        # `timeout` is coerced defensively (fix round 1, L3): a non-numeric
+        # or non-positive value falls back to the default rather than raising
+        # out of the seam before any telemetry is emitted for the call.
         timeout = AGENT_DEFAULT_TIMEOUT_S
         raw_timeout = kw.get("timeout")
         if raw_timeout is not None:
@@ -423,11 +545,12 @@ def resolve_llm_fn(
                 parsed = None
             if parsed is not None and parsed > 0:
                 timeout = parsed
+        reasoning_off = _reasoning_off(kw.get("extra_body"))
         if is_async:
-            return _agent_invoke_async(messages, response_format, timeout)
-        return _agent_invoke_sync(messages, response_format, timeout)
+            return _agent_invoke_async(messages, response_format, timeout, reasoning_off)
+        return _agent_invoke_sync(messages, response_format, timeout, reasoning_off)
 
-    if is_agent:
+    if is_cli:
         return _agent_call
 
     def _call(*, messages, response_format=None, **kw):

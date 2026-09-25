@@ -13,6 +13,8 @@ Three concerns, all hermetic (no real models, no network):
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 
 import pytest
@@ -401,9 +403,11 @@ def test_search_claims_observer_and_context_postfilter(tmp_path):
     assert {h["metadata"]["claim_id"] for h in fam} == {"clm_fam"}
 
 
-def test_search_claims_excludes_superseded_by_default(tmp_path):
-    """A still-`valid_to=None` claim flagged with a superseded marker is hidden
-    by default but surfaced with include_superseded=True."""
+def test_search_claims_never_returns_a_superseded_claim(tmp_path):
+    """G140 Q-R3: the vector claims index is current-only. `include_superseded`
+    could only ever surface a marker-only claim (superseded_by set, valid_to
+    None) that no writer produces — `claim_reconciler._close` stamps both — so
+    it was removed; the defensive `superseded_by` filter stays."""
     entities_dir = tmp_path / "entities"
     entities_dir.mkdir()
     _write_page_with_claims(
@@ -429,13 +433,9 @@ def test_search_claims_excludes_superseded_by_default(tmp_path):
     indexer = SqliteVecIndexer(tmp_path, embed_fn=fake_embed)
     indexer.index_claims()
 
-    default_hits = indexer.search_claims("python web framework api", top_k=5)
-    assert {h["metadata"]["claim_id"] for h in default_hits} == {"clm_live"}
-
-    all_hits = indexer.search_claims(
-        "python web framework api", top_k=5, include_superseded=True
-    )
-    assert "clm_super" in {h["metadata"]["claim_id"] for h in all_hits}
+    hits = indexer.search_claims("python web framework api", top_k=5)
+    assert {h["metadata"]["claim_id"] for h in hits} == {"clm_live"}
+    assert "include_superseded" not in inspect.signature(SqliteVecIndexer.search_claims).parameters
 
 
 def test_index_claims_records_model_and_dim(tmp_path):

@@ -12,9 +12,9 @@
 
 ## Global Constraints
 
-- Work ONLY in `/Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot` (branch `feat/mascot`, base `dev @ bad8461`). Every shell command is `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). No `grep --include=*.ext` (zsh globbing).
-- NEVER read `/Users/rorosaga/Documents/roros_lab/cicada/memory` (any bank), `~/.cicada`, `~/Library/Safari`, `~/.claude/projects`. No task here needs them.
-- Swift: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures after every task. Baseline at `bad8461`: 530 tests, 0 failures. SourceKit diagnostics naming OTHER worktrees are noise.
+- Work ONLY in `<worktree>/` (branch `feat/mascot`, base `dev @ bad8461`). Every shell command is `cd <worktree>/ && <cmd>` with absolute paths (`zoxide` hijacks relative `cd`; ignore its stderr warning). No `grep --include=*.ext` (zsh globbing).
+- NEVER read `<repo>/memory` (any bank), `~/.cicada`, `~/Library/Safari`, `~/.claude/projects`. No task here needs them.
+- Swift: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5` must succeed and `swift test 2>&1 | tail -20` must report 0 failures after every task. Baseline at `bad8461`: 530 tests, 0 failures. SourceKit diagnostics naming OTHER worktrees are noise.
 - NEVER run `make dev`, `make install-app`, `swift run`, or launch/kill the Cicada app — the owner's installed app is live; the orchestrator installs at the end.
 - Never `git add -A`; stage named files only. Never commit `memory/`, `logs/`, `.claude/settings.json`, `api/.venv`, `*-report.md`. No push, no new branches/worktrees, no subagents. Ignore Devin/PR comments.
 - Privacy rule (CLAUDE.md, standing): nothing personal in the plan, commits, docs. Nothing here touches bank data.
@@ -317,7 +317,7 @@ final class BookwormRendererTests: XCTestCase {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head -20`
+Run: `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head -20`
 Expected: compile errors — `BookwormPalette`, `BookwormSprites.size`, `awakeBase`, `shift`, `cacheKey`, `cachedImage` do not exist.
 
 - [ ] **Step 3: Rewrite `BookwormSprites.swift`**
@@ -851,13 +851,13 @@ struct BookwormView: View {
 
 - [ ] **Step 7: Build and run the suite**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
 Expected: build OK; all tests pass (530 baseline + the new ones). The sprite, renderer, state and view code in this plan, plus these exact test files, were compiled and run green in a scratch SwiftPM package against this machine's toolchain (Swift 6.2.1, `-swift-version 5`, macOS 14 target) before the plan was written — the raw-byte sampling in `BookwormRendererTests.cell` is the version that passes; the `colorAt`/`usingColorSpace` version does not. The plan critic re-ran that check independently on 2026-09-02: the sprite/renderer/state/view sources and the four new test files, assembled verbatim from this plan's code blocks (with Task 2's `.error` case and Task 3's two appended tests included), build and pass 28/28 in a scratch package on this toolchain.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && git add app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormSprites.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormRenderer.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormState.swift app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift app/CicadaApp/Sources/CicadaApp/Views/Common/UploadOverlay.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxListView.swift app/CicadaApp/Sources/CicadaApp/Views/Connect/ConnectView.swift app/CicadaApp/Tests/CicadaAppTests/BookwormSpriteTests.swift app/CicadaApp/Tests/CicadaAppTests/BookwormRendererTests.swift && git commit -m "feat(app): 24x24 palette bookworm sprite set + colour nearest-neighbour renderer (G107)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormSprites.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormRenderer.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormState.swift app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift app/CicadaApp/Sources/CicadaApp/Views/Common/UploadOverlay.swift app/CicadaApp/Sources/CicadaApp/Views/Inbox/InboxListView.swift app/CicadaApp/Sources/CicadaApp/Views/Connect/ConnectView.swift app/CicadaApp/Tests/CicadaAppTests/BookwormSpriteTests.swift app/CicadaApp/Tests/CicadaAppTests/BookwormRendererTests.swift && git commit -m "feat(app): 24x24 palette bookworm sprite set + colour nearest-neighbour renderer (G107)
 
 Nine-colour code-defined sprites composed from shared fragments; every state
 has 2-4 frames that differ, intervals 0.3-0.7 s, the curious count and the
@@ -983,7 +983,7 @@ Every existing call site passes no `error:`, so nothing else changes.
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head`
+Run: `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head`
 Expected: `type 'BookwormState' has no member 'error'`.
 
 - [ ] **Step 3: Add the case**
@@ -1040,11 +1040,11 @@ Update its doc-comment precedence line the same way. `sleepDebtBracketText` gain
 
 - [ ] **Step 6: Build, test, commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
 Expected: 0 failures. Every exhaustive `switch` over `BookwormState` is in the files this task edits (`BookwormState.swift` ×3, `BookwormSprites.swift`, `SleepMood.swift` ×2 — verified by `grep -rn "case \.hungry" app/CicadaApp/Sources`), so nothing else needs a case.
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && git add app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormState.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormSprites.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepMood.swift app/CicadaApp/Tests/CicadaAppTests/BookwormStateTests.swift app/CicadaApp/Tests/CicadaAppTests/BookwormSpriteTests.swift app/CicadaApp/Tests/CicadaAppTests/SleepMoodTests.swift && git commit -m "feat(app): bookworm error state — red eyes while the last Sleep cycle's error stands (G107)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormState.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormSprites.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepMood.swift app/CicadaApp/Tests/CicadaAppTests/BookwormStateTests.swift app/CicadaApp/Tests/CicadaAppTests/BookwormSpriteTests.swift app/CicadaApp/Tests/CicadaAppTests/SleepMoodTests.swift && git commit -m "feat(app): bookworm error state — red eyes while the last Sleep cycle's error stands (G107)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -1092,7 +1092,7 @@ Append to `BookwormRendererTests`:
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head`
+Run: `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head`
 Expected: `type 'MenuBarManager' has no member 'animates'` / `'spritePointSize'`.
 
 - [ ] **Step 3: Rewrite the animation section of `MenuBarManager`**
@@ -1182,15 +1182,15 @@ Expected: `type 'MenuBarManager' has no member 'animates'` / `'spritePointSize'`
 
 - [ ] **Step 4: Drop `overlays:` from the renderer**
 
-In `BookwormRenderer.image`, remove the `overlays: [PixelGrid] = []` parameter and the `let merged = overlays.reduce…` line (use `grid` directly), and delete the sentence in its doc comment about `MenuBarManager`'s pre-Task-3 call sites. Verify no caller remains: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && grep -rn "overlays:" app/CicadaApp/Sources` → no output.
+In `BookwormRenderer.image`, remove the `overlays: [PixelGrid] = []` parameter and the `let merged = overlays.reduce…` line (use `grid` directly), and delete the sentence in its doc comment about `MenuBarManager`'s pre-Task-3 call sites. Verify no caller remains: `cd <worktree>/ && grep -rn "overlays:" app/CicadaApp/Sources` → no output.
 
 - [ ] **Step 5: Build, test, commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
 Expected: 0 failures. Also: `grep -n "button.title" app/CicadaApp/Sources/CicadaApp/MenuBarManager.swift` shows exactly the one `button.title = ""` line; `grep -n "badgeOverlay\|stageDots" app/CicadaApp/Sources/CicadaApp/MenuBarManager.swift` shows nothing.
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && git add app/CicadaApp/Sources/CicadaApp/MenuBarManager.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormRenderer.swift app/CicadaApp/Tests/CicadaAppTests/BookwormRendererTests.swift app/CicadaApp/Tests/CicadaAppTests/BookwormStateTests.swift && git commit -m "feat(app): menu bar shows one animated bookworm with the count in the sprite — drop the duplicate text badge (G107)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/MenuBarManager.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormRenderer.swift app/CicadaApp/Tests/CicadaAppTests/BookwormRendererTests.swift app/CicadaApp/Tests/CicadaAppTests/BookwormStateTests.swift && git commit -m "feat(app): menu bar shows one animated bookworm with the count in the sprite — drop the duplicate text badge (G107)
 
 Timer runs for every state (all are multi-frame), holds frame 0 under Reduce
 Motion; frames come from the renderer's cache keyed state|frame|count|stage|size.
@@ -1258,7 +1258,7 @@ final class BookwormViewTests: XCTestCase {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head`
+Run: `cd <worktree>/app/CicadaApp && swift build --build-tests 2>&1 | grep -E "error:" | head`
 Expected: `type 'BookwormView' has no member 'frameIndex'`.
 
 - [ ] **Step 3: Rewrite `BookwormView.swift`**
@@ -1346,11 +1346,11 @@ Rewrite the doc comment above it (lines 224–231): the card is now the mascot (
 
 - [ ] **Step 6: Build, test, commit**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
-Expected: 0 failures. Then `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && grep -rn "BookwormView(" app/CicadaApp/Sources | grep -v "struct BookwormView"` → exactly five call sites (Feed, Connect, UploadOverlay, InboxList, SleepView), every `pointSize` one of 48/96/120, and `grep -rn "Timer" app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift` → no output.
+Run: `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20`
+Expected: 0 failures. Then `cd <worktree>/ && grep -rn "BookwormView(" app/CicadaApp/Sources | grep -v "struct BookwormView"` → exactly five call sites (Feed, Connect, UploadOverlay, InboxList, SleepView), every `pointSize` one of 48/96/120, and `grep -rn "Timer" app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift` → no output.
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && git add app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepView.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepMood.swift app/CicadaApp/Sources/CicadaApp/Views/Feed/FeedView.swift app/CicadaApp/Sources/CicadaApp/Views/Common/UploadOverlay.swift app/CicadaApp/Tests/CicadaAppTests/BookwormViewTests.swift && git commit -m "feat(app): page mascot on a TimelineView — Sleep page gets the worm above its bracket caption; Feed/Connect/Import/Inbox at whole-cell sizes (G107)
+cd <worktree>/ && git add app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepView.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepMood.swift app/CicadaApp/Sources/CicadaApp/Views/Feed/FeedView.swift app/CicadaApp/Sources/CicadaApp/Views/Common/UploadOverlay.swift app/CicadaApp/Tests/CicadaAppTests/BookwormViewTests.swift && git commit -m "feat(app): page mascot on a TimelineView — Sleep page gets the worm above its bracket caption; Feed/Connect/Import/Inbox at whole-cell sizes (G107)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -1370,7 +1370,7 @@ Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
 - [ ] **Step 1: Backlog row**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && api/.venv/bin/python - <<'PY'
+cd <worktree>/ && api/.venv/bin/python - <<'PY'
 from pathlib import Path
 p = Path("docs/goals/memory-evolution.md")
 s = p.read_text()
@@ -1379,7 +1379,7 @@ assert s.count(old_tail) == 1, "G107 row tail not found exactly once"
 new_tail = ("and **G54** (an onboarding companion has the same asset need). "
             "**Interim ruling superseded 2026-09-02 (Rodrigo: \"work on doing a pixel bookworm mascot with animations so in every "
             "state it's always moving … I want just one Tamagotchi-like avatar of the bookworm that moves and shows the status\").** "
-            "**Shipped 2026-09-02 (`feat/mascot`, PR #TBD):** one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, "
+            "**Shipped 2026-09-02 (`feat/mascot`, PR #88):** one code-defined 24×24 palette sprite set (`MenuBar/BookwormSprites.swift`, "
             "nine colours — outline, body, belly, eye, blush, accent, zZ, ?/badge, error red — composed from shared head/glasses/mouth/body "
             "fragments so the silhouette is identical across moods); every state ≥ 2 frames that differ (awake bob+blink, sleeping zZ drift + "
             "chest rise, digesting chews a book, curious tilts with a pulsing ? and the count as a pixel numeral in a pill, hungry droops with "
@@ -1403,21 +1403,21 @@ At the end of the "Sync engine" paragraph (`CLAUDE.md:545`, after "…before the
 
 - [ ] **Step 3: TODO.md**
 
-1. Line 162: `_Last synced: 2026-09-02 (PRs #21–#34 merged; G107 pixel mascot on feat/mascot, PR #TBD; inbox redesign folded as G115/G116)._`
+1. Line 162: `_Last synced: 2026-09-02 (PRs #21–#34 merged; G107 pixel mascot on feat/mascot, PR #88; inbox redesign folded as G115/G116)._`
 2. Shipped → **App** line (181–184): append ` · G107 pixel mascot + single menu-bar Tamagotchi` after `G15 avatars` (end of line 184).
 3. Delete Wave C item `12a. **G107** …` (the three lines 297–299). Leave `12c` as is (the list uses explicit labels).
-4. `## Where things stand` (line 7 — retitle its date to `(2026-09-02)`): add one short paragraph directly after the G109 phase-1 paragraph, i.e. after the line ending `that is the "explosion on return").` (line 54) and before `**Live environment (verified):**`: "**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #TBD).** The bracket-text interim is superseded: a nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView` at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual pass — menu bar light/dark, Sleep page, Reduce Motion — is the install step, not yet done at the time of this commit." A handoff that claims an eyeball nobody made is the stale header CLAUDE.md warns about; the orchestrator rewords it after the install.
+4. `## Where things stand` (line 7 — retitle its date to `(2026-09-02)`): add one short paragraph directly after the G109 phase-1 paragraph, i.e. after the line ending `that is the "explosion on return").` (line 54) and before `**Live environment (verified):**`: "**G107 pixel mascot (2026-09-02, `feat/mascot`, PR #88).** The bracket-text interim is superseded: a nine-colour 24×24 sprite set, every state always moving, `error` state added, the menu bar shows one animated worm with the count in the sprite (no more text badge), and `BookwormView` on a `TimelineView` at whole-cell sizes on five surfaces. `swift test` green (four new test files, 31 new cases); the visual pass — menu bar light/dark, Sleep page, Reduce Motion — is the install step, not yet done at the time of this commit." A handoff that claims an eyeball nobody made is the stale header CLAUDE.md warns about; the orchestrator rewords it after the install.
 5. `## Pick up here`: no new numbered item — the work is shipped; add "(G107 shipped 2026-09-02 — see Where things stand)" to the end of the first paragraph.
 
 - [ ] **Step 4: Verify nothing stale remains**
 
-Run: `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && grep -n "interim" app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepMood.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepView.swift; grep -n "16×16\|16x16\|template" app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormSprites.swift`
+Run: `cd <worktree>/ && grep -n "interim" app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepMood.swift app/CicadaApp/Sources/CicadaApp/Views/Sleep/SleepView.swift; grep -n "16×16\|16x16\|template" app/CicadaApp/Sources/CicadaApp/Views/Common/BookwormView.swift app/CicadaApp/Sources/CicadaApp/MenuBar/BookwormSprites.swift`
 Expected: no output from the first grep; the second may match only the renderer's "not template" sentence quoted in `BookwormSprites`' header, if any.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs(G107): pixel mascot shipped — bracket-text ruling superseded 2026-09-02; CLAUDE.md companion-app sentence; TODO handoff
+cd <worktree>/ && git add CLAUDE.md docs/goals/memory-evolution.md docs/goals/TODO.md && git commit -m "docs(G107): pixel mascot shipped — bracket-text ruling superseded 2026-09-02; CLAUDE.md companion-app sentence; TODO handoff
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
@@ -1436,8 +1436,8 @@ Claude-Session: https://claude.ai/code/session_01WvpJcHz2oRsYKqWTZNpjDj"
 
 ## Verification the orchestrator runs at the end
 
-1. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → build OK, `Executed 561 tests, with 0 failures` (530 baseline + 31 new: 11 sprite, 6 renderer, 7 state, 4 view, 3 SleepMood).
-2. `cd /Users/rorosaga/Documents/roros_lab/cicada/.worktrees/mascot && git log --oneline dev..feat/mascot` → five commits, in the order of Tasks 1–5; `git status --porcelain` shows nothing staged or modified except untracked scratch (never `api/.venv`, never `*-report.md`).
+1. `cd <worktree>/app/CicadaApp && swift build 2>&1 | tail -5 && swift test 2>&1 | tail -20` → build OK, `Executed 561 tests, with 0 failures` (530 baseline + 31 new: 11 sprite, 6 renderer, 7 state, 4 view, 3 SleepMood).
+2. `cd <worktree>/ && git log --oneline dev..feat/mascot` → five commits, in the order of Tasks 1–5; `git status --porcelain` shows nothing staged or modified except untracked scratch (never `api/.venv`, never `*-report.md`).
 3. `grep -n "button.title" app/CicadaApp/Sources/CicadaApp/MenuBarManager.swift` → one line, `button.title = ""`.
 4. Then the orchestrator (not this branch's tasks) runs `make dev` and looks at: the menu bar — one colour worm, moving in every state, a two-digit count inside an amber pill when the inbox is non-empty, no text beside it, legible on both light and dark menu bars; the Sleep page — the 120 pt worm above the bracket line, both changing together when a cycle runs; Feed empty state / Connect intro / Inbox empty / import overlay — crisp pixels, no blur; System Settings → Accessibility → Reduce Motion on → every worm holds still.
 

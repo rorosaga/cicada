@@ -1,0 +1,191 @@
+import SwiftUI
+
+/// The Sleep page's live instrument (G125 v3 Task 5 — spec R-A8, plan P15).
+///
+/// It **substitutes into the meter's slot**; it is not a sixth card. What it
+/// replaced was `moodDetailLine`'s `Text("Stage \(stage) of 5")` plus a bare
+/// linear `ProgressView` whose value was `stage / totalStages` — a bar that
+/// moved in five jumps and named nothing. The strip says the same thing with
+/// the five stage names visible at once, so a person can see which stage is
+/// running AND what that stage does without opening the `?` popover.
+///
+/// Three rules it exists to keep:
+///
+/// - **Only Read carries a fill (P15).** `stageStripState` decides that; this
+///   view just draws what it is handed, so there is no second place where a
+///   fraction could be invented for a stage that has no per-episode unit.
+/// - **A cancel or a failure freezes the strip where it stopped**, again in
+///   `stageStripState` — the view never resets anything.
+/// - **One `TimelineView`, and only while something is actually active.**
+///
+/// The caught-up worm that ended the strip is gone (Track Z, R-A8 amended):
+/// the room's own worm is already `.happy`, and a second one was a figure
+/// drawn twice. The strip itself now shows only with news
+/// (`stageStripIsVisible`, R-Z6).
+struct SleepStageStrip: View {
+    /// Resolved by the caller from the same status reading the rest of the
+    /// page uses (H1), so the strip can never disagree with the hero meter
+    /// about how far the cycle got.
+    let pips: [StagePip]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// A fixed origin so the breath's phase never depends on when the view
+    /// appeared — the same reason `BookwormView` pins one.
+    static let timelineOrigin = Date(timeIntervalSinceReferenceDate: 0)
+
+    /// The icons' requested point size, before `uiScale` and the 16-cell snap.
+    ///
+    /// Round-2 live check: at 32 the five icons read as grey smudges,
+    /// especially on the light theme where a two-hue pixel drawing has almost
+    /// no ground to sit against. 40 is a REQUEST — `snappedPointSize` still
+    /// has the last word, and with a 16-cell grid it rounds 40 up to 48 (three
+    /// device points per cell) and 40 × 1.4 up to 64 (four). That is the point
+    /// of asking through the snap rather than setting a literal: every zoom
+    /// step lands on a whole number of cells, so no icon is ever resampled.
+    static let iconPointSize: CGFloat = 40
+
+    private var hasActivePip: Bool {
+        pips.contains { if case .active = $0 { return true } else { return false } }
+    }
+
+    var body: some View {
+        // Ticking only while a stage is actually running keeps an idle page at
+        // zero redraws; Reduce Motion pins the terminal frame either way, so
+        // there is nothing for a timeline to drive then.
+        if hasActivePip && !reduceMotion {
+            TimelineView(.periodic(from: Self.timelineOrigin,
+                                   by: SleepStages.pulsePeriod / Double(SleepStages.pulseSteps))) { context in
+                strip(pulse: stagePulse(at: context.date, reduceMotion: false))
+            }
+        } else {
+            strip(pulse: stagePulse(at: Self.timelineOrigin, reduceMotion: true))
+        }
+    }
+
+    private func strip(pulse: Double) -> some View {
+        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+            ForEach(Array(SleepStages.all.enumerated()), id: \.element.id) { index, stage in
+                if index > 0 { arrow }
+                stageCell(stage, pip: pip(at: index), pulse: pulse)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// `stageStripState` always returns exactly five, but this view must not
+    /// trap if a caller ever hands it fewer — a strip that renders the stages
+    /// it knows about is strictly better than a crash on a page whose whole
+    /// job is telling you what is happening.
+    private func pip(at index: Int) -> StagePip {
+        index < pips.count ? pips[index] : .pending
+    }
+
+    private var arrow: some View {
+        Image(systemName: "arrow.right")
+            .font(CicadaTheme.font(size: 9, weight: .semibold))
+            .foregroundStyle(CicadaTheme.textTertiary.opacity(0.6))
+            .padding(.top, CicadaTheme.spacingMD)
+            .accessibilityHidden(true)
+    }
+
+    // MARK: One stage
+
+    private func stageCell(_ stage: SleepStage, pip: StagePip, pulse: Double) -> some View {
+        let iconPt = PixelRenderer.snappedPointSize(Self.iconPointSize * CicadaTheme.uiScale,
+                                                    gridSize: StageIconSprites.size)
+        // The tile the icon sits on, so the cell's width follows the art
+        // instead of clipping it.
+        let tilePt = iconPt + CicadaTheme.spacingXS * 2
+        return VStack(spacing: CicadaTheme.spacingXS) {
+            Image(nsImage: PixelRenderer.cachedImage(
+                key: Self.iconCacheKey(stage, pointSize: iconPt),
+                grid: StageIconSprites.grid(for: stage),
+                gridSize: StageIconSprites.size,
+                pointSize: iconPt,
+                palette: DeskPalette.ns))
+                .interpolation(.none)
+                .frame(width: iconPt, height: iconPt)
+                // A stage that never ran is dimmed, not hidden: the pipeline
+                // is the same five steps whether or not tonight reached them.
+                .opacity(isLive(pip) ? 1 : 0.45)
+                .padding(CicadaTheme.spacingXS)
+                // Round-2 live check: `DeskPalette` is one set of art hues for
+                // both themes (its docstring: deliberately mode-independent),
+                // and a grey pixel icon on the light theme's near-white ground
+                // had nothing to read against. The tile is the ground — a
+                // theme token, so it follows the mode the palette cannot.
+                // State stays where it was: the tile never changes with the
+                // pip, so it adds no second encoding of what is running.
+                .background(
+                    RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                        .fill(CicadaTheme.surfaceHover))
+
+            Text(stage.shortLabel)
+                .font(CicadaTheme.font(size: 10, weight: .semibold))
+                .foregroundStyle(isLive(pip) ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+
+            pipBar(pip, pulse: pulse)
+        }
+        .frame(width: max(tilePt, 44))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(stage.title) — \(pip.accessibilityWord)")
+    }
+
+    private func isLive(_ pip: StagePip) -> Bool {
+        switch pip {
+        case .done, .active, .failed: true
+        case .pending, .skipped: false
+        }
+    }
+
+    /// The pip itself: a short track that a fraction can fill. A capsule
+    /// rather than a dot precisely because **Read** has a real fraction to
+    /// show (`read / total`), and a partially-filled dot at this size is
+    /// unreadable. Every other stage fills the track whole or not at all —
+    /// which is what "no per-episode unit" looks like, honestly drawn.
+    private func pipBar(_ pip: StagePip, pulse: Double) -> some View {
+        let width: CGFloat = 26 * CicadaTheme.uiScale
+        let height: CGFloat = 4 * CicadaTheme.uiScale
+        return ZStack(alignment: .leading) {
+            Capsule()
+                .fill(CicadaTheme.surfaceElevated)
+                .frame(width: width, height: height)
+            switch pip {
+            case .done:
+                Capsule().fill(CicadaTheme.accent).frame(width: width, height: height)
+            case .active(let fill):
+                // `nil` fill = running with no honest fraction: the whole track
+                // breathes rather than showing a made-up length.
+                Capsule()
+                    .fill(CicadaTheme.accent)
+                    .frame(width: fill.map { width * CGFloat(min(1, max(0, $0))) } ?? width,
+                           height: height)
+                    .opacity(pulse)
+            case .failed:
+                Capsule().fill(CicadaTheme.danger).frame(width: width, height: height)
+            case .pending, .skipped:
+                EmptyView()
+            }
+        }
+        .animation(SleepMotion.settle(reduceMotion: reduceMotion), value: activeFillWidthKey)
+    }
+
+    /// The value the fill animates on — an `Equatable` scalar rather than the
+    /// pip itself, so the bar eases between two Read fractions but does not
+    /// re-run the animation on every breath tick.
+    private var activeFillWidthKey: Double {
+        for pip in pips {
+            if case .active(let fill) = pip { return fill ?? -1 }
+        }
+        return -2
+    }
+
+    /// Namespaced for `PixelRenderer`'s shared scene cache (P13): whoever asks
+    /// for an image owns its identity, and two callers sharing a key would
+    /// share an image.
+    static func iconCacheKey(_ stage: SleepStage, pointSize: CGFloat) -> String {
+        "stage.\(stage.id)|\(Int(pointSize))"
+    }
+}

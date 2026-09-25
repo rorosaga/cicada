@@ -5,7 +5,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from api.config import Settings, get_settings
@@ -13,29 +13,40 @@ from api.models.schemas import (
     ContextEpisodeExcerpt,
     ContextNeighbor,
     EntityContextResponse,
+    EntityDecay,
     EntityDecayUpdate,
     EntityDiff,
     EntityHistoryEntry,
     EntityMedia,
+    EntityPictureResponse,
+    EntityReadRequest,
+    EntityReadResponse,
     EntityResponse,
     EntitySource,
     EntitySourceCreate,
     EntitySourceList,
     LocationEntry,
     LocationListing,
+    PaperDetailResponse,
+    PictureInputsModel,
     RepoContext,
     RepoContextList,
     RepoInput,
     RepoUpdateRequest,
+    VideoChapter,
 )
 from api.services import (
     decay_policy,
+    decay_tuning,
+    entity_picture,
     fact_sources,
     git_service,
     logo_service,
     markdown_parser,
     repo_context,
+    telemetry,
 )
+from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
@@ -66,6 +77,16 @@ async def get_entity(
     fm = parsed.frontmatter
     history = await git_service.get_entity_history(entity_id, settings.memory_path)
     decay_class, decay_rate = decay_policy.resolve(fm)
+    # G147 — the pace the decay pass actually charges, from the SAME function
+    # (`decay_policy.effective`, plan R-FD11), so the card can never describe a
+    # pace Sleep does not charge. Read time only; nothing is stored.
+    alpha, floor = decay_policy.spacing_params(settings)
+    effective = decay_policy.effective(
+        fm, alpha=alpha, floor=floor, tuning=decay_tuning.load(settings.memory_path)
+    )
+    # C11 (G146) — the page's picture, resolved at read like everything else on this card (plan R-PE5).
+    picture, picture_inputs = entity_picture.resolve_page(
+        settings.memory_path, entity_id, fm, parsed.body, page_mtime=entity_path.stat().st_mtime)
 
     return EntityResponse(
         id=entity_id,
@@ -85,7 +106,32 @@ async def get_entity(
         raw_markdown=entity_path.read_text(encoding="utf-8"),
         history=history,
         media=_build_media_block(fm, parsed.body),
+        is_owner=bool(fm.get("owner")),
+        decay=EntityDecay(
+            decay_class=effective.decay_class,
+            effective_rate_per_week=round(effective.rate, 6),
+            mention_weeks=effective.mention_weeks,
+        ),
+        picture=picture.url,
+        picture_source=picture.source,
+        picture_inputs=PictureInputsModel(**picture_inputs.to_fields()),
     )
+
+
+@router.post("/entities/{entity_id}/read", response_model=EntityReadResponse)
+async def record_entity_read(
+    entity_id: str,
+    body: EntityReadRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """The app opened this entity's card (G124 R11) — one ids-only ``read``
+    ledger event. 404 for a page that does not exist so a stray id can never
+    seed the most-read list. Nothing is written to the bank; nothing here can
+    fail the card open (``telemetry.record`` never raises)."""
+    if not (settings.memory_path / "entities" / f"{entity_id}.md").is_file():
+        raise HTTPException(status_code=404, detail="Entity not found")
+    telemetry.record_read(entity_id, surface=body.surface, bank=telemetry.bank_name(settings))
+    return EntityReadResponse(recorded=telemetry.enabled())
 
 
 @router.get("/entities/{entity_id}/logo")
@@ -133,11 +179,115 @@ async def get_entity_logo(
     return FileResponse(path, media_type=media_type, headers=headers)
 
 
+PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a moment."
+#: One picture write at a time in this process (`projects._write_lock`'s reason): an upload and a quick "Use initials"
+#: would otherwise both read the page, and the second rewrite — or its `_drop_uploads` — would land between the first's
+#: write and its commit, leaving that commit to stage a file that is already gone.
+_PICTURE_LOCK = asyncio.Lock()
+
+
+def _picture_guard() -> None:
+    """G146 plan R-PE8 — 409 while Sleep runs (`projects._guard`'s reason): Sleep rewrites the same pages, and a picture
+    written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.get_sleep_state().status == "running":
+        raise HTTPException(409, PICTURE_BUSY)
+
+
+def _entity_page(settings: Settings, entity_id: str) -> Path:
+    page = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not page.is_file():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return page
+
+
+def _picture_payload(memory_path: Path, entity_id: str) -> EntityPictureResponse:
+    page = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(page)
+    resolved, inputs = entity_picture.resolve_page(memory_path, entity_id, parsed.frontmatter, parsed.body,
+                                                   page_mtime=page.stat().st_mtime)
+    return EntityPictureResponse(entity_id=entity_id, picture=resolved.url, picture_source=resolved.source,
+                                 picture_inputs=PictureInputsModel(**inputs.to_fields()))
+
+
+@router.get("/entities/{entity_id}/picture")
+async def get_entity_picture(entity_id: str, request: Request, settings: Settings = Depends(get_settings)):
+    """C11 — the page's uploaded or Contacts picture (G146). 404 means neither exists (a logo is `/logo`'s, a thumbnail
+    the provider's). The `v=` query the wire adds is the bytes' own hash and is only for the app's caches."""
+    page = _entity_page(settings, entity_id)
+    found = entity_picture.picture_file(settings.memory_path, entity_id, markdown_parser.parse(page).frontmatter)
+    if found is None:
+        raise HTTPException(404, "no picture for this entity")
+    path, media_type = found
+    data = path.read_bytes()
+    etag = '"' + entity_picture.sha12(data) + '"'
+    headers = {"ETag": etag, "Cache-Control": "private, max-age=86400"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=data, media_type=media_type, headers=headers)
+
+
+@router.post("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+async def set_entity_picture(entity_id: str, file: UploadFile, settings: Settings = Depends(get_settings)):
+    """C11 — the person's own picture for this page (G146; round-4 decision 9). Kept in the bank at
+    `assets/pictures/<id>.<png|jpg>` and committed alone as `Cicada-Author: user` (plan R-PE1, R-PE8). The app sends it
+    already shrunk; the server only bounds it (R-PE2)."""
+    _picture_guard()
+    _entity_page(settings, entity_id)
+    data = await file.read(entity_picture.MAX_UPLOAD_BYTES + 1)
+    async with _PICTURE_LOCK:
+        try:
+            ext = entity_picture.validate_upload(data)
+            write = await asyncio.to_thread(entity_picture.write_upload, settings.memory_path, entity_id, data, ext,
+                                            today=date.today())
+        except entity_picture.InvalidPicture as exc:   # a bound refused, or an id no picture path can hold
+            raise HTTPException(exc.status, str(exc)) from exc
+        await entity_picture.commit(settings.memory_path, write)
+        return _picture_payload(settings.memory_path, entity_id)
+
+
+@router.post("/entities/{entity_id}/picture/initials", response_model=EntityPictureResponse)
+async def use_entity_initials(entity_id: str, settings: Settings = Depends(get_settings)):
+    """C11 / F-12 — "Use initials instead": the person's choice, kept (plan R-PE4)."""
+    _picture_guard()
+    _entity_page(settings, entity_id)
+    async with _PICTURE_LOCK:
+        write = await asyncio.to_thread(entity_picture.write_initials, settings.memory_path, entity_id,
+                                        today=date.today())
+        await entity_picture.commit(settings.memory_path, write)
+        return _picture_payload(settings.memory_path, entity_id)
+
+
+@router.delete("/entities/{entity_id}/picture", response_model=EntityPictureResponse)
+async def clear_entity_picture(entity_id: str, settings: Settings = Depends(get_settings)):
+    """C11 — back to what was detected (plan R-PE4): the person's upload or initials go; nothing to clear commits
+    nothing."""
+    _picture_guard()
+    _entity_page(settings, entity_id)
+    async with _PICTURE_LOCK:
+        write = await asyncio.to_thread(entity_picture.write_clear, settings.memory_path, entity_id)
+        if write is not None:
+            await entity_picture.commit(settings.memory_path, write)
+        return _picture_payload(settings.memory_path, entity_id)
+
+
 # Body section whose prose becomes EntityMedia.description (M4 media entities
 # write a ``## Summary`` block; ``## Description``/``## Notes`` are secondary).
 _SUMMARY_RE = re.compile(
     r"^##\s+Summary\s*$(.*?)(?=^##\s|\Z)", re.IGNORECASE | re.MULTILINE | re.DOTALL
 )
+
+
+def _chapters(raw) -> list[VideoChapter] | None:
+    """G140 Q-R12 — keep only well-formed rows: a hand-edited page could carry
+    anything, and absent beats a guess (R17)."""
+    if not isinstance(raw, list):
+        return None
+    out = [VideoChapter(t=c["t"], title=str(c["title"]).strip()[:120]) for c in raw
+           if isinstance(c, dict) and isinstance(c.get("t"), int) and not isinstance(c.get("t"), bool)
+           and c["t"] >= 0 and str(c.get("title") or "").strip()]
+    return out or None
 
 
 def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
@@ -159,7 +309,9 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         return None
 
     description = None
-    match = _SUMMARY_RE.search(body or "")
+    # F1 R-FX8 — the claims fence follows the last section, so on a
+    # Summary-only page (a paper's) it would ride into the description.
+    match = _SUMMARY_RE.search(strip_claims_block(body or ""))
     if match:
         text = match.group(1).strip()
         if text:
@@ -172,6 +324,19 @@ def _build_media_block(frontmatter: dict, body: str) -> EntityMedia | None:
         channel=media.get("channel") or None,
         thumbnail=media.get("thumbnail") or None,
         description=description,
+        # Track V — both written by `write_media_entity` only when set, so an
+        # older page simply has neither. `duration_s` is type-checked rather
+        # than coerced: a hand-edited page could carry a string, and R17 says
+        # absent beats a guess.
+        provider=media.get("provider") or None,
+        duration_s=(
+            media.get("duration_s") if isinstance(media.get("duration_s"), int)
+            and not isinstance(media.get("duration_s"), bool) else None
+        ),
+        chapters=_chapters(media.get("chapters")),
+        # G133 — `paper` on a paper page (R-LS14); absent on every other. Type-checked like
+        # `duration_s`: a hand-edited `kind: [paper]` must not 500 the whole page (T4 review r1).
+        kind=media.get("kind") if isinstance(media.get("kind"), str) and media.get("kind") else None,
     )
 
 
@@ -455,17 +620,16 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
     )
 
 
-async def _commit_sources(memory_path: Path, entity_id: str, verb: str) -> None:
+async def _commit_sources(memory_path: Path, entity_id: str, verb: str, extra: tuple[str, ...] = ()) -> None:
+    paths = [f"entities/{entity_id}.md", *extra]
     message = git_service.build_commit_message(
         f"{verb} fact source {date.today().isoformat()}",
-        [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
+        [f"{p}: updated (trigger: user/companion_app)" for p in paths],
         authors=["user"],
     )
     # Scoped, never ``git add -A``: adding one fact source must not sweep an
     # unrelated dirty file in memory/ into an "Add fact source" commit.
-    await git_service.commit_paths(
-        memory_path, message, [f"entities/{entity_id}.md"]
-    )
+    await git_service.commit_paths(memory_path, message, paths)
 
 
 @router.get("/entities/{entity_id}/sources", response_model=EntitySourceList)
@@ -484,27 +648,50 @@ async def get_entity_sources(
     return _sources_payload(settings.memory_path, entity_id)
 
 
+@router.get("/entities/{entity_id}/paper", response_model=PaperDetailResponse)
+async def get_entity_paper(entity_id: str, settings: Settings = Depends(get_settings)):
+    """G133 / G121 — a paper page's two tiers, resolved at read (engine-free):
+    "why it's in your memory" as spans into the person's own files, then the
+    dated world-tier context. 404 for anything that is not a paper page."""
+    from api.services import papers
+
+    detail = await asyncio.to_thread(papers.detail, settings.memory_path, entity_id)
+    if detail is None:
+        raise HTTPException(404, f"{entity_id!r} is not a paper")
+    return PaperDetailResponse(**detail)
+
+
 @router.post("/entities/{entity_id}/sources", response_model=EntitySourceList)
 async def add_entity_source(
     entity_id: str,
     request: EntitySourceCreate,
     settings: Settings = Depends(get_settings),
 ):
-    """Append one source. ``kind`` is inferred from ``ref`` when not supplied."""
+    """Append one source. ``kind`` is inferred from ``ref`` when not supplied.
+
+    G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
+    ``only_me`` ride along, and a value the record does not allow is a 400 with
+    ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
     if not (request.ref or "").strip():
         raise HTTPException(400, "ref is required")
 
-    fact_sources.add_source(
-        settings.memory_path,
-        entity_id,
-        request.ref,
-        kind=request.kind,
-        predicate=request.predicate,
-        added_by="user",
-    )
+    try:
+        fact_sources.add_source(
+            settings.memory_path,
+            entity_id,
+            request.ref,
+            kind=request.kind,
+            predicate=request.predicate,
+            added_by="user",
+            access=request.access,
+            accepted=request.accepted,
+            only_me=request.only_me,
+        )
+    except fact_sources.InvalidSource as exc:
+        raise HTTPException(400, str(exc)) from exc
     await _commit_sources(settings.memory_path, entity_id, "Add")
     return _sources_payload(settings.memory_path, entity_id)
 
@@ -519,9 +706,18 @@ async def delete_entity_source(
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
+    # The same list `delete_source` indexes (every dict entry, file order) — `list_sources` also drops ref-less ones.
+    raw = markdown_parser.parse(entity_path).frontmatter.get("sources") or []
+    current = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+    removing = current[index] if 0 <= index < len(current) else None
     if not fact_sources.delete_source(settings.memory_path, entity_id, index):
         raise HTTPException(404, f"No source at index {index} on {entity_id}")
-    await _commit_sources(settings.memory_path, entity_id, "Remove")
+    # Round-4 final review, finding 1: a Contacts entry the person removes stays removed — the next Contacts sync
+    # would otherwise put it back under the person's own name. Committed with the removal, one `user` commit.
+    from api.services import contacts_local
+
+    refused = contacts_local.remember_removal(settings.memory_path, entity_id, removing or {})
+    await _commit_sources(settings.memory_path, entity_id, "Remove", (refused,) if refused else ())
     return _sources_payload(settings.memory_path, entity_id)
 
 

@@ -139,10 +139,12 @@ def test_stage1_progress_ticks_live_during_a_real_run(tmp_path, monkeypatch):
 
     seen_max = {"n": 0}
 
-    async def fake_extract(episodes, settings, cancel_check=None, progress_callback=None):
-        for _ in episodes:
+    async def fake_extract(episodes, settings, cancel_check=None, progress_callback=None, on_episode_done=None):
+        for ep in episodes:
             if progress_callback is not None:
                 progress_callback()
+            if on_episode_done is not None:
+                on_episode_done(ep)
             seen_max["n"] = max(seen_max["n"], sleep_cycle.get_sleep_state().stage1_progress)
         return []
 

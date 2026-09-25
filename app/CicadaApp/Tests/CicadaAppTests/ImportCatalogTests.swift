@@ -16,7 +16,7 @@ final class ImportCatalogTests: XCTestCase {
 
     func testEveryExportPlatformTakesTheImportFileRoute() {
         for tile in [AddSourceTile.instagram, .youtube, .tiktok, .linkedin,
-                     .chatExport, .bookmarksFile] {
+                     .claudeExport, .chatgptExport, .geminiExport, .bookmarksFile] {
             XCTAssertEqual(tile.route, .importFile, "\(tile.rawValue)")
         }
         XCTAssertEqual(ImportRoute.importFile.badge, "Import file")
@@ -76,14 +76,16 @@ final class ImportCatalogTests: XCTestCase {
         XCTAssertEqual(state.detail, "Last sync failed · RuntimeError: 429")
     }
 
+    /// Track I T5 (R-IA21) gave each chat vendor its own tile and channel, so
+    /// Safari is the one tile left that spans two channels.
     func testATileSpanningTwoChannelsIsConnectedWhenEitherIs() {
         let state = AddSourceTile.tileState(
-            .chatExport,
-            channels: [channel("chat-export:claude", connected: false),
-                       channel("chat-export:chatgpt", connected: true, detail: "3 conversations")]
+            .safari,
+            channels: [channel("safari-bookmarks", connected: false),
+                       channel("safari-tabs", connected: true, detail: "3 tabs")]
         )
         XCTAssertTrue(state.connected)
-        XCTAssertEqual(state.detail, "3 conversations")
+        XCTAssertEqual(state.detail, "3 tabs")
     }
 
     /// Task 14 wired `x.py` into `ADAPTERS`, and Task 13 gave the tile
@@ -163,44 +165,50 @@ final class ImportCatalogTests: XCTestCase {
         }
     }
 
-    /// The eight platforms Task 13 fetched real brand marks for. Locks the
+    /// The eight platforms Task 13 fetched real brand marks for, plus the three
+    /// chat tiles Track I T5 split out (R-IA21), each wearing
+    /// `OriginIconography.logoName(for:)` of its export origin. Locks the
     /// catalog against a future edit accidentally dropping a tile back to nil
     /// (which `testEveryDeclaredLogoNameResolvesToABundledImage` alone
     /// wouldn't catch — `nil` trivially "passes" that loop).
-    func testTheEightBrandedPlatformsAllDeclareALogo() {
+    func testTheBrandedPlatformsAllDeclareALogo() {
         let expected: [AddSourceTile: String] = [
             .instagram: "instagram", .youtube: "youtube", .pinterest: "pinterest",
             .reddit: "reddit", .tiktok: "tiktok", .linkedin: "linkedin",
             .x: "x", .telegram: "telegram",
+            .claudeExport: "claude-desktop", .chatgptExport: "chatgpt", .geminiExport: "gemini",
         ]
         for (tile, name) in expected {
             XCTAssertEqual(tile.logoName, name, tile.rawValue)
         }
     }
 
-    /// Apple Notes, RSS, and Calendar have no single sensible brand mark and
-    /// deliberately kept their SF Symbol (Task 13 controller amendment) —
-    /// same for the non-platform rows (chat export's two vendors, a local
-    /// file pick, pasting a link). Safari and Chrome declare no PNG either:
-    /// their marks are drawn (R7 — `brandGlyph`, Task 4), so `logoName`
-    /// stays nil until the owner drops an official PNG in.
-    func testNonBrandedTilesDeclareNoLogo() {
-        for tile in [AddSourceTile.chatExport, .bookmarksFile, .pasteLink, .rssFeed,
-                     .calendar, .safari, .chrome, .appleNotes] {
+    /// A local file pick, a pasted link and the
+    /// calendar keep their SF Symbol — no single brand mark exists for any of
+    /// them (R3: the Commons calendar icon is *Google* Calendar, and this row
+    /// is any ICS publisher). Safari and Apple Notes are nil for a different
+    /// reason: R-L3 forbids redistributing Apple's marks, so they resolve
+    /// through `appBundleId` instead.
+    func testTilesWithNoSingleBrandMarkDeclareNoLogo() {
+        for tile in [AddSourceTile.bookmarksFile, .pasteLink, .calendar,
+                     .safari, .appleNotes] {
             XCTAssertNil(tile.logoName, tile.rawValue)
         }
+        XCTAssertEqual(AddSourceTile.chrome.logoName, "chrome")
+        XCTAssertEqual(AddSourceTile.rssFeed.logoName, "rss")
     }
 
-    // MARK: - Glyphs (R7, Task 4)
+    // MARK: - Installed app icons (R-L1, Track L)
 
-    /// A PNG and a drawn glyph are two ways of carrying the same brand mark;
-    /// a tile declaring both would leave `MemberMark` to pick one silently.
-    /// Exactly the two browsers draw theirs, and nothing else does.
-    func testAGlyphAndAPngAreNeverBothDeclared() {
-        for tile in AddSourceTile.allCases {
-            XCTAssertFalse(tile.logoName != nil && tile.brandGlyph != nil,
-                           "\(tile.rawValue) declares both a PNG and a drawn glyph")
-        }
-        XCTAssertEqual(AddSourceTile.allCases.filter { $0.brandGlyph != nil }, [.safari, .chrome])
+    /// R-L1 — the browsers and Apple Notes wear the installed app's icon in
+    /// the catalog too, so the `+` sheet, Integrations and the Sleep desk
+    /// cannot disagree about what Safari looks like. The MAP is asserted,
+    /// never the resolution: the suite must pass on a machine with no Chrome
+    /// (R6).
+    func testBrowserAndAppleTilesDeclareTheirBundleId() {
+        XCTAssertEqual(AddSourceTile.safari.appBundleId, "com.apple.Safari")
+        XCTAssertEqual(AddSourceTile.chrome.appBundleId, "com.google.Chrome")
+        XCTAssertEqual(AddSourceTile.appleNotes.appBundleId, "com.apple.Notes")
+        XCTAssertNil(AddSourceTile.telegram.appBundleId)
     }
 }

@@ -9,6 +9,13 @@ only** — never from the transient result of a button press:
   legacy combined ``bookmarks`` entry, R4)
 * ``telegram``            -> ``CICADA_TELEGRAM_BOT_TOKEN`` is configured
 * ``chat-export:*`` / ``files`` -> origin counts / the saved-URL index
+* ``folder:<id>`` -> one row per registered folder (G133), appended after the
+  fixed ids (R-LS25)
+* ``calendar-local`` -> Apple Calendar through EventKit (G142), always listed,
+  appended after the fixed ids
+* ``<browser>-bookmarks`` for Brave, Vivaldi, Comet, Dia -> once synced (round 4, C9)
+* ``chrome-tab-groups`` -> Chrome's open tab groups, once synced (round 4, G160); ``tabs`` rides ``parts``
+* ``contacts-local`` -> macOS Contacts (G154), always listed; ``people`` rides ``parts``
 
 Pure filesystem + one env flag passed in by the router. No network, no LLM,
 never raises: a corrupt registry or a missing directory yields a
@@ -20,11 +27,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.services import (
+    bookmark_sync,
+    calendar_local,
     calendar_registry,
+    contacts_local,
     feed_registry,
+    folder_source,
     media_ingestor,
     origin_stats,
     sync_state,
+    tab_groups,
+    wispr_flow,
 )
 from api.services.connectors import ADAPTERS
 
@@ -35,6 +48,7 @@ from api.services.connectors import ADAPTERS
 _NON_CONNECTOR_HEAD = (
     "chat-export:claude",
     "chat-export:chatgpt",
+    "chat-export:gemini",
     "chrome-bookmarks",
     "safari-bookmarks",
     "safari-tabs",
@@ -48,14 +62,46 @@ _NON_CONNECTOR_TAIL = (
 )
 CHANNEL_IDS = _NON_CONNECTOR_HEAD + tuple(ADAPTERS.keys()) + _NON_CONNECTOR_TAIL
 
+#: Folded into `GET /sources/channels`' ETag. Bump it whenever the rows this
+#: module always emits change for the same bank files — the app reloads its
+#: `.channels` domain from the on-disk cache WITH its ETag, so an unchanged tag
+#: 304s the old list until some component moves, which on a quiet or demo bank
+#: can be never. Same rule as `graph.NODE_SHAPE` / `git_service.AUTHOR_SHAPE`;
+#: "g142" is the always-listed Apple Calendar row (round 4 final review #3);
+#: "r4-sources" adds `parts` and the rows that appear once synced — round 4, R-SR14;
+#: "r4-contacts" is the always-listed Contacts row (G154) — its own PR, so its own bump (R-SR19).
+CHANNELS_SHAPE = "r4-contacts"
 
-def _plural(n: int, singular: str, plural: str | None = None) -> str:
-    return f"{n:,} {singular if n == 1 else (plural or singular + 's')}"
+
+# R-S5 — there is deliberately no `_plural` here any more. It baked
+# `f"{n:,}"` into every `detail` line and the app printed that verbatim, so a
+# server-side `en_US` grouping ("1,035") sat in the same window as the app's
+# own locale-correct one ("1.035" for a Spanish reader) — critique B1. The
+# count now rides `count` + `count_noun` (the SINGULAR noun) + `count_is_delta`
+# and `ChannelDetailLine.text` composes the line client-side, which is the only
+# place that knows the reader's locale. `detail` keeps its non-numeric clauses
+# only; a branch with nothing to count ships `count_noun: None`, so
+# "0 pins · Last sync failed" is unrepresentable rather than merely unlikely.
 
 
 def _short_date(iso: str | None) -> str:
     """`2026-08-29T10:00:00Z` / `2026-08-29` -> `2026-08-29`; '' when absent."""
     return (iso or "").split("T", 1)[0]
+
+
+#: Round 4 (R-SR14): extra counts a sync stamps beside `count` (`sync_state`'s
+#: `extra`), shipped as `parts` with a kebab key. A key not listed, a zero, a
+#: bool or a non-int is not a part — the app owns the words for these four only.
+PART_KEYS = ("reading_list", "favorites", "tabs", "people")
+
+
+def _parts(entry: dict) -> list[dict]:
+    out = []
+    for key in PART_KEYS:
+        value = entry.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            out.append({"key": key.replace("_", "-"), "count": value})
+    return out
 
 
 def _latest(values: list[str | None]) -> str | None:
@@ -70,8 +116,7 @@ def _subscription_channel(
     last = _latest([r.get("last_polled") for r in records if isinstance(r, dict)])
     detail = None
     if count:
-        when = f"polled {_short_date(last)}" if last else "not polled yet"
-        detail = f"{_plural(count, noun)} · {when}"
+        detail = f"polled {_short_date(last)}" if last else "not polled yet"
     return {
         "id": channel_id,
         "label": label,
@@ -79,6 +124,10 @@ def _subscription_channel(
         "count": count,
         "last_sync": last,
         "detail": detail,
+        "count_noun": noun if count else None,
+        # Every branch ships both keys, so a consumer never has to tell an
+        # absent flag from a false one; only `_connector_channel` sets it True.
+        "count_is_delta": False,
         "actions": ["poll", "manage"],
     }
 
@@ -96,7 +145,7 @@ def _sync_channel(
     last = entry.get("last_sync") or None
     count = int(entry.get("count") or 0)
     connected = bool(last)
-    detail = f"{_plural(count, noun)} · synced {_short_date(last)}" if connected else None
+    detail = f"synced {_short_date(last)}" if connected else None
     return {
         "id": channel_id,
         "label": label,
@@ -104,6 +153,10 @@ def _sync_channel(
         "count": count,
         "last_sync": last,
         "detail": detail,
+        # A running total, unlike a connector's per-run delta below.
+        "count_noun": noun if connected else None,
+        "count_is_delta": False,
+        "parts": _parts(entry) if connected else [],
         "actions": ["sync"],
     }
 
@@ -142,6 +195,8 @@ def _connector_channel(
 
     show_error = bool(error) and (not skip_reason or error_at >= skip_at)
 
+    count_noun: str | None = None
+    count_is_delta = False
     if show_error:
         detail = f"Last sync failed · {error}"
     elif skip_reason:
@@ -151,7 +206,11 @@ def _connector_channel(
         # channel total (unlike `_sync_channel`'s bookmarks/notes rows, which
         # really do report a running total) — "+N {noun} this sync" says so,
         # instead of implying "N {noun} exist" the way a bare count read.
-        detail = f"+{_plural(count, noun)} this sync · synced {_short_date(last)}"
+        # R-S5: those words moved to the client with the number itself;
+        # `count_is_delta` is what carries their meaning across the wire, and
+        # it is true in this branch ONLY.
+        detail = f"synced {_short_date(last)}"
+        count_noun, count_is_delta = noun, True
     elif connected:
         detail = "Connected · not synced yet"
     else:
@@ -168,6 +227,8 @@ def _connector_channel(
         "last_sync": last,
         "last_error": error,
         "detail": detail,
+        "count_noun": count_noun,
+        "count_is_delta": count_is_delta,
         "actions": ["sync", "disconnect"] if connected else ["connect"],
     }
 
@@ -178,7 +239,7 @@ def _origin_channel(
     stat = by_origin.get(origin) or {}
     count = int(stat.get("episodeCount") or 0)
     last = stat.get("lastSeen") or None
-    detail = f"{_plural(count, noun)} · imported {_short_date(last)}" if count else None
+    detail = f"imported {_short_date(last)}" if count else None
     return {
         "id": channel_id,
         "label": label,
@@ -186,7 +247,44 @@ def _origin_channel(
         "count": count,
         "last_sync": last,
         "detail": detail,
+        "count_noun": noun if count else None,
+        "count_is_delta": False,
         "actions": ["import"],
+    }
+
+
+def _local_channel(channel_id: str, label: str, state: dict, noun: str) -> dict:
+    """A source the APP reads and posts (G133 folders, G134 note-takers).
+
+    `_sync_channel`'s shape with two differences: the row can be managed
+    (`manage` opens its settings in Settings → Integrations), and a recorded
+    failure wins the detail line (`_connector_channel`'s rule —
+    `record_sync` replaces the entry, so an error present is newer than the
+    last success). Appended after `CHANNEL_IDS` rather than listed in it
+    (R-LS25): the fixed list and its four mirrors stay what they are.
+    """
+    entry = state.get(channel_id) or {}
+    last = entry.get("last_sync") or None
+    error = entry.get("last_error") or None
+    connected = bool(last)
+    if error:
+        detail = f"Last sync failed · {error}"
+    elif connected:
+        detail = f"synced {_short_date(last)}"
+    else:
+        detail = "Not synced yet"
+    return {
+        "id": channel_id,
+        "label": label,
+        "connected": connected,
+        "count": int(entry.get("count") or 0),
+        "last_sync": last,
+        "last_error": error,
+        "detail": detail,
+        "count_noun": noun if connected and not error else None,
+        "count_is_delta": False,
+        "parts": _parts(entry) if connected else [],
+        "actions": ["sync", "manage"],
     }
 
 
@@ -205,7 +303,8 @@ def build_channels(
         url_index = media_ingestor.load_url_index(memory_path)
     except Exception:
         url_index = {}
-    saved_count = len(url_index)
+    # R-LS14: an alias entry is the same paper under its other URL.
+    saved_count = sum(1 for e in url_index.values() if not (isinstance(e, dict) and e.get("alias_of")))
 
     telegram_count = int((by_origin.get("telegram") or {}).get("episodeCount") or 0)
 
@@ -214,6 +313,10 @@ def build_channels(
             "chat-export:claude", "Claude chat export", "claude-export", by_origin, "conversation"),
         "chat-export:chatgpt": _origin_channel(
             "chat-export:chatgpt", "ChatGPT chat export", "chatgpt-export", by_origin, "conversation"),
+        # Track I (R-IA14): a Takeout entry is one prompt and its reply, so the
+        # noun is "prompt"; before this row the Gemini card rested on episodes alone.
+        "chat-export:gemini": _origin_channel(
+            "chat-export:gemini", "Gemini chat export", "gemini-export", by_origin, "prompt"),
         # R4: one row per browser — the catalog has one tile per browser and a
         # channel must map to exactly one tile, so the old shared
         # "Chrome & Safari bookmarks" row could no longer be honest.
@@ -236,8 +339,15 @@ def build_channels(
             "connected": bool(telegram_enabled),
             "count": telegram_count,
             "last_sync": (by_origin.get("telegram") or {}).get("lastSeen") or None,
-            "detail": (f"Bot configured · {_plural(telegram_count, 'capture')}"
-                       if telegram_enabled else None),
+            "detail": "Bot configured" if telegram_enabled else None,
+            # R-S5 reorders this one line — the client composes
+            # "<count phrase> · <detail>", so a configured bot with captures
+            # now reads "1 capture · Bot configured" rather than the reverse.
+            # A configured bot with NOTHING captured yet ships no noun at all
+            # (rather than the old "· 0 captures"): same rule as a failed poll
+            # — a branch with nothing to count says nothing about a count.
+            "count_noun": "capture" if telegram_enabled and telegram_count else None,
+            "count_is_delta": False,
             "actions": [],
         },
         "files": {
@@ -246,7 +356,11 @@ def build_channels(
             "connected": saved_count > 0,
             "count": saved_count,
             "last_sync": None,
-            "detail": _plural(saved_count, "saved item") if saved_count else None,
+            # The whole line was the count, so nothing non-numeric is left:
+            # `detail` is None and the client renders the phrase alone.
+            "detail": None,
+            "count_noun": "saved item" if saved_count else None,
+            "count_is_delta": False,
             "actions": ["import"],
         },
     }
@@ -256,4 +370,35 @@ def build_channels(
             connected=bool(connected_map.get(cid)),
             price_note=getattr(adapter, "PRICE_NOTE", None),
         )
-    return [channels[cid] for cid in CHANNEL_IDS]
+    rows = [channels[cid] for cid in CHANNEL_IDS]
+    # G142 (round 4 D2, C6): Apple Calendar through EventKit — a standing
+    # connection the APP reads and posts, so `_local_channel`'s shape. Always
+    # listed, so Settings → Integrations and the Welcome can offer it before the
+    # first sync; appended after the fixed ids like every local source (R-LS25:
+    # the fixed list and its mirrors stay what they are).
+    rows.append(_local_channel(calendar_local.CHANNEL_ID, calendar_local.LABEL, state, "event"))
+    # G154 (round 4, R-SR15): macOS Contacts — a standing connection the app reads and posts. Always listed, so
+    # Integrations can offer Connect before the first sync; `people` (the pages it enriched) rides `parts`.
+    rows.append(_local_channel(contacts_local.CHANNEL_ID, contacts_local.LABEL, state, "contact"))
+    # Round 4 (C9, R-SR15): a Chromium-family browser beyond Chrome gets its row
+    # once it has synced — the app's `BrowserInventory` offers it before that, so
+    # an install without Brave never carries a Brave row. Appended like every
+    # local source (R-LS25: the fixed list and its mirrors stay what they are).
+    for browser, name in bookmark_sync.CHROMIUM_BROWSERS.items():
+        channel = bookmark_sync.channel_for(browser)
+        if browser != "chrome" and state.get(channel):
+            rows.append(_sync_channel(channel, f"{name} bookmarks", state, "bookmark"))
+    # Round 4 (G160 first slice, R-SR15): a browser's open tab groups, once synced — the switch under Chrome in
+    # Integrations offers the row before that. `tabs` rides `parts`.
+    for browser, name in tab_groups.BROWSERS.items():
+        channel = tab_groups.channel_id(browser)
+        if state.get(channel):
+            rows.append(_local_channel(channel, f"{name} tab groups", state, "tab group"))
+    for folder in folder_source.list_folders(memory_path):
+        rows.append(_local_channel(folder_source.channel_id(folder["id"]),
+                                   str(folder.get("label") or "Folder"), state, "note"))
+    # G134: shown once the person turned it on (or it has ever synced), so an
+    # unused note-taker is not a disconnected row on every install (R-LS25).
+    if wispr_flow.load_settings(memory_path)["enabled"] or state.get(wispr_flow.CHANNEL_ID):
+        rows.append(_local_channel(wispr_flow.CHANNEL_ID, "Wispr Flow", state, "capture"))
+    return rows

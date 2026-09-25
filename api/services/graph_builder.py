@@ -7,8 +7,8 @@ from pathlib import Path
 import yaml
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import bank_index, decay_policy, logo_service, predicates
-from api.services.claims import parse_claims
+from api.services import bank_index, claim_contexts, decay_policy, entity_picture, logo_service, predicates
+from api.services.claims import parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import parse
 
@@ -17,8 +17,13 @@ _SUMMARY_RE = re.compile(r"^##\s+Summary\s*$", re.IGNORECASE | re.MULTILINE)
 
 def summarize(body: str) -> str | None:
     """Return a short preview: the first non-empty line under a ``## Summary``
-    heading, else the first 200 chars of the body with newlines collapsed."""
-    text = (body or "").strip()
+    heading, else the first 200 chars of the body with newlines collapsed.
+
+    The ```claims fence is stripped first (F1 R-FX8): `claims.write_claims`
+    appends it after the last section, so an empty Summary previewed as the
+    fence line and a page with no heading previewed as YAML.
+    """
+    text = strip_claims_block(body or "").strip()
     if not text:
         return None
     m = _SUMMARY_RE.search(text)
@@ -37,6 +42,27 @@ def summarize(body: str) -> str | None:
 def content_hash(fm: dict, body: str) -> str:
     """sha1 of frontmatter JSON + body, truncated to 12 hex chars."""
     return hashlib.sha1((json.dumps(fm, sort_keys=True, default=str) + "\n" + (body or "")).encode()).hexdigest()[:12]
+
+
+MAX_NODE_ALIASES = 8
+
+
+def node_aliases(fm: dict) -> list[str]:
+    """G136 S6 — a page's ``aliases:`` for ``GraphNode.aliases``, so the app's
+    instant tier finds a node by another name before the server answers.
+    Strings (and numbers) only, blanks dropped, order kept, at most
+    ``MAX_NODE_ALIASES`` — the cap ``search_service`` already applies, so both
+    tiers see the same eight. A hand-written scalar (``aliases: alpha``) is one
+    alias, not five letters. Already inside ``content_hash`` (it hashes the
+    frontmatter), so a changed alias repaints the node's delta."""
+    raw = fm.get("aliases")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out = [str(a).strip() for a in raw
+           if isinstance(a, (str, int, float)) and not isinstance(a, bool) and str(a).strip()]
+    return out[:MAX_NODE_ALIASES]
 
 
 def synthetic_hash(*parts) -> str:
@@ -118,7 +144,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # so a claimless graph behaves exactly as before.
     subject_observers: dict[str, set[str]] = {}
     subject_contexts: dict[str, set[str]] = {}
-    edge_claim_index: dict[tuple[str, str, str], tuple[str, str]] = {}
+    edge_claim_index: dict[tuple[str, str, str], tuple[str, str | None]] = {}
     all_observers: set[str] = set()
     # G-repo: read-time repo:<slug> synthetic nodes + "has repo" edges, derived
     # from each entity's declared `repos:` frontmatter — nothing persisted to
@@ -134,6 +160,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
         logo_ids = logo_service.cached_ids(logo_service.bank_name(memory_path))
     except Exception:
         logo_ids = set()
+    # C11 (G146 plan R-PE9) — the logos known to miss, so the picture precedence offers the logo rung only while a
+    # fetch could still succeed. Read-only, like `logo_ids`: `/graph` never fetches.
+    try:
+        logo_misses = logo_service.missed_ids(logo_service.bank_name(memory_path))
+    except Exception:
+        logo_misses = {}
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         eid = f.stem
@@ -149,14 +181,23 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 if claim.observer:
                     subject_observers.setdefault(eid, set()).add(claim.observer)
                     all_observers.add(claim.observer)
-                if claim.context:
+                if claim_contexts.is_valid(claim.context):
                     subject_contexts.setdefault(eid, set()).add(claim.context)
                 if claim.predicate and claim.object:
+                    # F1 R-FX1: a value that is not a context (a `folder:` id,
+                    # G60's `as of <date>`) never colours an edge.
                     edge_claim_index.setdefault(
-                        (eid, claim.predicate, claim.object), (claim.id, claim.context)
+                        (eid, claim.predicate, claim.object),
+                        (claim.id, claim.context if claim_contexts.is_valid(claim.context) else None),
                     )
         except Exception:
             pass
+        # One malformed page must never cost the whole graph its answer (final review, finding 2): no picture, a ring.
+        try:
+            picture, _ = entity_picture.resolve_page(memory_path, eid, fm, body, page_mtime=f.mtime_ns / 1e9,
+                                                     cached=logo_ids, missed=logo_misses)
+        except Exception:
+            picture = entity_picture.NOTHING
         nodes.append(
             GraphNode(
                 id=eid,
@@ -173,6 +214,11 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 content_hash=content_hash(fm, body),
                 has_logo=eid in logo_ids,
                 decay_class=decay_policy.resolve(fm)[0],
+                is_owner=bool(fm.get("owner")),
+                aliases=node_aliases(fm),
+                picture=picture.url,
+                picture_source=picture.source,
+                last_referenced=entity_picture.day(fm.get("last_referenced")),
             )
         )
         for repo_decl in fm.get("repos") or []:
@@ -264,13 +310,22 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # identical — and the companion app's `GraphDiff` would never report the
     # node as updated (the pending-clarification pulse never appeared live).
     # The file hash stays the base; the extras are folded in deterministically.
+    # F1 final review: `contexts` and `summary` are derived from the file by
+    # code (the valid-context filter, R-FX1; the fence strip, R-FX8), so a
+    # change in THAT code left the hash still — an app that took the new body
+    # kept the old satellites and YAML previews because `GraphDiff` saw no
+    # change. Folding them in moves every such node exactly once.
     # Runs after hub injection (so `hub_id` is known) and before facet nodes are
     # built (they fold the parent's hash in, so they follow their subject).
+    # C11: the resolved picture is derived from the logo index too (a fetch that
+    # misses changes it with no page edit), so it folds in like has_logo.
     for node in nodes:
         if node.id in entity_ids:
             node.content_hash = synthetic_hash(
                 node.content_hash, node.degree, node.has_pending, node.hub_id,
                 node.has_logo, node.decay_class.value,
+                "\x1e".join(node.contexts), node.summary,
+                node.picture, node.picture_source, node.last_referenced,
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
@@ -296,22 +351,27 @@ def _build_full(memory_path: Path) -> GraphResponse:
 
     links.extend(hub_links)
 
-    # M5b: facet sub-nodes for subjects with claims in >=2 contexts (d2 §2c).
-    # Each satellite is `id: "<subject>#<context>"`, parentId=<subject>, joined
-    # to the parent by a short `facetOf` edge routed through the existing
-    # node-click channel.
+    # M5b: facet sub-nodes for a subject whose claims sit in >= 2 REAL contexts
+    # (d2 §2c). F1 R-FX2: `general` is "no particular context" and a non-slug
+    # value is not a context at all (claim_contexts), so neither is ever a
+    # satellite — the owner's graph had two per annotated paper, one named after
+    # a raw folder id. Each satellite is `id: "<subject>#<context>"`,
+    # parentId=<subject>, joined to the parent by a short `facetOf` edge routed
+    # through the existing node-click channel (the app opens the parent, R-FX3).
     facet_nodes: list[GraphNode] = []
     facet_links: list[GraphLink] = []
     node_by_id = {n.id: n for n in nodes}
     for subject, contexts in subject_contexts.items():
-        if len(contexts) < 2 or subject not in node_by_id:
+        facets = sorted(c for c in contexts if claim_contexts.is_facet(c))
+        if len(facets) < 2 or subject not in node_by_id:
             continue
         parent = node_by_id[subject]
-        for ctx in sorted(contexts):
+        for ctx in facets:
+            name = claim_contexts.display_name(ctx)
             facet_nodes.append(
                 GraphNode(
                     id=f"{subject}#{ctx}",
-                    name=ctx,
+                    name=name,
                     type=parent.type,
                     status=parent.status,
                     confidence=parent.confidence,
@@ -322,8 +382,11 @@ def _build_full(memory_path: Path) -> GraphResponse:
                     # claim contexts, with no file of their own. Fold the
                     # parent's own hash in so a facet moves when its subject
                     # does. (Same empty-hash re-push problem as hub:/repo:.)
+                    # F1 R-FX3: the display name is folded in as well —
+                    # `GraphDiff` re-pushes a node only when its hash moves, so
+                    # the relabel ("engineering" → "Engineering") must move it.
                     content_hash=synthetic_hash(
-                        "facet", subject, ctx, parent.type, parent.status,
+                        "facet", subject, ctx, name, parent.type, parent.status,
                         parent.confidence, parent.content_hash,
                     ),
                 )
@@ -393,6 +456,37 @@ def _apply_filters(
     return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
 
 
+def _claim_edge_row(claim, page_stem: str) -> dict | None:
+    """One claim's row in ``graph_edges.yaml``, or ``None`` (M5e Stage 5.7's rule).
+
+    Shared by :func:`regenerate_edges_from_claims` and :func:`upsert_claim_edges`
+    so the full projection Sleep writes and the per-page one a folder sync writes
+    can never disagree about a row's shape (F1 R-FX7). Only an open, node-valued
+    claim is an edge; closed and superseded beliefs live on in the page and git."""
+    if claim.valid_to is not None or claim.superseded_by:
+        return None
+    if claim.object_kind not in ("", "node"):
+        return None
+    source = (claim.subject or page_stem).strip()
+    target = (claim.object or "").strip()
+    label = (claim.predicate or "relates-to").strip()
+    if not source or not target or source == target:
+        return None
+    return {
+        "source": source,
+        "target": target,
+        "label": label,
+        "observer": claim.observer or "agent",
+        "context": claim.context or "general",
+        "claim_id": claim.id,
+        "valid_from": claim.valid_from,
+    }
+
+
+def _row_key(row: dict) -> tuple:
+    return (row["source"], row["target"], row["label"], row["observer"], row["context"])
+
+
 def regenerate_edges_from_claims(memory_path: Path) -> int:
     """Refresh the claim-derived edges in ``graph_edges.yaml`` (M5e Stage 5.7).
 
@@ -430,28 +524,11 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
             continue
         for claim in parse_claims(parsed.body):
             any_claims = True
-            if claim.valid_to is not None or claim.superseded_by:
+            row = _claim_edge_row(claim, filepath.stem)
+            if row is None or _row_key(row) in seen:
                 continue
-            if claim.object_kind not in ("", "node"):
-                continue
-            source = (claim.subject or filepath.stem).strip()
-            target = (claim.object or "").strip()
-            label = (claim.predicate or "relates-to").strip()
-            if not source or not target or source == target:
-                continue
-            key = (source, target, label, claim.observer or "", claim.context or "")
-            if key in seen:
-                continue
-            seen.add(key)
-            claim_edges.append({
-                "source": source,
-                "target": target,
-                "label": label,
-                "observer": claim.observer or "agent",
-                "context": claim.context or "general",
-                "claim_id": claim.id,
-                "valid_from": claim.valid_from,
-            })
+            seen.add(_row_key(row))
+            claim_edges.append(row)
 
     # No claims anywhere => don't clobber a legacy/seeded edge graph.
     if not any_claims:
@@ -482,6 +559,74 @@ def regenerate_edges_from_claims(memory_path: Path) -> int:
         encoding="utf-8",
     )
     return len(claim_edges)
+
+
+def upsert_claim_edges(memory_path: Path, page_ids) -> bool:
+    """Re-project the claim-derived edges of just the pages ``page_ids`` names (F1 R-FX7).
+
+    A folder sync writes paper claims (``cited-in`` the folder's project,
+    ``about`` a concept) that only Sleep's Stage 5.7 used to turn into edges, so
+    the owner's papers floated unattached until a cycle ran. This is
+    :func:`regenerate_edges_from_claims`'s merge rule at page granularity: the
+    rows it owns are those whose ``claim_id`` is a claim on one of these pages
+    (open or closed — a closed claim's row must go), and they are replaced by
+    those pages' open node-valued claims through the same
+    :func:`_claim_edge_row`, so Stage 5.7 later writes the same rows. Every
+    other row is kept verbatim — including one whose ``source`` is a named page
+    but whose claim lives elsewhere. Writes nothing when the rows already match
+    (no git churn on a no-change sync) and never rewrites a file it could not
+    parse; a page whose claims block is corrupt owns nothing, so its rows stay.
+    A row whose claim was deleted from its page outright (a hand edit, never a
+    writer's path) waits for Stage 5.7. Returns True when ``graph_edges.yaml``
+    was written."""
+    memory_path = Path(memory_path)
+    ids = sorted({str(s) for s in (page_ids or ()) if s})
+    if not ids:
+        return False
+    owned: set[str] = set()
+    fresh: list[dict] = []
+    seen: set[tuple] = set()
+    for stem in ids:
+        page = memory_path / "entities" / f"{stem}.md"
+        if not page.exists():
+            continue
+        try:
+            body = parse(page).body
+        except Exception:
+            continue
+        for claim in parse_claims(body):
+            if claim.id:
+                owned.add(claim.id)
+            row = _claim_edge_row(claim, stem)
+            if row is None or _row_key(row) in seen:
+                continue
+            seen.add(_row_key(row))
+            fresh.append(row)
+    edges_file = memory_path / "graph_edges.yaml"
+    edges: list[dict] = []
+    if edges_file.exists():
+        try:
+            data = yaml.safe_load(edges_file.read_text(encoding="utf-8")) or {}
+        except Exception:
+            return False
+        if not isinstance(data, dict):
+            return False
+        edges = [e for e in (data.get("edges") or []) if isinstance(e, dict)]
+
+    def mine(edge: dict) -> bool:
+        return bool(edge.get("claim_id")) and edge.get("claim_id") in owned
+
+    def canon(rows: list[dict]) -> list[str]:
+        return sorted(json.dumps(r, sort_keys=True, default=str) for r in rows)
+
+    if canon([e for e in edges if mine(e)]) == canon(fresh):
+        return False
+    merged = [e for e in edges if not mine(e)] + fresh
+    edges_file.write_text(
+        yaml.dump({"edges": merged}, default_flow_style=False, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return True
 
 
 def _load_edges(memory_path: Path) -> list[GraphLink]:

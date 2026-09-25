@@ -117,13 +117,26 @@ def test_resolve_inbox_free_text(server, monkeypatch):
     assert seen == {"action": "resolve", "optionKey": "neither", "answer": "Acme Robotics"}
 
 
+def test_resolve_inbox_reject_posts_reject_action(server, monkeypatch):
+    """G113 slice 3b: reject=true is a real, remembered verdict — unlike
+    skip, it IS posted to the backend (which records the pair)."""
+    seen = {}
+    monkeypatch.setattr(
+        server, "_backend_post",
+        lambda path, payload: seen.update(payload) or {"status": "resolved"},
+    )
+    out = server.handle_resolve_inbox("inbox-001", None, None, False, None, reject=True)
+    assert seen == {"action": "reject"}
+    assert "resolved" in out
+
+
 def test_resolve_inbox_tool_is_registered(server):
     names = {t["name"] for t in server.TOOLS}
     assert "cicada_resolve_inbox" in names
     tool = next(t for t in server.TOOLS if t["name"] == "cicada_resolve_inbox")
     assert tool["inputSchema"]["required"] == ["id"]
     assert set(tool["inputSchema"]["properties"]) == {
-        "id", "option_key", "answer", "defer", "remind_days",
+        "id", "option_key", "answer", "defer", "remind_days", "skip", "reject",
     }
 
 
@@ -143,3 +156,205 @@ def test_relevant_inbox_hides_deferred_items(server, tmp_path):
     blurbs = server._relevant_inbox(memory, "Rodrigo")
     assert len(blurbs) == 1
     assert all("Rodrigo" in b for b in blurbs)
+
+
+# --------------------------------------------------------------------------- #
+# G115 Phase 1 (R9) — render_question v2: the cause, (Recommended), the header
+# line the next `cicada_check_nudges(entity_ids=…)` needs, and the skip hint.
+# --------------------------------------------------------------------------- #
+
+CAUSE = {"tier": "item", "episode_id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00",
+         "conversation_id": "ses_x", "harness": "claude-code", "origin": "claude-code",
+         "conversation_title": "Parser planning", "excerpt": "user: Bob Example moved to beta-corp last week.",
+         "mention_offsets": [[6, 17]], "start": 0, "end": 47, "span_kind": "derived"}
+
+
+def test_render_question_v2_header_cause_and_recommended(server):
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause=CAUSE, recommended_key="b")
+    lines = out.splitlines()
+    assert lines[0] == "Where does Rodrigo work now?"
+    assert lines[1].strip() == "entity_id=rodrigo · predicate=works-at"
+    assert lines[2].strip().startswith('Cause: “user: Bob Example moved to beta-corp last week.” — from "Parser planning" · claude-code · ')
+    assert "a) MongoDB — 6 months ago" in out and "(Recommended)" not in lines[3 + 0]
+    assert "b) Supahost — 5 days ago (Recommended)" in out
+    assert "skip=true" in out
+
+
+def test_render_question_no_source_recorded_is_printed_not_dropped(server):
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause={"tier": "none", "excerpt": "[ no source recorded ]"})
+    assert "Cause: [ no source recorded ]" in out
+
+
+def test_render_question_without_raw_excerpts_keeps_where_and_drops_the_words(server):
+    """G135 final review (R-R22): a remote connector without `sources` gets the
+    cause's provenance, never its quote; stdio's default is unchanged."""
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause=CAUSE, raw_excerpts=False)
+    [line] = [x for x in out.splitlines() if "Cause:" in x]
+    assert line.strip().startswith("Cause: from ") and "“" not in line
+    assert "“" in server.render_question(QUESTION_FM, "ctx", today="2026-08-30", cause=CAUSE)
+
+
+def test_check_nudges_renders_decay_as_a_question_with_cause(server, tmp_path, monkeypatch):
+    from api.services import bank_index, markdown_parser
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    markdown_parser.write(memory / "episodes" / "ep_2026-08-20_001.md",
+                          {"id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00", "title": "Parser planning"},
+                          "user: alpha-project is mostly the parser.\n")
+    markdown_parser.write(memory / "entities" / "alpha-project.md",
+                          {"name": "Alpha Project", "type": "project", "status": "active", "last_referenced": "2026-02-18",
+                           "source_episodes": ["ep_2026-08-20_001"]}, "# A\n")
+    markdown_parser.write(memory / "inbox" / "inbox-003.md",
+                          {"kind": "decay", "status": "pending", "entity_id": "alpha-project", "entity_name": "Alpha Project",
+                           "title": "No recent mentions of Alpha Project", "created_date": "2026-08-01"}, "body")
+    monkeypatch.setattr(server, "get_memory_path", lambda: memory)
+    monkeypatch.setattr(server, "_SKIPPED_INBOX_IDS", set())
+    out = server.handle_check_nudges(None)
+    assert "Still tracking Alpha Project?" in out
+    assert "archive) Archive" in out and "(Recommended)" in out and "keep) Keep active" in out
+    assert 'Cause: “user: alpha-project is mostly the parser.” — from "Parser planning"' in out
+    assert 'cicada_resolve_inbox(id="inbox-003", option_key=…)' in out
+
+
+def test_relevant_inbox_carries_the_cause(server, tmp_path):
+    """New fixtures use the synthetic names (`bob-example`, `beta-corp`) — the
+    privacy rail: no real name may enter a test this plan adds."""
+    from api.services import bank_index, markdown_parser
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    markdown_parser.write(memory / "episodes" / "ep_2026-08-20_001.md",
+                          {"id": "ep_2026-08-20_001", "timestamp": "2026-08-20T10:00:00+00:00", "title": "Jobs"},
+                          "user: Bob Example moved to beta-corp last week.\n")
+    fm = dict(QUESTION_FM,
+              entity_id="bob-example", entity_name="Bob Example",
+              title="Where does Bob Example work now?",
+              question="Where does Bob Example work now?",
+              source_episode="ep_2026-08-20_001")
+    markdown_parser.write(memory / "inbox" / "inbox-001.md", fm, "ctx")
+    [blurb] = server._relevant_inbox(memory, "Bob Example")
+    assert 'Cause: “user: Bob Example moved to beta-corp last week.” — from "Jobs"' in blurb
+
+
+# --------------------------------------------------------------------------- #
+# Final review H1 — the `Other / Later` line is gated per flag.
+# --------------------------------------------------------------------------- #
+
+
+def test_decay_card_never_invites_free_text(server):
+    """A decay question sets `allow_other: False`, and the invitation must go
+    with it (final review H1).
+
+    Before this, `render_question` printed "reply with any other answer" on a
+    decay card because the line was gated on `allow_other OR allow_defer`. An
+    agent taking the invitation hit `_resolve_decay`'s `else` branch: the answer
+    prose was appended to the entity body, the page stayed `decaying` at its
+    decayed confidence, and the item was deleted — a "yes, still relevant"
+    inverted with no error. The `defer` half must still print, since decay does
+    allow it.
+    """
+    from api.services import inbox_questions
+
+    q = inbox_questions.decay_question("Alpha Project", "2026-02-18", "2026-08-30")
+    fm = dict(q, kind="decay", entity_id="alpha-project", entity_name="Alpha Project")
+    out = server.render_question(fm, "body", today="2026-08-30")
+    assert "reply with any other answer" not in out
+    assert "Other / Later — ask to be reminded later; skip=true if unanswered" in out
+
+
+def test_conflict_card_still_prints_both_halves(server):
+    """The conflict sentence is byte-identical to v2's — only the gating changed."""
+    out = server.render_question(QUESTION_FM, "ctx", today="2026-08-30")
+    assert (
+        "Other / Later — reply with any other answer, or ask to be reminded later; "
+        "skip=true if unanswered"
+    ) in out
+
+
+def test_render_question_with_neither_flag_prints_no_other_line(server):
+    fm = dict(QUESTION_FM, allow_other=False, allow_defer=False)
+    out = server.render_question(fm, "ctx", today="2026-08-30")
+    assert "Other / Later" not in out
+
+
+# --------------------------------------------------------------------------- #
+# Final review H3 — one InboxContext per reader loop, not one per item.
+# --------------------------------------------------------------------------- #
+
+
+def test_check_nudges_builds_one_inbox_context_for_the_whole_loop(server, tmp_path, monkeypatch):
+    """`InboxContext` scandirs `episodes/` AND `entities/` on first use; one per
+    item put ~400 ms into a call that sits in the conversation loop."""
+    from api.services import bank_index, inbox_context, markdown_parser
+
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    for n in range(4):
+        markdown_parser.write(
+            memory / "entities" / f"alpha-project-{n}.md",
+            {"name": f"Alpha Project {n}", "type": "project", "status": "active",
+             "last_referenced": "2026-02-18", "source_episodes": []}, "# A\n")
+        markdown_parser.write(
+            memory / "inbox" / f"inbox-10{n}.md",
+            {"kind": "decay", "status": "pending", "entity_id": f"alpha-project-{n}",
+             "entity_name": f"Alpha Project {n}", "title": f"No recent mentions {n}",
+             "created_date": "2026-08-01"}, "body")
+
+    built = []
+    real = inbox_context.InboxContext
+
+    class Counting(real):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **kw):
+            built.append(1)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(inbox_context, "InboxContext", Counting)
+    monkeypatch.setattr(server, "get_memory_path", lambda: memory)
+    monkeypatch.setattr(server, "_SKIPPED_INBOX_IDS", set())
+    out = server.handle_check_nudges(None)
+    assert out.count("Still tracking") == 4
+    assert len(built) == 1
+
+
+def test_relevant_inbox_builds_one_inbox_context_for_the_whole_loop(server, tmp_path, monkeypatch):
+    from api.services import bank_index, inbox_context, markdown_parser
+
+    bank_index.invalidate()
+    memory = tmp_path / "memory"
+    (memory / "inbox").mkdir(parents=True); (memory / "entities").mkdir(); (memory / "episodes").mkdir()
+    for n in range(3):
+        markdown_parser.write(
+            memory / "inbox" / f"inbox-20{n}.md",
+            dict(QUESTION_FM, entity_id="bob-example", entity_name="Bob Example",
+                 title="Where does Bob Example work now?",
+                 question="Where does Bob Example work now?"), "ctx")
+
+    built = []
+    real = inbox_context.InboxContext
+
+    class Counting(real):  # type: ignore[misc, valid-type]
+        def __init__(self, *a, **kw):
+            built.append(1)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(inbox_context, "InboxContext", Counting)
+    assert len(server._relevant_inbox(memory, "Bob Example")) == 3
+    assert len(built) == 1
+
+
+def test_resolve_inbox_posts_removal_keys_unchanged(server, monkeypatch):
+    """G129 slice 2: `cicada_resolve_inbox` needs no new code — `option_key`
+    is already a free-form string on the wire; `keep`/`remove` pass straight
+    through the same path `divergence`'s `"0"`/`"1"` already exercises."""
+    posted = {}
+
+    def fake_post(path, payload):
+        posted["path"], posted["payload"] = path, payload
+        return {"status": "resolved"}
+
+    monkeypatch.setattr(server, "_backend_post", fake_post)
+    server.handle_resolve_inbox("inbox-001", "remove", None, False, None)
+    assert posted["path"] == "/inbox/inbox-001/resolve"
+    assert posted["payload"] == {"action": "resolve", "optionKey": "remove"}

@@ -4,6 +4,11 @@ __pycache__/
 
 # Personal conversation exports — never commit
 data/
+# G138: the recommended-skill catalog is reviewed public data, not an export.
+# Only that one file is re-included; anything else dropped in api/data/ stays ignored.
+!/api/data/
+/api/data/*
+!/api/data/recommended_skills.json
 
 # Raw chat-export corpus used to consolidate the memory graph (claude/gemini/openai).
 # ~200MB of personal conversations; kept local for source-grounded re-consolidation

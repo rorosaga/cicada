@@ -7,7 +7,8 @@ enum BookwormState: Equatable {
     /// Cold-start / unknown (before the first poll resolves, or when /status is
     /// unreachable). Idle worm with an occasional blink.
     case awake
-    /// A sleep cycle is running; `stage` is clamped to 1...5 for the progress dots.
+    /// A sleep cycle is running; `stage` is the ACTIVE stage, 1…5 —
+    /// `activeStage(completed:)`.
     case sleeping(stage: Int)
     /// Brief chewing loop right after a cycle finishes (running -> idle, no error).
     case digesting
@@ -17,6 +18,13 @@ enum BookwormState: Equatable {
     case curious(count: Int)
     /// No episode ingested in 48h (or never).
     case hungry
+    /// Shown on the Sleep page (never the menu bar — R2) while intake is
+    /// being consumed (an upload/import is in flight, `Store.intakeInFlight`)
+    /// or the queue is non-empty and Sleep is idle. `deriveSleepPageMood`
+    /// returns this where it used to return `.curious(count:)`;
+    /// `deriveBookwormState` (menu bar) is byte-for-byte unchanged and
+    /// `.curious` keeps meaning "inbox items" there (G125 R2).
+    case reading
     /// The last Sleep cycle failed (`/status.sleep.error` is set). Red pupils
     /// and a glitch frame. Outranks everything but a running cycle (R6): the
     /// Store stamps `justFinishedAt` on ANY running→idle edge, so without
@@ -32,6 +40,7 @@ enum BookwormState: Equatable {
         case .happy: "Happy"
         case .curious: "Curious"
         case .hungry: "Hungry"
+        case .reading: "Reading"
         case .error: "Error"
         }
     }
@@ -44,6 +53,7 @@ enum BookwormState: Equatable {
         case .digesting: "chewing on new memories…"
         case .curious(let n): "\(n) item\(n == 1 ? "" : "s") waiting"
         case .hungry: "no episodes in 48h"
+        case .reading: "reading what's waiting"
         case .error: "last sleep cycle failed"
         case .happy: "inbox clear"
         }
@@ -61,6 +71,7 @@ enum BookwormState: Equatable {
         case .happy: "happy"
         case .curious: "curious"
         case .hungry: "hungry"
+        case .reading: "reading"
         case .error: "error"
         }
     }
@@ -117,6 +128,24 @@ struct StatusSnapshot: Codable, Equatable {
     var episodes: Episodes
     var lastSleepAt: String?         // ISO8601, null if never
     var nextSleepAt: String?         // ISO8601, null if schedule disabled
+
+    /// G139 — facts about the backend that name nothing (R-O21/R-O22): the
+    /// usage ledger's switch, the three outbound gates, and which env switches
+    /// are set, by name. Optional, so the on-disk snapshot cache and an older
+    /// backend still decode; the memberwise init keeps working through the
+    /// defaults.
+    var telemetry: String? = nil
+    var gates: Gates? = nil
+    var envOverrides: [String]? = nil
+
+    /// Each gate optional too: a missing key reads as "—" on Privacy & data,
+    /// never as a guessed On or Off, and never fails the whole `/status`
+    /// decode (which would blank the menu-bar bookworm with it).
+    struct Gates: Codable, Equatable {
+        var connectorFetch: Bool?
+        var feedFetch: Bool?
+        var logoFetch: Bool?
+    }
 }
 
 // MARK: - Date parsing helpers
@@ -124,18 +153,46 @@ struct StatusSnapshot: Codable, Equatable {
 extension StatusSnapshot {
     /// Parse an ISO8601 timestamp from the snapshot. Tolerant of the
     /// with/without fractional-seconds variants the backend emits.
-    static func parseDate(_ iso: String?) -> Date? {
+    ///
+    /// A string with no zone is read as local time in `naiveTimeZone`
+    /// (Track O review, R-O10): `sleep_scheduler.next_run_at` returns a naive
+    /// `datetime.now()`-based ISO string for the daily and interval modes
+    /// (e.g. `2026-09-24T03:00:00`), and `.withInternetDateTime` requires a
+    /// zone, so every schedule read as "not scheduled". The backend and the
+    /// app share one machine, so naive means local. This only ever turns a
+    /// `nil` into a date — an offset-bearing string parses exactly as before.
+    static func parseDate(_ iso: String?, naiveTimeZone: TimeZone = .current) -> Date? {
         guard let iso, !iso.isEmpty else { return nil }
         let withFractional = ISO8601DateFormatter()
         withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = withFractional.date(from: iso) { return d }
         let plain = ISO8601DateFormatter()
         plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: iso)
+        if let d = plain.date(from: iso) { return d }
+        let naive = DateFormatter()
+        naive.locale = Locale(identifier: "en_US_POSIX")
+        naive.timeZone = naiveTimeZone
+        for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss.SSS"] {
+            naive.dateFormat = format
+            if let d = naive.date(from: iso) { return d }
+        }
+        return nil
     }
 }
 
 // MARK: - Pure state derivation
+
+/// The stage a RUNNING cycle is in (Track Z R-Z14, design §13.1).
+///
+/// The wire's `stage` counts COMPLETED stages — `sleep_cycle.py` sets it to 1
+/// only after Stage 1 returns — so the stage in flight is one ahead. Three
+/// derivations used to clamp the raw number instead (the menu bar here, the
+/// Sleep page's `deriveSleepPageMood`, onboarding), so while Sort ran the
+/// worm's dots, the bracket line and VoiceOver all said "stage 1" while the
+/// strip lit Sort. One translation, read by all four (the strip included).
+func activeStage(completed: Int) -> Int {
+    max(1, min(5, completed + 1))
+}
 
 /// Maps a status snapshot to a ``BookwormState``. Pure so the precedence logic
 /// is unit-testable. Precedence (highest wins):
@@ -146,7 +203,7 @@ func deriveBookwormState(
     now: Date = .now
 ) -> BookwormState {
     if s.sleep.status == "running" {
-        return .sleeping(stage: max(1, min(5, s.sleep.stage)))
+        return .sleeping(stage: activeStage(completed: s.sleep.stage))
     }
     if let err = s.sleep.error, !err.isEmpty {
         return .error

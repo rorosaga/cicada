@@ -90,7 +90,7 @@ final class SleepMoodTests: XCTestCase {
     }
 
     func test_mood_isSleeping_wheneverACycleIsRunning_regardlessOfDebt() throws {
-        let st = try status(status: "running", stage: 3)
+        let st = try status(status: "running", stage: 2)   // 2 COMPLETED → stage 3 active (R-Z14)
         let mood = deriveSleepPageMood(status: st, debt: debtView(restedPct: 0, unprocessedCount: 50),
                                         justFinishedAt: nil)
         XCTAssertEqual(mood, .sleeping(stage: 3))
@@ -109,6 +109,21 @@ final class SleepMoodTests: XCTestCase {
         let mood = deriveSleepPageMood(status: st, debt: debtView(unprocessedCount: 0),
                                         justFinishedAt: now.addingTimeInterval(-3), now: now)
         XCTAssertEqual(mood, .digesting)
+    }
+
+    /// Track Z §6.5 / design §13.2: `SleepView` stamps `justFinishedAt` on
+    /// ANY running→idle edge, so a CANCELLED cycle used to chew for six
+    /// seconds and read "digesting". A cancel files nothing; it never chews.
+    func test_mood_isNotDigesting_afterACancelledCycle() throws {
+        let now = Date()
+        let cancelled = try JSONDecoder().decode(SleepStatusResponse.self,
+                                                 from: Data(#"{"status":"idle","cancelled":true}"#.utf8))
+        XCTAssertEqual(deriveSleepPageMood(status: cancelled, debt: debtView(unprocessedCount: 0),
+                                           justFinishedAt: now.addingTimeInterval(-1), now: now), .happy)
+        let completed = try status(status: "idle")
+        XCTAssertEqual(deriveSleepPageMood(status: completed, debt: debtView(unprocessedCount: 0),
+                                           justFinishedAt: now.addingTimeInterval(-1), now: now), .digesting,
+                       "a completed cycle still chews")
     }
 
     func test_mood_digestingWindowExpiresAt6Seconds() throws {
@@ -168,14 +183,50 @@ final class SleepMoodTests: XCTestCase {
         XCTAssertNotEqual(mood, .hungry)
     }
 
-    func test_mood_isCurious_withModerateDebt() throws {
+    /// G125 R2: the Sleep page reads a non-empty, non-overdue queue as
+    /// `.reading`, never `.curious` — `.curious` on this page would collide
+    /// with the menu bar's own meaning of the case (pending inbox items).
+    func test_mood_isReading_withModerateDebt_notCurious() throws {
         let st = try status(status: "idle")
         let mood = deriveSleepPageMood(
             status: st,
-            debt: debtView(restedPct: 60, unprocessedCount: 12, hoursSinceLastCycle: 5),
+            debt: debtView(restedPct: 80, unprocessedCount: 3, hoursSinceLastCycle: 5),
             justFinishedAt: nil
         )
-        XCTAssertEqual(mood, .curious(count: 12))
+        XCTAssertEqual(mood, .reading)
+        XCTAssertNotEqual(mood, .curious(count: 3))
+    }
+
+    /// G125 R2: `Store.intakeInFlight` forces `.reading` even with an
+    /// as-yet-unrefreshed queue of 0 — the worm is visibly consuming what
+    /// just landed, before the next `/sleep/status` fetch catches up.
+    func test_mood_intakeInFlight_forcesReading_evenWithEmptyQueue() throws {
+        let st = try status(status: "idle")
+        let mood = deriveSleepPageMood(
+            status: st, debt: debtView(unprocessedCount: 0), justFinishedAt: nil, intakeInFlight: true
+        )
+        XCTAssertEqual(mood, .reading)
+    }
+
+    /// G125 R2: `intakeInFlight` never outranks a cycle that is actually
+    /// running — sleeping is a fact about the present, intake-in-flight is
+    /// only a hint about what is about to be queued.
+    func test_mood_intakeInFlight_neverOutranksARunningCycle() throws {
+        let st = try status(status: "running", stage: 3)   // 3 COMPLETED → stage 4 active (R-Z14)
+        let mood = deriveSleepPageMood(status: st, debt: nil, justFinishedAt: nil, intakeInFlight: true)
+        XCTAssertEqual(mood, .sleeping(stage: 4))
+    }
+
+    /// Unchanged by the reading/curious swap: a large-debt or long-gap
+    /// backlog still reads as `.hungry`, never `.reading`.
+    func test_mood_isStillHungry_whenOverdue_notReading() throws {
+        let st = try status(status: "idle")
+        let mood = deriveSleepPageMood(
+            status: st,
+            debt: debtView(restedPct: 10, unprocessedCount: 40, hoursSinceLastCycle: 60),
+            justFinishedAt: nil
+        )
+        XCTAssertEqual(mood, .hungry)
     }
 
     func test_mood_isAwake_whenIdleWithNoDebtReadingYet() throws {
@@ -226,6 +277,19 @@ final class SleepMoodTests: XCTestCase {
         XCTAssertEqual(sleepDebtBracketText(.error, debt: nil), "[ last cycle failed ]")
     }
 
+    func test_bracketText_reading_withCount() {
+        let debt = debtView(unprocessedCount: 12)
+        XCTAssertEqual(sleepDebtBracketText(.reading, debt: debt), "[ 12 to read ]")
+    }
+
+    func test_bracketText_reading_withNilDebt() {
+        XCTAssertEqual(sleepDebtBracketText(.reading, debt: nil), "[ 0 to read ]")
+    }
+
+    func test_bracketColor_readingIsTextSecondary() {
+        XCTAssertEqual(sleepDebtBracketColor(.reading), CicadaTheme.textSecondary)
+    }
+
     func test_bracketColor_errorIsDanger() {
         XCTAssertEqual(sleepDebtBracketColor(.error), CicadaTheme.danger)
     }
@@ -234,7 +298,7 @@ final class SleepMoodTests: XCTestCase {
         let failed = try status(status: "idle", unprocessedCount: 4, restedPct: 60, error: "RuntimeError: boom")
         XCTAssertEqual(deriveSleepPageMood(status: failed, debt: debtView(restedPct: 60, unprocessedCount: 4), justFinishedAt: nil), .error)
         XCTAssertEqual(deriveSleepPageMood(status: failed, debt: nil, justFinishedAt: Date()), .error, "error beats digesting")
-        let running = try status(status: "running", stage: 2, error: "stale error from the previous cycle")
+        let running = try status(status: "running", stage: 1, error: "stale error from the previous cycle")
         XCTAssertEqual(deriveSleepPageMood(status: running, debt: nil, justFinishedAt: nil), .sleeping(stage: 2), "a running cycle outranks a stale error")
     }
 
@@ -247,5 +311,33 @@ final class SleepMoodTests: XCTestCase {
 
     func test_bracketColor_happyIsSuccess() {
         XCTAssertEqual(sleepDebtBracketColor(.happy), CicadaTheme.success)
+    }
+
+    // MARK: resolveOriginCounts (G125 Task 7 — same SSE-first, REST-fallback
+    // precedence as resolveSleepDebt/resolveProgressPct, for the desk card's
+    // book pile and study list).
+
+    func test_resolveOriginCounts_prefersSSE_whenItCarriesTheDicts() throws {
+        let sse = SleepEventPayload(status: "running",
+                                     queueByOrigin: ["safari-tab": 300], readByOrigin: ["safari-tab": 1])
+        let st = try status(status: "running")   // no queueByOrigin/readByOrigin overrides — defaults to [:]
+        let resolved = resolveOriginCounts(sse: sse, status: st)
+        XCTAssertEqual(resolved.queueByOrigin, ["safari-tab": 300])
+        XCTAssertEqual(resolved.readByOrigin, ["safari-tab": 1])
+    }
+
+    func test_resolveOriginCounts_fallsBackToREST_whenSSEHasNilDicts() throws {
+        // An SSE payload predating G125 R3 (or mid-reconnect) decodes both
+        // dicts as nil — must fall back to the REST snapshot, not read as
+        // "nothing queued".
+        let sse = SleepEventPayload(status: "running")
+        let st = try status(status: "running")
+        XCTAssertEqual(resolveOriginCounts(sse: sse, status: st).queueByOrigin, [:])
+    }
+
+    func test_resolveOriginCounts_isEmpty_whenNeitherSourceHasAnything() {
+        let resolved = resolveOriginCounts(sse: nil, status: nil)
+        XCTAssertEqual(resolved.queueByOrigin, [:])
+        XCTAssertEqual(resolved.readByOrigin, [:])
     }
 }

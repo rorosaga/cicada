@@ -9,7 +9,8 @@ import SwiftUI
 /// otherwise — the recordings are a separate manual pass, see
 /// docs/walkthrough-recording.md.
 enum WalkthroughVendor: String, CaseIterable, Identifiable {
-    case claude, chatgpt, takeout, instagram, tiktok, linkedin, redditExport
+    // Track I T5: `gemini` is appended, so no existing raw value moves.
+    case claude, chatgpt, takeout, instagram, tiktok, linkedin, redditExport, gemini
 
     var id: String { rawValue }
 
@@ -22,6 +23,7 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .tiktok: "TikTok"
         case .linkedin: "LinkedIn"
         case .redditExport: "Reddit"
+        case .gemini: "Gemini"
         }
     }
 
@@ -36,22 +38,31 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .tiktok: URL(string: "https://www.tiktok.com/setting/download-your-data")!
         case .linkedin: URL(string: "https://www.linkedin.com/mypreferences/d/download-my-data")!
         case .redditExport: URL(string: "https://www.reddit.com/settings/data-request")!
+        case .gemini: URL(string: "https://takeout.google.com/")!
         }
     }
 
     var steps: [String] {
         switch self {
+        // Track I T5 — the one intake takes the .zip as it arrived, so no chat
+        // walkthrough says "unzip" (`WalkthroughTests.testChatWalkthroughsNeverAskToUnzip`).
         case .claude: [
             "Open Settings → Privacy on claude.ai.",
             "Click “Export data” and confirm.",
-            "Anthropic emails you a .zip — unzip it.",
-            "Drop conversations.json here.",
+            "Anthropic emails you a link to a .zip.",
+            "Drop the .zip here, just as it arrived.",
         ]
         case .chatgpt: [
             "Open Settings → Data controls on chatgpt.com.",
             "Click “Export data” and confirm.",
-            "OpenAI emails you a .zip — unzip it.",
-            "Drop conversations.json here.",
+            "OpenAI emails you a link to a .zip.",
+            "Drop the .zip here, just as it arrived.",
+        ]
+        case .gemini: [
+            "Open Google Takeout and click “Deselect all”.",
+            "Tick “My Activity”, then keep only “Gemini Apps” in its list.",
+            "Export once as a .zip and download it.",
+            "Drop the .zip here, just as it arrived.",
         ]
         case .takeout: [
             "Open Google Takeout and click “Deselect all”.",
@@ -99,6 +110,7 @@ enum WalkthroughVendor: String, CaseIterable, Identifiable {
         case .tiktok: "Your TikTok favourites and likes as saved links."
         case .linkedin: "Your saved LinkedIn items — links and dates only."
         case .redditExport: "A one-off backfill past Reddit's 1,000-item API cap."
+        case .gemini: "Your Gemini prompts and replies, each with its date."
         }
     }
 
@@ -142,7 +154,7 @@ struct WalkthroughPanel: View {
                 ForEach(Array(vendor.steps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                         Text("\(index + 1)")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .font(CicadaTheme.font(size: 10, weight: .semibold).monospacedDigit())
                             .foregroundStyle(CicadaTheme.accent)
                             .frame(width: 14, alignment: .trailing)
                         Text(step)
@@ -158,7 +170,7 @@ struct WalkthroughPanel: View {
                     NSWorkspace.shared.open(vendor.exportURL)
                 } label: {
                     Label("Open \(vendor.title) export settings", systemImage: "arrow.up.forward.app")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityLabel("Open \(vendor.title) export settings in your browser")
@@ -184,7 +196,7 @@ struct WalkthroughPanel: View {
             } else {
                 VStack(spacing: CicadaTheme.spacingXS) {
                     Image(systemName: "play.rectangle")
-                        .font(.system(size: 22))
+                        .font(CicadaTheme.font(size: 22))
                         .foregroundStyle(CicadaTheme.textTertiary)
                     Text("Walkthrough video coming soon")
                         .font(CicadaTheme.captionFont)
@@ -198,8 +210,10 @@ struct WalkthroughPanel: View {
     }
 
     static func videoURL(for vendor: WalkthroughVendor) -> URL? {
-        Bundle.cicadaResources.url(forResource: vendor.videoName, withExtension: "mp4",
-                          subdirectory: "Resources/walkthroughs")
+        // Same both-layouts rule as the marks (`Bundle.cicadaResource`): the
+        // `Resources/` prefix this used to carry resolves only in the flat
+        // SwiftPM bundle, never in the re-nested one a built Cicada.app ships.
+        Bundle.cicadaResources.cicadaResource(vendor.videoName, ext: "mp4", in: "walkthroughs")
     }
 }
 

@@ -1,0 +1,119 @@
+import Foundation
+
+/// How a `Cicada-Author` is *named and marked* in the contributors list —
+/// pure, view-free and tested, so the three places a contributor is rendered
+/// (the row name, the avatar, the accessibility label) cannot disagree.
+///
+/// Track L R8/R-L6. Before this, `ContributorAvatar` mapped a provider to one
+/// of three letters and everything else to a grey circle with a white "?" —
+/// so `cicada` (the state snapshot, the split-out decay commit, the one-shot
+/// migrations), an OpenRouter id and a local Llama all rendered as the same
+/// anonymous unknown. Two rules replace it:
+///
+/// 1. **A provider with a bundled mark wears the real mark** — the same PNGs
+///    every other surface uses, resolved through `LogoImage`.
+/// 2. **Anything unmatched gets initials, never "?"** — two authors that
+///    differ are two badges that differ.
+enum ContributorIdentity {
+
+    /// The literal author of system maintenance: no model, no user in the
+    /// loop. Mirrors `git_service.CICADA_AUTHOR`, and is what the `kind`
+    /// fallback keys on when an older backend ships no `kind` at all.
+    static let systemAuthor = "cicada"
+
+    /// What the row calls this contributor. A **model** id is still its own
+    /// honest name — prettifying it would hide which build actually ran — but
+    /// the three buckets the app can name are named (R-S13, critique E1):
+    /// `cicada` is system maintenance, `user` is the person holding the
+    /// keyboard, and `unknown` is a legacy untrailered commit from before
+    /// `Cicada-Author:` existed. Rendering those as the raw ids "user" and
+    /// "unknown" made the strip say a stranger wrote the bank.
+    ///
+    /// One function, not two: a second `stripName(...)` beside this one would
+    /// let the chip strip and the drill-down disagree about who wrote what.
+    static func displayName(author: String, kind: String?) -> String {
+        if kind == "system" || author == systemAuthor { return "Cicada · maintenance" }
+        if kind == "user" || author == "user" { return Copy.you }
+        if kind == "unknown" || author == "unknown" { return "Before provenance" }
+        // G118 slice 2 — a remote write's author is the connector's app label
+        // (`claude-web`, R-R5); its honest name is the app's product name.
+        if kind == "harness" { return OriginIconography.label(for: author) }
+        return author
+    }
+
+    /// Which bucket a contributor falls in, preferring the backend-derived
+    /// `kind` and falling back to the author string.
+    ///
+    /// Lifted out of the old `ContributorRow` (R-S6) because the strip, the
+    /// avatar and the summary sentence all need the same answer: `cicada`
+    /// against a backend that predates `kind` must classify as system, not as
+    /// a model wearing the grey "?" (R-L6).
+    static func kind(of contributor: Contributor) -> String {
+        kind(author: contributor.author, serverKind: contributor.kind)
+    }
+
+    /// The same rule for the bare `(author, authorKind)` a claim or a history
+    /// row carries (G118 slice 2, R-PB13): the server's bucket when it sent
+    /// one, else the author id's own — so an older backend's `cicada` is still
+    /// system, never a model wearing initials.
+    static func kind(author: String, serverKind: String? = nil) -> String {
+        if let k = serverKind, !k.isEmpty { return k }
+        if author == "user" { return "user" }
+        if author == systemAuthor { return "system" }
+        if author == "unknown" || author.isEmpty { return "unknown" }
+        return "model"
+    }
+
+    /// The bundled logo for a provider, or nil when the provider has no mark
+    /// we ship (an open-weight family whose glyph is not in `Resources/logos`).
+    /// `openrouter` wears OpenRouter's mark (R-AG9): a model billed through
+    /// OpenRouter is OpenRouter's to the contributor list, the same routing
+    /// `git_service._ROUTER_PREFIXES` applies server-side. nil
+    /// means "fall back to the coloured circle with initials", never a blank.
+    ///
+    /// Deliberately a provider→file map and not an identity: the provider ids
+    /// come from `git_service._PROVIDER_SUBSTRINGS` and the file names come
+    /// from the products (`anthropic` ships as `claude`, `openai` as
+    /// `chatgpt`, `google` as `gemini`).
+    static func logoName(provider: String?) -> String? {
+        switch provider {
+        case "anthropic": "claude"
+        case "openai": "chatgpt"
+        case "google": "gemini"
+        case "ollama": "ollama"
+        case "openrouter": "openrouter"
+        default: nil
+        }
+    }
+
+    /// A provider's product family for a sentence — "Claude (claude-sonnet-4-5)"
+    /// (G118 slice 2, §4.5: "the model family first and the raw id in
+    /// parentheses"). nil for "other" and nil: the raw id then stands alone,
+    /// because a guessed family would claim a brand the id does not carry.
+    /// For the same reason `google` is "Google", not "Gemini": the server's
+    /// rule files Gemma under it too (`git_service._PROVIDER_SUBSTRINGS`).
+    static func vendorName(provider: String?) -> String? {
+        switch provider {
+        case "anthropic": "Claude"
+        case "openai": "OpenAI"
+        case "google": "Google"
+        case "ollama": "Ollama"
+        case "openrouter": "OpenRouter"
+        default: nil
+        }
+    }
+
+    /// Every mark this map can return. An array rather than a Set because
+    /// `LogoAssetTests.testEveryBundledMarkIsClaimedBySomeMap` concatenates it
+    /// into the claimed-names list — this is the only thing that stops a
+    /// provider mark from reading as an orphaned asset.
+    static let allProviderMarks: [String] = ["claude", "chatgpt", "gemini", "ollama", "openrouter"]
+
+    /// Initials for the badge when no mark applies. Delegates to
+    /// `LogoImage.monogram(for:)` so a contributor badge and a platform tile
+    /// derive initials by exactly one rule — and it is fed the AUTHOR, not the
+    /// provider, because the author is what actually distinguishes two rows.
+    static func monogram(for author: String) -> String {
+        LogoImage.monogram(for: author)
+    }
+}

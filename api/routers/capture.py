@@ -1,25 +1,49 @@
 """Inbound capture connectors — webhooks that stage episodes/media without
 going through MCP or the companion app's own upload flow.
 
-Currently just Telegram. The parse+route logic lives in
+Three today: the Telegram webhook (parse+route logic in
 ``api/services/telegram_capture.py``; this router is only the token gate +
-HTTP surface.
+HTTP surface), the G105 session-capture endpoint the harness's Stop hook
+posts to (``api/services/transcript_capture.py`` does the validation, the
+extraction and the write), and the G149 recall hooks' read,
+``POST /capture/hook-context`` (``api/services/hook_recall.py``).
 """
 
+import asyncio
 import os
 import secrets as _secrets_mod
+import time
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from api.config import Settings, get_settings
+from api.services import bank_registry, demo_guard, hook_recall
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
     ingest_telegram_update,
 )
+from api.services.transcript_capture import capture_transcript
 
 router = APIRouter()
+
+
+def refuse_capture_into_demo(settings: Settings = Depends(get_settings)) -> None:
+    """G141 capture-side track (R-CS15): a route dependency that answers ``409``
+    with :data:`demo_guard.REFUSAL` while the ACTIVE bank is a demo bank.
+
+    Route-level, so FastAPI solves it before the body is validated and before
+    the handler runs (checked on 0.135.3): FastAPI has already read the body,
+    but a folder batch or an upload is refused before any of it is staged.
+    Every POST/PUT under ``/capture/`` and ``/sources/`` carries it unless
+    ``test_demo_capture_routes.HANDLED_ELSEWHERE`` names why not — the Stop
+    hook redirects, Telegram replies, the intake checks its target bank."""
+    if demo_guard.is_demo(settings.memory_path):
+        raise HTTPException(status_code=409, detail=demo_guard.REFUSAL)
+
 
 # "attempt once" — this endpoint is hit on every message forwarded to the
 # bot; an unconfigured secret must not retry auto-provisioning (or spam a
@@ -124,3 +148,126 @@ async def capture_telegram(
     if ack and chat_id is not None:
         return {**result, "method": "sendMessage", "chat_id": chat_id, "text": ack}
     return result
+
+
+class TranscriptCaptureRequest(BaseModel):
+    """What the Stop hook forwards — the harness's own stdin fields, nothing
+    computed client-side. Snake_case on purpose: the sender is a stdlib
+    script, not the app."""
+
+    harness: Literal["claude-code", "codex"]
+    session_id: str
+    transcript_path: str
+    cwd: str | None = None
+    hook_event: str | None = None
+    # Round 4 C1: the Stop hook's `effort.level` for the reply it fired after —
+    # validated by the capture writer (`agent_turns.clean_effort`), unknown dropped.
+    effort: str | None = Field(default=None, max_length=32)
+
+
+@router.post("/capture/transcript")
+async def capture_transcript_endpoint(
+    req: TranscriptCaptureRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """G105: deterministic session capture from the harness's Stop hook.
+
+    Bearer-authed like every other write path — the hook reads
+    ``~/.cicada/api_token`` (the file the app and MCP server already use), so
+    nothing is added to ``auth._STATIC_OPEN_PATHS``. The backend, not the
+    hook, opens the transcript (R2): the path is validated against the
+    harness root before a byte is read, and a refusal is a 400 carrying the
+    enum reason plus a ledger row, never a partial write. One episode per
+    session, updated in place on every later firing (R3); ``status`` says
+    which of ``created | updated | unchanged | empty`` happened. Runs the
+    read + parse off the event loop — an 85 MB transcript takes real time
+    and must not stall SSE or the app.
+
+    G141 capture-side track (R-CS12): the demo bank is never the target. While
+    it is open, the session is saved into the real bank left most recently
+    (``bank_registry.capture_bank``) and the response names it — ``bank`` and
+    ``redirectedFrom`` — so the hook's log says where it went; with no real
+    bank to choose, ``409`` and nothing is read. Every Stop re-captures the
+    whole session, so the first reply after switching back saves it in full.
+    """
+    target = bank_registry.capture_bank(settings.memory_root)
+    # No real bank to fall back to: the service is handed the demo path and
+    # refuses it unread, so the refusal lands in the ledger like any other.
+    memory_path = target.path if target is not None else settings.memory_path
+    result = await asyncio.to_thread(
+        capture_transcript,
+        memory_path,
+        harness=req.harness,
+        session_id=req.session_id,
+        transcript_path=req.transcript_path,
+        cwd=req.cwd,
+        keep_assistant=settings.capture_assistant_replies,
+        bank=memory_path.name,
+        effort=req.effort,
+    )
+    if target is None or result.status == "refused":
+        if target is None or result.reason == "demo_bank":
+            raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)
+        raise HTTPException(status_code=400, detail=result.reason)
+    if target.redirected_from:
+        logger.info(f"capture: the demo bank is open — saved the {req.harness} session into '{target.name}'")
+    return {
+        "status": result.status,
+        "episodeId": result.episode_id,
+        "turnsUser": result.turns_user,
+        "turnsAssistant": result.turns_assistant,
+        "summary": result.summary,
+        "bank": target.name,
+        "redirectedFrom": target.redirected_from,
+    }
+
+
+class HookContextRequest(BaseModel):
+    """What the recall hook forwards (G149): the harness's own stdin fields.
+    Snake_case like ``TranscriptCaptureRequest``, because the sender is a stdlib
+    script. The prompt rides in this JSON body and nowhere else, never a query
+    string, so uvicorn's access line can never hold it (G136 R22, R-H1).
+    ``cwd`` is accepted and unused (R-H17)."""
+
+    event: Literal["session_start", "user_prompt_submit"]
+    harness: Literal["claude-code", "codex"]
+    session_id: str = Field(..., min_length=1, max_length=200)
+    cwd: str | None = Field(None, max_length=4096)
+    prompt: str | None = Field(None, max_length=hook_recall.PROMPT_MAX_CHARS)
+    model: str | None = Field(None, max_length=200)
+
+
+@router.post("/capture/hook-context")
+async def hook_context_endpoint(req: HookContextRequest, settings: Settings = Depends(get_settings)):
+    """G149: what a harness's SessionStart / UserPromptSubmit hook puts in front
+    of the model. Engine-free and read-only; ``additionalContext: null`` when
+    there is nothing worth saying, so a miss costs zero tokens.
+
+    Bearer-authed like ``/capture/transcript``. Never gated by
+    ``refuse_capture_into_demo``: it writes nothing, and it reads the bank a
+    capture would write into (``bank_registry.capture_bank``), the real bank
+    left most recently while the demo is open, nothing when there is none
+    (R-H16). The work runs off the event loop under a hard budget, 300 ms for a
+    prompt and 800 ms for the primer; past it the answer is ``timeout`` with no
+    note (R-H6). The session's window is updated only when an answer actually
+    came back (R-H7). Nothing here logs the prompt: a failure is logged by its
+    class name alone (K9, R-H10)."""
+    started = time.perf_counter()
+    budget = hook_recall.PRIMER_BUDGET_S if req.event == "session_start" else hook_recall.PROMPT_BUDGET_S
+    deadline = time.monotonic() + budget
+    bank = None
+    try:
+        result, bank = await asyncio.wait_for(asyncio.to_thread(
+            hook_recall.respond, settings.memory_root, event=req.event, harness=req.harness,
+            session_id=req.session_id, prompt=req.prompt or "", deadline=deadline), timeout=budget)
+        if req.event == "user_prompt_submit":
+            hook_recall.RECENT.remember(req.session_id, result.injected)
+    except TimeoutError:
+        result = hook_recall.Injection.none("timeout")
+    except Exception as exc:  # noqa: BLE001 — K9: the class, never the message or a traceback
+        logger.warning(f"hook-context: failed ({type(exc).__name__})")
+        result = hook_recall.Injection.none("error")
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    hook_recall.record(req.event, req.harness, result, latency_ms=latency_ms, model=req.model, bank=bank)
+    return {"additionalContext": result.text, "injected": list(result.injected),
+            "reason": result.reason, "latencyMs": latency_ms}

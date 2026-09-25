@@ -1,7 +1,15 @@
 import asyncio
+import os
 import re
+import subprocess
+import threading
+import time
+from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 from pathlib import Path
+
+from loguru import logger
 
 from api.models.schemas import (
     Contributor,
@@ -9,6 +17,8 @@ from api.models.schemas import (
     DiffLine,
     EntityDiff,
     EntityHistoryEntry,
+    SleepCycleDetail,
+    SleepCycleEntity,
     SleepHistoryEntry,
 )
 
@@ -36,7 +46,7 @@ SESSION_TRAILER = "Cicada-Session"
 _SESSION_RE = re.compile(rf"^{SESSION_TRAILER}:\s*(.+?)\s*$")
 
 # Engine trailer (G74(a) Task 6). Records WHICH ENGINE drove a Sleep commit —
-# "claude-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
+# "claude-cli" | "codex-cli" | "ollama" | "litellm" — mirroring `/sleep/status`'s
 # `lastEngine` field into the git history so `/sleep/history` can stop being
 # the one place in the app "reflects what actually ran" (Ruling 4) never
 # reached. Singular (one trailer, not a list like authors/sessions): a commit
@@ -120,6 +130,13 @@ MAX_COMMIT_ENTITIES = 12
 # for an author holding as little as 5% of the recent history.
 CONTRIBUTOR_LOG_WINDOW_MULTIPLIER = 20
 CONTRIBUTOR_LOG_WINDOW_MIN = 500
+
+# How far back `top_written_entities` walks (G124 R13). Same reason as the
+# contributor window above: `git log --name-only` materialises every commit's
+# file list before Python can stop, so an unbounded walk grows with every
+# Sleep cycle. The response says how many commits were scanned so the UI can
+# say "over the last N commits" instead of implying all-time.
+TOP_ENTITIES_LOG_WINDOW = 2000
 
 
 def build_commit_message(
@@ -258,15 +275,76 @@ def _parse_entity_sessions(body: str, entity_id: str) -> list[str]:
 # The literal "user" author (manual/companion-app/media-save writes).
 USER_AUTHOR = "user"
 
+# The literal "cicada" author: system maintenance with no model and no user in
+# the loop. Written by ``sleep_cycle`` (the G85 decay split and the inbox
+# question refresh), ``state_dictionary`` (the ``State snapshot`` commit),
+# ``bookmark_sync``, ``link_enrichment`` and the one-shot migrations. It is a
+# CONSTANT here rather than a literal at each site so the UI's bucket
+# (``_classify_author_kind`` -> "system", R-L6) can never drift from what the
+# writers actually stamp.
+CICADA_AUTHOR = "cicada"
+
+# G135: a write that arrived through MCP is authored by its harness label, and
+# `agent` when the harness never said which it was (`agent_commits.author_for`).
+AGENT_AUTHOR = "agent"
+# The placeholder every stdio MCP claim carried before G135 R-R11 — the
+# reconcile shim's "model" name. History is never rewritten (F2-back R-B10):
+# every reader shows it as `agent` through `canonical_author`.
+LEGACY_AGENT_AUTHOR = "mcp-agentic-write"
+# R-B9: the bucket the app already names (`OriginIconography.label`) and marks
+# (`OriginMark`) — a harness label is neither a model nor a person.
+HARNESS_KIND = "harness"
+# R-B10: folded into the ETag `extra` of every read whose body carries an
+# author kind (`/contributors`, `/entities/{id}/provenance`,
+# `/episodes/{id}/citations`) and, since round 4 (R4B-9), a turn's model
+# (`/episodes/{id}/text`, `/projects`, `/projects/{id}/timeline`). Those bodies
+# change for the same commits and claims, so an ETag over the inputs alone would
+# 304 the old shape — the `graph.NODE_SHAPE` rule. Bump it when the author
+# buckets or the joined model fields move.
+# harness-2 (round 4 C3/C4): authorModel/authorEffort, span models, contributor models.
+AUTHOR_SHAPE = "harness-2"
+
+
+def canonical_author(author: str | None) -> str:
+    """The author a reader shows (R-B10): the pre-G135 placeholder is `agent`,
+    an empty author is the legacy `unknown` bucket, anything else is itself."""
+    name = (author or "").strip() or UNKNOWN_AUTHOR
+    return AGENT_AUTHOR if name == LEGACY_AGENT_AUTHOR else name
+
+
+@lru_cache(maxsize=1)
+def _harness_authors() -> frozenset[str]:
+    """Every label a harness writes as `Cicada-Author` (R-B9): the Sources page's
+    one harness table — stdio harnesses and every remote app (G135 R-R26) —
+    minus its `unknown` bucket, plus `agent`. One table, so a new remote app is a
+    harness here the day it is a card there. Imported lazily: `source_overview`
+    reaches `folder_source`, and this module must stay importable on its own."""
+    from api.services.source_overview import HARNESS_LABELS
+
+    return frozenset(k for k in HARNESS_LABELS if k != UNKNOWN_AUTHOR) | {AGENT_AUTHOR}
+
+# Routers that PROXY other vendors' models. Matched on the segment before the
+# first "/" and checked BEFORE the substring pass (R9 of Track L): the router
+# is who billed, so "openrouter/anthropic/claude-opus-4" is openrouter, not
+# anthropic — attributing it to Anthropic is a lie about who was paid.
+_ROUTER_PREFIXES = ("openrouter", "ollama")
+
 # Model-id -> provider classification. We key on stable id substrings/prefixes
 # (provider level, not per-model). LiteLLM-style "provider/model" ids are
 # handled because the substring still appears (e.g. "anthropic/claude-...").
 #
 # These markers are distinctive enough to be safe as bare substring matches.
+# The open-weight families (meta/mistral/deepseek/qwen) were added by R-L6:
+# they are what a local or routed engine actually serves, and without them
+# every one of them answered "other" and shared a single anonymous badge.
 _PROVIDER_SUBSTRINGS = (
     ("openai", ("gpt", "text-embedding")),
     ("anthropic", ("claude",)),
     ("google", ("gemini", "gemma")),
+    ("meta", ("llama",)),
+    ("mistral", ("mistral", "mixtral")),
+    ("deepseek", ("deepseek",)),
+    ("qwen", ("qwen",)),
 )
 
 # OpenAI o-series markers are too short to match as bare substrings (they would
@@ -277,23 +355,47 @@ _OPENAI_O_SERIES = ("o1", "o3")
 
 
 def _classify_author_kind(author: str) -> str:
-    """Bucket an author into "user" | "model" | "unknown" for the UI."""
+    """Bucket an author into "user" | "system" | "harness" | "model" | "unknown".
+
+    "system" is the literal ``cicada`` (R-L6): maintenance with no model and no
+    user in the loop. It used to fall through to "model", where
+    ``_provider_for_model`` answered "other" and the app drew a grey "?" — so
+    the state snapshot, the split-out decay commit and the migrations all
+    rendered as an anonymous unknown model in Cicada's own contributors list.
+
+    "harness" (F2-back R-B9) is an agent write's label — `claude-code`,
+    `claude-web`, `agent` — and the pre-G135 placeholder. They answered "model",
+    so `claude-code` wore Anthropic's mark by substring and the placeholder
+    showed as a raw contributor name.
+    """
     if author == USER_AUTHOR:
         return "user"
+    if author == CICADA_AUTHOR:
+        return "system"
     if author == UNKNOWN_AUTHOR:
         return "unknown"
+    if author == LEGACY_AGENT_AUTHOR or author in _harness_authors():
+        return HARNESS_KIND
     return "model"
 
 
 def _provider_for_model(author: str) -> str | None:
-    """Derive the provider for a model id; None for user/unknown (not models).
+    """Derive the provider for a model id; None for user/system/unknown.
 
     Matches by lower-cased substring/prefix against the known provider markers;
     any unmatched model id is "other".
+
+    The router check runs on the lower-cased id and BEFORE the substring loop
+    (R9): "openrouter/anthropic/claude-opus-4" would otherwise hit ``claude``
+    first and answer "anthropic", crediting the vendor whose model was proxied
+    rather than the service that billed for it.
     """
     if _classify_author_kind(author) != "model":
         return None
     a = author.lower()
+    head = a.split("/", 1)[0]
+    if head in _ROUTER_PREFIXES:
+        return head
     for provider, markers in _PROVIDER_SUBSTRINGS:
         if any(marker in a for marker in markers):
             return provider
@@ -302,6 +404,15 @@ def _provider_for_model(author: str) -> str | None:
     if any(re.search(rf"(?:^|[/-]){re.escape(m)}(?:$|[/-])", a) for m in _OPENAI_O_SERIES):
         return "openai"
     return "other"
+
+
+def author_identity(author: str | None) -> tuple[str, str | None]:
+    """``(kind, provider)`` for an author id — the ONE rule the contributors
+    strip, the claim chip, the history row and the provenance section read
+    (G15 / R-L6; G118 slice 2 R-PB6). Public so no caller re-derives it; an
+    empty author is the legacy ``unknown`` bucket."""
+    name = canonical_author(author)
+    return _classify_author_kind(name), _provider_for_model(name)
 
 
 def _github_handle_from_remote_url(url: str | None) -> str | None:
@@ -342,7 +453,123 @@ def _user_avatar_url(handle: str | None) -> str | None:
     return f"https://github.com/{handle}.png"
 
 
+# --- One git writer per bank (F2-back R-B1 … R-B4) ---------------------------
+#
+# Found in the owner's review (2026-09-23): a background paper-details commit
+# failed with git's own "Unable to create '.git/index.lock': File exists"
+# because a folder-sync commit was running at the same moment, and the pages it
+# wrote stayed dirty for the next `git add -A` writer to sweep under its own
+# author — the G85-class smear. Eight concurrent `commit_paths` on one test bank
+# reproduced it in five trials out of five. So every mutating git command runs
+# under ONE re-entrant lock per bank, keyed by the resolved path, and held by a
+# worker thread for the whole add → status → commit sequence: a thread lock, so
+# loop tasks, the threadpool, `asyncio.run` bridges on other threads and sync
+# startup migrations all queue on the same object (R-B4); the whole sequence, so
+# a `status` check and its commit never straddle another writer. The backend is
+# one process (R-B1); across processes git's own index.lock is the guard, and
+# only its "File exists" refusal is retried (R-B2).
+
+#: Subcommands that write the index, the working tree or a ref. `_run_git`
+#: routes these through the lock; `test_git_write_lock.py`'s lint refuses a
+#: literal of any of them spawned anywhere else in `api/` or `mcp/`.
+WRITE_SUBCOMMANDS = frozenset({
+    "add", "apply", "checkout", "cherry-pick", "clean", "commit", "merge", "mv",
+    "reset", "restore", "revert", "rm", "stash", "update-index",
+})
+#: Waits between tries while ANOTHER process holds the index (R-B2): five tries
+#: in about two seconds. A terminal's `git add` takes milliseconds; an editor left
+#: open by `git commit` does not, and that case is R-B5's to keep.
+INDEX_LOCK_BACKOFF_S: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0)
+#: The retry's clock — a seam, so the suite never sleeps.
+_sleep = time.sleep
+
+_WRITE_LOCKS: dict[str, threading.RLock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def write_lock(memory_path) -> threading.RLock:
+    """The one lock every git writer of this bank holds (R-B1). Keyed by the
+    resolved path, so `bank`, `bank/` and a symlink to it are one bank.
+    Re-entrant: a caller already holding it may call `commit_paths_sync`."""
+    key = os.path.realpath(os.fspath(memory_path))
+    with _WRITE_LOCKS_GUARD:
+        return _WRITE_LOCKS.setdefault(key, threading.RLock())
+
+
+def _index_lock_busy(stderr: str) -> bool:
+    """Git's refusal while another process holds `.git/index.lock` — the one
+    failure a writer retries (R-B2)."""
+    return "index.lock" in stderr and "File exists" in stderr
+
+
+def _spawn(memory_path: Path, args: tuple[str, ...]) -> subprocess.CompletedProcess:
+    """The one place a mutating git command starts (a test seam)."""
+    return subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True)
+
+
+def _git_sync(memory_path: Path, *args: str) -> str:
+    """One git command, called with the bank's write lock held. Retries only git's
+    index-lock refusal and never deletes the lock (R-B2): another process owns
+    it, and removing it under a live commit corrupts the index."""
+    for delay in (*INDEX_LOCK_BACKOFF_S, None):
+        try:
+            proc = _spawn(memory_path, args)
+        except OSError as exc:
+            raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
+        if proc.returncode == 0:
+            return proc.stdout.decode(errors="replace")
+        stderr = proc.stderr.decode(errors="replace")
+        if delay is None or not _index_lock_busy(stderr):
+            raise GitError(f"git {' '.join(args)} failed: {stderr}")
+        logger.info(f"git {args[0]}: another git process holds this bank's index — retrying in {delay}s")
+        _sleep(delay)
+    raise GitError(f"git {' '.join(args)} failed")  # unreachable: the last try has no delay
+
+
+def run_git_write_sync(memory_path, *args: str) -> str:
+    """One mutating git command under the bank's write lock (R-B1) — for a sync
+    caller (the expiry restore) and for `_run_git`'s write branch."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        return _git_sync(memory_path, *args)
+
+
+def commit_paths_sync(memory_path, message: str, paths) -> None:
+    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``,
+    under the bank's write lock (R-B1, R-B4).
+
+    A targeted write (adding a fact source, deferring one inbox item, a
+    migration) must not sweep unrelated dirty files into its commit — that
+    would attribute someone else's change to this action's trigger and author.
+    """
+    paths = [str(p) for p in paths or ()]
+    if not paths:
+        return
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        _git_sync(memory_path, "add", "--", *paths)
+        if not _git_sync(memory_path, "status", "--porcelain", "--", *paths).strip():
+            return  # Nothing to commit
+        _git_sync(memory_path, "commit", "-m", message, "--", *paths)
+
+
+def commit_changes_sync(memory_path, message: str) -> str | None:
+    """Stage all changes and commit under the bank's write lock. The new commit
+    hash, or ``None`` when there was nothing to commit."""
+    memory_path = Path(memory_path)
+    with write_lock(memory_path):
+        _git_sync(memory_path, "add", "-A")
+        if not _git_sync(memory_path, "status", "--porcelain").strip():
+            return None  # Nothing to commit
+        _git_sync(memory_path, "commit", "-m", message)
+        return _git_sync(memory_path, "rev-parse", "HEAD").strip()
+
+
 async def _run_git(memory_path: Path, *args: str) -> str:
+    if args and args[0] in WRITE_SUBCOMMANDS:
+        # R-B1: a write through the async helper (`inbox_service`'s `git mv` /
+        # `git rm`) queues on the same lock as every commit.
+        return await asyncio.to_thread(run_git_write_sync, memory_path, *args)
     try:
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -350,6 +577,9 @@ async def _run_git(memory_path: Path, *args: str) -> str:
             cwd=str(memory_path),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            # R-B3: `git status` otherwise takes the index lock to refresh its
+            # stat cache — the very lock a Cicada writer then finds held.
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
         )
     except OSError as exc:
         # cwd missing (e.g. a bank/memory dir not yet scaffolded) -> treat like
@@ -441,17 +671,61 @@ async def get_entity_history(
         # "no known sessions" — an empty list, not a guess.
         sessions = _parse_entity_sessions(body, entity_id)
 
+        author_kind, author_provider = author_identity(author)
         entries.append(EntityHistoryEntry(
             date=date,
             change_type=change_type,
             description=description,
             author=author,
+            author_kind=author_kind,
+            author_provider=author_provider,
             commit_hash=commit_hash,
             diff=diff,
             sessions=sessions,
         ))
 
     return entries
+
+
+# G118 slice 2 (R-PB6): enough history for "N changes by <author>" on the
+# entity card. A page touched by more commits than this says so
+# (`commitsTruncated`) instead of walking the whole history per card open.
+MAX_PROVENANCE_COMMITS = 500
+
+
+async def entity_commit_authors(
+    memory_path: Path, entity_id: str, *, limit: int | None = None,
+) -> tuple[dict[str, int], bool]:
+    """Commits that touched ``entities/<entity_id>.md``, counted per
+    ``Cicada-Author`` (an untrailered commit is ``unknown``), and whether the
+    walk was cut at ``limit``.
+
+    ONE ``git log`` over the path with git's own trailer directive: every
+    commit that ever changed the page (not only blame survivors — a decay pass
+    that was later overwritten still contributed), and never ``%b``, because a
+    Sleep commit's body is a manifest of every entity it touched (the M1
+    lesson). ``entity_id`` is a resolved page stem; ``--`` keeps it a path.
+    ``({}, False)`` on a non-git bank or a git failure — provenance never
+    blocks on history.
+    """
+    limit = MAX_PROVENANCE_COMMITS if limit is None else max(1, int(limit))
+    if not (Path(memory_path) / ".git").exists():
+        return {}, False
+    try:
+        out = await _run_git(
+            memory_path, "log", f"-n{limit + 1}",
+            f"--format=%x1e%(trailers:key={AUTHOR_TRAILER},valueonly,separator=%x1f)",
+            "--", f"entities/{entity_id}.md",
+        )
+    except GitError:
+        return {}, False
+    records = out.split("\x1e")[1:]
+    counts: dict[str, int] = {}
+    for record in records[:limit]:
+        authors = [a.strip() for a in record.strip("\n").split("\x1f") if a.strip()] or [UNKNOWN_AUTHOR]
+        for author in dict.fromkeys(authors):
+            counts[author] = counts.get(author, 0) + 1
+    return counts, len(records) > limit
 
 
 def _infer_change_type(subject: str, body: str, entity_id: str) -> str:
@@ -820,96 +1094,256 @@ async def get_contributor_commits(
     return commits
 
 
-async def get_sleep_history(memory_path: Path) -> list[SleepHistoryEntry]:
-    """Get chronological Sleep cycle history from git log.
+async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[list[dict], int]:
+    """Entity pages ranked by how many commits touched them (G124 R13).
 
-    Each entry's ``engine`` (G74(a) Task 6, Ruling 4 extended) comes straight
-    from the commit's optional ``Cicada-Engine:`` trailer — the same one line
-    ``sleep_cycle._finalize`` now stamps on its main commit — via git's own
-    ``%(trailers:key=...,valueonly,separator=)`` pretty-format directive,
-    NOT ``%b``. M1 review fix round 1: pulling the full body (``%b``) for
-    every commit to extract one trailer line made this endpoint's payload
-    grow with the SIZE of every commit message ever written (measured on the
-    live bank: 787 B -> 378 KB for 8 commits; a year of nightly cycles would
-    be tens of MB parsed and NUL-split per request). The trailers directive
-    gets git itself to do the extraction — it returns the bare value with no
-    key/prefix, and an empty string (never an error) when the trailer is
-    absent — so the per-record payload is back to what it was before this
-    field existed. Verified against git 2.50.1.
+    Engine-free: one ``git log --name-only`` over the last
+    ``TOP_ENTITIES_LOG_WINDOW`` commits; every ``entities/*.md`` path counts
+    once per commit. Returns ``(rows, commits_scanned)``; rows are
+    ``{entity_id, commits, last_written}`` sorted by commits desc, then
+    newest, then id. ``([], 0)`` for a non-git directory.
     """
-    sep = "\x1f"
+    if not (memory_path / ".git").exists():
+        return [], 0
     rec = "\x1e"
-    engine_directive = "%(trailers:key=Cicada-Engine,valueonly,separator=)"
     try:
-        output = await _run_git(
-            memory_path,
-            "log", f"--format=%H{sep}%ad{sep}%s{sep}{engine_directive}{rec}", "--date=short",
+        out = await _run_git(
+            memory_path, "log", f"--max-count={TOP_ENTITIES_LOG_WINDOW}",
+            f"--format={rec}%ad", "--date=short", "--name-only",
         )
     except GitError:
-        return []
-
-    entries: list[SleepHistoryEntry] = []
-    for record in output.split(rec):
-        record = record.strip("\n")
+        return [], 0
+    counts: dict[str, int] = {}
+    last: dict[str, str] = {}
+    scanned = 0
+    for record in out.split(rec):
         if not record.strip():
             continue
-        fields = record.split(sep, 3)
-        if len(fields) < 4:
+        scanned += 1
+        date_str, _, tail = record.partition("\n")
+        date_str = date_str.strip()
+        for line in tail.splitlines():
+            f = line.strip()
+            if f.startswith("entities/") and f.endswith(".md"):
+                entity_id = f[len("entities/"):-len(".md")].rsplit("/", 1)[-1]
+                counts[entity_id] = counts.get(entity_id, 0) + 1
+                if date_str > last.get(entity_id, ""):
+                    last[entity_id] = date_str
+    rows = [{"entity_id": eid, "commits": n, "last_written": last[eid]} for eid, n in counts.items()]
+    # Two stable sorts: newest first, then commits desc — so ties on commit
+    # count show the page that was written most recently first, then by id.
+    rows.sort(key=lambda r: (r["last_written"], r["entity_id"]), reverse=True)
+    rows.sort(key=lambda r: -r["commits"])
+    return rows[: max(1, int(limit or 10))], scanned
+
+
+_MANIFEST_LINE_RE = re.compile(r"^(?P<path>[^:\s][^:]*?):\s+(?P<action>\w+)\s*\((?P<rest>.*)\)\s*$")
+_ENTITY_PATH_RE = re.compile(r"^entities/(?P<id>.+)\.md$")
+MAX_DETAIL_ENTITIES = 200
+
+
+@dataclass
+class CycleManifest:
+    entities: list[dict]
+    files: list[str]
+    episodes: list[str]
+    inbox_changes: int
+    authors: list[str]
+    sessions: list[str]
+    engine: str | None
+
+
+def parse_cycle_body(subject: str, body: str) -> CycleManifest:
+    """Read a Sleep-cycle commit body back into counts (G125 R4).
+
+    The body is what ``sleep_cycle._finalize`` wrote: one ``<path>: <action>
+    (source: <ep|n/a>, trigger: <t>[, sessions: …])`` line per file, then the
+    trailer block. ``n/a`` is not an episode. Unknown lines are ignored so a
+    legacy or hand-written commit degrades to zeros rather than an error.
+    """
+    entities: list[dict] = []
+    files: list[str] = []
+    episodes: list[str] = []
+    seen_eps: set[str] = set()
+    inbox_changes = 0
+    engine: str | None = None
+    for raw in body.splitlines():
+        line = raw.strip()
+        if line.startswith(f"{ENGINE_TRAILER}:"):
+            engine = line.split(":", 1)[1].strip() or None
             continue
-        commit_hash, date, subject, engine_field = (
-            fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3].strip()
-        )
-        subj = subject.lower()
-        if subj.startswith("sleep cycle") or subj.startswith("inbox resolution"):
-            # Get changed files for this commit
-            try:
-                diff_output = await _run_git(
-                    memory_path,
-                    "diff-tree", "--no-commit-id", "--name-only", "-r",
-                    "--root",  # so the initial (parentless) commit lists its files
-                    commit_hash,
-                )
-                files = [f for f in diff_output.strip().splitlines() if f]
-            except GitError:
-                files = []
+        m = _MANIFEST_LINE_RE.match(line)
+        if not m:
+            continue
+        path = m.group("path").strip()
+        files.append(path)
+        fields = {}
+        for part in m.group("rest").split(","):
+            if ":" in part:
+                k, v = part.split(":", 1)
+                fields[k.strip()] = v.strip()
+        source = fields.get("source")
+        source = None if not source or source == "n/a" else source
+        if path.startswith("inbox/"):
+            inbox_changes += 1
+        em = _ENTITY_PATH_RE.match(path)
+        if em:
+            entities.append({"id": em.group("id"), "action": m.group("action"),
+                             "source_episode": source, "trigger": fields.get("trigger", "")})
+            if source and source not in seen_eps:
+                seen_eps.add(source)
+                episodes.append(source)
+    return CycleManifest(entities=entities, files=files, episodes=episodes, inbox_changes=inbox_changes,
+                         authors=_parse_authors(body), sessions=_parse_sessions(body), engine=engine)
 
-            entries.append(SleepHistoryEntry(
-                commit_hash=commit_hash,
-                date=date,
-                message=subject,
-                files_changed=files,
-                engine=engine_field or None,
-            ))
 
-    return entries
+def _cycle_kind(subject: str) -> str | None:
+    s = subject.lower()
+    if s.startswith("sleep cycle"):
+        return "decay" if s.rstrip().endswith("(decay)") else "sleep"
+    if s.startswith("inbox resolution"):
+        return "inbox"
+    return None
+
+
+def _entry_from(commit_hash: str, date: str, subject: str, body: str) -> SleepHistoryEntry:
+    m = parse_cycle_body(subject, body)
+    return SleepHistoryEntry(
+        commit_hash=commit_hash, date=date, message=subject, files_changed=m.files, engine=m.engine,
+        kind=_cycle_kind(subject) or "sleep",
+        entities_created=sum(1 for e in m.entities if e["action"] == "created"),
+        entities_updated=sum(1 for e in m.entities if e["action"] != "created"),
+        episodes=len(m.episodes), sessions=len(m.sessions), authors=m.authors,
+    )
+
+
+_history_cache: dict[tuple[str, str, int], list[SleepHistoryEntry]] = {}
+
+
+async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHistoryEntry]:
+    """The last ``limit`` consolidations, newest first (G125 R4).
+
+    One ``git log -n <limit>`` filtered by git's own ``--grep`` (the two
+    subjects a consolidation can carry), with bodies parsed HERE — the body
+    never leaves the process (the M1 lesson in the 2026-09-01 review: ``%b``
+    over the wire grew this endpoint to 378 KB for eight commits). The
+    filter lives in git, not in a Python pass over a ``limit * k`` window:
+    measured on the live bank 2026-09-05, the top of history was a run of
+    State-snapshot / inbox / docs commits longer than ``limit * 3``, so
+    ``?limit=2`` answered ``[]`` while ``?limit=15`` found cycles — a bounded
+    window that is not a *matching* window is a wrong answer, not a cheap
+    one. ``-n`` now counts only matching commits, so the window is exact.
+    Cached per ``(memory_path, HEAD, limit)`` so a Sleep page poll costs no
+    subprocess until HEAD moves. Durations are joined from the ledger (R5).
+
+    ``--date=iso-strict`` (R-A11): the row needs a time of day. git renders it
+    in the COMMIT's own zone, so the client parses the offset rather than
+    assuming UTC; the telemetry bound below slices to ``[:10]`` because
+    ``date.fromisoformat`` rejects a datetime string (measured, CPython
+    3.12.11 — unsliced, this endpoint and ``get_sleep_cycle_detail`` both 500
+    the moment the format changes).
+    """
+    from api.services import sleep_history, sync_service, telemetry
+
+    limit = max(1, int(limit))
+    key = (str(memory_path), sync_service.git_head(memory_path), limit)
+    cached = _history_cache.get(key)
+    if cached is None:
+        sep, rec = "\x1f", "\x1e"
+        try:
+            output = await _run_git(
+                memory_path, "log", f"-n{limit}",
+                "--regexp-ignore-case", "--grep=^Sleep cycle", "--grep=^Inbox resolution",
+                f"--format=%H{sep}%ad{sep}%s{sep}%b{rec}", "--date=iso-strict",
+            )
+        except GitError:
+            return []
+        entries: list[SleepHistoryEntry] = []
+        for record in output.split(rec):
+            if not record.strip():
+                continue
+            fields = record.strip("\n").split(sep, 3)
+            if len(fields) < 4 or _cycle_kind(fields[2].strip()) is None:
+                continue
+            entries.append(_entry_from(fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3]))
+            if len(entries) >= limit:
+                break
+        # No `.clear()`: this is a multi-key cache — the SAME shape as
+        # `status._last_sleep_cache` — keyed on `(memory_path, head, limit)`
+        # (R4). Wiping the dict on every miss would make two different
+        # `limit`s at the SAME head evict each other forever, contradicting
+        # "cached per (memory_path, git_head, limit)" above. Unbounded
+        # growth is accepted the same way `_last_sleep_cache` accepts it:
+        # trivially small at personal scale (one entry per unique head this
+        # process has ever seen `/sleep/history` called against).
+        _history_cache[key] = entries
+        cached = entries
+    out = [e.model_copy() for e in cached]
+    # Bound the telemetry join the same way the git side is bounded: only
+    # scan months that could possibly contain one of THESE entries' commits,
+    # never the whole machine-global ledger (the exact class of cost this
+    # function's own docstring above warns against for `%b` — a call site
+    # that grows with the SIZE of everything that ever happened, not with
+    # what this request actually needs). Nothing to join → skip the read.
+    if out:
+        oldest = min(date.fromisoformat(e.date[:10]) for e in out)
+        sleep_history.attach_durations(out, telemetry.read_events(start=oldest))
+    return out
+
+
+async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDetail | None:
+    """``GET /sleep/history/{commit}`` (G125). ``None`` when the hash is not
+    a Sleep/inbox commit — never a diff, never the raw body.
+
+    ``--date=iso-strict`` and the ``[:10]`` slice on the telemetry bound are
+    the same pair as in ``get_sleep_history`` above, and for the same reason —
+    they must move together or this endpoint raises ``ValueError``."""
+    from api.services import sleep_history, telemetry
+
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
+        return None
+    try:
+        output = await _run_git(memory_path, "show", "-s", "--format=%H%x1f%ad%x1f%s%x1f%b", "--date=iso-strict", commit)
+    except GitError:
+        return None
+    fields = output.strip("\n").split("\x1f", 3)
+    if len(fields) < 4 or _cycle_kind(fields[2].strip()) is None:
+        return None
+    base = _entry_from(fields[0].strip(), fields[1].strip(), fields[2].strip(), fields[3])
+    manifest = parse_cycle_body(fields[2].strip(), fields[3])
+    detail = SleepCycleDetail(
+        **base.model_dump(),
+        entities=[SleepCycleEntity(**e) for e in manifest.entities[:MAX_DETAIL_ENTITIES]],
+        truncated=len(manifest.entities) > MAX_DETAIL_ENTITIES,
+        episodes_by_origin=sleep_history.episodes_by_origin(memory_path, manifest.episodes),
+        inbox_changes=manifest.inbox_changes,
+    )
+    sleep_history.attach_durations([detail], telemetry.read_events(start=date.fromisoformat(detail.date[:10])))
+    return detail
 
 
 async def commit_changes(memory_path: Path, message: str) -> str | None:
     """Stage all changes and commit. Returns the new commit hash, or ``None``
-    when there was nothing to commit."""
-    await _run_git(memory_path, "add", "-A")
-    # Check if there's anything to commit first
-    status = await _run_git(memory_path, "status", "--porcelain")
-    if not status.strip():
-        return None  # Nothing to commit
-    await _run_git(memory_path, "commit", "-m", message)
-    return (await _run_git(memory_path, "rev-parse", "HEAD")).strip()
+    when there was nothing to commit. Runs in a worker thread under the bank's
+    one write lock (R-B4)."""
+    return await asyncio.to_thread(commit_changes_sync, memory_path, message)
 
 
 async def commit_paths(memory_path: Path, message: str, paths: list[str]) -> None:
-    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``.
-
-    A targeted write (adding a fact source, deferring one inbox item) must not
-    sweep unrelated dirty files in ``memory/`` into its commit — that would
-    attribute someone else's change to this action's trigger and author.
-    """
+    """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A`` —
+    :func:`commit_paths_sync` in a worker thread (R-B4)."""
     if not paths:
         return
-    await _run_git(memory_path, "add", "--", *paths)
-    status = await _run_git(memory_path, "status", "--porcelain", "--", *paths)
-    if not status.strip():
-        return  # Nothing to commit
-    await _run_git(memory_path, "commit", "-m", message, "--", *paths)
+    await asyncio.to_thread(commit_paths_sync, memory_path, message, list(paths))
+
+
+async def is_tracked(memory_path: Path, rel: str) -> bool:
+    """Is `rel` in the bank's index? A read (R-B3). The picture writer stages a removal only for a file git knows:
+    `git add -- <path>` refuses a pathspec that matches nothing (G146 plan R-PE8)."""
+    try:
+        return bool((await _run_git(Path(memory_path), "ls-files", "--", rel)).strip())
+    except GitError:
+        return False
 
 
 async def porcelain_status(memory_path: Path) -> str:
@@ -965,3 +1399,53 @@ async def commit_resolution(
     # An inbox resolution is a user/companion-app action -> attribute to "user".
     message = build_commit_message(subject, body_lines, authors=["user"])
     await commit_changes(memory_path, message)
+
+
+# G147 — the manifest line `commit_resolution` writes for a decay answer. Its
+# parser lives HERE, beside its producer, so the two cannot drift.
+_DECAY_VERDICT_RE = re.compile(
+    r"^entities/(?P<id>[^\s/]+)\.md: [^\n]*"
+    r"\(trigger: inbox/decay/resolved:(?P<label>archive|keep_active)\)\s*$",
+    re.MULTILINE,
+)
+_decay_verdict_cache: dict[tuple[str, str, str], dict[str, str]] = {}
+
+
+async def decay_verdicts(memory_path: Path, *, since: date) -> dict[str, str]:
+    """``{entity_id: label}`` — each page's LATEST decay answer committed since
+    ``since`` (G147, plan R-FD6). ``archive`` / ``keep_active`` only: a
+    ``remind_later`` is a deferral (``inbox/deferred``), never a verdict.
+
+    Git's own ``--grep`` filters, as in :func:`get_sleep_history` — a bounded
+    window that is not a matching window is a wrong answer, not a cheap one —
+    and the body never leaves this function. Newest first, so the first line
+    seen per page wins. ``--since`` ends the walk at the first commit older
+    than the cutoff, so a clock-skewed old commit near HEAD would hide answers
+    behind it — the same answer ``git log --since`` gives anywhere, accepted
+    rather than walking all history. Cached per (bank, HEAD, since); the cache
+    grows one entry per HEAD per day at most, the `_history_cache` trade-off.
+    """
+    from api.services import sync_service
+
+    head = sync_service.git_head(memory_path)
+    key = (str(memory_path), head, since.isoformat())
+    # An empty HEAD (no commit yet, or a worktree/submodule bank whose `.git`
+    # is a file `git_head` does not follow) cannot key a cache: it would
+    # never move, and an answer given later today would stay invisible.
+    cached = _decay_verdict_cache.get(key) if head else None
+    if cached is not None:
+        return dict(cached)
+    try:
+        output = await _run_git(
+            memory_path, "log", f"--since={since.isoformat()}T00:00:00",
+            "--fixed-strings", "--grep=inbox/decay/resolved:", "--format=%x1e%B",
+        )
+    except GitError:
+        return {}
+    latest: dict[str, str] = {}
+    for record in output.split("\x1e"):
+        for match in _DECAY_VERDICT_RE.finditer(record):
+            latest.setdefault(match.group("id"), match.group("label"))
+    if head:
+        _decay_verdict_cache[key] = latest
+    return dict(latest)

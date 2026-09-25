@@ -28,6 +28,22 @@ final class SleepViewModelTests: XCTestCase {
         return try JSONDecoder().decode(SleepStatusResponse.self, from: Data(json.utf8))
     }
 
+    /// Builds a `SleepHistoryEntry` fixture the same way — no memberwise
+    /// init, round-tripped through JSON.
+    private func historyEntry(commitHash: String, date: String = "2026-09-01") throws -> SleepHistoryEntry {
+        let json = """
+        {"commitHash":"\(commitHash)","date":"\(date)","message":"Sleep cycle \(date)","filesChanged":[]}
+        """
+        return try JSONDecoder().decode(SleepHistoryEntry.self, from: Data(json.utf8))
+    }
+
+    private func cycleDetail(commitHash: String) throws -> SleepCycleDetail {
+        let json = """
+        {"commitHash":"\(commitHash)","date":"2026-09-01","message":"Sleep cycle 2026-09-01","filesChanged":[]}
+        """
+        return try JSONDecoder().decode(SleepCycleDetail.self, from: Data(json.utf8))
+    }
+
     /// A `Store` whose `.status` snapshot stays "idle" throughout — simulating
     /// the exact staleness window the Critical finding describes: right after
     /// `triggerManually()`, the Store hasn't yet heard about the new cycle.
@@ -67,9 +83,16 @@ final class SleepViewModelTests: XCTestCase {
 
         await vm.triggerManually()
 
-        // Poll cadence is 1s; wait past three ticks (running, running, idle)
-        // with margin, then assert exactly one completion fired.
-        try await Task.sleep(for: .seconds(4))
+        // Poll cadence is 1s: three ticks (running, running, idle). A fixed 4 s
+        // wait flaked under load (load() also awaits the live backend through
+        // APIClient.shared, so a tick can finish at 4.0x s). Wait for the first
+        // completion with a generous deadline, then hold two more ticks so a
+        // second firing would still be caught — the property is "exactly once".
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while completedCount == 0 && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .seconds(2.5))
 
         XCTAssertEqual(completedCount, 1, "onCycleCompleted must fire exactly once")
         XCTAssertEqual(vm.status?.status, "idle")
@@ -366,5 +389,141 @@ final class SleepViewModelTests: XCTestCase {
         await vm.cancel()
 
         XCTAssertEqual(cancelCalls, 0)
+    }
+
+    // MARK: G125 — consolidation history (`load()`'s fourth fetch, `loadDetail`)
+
+    func test_load_populatesHistoryFromInjectedFetchHistory() async throws {
+        let store = idleStore()
+        let entries = [try historyEntry(commitHash: "abc1"), try historyEntry(commitHash: "def2")]
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchHistory: { entries }
+        )
+
+        await vm.load()
+
+        XCTAssertEqual(vm.history.map(\.commitHash), ["abc1", "def2"])
+    }
+
+    /// Mirrors `test_overlappingLoadCalls_aStaleStatusResponseIsDiscarded`:
+    /// a slower, older `fetchHistory` call must not overwrite a newer one
+    /// that already landed.
+    func test_load_aStaleHistoryResponseIsDiscarded() async throws {
+        let store = idleStore()
+        var gate: CheckedContinuation<Void, Never>?
+        var callCount = 0
+        let fetchHistory: () async throws -> [SleepHistoryEntry] = {
+            callCount += 1
+            if callCount == 1 {
+                await withCheckedContinuation { gate = $0 }   // first call parks here
+                return [try self.historyEntry(commitHash: "stale")]
+            }
+            return [try self.historyEntry(commitHash: "fresh")]
+        }
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchHistory: fetchHistory
+        )
+
+        let firstLoad = Task { await vm.load() }
+        try await Task.sleep(for: .milliseconds(150))     // let the first call park on the gate
+        await vm.load()                                    // the newer call — wins immediately
+        XCTAssertEqual(vm.history.map(\.commitHash), ["fresh"])
+
+        gate?.resume()                                      // release the stale first call
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(vm.history.map(\.commitHash), ["fresh"], "a stale history response must not overwrite the newer one")
+        await firstLoad.value
+    }
+
+    /// R12 — a second `loadDetail` for an already-cached commit is a
+    /// dictionary hit: the injected fetch must not be called again.
+    func test_loadDetail_cachesAndDoesNotRefetchOnASecondCall() async throws {
+        let store = idleStore()
+        var fetchCalls = 0
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchDetail: { commit in
+                fetchCalls += 1
+                return try self.cycleDetail(commitHash: commit)
+            }
+        )
+
+        await vm.loadDetail("abc123")
+        await vm.loadDetail("abc123")
+
+        XCTAssertEqual(fetchCalls, 1, "a second click on an open row must not re-fetch")
+        XCTAssertEqual(vm.details["abc123"]?.commitHash, "abc123")
+    }
+
+    // MARK: G125 v3 Task 4 — the hero's engine subtitle (`load()`'s fifth fetch)
+
+    /// R-A7: the one Consolidate control names the engine the NEXT manual
+    /// cycle would run on. It rides `load()` like every other fetch, behind
+    /// the same `loadToken` guard, and is injectable for the same reason
+    /// `fetchHistory` is — no live backend in a unit test.
+    func test_load_populatesEnginePreviewFromTheInjectedFetch() async throws {
+        let store = idleStore()
+        let previews = SleepEnginePreviews(
+            manual: SleepEnginePreview(engine: "claude-cli", model: "sonnet", why: "your plan"),
+            scheduled: SleepEnginePreview(engine: "ollama", model: "llama3.1",
+                                          why: "a scheduled cycle never spends plan quota"))
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchEngine: {
+                SleepEngineResponse(mode: "claude-cli", model: "sonnet",
+                                    disambiguationModel: "sonnet", source: "prefs",
+                                    candidates: [], preview: previews)
+            }
+        )
+
+        await vm.load()
+
+        XCTAssertEqual(vm.enginePreview, previews)
+    }
+
+    /// An absent preview is a missing SUBTITLE, not a page error: the button
+    /// still works, it just cannot name its engine. So a throwing fetch
+    /// leaves `enginePreview` nil and never writes `errorMessage` — the
+    /// banner that field drives is reserved for failures the reader can act
+    /// on (`SleepView.errorBanner`).
+    func test_load_aFailingEngineFetchIsSilent() async throws {
+        struct Boom: Error {}
+        let store = idleStore()
+        let vm = SleepViewModel(
+            store: store,
+            fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+            fetchEngine: { throw Boom() }
+        )
+
+        await vm.load()
+
+        XCTAssertNil(vm.enginePreview)
+        // `load()`'s episodes/schedule fetches hit the real APIClient and can
+        // legitimately fail in a unit test, so assert on the ENGINE half only.
+        XCTAssertFalse((vm.errorMessage ?? "").localizedCaseInsensitiveContains("engine"),
+                       "a missing engine preview must not raise a page error")
+    }
+
+    /// Z-P18 — the lamp's toggle snaps back on a failed write, so the write
+    /// must say whether it landed. A failure leaves the schedule untouched.
+    func test_updateSchedule_reportsItsOutcome() async throws {
+        struct Boom: Error {}
+        let store = idleStore()
+        let failing = SleepViewModel(store: store, putSchedule: { _ in throw Boom() })
+        let before = failing.schedule
+        let failed = await failing.updateSchedule(ScheduleConfig(mode: "daily", hour: 3, minute: 0))
+        XCTAssertFalse(failed)
+        XCTAssertEqual(failing.schedule, before)
+        XCTAssertNotNil(failing.errorMessage)
+        let working = SleepViewModel(store: store, putSchedule: { $0 })
+        let landed = await working.updateSchedule(ScheduleConfig(mode: "daily", hour: 3, minute: 0))
+        XCTAssertTrue(landed)
+        XCTAssertEqual(working.schedule.mode, "daily")
     }
 }

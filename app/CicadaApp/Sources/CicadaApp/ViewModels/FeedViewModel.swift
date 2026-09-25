@@ -57,14 +57,39 @@ final class FeedViewModel {
         return rendered.count > 1
     }
 
+    /// G136 S5 — `FeedSearch`'s one field list (title, site, channel, origin,
+    /// tags, description, url, about — and a paper's authors, arXiv id and DOI,
+    /// G133), filtered in the Feed's own order (R-SU20). The fields are folded
+    /// once per snapshot (`foldedFields`), never per keystroke: a render reads
+    /// this two or three times, and re-folding every description and URL of
+    /// ~1,500 saved items on each read measured ~100 ms a pass in a debug
+    /// build while planning (QuickMatch's own rule, R-SU21).
     var filteredItems: [MediaFeedItem] {
-        guard !searchText.isEmpty else { return items }
-        let q = searchText.lowercased()
-        return items.filter {
-            $0.title.lowercased().contains(q)
-                || ($0.site?.lowercased().contains(q) ?? false)
-                || $0.tags.contains(where: { $0.lowercased().contains(q) })
+        let tokens = QuickMatch.tokens(searchText)
+        guard !tokens.isEmpty else { return items }
+        let folded = foldedFields()
+        return items.filter { QuickMatch.match(tokens, fields: folded[$0.id] ?? FeedSearch.fields($0)) != nil }
+    }
+
+    /// Keyed on the snapshot's change token and size — the pair
+    /// `GraphViewModel.clusterSearchIndex()` uses for the same job.
+    @ObservationIgnored private var searchCache: (stamp: Date?, count: Int, fields: [String: [QuickMatch.Field]])?
+
+    private func foldedFields() -> [String: [QuickMatch.Field]] {
+        let all = store.sources.value ?? []
+        if let cache = searchCache, cache.stamp == store.sources.loadedAt, cache.count == all.count {
+            return cache.fields
         }
+        let fields = Dictionary(all.map { ($0.id, FeedSearch.fields($0)) }, uniquingKeysWith: { first, _ in first })
+        searchCache = (store.sources.loadedAt, all.count, fields)
+        return fields
+    }
+
+    /// One saved item against the words, through `FeedSearch`'s one field
+    /// list (R-SU21) — kept as Track F's entry point, which `PaperCardTests`
+    /// pins.
+    nonisolated static func matches(_ item: MediaFeedItem, query: String) -> Bool {
+        FeedSearch.matches(item, query: query)
     }
 
     func load() async {
@@ -73,5 +98,48 @@ final class FeedViewModel {
         if store.sources.value == nil {
             errorMessage = store.toast
         }
+    }
+
+    /// DR-45 — the kind tab; nil is All.
+    var kind: FeedKind?
+    /// §5.3 (R-DL6) — the open item, kept across page switches like the Inbox's (R-DI19); a bank switch or a refresh
+    /// that drops it closes it (`reconcile`).
+    var columns = ListColumns<String>()
+
+    /// The search-filtered items narrowed to the kind tab — the rows ↑/↓ walk, in the order drawn.
+    var visible: [MediaFeedItem] {
+        let base = filteredItems
+        guard let kind else { return base }
+        return base.filter { FeedKind.of($0) == kind }
+    }
+
+    var openItem: MediaFeedItem? { columns.openId.flatMap { id in (store.sources.value ?? []).first { $0.id == id } } }
+    var kindTabs: [TextTab<FeedKind>] { FeedKind.tabs(items) }
+
+    func eyebrow(searching: Bool) -> String {
+        FeedEyebrow.text(total: items.count, kind: kind, visible: visible, openId: columns.openId, searching: searching)
+    }
+
+    /// DR-45 — a tab that does not show the open item closes it (the mock's rule).
+    func setKind(_ kind: FeedKind?) {
+        self.kind = kind
+        if let item = openItem, let kind, FeedKind.of(item) != kind { columns.close() }
+    }
+
+    func reconcile() {
+        let all = store.sources.value ?? []
+        columns.reconcile(present: Set(all.map(\.id)))
+        if let k = kind, !all.contains(where: { FeedKind.of($0) == k }) { kind = nil }
+    }
+
+    /// R-DL16 — a palette or source-page hand-off, by media entity id: every kind shown, the search cleared, that item
+    /// open. False when the snapshot does not hold it.
+    @discardableResult
+    func land(mediaEntityId: String) -> Bool {
+        guard let item = (store.sources.value ?? []).first(where: { $0.mediaEntityId == mediaEntityId }) else { return false }
+        kind = nil
+        searchText = ""
+        columns.open(item.id)
+        return true
     }
 }

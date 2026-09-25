@@ -12,14 +12,16 @@ from api.services.connections import byok, ollama
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path))
-    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY"):
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY",
+              "XAI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     return tmp_path
 
 
 def test_byok_ids_and_labels():
     ids = {byok.ByokAdapter(p).id for p in byok.BYOK_PROVIDERS}
-    assert ids == {"byok-openai", "byok-anthropic", "byok-openrouter", "byok-gemini"}
+    assert ids == {"byok-openai", "byok-anthropic", "byok-openrouter", "byok-gemini",
+                   "byok-xai", "byok-groq", "byok-mistral"}
     assert byok.ByokAdapter("openai").label == "OpenAI API key"
 
 

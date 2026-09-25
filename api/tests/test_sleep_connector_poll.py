@@ -237,8 +237,10 @@ def test_tail_poll_runs_after_finalize_so_neither_commits_steals_the_others_prov
 
     log = _git(memory, "log", "--format=%H", "--reverse")
     hashes = [h for h in log.splitlines() if h.strip()]
-    assert len(hashes) == 3, f"expected seed + Sleep cycle + Sources ingest, got {len(hashes)}"
-    _seed_hash, sleep_hash, sources_hash = hashes
+    # G53 R2: the tail refreshes `_state.md` FIRST, so its `cicada` snapshot
+    # lands between the Sleep commit and the connector's.
+    assert len(hashes) == 4, f"expected seed + Sleep cycle + State snapshot + Sources ingest, got {len(hashes)}"
+    _seed_hash, sleep_hash, _state_hash, sources_hash = hashes
 
     # The Sleep commit carries its entity line and the episode's session trailer.
     sleep_message = _git(memory, "log", "-1", "--format=%B", sleep_hash)

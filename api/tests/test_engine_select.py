@@ -252,3 +252,235 @@ def test_the_prefs_round_trip_through_the_api(api_client):
 
     rejected = api_client.put("/connections/byok-openai/prefs", json={"useForSleep": True})
     assert rejected.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# G122 — the prefs rung. Precedence table (highest wins):
+#
+#   1. `CICADA_LLM_MODE` explicitly set (`env_explicit`)        -> that mode, zero registry touch for the mode itself
+#   2. a real Settings, env NOT explicit, `sleep-engine` pref set -> the pref's mode (R2's shape gate)
+#   3. a duck-typed Settings stand-in (no `model_fields_set`)   -> byok, zero registry touch (unchanged, R2)
+#   4. real Settings, no pref, nothing configured                -> byok/auto probe path (unchanged)
+#
+# Ruling 4/R3 still applies ON TOP of rung 2: a prefs-chosen "agent" degrades
+# to byok on a scheduled cycle exactly like an "auto"-resolved "agent" would.
+# --------------------------------------------------------------------------- #
+
+def test_prefs_mode_applies_when_env_is_not_explicit():
+    reg = _FakeRegistry(prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "local"}})
+    mode, why = _resolve(Settings(), reg)
+    assert mode == "local"
+    assert "Settings" in why
+
+
+def test_prefs_agent_still_degrades_to_byok_on_a_scheduled_cycle():
+    reg = _FakeRegistry(prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "agent"}})
+    mode, why = asyncio.run(
+        engine_select.resolve_llm_mode(Settings(), reg, user_triggered=False)
+    )
+    assert mode == "byok"
+
+
+def test_prefs_agent_wins_on_a_user_triggered_cycle_when_claude_is_connected():
+    reg = _FakeRegistry(
+        prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "agent"}},
+        connected={engine_select.CLAUDE_CONNECTION_ID},
+    )
+    mode, why = asyncio.run(
+        engine_select.resolve_llm_mode(Settings(), reg, user_triggered=True)
+    )
+    assert mode == "agent"
+
+
+def test_explicit_env_ignores_prefs_entirely():
+    reg = _FakeRegistry(prefs={engine_select.SLEEP_ENGINE_PREF_KEY: {"mode": "agent"}})
+    mode, _why = _resolve(Settings(llm_mode="byok"), reg)
+    # An explicit env pin runs the normal byok/auto probe path — no prefs
+    # short-circuit to "agent" from the pref, no probe of claude-plan either
+    # (byok with no `use_for_sleep` toggle degrades straight to byok).
+    assert mode == "byok"
+
+
+def test_duck_typed_settings_never_touches_the_registry_for_prefs():
+    from types import SimpleNamespace
+
+    class _Boom:
+        def prefs(self):
+            raise AssertionError("probed a duck-typed Settings stand-in for prefs")
+
+    stand_in = SimpleNamespace(llm_mode=None)  # no model_fields_set
+    mode, why = _resolve(stand_in, _Boom())
+    assert mode == "byok"
+
+
+# --- Track E Task 3: the codex label, the plan maps, authorship (R-E22) ------
+
+def test_the_codex_label_and_the_plan_maps():
+    assert engine_select.engine_label(Settings(llm_mode="codex")) == "codex-cli"
+    assert engine_select.PLAN_ENGINES == {"claude-cli": ("claude-plan", "subscription"),
+                                          "codex-cli": ("chatgpt-plan", "subscription")}
+    assert engine_select.PLAN_NAMES["codex-cli"] == "ChatGPT plan"
+
+
+def test_plan_work_is_authored_by_the_plans_model_and_byok_is_unchanged():
+    from types import SimpleNamespace
+    assert engine_select.author_model(Settings(llm_mode="agent", agent_model="opus")) == "opus"
+    assert engine_select.author_model(Settings(llm_mode="codex", codex_model="gpt-5.6-luna")) == "gpt-5.6-luna"
+    assert engine_select.author_model(Settings(llm_mode="codex")) == "unknown"
+    assert engine_select.author_model(SimpleNamespace(litellm_model="gpt-5.4-mini")) == "gpt-5.4-mini"
+
+
+def test_a_plan_cycles_claim_is_authored_by_the_plans_model_and_byok_is_unchanged():
+    from api.services import claim_reconciler
+    from api.services.claims import Claim
+
+    claim = Claim(id="c-fixture", text="alpha-project uses SQLite",
+                  subject="alpha-project", predicate="uses", object="sqlite")
+    claim_reconciler._stamp_new(claim, Settings(llm_mode="codex", codex_model="gpt-5.6-luna"),
+                                today="2026-09-23")
+    assert claim.authored_by == "gpt-5.6-luna"
+    byok = Claim(id="c-fixture-2", text="t")
+    claim_reconciler._stamp_new(byok, Settings(litellm_model="gpt-5.4-mini"), today="2026-09-23")
+    assert byok.authored_by == "gpt-5.4-mini"
+
+
+# --------------------------------------------------------------------------- #
+# Track E — the ChatGPT plan on the ladder; ruling 4 for both plans (R-E20/R-E21)
+# --------------------------------------------------------------------------- #
+
+def test_ruling_4_names_both_plans_in_one_tuple():
+    assert engine_select.SUBSCRIPTION_MODES == ("agent", "codex")
+
+
+@pytest.mark.parametrize("mode", ["agent", "codex"])
+def test_a_settings_chosen_plan_never_runs_on_a_schedule(mode):
+    class _NoStatus(_FakeRegistry):
+        async def status(self, connection_id, fresh=False):
+            raise AssertionError("a scheduled cycle probed a plan")
+
+    reg = _NoStatus(prefs={"sleep-engine": {"mode": mode}}, connected={"claude-plan", "chatgpt-plan"})
+    got, why = asyncio.run(engine_select.resolve_llm_mode(Settings(), reg, user_triggered=False))
+    assert got == "byok" and "user-triggered" in why
+
+
+def test_an_explicit_env_codex_is_deliberate_config_and_runs_on_a_schedule():
+    class _Boom:
+        def prefs(self):
+            raise AssertionError("probed despite an explicit mode")
+
+    got, why = asyncio.run(engine_select.resolve_llm_mode(Settings(llm_mode="codex"), _Boom(),
+                                                          user_triggered=False))
+    assert got == "codex" and "CICADA_LLM_MODE" in why
+
+
+def test_a_settings_chosen_codex_runs_when_you_start_it():
+    assert _resolve(Settings(), _FakeRegistry(prefs={"sleep-engine": {"mode": "codex"}}))[0] == "codex"
+
+
+def test_auto_prefers_claude_then_chatgpt_then_ollama_then_byok():
+    auto = Settings(llm_mode="auto")
+    assert _resolve(auto, _FakeRegistry(connected={"claude-plan", "chatgpt-plan", "ollama-local"}))[0] == "agent"
+    assert _resolve(auto, _FakeRegistry(connected={"chatgpt-plan", "ollama-local"}))[0] == "codex"
+    assert _resolve(auto, _FakeRegistry(connected={"ollama-local"}))[0] == "local"
+    assert _resolve(auto, _FakeRegistry())[0] == "byok"
+
+
+def test_a_failed_chatgpt_probe_falls_through_to_ollama():
+    class _CodexProbeFails(_FakeRegistry):
+        async def status(self, connection_id, fresh=False):
+            if connection_id == "chatgpt-plan":
+                raise RuntimeError("codex probe blew up")
+            return await super().status(connection_id, fresh)
+
+    assert _resolve(Settings(llm_mode="auto"), _CodexProbeFails(connected={"ollama-local"}))[0] == "local"
+
+
+def test_the_use_for_sleep_toggle_never_reaches_for_chatgpt():
+    reg = _FakeRegistry(prefs={"claude-plan": {"use_for_sleep": True}}, connected={"chatgpt-plan"})
+    assert _resolve(Settings(), reg)[0] == "byok"
+
+
+def test_the_codex_model_pref_reaches_the_resolved_settings():
+    reg = _FakeRegistry(prefs={"sleep-engine": {"mode": "codex", "model": "gpt-5.6-luna",
+                                                "disambiguation_model": "gpt-5.5"}})
+    resolved, _why = asyncio.run(engine_select.resolve_settings(Settings(), reg))
+    assert (resolved.llm_mode, resolved.codex_model, resolved.codex_disambiguation_model) == (
+        "codex", "gpt-5.6-luna", "gpt-5.5")
+
+
+def test_a_model_pref_reaches_a_cycle_that_passed_no_registry(tmp_path, monkeypatch):
+    """R-E21 — every Sleep cycle calls resolve_settings with no registry; the
+    model picked in Settings → Engines used to reach only the preview."""
+    from api.services.connections.registry import get_registry, reset_registry
+
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    reset_registry()
+    reg = get_registry(Settings())
+    reg.set_pref("sleep-engine", "mode", "agent")
+    reg.set_pref("sleep-engine", "model", "opus")
+    resolved, _why = asyncio.run(engine_select.resolve_settings(Settings()))
+    assert resolved.llm_mode == "agent" and resolved.agent_model == "opus"
+
+
+def test_the_overage_opt_in_reaches_the_resolved_settings_only_when_not_env_pinned():
+    reg = _FakeRegistry(prefs={"sleep-engine": {"mode": "agent", "allow_overage": True}})
+    resolved, _why = asyncio.run(engine_select.resolve_settings(Settings(), reg))
+    assert resolved.agent_allow_overage is True
+    pinned, _why = asyncio.run(engine_select.resolve_settings(Settings(llm_mode="agent"), reg))
+    assert pinned.agent_allow_overage is False
+
+
+@pytest.mark.parametrize("mode,model,disambiguation", [
+    ("agent", "opus", "sonnet"),
+    ("codex", "gpt-5.6-luna", "gpt-5.5"),
+])
+def test_a_plans_model_never_rides_into_the_key_a_schedule_degrades_to(mode, model, disambiguation):
+    """Task 4 review round 1: ruling 4 degrades a Settings-chosen plan to byok
+    on a schedule, and the plan's stored model must stay with the plan — a
+    CLI alias or a ChatGPT-plan model id in `litellm_model` either fails every
+    night or bills the person's API key for a model they never chose for it."""
+    reg = _FakeRegistry(prefs={"sleep-engine": {"mode": mode, "model": model,
+                                                "disambiguation_model": disambiguation}})
+    base_settings = Settings()
+    resolved, _why = asyncio.run(
+        engine_select.resolve_settings(base_settings, reg, user_triggered=False))
+    assert resolved.llm_mode == "byok"
+    assert resolved.litellm_model == base_settings.litellm_model
+    assert resolved.litellm_disambiguation_model == base_settings.litellm_disambiguation_model
+
+
+def test_a_model_pref_applies_only_to_the_mode_that_wrote_it():
+    reg = _FakeRegistry(prefs={"sleep-engine": {"mode": "agent", "model": "opus"}})
+    assert engine_select._model_overrides(reg, "agent") == {"agent_model": "opus"}
+    assert engine_select._model_overrides(reg, "byok") == {}
+    assert engine_select._model_overrides(reg, "local") == {}
+    assert engine_select._model_overrides(reg, "codex") == {}
+
+
+def test_powered_connection_follows_the_configured_mode_and_never_probes():
+    class _NoStatus(_FakeRegistry):
+        async def status(self, *a, **k):
+            raise AssertionError("powers must never probe")
+
+    both = {"claude-plan", "chatgpt-plan", "ollama-local", "byok-openai"}
+    pick = engine_select.powered_connection_id
+    assert pick(Settings(), _NoStatus(prefs={"sleep-engine": {"mode": "codex"}}), both) == "chatgpt-plan"
+    assert pick(Settings(), _NoStatus(prefs={"sleep-engine": {"mode": "codex"}}), {"claude-plan"}) is None
+    assert pick(Settings(llm_mode="auto"), _NoStatus(), both) == "claude-plan"
+    assert pick(Settings(llm_mode="auto"), _NoStatus(), {"chatgpt-plan", "byok-openai"}) == "chatgpt-plan"
+    assert pick(Settings(), _NoStatus(prefs={"claude-plan": {"use_for_sleep": True}}), both) == "claude-plan"
+    assert pick(Settings(), _NoStatus(), both) == "byok-openai"
+    assert pick(Settings(), _NoStatus(), {"claude-plan"}) is None
+
+
+def test_powered_connection_reads_the_byok_pref_model_before_the_env_model():
+    """Round 4 final review: the OpenRouter card and the key-provider picker
+    write the byok pref's model; POWERS and /status must name the card that
+    model bills, not the env default's (or none)."""
+    prefs = {"sleep-engine": {"mode": "byok", "model": "openrouter/~openai/gpt-mini-latest"}}
+    pick = engine_select.powered_connection_id
+    assert pick(Settings(), _FakeRegistry(prefs=prefs), {"byok-openrouter"}) == "byok-openrouter"
+    assert pick(Settings(), _FakeRegistry(prefs=prefs), {"byok-openai", "byok-openrouter"}) == "byok-openrouter"
+    # A model slot written for another mode never leaks into the byok answer.
+    stale = {"sleep-engine": {"mode": "local", "model": "openrouter/x"}}
+    assert pick(Settings(llm_mode="byok"), _FakeRegistry(prefs=stale), {"byok-openai", "byok-openrouter"}) == "byok-openai"

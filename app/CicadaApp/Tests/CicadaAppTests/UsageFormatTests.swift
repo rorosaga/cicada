@@ -1,42 +1,22 @@
 import XCTest
 @testable import CicadaApp
 
+/// G124 (2026-09-03 ruling): `UsageFormat.tokens`, `.usd` and `.costLine`
+/// are gone with the prices and token counts they formatted — only the
+/// count/percent/duration/harness formatters remain.
 final class UsageFormatTests: XCTestCase {
-    func testTokens() {
-        XCTAssertEqual(UsageFormat.tokens(0), "0")
-        XCTAssertEqual(UsageFormat.tokens(999), "999")
-        XCTAssertEqual(UsageFormat.tokens(41_200), "41.2k")
-        XCTAssertEqual(UsageFormat.tokens(1_340_000), "1.34M")
-    }
-
-    func testUsd() {
-        XCTAssertEqual(UsageFormat.usd(nil), "n/a")
-        XCTAssertEqual(UsageFormat.usd(0), "$0.00")
-        XCTAssertEqual(UsageFormat.usd(3.126), "$3.13")
-        XCTAssertEqual(UsageFormat.usd(0.0031), "$0.0031")
-    }
-
-    func testCostLineSubscriptionOnly() {
-        XCTAssertEqual(UsageFormat.costLine(costUsd: 0, equivUsd: 4.2, subscriptionUsd: 200),
-                       "Included in plan · ≈ $4.20 at API list price")
-    }
-
-    func testCostLineUsage() {
-        XCTAssertEqual(UsageFormat.costLine(costUsd: 3.12, equivUsd: 3.12, subscriptionUsd: nil), "$3.12 spent")
-    }
-
-    func testCostLineMixed() {
-        XCTAssertEqual(UsageFormat.costLine(costUsd: 3.12, equivUsd: 7.32, subscriptionUsd: 200),
-                       "$3.12 spent · plan work ≈ $4.20 at API list price")
-    }
-
     // MARK: G68 §2.5 — harness numbers go through UsageFormat too
 
+    /// R-S17 moved `count`'s default off the `en_US_POSIX` pin and onto
+    /// `Locale.autoupdatingCurrent`, so these assertions name the locale they
+    /// mean. Without that they would be green on an `en` host and red on a
+    /// `de` one — asserting the tester's Mac, not the formatter.
     func testCount() {
-        XCTAssertEqual(UsageFormat.count(0), "0")
-        XCTAssertEqual(UsageFormat.count(999), "999")
-        XCTAssertEqual(UsageFormat.count(1_284), "1,284")
-        XCTAssertEqual(UsageFormat.count(1_284_000), "1,284,000")
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(UsageFormat.count(0, locale: en), "0")
+        XCTAssertEqual(UsageFormat.count(999, locale: en), "999")
+        XCTAssertEqual(UsageFormat.count(1_284, locale: en), "1,284")
+        XCTAssertEqual(UsageFormat.count(1_284_000, locale: en), "1,284,000")
     }
 
     func testPercent() {
@@ -56,9 +36,19 @@ final class UsageFormatTests: XCTestCase {
     /// string passes through, a missing value is an em dash. `LooseValue.text`
     /// alone rendered "1284" and "—" inconsistently across the panel.
     func testHarnessValue() {
+        let en = Locale(identifier: "en_US")
         XCTAssertEqual(UsageFormat.harnessValue(nil), "—")
         XCTAssertEqual(UsageFormat.harnessValue(.null), "—")
-        XCTAssertEqual(UsageFormat.harnessValue(.number(1284)), "1,284")
+        // Compared against `count`'s own output rather than a literal: the
+        // point of this case is that `harnessValue` ROUTES through `count`,
+        // and since R-S17 that answer is the reader's locale, not "en_US".
+        XCTAssertEqual(UsageFormat.harnessValue(.number(1284)), UsageFormat.count(1284))
         XCTAssertEqual(UsageFormat.harnessValue(.string("2026-01-04")), "2026-01-04")
+        // R-S17's "one formatter, one locale, no second door": `harnessValue`
+        // takes and FORWARDS the same defaulted `locale:`, so a harness tile
+        // can never be the one number on screen grouped a different way.
+        XCTAssertEqual(UsageFormat.harnessValue(.number(1284), locale: Locale(identifier: "de_DE")),
+                       "1.284")
+        XCTAssertEqual(UsageFormat.harnessValue(.number(1284), locale: en), "1,284")
     }
 }

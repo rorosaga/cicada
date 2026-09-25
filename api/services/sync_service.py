@@ -15,11 +15,13 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import bank_index, logo_service, markdown_parser, telemetry
+from api.services import backlog, bank_index, logo_service, markdown_parser, telemetry
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
+from api.services.folder_source import FOLDERS_FILENAME
 from api.services.graph_builder import dir_mtime, file_mtime, inbox_mtime
 from api.services.sync_state import SYNC_STATE_FILENAME
+from api.services.wispr_flow import SETTINGS_FILENAME as WISPR_SETTINGS_FILENAME
 
 
 @dataclass
@@ -150,15 +152,25 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         "hubs": f"{dir_mtime(mp / 'hubs'):.6f}",
         "inbox": inbox_component,
         "episodes": f"{ep_count}:{ep_max}",
+        # G150 R-B16: every backlog item's stamp (a stat walk, no parse) — the
+        # Projects page's backlog reads and `_state.md`'s `backlog_open` move
+        # on it; nothing in `entities`/`episodes` notices a backlog write.
+        "backlog": backlog.stamp(mp),
         # `feeds.yaml` / `calendars.yaml` (the RSS + ICS subscription registries)
         # ride the `sources` component: subscribing or unsubscribing changes
         # neither the sources dir nor the url index, so without them the app's
         # feed/calendar lists never learned they were stale. `sync_state.json`
         # (G62) rides it for the same reason: a bookmark/Notes sync flips a
         # channel to "connected" without touching any other component.
+        # `sources/folders.json` (G133) rides it too: registering or renaming a
+        # folder adds or relabels a channel row without touching any other
+        # component. So does `sources/wispr_flow.json` (G134): turning the
+        # source on adds a channel row the same way (R-LS29).
         "sources": (
             f"{src_count}:{src_max}"
             f":{file_mtime(mp / 'sources' / 'url_index.json'):.6f}"
+            f":{file_mtime(mp / 'sources' / FOLDERS_FILENAME):.6f}"
+            f":{file_mtime(mp / 'sources' / WISPR_SETTINGS_FILENAME):.6f}"
             f":{file_mtime(mp / FEEDS_FILENAME):.6f}"
             f":{file_mtime(mp / CALENDARS_FILENAME):.6f}"
             f":{file_mtime(mp / SYNC_STATE_FILENAME):.6f}"
@@ -178,8 +190,15 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # sleep run, or agentic write always appends to it. The month is UTC's,
         # because that is the clock `telemetry.record` stamps events with — the
         # machine's local month names the wrong file either side of a boundary.
+        # The sibling `reads-YYYY-MM.jsonl` (the `read` kind, G124) is
+        # deliberately NOT stat'd: the app maps this component onto its
+        # `.consumption` domain, and a tick refetches every `/consumption/*`
+        # endpoint — five GETs per entity-card open, `/harness` walking
+        # `~/.codex/sessions` among them (G124 final review M2). The one
+        # endpoint that reports reads folds that file's mtime into its own
+        # ETag (`/contributors/top-entities`).
         "telemetry": (
-            f"{file_mtime(telemetry.telemetry_dir() / f'events-{_utc_now():%Y-%m}.jsonl'):.6f}"
+            f"{file_mtime(telemetry.ledger_file(f'{_utc_now():%Y-%m}')):.6f}"
         ),
         "git_head": git_head(mp),
         "bank": mp.name,

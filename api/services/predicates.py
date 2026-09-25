@@ -41,6 +41,8 @@ from typing import Callable
 import yaml
 from loguru import logger
 
+from api.services.claims import event_cardinality
+
 # The prep seed lives at repo root (NOT inside the api package). Resolve it
 # relative to this file: api/services/predicates.py -> repo root is parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -193,6 +195,93 @@ def is_single_valued(memory_path: Path | None, predicate: str) -> bool:
     return build_cardinality_fn(memory_path)(predicate)
 
 
+def cardinality(memory_path: Path | None, predicate: str) -> str:
+    """``"single"`` / ``"multi"`` / ``"unknown"`` for one canonical predicate.
+
+    G98 / G115 Phase 1 (R4): the inbox must never ask for a winner on a predicate
+    the vocabulary marks multi-valued (a tech stack is a set — seven true ``uses``
+    values rendered as one conflict card on the live bank, 2026-09-03).
+
+    This is NOT :func:`build_cardinality_fn`. That oracle answers "may a second
+    value coexist?" for Stage 3 and collapses unseen → coexist, which is the
+    right reconciler default and the wrong inbox rule: it reads a bank with no
+    ``_predicates.yaml`` (``_read_runtime_map`` → ``{}``) as "every predicate is
+    multi-valued" and would silence every conflict card.
+
+    **Two sources, and ``multi`` wins across them** — deliberately not
+    runtime-first. :func:`install_predicate_map` copies the seed once and then
+    leaves a populated map alone forever, and commit ``e9a7c6b`` moved ``uses``
+    from ``single_valued`` to ``multi_valued`` — so a bank seeded before that
+    commit still asserts the false single-valued reading, on exactly the bank
+    the G98 evidence came from. Letting the stale copy out-vote the committed
+    vocabulary would ship the rule dead. A bank that genuinely wants a
+    seed-multi predicate asked about gets that through Phase 2's
+    ``_inbox_rules.yaml``, not here. Anything in neither list is ``unknown`` —
+    ask as usual, fail open.
+    """
+    # G141 R-PJ5: the event predicates are multi in CODE — a bank seeded before
+    # they existed must still never ask for a winner between two happenings.
+    if event_cardinality(predicate):
+        return "multi"
+    p = (predicate or "").strip().lower()
+    if not p:
+        return "unknown"
+    sources = [_read_runtime_map(memory_path)] if memory_path is not None else []
+    sources.append(_load_seed_map())
+    single: set[str] = set()
+    multi: set[str] = set()
+    for data in sources:
+        single |= {str(x).strip().lower() for x in (data.get("single_valued") or [])}
+        multi |= {str(x).strip().lower() for x in (data.get("multi_valued") or [])}
+    if p in multi:
+        return "multi"
+    if p in single:
+        return "single"
+    return "unknown"
+
+
+LOCI = ("world", "artifact", "person")
+# Most conservative first (plan R-AC29): `person` is never checked, `artifact`
+# only recommends, `world` may settle — so a disagreement between the seed and a
+# bank's map always resolves to the less settleable reading, the way `multi`
+# wins for cardinality.
+_LOCUS_PRECEDENCE = ("person", "artifact", "world")
+
+
+def build_locus_fn(memory_path: Path | None) -> Callable[[str], str]:
+    """A ``predicate -> world | artifact | person | unknown`` oracle, reading the
+    seed and the bank's ``_predicates.yaml`` once (G61 phase 2 S1, spec R-AC8).
+
+    Where a fact's truth lives decides whether a source may answer it: the
+    inbox's checkability (``source_check``) and the extraction-time link attach
+    (``fact_sources.attach_cited_urls``) both ask. Unseen is ``unknown``, never a
+    guess.
+    """
+    sources = [_read_runtime_map(memory_path)] if memory_path is not None else []
+    sources.append(_load_seed_map())
+    sets: dict[str, set[str]] = {k: set() for k in LOCI}
+    for data in sources:
+        raw = data.get("locus") if isinstance(data, dict) else None
+        if not isinstance(raw, dict):
+            continue
+        for k in LOCI:
+            sets[k] |= {str(x).strip().lower() for x in (raw.get(k) or [])}
+
+    def locus_of(predicate: str) -> str:
+        p = (predicate or "").strip().lower()
+        for k in _LOCUS_PRECEDENCE:
+            if p and p in sets[k]:
+                return k
+        return "unknown"
+
+    return locus_of
+
+
+def locus(memory_path: Path | None, predicate: str) -> str:
+    """One-shot convenience wrapper around :func:`build_locus_fn`."""
+    return build_locus_fn(memory_path)(predicate)
+
+
 def normalize_predicate(memory_path: Path, label: str) -> str:
     """One-shot convenience: build the normalizer and apply it to ``label``."""
     return load_normalizer(memory_path)(label)
@@ -242,8 +331,8 @@ def predicate_question(predicate: str, name: str) -> str:
 
 
 # Hand-written grammatical sentence templates for the same canonical predicates,
-# used to render a resolved claim as a plain-English sentence ("Rodrigo
-# Sagastegui works at MongoDB") rather than a raw (subject, predicate, object)
+# used to render a resolved claim as a plain-English sentence ("Bob Example
+# works at Acme") rather than a raw (subject, predicate, object)
 # triple. Keyed the same way as ``PREDICATE_QUESTIONS``; unknown predicates fall
 # back to a generic "{name} — {predicate}: {object}" rendering.
 PREDICATE_PHRASES: dict[str, str] = {
@@ -268,8 +357,8 @@ PREDICATE_PHRASES: dict[str, str] = {
 def predicate_phrase(predicate: str, name: str, obj: str) -> str:
     """A grammatical sentence for a resolved ``(name, predicate, obj)`` claim.
 
-    E.g. ``predicate_phrase("works-at", "Rodrigo Sagastegui", "MongoDB")`` ->
-    ``"Rodrigo Sagastegui works at MongoDB"``. An unknown predicate falls back
+    E.g. ``predicate_phrase("works-at", "Bob Example", "Acme")`` ->
+    ``"Bob Example works at Acme"``. An unknown predicate falls back
     to a generic, still-readable rendering rather than guessing a verb.
     """
     key = (predicate or "").strip().lower()

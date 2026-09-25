@@ -1,18 +1,22 @@
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
     EpisodeQueueItem,
     ScheduleConfig,
     SleepCancelResponse,
+    SleepCycleDetail,
     SleepDebtResponse,
+    SleepEngineChoice,
+    SleepEngineResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
     SleepTriggerResponse,
 )
-from api.services import git_service, sleep_debt, sleep_scheduler
+from api.services import git_service, sleep_debt, sleep_engine_prefs, sleep_scheduler
+from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
     cancelled_is_visible,
     get_sleep_state,
@@ -119,6 +123,8 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),
         progress_pct=progress_pct(state),
+        queue_by_origin=dict(state.queue_by_origin),
+        read_by_origin=dict(state.read_by_origin),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
@@ -132,8 +138,16 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
 
 
 @router.get("/sleep/history", response_model=list[SleepHistoryEntry])
-async def sleep_history(settings: Settings = Depends(get_settings)):
-    return await git_service.get_sleep_history(settings.memory_path)
+async def sleep_history(limit: int = Query(15, ge=1, le=100), settings: Settings = Depends(get_settings)):
+    return await git_service.get_sleep_history(settings.memory_path, limit=limit)
+
+
+@router.get("/sleep/history/{commit}", response_model=SleepCycleDetail)
+async def sleep_cycle_detail(commit: str, settings: Settings = Depends(get_settings)):
+    detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    return detail
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -151,6 +165,7 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
                 origin=ep.get("origin", "unknown"),
                 title=ep.get("title"),
                 preview=preview,
+                chars=len(ep.get("body") or ""),
                 processed=ep.get("processed", False),
                 processed_by=ep.get("processed_by"),
             )
@@ -174,3 +189,21 @@ async def put_schedule(
     if scheduler is not None:
         sleep_scheduler.register_job(scheduler, settings, cfg)
     return cfg
+
+
+@router.get("/sleep/engine", response_model=SleepEngineResponse)
+async def get_sleep_engine(settings: Settings = Depends(get_settings)):
+    """G122 — Settings → Engines's engine & model picker: what's configured
+    now, every candidate's live state, and both trigger-source previews
+    (ruling 4 made visible, not hidden — see `SleepEnginePreviews`)."""
+    return await sleep_engine_prefs.build_response(settings, get_registry(settings))
+
+
+@router.put("/sleep/engine", response_model=SleepEngineResponse)
+async def put_sleep_engine(body: SleepEngineChoice, settings: Settings = Depends(get_settings)):
+    """Validates and persists the choice, then re-reads through the same
+    `build_response` a GET would use — the echoed body can never drift from
+    what a follow-up GET reports."""
+    reg = get_registry(settings)
+    sleep_engine_prefs.validate_and_write(body, reg)
+    return await sleep_engine_prefs.build_response(settings, reg)

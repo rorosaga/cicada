@@ -1200,7 +1200,7 @@ def test_entity_ids_are_capped_with_an_honest_total(tmp_path):
 
 
 def test_project_slug_maps_every_non_alphanumeric_char_to_a_dash():
-    assert session_stats.project_slug("/Users/rorosaga/Documents/roros_lab/cicada") == \
+    assert session_stats.project_slug("<repo>/") == \
         "-Users-rorosaga-Documents-roros-lab-cicada"
 
 
@@ -2282,7 +2282,7 @@ final class TerminalLaunchScriptTests: XCTestCase {
 
     func testASafeResumeCommandAndCwdPass() {
         XCTAssertTrue(TerminalLauncher.isSafeCommand("claude --resume \(uuid)"))
-        XCTAssertTrue(TerminalLauncher.isSafeCwd("/Users/rorosaga/Documents/roros_lab/cicada"))
+        XCTAssertTrue(TerminalLauncher.isSafeCwd("<repo>/"))
         XCTAssertTrue(TerminalLauncher.isSafeCwd("~/Documents/roros_lab/cicada"))
     }
 

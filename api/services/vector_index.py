@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -27,13 +26,16 @@ import numpy as np
 from loguru import logger
 
 from api.services import markdown_parser
+from api.services import pending_store as _store
+# G141 PJ-0b (R-HP1): the pending store is its own module now. These two names
+# stay importable from here — entity_resolver, link_recon and the tests use them.
+from api.services.pending_store import PENDING_STORE_FILE, PendingEntity  # noqa: F401
 
 # An embed function takes texts and a query/document flag (EmbeddingGemma and
 # other instruction-aware models embed queries and documents differently).
 EmbedFn = Callable[..., np.ndarray]
 
 INDEX_DB_FILE = "vector_index.db"
-PENDING_STORE_FILE = "pending_entities.jsonl"
 
 # "log once" for a WAL-enable failure (Devin PR #24 finding 4) — _connect()
 # runs on every search call; a persistently-locked file must not spam a
@@ -44,42 +46,6 @@ _warned_wal_failure = False
 # single multi-thousand-token conversation isn't embedded as one vector.
 EPISODE_CHUNK_CHARS = 4000
 EPISODE_CHUNK_OVERLAP = 200
-
-
-@dataclass
-class PendingEntity:
-    """A sub-threshold entity (first mention) awaiting a promotion trigger."""
-
-    name: str
-    type: str
-    description: str
-    source_episode: str
-    confidence: float
-    tags: list[str]
-    history_entries: list[dict]
-
-    def to_dict(self) -> dict:
-        return {
-            "name": self.name,
-            "type": self.type,
-            "description": self.description,
-            "source_episode": self.source_episode,
-            "confidence": self.confidence,
-            "tags": self.tags or [],
-            "history_entries": self.history_entries or [],
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "PendingEntity":
-        return cls(
-            name=data.get("name", ""),
-            type=data.get("type", "concept"),
-            description=data.get("description", ""),
-            source_episode=data.get("source_episode", ""),
-            confidence=float(data.get("confidence", 0.3)),
-            tags=data.get("tags", []) or [],
-            history_entries=data.get("history_entries", []) or [],
-        )
 
 
 def _try_enable_wal(conn: sqlite3.Connection) -> None:
@@ -270,17 +236,24 @@ class SqliteVecIndexer:
         return info
 
     def _knn(
-        self, conn: sqlite3.Connection, kind: str, query: str, top_k: int
+        self,
+        conn: sqlite3.Connection,
+        kind: str,
+        query: str,
+        top_k: int,
+        *,
+        qvec: np.ndarray | None = None,
     ) -> list[dict]:
         import sqlite_vec
 
         vec_table = f"vec_{kind}"
         meta_table = f"meta_{kind}"
-        try:
-            qvec = self._embed([query], is_query=True)[0]
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(f"vector search embed failed ({kind}): {exc}")
-            return []
+        if qvec is None:
+            try:
+                qvec = self._embed([query], is_query=True)[0]
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(f"vector search embed failed ({kind}): {exc}")
+                return []
         cur = conn.execute(
             f"SELECT v.rowid, v.distance, m.text, m.metadata "
             f"FROM {vec_table} v JOIN {meta_table} m ON m.rowid = v.rowid "
@@ -372,6 +345,39 @@ class SqliteVecIndexer:
         archived = [r for r in results if r.get("metadata", {}).get("status") == "archived"]
         return (active + archived)[:top_k]
 
+    def search_kinds(self, query: str, top_k_by_kind: dict[str, int]) -> dict[str, list[dict]]:
+        """KNN over several kinds with ONE query embedding (G136).
+
+        ``/search``'s hybrid mode wants the entity, claim and episode legs of
+        one query at once; three ``search_*`` calls embed the same text three
+        times, and the embed is the dominant cost of a warm search (G58). Same
+        graceful degrade as :meth:`_search_kind`: a missing db, a missing
+        table or a failed embed gives empty lists, never a raise. No
+        archived-tier or superseded filtering happens here — the caller ranks.
+        """
+        out: dict[str, list[dict]] = {kind: [] for kind in top_k_by_kind}
+        if not top_k_by_kind or not self.db_path.exists():
+            return out
+        try:
+            qvec = self._embed([query], is_query=True)[0]
+        except Exception as exc:  # noqa: BLE001
+            # The exception class only: a provider's error can echo its input,
+            # and the input is the person's query (K9).
+            logger.debug(f"vector search embed failed (search_kinds): {type(exc).__name__}")
+            return out
+        conn = self._connect()
+        try:
+            for kind, top_k in top_k_by_kind.items():
+                try:
+                    out[kind] = self._knn(conn, kind, query, top_k, qvec=qvec)
+                except sqlite3.OperationalError as exc:
+                    logger.warning(
+                        f"vector_index.search_kinds({kind!r}): query failed ({exc}); degrading to []"
+                    )
+        finally:
+            conn.close()
+        return out
+
     def _search_kind(self, kind: str, query: str, top_k: int) -> list[dict]:
         """Shared search helper: returns [] for a missing db or missing table."""
         if not self.db_path.exists():
@@ -436,40 +442,26 @@ class SqliteVecIndexer:
         return self._search_kind("episodes", query, top_k)
 
     # ---------- pending (sub-threshold) index ----------
+    #
+    # The file is `pending_store`'s (G141 PJ-0b, R-HP1): these methods keep
+    # their names and contracts for Stage 2 and link recon and delegate every
+    # read and write to that one module. The vectors below stay here.
 
     def _load_pending(self) -> list[PendingEntity]:
-        if not self.pending_store.exists():
-            return []
-        out: list[PendingEntity] = []
-        for line in self.pending_store.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                out.append(PendingEntity.from_dict(json.loads(line)))
-            except Exception:
-                continue
-        return out
+        return _store.load(self.memory_path)
 
     def _save_pending(self, entries: list[PendingEntity]) -> None:
-        self.pending_store.parent.mkdir(parents=True, exist_ok=True)
-        if not entries:
-            self.pending_store.write_text("", encoding="utf-8")
-            return
-        lines = [json.dumps(e.to_dict()) for e in entries]
-        self.pending_store.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        _store.save(self.memory_path, entries)
 
     def index_pending_entity(self, entity: PendingEntity) -> None:
         """Append/replace a sub-threshold entity in the store (no vec rebuild).
 
         Rebuilding the vec table per add would be O(N^2) embedding calls in a
         single sleep batch; call :meth:`rebuild_pending_index` once afterward.
+        A replaced line's held claims are carried, never dropped
+        (``pending_store.upsert``, G141 PJ-0b R-HP4).
         """
-        entries = self._load_pending()
-        name_lower = entity.name.lower()
-        kept = [e for e in entries if e.name.lower() != name_lower]
-        kept.append(entity)
-        self._save_pending(kept)
+        _store.upsert(self.memory_path, entity)
 
     def rebuild_pending_index(self) -> int:
         entries = self._load_pending()
@@ -489,20 +481,16 @@ class SqliteVecIndexer:
         return None
 
     def promote_from_pending(self, entity_name: str) -> PendingEntity | None:
-        """Remove and return an entry from the pending store, rebuild the index."""
-        entries = self._load_pending()
-        name_lower = entity_name.lower()
-        kept: list[PendingEntity] = []
-        promoted: PendingEntity | None = None
-        for e in entries:
-            if e.name.lower() == name_lower and promoted is None:
-                promoted = e
-            else:
-                kept.append(e)
-        if promoted is None:
-            return None
-        self._save_pending(kept)
-        self._rebuild_pending_index(kept)
+        """Remove and return an entry from the pending store, rebuild the index.
+
+        G141 PJ-0b (R-HP4): an entry that still holds claims is returned but
+        STAYS — it leaves through ``pending_store.release`` once Stage 5.56 has
+        written its claims onto the new page — and nothing is rebuilt for it,
+        since nothing left the store.
+        """
+        promoted, removed = _store.take(self.memory_path, entity_name)
+        if removed:
+            self._rebuild_pending_index(self._load_pending())
         return promoted
 
     def _rebuild_pending_index(self, entries: list[PendingEntity]) -> None:
@@ -602,26 +590,25 @@ class SqliteVecIndexer:
         *,
         observer: str | None = None,
         context: str | None = None,
-        include_superseded: bool = False,
     ) -> list[dict]:
         """KNN over currently-valid claims, with optional perspective filters.
 
         ``observer`` / ``context`` are SQL-free post-filters applied to the
-        ``claims``-kind metadata. By default, claims carrying a
-        ``superseded_by`` marker are excluded; ``include_superseded=True`` lifts
-        that. Returns ``[]`` gracefully on a missing db or missing ``claims``
-        table (mirrors :meth:`search_entities` / :meth:`_search_kind`).
+        ``claims``-kind metadata. A claim carrying a ``superseded_by`` marker
+        is never returned. G140 Q-R3 removed ``include_superseded``: this index
+        holds only claims with no ``valid_to`` (``index_claims``) and
+        ``claim_reconciler._close`` always stamps both fields, so the flag
+        could only surface a marker-only claim no writer produces. History is
+        the page's (MCP recall, ``cicada_get_perspective(history=true)``) and
+        the FTS index's (G136 R10). Returns ``[]`` gracefully on a missing db
+        or a missing ``claims`` table.
         """
         if not self.db_path.exists():
             return []
         conn = self._connect()
         try:
             # over-fetch so post-filtering doesn't starve the result set
-            needs_postfilter = (
-                observer is not None or context is not None or not include_superseded
-            )
-            fetch_k = top_k * 3 if needs_postfilter else top_k
-            results = self._knn(conn, "claims", query, fetch_k)
+            results = self._knn(conn, "claims", query, top_k * 3)
         except sqlite3.OperationalError as exc:
             logger.warning(f"vector_index.search_claims: query failed ({exc}); degrading to []")
             return []
@@ -634,7 +621,7 @@ class SqliteVecIndexer:
                 continue
             if context is not None and meta.get("context") != context:
                 continue
-            if not include_superseded and meta.get("superseded_by"):
+            if meta.get("superseded_by"):
                 continue
             filtered.append(r)
         return filtered[:top_k]

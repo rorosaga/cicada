@@ -186,6 +186,12 @@ struct EntityHistoryEntry: Identifiable, Codable {
     // M3 (backlog A2): the agent that authored this commit — a model id
     // (e.g. "gpt-5.4-mini"), "user", or "unknown" for legacy untrailered commits.
     let author: String
+    // G118 slice 2 (R-PB13): the author's bucket and provider from the
+    // server's one `author_identity` rule, so the History tab draws the same
+    // `ContributorAvatar` the contributors strip does. nil against an older
+    // backend — `ContributorIdentity.kind(author:)` covers that case.
+    let authorKind: String?
+    let authorProvider: String?
     // Commit hash, used to fetch the per-commit diff on demand.
     let commitHash: String
     // Inline diff, present only when history was fetched with includeDiff=true.
@@ -201,7 +207,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case date, changeType, description, author, commitHash, diff, sessions
+        case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions
     }
 
     init(from decoder: Decoder) throws {
@@ -210,6 +216,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         changeType = try c.decode(HistoryChangeType.self, forKey: .changeType)
         description = try c.decode(String.self, forKey: .description)
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? "unknown"
+        authorKind = try c.decodeIfPresent(String.self, forKey: .authorKind)
+        authorProvider = try c.decodeIfPresent(String.self, forKey: .authorProvider)
         commitHash = try c.decodeIfPresent(String.self, forKey: .commitHash) ?? ""
         diff = try c.decodeIfPresent(EntityDiff.self, forKey: .diff)
         sessions = try c.decodeIfPresent([String].self, forKey: .sessions) ?? []
@@ -220,6 +228,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         changeType: HistoryChangeType,
         description: String,
         author: String = "unknown",
+        authorKind: String? = nil,
+        authorProvider: String? = nil,
         commitHash: String = "",
         diff: EntityDiff? = nil,
         sessions: [String] = []
@@ -230,6 +240,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         self.changeType = changeType
         self.description = description
         self.author = author
+        self.authorKind = authorKind
+        self.authorProvider = authorProvider
         self.commitHash = commitHash
         self.diff = diff
         self.sessions = sessions
@@ -241,6 +253,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
         try c.encode(changeType, forKey: .changeType)
         try c.encode(description, forKey: .description)
         try c.encode(author, forKey: .author)
+        try c.encodeIfPresent(authorKind, forKey: .authorKind)
+        try c.encodeIfPresent(authorProvider, forKey: .authorProvider)
         try c.encode(commitHash, forKey: .commitHash)
         try c.encodeIfPresent(diff, forKey: .diff)
         try c.encode(sessions, forKey: .sessions)
@@ -558,15 +572,30 @@ struct MediaBlock: Codable, Equatable {
     var thumbnail: String?
     var savedAt: String?
     var urlHash: String?
+    /// Track V / R-V2: the ingestor's own name for the provider it enriched
+    /// through (`vimeo | tiktok | loom | …`). **Redundant with what
+    /// `VideoRef.resolve(url)` derives** — nothing in this app dispatches on
+    /// it — and carried only so a non-Swift reader of the wire (or of the
+    /// page's `media:` block) can see which provider answered. Never trusted
+    /// over the url: `mediaType` taught that lesson (R-V1).
+    var provider: String?
+    /// G133 — `paper` for a paper page (`papers.KIND`); nil for every other media page.
+    var kind: String?
+    /// The clip's length in seconds, as the provider's oEmbed reported it.
+    /// **The one thing a url cannot tell you**, which is why it is stored at
+    /// all. Absent means absent — nothing renders, never an estimate (R17).
+    var durationS: Int?
 
     enum CodingKeys: String, CodingKey {
         case url, mediaType, site, channel, thumbnail, savedAt, urlHash
+        case provider, durationS, kind
     }
 
     init(
         url: String, mediaType: String, site: String? = nil,
         channel: String? = nil, thumbnail: String? = nil,
-        savedAt: String? = nil, urlHash: String? = nil
+        savedAt: String? = nil, urlHash: String? = nil,
+        provider: String? = nil, durationS: Int? = nil, kind: String? = nil
     ) {
         self.url = url
         self.mediaType = mediaType
@@ -575,6 +604,9 @@ struct MediaBlock: Codable, Equatable {
         self.thumbnail = thumbnail
         self.savedAt = savedAt
         self.urlHash = urlHash
+        self.provider = provider
+        self.durationS = durationS
+        self.kind = kind
     }
 
     init(from decoder: Decoder) throws {
@@ -586,11 +618,50 @@ struct MediaBlock: Codable, Equatable {
         thumbnail = try c.decodeIfPresent(String.self, forKey: .thumbnail)
         savedAt = try c.decodeIfPresent(String.self, forKey: .savedAt)
         urlHash = try c.decodeIfPresent(String.self, forKey: .urlHash)
+        // R16: the client decodes these BEFORE the backend produces them, so
+        // absence has to be the normal case — every page written before the
+        // Track V backend slice, and every non-video page after it, arrives
+        // without either key.
+        provider = try c.decodeIfPresent(String.self, forKey: .provider)
+        durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
     }
+
+    var isPaper: Bool { kind == "paper" }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
     /// couldn't be parsed (empty url) shouldn't render a broken preview.
     var hasURL: Bool { !url.isEmpty }
+}
+
+/// G147 — the pace Sleep actually charges this page, derived at read by the backend
+/// (`decay_policy.effective`, the same function the decay pass calls): the class's base
+/// rate × the spacing factor over distinct mention weeks × the bank's per-type pace.
+/// Never stored. Lenient: an unknown class reads `.active`; a block missing its numbers
+/// fails alone (the entity decodes with `decay == nil`) and the card falls back to the
+/// class's own words.
+struct EntityDecay: Codable, Equatable {
+    var decayClass: DecayClass
+    var effectiveRatePerWeek: Double
+    var mentionWeeks: Int
+
+    enum CodingKeys: String, CodingKey {
+        case decayClass = "class"
+        case effectiveRatePerWeek, mentionWeeks
+    }
+
+    init(decayClass: DecayClass, effectiveRatePerWeek: Double, mentionWeeks: Int) {
+        self.decayClass = decayClass
+        self.effectiveRatePerWeek = effectiveRatePerWeek
+        self.mentionWeeks = mentionWeeks
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
+        effectiveRatePerWeek = try c.decode(Double.self, forKey: .effectiveRatePerWeek)
+        mentionWeeks = try c.decode(Int.self, forKey: .mentionWeeks)
+    }
 }
 
 struct Entity: Identifiable, Codable {
@@ -606,6 +677,8 @@ struct Entity: Identifiable, Codable {
     /// explicit `decay_class:`, else inferred from the entity type), so this is
     /// always populated for a real entity; `.active` for a graph-node stub.
     var decayClass: DecayClass = .active
+    /// G147 — the effective pace (`EntityDecay`); nil from an older backend or a graph stub.
+    var decay: EntityDecay? = nil
     var sourceEpisodes: [String]
     var tags: [String]
     var related: [String]
@@ -625,13 +698,25 @@ struct Entity: Identifiable, Codable {
     /// `rawMarkdown` frontmatter, see `init`).
     var media: MediaBlock? = nil
     var history: [EntityHistoryEntry]
+    /// G117 — mirrors `GraphNode.isOwner` (same `owner:` frontmatter key) on
+    /// the detail response, so `EntityDetailCard` can render "Name (you)"
+    /// without a second lookup against `/graph`. Additive/decode-tolerant.
+    var isOwner: Bool = false
+    /// C11 (G146) — the page's picture as `GET /entities/{id}` resolved it (raw; `pictureRef` reads it) and the rung
+    /// inputs the twin re-resolves from (R-PE10). Nil for a graph stub until the page lands, and from an older backend.
+    var pictureURL: String? = nil
+    var pictureSource: String? = nil
+    var pictureInputs: PictureInputs? = nil
+
+    var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: pictureURL, source: pictureSource) }
 
     init(
         id: String, name: String, type: EntityType, status: EntityStatus,
         confidence: Double, created: String, lastReferenced: String,
         decayRate: Double, sourceEpisodes: [String], tags: [String],
         related: [String], version: Int, markdownContent: String,
-        history: [EntityHistoryEntry], decayClass: DecayClass = .active
+        history: [EntityHistoryEntry], decayClass: DecayClass = .active,
+        isOwner: Bool = false, pictureURL: String? = nil, pictureSource: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -648,12 +733,16 @@ struct Entity: Identifiable, Codable {
         self.version = version
         self.markdownContent = markdownContent
         self.history = history
+        self.isOwner = isOwner
+        self.pictureURL = pictureURL
+        self.pictureSource = pictureSource
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, created, lastReferenced
-        case decayRate, decayClass, sourceEpisodes, tags, related, version
-        case markdownContent, rawMarkdown, path, media, history
+        case decayRate, decayClass, decay, sourceEpisodes, tags, related, version
+        case markdownContent, rawMarkdown, path, media, history, isOwner
+        case pictureURL = "picture", pictureSource, pictureInputs
     }
 
     init(from decoder: Decoder) throws {
@@ -669,6 +758,7 @@ struct Entity: Identifiable, Codable {
         lastReferenced = try c.decode(String.self, forKey: .lastReferenced)
         decayRate = try c.decode(Double.self, forKey: .decayRate)
         decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
+        decay = (try? c.decodeIfPresent(EntityDecay.self, forKey: .decay)) ?? nil
         sourceEpisodes = try c.decodeIfPresent([String].self, forKey: .sourceEpisodes) ?? []
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         related = try c.decodeIfPresent([String].self, forKey: .related) ?? []
@@ -687,6 +777,10 @@ struct Entity: Identifiable, Codable {
             media = nil
         }
         history = try c.decodeIfPresent([EntityHistoryEntry].self, forKey: .history) ?? []
+        isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+        pictureURL = (try? c.decodeIfPresent(String.self, forKey: .pictureURL)) ?? nil
+        pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
+        pictureInputs = (try? c.decodeIfPresent(PictureInputs.self, forKey: .pictureInputs)) ?? nil
     }
 
     /// Fallback parser for the nested `media:` block when the backend hasn't
@@ -741,7 +835,14 @@ struct Entity: Identifiable, Codable {
             channel: fields["channel"],
             thumbnail: fields["thumbnail"],
             savedAt: fields["saved_at"],
-            urlHash: fields["url_hash"]
+            urlHash: fields["url_hash"],
+            // Track V: the page's own `media:` block spells these snake_case
+            // (`write_media_entity` writes each only when it has a value —
+            // plan R15), so a bookmark with neither key parses exactly as it
+            // did before. A `duration_s` that isn't an integer degrades to
+            // nil rather than to a zero that would render as "0:00" (R17).
+            provider: fields["provider"],
+            durationS: Int(fields["duration_s"] ?? "")
         )
     }
 
@@ -853,12 +954,30 @@ struct GraphNode: Codable, Sendable {
     /// card show the right chip on the very first frame, before the full entity
     /// arrives. Decode-tolerant so an old on-disk `SnapshotCache` still loads.
     let decayClass: DecayClass
+    /// G117 — mirrors the entity page's `owner: true` frontmatter. Additive/
+    /// decode-tolerant so an older backend that never emits it still decodes;
+    /// drives the graph node's own "this is you" render alongside
+    /// `Entity.isOwner`'s twin on the detail card.
+    let isOwner: Bool
+    /// G136 S6 — the page's other names (≤ 8), for the palette's instant tier
+    /// and the graph typeahead. Decode-tolerant: an older backend and an
+    /// on-disk cache omit it.
+    let aliases: [String]
+    /// C11 (G146) — the page's resolved picture (`entity_picture.resolve`) and its rung, raw; both absent when there is
+    /// none (the server omits them, plan R-PE5). Read through `pictureRef`.
+    let picture: String?
+    let pictureSource: String?
+    /// C11 — the day the page was last mentioned: Clusters' recency order and F-12's row ages (R-PE13).
+    let lastReferenced: String?
+
+    var pictureRef: EntityPictureRef? { EntityPictureRef.wire(url: picture, source: pictureSource) }
 
     enum CodingKeys: String, CodingKey {
         case id, name, type, status, confidence, tags
         case degree, isHub, hasPending, memberCount, hubId
         case observers, contexts, isFacet, parentId, context
-        case summary, contentHash, hasLogo, decayClass
+        case summary, contentHash, hasLogo, decayClass, isOwner, aliases
+        case picture, pictureSource, lastReferenced
     }
 
     init(
@@ -868,7 +987,9 @@ struct GraphNode: Codable, Sendable {
         hubId: String? = nil, observers: [String] = [], contexts: [String] = [],
         isFacet: Bool = false, parentId: String? = nil, context: String? = nil,
         summary: String? = nil, contentHash: String = "", hasLogo: Bool = false,
-        decayClass: DecayClass = .active
+        decayClass: DecayClass = .active, isOwner: Bool = false,
+        aliases: [String] = [], picture: String? = nil,
+        pictureSource: String? = nil, lastReferenced: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -890,6 +1011,11 @@ struct GraphNode: Codable, Sendable {
         self.contentHash = contentHash
         self.hasLogo = hasLogo
         self.decayClass = decayClass
+        self.isOwner = isOwner
+        self.aliases = aliases
+        self.picture = picture
+        self.pictureSource = pictureSource
+        self.lastReferenced = lastReferenced
     }
 
     init(from decoder: Decoder) throws {
@@ -919,5 +1045,10 @@ struct GraphNode: Codable, Sendable {
         contentHash = try c.decodeIfPresent(String.self, forKey: .contentHash) ?? ""
         hasLogo = try c.decodeIfPresent(Bool.self, forKey: .hasLogo) ?? false
         decayClass = (try? c.decode(DecayClass.self, forKey: .decayClass)) ?? .active
+        isOwner = try c.decodeIfPresent(Bool.self, forKey: .isOwner) ?? false
+        aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+        picture = (try? c.decodeIfPresent(String.self, forKey: .picture)) ?? nil
+        pictureSource = (try? c.decodeIfPresent(String.self, forKey: .pictureSource)) ?? nil
+        lastReferenced = (try? c.decodeIfPresent(String.self, forKey: .lastReferenced)) ?? nil
     }
 }

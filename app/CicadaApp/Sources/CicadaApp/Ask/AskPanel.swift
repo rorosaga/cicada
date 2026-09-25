@@ -2,25 +2,35 @@ import SwiftUI
 
 /// ⌘K panel (G52, spec §5.9): a question field over `POST /ask`, rendering a
 /// grounded markdown answer with wikilink-style citation chips, an explicit
-/// "I don't know" gap list, and a confidence meter. Presented as a `.sheet`
-/// from `ContentView`.
+/// "I don't know" gap list, and a confidence meter. Since G136 the ⌘K find
+/// palette hosts it as its Ask mode (`hostedViewModel`); standalone it still
+/// draws its own header and sheet size.
 struct AskPanel: View {
     @Environment(Store.self) private var store
     @Environment(GraphViewModel.self) private var graphVM
     @Environment(\.dismiss) private var dismiss
 
     /// Called when a citation chip (or a history row with a cached answer)
-    /// is tapped — `ContentView` switches to the Graph tab before this view
-    /// dismisses itself.
+    /// is tapped — the host switches to the Graph tab and closes itself.
     var onSelectEntity: (String) -> Void
+    /// G136 (round-3 design §3.5, A11) — the ⌘K palette hosts this body in Ask
+    /// mode. When set, the palette owns the question field and the view model,
+    /// so this view draws the answer only: no header, no sheet size. `nil`
+    /// keeps the standalone panel exactly as it was. Nothing below
+    /// `// MARK: - Answer` changes — Track P edits that body in parallel.
+    var hostedViewModel: AskViewModel? = nil
 
-    @State private var vm: AskViewModel?
+    @State private var ownViewModel: AskViewModel?
+    private var vm: AskViewModel? { hostedViewModel ?? ownViewModel }
     @FocusState private var questionFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().background(CicadaTheme.border)
+            if hostedViewModel == nil {
+                header
+                Divider().background(CicadaTheme.border)
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -31,7 +41,7 @@ struct AskPanel: View {
                         if let answer = vm.answer {
                             answerView(answer)
                                 .opacity(vm.isAsking ? 0.5 : 1.0)
-                                .animation(.easeInOut(duration: 0.15), value: vm.isAsking)
+                                .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: vm.isAsking)
                         } else if vm.isAsking {
                             HStack(spacing: CicadaTheme.spacingSM) {
                                 ProgressView().controlSize(.small)
@@ -50,7 +60,7 @@ struct AskPanel: View {
                 .padding(CicadaTheme.spacingLG)
             }
         }
-        .frame(width: 560, height: 460)
+        .frame(width: hostedViewModel == nil ? 560 : nil, height: hostedViewModel == nil ? 460 : nil)
         .background(CicadaTheme.surface)
         // The grounded answer (`MarkdownBody` at line ~109) can contain
         // `[[wikilinks]]` in its own prose, not just the citation chips
@@ -58,9 +68,12 @@ struct AskPanel: View {
         // did nothing on tap (bug 2). Same destination as a citation chip.
         .wikilinkNavigation(onSelect: onSelectEntity)
         .task {
-            if vm == nil {
+            // Hosted: the palette made the view model, loaded its history and
+            // owns the field's focus.
+            guard hostedViewModel == nil else { return }
+            if ownViewModel == nil {
                 let newVM = AskViewModel(store: store)
-                vm = newVM
+                ownViewModel = newVM
                 await newVM.loadHistory()
             }
             questionFocused = true
@@ -72,7 +85,7 @@ struct AskPanel: View {
     private var header: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "sparkle.magnifyingglass")
-                .font(.system(size: 14))
+                .font(CicadaTheme.font(size: 14))
                 .foregroundStyle(CicadaTheme.accent)
 
             TextField("Ask your memory…", text: Binding(
@@ -80,7 +93,7 @@ struct AskPanel: View {
                 set: { vm?.question = $0 }
             ))
             .textFieldStyle(.plain)
-            .font(.system(size: 15))
+            .font(CicadaTheme.font(size: 15))
             .foregroundStyle(CicadaTheme.textPrimary)
             .focused($questionFocused)
             .onSubmit { submit() }
@@ -93,7 +106,7 @@ struct AskPanel: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
+                    .font(CicadaTheme.font(size: 14))
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .buttonStyle(.cicadaPlain)
@@ -117,15 +130,20 @@ struct AskPanel: View {
 
             if !answer.citations.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text("SOURCES")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .tracking(1.2)
+                    SectionLabel("Sources")
 
                     AskChipFlowLayout(spacing: CicadaTheme.spacingSM) {
                         ForEach(answer.citationRows, id: \.id) { row in
                             citationChip(row.citation)
                         }
+                    }
+
+                    // G118 slice 2 (§4.7, P5) — the words behind each source:
+                    // hover a chip for the sentence, click for the conversation
+                    // (the Reader opens beside the window; this sheet steps
+                    // aside, `ContentView`).
+                    ForEach(answer.citationRows.filter { !$0.citation.evidenceChips.isEmpty }, id: \.id) { row in
+                        AskEvidenceRow(citation: row.citation)
                     }
                 }
             }
@@ -133,14 +151,14 @@ struct AskPanel: View {
             if !answer.gaps.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     Text("I don't know:")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(CicadaTheme.font(size: 12, weight: .semibold))
                         .foregroundStyle(CicadaTheme.textSecondary)
 
                     ForEach(answer.gapRows, id: \.id) { row in
                         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                             Text("•").foregroundStyle(CicadaTheme.textTertiary)
                             Text(row.text)
-                                .font(.system(size: 12))
+                                .font(CicadaTheme.font(size: 12))
                                 .foregroundStyle(CicadaTheme.textSecondary)
                         }
                     }
@@ -154,9 +172,10 @@ struct AskPanel: View {
             onSelectEntity(citation.entityId)
         } label: {
             HStack(spacing: 6) {
-                LogoImage(entityId: citation.entityId, name: citation.entityName, size: 20)
+                EntityPicture(id: citation.entityId, name: citation.entityName,
+                              type: graphVM.nodes.first { $0.id == citation.entityId }?.type ?? .concept, size: 20)
                 Text("[[\(citation.entityName)]]")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .font(CicadaTheme.font(size: 12, weight: .medium))
                     .foregroundStyle(CicadaTheme.accent)
             }
             .padding(.leading, 4)
@@ -171,10 +190,7 @@ struct AskPanel: View {
 
     private func confidenceMeter(_ confidence: Double) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            Text("CONFIDENCE")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Confidence")
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -187,7 +203,7 @@ struct AskPanel: View {
             .frame(height: 4)
 
             Text("\(Int(confidence * 100))%")
-                .font(.system(size: 11, design: .monospaced))
+                .font(CicadaTheme.font(size: 11).monospacedDigit())
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
     }
@@ -200,7 +216,7 @@ struct AskPanel: View {
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
             Text("Answers cite the entities they draw on, and say what they don't know.")
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
         }
         .padding(.top, CicadaTheme.spacingSM)
@@ -208,10 +224,7 @@ struct AskPanel: View {
 
     private func recentQuestions(_ vm: AskViewModel) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("RECENT")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
+            SectionLabel("Recent")
 
             ForEach(vm.history) { entry in
                 Button {
@@ -224,7 +237,7 @@ struct AskPanel: View {
                             .lineLimit(1)
                         Spacer()
                         Image(systemName: "arrow.up.left")
-                            .font(.system(size: 10))
+                            .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.textTertiary)
                     }
                     .padding(.vertical, CicadaTheme.spacingSM)
@@ -240,10 +253,10 @@ struct AskPanel: View {
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.entityColor(for: .deadline))
             Text(message)
-                .font(.system(size: 12))
+                .font(CicadaTheme.font(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
         }
         .padding(CicadaTheme.spacingSM)
@@ -293,6 +306,25 @@ struct AskChipFlowLayout: Layout {
             subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+/// One cited page's evidence under an answer: its name, then its chips.
+private struct AskEvidenceRow: View {
+    let citation: AskCitation
+    @State private var expanded = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+            Text(citation.entityName)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+                .frame(maxWidth: CicadaTheme.scaled(140), alignment: .leading)
+            AskChipFlowLayout(spacing: 6) {
+                EvidenceChipRun(chips: citation.evidenceChips, subjectId: citation.entityId, expanded: $expanded)
+            }
         }
     }
 }

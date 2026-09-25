@@ -31,6 +31,8 @@ final class Store {
     var calendars = Snapshot<[CalendarSubscription]>()
     var contributors = Snapshot<[Contributor]>()
     var origins = Snapshot<[OriginStat]>()
+    /// G124 — the Sources page's card grid. Per-bank like `origins`.
+    var sourcesOverview = Snapshot<[SourceOverview]>()
     var connections = Snapshot<[ConnectionStatus]>()
     var status = Snapshot<StatusSnapshot>()
     /// Usage dashboard (G51) default view. Machine-global, cached under
@@ -48,10 +50,32 @@ final class Store {
     /// un-hiding it here would flash the card back for one refresh cycle.
     var hiddenInboxIds: Set<String> = []
 
-    /// The inbox as the UI should see it: the snapshot minus anything hidden
-    /// by an in-flight or already-confirmed resolve.
+    /// R-DL5 — `entityNames`' memo (`Models/EntityNames.swift`). Ignored by observation: it is a cache, and the
+    /// getter already reads `graph`, which is what views must track.
+    @ObservationIgnored var entityNamesMemo: (stamp: Date?, count: Int, names: EntityNames)?
+
+    /// C11 (G146 plan R-PE10) — picture writes painted before the graph snapshot carries them, keyed `bank/id`, and the
+    /// snapshot's pictures by id, memoised like `entityNamesMemo` (`Sync/PictureOverrides.swift`).
+    var pictureOverrides: [String: PictureOverride] = [:]
+    @ObservationIgnored var pictureIndexMemo: (stamp: Date?, count: Int, index: [String: EntityPictureRef?])?
+
+    /// DR-42 (R-DI2) — the one answer inside its Undo window, and the ids whose held answer is on
+    /// the wire. Both leave `visibleInbox`, so the rail badge, Home and the palette drop a question
+    /// the moment it is tapped — not five seconds later, and not only on the Inbox.
+    var heldResolve: ResolveGrace?
+    var sendingInboxIds: Set<String> = []
+    @ObservationIgnored var graceTask: Task<Void, Never>?
+    @ObservationIgnored var graceToken = 0
+    /// How the window waits; tests replace it (it is the only seam `ResolveGraceTests` needs).
+    @ObservationIgnored var graceWait: @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+    /// Wired by `InboxViewModel` to the menu-bar badge's refresh, the hook `resolve` used to call.
+    @ObservationIgnored var onHeldResolveSent: (() async -> Void)?
+
+    /// The inbox as the UI should see it: the snapshot minus anything hidden by an in-flight or
+    /// already-confirmed resolve, and minus an answer inside its Undo window (DR-42).
     var visibleInbox: [InboxItem] {
-        (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) }
+        let grace = graceHiddenIds
+        return (inbox.value ?? []).filter { !hiddenInboxIds.contains($0.id) && !grace.contains($0.id) }
     }
 
     /// Transient one-line error surfaced by the UI. Set only when a refresh
@@ -77,6 +101,15 @@ final class Store {
     var isConnected: Bool = false
     /// Latest `event: sleep` payload; SleepViewModel observes this.
     var sleepEvent: SleepEventPayload?
+
+    /// G125 R2 / Track I T5 — true while the `IntakeRouter` has a sniff, an
+    /// import or a background job in flight (its request counter owns this
+    /// flag; no view writes it — R-IA20). The Sleep page's mood reads it to
+    /// force `.reading` ahead of happy/hungry — the worm should look like it's
+    /// taking in what just arrived, not idle, even before Stage 1 of the next
+    /// cycle has anything to report. Never persisted: an app relaunch
+    /// mid-import just loses the animation, not any data.
+    var intakeInFlight = false
 
     /// Pushed on every status change, carrying the running→idle edge timestamp
     /// so the menu-bar bookworm can show `digesting`. Wired in `CicadaApp`.
@@ -162,8 +195,19 @@ final class Store {
                 banks.value = roster.value
                 banks.etag = roster.etag
                 banks.loadedAt = Date()
+                // A disk read is not a backend confirmation (Snapshot.refreshedAt).
+                banks.refreshedAt = nil
                 if let active = roster.value.active, !active.isEmpty { bank = active }
             }
+        }
+        // R-DI3 — a held answer belongs to the bank it was made in. `ActivateBank` sends it before
+        // the switch; a switch that arrives from elsewhere (another client moved the roster) drops
+        // it with a word rather than post it into the wrong bank.
+        if let held = heldResolve, held.bank != bank {
+            graceTask?.cancel()
+            graceTask = nil
+            heldResolve = nil
+            toast = Copy.Inbox.answerNotSaved
         }
         var loaded: [String] = banks.value == nil ? [] : ["banks"]
         /// Load one domain for `bank`. On a MISS the snapshot is **reset**, not
@@ -181,6 +225,12 @@ final class Store {
             self[keyPath: kp].value = hit.value
             self[keyPath: kp].etag = hit.etag
             self[keyPath: kp].loadedAt = Date()
+            // Cleared, never stamped: this value came off the disk cache, so
+            // the backend has confirmed nothing (`Snapshot.refreshedAt`). The
+            // snapshot being mutated may also be the PREVIOUS bank's — a
+            // carried-over confirmation time would date bank B's page by a
+            // fetch that happened in bank A.
+            self[keyPath: kp].refreshedAt = nil
             self[keyPath: kp].isRefreshing = false
             loaded.append(domain.rawValue)
             return true
@@ -193,6 +243,7 @@ final class Store {
         await take(.calendars, \.calendars)
         await take(.contributors, \.contributors)
         await take(.origins, \.origins)
+        await take(.sourcesOverview, \.sourcesOverview)
         await take(.connections, \.connections)
         // Machine-global like the banks roster above (see the `consumption`
         // property comment) — read from `rosterBank`, not the per-bank `take()`.
@@ -200,6 +251,7 @@ final class Store {
             consumption.value = hit.value
             consumption.etag = hit.etag
             consumption.loadedAt = Date()
+            consumption.refreshedAt = nil  // disk, not the backend — see `take`
             consumption.isRefreshing = false
             loaded.append(SyncDomain.consumption.rawValue)
         } else {
@@ -249,6 +301,7 @@ final class Store {
             case .calendars: await refreshOne(domain, \.calendars) { [api] e in try await api.fetchCalendars(etag: e) }
             case .contributors: await refreshOne(domain, \.contributors) { [api] e in try await api.fetchContributors(etag: e) }
             case .origins: await refreshOne(domain, \.origins) { [api] e in try await api.fetchOrigins(etag: e) }
+            case .sourcesOverview: await refreshOne(domain, \.sourcesOverview) { [api] e in try await api.fetchSourcesOverview(etag: e) }
             case .connections: await refreshOne(domain, \.connections) { [api] e in try await api.fetchConnections(etag: e) }
             case .consumption: await refreshOne(domain, \.consumption) { [api, self] e in
                 try await api.fetchConsumption(etag: e, current: self.consumption.value)
@@ -258,8 +311,8 @@ final class Store {
             // `AskViewModel` owns its own read/write through `store.cache`
             // directly. Nothing to do here; just don't let it fall through
             // to a case that doesn't exist.
-            case .askHistory:
-                pendingDomains.remove(.askHistory)
+            case .askHistory, .quickRecents:
+                pendingDomains.remove(domain)
                 continue
             }
         }
@@ -320,7 +373,13 @@ final class Store {
                 }
                 // 200 and 304 both mean "we are in sync with the server" —
                 // any previously-latched failure for this domain no longer
-                // applies.
+                // applies, and both are equally a confirmation that what we
+                // hold is what the backend has right now, so `refreshedAt`
+                // moves on either (`Snapshot.refreshedAt`). Stamping only the
+                // 200 would understate freshness for any domain that rarely
+                // changes — the Sleep page's chip would date a page the
+                // backend confirmed a second ago by the last body change.
+                self[keyPath: kp].refreshedAt = Date()
                 pendingDomains.remove(domain)
                 domainErrors[domain] = nil
             } catch {
@@ -361,6 +420,10 @@ final class Store {
                 }
                 status.value = snapshot
                 status.loadedAt = Date()
+                // The backend just answered — see `refreshOne`'s stamp and
+                // `Snapshot.refreshedAt`. `/status` has no etag, so every
+                // landed response is a 200 and there is no 304 case here.
+                status.refreshedAt = Date()
                 await cache.save(snapshot, etag: nil, domain: .status, bank: bank)
                 pendingDomains.remove(.status)
                 // Mirrors `refreshOne`: a landed response means any previously
@@ -442,7 +505,9 @@ final class Store {
             return true
         } catch {
             await mutation.rollback(self)
-            toast = mutation.failureMessage
+            // R-SR11 — the person stopped it: no toast. The reconcile below shares the cancelled task, so its
+            // requests end at once; the next SSE `version` event is what brings the domains back in line.
+            if !(SyncCancellation.isCancellation(error) || Task.isCancelled) { toast = mutation.failureMessage }
             Self.logger.debug("mutation failed: \(String(describing: error))")
             // The rollback restores what this mutation changed, but it cannot
             // know what else moved while the request was in flight (an SSE
@@ -486,6 +551,7 @@ final class Store {
         calendars.isRefreshing = false
         contributors.isRefreshing = false
         origins.isRefreshing = false
+        sourcesOverview.isRefreshing = false
         connections.isRefreshing = false
         consumption.isRefreshing = false
         status.isRefreshing = false

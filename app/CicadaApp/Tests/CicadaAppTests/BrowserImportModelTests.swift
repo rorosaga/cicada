@@ -79,6 +79,15 @@ final class BrowserImportModelTests: XCTestCase {
                        "3 new · 0 already saved")
     }
 
+    /// G129 slice 2 — the feedback line only grows a removals clause when
+    /// there's something to review; the plain 3-arg init above still reads
+    /// as "nothing to review" (`removalsProposed` defaults to 0).
+    func testSyncSummaryIncludesRemovalsWhenAny() {
+        var r = BookmarkSyncResult(new: 1, skipped: 0, sources: [])
+        r.removalsProposed = 2
+        XCTAssertEqual(BrowserImportSummary.bookmarks(r), "1 new · 0 already saved · 2 removals to review")
+    }
+
     func testDecodesTheBackendShapes() throws {
         let preview = try JSONDecoder().decode(SafariTabsPreview.self, from: Data(#"{"total":3,"devices":[{"name":"Bob's iPhone","count":3}],"warnings":[]}"#.utf8))
         XCTAssertEqual(preview.devices.first?.count, 3)
@@ -94,5 +103,17 @@ final class BrowserImportModelTests: XCTestCase {
         XCTAssertNil(legacy.sources[0].channel)
         let current = try JSONDecoder().decode(BookmarkSyncResult.self, from: Data(#"{"new":1,"skipped":0,"sources":[{"origin":"safari-bookmark","channel":"safari-bookmarks","found":1,"new":1,"skipped":0}]}"#.utf8))
         XCTAssertEqual(current.sources[0].channel, "safari-bookmarks")
+        // G129 slice 2 — an older backend's payload carries neither key; both
+        // default so a pre-slice-2 cache still decodes.
+        XCTAssertEqual(legacy.removalsProposed, 0)
+        XCTAssertNil(legacy.removalsSkipped)
+        let withRemovals = try JSONDecoder().decode(BookmarkSyncResult.self, from: Data(#"""
+        {"new":1,"skipped":0,"sources":[],"removalsProposed":2,"removalsSkipped":null}
+        """#.utf8))
+        XCTAssertEqual(withRemovals.removalsProposed, 2)
+        let skippedSync = try JSONDecoder().decode(BookmarkSyncResult.self, from: Data(#"""
+        {"new":0,"skipped":0,"sources":[],"removalsProposed":0,"removalsSkipped":"safari-bookmarks: folder scope changed since the last sync"}
+        """#.utf8))
+        XCTAssertEqual(skippedSync.removalsSkipped, "safari-bookmarks: folder scope changed since the last sync")
     }
 }

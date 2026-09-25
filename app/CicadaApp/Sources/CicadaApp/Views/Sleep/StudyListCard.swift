@@ -1,0 +1,355 @@
+import SwiftUI
+
+// MARK: - Pure state for one queue row (G125 v3 Task 6)
+
+/// What a queue row draws, as a value — so the four cases and, crucially,
+/// their PRECEDENCE are unit-testable without standing up a view.
+///
+/// `nextCycle` outranks `done`, and that ordering is the whole reason this is
+/// a function rather than three `if`s in a `ViewBuilder`: a source the episode
+/// cap left out of this cycle arrives as `total == 0` (`studyRows`'s own doc
+/// comment), which is also `read == total`. Checked the other way round, a
+/// source nothing has touched would render the finished ✓ — the exact
+/// inversion of the truth.
+enum QueueRowState: Equatable {
+    /// Idle: the plain pile. There is nothing honest to count down when no
+    /// cycle has claimed this source's episodes yet (R3).
+    case waiting(Int)
+    /// Running: `read of total`, with `fill` for the 3 pt micro-bar drawn
+    /// behind the numbers. `fill` is derived here so the bar and the words can
+    /// never disagree (the same one-reading rule the hero meter follows, P7).
+    case reading(read: Int, total: Int, fill: Double)
+    /// This source is fully read — a dimmed ✓, no numbers. The cycle moved on
+    /// to stages the strip reports; repeating `188 / 188` would be noise.
+    case done
+    /// In the queue but left out of THIS cycle by the episode cap.
+    case nextCycle
+}
+
+func queueRowState(_ row: StudyRow) -> QueueRowState {
+    guard let read = row.read, let total = row.total else { return .waiting(row.count) }
+    if total == 0 { return .nextCycle }
+    if read >= total { return .done }
+    return .reading(read: read, total: total, fill: Double(read) / Double(total))
+}
+
+/// A queue row's state in words (Track Z §7.1) — the spine popover's header
+/// and a spine's tooltip, in the same nouns the row prints: `waiting` idle,
+/// `read` while running. Counts go through `UsageFormat.count` so "1,234"
+/// follows the viewer's locale, as every count on the Sources page does.
+func queueRowWords(_ state: QueueRowState, locale: Locale = .autoupdatingCurrent) -> String {
+    switch state {
+    case .waiting(let n): "\(UsageFormat.count(n, locale: locale)) waiting"
+    case .reading(let read, let total, _):
+        "\(UsageFormat.count(read, locale: locale)) of \(UsageFormat.count(total, locale: locale)) read"
+    case .done: "all read"
+    case .nextCycle: "next cycle"
+    }
+}
+
+// MARK: - The schedule sentence (P11 / R-A3)
+
+/// The desk lamp is lit iff `mode != "manual"`. **Art never carries a fact
+/// alone** — this is the lamp's mandatory text twin, and it is a pure function
+/// of `ScheduleConfig` so the two can be read against each other in a test.
+///
+/// It never invents a time it was not given: an unrecognized mode from a newer
+/// backend reads as "manual only" rather than as a schedule nobody configured.
+func scheduleSentence(_ schedule: ScheduleConfig) -> String {
+    switch schedule.mode {
+    case "daily":
+        return String(format: "Every day at %02d:%02d", schedule.hour, schedule.minute)
+    case "interval":
+        return schedule.intervalHours == 1 ? "Every hour" : "Every \(schedule.intervalHours) h"
+    case "after_import":
+        return "After imports settle"
+    default:
+        return Copy.nextRunManual
+    }
+}
+
+/// The footer's second line — present **only** when the manual and scheduled
+/// previews name different engines (R-A9).
+///
+/// The standing ruling (a scheduled cycle never spends plan quota) makes those
+/// two genuinely different on a plan-backed bank. Showing the line only on a
+/// difference is the point: an asymmetry the reader can see is a decision,
+/// one applied silently is a surprise. A missing preview yields `nil` — an
+/// unloaded fact is never guessed at.
+func scheduledEngineLine(preview: SleepEnginePreviews?) -> String? {
+    guard let preview, preview.manual.engine != preview.scheduled.engine else { return nil }
+    return Copy.scheduledRunsOn(engine: preview.scheduled.engine)
+}
+
+/// The date half of the next-run line — `nil` when there is none to state:
+/// a manual bank, or a snapshot with no `nextSleepAt`. Hoisted from the queue
+/// card's footer (Track Z Z0) because the whisper line (Z2) and the worm's
+/// "when" answer (Z5) both need it; `locale`/`timeZone` are injected so a
+/// test never depends on the runner's.
+func nextRunWhen(_ schedule: ScheduleConfig, nextSleepAt: String?,
+                 locale: Locale = .current, timeZone: TimeZone = .current) -> String? {
+    guard schedule.mode != "manual", let date = StatusSnapshot.parseDate(nextSleepAt) else { return nil }
+    let f = DateFormatter()
+    f.dateFormat = "MMM d, h:mm a"
+    f.locale = locale
+    f.timeZone = timeZone
+    return f.string(from: date)
+}
+
+/// "Manual only" / "Next run Sep 24, 3:00 AM" / "Next run after the next
+/// import" / "Next run —" (R-A14: an unknown is a dash, never a guess).
+func nextRunSentence(_ schedule: ScheduleConfig, nextSleepAt: String?,
+                     locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+    if schedule.mode == "manual" { return Copy.nextRunManual }
+    if let when = nextRunWhen(schedule, nextSleepAt: nextSleepAt, locale: locale, timeZone: timeZone) {
+        return "Next run \(when)"
+    }
+    return schedule.mode == "after_import" ? "Next run after the next import" : "Next run —"
+}
+
+/// "What is waiting for the next cycle", grouped by source (G125 — replaces
+/// the old `SleepQueueCard` + `SleepDebtBreakdown` pair, R1/R11). One row per
+/// origin, largest pile first; a chevron discloses that origin's episodes
+/// inline. The one Consolidate/Cancel control lives in the hero since G125 v3
+/// (R-A7) — the ruling is still "exactly one on this page", only its home
+/// moved — which leaves this card saying exactly one thing: **what is
+/// waiting.** When it will be read moved out in Track Z Z2 (Z-P4): the
+/// schedule row (the desk lamp's text twin, P11/R-A3) and the next-run footer
+/// became the page's whisper line under the room, taking the "Scheduled runs
+/// use …" difference line with them, so the schedule is stated once, beside
+/// the lamp it describes.
+///
+/// A projection over `Store.status` plus `SleepViewModel`; starts no fetches
+/// of its own. `rows` is computed by the caller (`studyRows`, in
+/// `SleepQueueModel.swift`) so this view stays a pure renderer of whatever
+/// the desk card already resolved SSE-vs-REST precedence for.
+struct StudyListCard: View {
+    @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(Store.self) private var store
+    /// R-A13 — a row's disclosure is a transition, and Reduce Motion turns it
+    /// into a jump (`SleepMotion.disclosure` returns `nil`).
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let rows: [StudyRow]
+    let episodes: [EpisodeQueueItem]
+    /// Track Z Z1 — resolved once by the page (`SleepPageModel.queueLoad`,
+    /// through the static `loadState` below) rather than re-derived from the
+    /// Store here, so the card and the room read one snapshot per body.
+    let queueLoad: LoadState
+    var onSelectEntity: ((String) -> Void)?
+    /// Track Z §7.1 (I5, I7) — the room's hover link: a row under the pointer
+    /// lifts its spine, and a spine under the pointer tints its row. `nil`
+    /// outside the Sleep page, where there is no pile to link to.
+    var room: RoomModel? = nil
+
+    /// Which origins are disclosed. Local UI state, not persisted — a fresh
+    /// visit to the page starts every row collapsed.
+    @State private var expandedOrigins: Set<String> = []
+
+    /// PR #19 review (moved verbatim from `SleepQueueCard`, R11): a missing
+    /// `store.status` is not one state, it's two — a fetch still in flight
+    /// (`.loading`) vs. one that already failed and left nothing behind
+    /// (`.failed`) — and neither is "a confirmed zero queue"
+    /// (`.loaded(count: 0)`, the only case that state may render for).
+    enum LoadState: Equatable {
+        case loading
+        case failed(String)
+        case loaded(count: Int)
+    }
+
+    static func loadState(status: StatusSnapshot?, isLoading: Bool, error: String?) -> LoadState {
+        if let status { return .loaded(count: status.episodes.unprocessed) }
+        if isLoading { return .loading }
+        if let error { return .failed(error) }
+        // No snapshot, not refreshing, no latched failure yet — the fetch
+        // simply hasn't started. Treat like loading rather than guessing.
+        return .loading
+    }
+
+    /// "What's waiting" — the Details section's own name (Track Z §4.2), in the plain words the
+    /// sentence above already uses. R-HS15: its label over rows, no card (DR-37); the error line is
+    /// a quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions).
+    var body: some View {
+        SleepDetailsSection(title: "What's waiting") {
+            content
+
+            if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
+                Text(err)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch queueLoad {
+        case .loading:
+            HStack(spacing: CicadaTheme.spacingSM) {
+                ProgressView().controlSize(.small)
+                Text("Checking the queue…")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+        case .failed(let message):
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.warning)
+                    .accessibilityHidden(true)
+                Text(message)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                Spacer()
+                NeutralButton(title: "Retry", size: .compact) { Task { await store.refresh([.status]) } }
+                    .accessibilityLabel("Retry loading the queue")
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+        case .loaded(let count):
+            if rows.isEmpty {
+                Text(count == 0 ? "All caught up" : "Nothing grouped yet.")
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(rows) { row in
+                        rowView(row)
+                        if expandedOrigins.contains(row.origin) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
+                                    EpisodeRow(item: ep)
+                                }
+                            }
+                            // The mock's 45 pt indent, less the row's own 10.
+                            .padding(.leading, CicadaTheme.scaled(35))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func rowView(_ row: StudyRow) -> some View {
+        Button {
+            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
+                if expandedOrigins.contains(row.origin) {
+                    expandedOrigins.remove(row.origin)
+                } else {
+                    expandedOrigins.insert(row.origin)
+                }
+            }
+        } label: {
+            // R-HS15 — one 36 pt row (DR-34): the chevron, the source's real mark (DR-52), its
+            // name, the oldest age inline, and the trailing state.
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: expandedOrigins.contains(row.origin) ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.icon(.inline))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .frame(width: CicadaTheme.scaled(12))
+
+                OriginMark(origin: row.origin, size: CicadaTheme.scaled(14))
+
+                Text(row.label)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                if let age = row.oldestAge {
+                    Text("oldest \(age)")
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                trailing(row)
+            }
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .background(room?.hoveredOrigin == row.origin ? CicadaTheme.bgHover : Color.clear,
+                    in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
+        .accessibilityLabel(Self.rowAccessibilityLabel(row))
+    }
+
+    /// The trailing mark's meaning in words — the ✓ and the micro-fill are
+    /// both silent to VoiceOver, so the state has to arrive here instead.
+    static func rowAccessibilityLabel(_ row: StudyRow) -> String {
+        switch queueRowState(row) {
+        // Design I5 — the spine and the row speak one sentence, in the page's
+        // own noun ("waiting", never "queued") and with the oldest age the
+        // row prints beside its name.
+        case .waiting(let count):
+            return ["\(row.label), \(count) waiting", row.oldestAge.map { "oldest \($0)" }]
+                .compactMap { $0 }.joined(separator: ", ")
+        case .reading(let read, let total, _): return "\(row.label), \(read) of \(total) read"
+        case .done: return "\(row.label), fully read"
+        case .nextCycle: return "\(row.label), waiting for the next cycle"
+        }
+    }
+
+    /// Renders `queueRowState`, which owns the precedence (see its doc
+    /// comment). The running row lost its 60 pt `ProgressView`: a spinner-
+    /// shaped control beside a real `12 / 188` says nothing the numbers do not
+    /// already say, and at eight rows it was eight competing bars. What
+    /// replaces it is a 3 pt micro-fill drawn *behind* the count — the same
+    /// fraction, at a weight that reads as a texture on the number rather than
+    /// as a second widget.
+    @ViewBuilder
+    private func trailing(_ row: StudyRow) -> some View {
+        switch queueRowState(row) {
+        case .nextCycle:
+            Text("next cycle")
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        case .done:
+            // Dimmed, and no numbers: this source is finished, and the cycle's
+            // live readout has moved on to the stage strip.
+            Image(systemName: "checkmark")
+                .font(CicadaTheme.icon(.inline))
+                .foregroundStyle(CicadaTheme.textTertiary)
+        case .waiting(let count):
+            countText(UsageFormat.count(count))
+        case .reading(let read, let total, let fill):
+            countText("\(UsageFormat.count(read)) / \(UsageFormat.count(total))")
+                .background(alignment: .bottom) { microFill(fill) }
+        }
+    }
+
+    private func countText(_ value: String) -> some View {
+        Text(value)
+            .font(CicadaTheme.metaFont)
+            .monospacedDigit()
+            .foregroundStyle(CicadaTheme.textSecondary)
+    }
+
+    /// 3 pt tall, as wide as the count it sits under. Decorative in the
+    /// accessibility sense only — the numbers above it carry the same fact,
+    /// which is why it can be hidden from VoiceOver without losing anything.
+    /// R-HS15 — `textSecondary` on `bgBadge`, not the accent: progress is not one of DR-5's accent
+    /// uses, and the stage strip already fills in the text ladder.
+    private func microFill(_ fraction: Double) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(CicadaTheme.bgBadge)
+                Capsule()
+                    .fill(CicadaTheme.textSecondary)
+                    .frame(width: geo.size.width * min(max(fraction, 0), 1))
+            }
+        }
+        .frame(height: 3)
+        .padding(.bottom, -1)
+        .accessibilityHidden(true)
+    }
+}

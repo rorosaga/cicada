@@ -16,7 +16,7 @@
 // of exploding. The canvas + quadtree pipeline is untouched.
 
 // MUST stay byte-identical to CicadaTheme.entityColor(for:) — Tailwind-400-band
-// hues on the darker #0E0F14 base so all 8 pop and clear ~4.5:1+ contrast.
+// hues on the darker #111213 graphite base (Direction D, DS-1) so all 8 pop and clear ~4.5:1+ contrast.
 const typeColors = {
     person:   "#5AA8FF",
     project:  "#B57BFF",
@@ -69,24 +69,83 @@ const CONTEXT_COLORS = {
     general:       "#7A8290",
 };
 const OBSERVER_BADGE_COLORS = {
-    agent:    "#8896FF",   // accent
+    agent:    "#8896FF",   // the pre-G137 accent, frozen — an observer's identity, not the theme (R-M8)
     rodrigo:  "#5AA8FF",   // blue (person)
     external: "#F65BA6",   // pink (media)
 };
+
+// Track P — the canvas is transparent (index.html), so only the DRAWN colours
+// were dark-locked. Two tables, one key per drawn surface, each value the
+// exact `CicadaTheme.Dark`/`.Light` twin so the chrome and the canvas agree.
+// `labelShadow` is a HALO, not a drop shadow: on a light ground a black blur
+// around dark text is what made light mode unreadable, so the light value is
+// the background colour instead. `edge` takes `borderLight` in BOTH modes
+// (Direction D, R-DS2): `border` is now the opaque twin of the faint resting
+// ring (#E3E3E1 on #F7F7F5, #222324 on #111213), invisible as a 1px line in
+// light and ~1.2:1 in dark, while `borderLight` keeps the edges' measured
+// 1.4–1.5:1.
+//
+// CONTEXT_COLORS and OBSERVER_BADGE_COLORS above are deliberately NOT in here:
+// they are IDENTITY colours (which context, which observer), and an identity
+// that changes hue with the theme stops being an identity.
+const PALETTES = {
+    dark: {
+        label:       "#F5F5F6",                    // = CicadaTheme.Dark.textPrimary
+        labelShadow: "rgba(0, 0, 0, 0.85)",
+        plate:       "rgba(17, 18, 19, 0.85)",     // = Dark.background
+        plateStrong: "rgba(17, 18, 19, 0.92)",     // = Dark.background
+        plateText:   "#C7CBD6",
+        edge:        "#323334",                    // = Dark.borderLight
+        nodeStroke:  "#FFFFFF",
+    },
+    light: {
+        label:       "#141415",                    // = CicadaTheme.Light.textPrimary
+        labelShadow: "rgba(247, 247, 245, 0.95)",  // = Light.background, as a halo
+        plate:       "rgba(255, 255, 255, 0.92)",  // = Light.surface
+        plateStrong: "rgba(255, 255, 255, 0.96)",  // = Light.surface
+        plateText:   "#38393C",                    // = Light.textSecondary
+        edge:        "#CFCFCE",                    // = Light.borderLight
+        nodeStroke:  "#141415",                    // = Light.textPrimary
+    },
+};
+let themeMode = "dark";
+let PALETTE = PALETTES.dark;
+
+// Pushed from `GraphView.updateNSView` the same way setPanToggle /
+// setHoverSuppressed are. R10: this is a REPAINT — it swaps a table and asks
+// for a frame. It must never touch `simulation`, `alpha`, `alphaTarget` or
+// `restart()` (G109: the release path never bumps alpha; a colour change is
+// not even a release, and a re-layout would throw away every node position
+// the person has dragged). An unknown mode falls back to dark rather than
+// leaving `undefined` in a fillStyle, which paints a silently black canvas.
+function setTheme(mode) {
+    const next = PALETTES[String(mode)] ? String(mode) : "dark";
+    if (next === themeMode) return;
+    themeMode = next;
+    PALETTE = PALETTES[next];
+    scheduleRedraw();
+}
+
 function hashHue(str) {
     let h = 0;
     for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
     return Math.abs(h) % 360;
 }
 function contextColor(context) {
-    if (!context) return "#262A33";   // = CicadaTheme.border (contextless edge)
+    if (!context) return PALETTE.edge;   // contextless edge = the theme border
     if (CONTEXT_COLORS[context]) return CONTEXT_COLORS[context];
     return `hsl(${hashHue(context)}, 55%, 68%)`;
 }
 function observerBadgeColor(wire) {
-    if (!wire) return OBSERVER_BADGE_COLORS.agent;
+    if (!wire || wire === "agent") return OBSERVER_BADGE_COLORS.agent;
     if (wire.startsWith("external:")) return OBSERVER_BADGE_COLORS.external;
-    return OBSERVER_BADGE_COLORS[wire] || OBSERVER_BADGE_COLORS.external;
+    // G117 R2: the wire protocol reserves exactly "agent" and "external:" —
+    // anything else is the owner, whatever slug onboarding resolved (the
+    // legacy "rodrigo", the fresh-bank keyword "owner", or a name-derived
+    // slug like "bob-example"). A dictionary-miss fallback to "external"
+    // used to mislabel every one of those as External the moment the
+    // resolved value stopped being the bare literal "rodrigo".
+    return OBSERVER_BADGE_COLORS.rodrigo;
 }
 
 const MIN_ZOOM = 0.2;
@@ -126,6 +185,12 @@ window.onerror = (message, source, line, col, error) => {
         );
     } catch (e) { /* no handler (standalone browser) */ }
 };
+
+// DS-3a — the one sender for the messages Swift answers as page actions. try/catch because the page
+// also runs standalone in a browser (no handler), exactly like the posts above.
+function postToSwift(msg) {
+    try { window.webkit.messageHandlers.cicada.postMessage(JSON.stringify(msg)); } catch (e) { /* standalone */ }
+}
 
 // ---------- Module-level state ----------
 
@@ -204,6 +269,85 @@ let transform = d3.zoomIdentity;
 let currentZoom;
 
 let hoveredNode = null;
+// Shift = pan mode (owner request, 2026-09-02): while Shift is held the pointer
+// never picks a node — no hover highlight, no drag — and a press anywhere,
+// node or empty space, falls through to d3-zoom's pan. Mouse events carry the
+// modifier state, so the mode tracks the key even when the web view never saw
+// a keydown (the page is often not first responder while the pointer merely
+// hovers); keyup/blur restore the hover pick at the last pointer position
+// without waiting for the next move. Releasing Shift mid-drag does not drop
+// the node: the drag branch in onMouseMove/onMouseUp runs untouched.
+let panModifierHeld = false;
+let panToggled = false;         // toolbar toggle (Swift → setPanToggle); sticky twin of Shift
+// Hover is suppressed while the entity detail card is open (owner, 2026-09-03:
+// "as I move my cursor it still highlights the nodes while an entity page is
+// open"). Swift mirrors `selectedEntity != nil` here; clicks still work so a
+// second node can be selected, only the hover pick is quiet.
+let hoverSuppressed = false;
+function setHoverSuppressed(on) {
+    hoverSuppressed = !!on;
+    if (hoverSuppressed && hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+    if (hoverSuppressed && canvas && !panModifierHeld) canvas.style.cursor = "";
+}
+function setPanToggle(on) {
+    panToggled = !!on;
+    setPanMode(panToggled);
+}
+// DS-3a R-DG9 — the entity whose column is open. Swift pushes it on every change (`GraphJS.setSelectedNode`).
+// It draws a neutral ring (draw(), beside the search ring) and is kept in view after every resize: the
+// column takes up to 560 pt of the canvas, and a node clicked on its right half would otherwise vanish.
+// Only the zoom TRANSFORM moves, never its scale, and nothing here touches `simulation` (G109).
+let selectedNodeId = null;
+const KEEP_IN_VIEW_PAD = 80;   // px inside the canvas edge, the same margin revealNode fits with
+// A G123 reveal owns the transform while its transition runs (revealNode sets this, its end clears it).
+// `revealEntity` selects AND reveals in one update, and d3 transitions of one name are exclusive — a
+// keep-in-view pan started beside the reveal (or `zoom.transform` on a resize, which interrupts) would
+// cancel the zoom to the neighbourhood. The reveal's end re-checks instead (R-DG9).
+let revealing = false;
+let revealSeq = 0;             // which reveal holds `revealing` (revealNode)
+function setSelectedNode(id) {
+    selectedNodeId = id ? String(id) : null;
+    const shown = selectedNodeId ? ensureVisible(selectedNodeId, true) : false;
+    scheduleRedraw();
+    return shown;
+}
+function axisShift(s, extent) {
+    const pad = Math.min(KEEP_IN_VIEW_PAD, extent / 2);
+    if (s < pad) return pad - s;
+    if (s > extent - pad) return (extent - pad) - s;
+    return 0;
+}
+function ensureVisible(id, animate) {
+    const n = visibleNodes.find((x) => x.id === id);
+    if (!n || n.x == null || width <= 0 || height <= 0) return false;
+    if (revealing) return true;   // the reveal lands on it, then re-checks (revealNode)
+    const dx = axisShift(n.x * transform.k + transform.x, width);
+    const dy = axisShift(n.y * transform.k + transform.y, height);
+    if (dx === 0 && dy === 0) return true;
+    const t = d3.zoomIdentity.translate(transform.x + dx, transform.y + dy).scale(transform.k);
+    if (currentZoom) {
+        const sel = d3.select(canvas);
+        if (animate) sel.transition().duration(250).call(currentZoom.transform, t);
+        else sel.call(currentZoom.transform, t);
+    } else {
+        transform = t;   // headless (no zoom behaviour attached): apply directly, as revealNode does
+    }
+    return true;
+}
+let lastPointer = null;         // { sx, sy } of the last mousemove, for the keyup re-pick
+function setPanMode(on) {
+    if (on === panModifierHeld) return;
+    panModifierHeld = on;
+    if (!canvas) return;
+    if (on) {
+        if (hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+        canvas.style.cursor = "grab";
+        return;
+    }
+    const picked = lastPointer ? pickNode(lastPointer.sx, lastPointer.sy) : null;
+    if (picked !== hoveredNode) { hoveredNode = picked; scheduleRedraw(); }
+    canvas.style.cursor = picked ? "pointer" : "";
+}
 let draggingNode = null;
 let pressStart = null;          // { x, y } screen coords of mousedown for click-vs-drag
 let lastClickTime = 0;          // for double-click detection
@@ -320,6 +464,22 @@ function nodeMatchesContexts(n) {
 // Apply the initial centering transform exactly once, the first time the
 // canvas has real dimensions. Manual zoom/pan afterwards is never overridden.
 let hasCentered = false;
+// First-load fit (owner, 2026-09-03: "the zoomed-out look should be the
+// default"): centerOnce() only places the origin; the graph's real extent is
+// unknown until the cold layout has spread, so the first updateGraph arms a
+// one-shot fit that fires after INITIAL_FIT_TICKS ticks. Later data pushes
+// (deltas, bank switches with a warm prevPositions) never re-fit — the
+// person's own zoom is the state to keep (the WKWebView now survives tab
+// switches, see ContentView.detailContent).
+const INITIAL_FIT_TICKS = 90;
+let initialFitTicksLeft = -1;   // -1 = not armed
+function armInitialFit() { initialFitTicksLeft = INITIAL_FIT_TICKS; }
+function tickInitialFit() {
+    if (initialFitTicksLeft < 0) return;
+    if (--initialFitTicksLeft > 0) return;
+    initialFitTicksLeft = -1;
+    fitGraph();
+}
 function centerOnce() {
     if (hasCentered || width <= 0 || height <= 0 || !currentZoom) return;
     hasCentered = true;
@@ -329,31 +489,42 @@ function centerOnce() {
     );
 }
 
+// The WKWebView is created with a zero frame and only gets its real size from the SwiftUI layout pass
+// AFTER this script ran — without centerOnce here the origin stays at the top-left corner and the whole
+// graph renders off-canvas (the "blank graph" bug). DS-3a: the entity column narrows the canvas, so
+// the open node is kept in view on every resize — without an animation, because the resize itself is
+// already the column's motion.
+function onResize() {
+    resizeCanvas();
+    centerOnce();
+    if (selectedNodeId) ensureVisible(selectedNodeId, false);
+    scheduleRedraw();
+}
+
+// Shift is the momentary pan. Esc: an ego focus is graph.js's own and closes first; otherwise the page
+// decides what Esc closes (the find field, the Legend, the Reader, the column — DR-28), so it is posted
+// and prevented here — WebKit must not ALSO forward it up the responder chain, or one press would close
+// two things (DS-3a R-DG11).
+function onKeyDown(e) {
+    if (e.key === "Shift") setPanMode(true);
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    if (focusNodeId) { clearFocus(); return; }
+    postToSwift({ type: "escape" });
+}
+
 function init() {
     canvas = document.getElementById("graph");
     ctx = canvas.getContext("2d");
 
     resizeCanvas();
-    window.addEventListener("resize", () => {
-        resizeCanvas();
-        // The WKWebView is created with a zero frame and only gets its real
-        // size from the SwiftUI layout pass AFTER this script ran — without
-        // this re-center the origin stays at the top-left corner and the
-        // whole graph renders off-canvas (the "blank graph" bug).
-        centerOnce();
-        scheduleRedraw();
-    });
+    window.addEventListener("resize", onResize);
 
     // Zoom/pan. We drive d3.zoom on the canvas element and store the result
     // in a local transform object; draw() applies that transform manually
     // in world space via ctx.translate/scale. We do NOT set a DOM transform
     // attribute anymore — there is no DOM tree under the canvas to move.
-    currentZoom = d3.zoom()
-        .scaleExtent([MIN_ZOOM, MAX_ZOOM])
-        .on("zoom", (event) => {
-            transform = event.transform;
-            scheduleRedraw();
-        });
+    currentZoom = makeZoom();
     d3.select(canvas).call(currentZoom);
 
     // Initial centering transform — put origin in the middle of the canvas
@@ -365,14 +536,12 @@ function init() {
     // gesture now (handled in onMouseUp, not here).
     d3.select(canvas).on("dblclick.zoom", null);
 
-    // ESC clears focus mode. Swift's detail-card ESC handling is independent;
-    // when no focus is active this is a no-op so the two don't collide.
-    document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && focusNodeId) {
-            e.preventDefault();
-            clearFocus();
-        }
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", (e) => {
+        if (e.key === "Shift" && !panToggled) setPanMode(false);
     });
+    // A Cmd-Tab or app switch while Shift is down never delivers the keyup.
+    window.addEventListener("blur", () => { if (!panToggled) setPanMode(false); });
 
     wireMouseEvents();
 
@@ -493,6 +662,7 @@ function updateGraph(dataStr) {
     rebuildVisible();
     rebuildNeighborsIndex();
     startSimulation({ reheat: hadPrev ? 0.3 : 1.0 });
+    if (!hadPrev) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
     scheduleRedraw();
@@ -953,7 +1123,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .force("yType", d3.forceY(d => yAnchor(d)).strength(d => anchorStrength(d, "y")))
         .force("hubGravity", hubGravityForce(0.05))
         .force("clampSpeed", clampSpeedForce())
-        .on("tick", scheduleRedraw)
+        .on("tick", () => { tickInitialFit(); scheduleRedraw(); })
         .on("end", () => { simulation.stop(); });
 
     simulation.alpha(reheat).restart();
@@ -1070,6 +1240,44 @@ function highlightSearch(idsStr) {
     scheduleRedraw();
 }
 
+// G123: land the viewport on a node and its neighbourhood — the search
+// field's ⏎, and the seam Ask citations / Activity chips reveal through.
+// Moves only the zoom transform; the simulation is never reheated (G109 rule).
+// Returns false when the node is not in the visible set (hidden by a filter),
+// so the caller can say so instead of silently doing nothing.
+function revealNode(id) {
+    const n = visibleNodes.find(x => x.id === id);
+    if (!n || n.x == null) return false;
+    const nb = neighborsById.get(id) || new Set();
+    const group = [n];
+    for (const m of visibleNodes) {
+        if (nb.has(m.id)) group.push(m);
+        if (group.length >= 40) break;
+    }
+    const fit = transformForNodes(group, 80);
+    // Readable scale, centred on the node itself so the eye lands on it.
+    const k = Math.min(MAX_ZOOM, Math.max(1.0, fit ? fit.k : 1.6));
+    const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-n.x, -n.y);
+    if (currentZoom) {
+        // DS-3a R-DG9 — the reveal owns the transform until it lands; a keep-in-view pan would cancel it
+        // (same-name d3 transitions are exclusive). Its end re-checks, because the entity column may have
+        // narrowed the canvas under it. Anything that stops it — a wheel or drag (interrupt), or a zoom
+        // button, fit or focus scheduled before it started (cancel, d3 v7) — just drops the hold, so the
+        // hold can never outlive its transition.
+        // A second reveal cancels the first, whose handler must not release the second's hold: a sequence number.
+        const seq = ++revealSeq;
+        const release = () => { if (seq === revealSeq) revealing = false; };
+        revealing = true;
+        d3.select(canvas).transition().duration(450).call(currentZoom.transform, t)
+            .on("end", () => { release(); if (!revealing && selectedNodeId) ensureVisible(selectedNodeId, true); })
+            .on("interrupt cancel", release);
+    } else {
+        transform = t;   // headless (no zoom behaviour attached): apply directly
+    }
+    scheduleRedraw();
+    return true;
+}
+
 function focusOnNode(id) {
     const n = visibleNodes.find(x => x.id === id) || nodes.find(x => x.id === id);
     if (!n || n.x == null) return;
@@ -1152,7 +1360,7 @@ function draw() {
         ctx.globalAlpha = alpha;
         // §2a: context-colored edges. An edge with a context paints in its
         // context hue; a contextless (legacy) edge keeps the flat gray.
-        ctx.strokeStyle = l.context ? contextColor(l.context) : "#262A33";
+        ctx.strokeStyle = l.context ? contextColor(l.context) : PALETTE.edge;
         ctx.lineWidth = 1 / transform.k;
         ctx.beginPath();
         ctx.moveTo(src.x, src.y);
@@ -1263,9 +1471,20 @@ function draw() {
         if (searchHighlight && searchHighlight.has(n.id)) {
             ctx.globalAlpha = 1;
             ctx.lineWidth = 2.5 / transform.k;
-            ctx.strokeStyle = "#FFFFFF";
+            ctx.strokeStyle = PALETTE.nodeStroke;
             ctx.beginPath();
             ctx.arc(n.x, n.y, r + 6 / transform.k, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // DS-3a R-DG9 — the open entity's node: the search ring's shape in the theme's neutral ink
+        // (textPrimary's twin), never the accent — selection is brightness, not colour (DR-5, P-a).
+        if (selectedNodeId !== null && n.id === selectedNodeId) {
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 2 / transform.k;
+            ctx.strokeStyle = PALETTE.nodeStroke;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, r + 5 / transform.k, 0, Math.PI * 2);
             ctx.stroke();
         }
 
@@ -1354,7 +1573,7 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
     ctx.font = `${fontSize}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.shadowColor = "rgba(0,0,0,0.85)";
+    ctx.shadowColor = PALETTE.labelShadow;
     ctx.shadowBlur = 3 / k;
 
     const placed = [];
@@ -1380,7 +1599,7 @@ function drawNodeLabels(hoverActive, neighbors, focusActive) {
         // intentional — neighbor labels read slightly softer than the hovered
         // node's own plate so the focal point stays dominant.
         ctx.globalAlpha = hoverActive ? 0.8 : 0.95;
-        ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
+        ctx.fillStyle = PALETTE.label;
         ctx.fillText(n.name, n.x, n.y + r + (4 / k));
     }
     ctx.shadowBlur = 0;
@@ -1422,11 +1641,11 @@ function drawEdgeLabels(focusActive) {
         const boxH = fontSize + padY * 2;
 
         ctx.globalAlpha = alpha * 0.7;
-        ctx.fillStyle = "rgba(14, 15, 20, 0.85)";   // = CicadaTheme.background
+        ctx.fillStyle = PALETTE.plate;
         ctx.fillRect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
 
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = "#C7CBD6";
+        ctx.fillStyle = PALETTE.plateText;
         ctx.fillText(l.label, mx, my);
     }
     ctx.globalAlpha = 1;
@@ -1448,9 +1667,9 @@ function drawHoverLabel(n) {
     const boxX = n.x - boxW / 2;
     const boxY = n.y + r + (6 / k);
     ctx.globalAlpha = 0.92;
-    ctx.fillStyle = "rgba(14, 15, 20, 0.92)";   // = CicadaTheme.background
+    ctx.fillStyle = PALETTE.plateStrong;
     ctx.fillRect(boxX, boxY, boxW, boxH);
-    ctx.fillStyle = "#ECEDF2";   // = CicadaTheme.textPrimary
+    ctx.fillStyle = PALETTE.label;
     ctx.fillText(text, n.x, boxY + boxH / 2);
     ctx.globalAlpha = 1;
 }
@@ -1482,6 +1701,34 @@ function screenToWorld(sx, sy) {
     // Invert the zoom transform to map a client-space (CSS pixel) point
     // back into the simulation's world coordinates.
     return [(sx - transform.x) / transform.k, (sy - transform.y) / transform.k];
+}
+
+// The canvas's d3.zoom, built in one place so the tests exercise the same wiring init() does.
+function makeZoom() {
+    return d3.zoom()
+        .scaleExtent([MIN_ZOOM, MAX_ZOOM])
+        .on("zoom", (event) => {
+            transform = event.transform;
+            scheduleRedraw();
+        })
+        .on("end.background", onZoomGestureEnd);
+}
+
+// DS-3a R-DG8 — a click on EMPTY canvas: Swift closes a floating panel, else the entity column.
+// Answered from d3-zoom's own gesture end, not from onMouseUp: on empty canvas d3-zoom claims the
+// press, and its `mouseup.zoom` listener (window, capture phase) calls stopImmediatePropagation, so
+// neither the canvas's nor the window's mouseup listener ever sees the release (final review,
+// reproduced in headless Chromium). A drag past DRAG_CLICK_THRESHOLD is a pan and closes nothing;
+// pan mode's every press is a pan; a press on a node never reaches here as a click (onMouseDown
+// claims it); a wheel zoom's end carries a wheel sourceEvent, not a mouseup.
+function onZoomGestureEnd(e) {
+    const s = e && e.sourceEvent;
+    if (!s || s.type !== "mouseup" || !pressStart || pressStart.onNode || pressStart.pan) return;
+    const [sx, sy] = eventScreenXY(s);
+    if (Math.hypot(sx - pressStart.x, sy - pressStart.y) <= DRAG_CLICK_THRESHOLD) {
+        postToSwift({ type: "backgroundClicked" });
+    }
+    pressStart = null;
 }
 
 function eventScreenXY(event) {
@@ -1517,9 +1764,17 @@ function seededDragVelocity(lastSampleTime, now, vx, vy) {
 
 function onMouseDown(event) {
     const [sx, sy] = eventScreenXY(event);
-    pressStart = { x: sx, y: sy, moved: false };
+    pressStart = { x: sx, y: sy, moved: false, onNode: false, pan: false };
+    if (event.shiftKey || panToggled) {
+        pressStart.pan = true;
+        // Pan mode: never claim the gesture, so d3-zoom's own mousedown (bubble
+        // phase, after this capture listener) starts a pan even over a node.
+        setPanMode(true);
+        return;
+    }
     const picked = pickNode(sx, sy);
     if (picked) {
+        pressStart.onNode = true;
         draggingNode = picked;
         picked.fx = picked.x;
         picked.fy = picked.y;
@@ -1545,6 +1800,11 @@ function onMouseDown(event) {
 
 function onMouseMove(event) {
     const [sx, sy] = eventScreenXY(event);
+    lastPointer = { sx, sy };
+    if (!draggingNode) {
+        if (event.shiftKey || panToggled) { setPanMode(true); return; }
+        if (panModifierHeld) setPanMode(false);
+    }
 
     // Apply the click-vs-drag threshold uniformly regardless of whether
     // we're currently holding a node. macOS fires mousemove events on
@@ -1594,6 +1854,10 @@ function onMouseMove(event) {
 
     // Hover pick. Only swap hoveredNode if it actually changed so we don't
     // spam redraws on every pixel of mouse movement.
+    if (hoverSuppressed) {
+        if (hoveredNode) { hoveredNode = null; scheduleRedraw(); }
+        return;
+    }
     const picked = pickNode(sx, sy);
     if (picked !== hoveredNode) {
         hoveredNode = picked;
@@ -1657,6 +1921,8 @@ function onMouseUp(event) {
             handleNodeClick(clickedId);
         }
     }
+    // An empty-canvas click is NOT answered here: d3-zoom owns that press and its window
+    // capture-phase mouseup stops the event before this listener runs. See onZoomGestureEnd.
 
     pressStart = null;
 }

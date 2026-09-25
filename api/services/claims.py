@@ -44,10 +44,80 @@ CLAIMS_FENCE_LANG = "claims"
 # Matches a fenced ```claims ... ``` block (the language tag on the opening
 # fence, then everything up to the closing fence). DOTALL so the body spans
 # lines; non-greedy so we stop at the first closing fence.
+# The libyaml scanner, the `markdown_parser._SAFE_LOADER` precedent: same
+# SafeConstructor, same output as `safe_load`, only the scanner differs. G141
+# PJ-1's bench (R-PJB9) measured a 4-claim page at ~7 ms in pure Python, so a
+# project read that opens ~200 pages spent ~1.5 s in the scanner alone.
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 _CLAIMS_BLOCK_RE = re.compile(
     r"^```claims[ \t]*\r?\n(?P<payload>.*?)^```[ \t]*\r?$\r?\n?",
     re.DOTALL | re.MULTILINE,
 )
+
+# G118 slice 1 — the evidence kinds, six since G140. `user`/`assistant` are
+# spans into a conversation episode, attributed by the turn marker at or before
+# the span (R4) or by the episode's declared `evidence_kind` (R-LS7); `speaker`
+# (G134, R-N2 / R-LS7) is a meeting utterance by someone other than the owner,
+# marked `speaker:<label>:`; `media` (G140 Q-R9) is what a video said — a watch
+# record's cited excerpt, a timed `video [m:ss]:` line; `page` is a span into an
+# entity page's prose (a saved link's stored description — link recon);
+# `reasoning` is the contributor's own inference and carries no offsets. The set
+# is closed on purpose: a viewer renders each kind differently, and G100's
+# derived-span class, if it ever ships, will be a seventh value rather than a
+# flag on one of these. Append-only: an older reader degrades an unknown kind to
+# `reasoning`.
+EVIDENCE_KINDS = ("user", "assistant", "page", "reasoning", "speaker", "media")
+
+
+@dataclass
+class Evidence:
+    """WHERE a claim came from — offsets into stored text, never a copy (G118).
+
+    ``episode`` is a source-document id (R3): ``ep_*`` resolves to
+    ``episodes/<id>.md``; anything else to ``entities/<id>.md`` (a ``page``
+    span cites the media entity that holds the description). ``start``/``end``
+    are character offsets into that document's evidence text — the body as
+    ``markdown_parser.parse`` returns it, with the ```claims fence stripped
+    for an entity page (R1) — and ``hash`` is ``sha256[:12]`` of that text
+    (R2) so a rewritten source reads as ``stale`` instead of mis-highlighting.
+    A ``reasoning`` entry has ``start == end == -1``: the contributor cited
+    itself, and nothing in the bank says it in so many words.
+    """
+
+    episode: str = ""
+    start: int = -1
+    end: int = -1
+    kind: str = "reasoning"
+    hash: str = ""
+
+    def is_span(self) -> bool:
+        return self.kind != "reasoning" and 0 <= self.start < self.end
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "Evidence":
+        """Forgiving on purpose: provenance must never make a claim unparseable
+        (a bad entry degrades to ``reasoning``; strict mode is for the block,
+        not for one evidence row)."""
+        data = dict(data or {}) if isinstance(data, dict) else {}
+        kind = str(data.get("kind") or "reasoning")
+        try:
+            start = int(data.get("start", -1))
+            end = int(data.get("end", -1))
+        except (TypeError, ValueError):
+            start, end = -1, -1
+        if kind not in EVIDENCE_KINDS or kind == "reasoning" or start < 0 or end <= start:
+            kind, start, end = "reasoning", -1, -1
+        return cls(
+            episode=str(data.get("episode") or ""),
+            start=start,
+            end=end,
+            kind=kind,
+            hash=str(data.get("hash") or ""),
+        )
 
 
 @dataclass
@@ -106,6 +176,34 @@ class Claim:
     # `today` every time it evaluates an unreferenced subject's claim — the
     # claim-engine mirror of the entity engine's `decayed_through` frontmatter.
     decayed_through: str | None = None
+    # G118 slice 1 — evidence spans. Empty on every claim written before the
+    # field existed (no backfill, R6); at least one entry on every claim
+    # written since, `reasoning` when the writer had no source text.
+    evidence: list[Evidence] = field(default_factory=list)
+    # G140 Q-R6 (R3 P8) — a STATED end: the date the fact itself says it stops
+    # being true ("exams this weekend" → the Sunday; "until Friday"). NOT
+    # `valid_to`, which thirteen readers take to mean CLOSED — a future date
+    # there would hide the fact the day it was written. `claim_expiry` copies
+    # it into `valid_to` once it has passed. Omitted from the YAML when unset
+    # (G118 R7's reason: re-rendering a page must never diff every legacy
+    # claim for a field it lacks).
+    expected_end: str | None = None
+    # G141 §4.1 — event fields, omitted from the YAML when empty (R7's reason):
+    # `status` is the state AS OF `valid_from` (a new state is a new claim,
+    # R-PJ4); `target` a milestone's planned date (expiry never reads it);
+    # `participants` `[{role, surface?, entity?, url?}]` over a closed role set;
+    # `date_basis` how `valid_from` was decided (`when.resolve`).
+    status: str | None = None
+    target: str | None = None
+    participants: list[dict] = field(default_factory=list)
+    date_basis: str | None = None
+    # Round 4 C2 (G49 lifted for harness writes, TODO ruling 11): the second a
+    # claim was written through the MCP seam (stdio or remote),
+    # `YYYY-MM-DDTHH:MM:SSZ`, beside the day-granular `recorded_at`. With the
+    # first-writer `session_id` it is what `turn_authorship` joins to the
+    # captured turn the write happened in; a reinforce moves neither (R4B-5).
+    # Omitted from the YAML when unset (R7's reason).
+    recorded_ts: str | None = None
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -122,7 +220,26 @@ class Claim:
         return out
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # R7: omit an empty evidence list so `write_claims` re-rendering a page
+        # never diffs ~2,300 legacy claims for a field they do not have.
+        if not data.get("evidence"):
+            data.pop("evidence", None)
+        # G140 Q-R6: same rule for a stated end — absent unless one was stated.
+        if data.get("expected_end") is None:
+            data.pop("expected_end", None)
+        # G141 §4.1: the four event fields, absent on every non-event claim.
+        for key in ("status", "target", "date_basis"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        # Cleaned on the way OUT too, so a writer that built the list by hand
+        # can never put an unknown role or key into the fence.
+        data["participants"] = clean_participants(data.get("participants"))
+        if not data["participants"]:
+            data.pop("participants", None)
+        if data.get("recorded_ts") is None:
+            data.pop("recorded_ts", None)
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Claim":
@@ -151,7 +268,90 @@ class Claim:
             session_id=_opt_str(data.get("session_id")),
             session_ids=[str(s) for s in (data.get("session_ids") or []) if str(s).strip()],
             decayed_through=_opt_str(data.get("decayed_through")),
+            evidence=[
+                Evidence.from_dict(e) for e in (data.get("evidence") or []) if isinstance(e, dict)
+            ],
+            expected_end=_opt_str(data.get("expected_end")),
+            status=_opt_str(data.get("status")),
+            target=_opt_str(data.get("target")),
+            participants=clean_participants(data.get("participants")),
+            date_basis=_opt_str(data.get("date_basis")),
+            recorded_ts=_opt_str(data.get("recorded_ts")),
         )
+
+
+# G140 Q-R5 — the predicate of a withdrawal record. `cicada_retract_claim`
+# closes the withdrawn claim and appends one of these beside it: the agent's
+# reason as `text`, the withdrawn claim's id as `object`. It lives here, not in
+# `agentic_write`, because every READER of a claims fence must drop it — and a
+# reader should not import the write path to learn what to skip.
+RETRACT_PREDICATE = "retracts"
+
+
+def is_record(claim: Claim) -> bool:
+    """Is ``claim`` a withdrawal record rather than a belief? (G140 Q-R5)
+
+    A record is bookkeeping ABOUT a claim, never a belief of its own. Served
+    as one, it read as a belief named with the agent's reason: a ``/search``
+    claim hit under "Beliefs", and a struck-through "No longer current" row in
+    an episode's citations (final review). Every surface that lists claims —
+    MCP history, the claim endpoints, the search index, episode citations —
+    filters through this one test, so a new surface has one thing to call.
+    """
+    return claim.predicate == RETRACT_PREDICATE
+
+
+# G141 R-PJ1 — happenings and milestones are claims: they inherit observer,
+# trust, G118 spans, sessions, supersede and withdrawal, the FTS index and the
+# remote scopes instead of regrowing them. `status` is the state AS OF
+# `valid_from`; a new state is a new claim (R-PJ4). Only `progress.py` writes
+# these predicates (§5.1): `agentic_write.write_claim` refuses them and
+# `claim_pipeline` relabels a stray Stage-1 label.
+HAPPENED = "happened"
+MILESTONE = "milestone"
+EVENT_PREDICATES = frozenset({HAPPENED, MILESTONE})
+EVENT_STATUSES = {HAPPENED: ("ongoing", "done", "dropped"), MILESTONE: ("planned", "done", "missed", "dropped")}
+PARTICIPANT_ROLES = ("owner", "from", "with", "for", "about", "used", "document", "project")
+PARTICIPANT_KEYS = ("role", "surface", "entity", "url")
+DATE_BASES = ("stated", "turn", "episode", "person", "written")
+
+
+def is_event(claim) -> bool:
+    """The one test the history readers call (R-PJ3), like `is_record`. An
+    event is NOT a record: it stays in FTS and in citations, where it reads as
+    a dated happening — never as a belief that is "no longer current"."""
+    return getattr(claim, "predicate", "") in EVENT_PREDICATES
+
+
+PERSONS_WORDS_ORIGINS = frozenset({"companion_app", "clarification"})
+
+
+def is_persons_words(claim) -> bool:
+    """R-PJ23's one test: is this claim's `text` the person's own sentence?
+    A Log entry (`companion_app`) and a follow-up answered in free text
+    (`clarification`) both are, so a remote reader without `sources` is shown
+    neither (G141 final review — the inbox note path had leaked). Over-hiding
+    a "Still going" that restated an extractor's sentence is the safe side."""
+    return (getattr(claim, "origin", None) or "") in PERSONS_WORDS_ORIGINS
+
+
+def event_cardinality(predicate: str) -> str | None:
+    """R-PJ5: `multi` for the event predicates, in CODE — an existing bank's
+    `_predicates.yaml` is stale and `build_cardinality_fn` reads only it. The
+    one-head-per-slug rule lives in `claim_reconciler.reconcile_events`."""
+    return "multi" if (predicate or "").strip().lower() in EVENT_PREDICATES else None
+
+
+def clean_participants(raw) -> list[dict]:
+    """Forgiving, like `Evidence.from_dict`: an entry with an unknown role or no
+    role is dropped, unknown keys are dropped, empty values are omitted — a
+    hand-edited fence must never make its claim unparseable."""
+    out: list[dict] = []
+    for item in raw or []:
+        if not isinstance(item, dict) or item.get("role") not in PARTICIPANT_ROLES:
+            continue
+        out.append({k: str(item[k]) for k in PARTICIPANT_KEYS if item.get(k) not in (None, "")})
+    return out
 
 
 def _opt_str(value: Any) -> str | None:
@@ -189,7 +389,7 @@ def parse_claims(body: str, *, strict: bool = False) -> list[Claim]:
         return []
     payload = match.group("payload")
     try:
-        loaded = yaml.safe_load(payload)
+        loaded = yaml.load(payload, Loader=_SAFE_LOADER)  # noqa: S506 — a SAFE loader
     except yaml.YAMLError as exc:
         if strict:
             raise MalformedClaimsBlockError(f"YAML error in ```claims block: {exc}") from exc

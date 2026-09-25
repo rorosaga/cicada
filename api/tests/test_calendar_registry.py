@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from api.services import calendar_registry
 
@@ -172,75 +172,108 @@ PRODID:-//Cicada Test//EN
 END:VCALENDAR
 """
 
-ICS_TWO_EVENTS = """BEGIN:VCALENDAR
+# The `ingest_ics` / `poll_calendars` fixtures below sit INSIDE the ingestion
+# window ([now - 30 d, now + 180 d]) by construction. They used to carry fixed
+# 2026-07 dates, which put every one of these eight tests on a timer: they
+# passed when written and started failing about a month later, for no reason
+# anyone reading them could see. A window test should say "an event next week",
+# because that is the property under test — not a date that was next week once.
+# `parse_ics` takes an injectable `now`, and the tests that exercise the window
+# boundary itself still pass their own; these go through `ingest_ics`, which
+# has no such seam and reads the real clock.
+def _soon(days: int, *, hour: int = 9) -> str:
+    """A UTC `DTSTART`/`DTEND` stamp `days` from today."""
+    return (datetime.now(timezone.utc) + timedelta(days=days)).strftime(f"%Y%m%dT{hour:02d}0000Z")
+
+
+A_START, A_END = _soon(7), _soon(7, hour=10)
+B_START, B_END = _soon(8), _soon(8, hour=10)
+C_START, C_END = _soon(9), _soon(9, hour=10)
+
+ICS_TWO_EVENTS = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Test//Test//EN
 BEGIN:VEVENT
 UID:event-a@example.com
 DTSTAMP:20260701T120000Z
-DTSTART:20260715T090000Z
-DTEND:20260715T100000Z
+DTSTART:{A_START}
+DTEND:{A_END}
 SUMMARY:Event A
 END:VEVENT
 BEGIN:VEVENT
 UID:event-b@example.com
 DTSTAMP:20260701T120000Z
-DTSTART:20260716T090000Z
-DTEND:20260716T100000Z
+DTSTART:{B_START}
+DTEND:{B_END}
 SUMMARY:Event B
 END:VEVENT
 END:VCALENDAR
 """
 
-ICS_TWO_EVENTS_PLUS_ONE = """BEGIN:VCALENDAR
+ICS_TWO_EVENTS_PLUS_ONE = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Test//Test//EN
 BEGIN:VEVENT
 UID:event-a@example.com
 DTSTAMP:20260701T120000Z
-DTSTART:20260715T090000Z
-DTEND:20260715T100000Z
+DTSTART:{A_START}
+DTEND:{A_END}
 SUMMARY:Event A
 END:VEVENT
 BEGIN:VEVENT
 UID:event-b@example.com
 DTSTAMP:20260701T120000Z
-DTSTART:20260716T090000Z
-DTEND:20260716T100000Z
+DTSTART:{B_START}
+DTEND:{B_END}
 SUMMARY:Event B
 END:VEVENT
 BEGIN:VEVENT
 UID:event-c@example.com
 DTSTAMP:20260701T120000Z
-DTSTART:20260717T090000Z
-DTEND:20260717T100000Z
+DTSTART:{C_START}
+DTEND:{C_END}
 SUMMARY:Event C — brand new
 END:VEVENT
 END:VCALENDAR
 """
 
-ICS_EDITED_EVENT_V1 = """BEGIN:VCALENDAR
+# The all-day fixture above is pinned to `NOW` for the parse-window tests; the
+# poll test needs one inside the real window for the same reason as the rest.
+ICS_ALL_DAY_SOON = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:event-allday@example.com
+DTSTAMP:20260701T120000Z
+DTSTART;VALUE=DATE:{_soon(12)[:8]}
+DTEND;VALUE=DATE:{_soon(13)[:8]}
+SUMMARY:Company Offsite
+END:VEVENT
+END:VCALENDAR
+"""
+
+ICS_EDITED_EVENT_V1 = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Test//Test//EN
 BEGIN:VEVENT
 UID:event-edit@example.com
 DTSTAMP:20260701T120000Z
-DTSTART:20260715T090000Z
-DTEND:20260715T100000Z
+DTSTART:{A_START}
+DTEND:{A_END}
 SEQUENCE:0
 SUMMARY:Original title
 END:VEVENT
 END:VCALENDAR
 """
 
-ICS_EDITED_EVENT_V2 = """BEGIN:VCALENDAR
+ICS_EDITED_EVENT_V2 = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Test//Test//EN
 BEGIN:VEVENT
 UID:event-edit@example.com
 DTSTAMP:20260702T120000Z
-DTSTART:20260715T090000Z
-DTEND:20260715T110000Z
+DTSTART:{A_START}
+DTEND:{A_END}
 SEQUENCE:1
 SUMMARY:Updated title
 END:VEVENT
@@ -511,7 +544,7 @@ def test_poll_calendars_polls_multiple_subscriptions(tmp_path):
 
     ics_by_url = {
         "https://a.example.com/cal.ics": ICS_TWO_EVENTS,
-        "https://b.example.com/cal.ics": ICS_ALL_DAY,
+        "https://b.example.com/cal.ics": ICS_ALL_DAY_SOON,
     }
     result = run(calendar_registry.poll_calendars(memory, fetch_fn=lambda url: ics_by_url[url]))
 

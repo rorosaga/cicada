@@ -1,13 +1,16 @@
-"""Provider connections (G50): probe, connect, disconnect, keys, prefs."""
+"""Provider connections (G50): probe, connect, disconnect, keys, prefs, and
+OpenRouter's browser sign-in callback (R-AG10)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import HTMLResponse
+from loguru import logger
 from pydantic import BaseModel
 
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel, ConnectionsResponse, ConnectionStatus, LoginSession
 from api.services import engine_select
-from api.services.connections import byok, codex_cli
+from api.services.connections import byok, codex_cli, openrouter
 from api.services.connections.registry import VALID_TIERS, Registry, get_registry
 
 router = APIRouter(prefix="/connections")
@@ -50,9 +53,14 @@ async def get_connection(connection_id: str, fresh: bool = False, reg: Registry 
 
 
 @router.post("/{connection_id}/login", response_model=LoginSession)
-async def login(connection_id: str, reg: Registry = Depends(_registry)):
+async def login(connection_id: str, reg: Registry = Depends(_registry),
+                settings: Settings = Depends(get_settings)):
     adapter = _adapter(reg, connection_id)
     reg.invalidate()
+    if isinstance(adapter, openrouter.OpenRouterAdapter):
+        # R-AG10: the consent page sends the browser back to THIS backend, so the
+        # callback URL is built from the address it actually listens on.
+        return await adapter.begin_login(base_url=openrouter.callback_base(settings.host, settings.port))
     return await adapter.begin_login()
 
 
@@ -65,6 +73,25 @@ async def login_state(connection_id: str, session_id: str, reg: Registry = Depen
     if sess.state == "done":
         reg.invalidate()
     return sess
+
+
+@router.get("/{connection_id}/callback/{nonce}", response_class=HTMLResponse)
+async def oauth_callback(connection_id: str, nonce: str, code: str = Query(""),
+                         reg: Registry = Depends(_registry)) -> HTMLResponse:
+    """R-AG10: the browser lands here with no bearer token; the single-use nonce
+    in the path is the gate (``auth._is_oauth_callback_path``)."""
+    if connection_id not in openrouter.OAUTH_CONNECTION_IDS:
+        raise HTTPException(status_code=404, detail=f"unknown sign-in for '{connection_id}'")
+    try:
+        await openrouter.complete(nonce, code)
+    except openrouter.InvalidState:
+        raise HTTPException(status_code=400, detail="This sign-in link is invalid or has expired. Start again from Cicada.")
+    except openrouter.ExchangeError:
+        logger.warning("OpenRouter sign-in: the key exchange failed")
+        raise HTTPException(status_code=502, detail="Could not complete OpenRouter sign-in")
+    reg.invalidate()
+    return HTMLResponse("<html><body style='font:14px -apple-system;padding:40px'><h2>OpenRouter connected</h2>"
+                        "<p>You can close this tab and go back to Cicada.</p></body></html>")
 
 
 @router.post("/{connection_id}/logout", response_model=ConnectionStatus)

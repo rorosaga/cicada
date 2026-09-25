@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from api.services import episode_ids, markdown_parser
+from api.services import demo_guard, episode_ids, episode_scrub, markdown_parser, owner_identity
 
 # Telegram doesn't ship its own "find URLs in free text" primitive, and
 # media_ingestor's URL handling assumes a URL is already the whole field
@@ -232,6 +232,12 @@ async def ingest_telegram_update(
     chat_id = parsed["chat_id"]
     captured_at = parsed["date"]
 
+    if demo_guard.is_demo(memory_path):
+        # G141 capture-side track (R-CS14): a 200 with a reply, never an error —
+        # Telegram retries a non-2xx for hours, and a retry landing after the
+        # person switched back would save a message they were told was not saved.
+        return {"kind": "skipped", "reason": "demo_bank", "ack": demo_guard.TELEGRAM_ACK, "chat_id": chat_id}
+
     try:
         if parsed["command"] == "remind":
             fn = save_episode_fn or _default_save_episode
@@ -308,18 +314,43 @@ def _write_saved_because_claim(
     Never raises — ``write_claim`` returns an error dict rather than throwing,
     and a failed claim must never lose the save that already succeeded.
     """
+    from api.config import get_settings
+    from api.services import evidence as evidence_mod
+    from api.services import git_service
     from api.services.agentic_write import write_claim
+
+    # G118 R13: the reason lives in the episode's `## Saved because` section
+    # (baked in by media_ingestor._episode_body on a fresh save), so the claim
+    # cites it as a `user` span, windowed to that section — the title or the
+    # site's own `## Description` blurb can repeat the reason's words ABOVE
+    # it, and first-occurrence order would point at the wrong author. On the
+    # repeat-save path the section is appended AFTER this call and the quote
+    # resolves to `reasoning` — honest, and cheaper than reordering the L3
+    # logic.
+    window = None
+    text = evidence_mod.source_text(memory_path, episode_id) if episode_id else None
+    if text is not None and "## Saved because" in text:
+        window = [text.index("## Saved because"), len(text)]
 
     result = write_claim(
         memory_path,
         media_entity_id,
         "saved-because",
         reason,
-        observer="rodrigo",
+        # `get_settings()`, not `None` — findings review, G117 follow-up:
+        # this was the one CLAUDE.md names as still hardcoding the resolution
+        # without a live `Settings`, so a `CICADA_OBSERVER_OWNER` override
+        # never reached the Telegram capture path.
+        observer=owner_identity.resolve_observer(memory_path, get_settings()),
         object_kind="literal",
         confidence=0.9,
         source_episode=episode_id or None,
         origin="telegram",
+        # F2-back R-B11: the person typed the reason; its commit is already `user`.
+        authored_by=git_service.USER_AUTHOR,
+        evidence=(
+            [{"episode": episode_id, "quote": reason, "window": window}] if episode_id else None
+        ),
     )
     if result.get("action") in {"error", "ambiguous_subject", "corrupt_claims_block"}:
         logger.warning(
@@ -434,7 +465,14 @@ async def _default_save_url(
                 memory_path, result.media_entity_id, reason, result.episode_id
             )
         try:
-            await media_ingestor._commit_media(memory_path, 1)
+            # G135 R-R12: `paths` was missing, so this raised a TypeError the
+            # except below swallowed and no Telegram save was ever committed.
+            # Positional on purpose: the suite's `no_commit` fakes match it.
+            await media_ingestor._commit_media(
+                memory_path, 1,
+                ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"],
+            )
         except Exception as e:
             logger.warning(f"Telegram media commit failed: {type(e).__name__}: {e}")
     elif reason and result.media_entity_id:
@@ -480,6 +518,7 @@ def _default_save_episode(
     """
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
+    text = episode_scrub.scrub_body(text, writer="telegram", bank=memory_path.name)
 
     content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
     for filepath in episodes_dir.glob("*.md"):

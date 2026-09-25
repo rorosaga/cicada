@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -167,6 +167,11 @@ class EntityHistoryEntry(CamelModel):
     # diff fetch. ``diff`` is populated only when history is requested with
     # ``include_diff=true`` (kept opt-in so the default response stays small).
     author: str = "unknown"
+    # G118 slice 2 (R-PB13): the author's bucket and provider, from the one
+    # `git_service.author_identity` rule, so the History tab renders a
+    # contributor without re-deriving it. Additive; an older app ignores them.
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
     commit_hash: str = ""
     diff: Optional[EntityDiff] = None
     # G48: the conversation(s) that produced THIS ENTITY's change at this
@@ -194,14 +199,24 @@ class Contributor(CamelModel):
     last_active: str = ""  # ISO date (YYYY-MM-DD) of the author's most recent commit
     # G15 — visual identity (all additive + defaulted, so the wire stays
     # backward-compatible with older clients that don't decode them).
-    # ``kind``: "user" for the literal `user` author, "unknown" for legacy
-    # untrailered commits, "model" for every model id. ``provider`` is the
-    # model's company (openai/anthropic/google/other) derived from the id, or
-    # None for user/unknown. ``avatar_url`` is the user's GitHub profile picture
+    # ``kind``: "user" for the literal `user` author, "system" for the literal
+    # `cicada` author (maintenance with no model and no user in the loop —
+    # R-L6), "harness" for an agent write's label (`claude-code`, `agent`, …;
+    # F2-back R-B9), "unknown" for legacy untrailered commits, "model" for
+    # every model id. ``provider`` is who billed for the model, derived from the id: a
+    # router when the id names one before its first slash (openrouter/ollama —
+    # R9), else the model's company, else "other"; None for
+    # user/system/harness/unknown. ``avatar_url`` is the user's GitHub profile picture
     # (https://github.com/<handle>.png) for the `user` author when a handle is
-    # known; None for model/unknown (their identity is rendered client-side).
-    kind: str = "unknown"  # "user" | "model" | "unknown"
-    provider: Optional[str] = None  # "openai" | "anthropic" | "google" | "other" | None
+    # known; None for model/system/harness/unknown (rendered client-side).
+    #
+    # Both stay plain strings: R-L6 added VALUES, never a shape, so an older
+    # client decodes a `system` row unchanged and renders it through its
+    # `default:` branch (today's behaviour) rather than failing to decode.
+    kind: str = "unknown"  # "user" | "system" | "harness" | "model" | "unknown"
+    # "openai" | "anthropic" | "google" | "meta" | "mistral" | "deepseek"
+    # | "qwen" | "openrouter" | "ollama" | "other" | None
+    provider: Optional[str] = None
     avatar_url: Optional[str] = None
 
 
@@ -240,6 +255,39 @@ class ContributorsResponse(CamelModel):
     contributors: list[Contributor] = []
 
 
+class TopEntityWrite(CamelModel):
+    entity_id: str
+    commits: int = 0
+    last_written: str = ""  # ISO date
+
+
+class TopEntityRead(CamelModel):
+    entity_id: str
+    reads: int = 0
+    last_read: str = ""  # ISO timestamp
+
+
+class TopEntities(CamelModel):
+    """Most-written (git, bounded by ``git_service.TOP_ENTITIES_LOG_WINDOW`` —
+    ``commits_scanned`` says how far back) and most-read (the ids-only ``read``
+    ledger kind) entity pages — G124's read/write stats, all engine-free."""
+
+    written: list[TopEntityWrite] = []
+    read: list[TopEntityRead] = []
+    commits_scanned: int = 0
+    range: str = "all"
+
+
+class EntityReadRequest(CamelModel):
+    # G124 R11: the app's card open. ``mcp``/``mcp-recall`` reads are recorded
+    # by the MCP server itself, never posted through this route.
+    surface: Literal["app", "mcp"] = "app"
+
+
+class EntityReadResponse(CamelModel):
+    recorded: bool
+
+
 # --- Origins (capture-provenance aggregation) ---
 
 
@@ -255,6 +303,51 @@ class OriginStat(CamelModel):
 
 class OriginsResponse(CamelModel):
     origins: list[OriginStat] = []
+
+
+# --- Sources overview (G124 — one card per memory source) ---
+
+
+class SourceOverview(CamelModel):
+    """One memory source as the Sources page shows it.
+
+    ``id`` equals the ``GET /sources/channels`` id where the source is a
+    channel (so the app joins channel state by equality), ``harness:<name>``
+    for an MCP harness, ``origin:<id>`` for an origin the catalog does not
+    know (see ``source_overview.CATALOG``). ``kind`` is one of
+    ``source_overview.KIND_ORDER``. ``mark`` is an ``OriginIconography`` key.
+    Counts are engine-free: episodes/entities from frontmatter (entities via
+    ``source_episodes`` only — R3), conversations = distinct ``session_id`` /
+    ``source_id``, items = the channel's own count. ``origins`` and
+    ``harness`` are the filter values the app sends back (``GET /sources``
+    items by origin; ``GET /conversations/recent?harness=``).
+    """
+
+    id: str
+    label: str
+    kind: str
+    mark: str
+    conversations: int = 0
+    episodes: int = 0
+    entities: int = 0
+    items: int = 0
+    last_activity_at: Optional[str] = None
+    connected: bool = False
+    last_error: Optional[str] = None
+    actions: list[str] = []
+    channel_id: Optional[str] = None
+    origins: list[str] = []
+    harness: Optional[str] = None
+    # R-A16 — captures per UTC calendar day for the last
+    # ``source_overview.ACTIVITY_DAYS`` days, SPARSE (a silent day has no
+    # key). Absolute date keys rather than a rolling array so a 304'd payload
+    # renders a day short instead of a day shifted. Rides the existing
+    # `episodes` ETag component; no `VersionVector` change is owed.
+    activity: dict[str, int] = Field(default_factory=dict)
+
+
+class SourceOverviewResponse(CamelModel):
+    sources: list[SourceOverview] = []
 
 
 # --- Conversations (G48 conversation-level provenance) ---------------------
@@ -308,6 +401,15 @@ class ResumeDescriptor(CamelModel):
     display_command: str = ""
 
 
+class VideoChapter(CamelModel):
+    """One chapter of a saved video (G140 Q-R12): seconds from the start and a
+    title — parsed from the provider's own description or recorded by an
+    agent's watch, never inferred."""
+
+    t: int
+    title: str
+
+
 class EntityMedia(CamelModel):
     """Structured media metadata for a ``type: media`` entity (G11).
 
@@ -327,6 +429,58 @@ class EntityMedia(CamelModel):
     channel: Optional[str] = None
     thumbnail: Optional[str] = None
     description: Optional[str] = None
+    # Track V (R-V2) — the two video keys from the page's `media:` block, both
+    # additive + defaulted so an older page (which carries neither) decodes
+    # unchanged and no ETag INPUT moves: these only ever appear on a page
+    # written after Track V, and writing that page already moves the
+    # `entities` component every media ETag is computed from. `provider` is
+    # redundant with what the app derives from the URL at read time (R-V1) and
+    # is never trusted over it; `duration_s` is the one thing a URL cannot
+    # tell you, and is absent — never estimated — when no provider stated it
+    # (R17).
+    provider: Optional[str] = None
+    duration_s: Optional[int] = None
+    # G140 Q-R12 — additive + defaulted, the same argument as Track V's two
+    # keys: present only on a page written after G140 (the description held a
+    # real chapter list), so an older page decodes unchanged and no ETag
+    # input moves beyond the page write itself.
+    chapters: Optional[list[VideoChapter]] = None
+    # G133 — `paper` for a paper page (`papers.KIND`); absent for every other
+    # media page.
+    kind: Optional[str] = None
+
+
+class EntityDecay(CamelModel):
+    """G147 — the pace Sleep charges this page, derived at read by
+    ``decay_policy.effective`` (the pass's own function) and never stored.
+    ``class`` by explicit alias (a Python keyword as a field name is not an
+    option); ``decayRate`` beside it keeps meaning the base (plan R-FD9)."""
+
+    decay_class: DecayClass = Field(alias="class")
+    effective_rate_per_week: float
+    mention_weeks: int
+
+
+class PictureInputsModel(CamelModel):
+    """C11 — the rung inputs `entity_picture.resolve` read (plan R-PE5), so the app's twin can paint a removal before
+    the server answers (R-PE10). `choice` is the person's (`upload` | `initials`); `logo` is already the logo rung's
+    eligibility AND availability, decided server-side. On the entity and the write answers only — never on `/graph`."""
+
+    type: str
+    choice: Optional[str] = None
+    upload_sha: Optional[str] = None
+    contacts_sha: Optional[str] = None
+    logo: bool = False
+    thumbnail: Optional[str] = None
+
+
+class EntityPictureResponse(CamelModel):
+    """What every picture write answers (C11): the page's picture after the write, and its inputs."""
+
+    entity_id: str
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: PictureInputsModel
 
 
 class EntityResponse(CamelModel):
@@ -354,6 +508,70 @@ class EntityResponse(CamelModel):
     # Structured media metadata for ``type: media`` entities (G11); ``None`` for
     # every other entity. Populated from the nested ``media:`` frontmatter block.
     media: Optional[EntityMedia] = None
+    # G117 — mirrors GraphNode.is_owner (same `owner:` frontmatter key), so
+    # the detail card can render "Name (you)" without a second lookup.
+    is_owner: bool = False
+    # G147 — derived at read (never stored); None only for a caller that
+    # builds an EntityResponse without a page. Additive: an older client
+    # ignores it and keeps showing the class.
+    decay: Optional[EntityDecay] = None
+    # C11 (G146) — the page's picture (`entity_picture.resolve`): a path on this API the app loads with the bearer
+    # (`/entities/{id}/picture?v=…`, `/entities/{id}/logo`) or a media page's https thumbnail it loads without it
+    # (plan R-PE6); which rung won; and the inputs the app's twin re-resolves from. Additive: an older client ignores
+    # all three.
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    picture_inputs: Optional[PictureInputsModel] = None
+
+
+class PaperSummary(CamelModel):
+    """G133 — what a Feed row needs to show a paper's byline and to search by
+    author, arXiv id or DOI (R7 §5.2). Read from the page's `paper:` block."""
+
+    authors: list[str] = []
+    arxiv_id: Optional[str] = None
+    doi: Optional[str] = None
+    published: Optional[str] = None
+    venue: Optional[str] = None
+
+
+class PaperWhyItem(CamelModel):
+    """One personal-tier reason, as a span into the person's own file (G118/G121)."""
+
+    predicate: str
+    text: Optional[str] = None
+    target: Optional[str] = None
+    snippet: str
+    highlight_start: int
+    highlight_end: int
+    file: Optional[str] = None
+    heading: Optional[str] = None
+    edited: Optional[str] = None
+    kind: str
+    episode: str
+    start: int
+    end: int
+    stale: bool = False
+
+
+class PaperDetailResponse(CamelModel):
+    entity_id: str
+    title: str
+    authors: list[str] = []
+    venue: Optional[str] = None
+    published: Optional[str] = None
+    arxiv_id: Optional[str] = None
+    doi: Optional[str] = None
+    abs_url: Optional[str] = None
+    doi_url: Optional[str] = None
+    sections: list[str] = []
+    why: list[PaperWhyItem] = []
+    agent_only: bool = False
+    context: Optional[str] = None
+    context_source: Optional[str] = None
+    context_as_of: Optional[str] = None
+    #: ``not_found`` / ``unreadable`` once a details lookup failed, else None.
+    metadata_status: Optional[str] = None
 
 
 class EntityDecayUpdate(CamelModel):
@@ -366,6 +584,28 @@ class EntityDecayUpdate(CamelModel):
     """
 
     decay_class: DecayClass
+
+
+class DecaySuggestion(CamelModel):
+    """G147 — one per-type pace suggestion. A type and counts only — never a
+    page id or name (the payload of a Settings page, not of the graph)."""
+
+    type: str
+    direction: Literal["slower", "faster"]
+    multiplier: float
+    kept: int
+    archived: int
+    answers: int
+
+
+class DecayTuningResponse(CamelModel):
+    """``GET /memory/decay-suggestions`` and ``PUT /memory/decay-tuning`` (G147).
+    Not a Store domain — fetched when Settings → Memory opens — so no ETag."""
+
+    bank: str
+    window_days: int
+    tuning: dict[str, float] = {}
+    suggestions: list[DecaySuggestion] = []
 
 
 # --- Location listing (#7 — show a location entity's directory contents) ---
@@ -405,21 +645,38 @@ class LocationListing(CamelModel):
 
 
 class EntitySource(CamelModel):
-    """One declared refresh source on an entity page's ``sources:`` key."""
+    """One declared refresh source on an entity page's ``sources:`` key.
+
+    G61 phase 2 S1 (plan R-AC27): ``access`` is the STORED statement — null when
+    nobody said, because the effective value is derived at read
+    (``fact_sources.effective_access``) and travels on ``InboxItem.check``
+    targets; ``accepted`` marks an agent-found source the person took;
+    ``only_me`` is the person's "Only I know" note. All additive: the app's
+    ``EntitySource`` decoder ignores keys it does not name.
+    """
 
     ref: str
-    kind: str = "note"          # url | path | note
+    kind: str = "note"          # url | path | note | app | repo
     predicate: Optional[str] = None
-    added_by: str = "user"      # model id, or "user"
+    access: Optional[str] = None  # public | signed_in | local | unknown, as stated; else null
+    added_by: str = "user"      # user | harness label | cicada | model id
     added_at: str = ""
+    accepted: bool = False
+    only_me: bool = False
 
 
 class EntitySourceCreate(CamelModel):
-    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted."""
+    """``POST /entities/{id}/sources`` body. ``kind`` is inferred when omitted.
+
+    G61 phase 2 S1: ``access``/``accepted``/``only_me`` are the person's to say;
+    on an existing ``(ref, predicate)`` they are applied to it (plan R-AC21)."""
 
     ref: str
     kind: Optional[str] = None
     predicate: Optional[str] = None
+    access: Optional[str] = None
+    accepted: Optional[bool] = None
+    only_me: Optional[bool] = None
 
 
 class EntitySourceList(CamelModel):
@@ -517,6 +774,39 @@ class RepoUpdateRequest(BaseModel):
 # --- Claims (M5b — the CPCG belief atom on the wire) ---
 
 
+class EvidenceModel(CamelModel):
+    """One evidence span on a claim (G118 slice 1) — offsets into a stored
+    document, never a copy. ``episode`` is a source-document id: ``ep_*`` is an
+    episode, anything else an entity page (a ``page`` span cites the media
+    entity). ``kind`` is one of the six ``claims.EVIDENCE_KINDS`` — ``user`` |
+    ``assistant`` | ``page`` | ``reasoning`` | ``speaker`` (G134) | ``media``
+    (G140); a ``reasoning`` entry has ``start == end == -1``. Resolve a span with
+    ``GET /episodes/{episode}/span?start=&end=&hash=``.
+    """
+
+    episode: str = ""
+    start: int = -1
+    end: int = -1
+    kind: str = "reasoning"
+    hash: str = ""
+    # Round 4 C3 — derived at read, never stored: for a span of kind `assistant`,
+    # the model and reasoning effort of the agent turn its offset falls in
+    # (`turn_authorship.TurnAuthorship.for_span`); null everywhere else.
+    model: Optional[str] = None
+    effort: Optional[str] = None
+
+
+class ParticipantModel(CamelModel):
+    """One event participant (G141 §4.1): a closed `role`, the exact words the
+    sentence used (`surface`), the linked page (`entity`) and, for a
+    document, its `url`."""
+
+    role: str
+    surface: Optional[str] = None
+    entity: Optional[str] = None
+    url: Optional[str] = None
+
+
 class ClaimModel(CamelModel):
     """One perspectival, bi-temporal claim, camelCase on the wire.
 
@@ -547,6 +837,30 @@ class ClaimModel(CamelModel):
     premises: list[str] = []
     authored_by: str = "unknown"
     origin: Optional[str] = None
+    # G118 slice 1 — additive; an older app build ignores the key (R10).
+    evidence: list[EvidenceModel] = []
+    # G118 slice 2 (R-PB13) — additive. `session_ids` is every conversation
+    # that wrote or reinforced the claim (`Claim.all_session_ids`);
+    # `author_kind`/`author_provider` come from `git_service.author_identity`
+    # over `authored_by`, so the chip never duplicates the provider rule.
+    session_ids: list[str] = []
+    recorded_at: Optional[str] = None
+    author_kind: str = "unknown"
+    author_provider: Optional[str] = None
+    # G141 §4.1 — additive; `expectedEnd` finally on the wire (G140 left it
+    # off). The four event fields are set only on `happened`/`milestone`.
+    status: Optional[str] = None
+    target: Optional[str] = None
+    participants: list[ParticipantModel] = []
+    date_basis: Optional[str] = None
+    expected_end: Optional[str] = None
+    # Round 4 C2/C3 — additive. `recorded_ts` is stored on MCP writes only;
+    # `author_model`/`author_effort` are joined at read for a harness write
+    # (`turn_authorship.TurnAuthorship.for_claim`) and null when no captured
+    # turn answers — the app then says the model wasn't shared.
+    recorded_ts: Optional[str] = None
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
 
 
 class ClaimListResponse(CamelModel):
@@ -565,6 +879,576 @@ class ClaimTimeline(CamelModel):
     predicate: str
     context: str
     claims: list[ClaimModel] = []
+
+
+class EpisodeSpan(CamelModel):
+    """``GET /episodes/{id}/span`` — a slice of a stored document's evidence
+    text with context on either side (G118 slice 1). ``stale`` is true when
+    the caller's ``hash`` no longer matches the document, i.e. the offsets
+    were minted against an earlier body and may not mean the same words.
+    ``kind`` is derived at read time (speaker marker for an episode, ``page``
+    for an entity document), never stored here.
+
+    ``grown`` (G118 slice 2, amendment A7) is true when the document was
+    APPENDED to after the span was minted and a turn-boundary prefix still
+    hashes to ``hash``: the offsets are exact and the span highlights.
+    ``stale`` and ``grown`` are never both true.
+    """
+
+    episode: str
+    text: str
+    before: str
+    after: str
+    start: int
+    end: int
+    length: int
+    stale: bool = False
+    grown: bool = False
+    kind: str = "user"
+    # G140 Q-R9: for a span on a video line, seconds into the video — derived, never stored.
+    t: Optional[int] = None
+    # R-LS2 — which turn the span starts in (`evidence.turn_at`), with its time
+    # from the episode's `turns: [{offset, ts, speaker}]` sidecar (R-PB4); all
+    # four absent for an episode that stores no sidecar.
+    turn_number: Optional[int] = None
+    turn_count: Optional[int] = None
+    turn_ts: Optional[str] = None
+    turn_speaker: Optional[str] = None
+
+
+class EpisodeTurn(CamelModel):
+    """One turn of a document (G118 slice 2, design §4.8.1) — offsets into the
+    evidence text, never a copy of it. See ``evidence.TurnSpan``: ``role`` is
+    ``user`` | ``assistant`` | ``speaker`` (a note-taker's ``speaker:<label>:``
+    line, R-LS7) | ``media`` (a timed ``video [m:ss]:`` line, G140) | ``page``;
+    ``marker`` is the word as written (``None`` for a marker-less block);
+    ``ts``/``speaker`` exist only where the episode stores a ``turns`` sidecar
+    entry for this turn; ``t`` = seconds into the video for a media turn
+    (G140)."""
+
+    index: int
+    start: int
+    content_start: int
+    end: int
+    role: str = "user"
+    marker: Optional[str] = None
+    speaker: Optional[str] = None
+    ts: Optional[str] = None
+    t: Optional[int] = None
+    # Round 4 C4: an agent turn's model and reasoning effort, from the episode's
+    # `turns` sidecar entry at exactly this turn's start; null otherwise.
+    model: Optional[str] = None
+    effort: Optional[str] = None
+
+
+class EpisodeFocus(CamelModel):
+    """The span the Reader lands on (G118 slice 2). Asserted
+    (``?start&end&hash``): ``kind`` is the speaker at ``start`` and
+    ``stale``/``grown`` come from ``evidence.span_status``; a stale focus
+    carries NO offsets (R-PB2 — stale never highlights). Derived
+    (``?focus=<entity>``): ``kind == "derived"``, a name match found at read
+    and never written (G100's class, R-PB9)."""
+
+    start: Optional[int] = None
+    end: Optional[int] = None
+    kind: str = "user"
+    derived: bool = False
+    stale: bool = False
+    grown: bool = False
+
+
+class EpisodeAgent(CamelModel):
+    """Round 4 C4: the most recent agent turn's model and effort (R4B-15). The
+    field is null when that turn names neither; an older turn never stands in."""
+
+    model: Optional[str] = None
+    effort: Optional[str] = None
+
+
+class EpisodeText(CamelModel):
+    """``GET /episodes/{id}/text`` — a whole stored document for the Reader
+    (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
+    (``truncated``); ``length`` and ``hash`` always describe the WHOLE
+    evidence text, so ``hash`` can be handed back to ``/span``. ``kind`` is
+    ``episode`` or ``page``. ``conversation_id`` is the stamped ``session_id``
+    or G20's ``source_id``; ``project_dir`` and ``resumable`` are deliberately
+    absent — ``GET /conversations/{id}`` is the one place a transcript is
+    ``isfile()``-d (R-PB5). Fetched on demand, not a Store domain."""
+
+    episode: str
+    kind: str = "episode"
+    text: str = ""
+    length: int = 0
+    hash: str = ""
+    truncated: bool = False
+    title: str = ""
+    timestamp: Optional[str] = None
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    conversation_id: Optional[str] = None
+    capture_kind: Optional[str] = None
+    turns: list[EpisodeTurn] = []
+    focus: Optional[EpisodeFocus] = None
+    agent: Optional[EpisodeAgent] = None
+
+
+class ProvenanceSpan(CamelModel):
+    """The one quote a provenance row shows (G118 slice 2, design §4.5).
+    ``kind`` is the evidence kind (``user`` | ``assistant`` | ``page``) or
+    ``derived`` — a name match found at read, never written (R-PB9).
+    ``start``/``end`` are absolute offsets to wash, ``None`` when ``stale``
+    (R-PB2). ``excerpt`` is ±240 chars cut on word boundaries,
+    ``excerpt_start`` its absolute offset, ``mention_offsets`` relative to it
+    — the inbox cause's shape (G115)."""
+
+    episode: str
+    start: Optional[int] = None
+    end: Optional[int] = None
+    hash: str = ""
+    kind: str = "derived"
+    excerpt: str = ""
+    excerpt_start: int = 0
+    mention_offsets: list[list[int]] = []
+    stale: bool = False
+    grown: bool = False
+    derived: bool = False
+
+
+class ProvenanceModel(CamelModel):
+    """Round 4 C4: one model (and effort) a harness contributor wrote with, and
+    how many of the page's current beliefs it wrote that way."""
+
+    model: str
+    effort: Optional[str] = None
+    beliefs: int = 0
+
+
+class ProvenanceContributor(CamelModel):
+    """One author of an entity (R-PB6): ``claims`` = current claims with that
+    ``authored_by``; ``commits`` = commits that touched the page with that
+    ``Cicada-Author``. ``kind``/``provider`` as on ``Contributor``."""
+
+    author: str
+    kind: str = "unknown"
+    provider: Optional[str] = None
+    claims: int = 0
+    commits: int = 0
+    # Round 4 C4: a `harness` contributor's joined turn models; empty when the
+    # app did not share them (no capture hook, or a Codex MCP session).
+    models: list[ProvenanceModel] = []
+
+
+class ProvenanceConversation(CamelModel):
+    """A conversation that fed the entity (R-PB7): episodes grouped by
+    ``session_id``, then ``source_id``, else the episode alone
+    (``conversation_id`` null). ``episode_id`` is its newest episode;
+    ``claim_count`` counts current claims citing any of its episodes;
+    ``available`` is false when no episode file is left in the bank."""
+
+    conversation_id: Optional[str] = None
+    episode_id: str
+    episode_ids: list[str] = []
+    title: str = ""
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    timestamp: Optional[str] = None
+    claim_count: int = 0
+    available: bool = True
+    best: Optional[ProvenanceSpan] = None
+
+
+class ProvenancePage(CamelModel):
+    entity_id: str
+    name: str = ""
+    claim_count: int = 0
+
+
+class ProvenanceTotals(CamelModel):
+    """Coverage stated honestly (design §4.5 item 5): of ``claims`` current
+    beliefs, ``with_span`` carry at least one exact quote and ``legacy`` carry
+    no evidence at all (written before slice 1; there is no backfill)."""
+
+    claims: int = 0
+    with_span: int = 0
+    legacy: int = 0
+    conversations: int = 0
+
+
+class EntityProvenance(CamelModel):
+    """``GET /entities/{id}/provenance`` — "Where this came from" in one call
+    (G118 slice 2, design §4.8.4). ``conversations`` is capped at 50
+    (``totals.conversations`` is the honest total); ``inferred_count`` counts
+    current claims whose only evidence is the contributor's own reasoning.
+    Fetched on demand, not a Store domain (R-PB11)."""
+
+    entity_id: str
+    entity_name: str = ""
+    entity_type: str = ""
+    contributors: list[ProvenanceContributor] = []
+    conversations: list[ProvenanceConversation] = []
+    pages: list[ProvenancePage] = []
+    inferred_count: int = 0
+    totals: ProvenanceTotals = Field(default_factory=ProvenanceTotals)
+    commits_truncated: bool = False
+
+
+class EpisodeCitation(CamelModel):
+    """One belief a document contributed (G118 slice 2, design §4.8.3).
+    ``evidence`` is the stored entry for a span or reasoning row, ``None`` for
+    a derived one. ``start``/``end`` are what to wash — the asserted offsets,
+    a derived name match, or ``None`` (reasoning, no match, or ``stale``:
+    R-PB2). ``current`` is false for a superseded or closed claim."""
+
+    claim_id: str
+    subject_id: str
+    subject_name: str = ""
+    subject_type: str = ""
+    text: str = ""
+    current: bool = True
+    authored_by: str = "unknown"
+    observer: str = "agent"
+    evidence: Optional[EvidenceModel] = None
+    kind: str = "reasoning"
+    start: Optional[int] = None
+    end: Optional[int] = None
+    stale: bool = False
+    grown: bool = False
+    derived: bool = False
+    # G141 R-PJB11 — an event cited here is a dated happening: `current` is
+    # false only when something replaced it, never for a born-closed done one.
+    event_status: Optional[str] = None
+    event_day: Optional[str] = None
+
+
+class EpisodeCitationEntity(CamelModel):
+    entity_id: str
+    name: str = ""
+    type: str = ""
+
+
+class EpisodeCitations(CamelModel):
+    """``GET /episodes/{id}/citations`` — spans first in document order (the
+    Reader's navigator steps through them), then rows without offsets.
+    ``entities`` are the pages whose frontmatter ``source_episodes`` lists the
+    document. ``partial`` is true when more pages named it than one call
+    parses (R-PB10). Fetched on demand, not a Store domain."""
+
+    episode: str
+    citations: list[EpisodeCitation] = []
+    entities: list[EpisodeCitationEntity] = []
+    partial: bool = False
+
+
+# --- G141 project timelines (PJ-1) — absolute days and instants only (R-PJ7) ---
+
+
+class TimelineParticipant(CamelModel):
+    """A page (or an unlinked name) in a moment or happening. ``derived`` is a
+    read-time relink by name (R-PJ9) — never written."""
+    id: Optional[str] = None
+    name: str = ""
+    type: Optional[str] = None
+    role: Optional[str] = None
+    surface: Optional[str] = None
+    url: Optional[str] = None
+    is_owner: bool = False
+    derived: bool = False
+
+
+class TimelineFact(CamelModel):
+    claim_id: str
+    subject: str
+    predicate: str
+    object: str
+    phrase: str
+    state: str = "said"          # said | changed | ended (R-PJ14)
+    was: Optional[str] = None
+    now: Optional[str] = None
+
+
+class TimelineQuote(CamelModel):
+    episode: str
+    start: Optional[int] = None  # None when stale or not found (R-PB2)
+    end: Optional[int] = None
+    kind: str = "derived"        # an evidence kind, or `derived`
+    status: str = "current"      # current | grown | stale | derived
+
+
+class TimelineConversation(CamelModel):
+    id: Optional[str] = None     # session_id / source_id; None for a lone episode
+    episode_id: str
+    title: str = ""
+    origin: Optional[str] = None
+    harness: Optional[str] = None
+    resumable: bool = False      # per request, isfile only; a 304 may carry a stale true (§7)
+
+
+class TimelineItem(CamelModel):
+    kind: str                    # moment | happening | history | created
+    id: str
+    day: Optional[str] = None    # local day in `tzName`; None = an undated history bullet
+    at: Optional[str] = None     # UTC instant when known
+    date_basis: Optional[str] = None   # stated|turn|episode|person|written, or `day` (wire only)
+    state: Optional[str] = None
+    via: Optional[str] = None
+    project: Optional[str] = None
+    text: str = ""
+    facts: list[TimelineFact] = []
+    more_facts: int = 0
+    participants: list[TimelineParticipant] = []
+    # Round 4 D6: `participants` is the first `PARTICIPANTS_SHOWN` in the claim's
+    # own order; the whole count rides here, always present (0 for a history row),
+    # so the app's "+N more" never guesses and a 622-paper happening stays small.
+    participants_total: int = 0
+    quote: Optional[TimelineQuote] = None
+    conversation: Optional[TimelineConversation] = None
+    claim: Optional[ClaimModel] = None
+    verbatim: bool = False       # the person's own Log words (R-PJ23)
+
+
+class MilestoneRow(CamelModel):
+    slug: str
+    name: str
+    status: str                  # planned | done | missed | dropped | passed-no-word
+    target: Optional[str] = None
+    done_on: Optional[str] = None
+    moved: bool = False
+    source: str = "milestone"    # milestone | due | expectedEnd
+    on: Optional[str] = None     # the sub-project it lives on, when not the project itself
+    claim_id: Optional[str] = None
+    chain: list[ClaimModel] = [] # newest first; the detail only (R-PJ4)
+
+
+class OpenThread(CamelModel):
+    claim_id: str
+    text: str = ""
+    since: str
+    last_heard: str
+    on: Optional[str] = None
+    verbatim: bool = False
+
+
+class ActivityDay(CamelModel):
+    day: str
+    n: int
+
+
+class ClusterMember(CamelModel):
+    id: Optional[str] = None
+    type: Optional[str] = None
+    name: str = ""
+    role_phrase: str = ""
+    fact: str = ""
+    last_seen: Optional[str] = None
+    count: int = 0
+    pending: bool = False        # "mentioned once, not a page yet" (§6.4)
+
+
+class ClusterGroup(CamelModel):
+    label: str
+    members: list[ClusterMember] = []
+    more: int = 0
+
+
+class ProjectCluster(CamelModel):
+    groups: list[ClusterGroup] = []
+    also_uses: list[ClusterMember] = []   # the commons (R-PJ20)
+
+
+class ProjectProgress(CamelModel):
+    done: int = 0
+    total: int = 0
+
+
+class ProjectRef(CamelModel):
+    id: str
+    name: str
+    one_liner: str = ""
+    parent: Optional[str] = None
+    children: list[str] = []
+    status: str = "active"
+    created: Optional[str] = None
+
+
+class ProjectNow(CamelModel):
+    threads: list[OpenThread] = []
+    next: Optional[MilestoneRow] = None
+    last: Optional[TimelineItem] = None
+
+
+class PendingConversations(CamelModel):
+    unconsolidated: int = 0
+    newest_day: Optional[str] = None
+
+
+class TimelineWindow(CamelModel):
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
+class ProjectRow(ProjectRef):
+    planned: bool = False
+    last_moment_day: Optional[str] = None
+    median_gap_days: Optional[float] = None
+    open_threads: list[OpenThread] = []
+    milestones: list[MilestoneRow] = []
+    progress: ProjectProgress = Field(default_factory=ProjectProgress)
+    activity: list[ActivityDay] = []
+    followups: int = 0
+
+
+class ProjectsResponse(CamelModel):
+    projects: list[ProjectRow] = []
+    tz_name: str = "UTC"
+    partial: bool = False
+
+
+class ProjectTimeline(CamelModel):
+    project: ProjectRef
+    tz_name: str = "UTC"
+    window: TimelineWindow = Field(default_factory=TimelineWindow)
+    now: ProjectNow = Field(default_factory=ProjectNow)
+    pending: PendingConversations = Field(default_factory=PendingConversations)
+    milestones: list[MilestoneRow] = []
+    items: list[TimelineItem] = []
+    activity: list[ActivityDay] = []
+    moment_days: list[str] = []
+    last_moment_day: Optional[str] = None
+    median_gap_days: Optional[float] = None
+    cluster: ProjectCluster = Field(default_factory=ProjectCluster)
+    conversations: list[TimelineConversation] = []
+    partial: bool = False
+
+
+# G141 PJ-3b (§5.3) — the person's writes from the Projects page. Every day on
+# the wire is `YYYY-MM-DD` (R-PJ6: nothing relative is stored or sent).
+
+
+class MilestoneCreate(CamelModel):
+    name: str
+    target: Optional[str] = None
+
+
+class MilestonePatch(CamelModel):
+    target: Optional[str] = None
+    status: Optional[str] = None
+    on: Optional[str] = None
+    name: Optional[str] = None
+
+
+class HappeningCreate(CamelModel):
+    text: str
+    status: str = "done"          # done | ongoing
+    when: Optional[str] = None    # the date chip, YYYY-MM-DD
+
+
+class ThreadSettle(CamelModel):
+    status: str                   # done | ongoing | dropped
+    on: Optional[str] = None
+
+
+class WithdrawRequest(CamelModel):
+    claim_id: str
+
+
+class ProjectWriteResponse(CamelModel):
+    action: str
+    claim_id: Optional[str] = None
+    day: Optional[str] = None
+    date_basis: Optional[str] = None
+    episode_id: Optional[str] = None
+    claims: list[ClaimModel] = []
+
+
+# --- G150: a project's backlog (routers/backlog.py) ----------------------------
+
+
+class BacklogLink(CamelModel):
+    kind: str                      # pr | commit | url | doc | entity
+    ref: str
+
+
+class BacklogNoteModel(CamelModel):
+    """One signed note (R-B4). `by` is the author id, `byLabel` the heading's
+    words. `authorModel`/`authorEffort` are the turn's model and effort for a
+    harness note once round 4's C3 join is called in `routers/backlog._note`
+    (R-B6) — null until then, never self-reported."""
+    day: str
+    text: str
+    by: str
+    by_kind: str
+    by_provider: Optional[str] = None
+    by_label: str
+    at: Optional[str] = None
+    session: Optional[str] = None
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
+
+
+class BacklogItemSummary(CamelModel):
+    id: str
+    project: str
+    title: str
+    status: str                    # open | doing | done | dropped
+    triage: Optional[str] = None   # apply | research | decide
+    paid: bool = False
+    created: str
+    updated: str
+    added_by: str
+    added_by_kind: str
+    added_by_label: str
+    note_count: int = 0
+    last_note_day: Optional[str] = None   # the machine zone's day (tzName) — never a relative word
+    last_note_by: Optional[str] = None
+    order: Optional[int] = None
+
+
+class BacklogItemModel(BacklogItemSummary):
+    description: str = ""
+    notes: list[BacklogNoteModel] = []
+    links: list[BacklogLink] = []
+    session: Optional[str] = None
+    path: str = ""
+
+
+class BacklogListResponse(CamelModel):
+    project: str
+    project_name: str
+    prefix: str
+    counts: dict[str, int]
+    items: list[BacklogItemSummary]
+    tz_name: str
+
+
+class BacklogItemCreate(CamelModel):
+    title: str
+    description: str = ""
+    triage: Optional[str] = None
+    paid: bool = False
+
+
+class BacklogNoteCreate(CamelModel):
+    note: str = ""
+    status: Optional[str] = None
+
+
+class BacklogItemPatch(CamelModel):
+    title: Optional[str] = None
+    status: Optional[str] = None
+    triage: Optional[str] = None   # "" clears it
+    paid: Optional[bool] = None
+    links: Optional[list[BacklogLink]] = None
+
+
+class BacklogImportRequest(CamelModel):
+    markdown: str
+    prefix: str = "G"
+
+
+class BacklogImportResponse(CamelModel):
+    created: list[str]
+    skipped: list[str]
+    failed: list[str] = []
 
 
 class TransclusionPayload(CamelModel):
@@ -628,6 +1512,29 @@ class GraphNode(CamelModel):
     # folded into `content_hash` below — the `has_logo` precedent — so the
     # companion app's delta repaints the node when the class changes.
     decay_class: DecayClass = DecayClass.active
+    # G117 — set from the entity's own `owner: true` frontmatter
+    # (`owner_identity.ensure_owner_entity`). Additive/optional: an older
+    # client ignores it; the app renders "Name (you)" when true.
+    is_owner: bool = False
+    # G136 S6 — the page's `aliases:` (≤ 8, `graph_builder.node_aliases`), for the
+    # app's instant search tier. Shipped after measuring the payload (plan
+    # R-SU23; the number is on the G136 row). Additive/defaulted.
+    aliases: list[str] = []
+    # C11 (G146) — the page's resolved picture and its rung, and the day it was last mentioned (F-12's ages and
+    # Clusters' recency order, plan R-PE13). Additive. `picture`/`pictureSource` are OMITTED when there is none: this is
+    # the app's largest snapshot and most pages have no picture, so an absent one costs nothing (R-PE5).
+    picture: Optional[str] = None
+    picture_source: Optional[str] = None
+    last_referenced: Optional[str] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_picture(self, handler) -> dict[str, Any]:
+        data = handler(self)
+        if isinstance(data, dict):
+            for key in ("picture", "pictureSource", "picture_source"):
+                if key in data and data[key] is None:
+                    del data[key]
+        return data
 
 
 class GraphLink(CamelModel):
@@ -651,6 +1558,30 @@ class GraphResponse(CamelModel):
 
 
 class SearchHit(CamelModel):
+    """One ``GET /search`` row (G136, round-3 design §3.9).
+
+    The first seven fields are the pre-G136 shape and stay required-compatible
+    (``GraphSearchHit`` decodes them). Everything after is additive and
+    optional. Per ``kind``:
+
+    - ``entity`` / ``media``: ``id`` is the entity id; ``type``/``status``/
+      ``confidence`` are the page's; ``subtitle`` is the alias that matched
+      (entity), or the authors / site (media).
+    - ``claim``: ``id`` is the claim id and ``name`` its text; ``subject_id``
+      is the page it lives on, and ``type``/``status`` are that page's;
+      ``valid_to``/``superseded_by`` set means history ("was X until …").
+    - ``episode``: ``id`` is the episode (evidence doc) id and ``name`` its
+      title; ``start``/``end``/``hash`` are a span into the evidence text
+      (G118) around the best passage, and ``evidence_kind`` is its speaker.
+    - ``inbox``: ``id`` is the inbox item id, ``name`` the question it is
+      served as, ``type`` the item's kind, ``subject_id`` its entity.
+
+    ``matched_field`` is ``name | alias | keyword | body | claim | semantic``
+    — why this row is here. ``snippet_offsets`` are ``[start, end]`` code-point
+    (Unicode scalar) ranges into ``snippet`` to bold. ``score`` orders rows
+    within one response and is not comparable across modes.
+    """
+
     id: str
     name: str
     type: str
@@ -658,10 +1589,45 @@ class SearchHit(CamelModel):
     confidence: float
     score: float = 0.0
     snippet: str = ""
+    kind: str = "entity"
+    subtitle: str | None = None
+    snippet_offsets: list[list[int]] = Field(default_factory=list)
+    matched_field: str | None = None
+    subject_id: str | None = None
+    episode_id: str | None = None
+    conversation_id: str | None = None
+    harness: str | None = None
+    origin: str | None = None
+    timestamp: str | None = None
+    start: int | None = None
+    end: int | None = None
+    hash: str | None = None
+    evidence_kind: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    superseded_by: str | None = None
+    # G141 R-PJB11 — an event claim hit: its status and day. Its `valid_to` /
+    # `superseded_by` are sent only when something replaced it, so a
+    # born-closed done happening never renders as history.
+    event_status: str | None = None
+    event_day: str | None = None
 
 
 class SearchResponse(CamelModel):
+    """``totals`` is the exact number of documents per kind that match the
+    query LEXICALLY (every token a word-start prefix) — the one countable set,
+    so "Show all N" is never a guess. A hybrid response may also carry
+    semantic-only neighbours (``matched_field: semantic``), which are ranked,
+    not counted. ``mode`` is what actually ran: ``lexical`` when hybrid was
+    asked for but no vector index answered. ``index_state`` is
+    ``ready | stale | building | unavailable`` (``search_index.ensure_fresh``);
+    while it is not ready/stale, only entities and media are served, from the
+    frontmatter cache."""
+
     results: list[SearchHit]
+    totals: dict[str, int] = Field(default_factory=dict)
+    mode: str = "hybrid"
+    index_state: str = "ready"
 
 
 # --- Ask (auditable NL synthesis over memory) ---
@@ -678,6 +1644,11 @@ class AskCitation(CamelModel):
     file_path: str
     snippet: str
     source_episodes: list[str] = []
+    # G118 slice 2 (R-PB12) — set when the retrieval hit was a claim: the
+    # claim and the spans behind it, read from the page (the source of truth),
+    # raw as stored; freshness is `/episodes/{id}/span`'s job. Additive.
+    claim_id: Optional[str] = None
+    evidence: list[EvidenceModel] = []
 
 
 class AskResponse(CamelModel):
@@ -767,6 +1738,21 @@ class InboxKind(str, Enum):
     conflict = "conflict"
     clarification = "clarification"
     merge_suggestion = "merge_suggestion"
+    # G113 slice 3: Sleep has written these two kinds for months
+    # (`inbox_generator.py`'s `divergence_nudge`/`normalization_audit`
+    # branches) but `InboxKind` lacked them, so `_item_from_file` raised and
+    # `load_inbox` silently dropped every such item — the user never saw the
+    # question and could never answer it.
+    divergence = "divergence"
+    normalization = "normalization"
+    # G129 slice 2: a bookmark that left the browser — keep it, or archive
+    # the media entity it named. The proposal comes from the browser's own
+    # diff, never from the extractor, so it carries no recommendation and its
+    # verdict is always `neutral` (see `inbox_service._verdict`).
+    removal = "removal"
+    # G141 PJ-6: "how did it go?" on a quiet thread or an overdue milestone —
+    # engine-free, question synthesised at read (like decay).
+    followup = "followup"
 
 
 class RequiredInput(str, Enum):
@@ -780,7 +1766,11 @@ class InboxOption(CamelModel):
     """One answerable option on an inbox question (AskUserQuestion shape).
 
     ``age_days`` is derived at read time from ``last_referenced`` (falling back
-    to ``observed_at``) — it is never persisted into the item file.
+    to ``observed_at``) — it is never persisted into the item file. G115 Phase 1:
+    ``recommended`` marks the ONE option Sleep proposed (the key the G113
+    ``_verdict`` scores ``agreed``); ``verdict`` is what picking this option
+    would be graded as (``agreed``/``overruled``/``neutral``) — on the wire for
+    agents and tests, never rendered as copy. Both are derived at read.
     """
 
     key: str
@@ -790,6 +1780,66 @@ class InboxOption(CamelModel):
     observed_at: Optional[str] = None
     last_referenced: Optional[str] = None
     age_days: Optional[int] = None
+    recommended: bool = False
+    verdict: Optional[str] = None
+
+
+class InboxCause(CamelModel):
+    """Why this item exists — the conversation and sentence that raised it (G97).
+
+    Resolved at read by ``inbox_context`` through three tiers (``tier``: the
+    item's own ``source_episode`` → the freshest option claim's episode → the
+    subject page's last ``source_episodes`` entry → ``none``). ``excerpt`` is a
+    ±240-char window of the episode body around the mention, ``mention_offsets``
+    are ``[start, end]`` pairs INTO THE EXCERPT, ``start``/``end`` are the
+    mention's absolute offsets into the episode body (what
+    ``GET /episodes/{id}/span`` takes). Nothing here is stored: a rewritten
+    episode changes the excerpt on the next read instead of mis-highlighting.
+    ``span_kind`` is ``derived`` (found by name at read) or ``asserted`` (a G118
+    evidence span on the claim). Tier ``none`` serves the literal
+    ``[ no source recorded ]`` — a card is never hidden for lacking a cause.
+    """
+
+    episode_id: Optional[str] = None
+    timestamp: Optional[str] = None
+    conversation_id: Optional[str] = None
+    harness: Optional[str] = None
+    origin: Optional[str] = None
+    conversation_title: Optional[str] = None
+    excerpt: str = ""
+    mention_offsets: list[list[int]] = []
+    start: Optional[int] = None
+    end: Optional[int] = None
+    tier: str = "none"
+    span_kind: str = "derived"
+
+
+class InboxCheckTarget(CamelModel):
+    """One place an inbox item's fact could be checked (G61 phase 2 S2). ``access``
+    is the EFFECTIVE value (stated, else inferred — ``fact_sources.effective_access``);
+    ``own_session_only`` marks a host Cicada never reads itself, which an agent may
+    only open in the person's already-open session (D-AC2)."""
+
+    ref: str
+    kind: str
+    access: str
+    added_by: str
+    predicate_matched: bool = False
+    accepted: bool = False
+    rungs: list[str] = []
+    own_session_only: bool = False
+
+
+class InboxCheck(CamelModel):
+    """Which rung could answer an item — derived at read by ``source_check``,
+    never stored (G61 phase 2 S2, plan R-AC34/R-AC40). Nothing acts on it yet."""
+
+    state: str                  # checkable | needs_source | inform_only | never
+    reason: str
+    locus: str = "unknown"      # world | artifact | person | unknown
+    targets: list[InboxCheckTarget] = []
+    rungs: list[str] = []       # fetch | agent | agent_local
+    settle_eligible: bool = False
 
 
 class InboxItem(CamelModel):
@@ -810,6 +1860,11 @@ class InboxItem(CamelModel):
     allow_defer: bool = False
     predicate: Optional[str] = None
     hint: Optional[str] = None
+    # G129 slice 2 — which sync_state channel (`chrome-bookmarks`/
+    # `safari-bookmarks`) proposed this item, so the app's Deletions
+    # subsection can filter `GET /inbox`'s result without a new endpoint.
+    # Null for every other kind.
+    channel: Optional[str] = None
     remind_after: Optional[str] = None
     updated_date: Optional[str] = None
     # clarification/merge extras (only populated for those kinds)
@@ -817,6 +1872,21 @@ class InboxItem(CamelModel):
     suggested_classification: Optional[str] = None
     suggested_confidence: Optional[float] = None
     merge_target_hint: Optional[str] = None
+    # G115 Phase 1 — all additive so an older app build still decodes.
+    entity_type: Optional[str] = None
+    source_episode: Optional[str] = None
+    source_episode_timestamp: Optional[str] = None
+    claim_id: Optional[str] = None
+    cause: Optional[InboxCause] = None
+    extractor_confidence: Optional[float] = None
+    extractor_model: Optional[str] = None
+    recommended_key: Optional[str] = None
+    # G98: a conflict on a multi-valued predicate is shown, never asked.
+    informational: bool = False
+    # G61 phase 2 S2 (plan R-AC40): derived at read, never stored; additive —
+    # the app's InboxItem decodes through explicit CodingKeys that do not list
+    # it, so no VersionVector or decoder change is needed until a screen reads it.
+    check: Optional[InboxCheck] = None
 
 
 class InboxResolveRequest(CamelModel):
@@ -835,6 +1905,23 @@ class InboxResolveRequest(CamelModel):
     # When it names the cleaner mention instead, the surviving file is renamed to
     # the survivor's slug so a merge can go either direction.
     merge_survivor: Optional[str] = None
+
+
+class CheckCensus(CamelModel):
+    """``GET /inbox/check-census`` — counts only (G61 phase 2 S2, plan R-AC41).
+    Dict keys are enum values (``checkable``, ``checkable/settle_eligible``), not
+    aliased."""
+
+    total: int = 0
+    deferred: int = 0
+    by_state: dict[str, int] = {}
+    by_reason: dict[str, int] = {}
+    by_kind: dict[str, dict[str, int]] = {}
+    by_locus: dict[str, int] = {}
+    by_rung: dict[str, int] = {}
+    targets_by_access: dict[str, int] = {}
+    settle_eligible: int = 0
+    checkable_share: float = 0.0
 
 
 # --- Status aggregate (menu-bar / tamagotchi) ---
@@ -858,6 +1945,13 @@ class StatusEpisodes(CamelModel):
     last_ingested_at: Optional[str] = None
 
 
+class StatusGates(CamelModel):
+    """G139 — the three outbound gates, booleans only (R-O21)."""
+    connector_fetch: bool = True
+    feed_fetch: bool = False
+    logo_fetch: bool = True
+
+
 class StatusResponse(CamelModel):
     sleep: StatusSleep
     inbox: StatusInbox
@@ -865,6 +1959,11 @@ class StatusResponse(CamelModel):
     last_sleep_at: Optional[str] = None
     next_sleep_at: Optional[str] = None
     connections: Optional["StatusConnections"] = None
+    # G139 — facts about this backend that name nothing: whether the usage
+    # ledger records, the outbound gates, and which env switches are set (names).
+    telemetry: Optional[str] = None
+    gates: Optional[StatusGates] = None
+    env_overrides: list[str] = []
 
 
 # --- Health (liveness probe for installer / doctor) ---
@@ -1004,9 +2103,21 @@ class SleepStatusResponse(CamelModel):
     # 2-5 have no per-episode unit to report (see
     # `sleep_cycle.progress_pct`'s docstring for the full contract).
     progress_pct: Optional[int] = None
+    # G125 — this cycle's selected episodes by source, and how many of each
+    # Stage 1 has finished (R3). Empty when idle.
+    queue_by_origin: dict[str, int] = Field(default_factory=dict)
+    read_by_origin: dict[str, int] = Field(default_factory=dict)
 
 
 class SleepHistoryEntry(CamelModel):
+    """One consolidation, as the Sleep page's history lists it (G125 R4).
+
+    Counts are parsed server-side from the commit's manifest lines — the body
+    itself never crosses the wire (the M1 lesson: 787 B → 378 KB for eight
+    commits when it did). ``duration_ms`` is joined from the ``sleep_run``
+    ledger row by ``refs.commit`` and is ``None`` — never estimated — when no
+    row exists (R5; G107 keeps estimates deferred).
+    """
     commit_hash: str
     date: str
     message: str
@@ -1017,6 +2128,29 @@ class SleepHistoryEntry(CamelModel):
     # decay-only commit (G85 split): no LLM engine ran for pure decay
     # arithmetic, so the honest answer is "no engine", never a guess.
     engine: Optional[str] = None
+    # "sleep" | "decay" (the G85 split's `(decay)` commit) | "inbox"
+    kind: str = "sleep"
+    entities_created: int = 0
+    entities_updated: int = 0
+    episodes: int = 0
+    sessions: int = 0
+    authors: list[str] = Field(default_factory=list)
+    duration_ms: Optional[int] = None
+
+
+class SleepCycleEntity(CamelModel):
+    id: str
+    action: str
+    trigger: str
+    source_episode: Optional[str] = None
+
+
+class SleepCycleDetail(SleepHistoryEntry):
+    """``GET /sleep/history/{commit}`` — what one cycle consolidated (G125)."""
+    entities: list[SleepCycleEntity] = Field(default_factory=list)
+    truncated: bool = False
+    episodes_by_origin: dict[str, int] = Field(default_factory=dict)
+    inbox_changes: int = 0
 
 
 class EpisodeQueueItem(CamelModel):
@@ -1031,6 +2165,10 @@ class EpisodeQueueItem(CamelModel):
     origin: str = "unknown"
     title: Optional[str] = None
     preview: str
+    # G125 R9 — body length in characters, for the Sleep page's book pile
+    # (a log-scale spine height, R9). 0 on an older backend that predates
+    # this field, and for an episode whose body genuinely is empty.
+    chars: int = 0
     processed: bool
     # G114 R6: who flipped `processed` — "sleep" for a Sleep-cycle
     # consolidation, "agent" (or the harness name) for an agent's
@@ -1039,13 +2177,148 @@ class EpisodeQueueItem(CamelModel):
     processed_by: Optional[str] = None
 
 
+SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
+
+
 class ScheduleConfig(CamelModel):
-    enabled: bool
+    """When Sleep runs on its own (G125 (4)). ``mode`` is the truth; ``enabled``
+    is derived (``mode != "manual"``) and always written so an older reader of
+    ``/status.nextSleepAt`` keeps working (R6). An older client that PUTs only
+    ``{enabled, hour, minute}`` gets ``daily``/``manual`` derived for it.
+    ``after_import`` is a settle probe, not a hook (R7).
+    """
+    mode: Optional[str] = None
+    enabled: bool = False
     # 24-hour clock, local time. Constrained so garbage input (e.g. hour=99)
     # is rejected at the API boundary instead of persisting to
     # memory/sleep_schedule.yaml or blowing up CronTrigger downstream.
-    hour: int = Field(ge=0, le=23)
-    minute: int = Field(ge=0, le=59)
+    hour: int = Field(3, ge=0, le=23)
+    minute: int = Field(0, ge=0, le=59)
+    # "interval" mode's period, hours. 1..168 (a week) — below 1 is a
+    # de-facto polling loop, above a week is indistinguishable from manual.
+    interval_hours: int = Field(6, ge=1, le=168)
+
+    @model_validator(mode="after")
+    def _derive(self):
+        if self.mode is None:
+            self.mode = "daily" if self.enabled else "manual"
+        if self.mode not in SCHEDULE_MODES:
+            raise ValueError(f"mode must be one of {SCHEDULE_MODES}")
+        self.enabled = self.mode != "manual"
+        return self
+
+
+# --------------------------------------------------------------------------- #
+# G122 — GET/PUT /sleep/engine: the Settings → Engines engine & model picker.
+# --------------------------------------------------------------------------- #
+
+
+class SleepEngineCandidate(CamelModel):
+    """One row of the picker's segmented control. Deliberately NOT a reuse of
+    ``ConnectionStatus`` (that schema carries login/billing/price fields no
+    candidate needs, and G124 bans price/token fields from this surface
+    entirely) — a candidate only needs enough to render a segment and, once
+    selected, a model list."""
+    id: str
+    label: str
+    available: bool = False
+    connected: bool = False
+    models: list[str] = Field(default_factory=list)
+    detail: Optional[str] = None
+    # R-AG12: what a tap writes, when it is not the card's own id — the
+    # OpenRouter card is `byok` under the hood, so ruling 4 never sees a new mode.
+    mode: Optional[str] = None
+
+
+class SleepEngineProvider(CamelModel):
+    """One row of the API-key card's provider picker (R-AG11). Names and ids
+    only; ``has_key`` is presence, never a value; no price (G124)."""
+    id: str
+    label: str
+    connection_id: str
+    has_key: bool = False
+    default_model: str
+    key_url: str
+
+
+class SleepEnginePreview(CamelModel):
+    """What the NEXT cycle would actually run on, for one trigger source.
+    ``engine`` is an ``ENGINE_LABELS`` id (``claude-cli|codex-cli|ollama|litellm``, see
+    ``engine_select.engine_label``), not the picker's ``mode`` — a resolved
+    "auto" or a prefs "byok" both read as "litellm" here, matching what
+    ``sleep_cycle`` itself would stamp as ``last_engine``."""
+    engine: str
+    model: str
+    why: str
+
+
+class SleepEnginePreviews(CamelModel):
+    """Both previews, always both — ruling 4 (a scheduled cycle never spends
+    plan quota) is made VISIBLE here rather than hidden: the picker renders
+    ``manual`` and ``scheduled`` side by side so a prefs-chosen "agent" that
+    silently degrades on the nightly schedule is obvious, never a surprise."""
+    manual: SleepEnginePreview
+    scheduled: SleepEnginePreview
+
+
+class SleepEngineResponse(CamelModel):
+    """The full GET/PUT /sleep/engine body. ``source`` tells the reader WHY
+    ``mode`` is what it is — ``"env"`` (an explicit ``CICADA_LLM_MODE``),
+    ``"prefs"`` (this endpoint's own pref, G122), or ``"default"`` (nobody
+    chose, today's shipped behaviour) — mirroring ``ConnectionStatus.how``'s
+    own "explain the state next to what decided it" shape. No price, no
+    token count, anywhere on this schema (G124)."""
+    mode: str
+    model: str
+    disambiguation_model: str
+    source: str  # "env" | "prefs" | "default"
+    candidates: list[SleepEngineCandidate]
+    preview: SleepEnginePreviews
+    allow_overage: bool = False  # R-E13: Settings → Engines "Keep going on extra usage"
+    # R-AG12: ``mode`` is what runs; ``selected`` is the CARD that choice
+    # belongs to (``openrouter`` for a ``byok`` mode with an ``openrouter/``
+    # model, else the mode itself), so the app highlights the right card
+    # without a second mode that ruling 4 would have to learn. ``provider``
+    # is the key provider the chosen card reads through (the stored ``byok``
+    # model's, or Auto's resolved key model's — R-AG14's "leaves your Mac"
+    # note names it); ``providers`` is the API-key card's picker (R-AG11).
+    selected: str = ""
+    provider: Optional[str] = None
+    providers: list[SleepEngineProvider] = Field(default_factory=list)
+
+
+class SleepEngineChoice(CamelModel):
+    """A PUT body. ``model``/``disambiguation_model`` are ``Optional`` so
+    ``sleep_engine_prefs.validate_and_write`` can tell "omitted" from
+    "explicitly cleared" via ``model_fields_set`` — the same idiom
+    ``routers/connections.py::PrefsBody`` already uses for ``tier``."""
+    mode: str
+    model: Optional[str] = None
+    disambiguation_model: Optional[str] = None
+    # R-E13: omitted leaves the stored opt-in alone; false clears it.
+    allow_overage: Optional[bool] = None
+
+
+class OwnerUpdateRequest(CamelModel):
+    """PUT /settings/owner body. `handle`/`email` are stored in owner.json
+    only (never in the entity page, never sent anywhere else — CLAUDE.md's
+    rail: owner.json holds a name, never a secret, and these two are opt-in
+    identity, not credentials)."""
+
+    name: str
+    handle: Optional[str] = None
+    email: Optional[str] = None
+
+
+class OwnerSettingsResponse(CamelModel):
+    name: str = ""
+    handle: Optional[str] = None
+    email: Optional[str] = None
+    # R1's resolved value — "owner" on a fresh install/bank, the legacy
+    # "rodrigo" on a pre-G117 bank until the name is set, else the
+    # name-derived slug. Always non-empty.
+    observer: str = "owner"
+    entity_id: Optional[str] = None
 
 
 # --- Conversation Upload ---
@@ -1072,11 +2345,31 @@ class BankInfo(CamelModel):
     episode_count: int = 0
     created_at: str = ""
     description: str = ""
+    # G139 R-O18 — the in-place bank that IS the memory folder; the app hides
+    # it from Delete (the server refuses it too, 409).
+    legacy: bool = False
+    # G117 round 4 (T-Demo) — `demo_guard.is_demo`: the demo banner and the
+    # tour's demo stops read it; never inferred from the name (R-CS10).
+    demo: bool = False
 
 
 class BankListResponse(CamelModel):
     banks: list[BankInfo] = []
     active: str = ""
+
+
+class BankTrashResponse(BankListResponse):
+    """G139 — the roster after a delete, and where the bank went, relative to
+    the memory folder (never an absolute path on the wire)."""
+    trashed_to: str = ""
+
+
+class SearchIndexStatus(CamelModel):
+    """G139 — Settings → Memory's search-index row. `state` is
+    `search_index.ensure_fresh`'s own word."""
+    state: str
+    built_at: Optional[str] = None
+    documents: Optional[int] = None
 
 
 class BankCreateRequest(CamelModel):
@@ -1115,6 +2408,194 @@ class BankImportResponse(CamelModel):
     # ever process — the app branches its toast on this rather than showing a
     # plain success message that silently hides the consequence.
     active: bool = False
+    # Track I T2 (R-IA10): the shim now runs the one pipeline, which knows both.
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+
+
+# --- One intake (Track I T2/T2b) ---
+
+
+class IntakeIgnored(CamelModel):
+    """A file the export carries that is not a conversation, said by name."""
+
+    name: str
+    reason: str
+
+
+class IntakeCounts(CamelModel):
+    conversations: int = 0
+    memories: int = 0
+    projects: int = 0
+    prompts: int = 0
+    items: int = 0
+
+
+class IntakeDelta(CamelModel):
+    """What an import WOULD do, from ``intake.plan`` (G20 made visible first)."""
+
+    new: int = 0
+    grown: int = 0
+    unchanged: int = 0
+
+
+class IntakeTitle(CamelModel):
+    title: str
+    date: Optional[str] = None
+
+
+class IntakeSniffResponse(CamelModel):
+    """``POST /intake/sniff`` — what a dropped file is, staging nothing (G71 §4.3).
+
+    ``recognized`` false with ``reason`` null and ``ignored`` set is a quiet
+    skip (a lone ``user.json``); with a ``reason`` it is a file the app should
+    name as unreadable, in these words."""
+
+    recognized: bool = False
+    kind: Literal["chat", "saved", "unknown"] = "unknown"
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+    platform: Optional[str] = None
+    members: list[str] = []
+    ignored: list[IntakeIgnored] = []
+    counts: IntakeCounts = Field(default_factory=IntakeCounts)
+    date_range: Optional[BankImportDateRange] = None
+    delta: IntakeDelta = Field(default_factory=IntakeDelta)
+    titles: list[IntakeTitle] = []
+    titles_truncated: bool = False
+    reason: Optional[str] = None
+    warnings: list[str] = []
+
+
+class IntakeJobRef(CamelModel):
+    id: str
+    total: int = 0
+
+
+class IntakeImportResponse(CamelModel):
+    """``POST /intake/import``. With ``job`` set (a 202, Track I T2b) the counts
+    are what was known at acceptance; poll ``GET /intake/jobs/{id}``."""
+
+    episodes_staged: int = 0
+    episodes_updated: int = 0
+    duplicates_skipped: int = 0
+    date_range: BankImportDateRange = Field(default_factory=BankImportDateRange)
+    format: str = "unknown"
+    active: bool = True
+    bank: str = "default"
+    vendor: Optional[str] = None
+    origin: Optional[str] = None
+    members: list[str] = []
+    ignored: list[IntakeIgnored] = []
+    job: Optional[IntakeJobRef] = None
+
+
+class IntakeJobStatus(CamelModel):
+    """``GET /intake/jobs/{id}`` — process-local; gone after a restart or an hour."""
+
+    id: str
+    total: int = 0
+    staged: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    done: bool = False
+    error: Optional[str] = None
+
+
+# --- Agent wiring (Track I T3, read-only) ---
+
+
+class AgentWiringStep(CamelModel):
+    """One command the APP may run after the person's click (spec decision 14).
+    ``display == shlex.join(argv)`` so the disclosure can never show one thing
+    and run another; ``touches`` are ``~/``-relative (R-IA15)."""
+
+    step: Literal["mcp", "hook", "autorecall", "autorecall-off"]
+    display: str
+    argv: list[str]
+    touches: list[str] = []
+
+
+class AgentWiringRow(CamelModel):
+    """One harness. ``recall: unknown`` is a probe that timed out or could not
+    run — never ``off``, or the app would offer an ``mcp add`` that fails on a
+    registered server. ``autosave: invalid`` is a settings file that does not
+    parse (F8: ``registry.status`` alone would have said ``absent``).
+    ``autorecall`` (G149) is the recall hooks' state; ``autorecall_on``/
+    ``autorecall_off`` are what Settings → Agents runs, apart from ``connect``."""
+
+    id: str
+    installed: bool = False
+    binary: Optional[str] = None
+    recall: Literal["on", "off", "unknown"] = "off"
+    autosave: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    connect: list[AgentWiringStep] = []
+    detail: Optional[str] = None
+    autorecall: Literal["on", "off", "stale", "invalid", "n/a"] = "n/a"
+    autorecall_on: list[AgentWiringStep] = []
+    autorecall_off: list[AgentWiringStep] = []
+
+
+class AgentWiringResponse(CamelModel):
+    """``GET /agents/wiring``. ``python``/``repo``/``memory`` ride along so the
+    app can pin its allowlist to the same checkout (R-IA28) and build Cursor's
+    deep link against the live memory root."""
+
+    agents: list[AgentWiringRow] = []
+    python: str = ""
+    repo: str = ""
+    memory: str = ""
+
+
+class AgentSetupConfig(CamelModel):
+    """A config merge the APP performs (round 4 D5): backup first, merge never
+    replace, an unparseable file left untouched. ``path`` is ``~``-relative."""
+
+    path: str
+    key: str
+    value: dict[str, Any]
+
+
+class AgentSetupResponse(CamelModel):
+    """``GET /agents/setup?harness=`` (round 4 C5, G76). ``kind`` says which of
+    ``prompt`` / ``argv`` / ``display`` (a paste-into-your-agent prompt naming
+    exactly those commands, ``display == shlex.join(argv)``), ``deeplink`` or
+    ``config`` is set. A ``prompt`` with ``argv: []`` (OpenCode, Hermes,
+    OpenClaw) is a config registration the agent performs itself, with
+    ``config`` riding along for doing it by hand (round 4 C8, R-AG3).
+    ``remote`` is produced by ``claude``/``chatgpt``/``grok``: ``display`` holds
+    exactly the two steps before Confirm on the G135 connector and ``note`` the
+    honesty line; nothing is set to run (R-AG19)."""
+
+    harness: str
+    kind: Literal["prompt", "deeplink", "config-merge", "remote"]
+    title: str
+    prompt: Optional[str] = None
+    argv: Optional[list[list[str]]] = None
+    display: Optional[list[str]] = None
+    deeplink: Optional[str] = None
+    config: Optional[AgentSetupConfig] = None
+    note: Optional[str] = None
+
+
+class AgentLiveRow(CamelModel):
+    """One agent's live ✓ (round 4 C8, R-AG5). ``via``: ``mcp`` (Cicada's stdio
+    server saw it initialize), ``remote`` (a connector made for it was used) or
+    ``config`` (its own MCP config names Cicada, not seen yet); null while not
+    connected. ``last_seen_at`` is the latest sighting, even while disconnected."""
+
+    id: str
+    connected: bool = False
+    last_seen_at: Optional[str] = None
+    via: Optional[Literal["mcp", "remote", "config"]] = None
+
+
+class AgentLiveResponse(CamelModel):
+    """``GET /agents/live`` — polled while the Agents page is visible; not a Store
+    domain, no ETag (a tiny body that changes by the second)."""
+
+    agents: list[AgentLiveRow] = []
 
 
 # --- Sources (media ingestion) ---
@@ -1139,6 +2620,7 @@ class SourceSaveResponse(CamelModel):
     media_type: str
     thumbnail: Optional[str] = None
     message: str
+    note_episode_id: Optional[str] = None  # G140 Q-R10 — the kept note's episode on a duplicate
 
 
 class SourceUploadResponse(CamelModel):
@@ -1210,6 +2692,34 @@ class MediaSourceItem(CamelModel):
     # (GET /sources ?sort=recent, the app's Recent toggle) should prefer this
     # and fall back to `saved_at`.
     content_saved_at: Optional[str] = None
+    # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
+    # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
+    # boundary, and the ids of the entities the page is `about` (the media
+    # page's `related:` list, written only by `link_recon`). Both additive and
+    # defaulted so an older client is unaffected; `None`/`[]` mean the link
+    # has not been described/related yet, never a guess.
+    description: Optional[str] = None
+    about: list[str] = []
+    # G124 R6 — the media entity's own `origin:` / `folder:` frontmatter
+    # (written by media_ingestor.write_media_entity) so the Sources page can
+    # filter the Feed's items to one source and group them by bookmark folder,
+    # Pinterest board or iCloud device without a second endpoint. Optional:
+    # a page ingested before origins were stamped simply has neither.
+    origin: Optional[str] = None
+    folder: Optional[str] = None
+    # Track V (R-V2/R15) — read back from the media page's own `media:` block,
+    # exactly where `site`/`channel` above already come from, and NOT from
+    # `url_index.json`: putting them in the index too would create a second
+    # thing to migrate and a second thing to disagree. Additive + defaulted,
+    # and no ETag input changes (`/sources` still ETags over the same
+    # components), so the ship-together rule is satisfied by there being
+    # nothing to ship. Wire names: `provider`, `durationS`.
+    provider: Optional[str] = None
+    duration_s: Optional[int] = None
+    # G133 — `paper` for a paper page (R-LS14), with the byline the Feed row
+    # shows and searches; both absent for every other media row.
+    kind: Optional[str] = None
+    paper: Optional[PaperSummary] = None
 
 
 class SourceListResponse(CamelModel):
@@ -1217,11 +2727,26 @@ class SourceListResponse(CamelModel):
     total: int
 
 
+class ChromiumBookmarksFile(CamelModel):
+    """Round 4 (C9): one Chromium-family browser's default-profile `Bookmarks`
+    JSON, read by the app (the backend never opens a profile). ``browser`` is a
+    `bookmark_sync.CHROMIUM_BROWSERS` key."""
+
+    browser: str
+    data_b64: str
+
+
 class BookmarkSyncRequest(CamelModel):
     # Both optional + base64-encoded so the same endpoint works for an inline
     # hermetic test payload and (when omitted entirely) a local-file sync.
+    # `forbid` (round 4 phase A final review, finding 3): an unknown field is
+    # a 422, never silently dropped into the no-data local-file fallback —
+    # that is how a pre-round-4 route read Chrome for a `chromium`-only body.
+    model_config = ConfigDict(extra="forbid")
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
+    # Round 4 (C9) — the Chromium family beside Chrome's legacy field.
+    chromium: Optional[list[ChromiumBookmarksFile]] = None
     # R5 — exact folder-path prefixes at segment boundaries; "" = everything;
     # omitted = everything (unchanged behaviour).
     folders: Optional[list[str]] = None
@@ -1236,12 +2761,21 @@ class BookmarkSyncSourceSummary(CamelModel):
     found: int = 0
     new: int = 0
     skipped: int = 0
+    # R-SR13 — Safari only; 0 for every other browser.
+    reading_list: int = 0
+    favorites: int = 0
 
 
 class BookmarkSyncResponse(CamelModel):
     new: int
     skipped: int
     sources: list[BookmarkSyncSourceSummary] = []
+    # G129 slice 2 — how many `removal` inbox items this sync proposed, and
+    # (mutually exclusive in practice, but both default absent) why none were
+    # computed when the rails refused (folder-scope mismatch since the last
+    # sync on some channel this pass touched).
+    removals_proposed: int = 0
+    removals_skipped: Optional[str] = None
 
 
 class BookmarkFolderNode(CamelModel):
@@ -1336,6 +2870,36 @@ class MaintenanceDedupSweepResponse(CamelModel):
     proposed: list[MaintenanceMergePair] = []
     # Pairs the judge was uncertain about — same shape as the Nudge Inbox.
     nudged: list[MaintenanceNudgePair] = []
+    # G113 slice 3b — pairs skipped without a judge call because the user
+    # already rejected them (`merge_rejections`). Distinct from `nudged`: a
+    # rejected pair never re-reaches the judge at all, so it is neither
+    # merged, proposed, nor nudged.
+    skipped_rejected: int = 0
+
+
+class MaintenanceEnrichLinksResponse(CamelModel):
+    """What one `POST /maintenance/enrich-links` run did (G102 cheap slice).
+    Mirrors `link_enrichment.BackfillReport.as_dict()`; `remaining` is the
+    live count of media pages still owed a description, `remainingRecon` the
+    pages still owed relations, `deferred` the failed fetches inside their
+    30-day backoff. `engine`/`engineDetail` say which engine the run resolved
+    (a $0 run reports the configured engine but makes no call)."""
+    selected: int = 0
+    reused: int = 0
+    summarized: int = 0
+    fetched: int = 0
+    failed: int = 0
+    skipped: int = 0
+    extracted: int = 0
+    related: int = 0
+    remaining: int = 0
+    remaining_recon: int = 0
+    deferred: int = 0
+    llm_calls: int = 0
+    engine_aborted: Optional[str] = None
+    commit: Optional[str] = None
+    engine: Optional[str] = None
+    engine_detail: Optional[str] = None
 
 
 class NotesSyncRequest(CamelModel):
@@ -1356,6 +2920,15 @@ class NotesSyncResponse(CamelModel):
 # --- Capture channels (G62) --------------------------------------------------
 
 
+class ChannelPart(CamelModel):
+    """Round 4 (R-SR14): one extra count a channel's last sync stamped — Safari's
+    `reading-list` and `favorites`, a tab-group sync's `tabs`, the `people`
+    Contacts enriched. The key is an enum; the app owns the words."""
+
+    key: str
+    count: int = 0
+
+
 class SourceChannel(CamelModel):
     """One capture channel as the Capture page sees it. `connected` is derived
     from persisted state only (registries, sync_state.json, env, origin counts)
@@ -1372,11 +2945,273 @@ class SourceChannel(CamelModel):
     # from an exception type + message only.
     last_error: Optional[str] = None
     detail: Optional[str] = None
+    # R-S5 — the count no longer rides pre-formatted inside `detail`. The
+    # registry baked `f"{n:,}"` into the line and the app printed it verbatim,
+    # so a server-side `en_US` grouping sat beside the app's own locale-correct
+    # one in a single window (critique B1). `count_noun` is the SINGULAR noun
+    # ("bookmark", "saved item"); the client pluralises with `+ "s"` — every
+    # noun the registry and its adapters ship is regular, pinned by
+    # `test_channel_detail_numbers.py::test_every_shipped_noun_pluralises_by_adding_s`.
+    # `None` means this branch has nothing to count, which is what makes
+    # "0 pins · Last sync failed" unrepresentable rather than merely unlikely.
+    count_noun: Optional[str] = None
+    # True only for a connector's "items pulled THIS run"
+    # (`channel_registry._connector_channel`), which is not a channel total —
+    # the client renders it "+N nouns this sync", the words the server used to
+    # bake in itself.
+    count_is_delta: bool = False
+    # Round 4 (R-SR14) — additive, `[]` for every channel that stamped none;
+    # rode the "r4-sources" bump of CHANNELS_SHAPE (the ETag ship-together rule).
+    parts: list[ChannelPart] = []
     actions: list[str] = []
 
 
 class SourceChannelsResponse(CamelModel):
     channels: list[SourceChannel] = []
+
+
+class FolderAuthorshipRule(CamelModel):
+    """G133 / R-F2 — whose words the files under ``glob`` are: ``user`` or ``agent``."""
+
+    glob: str
+    authorship: str
+
+
+class FolderRecord(CamelModel):
+    """One watched folder (``<bank>/sources/folders.json``). ``path`` is display
+    and relink only — the backend never opens it (R-F1)."""
+
+    id: str
+    label: str
+    path: str
+    device: str
+    include: list[str] = []
+    exclude: list[str] = []
+    authorship: list[FolderAuthorshipRule] = []
+    project_id: Optional[str] = None
+    created_at: Optional[str] = None
+    last_sync: Optional[str] = None
+    papers_pending: bool = False
+    channel_id: str = ""
+
+
+class FolderListResponse(CamelModel):
+    folders: list[FolderRecord] = []
+
+
+class FolderRegisterRequest(CamelModel):
+    label: str
+    path: str
+    include: Optional[list[str]] = None
+    exclude: Optional[list[str]] = None
+    authorship: Optional[list[FolderAuthorshipRule]] = None
+    # R-LS13 — the app pre-fills the folder's name; "" means "no project".
+    project_name: Optional[str] = None
+
+
+class FolderUpdateRequest(CamelModel):
+    label: Optional[str] = None
+    authorship: Optional[list[FolderAuthorshipRule]] = None
+
+
+class FolderFileIn(CamelModel):
+    """R-LS8 — one file the app read: bytes as base64, re-hashed server-side."""
+
+    relpath: str
+    mtime: float
+    sha256: str
+    content_b64: str
+
+
+class FolderSyncRequest(CamelModel):
+    files: list[FolderFileIn] = []
+    deleted: list[str] = []
+
+
+class FolderSyncError(CamelModel):
+    relpath: str
+    reason: str
+
+
+class FolderSyncResponse(CamelModel):
+    preview: bool = False
+    files_new: int = 0
+    files_changed: int = 0
+    files_unchanged: int = 0
+    files_deleted: int = 0
+    agent_files: int = 0
+    stage1_passes: int = 0
+    papers_found: int = 0
+    created: int = 0
+    updated: int = 0
+    renamed: int = 0
+    tombstoned: int = 0
+    papers_created: int = 0
+    removals_proposed: int = 0
+    papers_pending: bool = False
+    errors: list[FolderSyncError] = []
+
+
+class FolderRemoveResponse(CamelModel):
+    removed: bool
+
+
+class WisprFlowSettings(CamelModel):
+    """G134 — per bank. Dictation is opt-in (R-LS23); `owner_speaker_names` is the
+    only way a meeting speaker is ever the owner (R-LS22)."""
+
+    enabled: bool = False
+    include_dictation: bool = False
+    owner_speaker_names: list[str] = []
+
+
+class WisprMeetingIn(CamelModel):
+    row: dict[str, Any] = {}
+    utterances: list[dict[str, Any]] = []
+
+
+class WisprFlowPayload(CamelModel):
+    """The app's whitelisted projection (R-LS21). The backend re-reads only the
+    whitelisted keys from each dict, whatever else arrives."""
+
+    meetings: list[WisprMeetingIn] = []
+    notes: list[dict[str, Any]] = []
+    todos: list[dict[str, Any]] = []
+    history: Optional[list[dict[str, Any]]] = None
+    deleted_meeting_ids: list[str] = []
+    deleted_note_ids: list[str] = []
+
+
+class WisprFlowCaptureResponse(CamelModel):
+    meetings_seen: int = 0
+    notes_seen: int = 0
+    dictation_days: int = 0
+    dictation_refused: int = 0
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    tombstoned: int = 0
+    todo_claims: int = 0
+    todos_skipped_no_owner: int = 0
+    # Meetings whose to-do claims wait for a running Sleep cycle to end (L final review, finding 5).
+    todos_pending: int = 0
+
+
+class CalendarLocalWindow(CamelModel):
+    """``from``/``to`` on the wire (round 4 C6); ``start``/``end`` in Python,
+    where ``from`` is a keyword. Aware ISO-8601 times."""
+
+    start: str = Field(alias="from")
+    end: str = Field(alias="to")
+
+
+class CalendarLocalCalendar(CamelModel):
+    id: str
+    title: str = ""
+    account: Optional[str] = None
+
+
+class CalendarLocalEvent(CamelModel):
+    """One EventKit event (C6). ``id`` = ``calendarItemExternalIdentifier``, plus
+    ``|`` and the occurrence start for a recurring event."""
+
+    id: str
+    calendar_id: str = ""
+    title: str = ""
+    start: str
+    end: Optional[str] = None
+    all_day: bool = False
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    url: Optional[str] = None
+    attendees: list[str] = []
+    organizer: Optional[str] = None
+    last_modified: Optional[str] = None
+
+
+class CalendarLocalSyncRequest(CamelModel):
+    """``POST /sources/calendar-local/sync`` (G142). One request carries the
+    WHOLE window — a tombstone needs the complete set (R4B-13)."""
+
+    window: CalendarLocalWindow
+    calendars: list[CalendarLocalCalendar] = []
+    events: list[CalendarLocalEvent] = []
+
+
+class CalendarLocalSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    bank: str = ""
+
+
+class TabGroupTab(CamelModel):
+    title: str = ""
+    url: str = ""
+
+
+class TabGroupRecord(CamelModel):
+    """One open tab group the app read from Chrome's session file (round 4, G160). ``key`` is Chrome's per-session
+    token (hex); ``saved_guid`` only when the person saved the group."""
+
+    key: str = ""
+    title: str = ""
+    color: str = "grey"
+    collapsed: bool = False
+    saved_guid: Optional[str] = None
+    tabs: list[TabGroupTab] = []
+
+
+class TabGroupsSyncRequest(CamelModel):
+    """``POST /sources/tab-groups/sync`` — one browser profile's WHOLE set of open groups (a tombstone needs it)."""
+
+    browser: str
+    profile: str = "Default"
+    groups: list[TabGroupRecord] = []
+
+
+class TabGroupsSyncResponse(CamelModel):
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    tombstoned: int = 0
+    groups: int = 0
+    tabs: int = 0
+    bank: str = ""
+
+
+class ContactRecord(CamelModel):
+    """One card the app read through the Contacts framework (G154). Names and WHICH facts the card holds — never an
+    address or a number (R-SR8). ``photo_b64`` is the card's thumbnail, sent only when it has one."""
+
+    id: str
+    given_name: str = ""
+    family_name: str = ""
+    has_organization: bool = False
+    has_job_title: bool = False
+    has_email: bool = False
+    has_phone: bool = False
+    has_birthday: bool = False
+    photo_b64: Optional[str] = None
+
+
+class ContactsLocalSyncRequest(CamelModel):
+    """``POST /sources/contacts-local/sync`` — the WHOLE address book (a removal needs the complete set)."""
+
+    contacts: list[ContactRecord] = []
+
+
+class ContactsLocalSyncResponse(CamelModel):
+    contacts: int = 0
+    matched: int = 0
+    people: int = 0
+    ambiguous: int = 0
+    unmatched: int = 0
+    sources_added: int = 0
+    sources_removed: int = 0
+    photos: int = 0
+    bank: str = ""
 
 
 # --- Saved-content connectors (G71 §2) ---
@@ -1436,7 +3271,7 @@ class ConnectionKind(str, Enum):
 
 
 class LoginHint(CamelModel):
-    mode: str  # terminal | device-code | key | none
+    mode: str  # terminal | device-code | key | oauth (R-AG10: a key card that also signs in) | none
     command: Optional[str] = None
 
 
@@ -1523,6 +3358,16 @@ class ConsumptionCalendar(CamelModel):
     weeks: int
 
 
+class ContributorCalendar(CamelModel):
+    """`/consumption/calendar`'s shape for one `Cicada-Author` (G124 R14).
+    ``days`` reuse ``CalendarDay`` with events/tokens/cost at zero so the app
+    renders it with the same heatmap and no new cell type."""
+
+    author: str
+    days: list[CalendarDay] = []
+    weeks: int = 53
+
+
 class ConsumptionStats(CamelModel):
     by_model: list[dict]
     by_stage: list[dict]
@@ -1536,6 +3381,20 @@ class ConsumptionStats(CamelModel):
     first_event: Optional[str] = None
     series: list[dict]
     range: str
+
+
+class ConsumptionFeedback(CamelModel):
+    """G113: the grounded-reward ledger as numbers. Ids/enums-derived counts only."""
+    range: str
+    since: Optional[str] = None
+    resolutions: int = 0
+    corrections: int = 0
+    rate: Optional[float] = None
+    agreement: list[dict] = []
+    calibration: list[dict] = []
+    by_action: list[dict] = []
+    audits: dict = {}
+    dedup: dict = {}
 
 
 class ConnectionConsumption(CamelModel):
@@ -1560,3 +3419,53 @@ class ConsumptionConnections(CamelModel):
 class HarnessStats(CamelModel):
     claude_code: Optional[dict] = None
     codex: Optional[dict] = None
+
+
+# --- Remote connector (G135) ---
+
+
+class RemoteConnectorOut(CamelModel):
+    id: str
+    label: str
+    app: str
+    scopes: list[str]
+    created_at: str
+    expires_at: Optional[str] = None
+    revoked_at: Optional[str] = None
+    last_used_at: Optional[str] = None
+    last_client: Optional[str] = None
+    state: str
+
+
+class RemoteConnectorCreatedOut(CamelModel):
+    connector: RemoteConnectorOut
+    token: str
+    link: Optional[str] = None
+    mcp_url: Optional[str] = None
+
+
+class RemoteConnectorIn(CamelModel):
+    app: str
+    label: str = ""
+    scopes: list[str]
+    expires_in_days: int = 30  # 7/30/90 only — never null (R-R3: every connector expires)
+
+
+class RemoteSettingsIn(CamelModel):
+    enabled: Optional[bool] = None
+    public_base_url: Optional[str] = None
+
+
+class RemoteStatusOut(CamelModel):
+    enabled: bool
+    port: int
+    listener_up: bool
+    listener_error: Optional[str] = None
+    public_base_url: Optional[str] = None
+    detected_url: Optional[str] = None
+    effective_url: Optional[str] = None
+    tailscale: str
+    ngrok_installed: bool
+    reachable: Optional[bool] = None
+    funnel_command: str
+    ngrok_command: str

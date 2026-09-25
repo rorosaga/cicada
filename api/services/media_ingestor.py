@@ -23,16 +23,29 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from loguru import logger
 
-from api.services import decay_policy, episode_ids, markdown_parser, saved_at
+from api.services import (
+    bank_index, decay_policy, episode_ids, episode_scrub, markdown_parser, net_guard, saved_at,
+    video_chapters, video_urls,
+)
 from api.services.id_utils import sanitize_id
 
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
 _TIMEOUT = 5.0
 _MAX_READ = 1_500_000  # 1.5 MB cap on a fetched page body
+# oEmbed calls take the ToS rail's own numbers, not `_TIMEOUT`'s looser 5.0 s
+# (R-V4: 4 s / <=512 KB / no cookies). The cap is applied to the DECODED body
+# (``resp.text``), i.e. characters, not wire bytes: ``enrich`` takes an
+# INJECTED client (see below) and a byte-exact streaming contract would force
+# every existing fake to grow one. An oEmbed response is ASCII-ish JSON of a
+# few hundred bytes, so the two numbers coincide in practice — this is a
+# runaway guard, not accounting.
+_OEMBED_TIMEOUT = 4.0
+_OEMBED_MAX_BYTES = 512_000
+DESCRIPTION_LIMIT = 5000  # G140 Q-R12: a description is kept, cut here — a field, not a document
 MAX_BATCH = 2000
 _INLINE_ENRICH_LIMIT = 10  # small batches enrich inline so saves feel instant
 
@@ -88,6 +101,11 @@ class RawItem:
     # it exactly as it would from conversation text, and written separately as a
     # `saved-because` claim by the caller that has one.
     reason: str | None = None
+    # Round 4 (R-SR13): the page excerpt Safari cached for a Reading List entry
+    # (`ReadingList.PreviewText`), scrubbed and cut at parse time. It is Safari's
+    # words about the page, not the person's — so it is never a `note` — and it
+    # stands in as the description only when enrichment found none.
+    preview: str | None = None
 
 
 @dataclass
@@ -97,7 +115,20 @@ class MediaMeta:
     site: str | None = None
     channel: str | None = None
     thumbnail: str | None = None
-    media_type: str = "url"  # bookmark | youtube | instagram | url
+    media_type: str = "url"  # bookmark | youtube | instagram | url | video
+    # Track V (R-V2). `provider` is URL-DERIVED (``video_urls.resolve``), so it
+    # is set even when every fetch fails — that is deliberate: a key that only
+    # appeared on the failure path would come to mean "the fetch broke". It is
+    # redundant with what the app derives at read time and is recorded so a
+    # non-Swift reader of the page can see which provider a URL belongs to.
+    # `duration_s` is the opposite: the one thing a URL cannot tell you, so it
+    # is only ever what a provider's oEmbed reported (R17 — never estimated,
+    # never computed; absent means absent).
+    provider: str | None = None
+    duration_s: int | None = None
+    # G140 Q-R12 — chapters parsed from the provider's own description
+    # (`video_chapters.parse`), never inferred; `None` when there is no list.
+    chapters: list[dict] | None = None
 
 
 @dataclass
@@ -176,6 +207,23 @@ def url_hash(url: str) -> str:
 
 
 def _classify(url: str, from_bookmark_file: bool = False) -> str:
+    """``youtube | instagram | linkedin | video | bookmark | url`` (R14 order).
+
+    ``video`` is Track V's one new value, and only ever for a direct/local
+    FILE. A Vimeo/TikTok/Loom URL keeps ``url``/``bookmark`` and carries
+    ``media.provider`` instead: every ``media_type`` value lands in the page's
+    tags (``write_media_entity``) and in the ``/sources`` wire shape, so each
+    one costs. ``video`` earns its place because
+    ``link_enrichment._excluded_media`` already accepts it
+    (link_enrichment.py:194) — classifying a direct file as ``video`` stops the
+    nightly enrichment backfill fetching a binary with **no edit to that
+    module**.
+
+    The file check asks ``video_urls`` — the same resolver ``enrich`` calls —
+    rather than re-deriving the extension here, so the classification and the
+    short-circuit that skips the network can never disagree about what a file
+    is.
+    """
     host = (urlparse(url if "://" in url else "https://" + url).hostname or "").lower()
     if "youtube.com" in host or host.endswith("youtu.be"):
         return "youtube"
@@ -183,6 +231,8 @@ def _classify(url: str, from_bookmark_file: bool = False) -> str:
         return "instagram"
     if "linkedin.com" in host:
         return "linkedin"
+    if video_urls.is_direct_file(url):
+        return "video"
     if from_bookmark_file:
         return "bookmark"
     return "url"
@@ -211,18 +261,45 @@ def _fallback_title(url: str) -> str:
 
 
 async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMeta:
-    """Best-effort metadata. ANY network/parse failure -> URL-only fallback."""
+    """Best-effort metadata. ANY network/parse failure -> URL-only fallback.
+
+    Track V: the URL is resolved ONCE (``video_urls.resolve``) and the result
+    drives both the provider stamped on every path and the branch taken. Order
+    matters — the file short-circuit comes first, because a direct video file
+    has no page to read at all.
+    """
+    ref = video_urls.resolve(url)
     media_type = _classify(url, from_bookmark_file=from_bookmark_file)
     site = _site_of(url)
     fallback = MediaMeta(
-        title=_fallback_title(url), description="", site=site, media_type=media_type
+        title=_fallback_title(url), description="", site=site,
+        media_type=media_type, provider=(ref.provider if ref else None),
     )
 
     try:
+        if ref is not None and ref.kind == "file":
+            # A direct/local video file has no page to read. Fetching it would
+            # pull up to 1.5 MB of binary and hand it to BeautifulSoup (the
+            # defect ``_enrich_opengraph``'s content-type guard also closes) —
+            # so the client is never touched at all, not even to look.
+            return fallback
         if media_type == "youtube":
-            return await _enrich_youtube(url, client, fallback)
+            # R12: ``_enrich_youtube`` is untouched — its endpoint and field
+            # mapping are already right and churning it would break every
+            # existing fake. ``MediaMeta`` is a plain dataclass, so the
+            # URL-derived provider is stamped here instead.
+            meta = await _enrich_youtube(url, client, fallback)
+            meta.provider = meta.provider or fallback.provider
+            return meta
         if media_type == "instagram":
             # Login-walled — never attempt scraping; URL-only by design.
+            return fallback
+        from api.services.papers import never_scraped  # lazy: papers imports this module
+
+        if never_scraped(url):
+            # An arXiv/DOI link or any arxiv.org page (G133 rail, L final review
+            # finding 4): the paper's details come from the arXiv and Crossref
+            # APIs only, never from a page or PDF fetch.
             return fallback
         if media_type == "linkedin":
             # ToS-walled (G69: §8.2 bans fetching the post body) — never
@@ -230,6 +307,12 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             # This is what makes ``parse_linkedin_saved``'s "thin by design"
             # claim actually true once an item is STAGED, not just previewed.
             return fallback
+        if ref is not None and ref.provider in video_urls.OEMBED_PROVIDERS:
+            # Vimeo / TikTok / Loom. This is what fixes the TikTok EXPORT path
+            # too: ``parse_upload`` routes those items with
+            # ``from_bookmark_file=False``, so every one of them used to fall
+            # to ``_enrich_opengraph`` and land on TikTok's consent wall.
+            return await _enrich_oembed(ref.provider, url, client, fallback)
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
         logger.debug(f"Enrichment failed for {url}: {type(e).__name__}: {e}")
@@ -251,14 +334,107 @@ async def _enrich_youtube(url: str, client, fallback: MediaMeta) -> MediaMeta:
     )
 
 
-async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
-    resp = await client.get(
-        url,
-        timeout=_TIMEOUT,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT},
-    )
+_OEMBED_ENDPOINTS = {
+    "vimeo": "https://vimeo.com/api/oembed.json?url={url}",
+    "tiktok": "https://www.tiktok.com/oembed?url={url}",
+    "loom": "https://www.loom.com/v1/oembed?url={url}",
+}
+
+
+async def _enrich_oembed(provider: str, url: str, client, fallback: MediaMeta) -> MediaMeta:
+    """One keyless-oEmbed reader for Vimeo / TikTok / Loom (R-V7).
+
+    Modelled on ``_enrich_youtube`` and bound by the same ToS rail (R-V4): it
+    reads the response's FIELDS — ``title``, ``author_name``,
+    ``thumbnail_url``, ``duration``, ``description`` (G140: Vimeo and Loom
+    return one, and it used to be discarded) — and **never its ``html``
+    blob**. Chapters are parsed from that description text
+    (``video_chapters.parse``), never inferred. The
+    player URL is derived from the id ourselves (``video_urls.resolve``), which
+    is exactly what the shipped YouTube path already does; parsing or injecting
+    a provider's returned markup would be the first time this app executed
+    third-party HTML it did not assemble.
+
+    No cookies, no ``Authorization``, 4 s, and an explicit 512 KB refusal — the
+    rail's own numbers rather than ``_TIMEOUT``'s looser 5 s. Any failure
+    (including a 401/403/407/451, which is **never retried with different
+    headers**) raises into ``enrich``'s single ``except`` and degrades to the
+    URL-only fallback, which still carries the URL-derived ``provider``.
+    """
+    from urllib.parse import quote
+
+    endpoint = _OEMBED_ENDPOINTS[provider].format(url=quote(url, safe=""))
+    resp = await client.get(endpoint, timeout=_OEMBED_TIMEOUT)
     resp.raise_for_status()
+    raw = (resp.text or "")[: _OEMBED_MAX_BYTES + 1]
+    if len(raw) > _OEMBED_MAX_BYTES:
+        raise ValueError(f"{provider} oembed body over the 512 KB cap")
+    data = json.loads(raw)
+
+    duration = data.get("duration")
+    # R17: a duration is shown only when a provider GAVE one. A string, a zero
+    # or a negative is not a duration — it is a missing one. (``bool`` is an
+    # ``int`` subclass, and ``True > 0``; no provider sends one, and if one
+    # did, "1 second" is the harmless reading.)
+    is_int = isinstance(duration, int) and not isinstance(duration, bool)
+    duration_s = duration if is_int and duration > 0 else None
+    # G140 Q-R12 (R5 §5.6) — kept, cut at DESCRIPTION_LIMIT: the episode and
+    # the page already render `## Description`, so keeping the field is enough.
+    description = str(data.get("description") or "").strip()[:DESCRIPTION_LIMIT]
+
+    return MediaMeta(
+        title=data.get("title") or fallback.title,
+        description=description,
+        chapters=video_chapters.parse(description) or None,
+        site=fallback.site,
+        channel=data.get("author_name") or None,
+        thumbnail=data.get("thumbnail_url") or None,
+        media_type=fallback.media_type,
+        provider=provider,
+        duration_s=duration_s,
+    )
+
+
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_MAX_REDIRECTS = 5
+
+
+async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
+    # G135 R-R10: every hop is checked BEFORE it is requested, so redirects are
+    # walked here rather than delegated to the client — the client is injected
+    # (tests, `ingest_batch`, the save routes), so an httpx hook cannot be
+    # relied on. A fake without `status_code` reads as 200 and never loops.
+    current = url
+    for _hop in range(_MAX_REDIRECTS + 1):
+        if not await net_guard.is_fetchable_url_async(current):
+            logger.debug("opengraph fetch refused a non-public address")
+            return fallback
+        resp = await client.get(
+            current,
+            timeout=_TIMEOUT,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+        )
+        location = (getattr(resp, "headers", {}) or {}).get("location")
+        if getattr(resp, "status_code", 200) in _REDIRECT_STATUSES and location:
+            current = urljoin(current, location)
+            continue
+        break
+    else:
+        return fallback
+    resp.raise_for_status()
+
+    # R13 / R-V7: mirror ``link_enrichment.default_fetch``'s guard
+    # (link_enrichment.py:588-590) — the two fetch paths disagreed, and this
+    # one would pull up to 1.5 MB of a binary body and hand it to
+    # BeautifulSoup. A response with NO content-type proceeds, exactly as
+    # before: a guard that fired on the header's ABSENCE would turn working
+    # fetches into fallbacks, a silent regression across every server that
+    # omits it.
+    ctype = (getattr(resp, "headers", {}) or {}).get("content-type", "").lower()
+    if ctype and "html" not in ctype and "text" not in ctype:
+        return fallback
+
     html = resp.text[:_MAX_READ]
 
     from bs4 import BeautifulSoup
@@ -289,6 +465,11 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
         channel=None,
         thumbnail=thumbnail,
         media_type=fallback.media_type,
+        # URL-derived, so it must survive the SUCCESS path too — a Twitch page
+        # or a shortlink carrying ``media.provider`` only when the fetch FAILED
+        # would make the key mean "the fetch broke". ``duration_s`` is
+        # deliberately not set here: an OG page never states one (R17).
+        provider=fallback.provider,
     )
 
 
@@ -324,6 +505,11 @@ def parse_netscape_bookmarks(html: str) -> list[RawItem]:
             folder=folder_name or None,
         ))
     return items
+
+
+#: Round 4 (R-SR13): the most of Safari's cached Reading List excerpt kept as a
+#: stand-in description — enough to say what the page is, never the page itself.
+SAFARI_PREVIEW_CAP = 500
 
 
 def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
@@ -368,7 +554,19 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
                 uri_dict = node.get("URIDictionary")
                 title = uri_dict.get("title") if isinstance(uri_dict, dict) else None
                 folder = "/".join(path) if path else None
-                items.append(RawItem(url=url, title=title or None, folder=folder))
+                # Round 4 (R-SR13): a Reading List leaf carries Safari's own
+                # `ReadingList` dict — when it was added, and the excerpt Safari
+                # cached — which this walk used to drop. `ReadingListNonSync` is
+                # offline-cache bookkeeping and stays unread.
+                reading = node.get("ReadingList")
+                added = preview = None
+                if isinstance(reading, dict):
+                    added = saved_at.from_plist_date(reading.get("DateAdded"))
+                    text = reading.get("PreviewText")
+                    if isinstance(text, str) and text.strip():
+                        cleaned, _ = episode_scrub.scrub(" ".join(text.split()))
+                        preview = cleaned[:SAFARI_PREVIEW_CAP] or None
+                items.append(RawItem(url=url, title=title or None, folder=folder, added=added, preview=preview))
             return
         title = node.get("Title")
         new_path = path + (title,) if title else path
@@ -1022,6 +1220,12 @@ async def ingest_feed(
     items = parse_rss(xml)
     if not items:
         return 0, 0
+    for item in items:
+        # G9 provenance, stamped here rather than in `parse_rss` so a feed
+        # parsed from an uploaded `.xml` file keeps reading as a file import.
+        # This is what lets the Sources page attribute a feed's episodes and
+        # entities to the RSS row instead of leaving them origin-less.
+        item.origin = "rss"
     return await ingest_batch(items, memory_path, from_bookmark_file=False, commit=commit)
 
 
@@ -1327,6 +1531,7 @@ def _episode_body(
     folder: str | None = None,
     reason: str | None = None,
     content_saved_at: str | None = None,
+    note_by_agent: bool = False,
 ) -> str:
     lines = [
         f"# {meta.title}",
@@ -1351,7 +1556,15 @@ def _episode_body(
     if reason:
         lines += ["", "## Saved because", reason]
     if note:
-        lines += ["", "## User note", note]
+        # G140 Q-R10: an agent's note is the agent's words. The tool cannot
+        # know a note relays the person, so it is written under an
+        # `assistant:` marker — never where `evidence.speaker_kind` would read
+        # it as theirs (the R-N2/R-F2 rule; G135 R-R12 calls an MCP save the
+        # agent's). The person's own note keeps its heading.
+        if note_by_agent:
+            lines += ["", "## Note", "assistant: " + " ".join(note.split())]
+        else:
+            lines += ["", "## User note", note]
     return "\n".join(lines)
 
 
@@ -1383,10 +1596,12 @@ def write_media_episode(
     # raw value into frontmatter or the body.
     validated_added = saved_at.validate(item.added)
 
-    body = _episode_body(
+    body = episode_scrub.scrub_body(_episode_body(
         meta, item.url, saved_date, item.note, folder=item.folder, reason=item.reason,
         content_saved_at=validated_added,
-    )
+        # G140 Q-R10 — a save carrying a session id came from an agent.
+        note_by_agent=bool((item.session_id or "").strip()),
+    ), writer="media", bank=episodes_dir.parent.name)
     content_hash = hashlib.sha256(normalize_url(item.url).encode()).hexdigest()[:12]
 
     frontmatter = {
@@ -1519,6 +1734,21 @@ def write_media_entity(
         "saved_at": episode_ids.utc_now_iso(),
         "url_hash": url_hash(item.url),
     }
+    # R15 — written only when set, so a plain bookmark's frontmatter is
+    # byte-identical to what it was before Track V. `provider` is URL-derivable
+    # and is recorded for a non-Swift reader of the page (the app derives it at
+    # read time and never trusts this key); `duration_s` is the one thing a URL
+    # cannot tell you, so it is written only when a provider's oEmbed gave one.
+    # Neither key goes into `url_index.json` — that would be a second thing to
+    # migrate and a second thing to disagree.
+    if meta.provider:
+        frontmatter["media"]["provider"] = meta.provider
+    if meta.duration_s:
+        frontmatter["media"]["duration_s"] = meta.duration_s
+    # G140 Q-R12 — same R15 rule: written only when the description held a
+    # real chapter list, so every other page stays byte-identical.
+    if meta.chapters:
+        frontmatter["media"]["chapters"] = [dict(c) for c in meta.chapters]
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 
@@ -1542,6 +1772,71 @@ def save_url_index(memory_path: Path, idx: dict) -> None:
     (sources_dir / "url_index.json").write_text(
         json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+
+def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult) -> tuple[str, bool] | None:
+    """A note given for a URL that is ALREADY saved (G140 Q-R10, R5 §2 defect 1).
+
+    ``ingest_one`` returns ``duplicate`` before it reads ``item.note`` — right
+    for a re-import (a Takeout re-run must not mint a note per bookmark), wrong
+    for the one-link saves, where the note IS the point: G22's chain is "save
+    a video, watch it later, write back what it covers", and that second
+    save's summary vanished. So the two single-save paths (``POST
+    /sources/save`` and ``cicada_save_url``'s backend-down path) call this on a
+    duplicate; the batch paths never do.
+
+    A NEW episode rather than an appended section (Telegram's ``## Saved
+    because`` path): appending prose to an episode that may already be cited
+    would turn its spans ``stale`` (G118's ``grown`` needs a turn-boundary
+    prefix), and a ``processed: true`` episode is never read by Sleep again.
+    A new one is citable at once and consolidated next cycle.
+
+    One episode per (media page, note): its ``content_hash`` is read back
+    through ``bank_index``'s frontmatter cache, so a repeat returns the same
+    id. An agent's note (the call carries a session id) is written under an
+    ``assistant:`` marker, as in ``_episode_body``. Returns ``(episode id,
+    newly written)``, or ``None`` for an empty note.
+    """
+    note = (item.note or "").strip()
+    if not note:
+        return None
+    by_agent = bool((item.session_id or "").strip())
+    if by_agent:
+        # One line, so no line of the note can pose as a turn marker.
+        note = " ".join(note.split())
+    # R-N3 / R-LS6: scrubbed before hashing (the Telegram writer's order), so a
+    # repeat of the same note still finds its episode and no secret is stored.
+    note, scrubbed = episode_scrub.scrub(note)
+    content_hash = hashlib.sha256(f"{existing.media_entity_id}\x00{note}".encode("utf-8")).hexdigest()[:12]
+    for f in bank_index.files(memory_path, "episodes"):
+        if f.frontmatter.get("content_hash") == content_hash:
+            return f.stem, False
+    episodes_dir = Path(memory_path) / "episodes"
+    episodes_dir.mkdir(parents=True, exist_ok=True)
+    episode_id = episode_ids.next_episode_id(episodes_dir, datetime.now().strftime("%Y-%m-%d"))
+    body, more = episode_scrub.scrub("\n".join([f"# Note on {existing.title}", "", f"**URL:** {item.url}", "",
+                                                "## Note", f"assistant: {note}" if by_agent else note]))
+    episode_scrub.record("media", scrubbed + more, bank=Path(memory_path).name)
+    frontmatter = {
+        "id": episode_id,
+        "timestamp": episode_ids.utc_now_iso(),
+        "source": existing.media_type,
+        "title": f"Note on {existing.title}"[:120],
+        "processed": False,
+        "content_hash": content_hash,
+        "url": item.url,
+        "media_entity_id": existing.media_entity_id,
+    }
+    if item.origin:
+        frontmatter["origin"] = item.origin
+    if item.session_id:
+        frontmatter["session_id"] = item.session_id
+        if item.harness and item.harness != "unknown":
+            frontmatter["harness"] = item.harness
+        if item.project_dir:
+            frontmatter["project_dir"] = item.project_dir
+    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+    return episode_id, True
 
 
 # --- Single-item ingest + batch ---
@@ -1602,6 +1897,10 @@ async def ingest_one(
         meta.title = item.title
     if item.channel and not meta.channel:
         meta.channel = item.channel
+    # Round 4 (R-SR13): Safari's cached excerpt stands in only when the page gave
+    # no description of its own — enrichment's words always win.
+    if item.preview and not (meta.description or "").strip():
+        meta.description = item.preview
 
     entity_id = _media_entity_id(meta, item)
     episode_id = write_media_episode(
@@ -1739,11 +2038,15 @@ async def ingest_batch(
     return created, len(items) - len(fresh)
 
 
-async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None:
+async def _commit_media(
+    memory_path: Path, count: int, paths: list[str], *, author: str = "user",
+    sessions: list[str] | None = None, trigger: str = "user/media_save",
+) -> None:
     """Commit scoped to exactly ``paths`` — never ``git add -A`` (finding 3
     above). ``paths`` is memory-relative: ``sources/url_index.json`` plus one
     ``entities/<id>.md`` + ``episodes/<id>.md`` pair per item this batch
-    actually created.
+    actually created. ``author``/``sessions``/``trigger`` (G135 R-R12) let a
+    single save made by an agent say so; the batch importer keeps the defaults.
     """
     from api.services import git_service
 
@@ -1751,10 +2054,11 @@ async def _commit_media(memory_path: Path, count: int, paths: list[str]) -> None
     message = git_service.build_commit_message(
         f"Sources ingest {date_str}",
         [
-            "sources/url_index.json: updated (trigger: user/media_save)",
-            f"{count} media item(s) saved (trigger: user/media_save)",
+            f"sources/url_index.json: updated (trigger: {trigger})",
+            f"{count} media item(s) saved (trigger: {trigger})",
         ],
-        authors=["user"],
+        authors=[author],
+        sessions=sessions,
     )
     await git_service.commit_paths(memory_path, message, paths)
 

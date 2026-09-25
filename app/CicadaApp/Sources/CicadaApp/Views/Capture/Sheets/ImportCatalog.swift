@@ -66,7 +66,7 @@ extension AddSourceTile {
         let mine = tile.channels(in: channels)
         if let failing = mine.first(where: { ($0.lastError ?? "").isEmpty == false }) {
             return ImportTileState(badge: "Needs attention", connected: failing.connected,
-                                   detail: failing.detail)
+                                   detail: ChannelDetailLine.text(failing))
         }
         guard let live = mine.first(where: { $0.connected }) else {
             if tile.route == .connect, tile.channelIds.isEmpty {
@@ -78,9 +78,14 @@ extension AddSourceTile {
             // (channel_registry._connector_channel's `price_note` "stands in
             // for it entirely when there is otherwise none") — which must
             // reach the tile, not be discarded here.
-            return ImportTileState(badge: tile.route.badge, connected: false,
-                                   detail: mine.first(where: { $0.detail != nil })?.detail)
+            return ImportTileState(
+                badge: tile.route.badge, connected: false,
+                detail: mine.lazy.compactMap { ChannelDetailLine.text($0) }.first)
         }
-        return ImportTileState(badge: tile.route.badge, connected: true, detail: live.detail)
+        // R-S5 — the tile's line goes through the same composer as the Sources
+        // page and the Feed row, or a connected connector would show
+        // "synced 2026-08-30" with the count silently missing.
+        return ImportTileState(badge: tile.route.badge, connected: true,
+                               detail: ChannelDetailLine.text(live))
     }
 }

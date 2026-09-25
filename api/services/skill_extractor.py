@@ -32,7 +32,7 @@ Look for:
 2. PREFERENCE PATTERNS — consistent choices or styles across conversations.
    Example: "Prefers concise summaries over detailed explanations."
 3. RELATIONSHIP PATTERNS — entities that are consistently discussed together.
-   Example: "Career conversations always involve both Figure AI and robotics."
+   Example: "Career conversations always involve both the current employer and the field."
 
 Output valid JSON:
 {{

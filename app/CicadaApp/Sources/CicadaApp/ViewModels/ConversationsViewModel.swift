@@ -9,6 +9,18 @@ enum ResumeOutcome: Equatable {
     case failed(String)
 }
 
+extension ResumeOutcome {
+    /// R-PP26 — one sentence per outcome, so the Reader and the Projects page's Resume never word it two ways.
+    var toast: String {
+        switch self {
+        case .launched(let app): "Reopening in \(app)…"
+        case .copied(let command): "Copied “\(command)”"
+        case .gone: "That conversation's transcript is gone — nothing to resume"
+        case .failed(let message): message
+        }
+    }
+}
+
 /// G48 §4 — the Conversations section's state. On-demand fetch: no Store
 /// domain and no SnapshotCache entry, following `/contributors/commits`.
 @MainActor
@@ -23,6 +35,19 @@ final class ConversationsViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     var selectedId: String?
+    /// G136 R-SU22 — titles past the capped page that match, fetched with
+    /// `q=` (applied before the cap, G136 R17). Empty below the cap: the local
+    /// filter already saw every row.
+    private(set) var beyondCap: [ConversationSummary] = []
+    /// The query `beyondCap` answers. The view reads the rows through
+    /// `beyondCap(for:)`, so between a keystroke and its debounced widening
+    /// the previous query's server rows never sit under the new filter.
+    private(set) var beyondCapQuery: String?
+
+    /// `beyondCap` when it answers `query`; empty otherwise.
+    func beyondCap(for query: String) -> [ConversationSummary] {
+        beyondCapQuery == query ? beyondCap : []
+    }
 
     private let api: any SyncAPI
     private let launch: (String, String?) -> TerminalLauncher.Outcome
@@ -44,17 +69,43 @@ final class ConversationsViewModel {
     /// decides resumability for itself.
     func canResume(_ id: String) -> Bool { conversation(id: id)?.resumable == true }
 
-    func load(limit: Int = 20) async {
+    /// G124 R5 — `harness`/`origin` are forwarded to the backend, which
+    /// filters before its cap; the view model never filters a capped page.
+    func load(limit: Int = 20, harness: String? = nil, origin: String? = nil) async {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
         do {
-            conversations = try await api.fetchRecentConversations(limit: limit)
+            conversations = try await api.fetchRecentConversations(limit: limit, harness: harness, origin: origin, query: nil)
             unknownIds = []
             hasLoaded = true
             errorMessage = nil
         } catch {
             errorMessage = "Couldn't load conversations"
+        }
+    }
+
+    /// G136 R-SU22 — widen a source's title filter past the capped page. Asks
+    /// only when the loaded page HIT the cap and the query has a token the
+    /// server searches (`ConversationSearch.needsServer`); otherwise clears.
+    func searchBeyondCap(query: String, harness: String? = nil, origin: String? = nil) async {
+        guard ConversationSearch.needsServer(loaded: conversations.count, query: query) else {
+            beyondCap = []
+            beyondCapQuery = nil
+            return
+        }
+        do {
+            let rows = try await api.fetchRecentConversations(limit: ConversationSearch.cap, harness: harness,
+                                                              origin: origin, query: query)
+            // A widening superseded by the next keystroke never lands over it.
+            guard !Task.isCancelled else { return }
+            beyondCap = rows
+            beyondCapQuery = query
+        } catch {
+            // The loaded page still filters; a failed widening is not an error to show.
+            guard !Task.isCancelled else { return }
+            beyondCap = []
+            beyondCapQuery = nil
         }
     }
 
@@ -120,8 +171,7 @@ final class ConversationsViewModel {
     func copyCommand(for id: String) async -> ResumeOutcome {
         do {
             let descriptor = try await api.resumeConversation(id: id)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(descriptor.displayCommand, forType: .string)
+            AppPasteboard.copy(descriptor.displayCommand)
             return .copied(descriptor.displayCommand)
         } catch APIError.httpError(409, _) {
             return .gone

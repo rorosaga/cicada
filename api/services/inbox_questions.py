@@ -211,9 +211,19 @@ def _refresh_one(
     option_claim_ids = [str(o["claim_id"]) for o in options if o.get("claim_id")]
 
     # --- 2. organic resolution ---------------------------------------------
+    # G61 phase 2 S0 (plan R-AC25): "the person answered" means
+    # `claim_reconciler.is_human` — user_stated AND a human origin (manual edit,
+    # clarification), the same predicate that earns overwrite protection. A bare
+    # `source_trust == "user_stated"` also matched a folder paper the person
+    # authored or an MCP write naming its own origin, deleting a live question on
+    # a label no human confirmed. Those still close it the usual way, when the
+    # reconciler supersedes an option claim (`_really_superseded`). Imported here:
+    # claim_reconciler imports this module.
+    from api.services.claim_reconciler import is_human
+
     human_answer = any(
         c.predicate == predicate
-        and c.source_trust == "user_stated"
+        and is_human(c)
         and c.valid_to is None
         and str(c.valid_from or "") > str(fm.get("created_date", "") or "")
         for c in subject_claims
@@ -315,3 +325,169 @@ def _really_superseded(options: list[dict], by_id: dict) -> bool:
             continue  # same value, later id — nothing was answered
         return True
     return False
+
+
+# --------------------------------------------------------------------------- #
+# G115 Phase 1 — decay as a question object, and the copy rules
+# --------------------------------------------------------------------------- #
+
+DECAY_OPTION_KEYS = ("archive", "keep")
+
+
+def decay_question(name: str, last_referenced: str | None, today: str) -> dict:
+    """The question object a decay item is SERVED as (never written).
+
+    G115 §1: decay used to be the one kind outside the component G60 built —
+    three bespoke buttons and an ``else`` branch that deleted the file. Now it
+    is a question like every other kind: ``Still tracking {name}?``, ``archive``
+    first (it is Sleep's proposal — the option the ledger grades ``agreed``, so
+    it is the one ``(Recommended)``), ``keep`` second, both descriptions led by
+    the age so staleness is visible before choosing (G60 copy rule). Synthesised
+    at read from the subject page's ``last_referenced`` so the phrase never goes
+    stale-by-arithmetic in a file (R5).
+    """
+    age = humanize_age(last_referenced, today)
+    lead = f"Last mentioned {age}" if age != _UNKNOWN_AGE else "Last mention unknown"
+    return {
+        "question": f"Still tracking {name}?",
+        "options": [
+            {
+                "key": "archive",
+                "label": "Archive",
+                "description": f"{lead} · move it to the archive; it comes back on the next mention",
+                "claim_id": None,
+                "observed_at": last_referenced,
+                "last_referenced": last_referenced,
+            },
+            {
+                "key": "keep",
+                "label": "Keep active",
+                "description": f"{lead} · still relevant; confidence restored to at least 0.6",
+                "claim_id": None,
+                "observed_at": last_referenced,
+                "last_referenced": last_referenced,
+            },
+        ],
+        "allow_other": False,
+        "allow_defer": True,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# G141 PJ-6 — the follow-up, served as a question and never written as one
+# --------------------------------------------------------------------------- #
+
+FOLLOWUP_OPTION_KEYS = ("done", "still", "stopped", "didnt", "missed", "dropped", "remind_later")
+FOLLOWUP_DEFER_DAYS = 30
+_FOLLOWUP_WORDS = 100    # G115 §7: the whole question stays ≤ 160 chars
+
+
+def _clip(text: str) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= _FOLLOWUP_WORDS else text[: _FOLLOWUP_WORDS - 1].rstrip() + "…"
+
+
+def followup_question(item_kind: str, claim, *, name: str, today: str, verbatim_ok: bool = True) -> dict:
+    """G141 §9 — the question a `followup` item is SERVED as, never written.
+    `item_kind` is `happened` (a quiet thread), `milestone` (overdue) or `due`
+    (passed, no word). Every option dates itself on the day it is answered;
+    another day goes through Other… (`allow_other`), read by `when.resolve`.
+    `allow_defer` is False and the defer is an explicit option whose label says
+    30 days (R-PJB3) — the shipped app's 7-day button never shows.
+
+    `verbatim_ok` is the caller's `raw_excerpts` (R-PJ23): a remote relay
+    without `sources` never reads the person's own Log sentence, so a thread
+    they wrote in the app is named, not quoted. A thread an agent or Sleep
+    wrote is the extractor's sentence, not the person's words."""
+    later = {"key": "remind_later", "label": f"Not now — ask again in {FOLLOWUP_DEFER_DAYS} days",
+             "description": "Nothing changes; asked again after that", "claim_id": None}
+    if item_kind == "happened":
+        heard = claim.recorded_at or claim.valid_from
+        from api.services.claims import is_persons_words
+
+        own_words = is_persons_words(claim)
+        words = f"“{_clip(claim.text)}”" if verbatim_ok or not own_words else f"A thread you logged on {name}"
+        return {"question": f"{words} — last heard {humanize_age(heard, today)}. How did it go?",
+                "options": [
+                    {"key": "done", "label": "Done", "description": "Finished — dated today", "claim_id": claim.id},
+                    {"key": "still", "label": "Still going", "description": "Still under way",
+                     "claim_id": claim.id},
+                    {"key": "stopped", "label": "Stopped", "description": "It stopped, not finished",
+                     "claim_id": claim.id},
+                    {"key": "didnt", "label": "That didn't happen", "description": "Withdraw it",
+                     "claim_id": claim.id},
+                    later],
+                "allow_other": True, "allow_defer": False}
+    if item_kind == "milestone":
+        return {"question": f"{_clip(claim.text)} was planned for {claim.target}. Did it happen?",
+                "options": [
+                    {"key": "done", "label": "Done", "description": "Done — dated today", "claim_id": claim.id},
+                    {"key": "missed", "label": "Missed", "description": "It didn't happen by then",
+                     "claim_id": claim.id},
+                    {"key": "dropped", "label": "Dropped", "description": "No longer planned",
+                     "claim_id": claim.id},
+                    later],
+                "allow_other": True, "allow_defer": False}
+    from api.services import claim_expiry   # lazy: claim_reconciler imports this module
+
+    target = claim_expiry.stated_end(claim)
+    return {"question": f"{_clip(name)} was due {target}. Did it happen?",
+            "options": [
+                {"key": "done", "label": "Done (on its date)", "description": f"Done on {target}",
+                 "claim_id": claim.id},
+                {"key": "missed", "label": "Missed", "description": "It didn't happen by then",
+                 "claim_id": claim.id},
+                {"key": "dropped", "label": "It never mattered", "description": "No longer planned",
+                 "claim_id": claim.id},
+                later],
+            "allow_other": True, "allow_defer": False}
+
+
+_RECOMMENDED_MARKER = "(Recommended)"
+
+
+def validate_question(
+    question: str | None, options: list[dict], *, recommended_key: str | None = None
+) -> list[str]:
+    """The card copy rules (G115 §7), as a list of violations — ``[]`` is valid.
+
+    Used by tests against every generator (``_conflict_nudge``,
+    ``build_entity_question``, :func:`decay_question`) so a template regression
+    is a failing test, not a card the owner has to notice: one question ending
+    in ``?`` and ≤ 160 chars; unique non-empty keys and labels ≤ 80 chars; a
+    dated option's description leads with ``Last mentioned`` (age first, G60);
+    the ``(Recommended)`` marker is RENDERED, never stored in a label; and the
+    recommended key is never ``neither``/``both`` (G121/G115 C1) and always an
+    option.
+    """
+    problems: list[str] = []
+    q = (question or "").strip()
+    if not q:
+        problems.append("question is empty")
+    elif not q.endswith("?"):
+        problems.append("question must end with '?'")
+    if len(q) > 160:
+        problems.append("question longer than 160 chars")
+    seen: set[str] = set()
+    for o in normalize_options(options):
+        key = str(o.get("key") or "")
+        label = str(o.get("label") or "")
+        if not key or not label:
+            problems.append(f"option {key!r} has an empty key or label")
+        if key in seen:
+            problems.append(f"duplicate option key {key!r}")
+        seen.add(key)
+        if len(label) > 80:
+            problems.append(f"option {key!r} label longer than 80 chars")
+        if _RECOMMENDED_MARKER.lower() in label.lower():
+            problems.append(f"option {key!r} stores the {_RECOMMENDED_MARKER} marker in its label")
+        dated = o.get("observed_at") or o.get("last_referenced")
+        desc = str(o.get("description") or "")
+        if dated and desc and not desc.startswith("Last mention"):
+            problems.append(f"option {key!r} description must lead with 'Last mentioned <age>'")
+    if recommended_key is not None:
+        if recommended_key in ("neither", "both"):
+            problems.append("recommended key must never be 'neither' or 'both'")
+        elif recommended_key not in seen:
+            problems.append(f"recommended key {recommended_key!r} is not an option")
+    return problems

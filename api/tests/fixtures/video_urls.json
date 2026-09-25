@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "note": "R-V8: read by api/tests/test_video_urls.py AND app/CicadaApp/Tests/CicadaAppTests/VideoRefTests.swift. Add a provider here first; the other suite then fails until it is taught too. Every URL is synthetic (example.com / example ids) — never a real saved link.",
+  "cases": [
+    {"url": "https://www.youtube.com/watch?v=vid00000001", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "the shape already shipped"},
+    {"url": "https://www.youtube.com/watch?v=vid00000001&list=PLexample01&index=2", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "a video inside a playlist plays as the video; normalize_url drops the list too"},
+    {"url": "https://youtu.be/vid00000001?t=42", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "short link"},
+    {"url": "https://www.youtube.com/shorts/vid00000002", "provider": "youtube", "kind": "embed", "videoId": "vid00000002", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000002", "why": "portrait, letterboxed in a 16:9 frame — cosmetic, out of scope"},
+    {"url": "https://www.youtube.com/embed/vid00000001", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "already an embed url"},
+    {"url": "https://www.youtube-nocookie.com/embed/vid00000001", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "our own embed host round-trips"},
+    {"url": "https://www.youtube.com/v/vid00000001", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "legacy /v/ shape _youtube_video_id already knows"},
+    {"url": "https://www.youtube.com/live/vid00000003", "provider": "youtube", "kind": "embed", "videoId": "vid00000003", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000003", "why": "R-V1 fix: fell out of both the Python and the Swift id parsers"},
+    {"url": "https://m.youtube.com/watch?v=vid00000001", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "mobile host"},
+    {"url": "https://music.youtube.com/watch?v=vid00000001", "provider": "youtube", "kind": "embed", "videoId": "vid00000001", "embedUrl": "https://www.youtube-nocookie.com/embed/vid00000001", "why": "music host"},
+    {"url": "https://www.youtube.com/playlist?list=PLexample01", "provider": "youtube", "kind": "embed", "videoId": null, "embedUrl": "https://www.youtube-nocookie.com/embed/videoseries?list=PLexample01", "why": "YouTube's own videoseries player; no single video id exists"},
+    {"url": "https://www.youtube.com/@examplechannel", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "a channel page is not a video — R7 lets it render as a website card"},
+    {"url": "https://www.youtube.com/results?search_query=example", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "a search page is not a video"},
+
+    {"url": "https://vimeo.com/123456789", "provider": "vimeo", "kind": "embed", "videoId": "123456789", "embedUrl": "https://player.vimeo.com/video/123456789", "why": "canonical vimeo link"},
+    {"url": "https://player.vimeo.com/video/123456789", "provider": "vimeo", "kind": "embed", "videoId": "123456789", "embedUrl": "https://player.vimeo.com/video/123456789", "why": "already a player url"},
+    {"url": "https://vimeo.com/channels/examplechannel/123456789", "provider": "vimeo", "kind": "embed", "videoId": "123456789", "embedUrl": "https://player.vimeo.com/video/123456789", "why": "first all-digit segment is the id"},
+    {"url": "https://vimeo.com/123456789/abc123def4", "provider": "vimeo", "kind": "embed", "videoId": "123456789", "embedUrl": "https://player.vimeo.com/video/123456789?h=abc123def4", "why": "unlisted-video hash is Vimeo's own private-link param; if it ever fails the always-present Open externally is the fallback"},
+    {"url": "https://vimeo.com/exampleuser", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "a profile has no numeric id"},
+
+    {"url": "https://www.tiktok.com/@exampleuser/video/1234567890123456789", "provider": "tiktok", "kind": "embed", "videoId": "1234567890123456789", "embedUrl": "https://www.tiktok.com/embed/v2/1234567890123456789", "why": "the player url is derived from the id, never from the oEmbed html blob"},
+    {"url": "https://www.tiktok.com/embed/v2/1234567890123456789", "provider": "tiktok", "kind": "embed", "videoId": "1234567890123456789", "embedUrl": "https://www.tiktok.com/embed/v2/1234567890123456789", "why": "already an embed url"},
+    {"url": "https://vm.tiktok.com/ZMexample/", "provider": "tiktok", "kind": "external", "videoId": null, "embedUrl": null, "why": "R4 — the shortlink hides the id and read-time classification does no network"},
+    {"url": "https://www.tiktok.com/@exampleuser", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "a profile is not a video"},
+
+    {"url": "https://www.loom.com/share/abc123def4567890abc123def4567890", "provider": "loom", "kind": "embed", "videoId": "abc123def4567890abc123def4567890", "embedUrl": "https://www.loom.com/embed/abc123def4567890abc123def4567890", "why": "loom's own embed url; its oEmbed also carries a duration"},
+    {"url": "https://www.loom.com/embed/abc123def4567890abc123def4567890", "provider": "loom", "kind": "embed", "videoId": "abc123def4567890abc123def4567890", "embedUrl": "https://www.loom.com/embed/abc123def4567890abc123def4567890", "why": "already an embed url"},
+
+    {"url": "https://www.twitch.tv/videos/1234567890", "provider": "twitch", "kind": "external", "videoId": "1234567890", "embedUrl": null, "why": "R5 — the player validates parent against the real embedding origin; a WKWebView top-level document has none and faking one is circumvention"},
+    {"url": "https://clips.twitch.tv/ExampleClipSlug", "provider": "twitch", "kind": "external", "videoId": "ExampleClipSlug", "embedUrl": null, "why": "same parent restriction"},
+    {"url": "https://www.twitch.tv/exampleuser", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "a live channel page is not a stored video"},
+
+    {"url": "https://example.com/media/clip.mp4", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "AVKit plays it; R-V4 — the user saved this url, Cicada never derived it"},
+    {"url": "https://example.com/media/clip.m4v", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "extension set"},
+    {"url": "https://example.com/media/clip.mov", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "extension set"},
+    {"url": "https://example.com/media/clip.webm", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "extension set"},
+    {"url": "https://example.com/media/stream.m3u8", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "HLS — AVKit plays it, a WKWebView will not"},
+    {"url": "https://example.com/media/CLIP.MP4", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "extension match is case-insensitive"},
+    {"url": "http://example.com/media/clip.mp4", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "http is allowed; the user saved it"},
+    {"url": "https://example.com/media/clip.mp4?token=abc123", "provider": "direct", "kind": "file", "videoId": null, "embedUrl": null, "why": "R3 — the query is ignored"},
+    {"url": "https://example.com/watch?file=movie.mp4", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "R3 — an extension in the QUERY is not a file"},
+
+    {"url": "file:///Users/example/Movies/clip.mov", "provider": "local", "kind": "file", "videoId": null, "embedUrl": null, "why": "readability is checked at render time (R9), never here"},
+    {"url": "file:///Users/example/Documents/notes.txt", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "local still needs the video extension"},
+    {"url": "file://", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "no path"},
+
+    {"url": "https://x.com/exampleuser/status/1234567890", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "R5 — /status/<id> is any post; calling every one a video would be a lie. Stays a website card"},
+    {"url": "https://www.instagram.com/reel/Cexample01/", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "R5 — login-walled, never plays in-app; MediaPreviewModel owns it by host"},
+    {"url": "https://example.com/articles/how-to-example", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "an ordinary page"},
+    {"url": "https://example.com/photo.jpg", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "an image is handled by the image branch"},
+    {"url": "javascript:alert(1)//clip.mp4", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "R2 — only http/https/file are ever classified"},
+    {"url": "not a url", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "R2 — total, never raises"},
+    {"url": "", "provider": null, "kind": null, "videoId": null, "embedUrl": null, "why": "R2 — total, never raises"}
+  ]
+}

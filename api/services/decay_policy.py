@@ -28,8 +28,10 @@ archives via the entity engine.
 
 from __future__ import annotations
 
+import math
+from datetime import date
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from api.models.schemas import (
     AGENT_PRODUCIBLE_DECAY_CLASSES,
@@ -37,7 +39,7 @@ from api.models.schemas import (
     DECAY_CLASS_RATES,
     DecayClass,
 )
-from api.services import markdown_parser
+from api.services import decay_tuning, episode_ids, markdown_parser
 
 # The historical extraction default, kept as the fallback for a page whose
 # frontmatter carries neither a class nor a usable numeric rate.
@@ -119,6 +121,170 @@ def resolve(fm: dict) -> tuple[DecayClass, float]:
     return cls, max(0.0, explicit)
 
 
+
+# --------------------------------------------------------------------------- #
+# G147 — spacing: how often a page came up sets how fast its silence counts
+# --------------------------------------------------------------------------- #
+
+# Before G147 the weekly rate was flat per class from the last reference, so a
+# page mentioned in fifty separate conversations faded exactly as fast as one
+# mentioned twice — while CLAUDE.md promised decay "proportional to how
+# frequently it used to be referenced". Frequency is counted in DISTINCT ISO
+# WEEKS (plan R-FD2): fifty mentions in one afternoon are one burst, twelve
+# weeks of mentions are twelve spaced reviews. The curve is plan R-FD1:
+# f(12) ≈ 0.40, f(52) ≈ 0.30, the floor only near 148 weeks, so spacing keeps
+# paying across a bank's whole realistic life.
+SPACING_ALPHA = 0.6
+SPACING_FLOOR = 0.25
+# A mis-set env var must never freeze decay: a floor of 0 would make every
+# well-mentioned page effectively evergreen — the class the anti-pollution
+# rail reserves for ingest writers and the person, one page at a time.
+_ALPHA_MAX = 5.0
+_FLOOR_MIN = 0.05
+
+# The decay question's "keep" answer is the person's own act: it counts as a
+# week the page came up (plan R-FD3). Dates, deduped, capped at a year of
+# weekly keeps; written only by `inbox_service._resolve_decay`.
+KEPT_ON_KEY = "kept_on"
+KEPT_ON_CAP = 52
+
+
+class EffectiveDecay(NamedTuple):
+    """The pace Sleep charges one page, and every factor that made it (G147).
+
+    ONE spelling of ``base x f(w) x pace`` (plan R-FD11): the Stage-3 pass
+    charges ``rate`` and ``GET /entities/{id}`` serves it, so the card can never
+    describe a pace the pass does not charge.
+    """
+
+    decay_class: DecayClass
+    base_rate: float        # the class's rate, or the page's explicit `decay_rate:` (G66)
+    mention_weeks: int      # distinct ISO weeks it came up in (+1 for any unparseable id)
+    stability: float        # f(mention_weeks)
+    type_multiplier: float  # the per-type pace the person approved (1.0 = none)
+    rate: float             # base x stability x type_multiplier; 0.0 for evergreen
+
+
+def _as_list(value) -> list:
+    """A frontmatter list, tolerant of a hand-edited scalar: ``ep_x`` is one id,
+    never iterated character by character."""
+    if value is None:
+        return []
+    if isinstance(value, (str, bytes, date)):
+        return [value]
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return list(value)
+    return []
+
+
+def _week_of(value) -> str | None:
+    """``YYYY-Www`` — the ISO 8601 week of a date-ish value, else ``None``.
+
+    ISO weeks, so the boundary is the calendar's (Dec 29 can open next year's
+    W01), not a 7-day bucket from an arbitrary epoch. ``str()`` of a ``date``
+    or ``datetime`` starts with its ISO day, which is all this reads.
+    """
+    try:
+        day = date.fromisoformat(str(value).strip()[:10])
+    except ValueError:
+        return None
+    year, week, _ = day.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def mention_weeks(episode_refs, kept_on=()) -> int:
+    """Distinct ISO weeks among episode ids (``ep_<date>_<n>``, G114) and kept dates.
+
+    An id that does not parse — a legacy stem, an impossible date — is still a
+    mention: all of them together count ONCE as an unknown week (R-FD2), so a
+    legacy page gets bounded credit, never zero and never one week per id.
+    """
+    weeks: set[str] = set()
+    unknown = False
+    for ref in _as_list(episode_refs):
+        stem = str(ref or "").strip()
+        if not stem:
+            continue
+        parsed = episode_ids.parse_episode_id(stem)
+        week = _week_of(parsed[0]) if parsed else None
+        if week is None:
+            unknown = True
+        else:
+            weeks.add(week)
+    for day in _as_list(kept_on):
+        week = _week_of(day)
+        if week is not None:
+            weeks.add(week)
+    return len(weeks) + (1 if unknown else 0)
+
+
+def stability(weeks: int, *, alpha: float = SPACING_ALPHA, floor: float = SPACING_FLOOR) -> float:
+    """``f(w) = max(floor, 1 / (1 + alpha·ln w))``; ``1.0`` for ``w <= 1`` — a page
+    heard in one week (or never dated) decays exactly as it did before G147."""
+    if weeks <= 1:
+        return 1.0
+    return max(floor, 1.0 / (1.0 + alpha * math.log(weeks)))
+
+
+def spacing_params(settings) -> tuple[float, float]:
+    """``(alpha, floor)`` from ``Settings``, clamped (R-FD1).
+
+    Only a real number is read: a test double without the fields, or a mock
+    whose attributes are not numbers, gets the ruled defaults.
+    """
+
+    def _number(name: str, default: float) -> float:
+        value = getattr(settings, name, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default
+        return float(value)
+
+    alpha = min(_ALPHA_MAX, max(0.0, _number("decay_spacing_alpha", SPACING_ALPHA)))
+    floor = min(1.0, max(_FLOOR_MIN, _number("decay_spacing_floor", SPACING_FLOOR)))
+    return alpha, floor
+
+
+def entity_type(fm: dict) -> str:
+    """The key a per-type pace is filed under — the page's ``type``, ``concept``
+    when absent (the default `GET /entities/{id}` has always served)."""
+    return str((fm or {}).get("type") or "concept").strip().lower()
+
+
+def kept_dates(fm: dict) -> list[str]:
+    """The page's ``kept_on:`` as ISO days, deduped, junk dropped."""
+    out: list[str] = []
+    for value in _as_list((fm or {}).get(KEPT_ON_KEY)):
+        day = str(value).strip()[:10]
+        if _week_of(day) is not None and day not in out:
+            out.append(day)
+    return out
+
+
+def record_keep(fm: dict, today: str) -> list[str]:
+    """``kept_on`` after one more "keep" today — idempotent within a day, capped."""
+    kept = kept_dates(fm)
+    if today not in kept:
+        kept.append(today)
+    return kept[-KEPT_ON_CAP:]
+
+
+def effective(
+    fm: dict,
+    *,
+    alpha: float = SPACING_ALPHA,
+    floor: float = SPACING_FLOOR,
+    tuning: dict[str, float] | None = None,
+) -> EffectiveDecay:
+    """``base x f(w) x pace`` for one page's frontmatter. Never raises."""
+    fm = fm or {}
+    cls, base = resolve(fm)
+    weeks = mention_weeks(fm.get("source_episodes"), kept_dates(fm))
+    factor = stability(weeks, alpha=alpha, floor=floor)
+    pace = float((tuning or {}).get(entity_type(fm), 1.0))
+    rate = 0.0 if cls is DecayClass.evergreen else base * factor * pace
+    return EffectiveDecay(cls, base, weeks, factor, pace, rate)
+
+
 def default_class_for(entity_type: str | None, source: str = "extraction") -> DecayClass:
     """The class a WRITER should stamp on a page it is creating.
 
@@ -130,29 +296,80 @@ def default_class_for(entity_type: str | None, source: str = "extraction") -> De
     return _legacy_class(entity_type)
 
 
+class SubjectDecay(NamedTuple):
+    """What the claim engine needs about a claim's SUBJECT page (G147, R-FD13)."""
+
+    decay_class: DecayClass
+    entity_type: str
+    kept_on: tuple[str, ...]
+    type_multiplier: float
+
+
+# An unknown or unreadable subject: the neutral 1.0 class multiplier, no keeps,
+# no pace — a page-less subject decays exactly as it did before G66 and G147.
+NEUTRAL_SUBJECT = SubjectDecay(DecayClass.active, "", (), 1.0)
+
+
+def subject_lookup(memory_path, *, tuning: dict[str, float] | None = None) -> Callable[[str], SubjectDecay]:
+    """A memoised ``entity_id -> SubjectDecay`` reader for one bank.
+
+    One parse per subject yields the class (G66), the type (the key of the
+    per-type pace, R-FD5) and the page's kept weeks (R-FD3), so the claim
+    engine never walks the same files twice. ``tuning=None`` reads the bank's
+    ``_decay_tuning.yaml`` lazily, on the first page found — an MCP write, whose
+    one subject is always referenced, never reads it.
+    """
+    entities_dir = Path(memory_path) / "entities"
+    cache: dict[str, SubjectDecay] = {}
+    pace: list[dict[str, float]] = [] if tuning is None else [dict(tuning)]
+
+    def pace_for(etype: str) -> float:
+        if not pace:
+            pace.append(decay_tuning.load(memory_path))
+        return float(pace[0].get(etype, 1.0))
+
+    def lookup(entity_id: str) -> SubjectDecay:
+        eid = str(entity_id or "")
+        if eid in cache:
+            return cache[eid]
+        found = NEUTRAL_SUBJECT
+        filepath = entities_dir / f"{eid}.md"
+        if eid and filepath.exists():
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter or {}
+                etype = entity_type(fm)
+                found = SubjectDecay(resolve(fm)[0], etype, tuple(kept_dates(fm)), pace_for(etype))
+            except Exception:
+                found = NEUTRAL_SUBJECT
+        cache[eid] = found
+        return found
+
+    return lookup
+
+
 def class_lookup(memory_path) -> Callable[[str], DecayClass]:
     """A memoised ``entity_id -> DecayClass`` reader for one bank.
 
     Injected into the claim engine so it can weight a claim by its SUBJECT's
     class without the reconciler growing a filesystem dependency. Unknown /
-    unreadable ids resolve to ``DecayClass.active`` (the neutral 1.0 multiplier),
-    so a page-less subject decays exactly as it did before this existed.
+    unreadable ids resolve to ``DecayClass.active`` (the neutral 1.0
+    multiplier). Since G147 it is :func:`subject_lookup`'s class column; the
+    empty ``tuning`` means a class-only caller never reads the pace file.
     """
-    entities_dir = Path(memory_path) / "entities"
-    cache: dict[str, DecayClass] = {}
+    subject = subject_lookup(memory_path, tuning={})
+    return lambda entity_id: subject(entity_id).decay_class
 
-    def lookup(entity_id: str) -> DecayClass:
-        eid = str(entity_id or "")
-        if eid in cache:
-            return cache[eid]
-        cls = DecayClass.active
-        filepath = entities_dir / f"{eid}.md"
-        if filepath.exists():
-            try:
-                cls = resolve(markdown_parser.parse(filepath).frontmatter or {})[0]
-            except Exception:
-                cls = DecayClass.active
-        cache[eid] = cls
-        return cls
 
-    return lookup
+def claim_mention_weeks(claim, kept_on=()) -> int:
+    """Distinct ISO weeks a claim was stated or restated in (R-FD4): its
+    ``source_episodes`` and the ``ep_*`` documents its evidence cites (a ``page``
+    span cites an entity, not a conversation), plus the subject's kept weeks.
+    Session ids carry no date and ``recorded_at`` moves on every restatement,
+    so neither counts. Duck-typed on ``Claim`` to keep this module import-light.
+    """
+    refs = list(getattr(claim, "source_episodes", None) or [])
+    for ev in getattr(claim, "evidence", None) or []:
+        doc = str(getattr(ev, "episode", "") or "")
+        if doc.startswith("ep_"):
+            refs.append(doc)
+    return mention_weeks(refs, kept_on)

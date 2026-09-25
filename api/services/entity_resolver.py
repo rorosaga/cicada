@@ -18,6 +18,27 @@ from api.services.id_utils import sanitize_id
 from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 
+def endpoint_id(name: str, name_to_id: dict[str, str]) -> str | None:
+    """The id Stage 2 resolved ``name`` to, or ``None`` — the edge rule, as one function.
+
+    Exact (lower-cased) first, then the first ``fuzz.ratio > 85`` over
+    ``name_to_id`` in insertion order, exactly as the relationship loop in
+    :func:`resolve` always did inline. G141 PJ-0 (R-PJ17) made it a function so
+    Sleep's claims key their subject and object through the SAME rule as the
+    edge between them: a claim used to be keyed by ``sanitize_id(raw name)``,
+    so a short name Stage 2 had matched ("Hana" → ``hana-example``) keyed a
+    page that did not exist, and the claim was dropped while its edge landed.
+    """
+    key = (name or "").lower()
+    hit = name_to_id.get(key)
+    if hit:
+        return hit
+    for known_name, known_id in name_to_id.items():
+        if fuzz.ratio(key, known_name) > 85:
+            return known_id
+    return None
+
+
 async def resolve(
     extracted: list[dict],
     existing: list[dict],
@@ -150,8 +171,8 @@ async def resolve(
     pending_actions: list[tuple[Callable, tuple, dict]] = []
     cancelled = False
 
-    # Process more specific names first so "Rodrigo Sagastegui" becomes the
-    # canonical in-cycle entity and "Rodrigo" can merge into it rather than
+    # Process more specific names first so "Bob Example" becomes the
+    # canonical in-cycle entity and "Bob" can merge into it rather than
     # the other way around.
     ordered_entities = sorted(
         best_by_name.items(),
@@ -312,24 +333,10 @@ async def resolve(
     resolved_edges: list[dict] = []
     seen_edges: set[tuple[str, str, str]] = set()
     for rel in all_relationships:
-        source_name = rel.get("source", "").lower()
-        target_name = rel.get("target", "").lower()
         label = rel.get("label", "related to")
-
-        source_id = name_to_id.get(source_name)
-        target_id = name_to_id.get(target_name)
-
-        # Also try fuzzy match for relationship endpoints
-        if not source_id:
-            for known_name, known_id in name_to_id.items():
-                if fuzz.ratio(source_name, known_name) > 85:
-                    source_id = known_id
-                    break
-        if not target_id:
-            for known_name, known_id in name_to_id.items():
-                if fuzz.ratio(target_name, known_name) > 85:
-                    target_id = known_id
-                    break
+        # Exact, then fuzzy — one rule, shared with Sleep's claims (G141 PJ-0).
+        source_id = endpoint_id(rel.get("source", ""), name_to_id)
+        target_id = endpoint_id(rel.get("target", ""), name_to_id)
 
         if source_id and target_id and source_id != target_id:
             key = (source_id, target_id, label.lower())
@@ -377,7 +384,52 @@ async def resolve(
         "changes": resolved,
         "relationships": resolved_edges,
         "episode_cooccurrences": episode_cooccurrences,
+        # G141 PJ-0 (R-PJ17): the map the edges above resolved through, so
+        # Stage 5.56's claims land on the same pages (`claim_pipeline`).
+        "name_to_id": dict(name_to_id),
     }
+
+
+def existing_by_name(existing: list[dict]) -> dict[str, dict]:
+    """The ``name.lower() -> entity`` index ``resolve`` builds at its top (the
+    four lines at the head of that function), exposed so a caller that only
+    needs the Stage-2 *judgment* (G102 recon) indexes the graph the same way."""
+    out: dict[str, dict] = {}
+    for e in existing:
+        name = e["frontmatter"].get("name", e["id"].replace("-", " ").title())
+        out[str(name).lower()] = e
+    return out
+
+
+async def match_existing(
+    entity: dict, existing_by_name: dict[str, dict], settings: Settings, *, cache: dict | None = None
+) -> str | None:
+    """Is ``entity`` an EXISTING page? The Stage-2 judgment alone (G102 R5).
+
+    Exactly the two matchers ``resolve`` runs per name — the strict/fuzzy
+    ``_find_direct_candidate_match`` then the type-gated, token-gated
+    ``_find_llm_candidate_match`` with the same judge and cache — and nothing
+    else: no promotion, no page creation, no clarification. ``resolve`` itself
+    would (a) create a page for anything clearing the promotion threshold,
+    (b) queue a "Who is X?" clarification for every low-confidence name — an
+    inbox flood from bookmark blurbs — and (c) promote pending entries; the
+    promotion rule (CLAUDE.md) says a single link mention must never create
+    an entity. Returns the existing id only on a ``same`` verdict against an
+    on-disk entity; ``unsure`` is ``None`` (a bookmark blurb must never open
+    a "Who is X?" inbox item), and a first mention is left to the caller to
+    record as a pending candidate — the promotion model's rung 1 — so a
+    later conversation mention still promotes it. An engine failure inside
+    the judge propagates (G74(a)); the caller decides what that means.
+    """
+    cache = cache if cache is not None else {}
+    match = _find_direct_candidate_match(new_entity=entity, existing_by_name=existing_by_name, created_by_id={})
+    if match is None:
+        match = await _find_llm_candidate_match(
+            new_entity=entity, existing_by_name=existing_by_name, created_by_id={}, cache=cache, settings=settings,
+        )
+    if match is not None and match["decision"] == "same" and match["candidate"].get("source") == "existing":
+        return match["candidate"]["id"]
+    return None
 
 
 def _specificity_key(entity: dict) -> tuple[int, int, float]:
@@ -689,7 +741,7 @@ def _is_substantively_discussed(
 # names is not a reason to ask the LLM anything.
 _STOPWORD_TOKENS = {
     "the", "a", "an", "of", "and", "or", "for", "to", "in", "on", "at",
-    "de", "del", "la", "el", "los", "las",  # common Spanish fillers Rodrigo's data hits often
+    "de", "del", "la", "el", "los", "las",  # common Spanish fillers a bank's data hits often
 }
 
 
@@ -706,7 +758,7 @@ def _share_content_token(a: str, b: str) -> bool:
 
 _DISAMBIG_PROMPT = """You are deciding whether two entity entries from a personal knowledge graph refer to the same real-world thing.
 
-Both entries have overlapping names (for example "Francesco" and "Francesco Baldissera") but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
+Both entries have overlapping names (for example a bare first name and that same first name with a surname) but the existing one was built from different conversations, so you need to look at the descriptions and decide whether merging them would be correct.
 
 ENTITY A (existing in graph)
 Name: {existing_name}

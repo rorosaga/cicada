@@ -20,12 +20,25 @@ struct EntityCardNavigation {
 }
 
 struct EntityDetailCard: View {
+    /// G133 — should the card ask `GET /entities/{id}/paper`? Any `media`
+    /// entity whose kind is unknown (the graph-node stub carries no `media`
+    /// block) or known to be a paper. Only a media block that says it is NOT
+    /// a paper skips the call. Pure so the stub case is pinned by a test
+    /// (task 7 review r1: the stub never fetched, so a first open showed no
+    /// paper card and — with the `!isPaper` preview guard — no preview).
+    static func wantsPaperDetail(type: EntityType, media: MediaBlock?) -> Bool {
+        guard type == .media else { return false }
+        return media?.isPaper ?? true
+    }
+
     let entity: Entity
     @Environment(GraphViewModel.self) private var graphVM
+    @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
     /// `nil` (the default) means "use `graphVM`'s own history" — see
     /// `EntityCardNavigation` above.
     let navigation: EntityCardNavigation?
-    @State private var selectedTab: DetailTab = .content
+    @State private var selectedTab: EntityCardTab = .content
     @State private var showRawMarkdown: Bool
 
     // Claim-layer state (§3b perspectives, §4 timeline). Loaded lazily on tab
@@ -33,7 +46,9 @@ struct EntityDetailCard: View {
     // keys; the perspective tab filters to valid claims itself.
     @State private var claims: [Claim] = []
     @State private var claimsLoaded = false
-    @State private var timelineKey: TimelineKey?
+    /// R-DG23 — the Timeline tab's open rows, and the one a belief's clock asked for.
+    @State private var expandedKeys: Set<BeliefKey> = []
+    @State private var requestedKey: BeliefKey?
 
     // Location listing (issue #7). Loaded lazily on appear for `.location`
     // entities; nil while loading or when no path/endpoint is available.
@@ -48,7 +63,12 @@ struct EntityDetailCard: View {
     // Fact sources (G61) — "where to look this fact up" refresh references.
     // Loaded on every entity (unlike repos/location, not gated by entity type).
     @State private var sources: [EntitySource] = []
-    @State private var newSourceRef = ""
+    /// G133 — a paper page's two tiers, fetched once per open.
+    @State private var paperDetail: PaperDetail?
+    /// R-DG21 / DR-39 — the Details disclosure, collapsed until this viewer opens it, then remembered.
+    @AppStorage(DetailsWords.openKey) private var detailsOpen = false
+    /// F-12 (R-PE17, DR-39) — a person's "Show the page" disclosure, closed until this viewer opens it, then remembered.
+    @AppStorage("cicada.person.pageOpen") private var personPageOpen = false
 
     // History tab (G68 §2.10). `entity.history` is empty BOTH before the full
     // entity body has landed and when the page has no commits, so track the
@@ -65,6 +85,16 @@ struct EntityDetailCard: View {
     /// PUT is in flight. Cleared once the reload lands (or on failure, so the
     /// chip snaps back to the server's truth).
     @State private var pendingDecayClass: DecayClass?
+
+    /// G118 slice 2 — "Where this came from" (§4.5), one `/provenance` call per
+    /// card, cached in memory by `ProvenanceCache` (never a Store domain,
+    /// R-PB11). Loaded at the card level, not the Content tab's, because the
+    /// same payload names the agent on every evidence chip in Perspectives and
+    /// Timeline (`evidenceDocIndex`) and maps a history row's conversation to
+    /// an episode the Reader can open.
+    @State private var provenanceState: ProvenanceSectionState = .loading
+    @Environment(ProvenanceCache.self) private var provenanceCache: ProvenanceCache?
+    @Environment(ProvenanceRouter.self) private var provenanceRouter: ProvenanceRouter?
 
     // G67 — per-commit diffs in the History tab, fetched on demand and cached
     // per (entity, commit) — `DiffCacheKey`, not commit hash alone: one
@@ -93,31 +123,32 @@ struct EntityDetailCard: View {
         DiffCacheKey(entityId: entity.id, commitHash: commitHash)
     }
 
-    struct TimelineKey: Identifiable, Hashable {
-        let predicate: String
-        let context: String
-        var id: String { "\(predicate)|\(context)" }
-    }
-
-    enum DetailTab {
-        case content, history, perspectives, timeline
-    }
-
     /// Whether to show the card's own close (✕) button. The Clusters detail
     /// embeds this card inside a view that already provides a Back button, so
     /// it passes `false` — the card's ✕ only drives `graphVM.clearSelection()`,
     /// which is a no-op (dead button) outside the graph's selection context.
     let showsCloseButton: Bool
+    /// R-DG13 — `.column` on the Graph, `.card` in Clusters (its detail column frames the card, R-DL10).
+    let style: EntityCardStyle
+    /// The column's × — the page closes the column and its Reader together (R-DG7). Nil: `clearSelection()`.
+    let onClose: (() -> Void)?
+    /// DR-28 — the page decides what Esc closes (the Reader first). Clusters passes its own Esc order, so Esc there
+    /// no longer clears the Graph's selection behind it. Nil: Esc does nothing here.
+    let onEscape: (() -> Void)?
 
     /// `defaultRaw` opens the card on the verbatim Source view — used by the
     /// graph's click-to-preview overlay so a node tap shows raw markdown first.
     init(
         entity: Entity, defaultRaw: Bool = false, showsCloseButton: Bool = true,
-        navigation: EntityCardNavigation? = nil
+        navigation: EntityCardNavigation? = nil, style: EntityCardStyle = .card,
+        onClose: (() -> Void)? = nil, onEscape: (() -> Void)? = nil
     ) {
         self.entity = entity
         self.showsCloseButton = showsCloseButton
         self.navigation = navigation
+        self.style = style
+        self.onClose = onClose
+        self.onEscape = onEscape
         _showRawMarkdown = State(initialValue: defaultRaw)
     }
 
@@ -136,230 +167,103 @@ struct EntityDetailCard: View {
         if let navigation { navigation.navigate(id) } else { graphVM.pushEntity(id: id) }
     }
 
+    private var isStub: Bool { entity.rawMarkdown.isEmpty }
+
+    /// F-12 (R-PE16) — a person's facts, derived from what the card already loaded; nothing for any other type.
+    private var personFacts: [PersonFact] {
+        guard entity.type == .person else { return [] }
+        return PersonFacts.cells(entity: entity, claims: claimsLoaded ? claims : [], provenance: provenanceState.value,
+                                 names: store.entityNames, typeOf: { id in graphVM.nodes.first { $0.id == id }?.type },
+                                 picture: store.picture(for: entity.id, held: entity.pictureRef),
+                                 docs: EvidenceDocIndex.from(provenanceState.value), today: ISODay.today())
+    }
+
+    /// F-12's graph glyph — the Graph tab, with this node revealed (the Reader's "Show on graph" path).
+    private func showOnGraph() {
+        router.pendingTab = .graph
+        graphVM.revealEntity(id: entity.id)
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { graphVM.clearSelection() }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider().background(CicadaTheme.border)
-            tabSwitcher
-            Divider().background(CicadaTheme.border)
-
+            EntityCardHeader(
+                entity: entity,
+                summary: EntityHeaderWords.summary(markdown: entity.markdownContent, isStub: isStub),
+                isStub: isStub,
+                canGoBack: canGoBack, backTargetName: backTargetName, onBack: goBack,
+                showsClose: showsCloseButton, onClose: close,
+                tabs: EntityTabs.tabs(claims: claimsLoaded ? claims : nil,
+                                      historyCount: EntityTabs.historyCount(embedded: entity.history, fetched: fetchedHistory)),
+                selection: $selectedTab,
+                inset: style.inset,
+                facts: personFacts, pictureInputs: entity.pictureInputs,
+                onShowOnGraph: style == .card ? showOnGraph : nil,
+                onOpenEntity: { navigate(to: $0) })
             ScrollView {
                 switch selectedTab {
                 case .content: contentTab
-                case .history: historyTab
                 case .perspectives: perspectivesTab
+                case .history: historyTab
                 case .timeline: timelineTab
                 }
             }
         }
         .frame(maxHeight: .infinity)
-        .glassCard()
-        .onKeyPress(.escape) {
-            graphVM.clearSelection()
-            return .handled
+        .modifier(EntityCardChrome(style: style))
+        // R-DG11 — focus inside the column still reaches the page's Esc order.
+        .focusable()
+        .focusEffectDisabled()
+        .onExitCommand { onEscape?() }
+        // R-DG16 — a tab loads what it shows; the counts were loaded when the column opened.
+        .onChange(of: selectedTab) { _, tab in
+            switch tab {
+            case .history: Task { await loadHistoryIfNeeded() }
+            case .perspectives, .timeline: Task { await loadClaimsIfNeeded() }
+            case .content: break
+            }
         }
-        // Installed ONCE here, before `.sheet` below so the Belief Timeline
-        // sheet's `ClaimChip`s inherit it too — see `View.wikilinkNavigation`
-        // in MarkdownBody.swift. Covers the summary box, the rendered body,
-        // transcluded embeds, and every claim chip in Perspectives/Timeline.
+        // Installed ONCE here — see `View.wikilinkNavigation` in MarkdownBody.swift. Covers the header's Summary,
+        // the rendered body, transcluded embeds, and every claim chip in Perspectives and the inline Timeline.
+        // The Belief Timeline sheet (and its step-aside for the Reader) retired with R-DG23.
         .wikilinkNavigation(onSelect: navigate)
-        .sheet(item: $timelineKey) { key in
-            beliefTimelineSheet(key)
-        }
+        // Outermost on purpose: every evidence chip in the tabs reads it.
+        .environment(\.evidenceDocIndex, EvidenceDocIndex.from(provenanceState.value))
+        .task(id: entity.id) { await loadProvenance() }
+        // R-DG16 — the tab counts need the claims when the column opens, not when a tab is tapped. At the
+        // card's level: a tab switch removes `contentTab` and would cancel a task hung there.
+        .task(id: entity.id) { await loadClaimsIfNeeded() }
     }
 
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            // Back — bug 3 / G108: only shown once the user has actually
-            // navigated deeper (a wikilink/transclusion/claim tap), and
-            // labeled with what it goes back TO rather than a bare
-            // "Back", following the "< Clusters" precedent
-            // (`TopicsView.TopicDetailView`'s own Back button).
-            if canGoBack {
-                HStack {
-                    Button(action: goBack) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 11, weight: .semibold))
-                            Text(backTargetName.map { "Back to \($0)" } ?? "Back")
-                                .font(.system(size: 11, weight: .medium))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                    .buttonStyle(.cicadaGlass(cornerRadius: CicadaTheme.cornerRadiusSmall))
-                    .keyboardShortcut("[", modifiers: .command)
-                    .help((backTargetName.map { "Back to \($0)" } ?? "Back") + " (⌘[)")
-                    .frame(maxWidth: 220, alignment: .leading)
-
-                    Spacer()
-                }
-            }
-
-            HStack {
-                // Type badge
-                Label(entity.type.label, systemImage: entity.type.icon)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(CicadaTheme.entityColor(for: entity.type))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(CicadaTheme.entityColor(for: entity.type).opacity(0.15))
-                    .clipShape(Capsule())
-
-                // Status badge
-                Text(entity.status.label)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(CicadaTheme.statusColor(for: entity.status))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(CicadaTheme.statusColor(for: entity.status).opacity(0.15))
-                    .clipShape(Capsule())
-
-                Spacer()
-
-                // Close button — only when this card owns dismissal (graph
-                // overlay). Suppressed in Clusters, which has its own Back button.
-                if showsCloseButton {
-                    Button {
-                        graphVM.clearSelection()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                            .frame(width: 28, height: 28)
-                            .background(CicadaTheme.surfaceHover)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.cicadaPlain)
-                }
-            }
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                LogoImage(entityId: entity.id, name: entity.name, type: entity.type, size: 40)
-                Text(entity.name)
-                    .font(CicadaTheme.titleFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-            }
-
-            // Confidence bar
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Text("Confidence")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(CicadaTheme.border)
-                            .frame(height: 4)
-
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(CicadaTheme.statusColor(for: entity.status))
-                            .frame(width: geo.size.width * entity.confidence, height: 4)
-                    }
-                }
-                .frame(height: 4)
-
-                Text(String(format: "%.0f%%", entity.confidence * 100))
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(width: 36, alignment: .trailing)
-            }
+    /// One `/provenance` per entity (ETag-revalidated by the cache). A 404 —
+    /// an older backend — hides the section rather than showing an error.
+    private func loadProvenance() async {
+        guard let provenanceCache else {
+            provenanceState = .unavailable
+            return
         }
-        .padding(CicadaTheme.spacingLG)
-    }
-
-    // MARK: - Tab Switcher
-
-    private var tabSwitcher: some View {
-        HStack(spacing: CicadaTheme.spacingLG) {
-            Spacer()
-            TabButton(title: "Content", isSelected: selectedTab == .content) {
-                selectedTab = .content
-            }
-            TabButton(title: "History", isSelected: selectedTab == .history) {
-                selectedTab = .history
-                Task { await loadHistoryIfNeeded() }
-            }
-            TabButton(title: "Perspectives", isSelected: selectedTab == .perspectives) {
-                selectedTab = .perspectives
-                Task { await loadClaimsIfNeeded() }
-            }
-            TabButton(title: "Timeline", isSelected: selectedTab == .timeline) {
-                selectedTab = .timeline
-                Task { await loadClaimsIfNeeded() }
-            }
-            Spacer()
-        }
-        .padding(.horizontal, CicadaTheme.spacingLG)
-        .padding(.vertical, CicadaTheme.spacingSM)
+        provenanceState = .loading
+        let result = await provenanceCache.provenance(entityId: entity.id)
+        // A card swapped to another entity cancels this task; a late answer
+        // for the old one must not land under the new name.
+        guard !Task.isCancelled else { return }
+        provenanceState = ProvenanceSectionState(result)
     }
 
     // MARK: - Content Tab
 
     private var contentTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            // Rendered/Source toggle + copy
-            HStack(spacing: CicadaTheme.spacingXS) {
-                ViewModeButton(title: "Rendered", icon: "eye", isSelected: !showRawMarkdown) {
-                    showRawMarkdown = false
-                }
-                ViewModeButton(title: "Source", icon: "chevron.left.forwardslash.chevron.right", isSelected: showRawMarkdown) {
-                    showRawMarkdown = true
-                }
-
-                Spacer()
-
-                Button {
-                    let fullMarkdown = buildFullMarkdown()
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(fullMarkdown, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Copy markdown")
-            }
-
-            // G11: rich media preview above the body for `media`-type entities.
-            if entity.type == .media, let media = entity.media, media.hasURL {
-                MediaPreview(model: MediaPreviewModel(
-                    block: media,
-                    title: entity.name,
-                    description: mediaDescription
-                ))
-                Divider().background(CicadaTheme.border)
-            }
-
-            if showRawMarkdown {
-                rawMarkdownView
-            } else {
-                renderedMarkdownView
-            }
-
-            if entity.type == .location {
-                Divider().background(CicadaTheme.border)
-                locationSection
-            }
-
-            if !repoContexts.isEmpty {
-                Divider().background(CicadaTheme.border)
-                repositorySection
-            }
-
-            Divider().background(CicadaTheme.border)
-            sourcesSection
-
-            Divider().background(CicadaTheme.border)
-            metadataSection
+        Group {
+            if entity.type == .person { personContent } else { standardContent }
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
         .task(id: entity.id) {
+            // G124 R11 — a card open is a read. Fire-and-forget on its own
+            // Task so a slow ledger never delays the sources fetch below.
+            Task { await APIClient.shared.recordEntityRead(id: entity.id) }
             // Reset before (re)fetching so swapping between entities can't show
             // a previous entity's location/repo/sources data. `.task(id:)`
             // already guarantees this runs once per id, so no extra "loaded"
@@ -367,7 +271,7 @@ struct EntityDetailCard: View {
             locationListing = nil
             repoContexts = []
             sources = []
-            newSourceRef = ""
+            paperDetail = nil
             pendingDecayClass = nil
             activeEntityId = entity.id
             expandedCommits = []
@@ -375,6 +279,14 @@ struct EntityDetailCard: View {
             loadingCommits = []
             diffErrors = []
             sources = (try? await APIClient.shared.fetchEntitySources(entityId: entity.id)) ?? []
+            // Gated on what the graph-node STUB already knows (task 7 review
+            // r1): the card opens on a stub whose `media` is nil, and the
+            // full-entity swap below keeps the same `.task(id:)`, so a check
+            // on `media?.isPaper` alone never fired on a first open. The
+            // endpoint 404s for a non-paper, which `try?` reads as nil.
+            if Self.wantsPaperDetail(type: entity.type, media: entity.media) {
+                paperDetail = try? await APIClient.shared.fetchPaperDetail(id: entity.id)
+            }
             // §5.7 — the card opened on the graph-node stub, whose
             // `markdownContent` is the server's short `summary` (already
             // rendered above, so there is never an empty card). Upgrade it to
@@ -393,6 +305,98 @@ struct EntityDetailCard: View {
         }
     }
 
+    /// The Rendered/Source switch and Copy — shared by every type's page and a person's "Show the page".
+    private var bodyToolbar: some View {
+        HStack(spacing: 0) {
+            TextTabs(tabs: EntityBodyView.tabs, selection: Binding(
+                get: { showRawMarkdown ? .source : .rendered },
+                set: { if let view = $0 { showRawMarkdown = view == .source } }))
+                .padding(.leading, -CicadaTheme.scaled(TextTabs<EntityBodyView>.horizontalPadding))
+            Spacer(minLength: 0)
+            IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyMarkdown) {
+                AppPasteboard.copy(buildFullMarkdown())
+            }
+        }
+    }
+
+    /// Every type but a person: the page, then what Cicada knows about it (DS-3a).
+    private var standardContent: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                bodyToolbar
+                // G133: a paper leads with why it is in memory, then the dated abstract — and never loads
+                // arxiv.org in a preview (R-LS19).
+                if let paperDetail {
+                    PaperCard(detail: paperDetail)
+                } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
+                    // G11: rich media preview above the body for `media`-type entities.
+                    MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                }
+                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+            }
+            if entity.type == .location { locationSection }
+            if !repoContexts.isEmpty { repositorySection }
+            if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
+                WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+            }
+            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
+            // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
+            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            detailsSection
+        }
+    }
+
+    // MARK: - A person's Content (F-12, R-PE17)
+
+    /// Two columns when the card is at least 880 units wide (540 + 28 + 312), one below — each under DR-36's 760.
+    private var personContent: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingCard) {
+                personMain.frame(width: CicadaTheme.scaled(540))
+                personAside.frame(width: CicadaTheme.scaled(312))
+            }
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+                personMain
+                personAside
+            }
+        }
+    }
+
+    private var personMain: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            PersonBeliefsSection(claims: validClaims) { claim in openTimeline(for: claim) }
+            WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
+            personPage
+            // `.id` — the add field's draft belongs to one page (as in `standardContent`).
+            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            detailsSection
+        }
+    }
+
+    private var personAside: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
+            PersonMapSection(personId: entity.id, name: entity.name, navigate: { navigate(to: $0) },
+                             showOnGraph: showOnGraph)
+            PersonHappeningsSection(personId: entity.id,
+                                    projectIds: PersonMapLayout.projects(personId: entity.id, nodes: graphVM.nodes,
+                                                                         edges: graphVM.edges))
+        }
+    }
+
+    /// DR-39 — the page's own prose, collapsed and remembered: the hero shows its Summary and the beliefs carry its facts.
+    private var personPage: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            TextButton(title: personPageOpen ? Copy.People.hidePage : Copy.People.showPage) {
+                Instant.run { personPageOpen.toggle() }
+            }
+            .padding(.leading, -CicadaTheme.scaled(10))
+            if personPageOpen {
+                bodyToolbar
+                if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+            }
+        }
+    }
+
     // MARK: - Location Section (issue #7)
     //
     // For `.location` entities, shows the declared directory path (monospace,
@@ -406,24 +410,10 @@ struct EntityDetailCard: View {
         let path = locationListing?.path ?? entity.path
         if let path, !path.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.entityColor(for: .location))
-                    Text("Path")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Spacer()
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(path, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
-                            .foregroundStyle(CicadaTheme.textSecondary)
-                    }
-                    .buttonStyle(.cicadaPlain)
-                    .help("Copy path")
+                HStack {
+                    SectionLabel(Copy.Graph.folder)
+                    Spacer(minLength: 0)
+                    IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyPath) { copyPath(path) }
                 }
 
                 Text(path)
@@ -434,8 +424,8 @@ struct EntityDetailCard: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(CicadaTheme.spacingSM)
-                    .background(CicadaTheme.surfaceHover.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgFocus))
+                    .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
 
                 locationContents
             }
@@ -457,19 +447,19 @@ struct EntityDetailCard: View {
                     ForEach(listing.entries) { entry in
                         HStack(spacing: CicadaTheme.spacingSM) {
                             Image(systemName: entry.isDir ? "folder.fill" : "doc")
-                                .font(.system(size: 11))
+                                .font(CicadaTheme.font(size: 11))
                                 .foregroundStyle(entry.isDir
                                                  ? CicadaTheme.entityColor(for: .location)
                                                  : CicadaTheme.textTertiary)
                                 .frame(width: 16)
                             Text(entry.name)
-                                .font(.system(size: 12))
+                                .font(CicadaTheme.font(size: 12))
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .lineLimit(1)
                             Spacer()
                             if !entry.isDir {
                                 Text(humanSize(entry.size))
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(CicadaTheme.font(size: 10).monospacedDigit())
                                     .foregroundStyle(CicadaTheme.textTertiary)
                             }
                         }
@@ -477,7 +467,7 @@ struct EntityDetailCard: View {
                     }
                     if listing.truncated {
                         Text("…listing truncated")
-                            .font(.system(size: 10))
+                            .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .padding(.top, 2)
                     }
@@ -489,7 +479,7 @@ struct EntityDetailCard: View {
     private func locationNote(_ text: String, icon: String) -> some View {
         HStack(spacing: CicadaTheme.spacingXS) {
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text(text)
                 .font(CicadaTheme.captionFont)
@@ -522,238 +512,68 @@ struct EntityDetailCard: View {
     // backend (built in parallel by another agent).
 
     private var repositorySection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.entityColor(for: .tool))
-                Text(repoContexts.count > 1 ? "Repositories" : "Repository")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-
-            ForEach(repoContexts) { repo in
-                repoCard(repo)
-            }
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            SectionLabel(repoContexts.count > 1 ? Copy.Graph.repositories : Copy.Graph.repository)
+            ForEach(repoContexts) { repoBlock($0) }
         }
     }
 
-    private func repoCard(_ repo: RepoContext) -> some View {
+    /// G9 — live git context, resolved on demand and never cached. R-DG21: words and neutral tags, one block on
+    /// `bgFocus` with a resting ring (DR-7, DR-9). Paths, hashes and branches stay copyable (DR-19).
+    private func repoBlock(_ repo: RepoContext) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let remote = repo.remote, !remote.isEmpty {
-                        Text(remote)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Text(repo.path)
-                        .font(CicadaTheme.monoFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                }
-                Spacer()
-                repoStatusBadge(repo.status)
+            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                Text(repo.remote?.isEmpty == false ? repo.remote! : repo.path)
+                    .font(CicadaTheme.metaMediumFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Text(RepoWords.status(repo.status))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                IconButton(systemName: "doc.on.doc", help: Copy.Graph.copyPath) { copyPath(repo.path) }
             }
-
-            HStack(spacing: CicadaTheme.spacingXS) {
-                if let branch = repo.currentBranch, !branch.isEmpty {
-                    pill(branch, icon: "arrow.triangle.branch", color: CicadaTheme.accent)
-                }
-                if let dirty = repo.dirtyFiles, dirty > 0 {
-                    pill("\(dirty) dirty", icon: "circle.fill", color: CicadaTheme.warning)
-                }
-                if let ahead = repo.ahead, ahead > 0 {
-                    pill("↑\(ahead)", icon: nil, color: CicadaTheme.success)
-                }
-                if let behind = repo.behind, behind > 0 {
-                    pill("↓\(behind)", icon: nil, color: CicadaTheme.danger)
-                }
+            Text(repo.path)
+                .font(CicadaTheme.monoFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            let tags = RepoWords.tags(branch: repo.currentBranch, dirty: repo.dirtyFiles, ahead: repo.ahead, behind: repo.behind)
+            if !tags.isEmpty {
+                FlowLayout(spacing: 6) { ForEach(tags, id: \.self) { Tag(text: $0) } }
             }
-
             if let commit = repo.lastCommit, !commit.hash.isEmpty {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    Text(commit.shortHash)
-                        .font(CicadaTheme.monoFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Text(commit.subject)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(relativeDate(commit.dateValue))
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(commit.shortHash).font(CicadaTheme.monoFont).foregroundStyle(CicadaTheme.textTertiary)
+                    Text(commit.subject).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(relativeDate(commit.dateValue)).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                 }
             }
-
             if repo.worktrees.count > 1 {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(repo.worktrees, id: \.path) { wt in
-                        HStack(spacing: 4) {
-                            Image(systemName: wt.isMain ? "star.fill" : "arrow.triangle.branch")
-                                .font(.system(size: 9))
-                                .foregroundStyle(wt.isMain ? CicadaTheme.hubGold : CicadaTheme.textTertiary)
-                            Text(wt.branch ?? wt.path)
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .lineLimit(1)
-                            if wt.isDirty == true {
-                                Circle()
-                                    .fill(CicadaTheme.warning)
-                                    .frame(width: 5, height: 5)
-                            }
-                        }
+                        Text(wt.branch ?? wt.path)
+                            .font(CicadaTheme.font(size: 11, design: .monospaced))
+                            .foregroundStyle(wt.isMain ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                            .lineLimit(1)
                     }
                 }
-                .padding(.top, 2)
             }
-
             if let hint = repo.staleHint, !hint.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 9))
-                    Text(hint)
-                        .font(.system(size: 10))
-                }
-                .foregroundStyle(CicadaTheme.warning)
+                Text(hint).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             }
         }
         .padding(CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.surfaceHover.opacity(0.5))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
-    private func repoStatusBadge(_ status: String) -> some View {
-        let (label, color): (String, Color) = {
-            switch status {
-            case "ok": return ("ok", CicadaTheme.success)
-            case "other_device": return ("other device", CicadaTheme.textTertiary)
-            case "missing": return ("missing", CicadaTheme.danger)
-            case "not_a_repo": return ("not a repo", CicadaTheme.danger)
-            case "git_unavailable": return ("git unavailable", CicadaTheme.warning)
-            case "timeout": return ("timeout", CicadaTheme.warning)
-            default: return (status, CicadaTheme.textTertiary)
-            }
-        }()
-        return Text(label)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.15))
-            .clipShape(Capsule())
-    }
-
-    private func pill(_ text: String, icon: String?, color: Color) -> some View {
-        HStack(spacing: 3) {
-            if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: 7))
-            }
-            Text(text)
-                .font(.system(size: 10, weight: .medium))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.12))
-        .clipShape(Capsule())
-    }
-
-    // MARK: - Sources Section (G61)
-
-    /// "Where to look this fact up" — a URL, a path, or a plain-English note.
-    /// Distinct from `source_episodes` (where a belief came from): a source is
-    /// a cheat-sheet for REFRESHING a fact.
-    private var sourcesSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text("Sources")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-
-            ForEach(Array(sources.enumerated()), id: \.element.id) { pair in
-                sourceRow(pair.element, index: pair.offset)
-            }
-
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                TextField("Add a URL, a path, or a note…", text: $newSourceRef)
-                    .textFieldStyle(.plain)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .onSubmit {
-                        let ref = newSourceRef.trimmed
-                        guard !ref.isEmpty else { return }
-                        newSourceRef = ""
-                        Task {
-                            if let updated = try? await APIClient.shared.addEntitySource(
-                                entityId: entity.id, ref: ref
-                            ) {
-                                sources = updated
-                            }
-                        }
-                    }
-            }
-            .padding(CicadaTheme.spacingSM)
-            .background(CicadaTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                    .stroke(CicadaTheme.border, lineWidth: 1)
-            )
-        }
-    }
-
-    private func sourceRow(_ source: EntitySource, index: Int) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: source.icon)
-                .font(.system(size: 11))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(source.ref)
-                    .font(.system(size: 12))
-                    .foregroundStyle(source.url == nil ? CicadaTheme.textSecondary : CicadaTheme.accent)
-                    .lineLimit(2)
-                Text([source.predicate, "added by \(source.addedBy)", source.addedAt]
-                        .compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: 10))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            Spacer()
-            if let url = source.url {
-                Button { NSWorkspace.shared.open(url) } label: {
-                    Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Open")
-            }
-            Button {
-                Task {
-                    if let updated = try? await APIClient.shared.deleteEntitySource(
-                        entityId: entity.id, index: index
-                    ) {
-                        sources = updated
-                    }
-                }
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-            .buttonStyle(.cicadaPlain)
-            .help("Remove source")
-        }
-        .padding(.vertical, 2)
+    private func copyPath(_ p: String) {
+        AppPasteboard.copy(p)
     }
 
     private func relativeDate(_ date: Date) -> String {
@@ -766,63 +586,28 @@ struct EntityDetailCard: View {
     /// preview card's description line. Falls back to `## Summary`. Returns nil
     /// when neither is present.
     private var mediaDescription: String? {
-        for header in ["## Description", "## Summary"] {
-            if let text = section(named: header, in: entity.markdownContent), !text.isEmpty {
-                return text
-            }
-        }
-        return nil
+        EntityProse.firstSection(["## Description", "## Summary"], in: entity.markdownContent)
     }
 
-    /// Extract the text under a `## Header` up to the next `## ` header (or EOF).
-    private func section(named header: String, in markdown: String) -> String? {
-        let lines = markdown.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == header
-        }) else { return nil }
-        var body: [String] = []
-        for line in lines[(start + 1)...] {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("## ") { break }
-            body.append(line)
-        }
-        let text = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-
-    /// Inverse of `section(named:in:)`: return `markdown` with the named
-    /// `## Header` and its body (up to the next `## ` header or EOF) removed.
-    /// Used to strip sections that already have a dedicated surface — the
-    /// `## Summary` accent box, the media `## Description` card — so they don't
-    /// render a second time as a plain heading+paragraph in the body below.
-    private func stripSection(named header: String, from markdown: String) -> String {
-        let lines = markdown.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces) == header
-        }) else { return markdown }
-        var kept = Array(lines[..<start])
-        var i = start + 1
-        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("## ") {
-            i += 1
-        }
-        kept.append(contentsOf: lines[i...])
-        return kept.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    // The section readers live in `EntityProse` (F1 R-FX8): one copy of the
+    // rule that strips the claims fence before any section is read.
 
     /// The entity body with the sections that already render in their own
-    /// dedicated chrome (`## Summary` → SummaryBox, `## Description` → media
+    /// dedicated chrome (`## Summary` → the header, R-DG15; `## Description` → media
     /// hero/website card) removed, so the rendered markdown view below doesn't
-    /// show them a second time.
+    /// show them a second time. The claims fence goes first (R-FX8).
     private var bodyForRendering: String {
-        var body = stripSection(named: "## Summary", from: entity.markdownContent)
-        body = stripSection(named: "## Description", from: body)
-        return body
+        // R-DG15 — a stub's markdown IS the preview the header already shows.
+        guard !isStub else { return "" }
+        let prose = EntityProse.stripClaimsFence(entity.markdownContent)
+        return EntityProse.stripSection(named: "## Description",
+                                        from: EntityProse.stripSection(named: "## Summary", from: prose))
     }
 
-    /// G24: the entity's `## Summary` section text, for the summary box atop
-    /// the rendered markdown preview. Nil when no Summary section is present
-    /// — the box renders nothing rather than showing empty chrome.
-    private var summaryText: String? {
-        section(named: "## Summary", in: entity.markdownContent)
+    /// R-FX11 — media pages have their own card (a paper's lists its why).
+    private var showsBeliefs: Bool {
+        entity.type != .media
+            && EntityProse.showsBeliefs(markdown: entity.markdownContent, isStub: entity.rawMarkdown.isEmpty)
     }
 
     private var renderedMarkdownView: some View {
@@ -836,17 +621,11 @@ struct EntityDetailCard: View {
                 HeroPreview(entity: entity)
             }
 
-            // G24: fast human-readable gist, shown once at the very top of the
-            // preview, before the rest of the body.
-            if let summary = summaryText {
-                SummaryBox(text: summary)
-            }
-
             // Inline transclusion (§1): tokenize the body into text/embed segments
             // and render `![[…]]` embeds as nested collapsible cards. Falls back to
             // plain wikilink rendering for bodies with no embeds. Summary /
             // Description are stripped here — they already render in their own
-            // chrome above (SummaryBox / media hero) and would otherwise double.
+            // chrome (the header, R-DG15 / media hero) and would otherwise double.
             TranscludingMarkdownView(body: bodyForRendering)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -864,117 +643,120 @@ struct EntityDetailCard: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(CicadaTheme.spacingMD)
-            .background(CicadaTheme.surfaceHover.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+            .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
-    private var metadataSection: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            if !entity.tags.isEmpty {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text("Tags")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-
-                    FlowLayout(spacing: 6) {
-                        ForEach(entity.tags, id: \.self) { tag in
-                            Text(tag)
-                                .font(.system(size: 11))
-                                .foregroundStyle(CicadaTheme.textSecondary)
-                                .lineLimit(1)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(CicadaTheme.surfaceHover)
-                                .clipShape(Capsule())
-                        }
+    /// R-DG21 / DR-39 — secondary detail starts collapsed; each viewer's choice is remembered.
+    private var detailsSection: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Button { detailsOpen.toggle() } label: {
+                HStack(spacing: CicadaTheme.scaled(6)) {
+                    Image(systemName: detailsOpen ? "chevron.down" : "chevron.right")
+                        .font(CicadaTheme.font(size: 10, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text(Copy.Graph.details).foregroundStyle(CicadaTheme.textSecondary)
+                    if !detailsOpen {
+                        Text(Copy.Graph.detailsSummary).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
+                .font(CicadaTheme.metaMediumFont)
+                .contentShape(Rectangle())
             }
-
-            if !entity.related.isEmpty {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                    Text("Related")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-
-                    FlowLayout(spacing: 6) {
-                        ForEach(entity.related, id: \.self) { rel in
-                            Text(rel)
-                                .font(.system(size: 11))
-                                .foregroundStyle(CicadaTheme.accent)
-                                .lineLimit(1)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(CicadaTheme.accent.opacity(0.1))
-                                .clipShape(Capsule())
+            .buttonStyle(.cicadaPlain)
+            .accessibilityValue(detailsOpen ? "Open" : "Closed")
+            if detailsOpen {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: CicadaTheme.spacingMD,
+                     verticalSpacing: CicadaTheme.scaled(10)) {
+                    if !entity.tags.isEmpty {
+                        GridRow {
+                            detailLabel(Copy.Graph.tags)
+                            FlowLayout(spacing: 6) { ForEach(entity.tags, id: \.self) { Tag(text: $0) } }
                         }
                     }
+                    if !entity.related.isEmpty {
+                        GridRow {
+                            detailLabel(Copy.Graph.related)
+                            FlowLayout(spacing: CicadaTheme.spacingMD) {
+                                ForEach(entity.related, id: \.self) { rel in relatedLink(rel) }
+                            }
+                        }
+                    }
+                    GridRow {
+                        detailLabel(Copy.Graph.firstNoted)
+                        detailValue(EntityDates.day(entity.created) ?? "—")
+                    }
+                    GridRow {
+                        detailLabel(Copy.Graph.lastMentioned)
+                        detailValue(DetailsWords.lastMentioned(entity.lastReferenced, now: .now))
+                    }
+                    GridRow {
+                        detailLabel(Copy.Graph.fades)
+                        fadesMenu
+                    }
                 }
-            }
-
-            HStack(spacing: CicadaTheme.spacingLG) {
-                Label(entity.created, systemImage: "calendar")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                Label(entity.lastReferenced, systemImage: "clock")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-
-                decayChip
-
-                Spacer()
             }
         }
     }
 
-    // MARK: - Decay chip (G66 §1.7)
+    private func detailLabel(_ text: String) -> some View {
+        Text(text).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            .frame(width: CicadaTheme.scaled(112), alignment: .leading)
+    }
+
+    private func detailValue(_ text: String) -> some View {
+        Text(text).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+    }
+
+    /// A related name opens its page when one matches (DR-5 link); otherwise it is plain text.
+    @ViewBuilder
+    private func relatedLink(_ rel: String) -> some View {
+        if let id = DetailsWords.relatedTarget(rel, in: graphVM.entities) {
+            Button { navigate(to: id) } label: {
+                Text(rel).font(CicadaTheme.font(size: 13, weight: .medium)).foregroundStyle(CicadaTheme.accentText)
+            }
+            .buttonStyle(.cicadaPlain)
+        } else {
+            detailValue(rel)
+        }
+    }
+
+    // MARK: - Fades (G66 §1.7)
     //
-    // The raw `decay_rate` number was never meaningful to a reader ("0.05" says
-    // nothing); the class does. Tapping the chip opens a picker that PUTs the
-    // override — the user's authority over how fast the agent forgets.
+    // The raw `decay_rate` number was never meaningful to a reader; the class is. The menu PUTs the override —
+    // the person's authority over how fast the agent forgets.
 
     private var shownDecayClass: DecayClass { pendingDecayClass ?? entity.decayClass }
 
-    private var decayChip: some View {
+    /// G147 (R-FD10) — the value is the pace Sleep actually charges ("Slowly — mentioned across
+    /// 12 weeks"), not only the class word; while an override is in flight it shows the chosen
+    /// class's own words until the reload lands (the optimistic flip).
+    private var fadesLabel: String {
+        if let pendingDecayClass { return DetailsWords.fades(pendingDecayClass) }
+        return FadeWords.detail(entity.decay, fallback: entity.decayClass)
+    }
+
+    private var fadesMenu: some View {
         Menu {
             ForEach(DecayClass.allCases) { option in
-                Button {
-                    setDecay(option)
-                } label: {
-                    Label(
-                        "\(option.label) — \(option.blurb)",
-                        systemImage: option == shownDecayClass ? "checkmark" : option.icon
-                    )
+                Button { setDecay(option) } label: {
+                    Label("\(DetailsWords.fades(option)) — \(option.blurb)",
+                          systemImage: option == shownDecayClass ? "checkmark" : option.icon)
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: shownDecayClass.icon)
-                    .font(.system(size: 9))
-                Text(shownDecayClass.chipText)
-                    .font(CicadaTheme.captionFont)
+            HStack(spacing: CicadaTheme.scaled(6)) {
+                Text(fadesLabel)
+                Image(systemName: "chevron.down").font(CicadaTheme.font(size: 9, weight: .semibold))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(decayChipTint.opacity(0.15))
-            .foregroundStyle(decayChipTint)
-            .clipShape(Capsule())
+            .font(CicadaTheme.font(size: 13))
+            .foregroundStyle(CicadaTheme.textSecondary)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("How fast this entity fades when it stops being mentioned")
-        .accessibilityLabel("Decay class: \(shownDecayClass.label)")
-    }
-
-    private var decayChipTint: Color {
-        switch shownDecayClass {
-        case .evergreen: CicadaTheme.diffAdded
-        case .durable: CicadaTheme.decayDurable
-        case .active: CicadaTheme.textSecondary
-        case .volatile: CicadaTheme.decayVolatile
-        }
+        .help(Copy.Graph.fadesHelp)
+        .accessibilityLabel("\(Copy.Graph.fades): \(fadesLabel)")
     }
 
     private func setDecay(_ option: DecayClass) {
@@ -993,85 +775,82 @@ struct EntityDetailCard: View {
 
     // MARK: - History Tab
 
-    // G68 §2.10 — three branches, resolved by `HistoryTabState`: a spinner
-    // while the fetch is in flight, an empty state once it's confirmed there
-    // is nothing, and (the common case) the existing G67 diff-expansion list.
+    // G68 §2.10 — three branches, resolved by `HistoryTabState`: a spinner while the fetch is in flight, an empty
+    // state once it's confirmed there is nothing, and (the common case) the G67 diff-expansion list. Plain words,
+    // no decorative glyph (DR-53); the retry is a neutral button (DR-40).
     @ViewBuilder
     private var historyTab: some View {
         switch historyState {
         case .loading:
             HStack(spacing: CicadaTheme.spacingSM) {
                 ProgressView().controlSize(.small)
-                Text("Reading git history…")
+                Text(Copy.Graph.readingHistory)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
-
         case .empty:
             VStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 26))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                Text("No commits touch this page yet")
+                Text(Copy.Graph.noCommitsTitle)
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Text("It appears here once a Sleep cycle writes to it.")
+                Text(Copy.Graph.noCommitsDetail)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
-
         case .error:
             VStack(spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 26))
-                    .foregroundStyle(CicadaTheme.danger)
-                Text("Couldn't load history")
+                Text(Copy.Graph.historyFailed)
                     .font(CicadaTheme.headingFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
-                Button("Retry") { Task { await loadHistoryIfNeeded() } }
-                    .buttonStyle(.bordered)
+                NeutralButton(title: Copy.Graph.retry) { Task { await loadHistoryIfNeeded() } }
                     .accessibilityLabel("Retry loading history")
             }
             .frame(maxWidth: .infinity)
             .padding(CicadaTheme.spacingXXL)
-
         case .entries(let rows):
             historyList(rows)
         }
     }
 
+    /// G68 — newest first. R-DG24: a neutral ring per change (hue is for data identity, P-c), the change in words,
+    /// the day and who wrote it (the commit's own line only as help); then "Show in conversation" and "What changed" (G67). The
+    /// two links are siblings, never one inside the other's label (the PR #20 round-2 rule that pulled
+    /// `FromConversationButton` out of the expand button).
     private func historyList(_ rows: [EntityHistoryEntry]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.reversed().enumerated()), id: \.element.id) { index, entry in
+            ForEach(rows.reversed(), id: \.id) { entry in
                 HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-                    // Timeline
-                    VStack(spacing: 0) {
-                        Circle()
-                            .fill(index == 0
-                                  ? CicadaTheme.success
-                                  : CicadaTheme.historyColor(for: entry.changeType))
-                            .frame(width: 10, height: 10)
-
-                        if index < rows.count - 1 {
-                            Rectangle()
-                                .fill(CicadaTheme.border)
-                                .frame(width: 1)
-                                .frame(maxHeight: .infinity)
-                        }
-                    }
-                    .frame(width: 10)
-
+                    Circle()
+                        .strokeBorder(CicadaTheme.textTertiary, lineWidth: 1.5)
+                        .frame(width: CicadaTheme.scaled(8), height: CicadaTheme.scaled(8))
+                        .padding(.top, CicadaTheme.scaled(5))
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                        historyRowButton(entry)
-
-                        // The diff for an EXPANDED commit. `entry.diff` (present
-                        // only when history was fetched with includeDiff=true)
-                        // wins so we never re-fetch what we already hold.
+                        // DR-54/DR-58 (final review): the commit line (`entities/<id>.md: updated (source: ep_…,
+                        // trigger: sleep/…)`) is a path, an episode id and a trigger slug, so it is never on the
+                        // row — the change is already in words — and stays reachable as the change line's help.
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Text(HistoryWords.change(entry.changeType))
+                                .font(CicadaTheme.rowFont)
+                                .foregroundStyle(CicadaTheme.textPrimary)
+                            Text(EntityDates.shortDay(entry.date) ?? entry.date)
+                                .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                            if !entry.author.isEmpty {
+                                AuthorPill(entry.author, kind: entry.authorKind, provider: entry.authorProvider)
+                            }
+                        }
+                        .help(entry.description)
+                        HStack(spacing: CicadaTheme.scaled(14)) {
+                            ShowInConversationLink(sessionIds: entry.sessions,
+                                                   openEpisode: ProvenanceSummary.episodeByConversation(provenanceState.value))
+                            if !entry.commitHash.isEmpty { whatChangedToggle(entry) }
+                        }
+                        // The diff for an EXPANDED commit; `entry.diff` (includeDiff=true) wins over a fetch.
                         if isExpanded(entry) {
                             let key = diffKey(entry.commitHash)
                             if let inline = entry.diff {
@@ -1087,83 +866,34 @@ struct EntityDetailCard: View {
                             }
                         }
                     }
-                    .padding(.bottom, CicadaTheme.spacingLG)
-
-                    Spacer()
+                    .padding(.bottom, CicadaTheme.scaled(18))
+                    Spacer(minLength: 0)
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
     }
 
     private func isExpanded(_ entry: EntityHistoryEntry) -> Bool {
         !entry.commitHash.isEmpty && expandedCommits.contains(diffKey(entry.commitHash))
     }
 
-    /// The tappable summary line, plus the "from conversation" affordance as
-    /// its own SIBLING control (PR #20 round-2 review fix). `FromConversationButton`
-    /// used to be nested inside `historyRowLabel`, which is itself the LABEL
-    /// of the row-expansion `Button` below — a `Button` inside a `Button`'s
-    /// label, which makes AppKit/SwiftUI's tap targeting ambiguous (a tap
-    /// meant for the popover could instead toggle diff expansion). Pulling it
-    /// out to a trailing sibling in this `HStack` gives each control its own
-    /// hit region with no ambiguity, while keeping both reachable via the
-    /// same row. A row with no `commitHash` (an older backend that didn't
-    /// surface one) renders its summary as plain, un-tappable text rather
-    /// than a button that could never do anything — the conversation
-    /// affordance still renders independently of that.
-    @ViewBuilder
-    private func historyRowButton(_ entry: EntityHistoryEntry) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingXS) {
-            if entry.commitHash.isEmpty {
-                historyRowLabel(entry, expandable: false)
-            } else {
-                Button {
-                    toggleCommit(entry.commitHash)
-                } label: {
-                    historyRowLabel(entry, expandable: true)
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Show what changed in this commit")
-                .accessibilityLabel("Commit \(entry.date) by \(entry.author)")
+    private func whatChangedToggle(_ entry: EntityHistoryEntry) -> some View {
+        Button { toggleCommit(entry.commitHash) } label: {
+            HStack(spacing: CicadaTheme.scaled(5)) {
+                Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.font(size: 9, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(Copy.Graph.whatChanged)
             }
-
-            FromConversationButton(sessionIds: entry.sessions)
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .contentShape(Rectangle())
         }
-    }
-
-    private func historyRowLabel(_ entry: EntityHistoryEntry, expandable: Bool) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: CicadaTheme.spacingXS) {
-                if expandable {
-                    Image(systemName: isExpanded(entry) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-                Text(entry.date)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                // M3 (backlog A2): who authored this commit.
-                if !entry.author.isEmpty {
-                    Text(entry.author)
-                        .font(CicadaTheme.captionFont)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(
-                            (entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
-                                .opacity(0.18)
-                        )
-                        .clipShape(Capsule())
-                        .foregroundStyle(entry.author == "user" ? CicadaTheme.info : CicadaTheme.accent)
-                }
-            }
-
-            Text(entry.description)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
+        .buttonStyle(.cicadaPlain)
+        .help(Copy.Graph.whatChangedHelp)
+        .accessibilityLabel("\(Copy.Graph.whatChanged), \(entry.date)")
+        .accessibilityValue(isExpanded(entry) ? "Open" : "Closed")
     }
 
     /// Collapse, or expand + fetch. On-demand only (the `LogoStore`/
@@ -1209,223 +939,107 @@ struct EntityDetailCard: View {
     }
 
     // MARK: - Perspectives Tab (§3b)
-    //
-    // The subject's claims grouped by observer, each group a labeled section
-    // (Observer.label + sfSymbol badge) of claim chips. Where two observers
-    // disagree on the same (predicate, context), a divergence callout names the
-    // "who believes what" contradiction-across-observers.
 
+    /// §3b — who believes what. R-DG22: rows, grouped under a label with its count; a disagreement between
+    /// observers is one block with the divergence kind's glyph (no tinted fill, DR-7).
     private var perspectivesTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
             if !claimsLoaded {
-                ProgressView().controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else if validClaims.isEmpty {
-                claimsEmptyState
+                Text(Copy.Graph.noBeliefsYet)
+                    .font(CicadaTheme.font(size: 13))
+                    .foregroundStyle(CicadaTheme.textTertiary)
             } else {
-                ForEach(divergences, id: \.self) { d in
-                    divergenceCallout(d)
-                }
-                ForEach(observerGroups, id: \.0.id) { observer, group in
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        HStack(spacing: CicadaTheme.spacingXS) {
-                            ObserverBadge(observer)
-                            Text("\(group.count)")
-                                .font(CicadaTheme.captionFont)
-                                .foregroundStyle(CicadaTheme.textTertiary)
+                ForEach(PerspectiveGroups.divergences(claims)) { d in divergenceBlock(d) }
+                ForEach(PerspectiveGroups.of(claims)) { group in
+                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+                        SectionLabel(PerspectiveGroups.heading(group))
+                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                            ForEach(group.claims) { claim in
+                                BeliefRow(claim: claim) { openTimeline(for: claim) }
+                            }
                         }
-                        ForEach(group) { claim in
-                            ClaimChip(claim: claim, onOpenTimeline: {
-                                timelineKey = TimelineKey(predicate: claim.predicate, context: claim.context)
-                            })
-                        }
+                        .padding(.horizontal, -CicadaTheme.scaled(10))
                     }
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
+        .modifier(EntityTabInsets(style: style))
+    }
+
+    private func divergenceBlock(_ d: PerspectiveGroups.Divergence) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                KindGlyph(kind: .divergence)
+                Text(Copy.Graph.observersDisagree(d.key.predicate))
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(CicadaTheme.textPrimary)
+                Tag(text: ClaimContext.displayName(d.key.context), dot: CicadaTheme.contextColor(d.key.context))
+            }
+            Text(d.line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+        }
+        .padding(CicadaTheme.spacingMD)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
     }
 
     // MARK: - Timeline Tab (§4)
-    //
-    // Lists the subject's CONTESTED keys — any (predicate, context) with ≥2
-    // claims over time — and drills into BeliefTimelineView on tap.
 
+    /// R-DG23 — a belief's clock: the Timeline tab, that belief open.
+    private func openTimeline(for claim: Claim) {
+        let key = BeliefKey(claim)
+        requestedKey = key
+        expandedKeys.insert(key)
+        selectedTab = .timeline
+    }
+
+    /// §4 — contested beliefs inline (R-DG23): a disclosure row per belief, its `BeliefTimelineView` in place.
     private var timelineTab: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             if !claimsLoaded {
-                ProgressView().controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else if contestedKeys.isEmpty {
-                VStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: "clock.badge.questionmark")
-                        .font(.system(size: 24))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Text("No contested beliefs yet.")
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                    Text("A belief becomes contested when a (predicate, context) has changed over time.")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, CicadaTheme.spacingXL)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .center)
             } else {
-                Text("Contested beliefs")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                ForEach(contestedKeys, id: \.id) { key in
-                    Button {
-                        timelineKey = key
-                    } label: {
-                        HStack(spacing: CicadaTheme.spacingSM) {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.system(size: 12))
-                                .foregroundStyle(CicadaTheme.accent)
-                            Text(key.predicate)
-                                .font(CicadaTheme.bodyFont)
-                                .foregroundStyle(CicadaTheme.textPrimary)
-                            ContextPill(key.context)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 10))
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                        }
-                        .padding(CicadaTheme.spacingMD)
-                        .glassCard(cornerRadius: CicadaTheme.cornerRadiusSmall)
+                let keys = TimelineKeys.rows(claims: claims, requested: requestedKey)
+                if keys.isEmpty {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                        Text(Copy.Graph.noContested).font(CicadaTheme.font(size: 13)).foregroundStyle(CicadaTheme.textSecondary)
+                        Text(Copy.Graph.noContestedDetail).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
-                    .buttonStyle(.cicadaPlain)
+                } else {
+                    SectionLabel(TimelineKeys.heading(contested: contestedKeys.count))
+                    ForEach(keys) { key in
+                        TimelineKeyRow(key: key, summary: TimelineKeys.summary(key, claims: claims),
+                                       expanded: expandedKeys.contains(key)) {
+                            if expandedKeys.contains(key) { expandedKeys.remove(key) } else { expandedKeys.insert(key) }
+                        }
+                        if expandedKeys.contains(key) {
+                            BeliefTimelineView(subject: entity.id, predicate: key.predicate, context: key.context,
+                                               showsHeader: false)
+                                .padding(.leading, CicadaTheme.scaled(7))
+                        }
+                    }
                 }
             }
         }
-        .padding(CicadaTheme.spacingLG)
-    }
-
-    private func beliefTimelineSheet(_ key: TimelineKey) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Spacer()
-                Button { timelineKey = nil } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .padding(CicadaTheme.spacingMD)
-            }
-            ScrollView {
-                BeliefTimelineView(subject: entity.id, predicate: key.predicate, context: key.context)
-            }
-        }
-        .frame(minWidth: 460, minHeight: 420)
-        .background(CicadaTheme.background)
-    }
-
-    private var claimsEmptyState: some View {
-        VStack(spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "person.2.slash")
-                .font(.system(size: 24))
-                .foregroundStyle(CicadaTheme.textTertiary)
-            Text("No claims for this subject yet.")
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, CicadaTheme.spacingXL)
-    }
-
-    private func divergenceCallout(_ d: Divergence) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.bubble.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.warning)
-                Text("Observers disagree on \(d.predicate)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                ContextPill(d.context)
-            }
-            ForEach(Array(d.byObserver.enumerated()), id: \.offset) { _, pair in
-                HStack(spacing: 4) {
-                    ObserverBadge(pair.0)
-                    Text("asserts")
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                    Text(pair.1)
-                        .font(CicadaTheme.captionFont)
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                }
-            }
-        }
-        .padding(CicadaTheme.spacingMD)
-        .background(CicadaTheme.warning.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(CicadaTheme.warning.opacity(0.3), lineWidth: 1)
-        )
+        .modifier(EntityTabInsets(style: style))
     }
 
     // MARK: - Claim derivations
 
     private var validClaims: [Claim] { claims.filter { $0.isValid } }
 
-    /// Valid claims grouped by observer, observer order stable (agent, rodrigo,
-    /// then externals).
-    private var observerGroups: [(Observer, [Claim])] {
-        let grouped = Dictionary(grouping: validClaims, by: { $0.observer })
-        return grouped.sorted { observerRank($0.key) < observerRank($1.key) }
-            .map { ($0.key, $0.value) }
-    }
-
-    private func observerRank(_ o: Observer) -> Int {
-        switch o {
-        case .agent: return 0
-        case .rodrigo: return 1
-        case .external: return 2
-        }
-    }
-
-    struct Divergence: Hashable {
-        let predicate: String
-        let context: String
-        let byObserver: [(Observer, String)]
-        static func == (l: Divergence, r: Divergence) -> Bool {
-            l.predicate == r.predicate && l.context == r.context
-        }
-        func hash(into h: inout Hasher) { h.combine(predicate); h.combine(context) }
-    }
-
-    /// (predicate, context) keys where ≥2 distinct observers assert different
-    /// objects among the currently-valid claims.
-    private var divergences: [Divergence] {
-        let byKey = Dictionary(grouping: validClaims, by: { "\($0.predicate)|\($0.context)" })
-        var out: [Divergence] = []
-        for (_, group) in byKey {
-            let distinctObservers = Set(group.map { $0.observer })
-            let distinctObjects = Set(group.map { $0.object })
-            if distinctObservers.count >= 2 && distinctObjects.count >= 2, let first = group.first {
-                let pairs = group.map { ($0.observer, $0.object) }
-                out.append(Divergence(predicate: first.predicate, context: first.context, byObserver: pairs))
-            }
-        }
-        return out
-    }
-
     /// (predicate, context) keys with ≥2 claims over time (valid + superseded).
-    private var contestedKeys: [TimelineKey] {
-        let byKey = Dictionary(grouping: claims, by: { TimelineKey(predicate: $0.predicate, context: $0.context) })
-        return byKey.filter { $0.value.count >= 2 }.keys.sorted { $0.id < $1.id }
-    }
+    private var contestedKeys: [BeliefKey] { EntityTabs.contested(claims) }
 
     private func loadClaimsIfNeeded() async {
         guard !claimsLoaded else { return }
         // Include superseded so the timeline tab can detect contested keys.
-        claims = (try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)) ?? []
+        let fetched = try? await APIClient.shared.fetchClaims(subject: entity.id, includeSuperseded: true)
+        // DS-3a — a load cancelled by a swap or a close must not read as "no beliefs" (R-DG16's counts).
+        guard !Task.isCancelled else { return }
+        claims = fetched ?? []
         claimsLoaded = true
     }
 
@@ -1477,96 +1091,96 @@ struct EntityDetailCard: View {
     }
 }
 
-// MARK: - Summary Box (G24)
-//
-// A visually distinct card rendered atop the entity's markdown preview,
-// surfacing the `## Summary` section's text so the user can read the gist
-// fast without scanning the full body. Mirrors TransclusionCard's accent-bar
-// treatment (left accent stripe + surface background + hairline border) so
-// it reads as "part of this app's card language" rather than a one-off.
-
-private struct SummaryBox: View {
-    let text: String
+/// One Timeline row (R-DG23): a clock, the predicate, its context as a `Tag`, how many beliefs since when, a
+/// disclosure chevron. 36 units, hover a fill (DR-34, DR-48).
+private struct TimelineKeyRow: View {
+    let key: BeliefKey
+    let summary: String
+    let expanded: Bool
+    let toggle: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Rectangle()
-                .fill(CicadaTheme.accent.opacity(0.7))
-                .frame(width: 3)
-
-            HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(CicadaTheme.accent)
-
-                // Routed through `MarkdownBody.inlineAttributed` — the same
-                // wikilink-rewrite path every other prose surface uses —
-                // rather than a plain `Text(text)`, which rendered
-                // `[[Entity Name]]` verbatim instead of as a link.
-                Text(MarkdownBody.inlineAttributed(text))
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        Button(action: toggle) {
+            HStack(spacing: CicadaTheme.scaled(10)) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(CicadaTheme.icon(.list))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
+                Text(key.predicate).font(CicadaTheme.rowFont).foregroundStyle(CicadaTheme.textPrimary)
+                Tag(text: ClaimContext.displayName(key.context), dot: CicadaTheme.contextColor(key.context))
+                Spacer(minLength: 0)
+                Text(summary).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.font(size: 10, weight: .semibold))
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .accessibilityHidden(true)
             }
-            .padding(CicadaTheme.spacingMD)
+            .padding(.horizontal, CicadaTheme.scaled(10))
+            .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+                .fill(expanded ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgHover : Color.clear)))
+            .contentShape(Rectangle())
         }
-        .background(CicadaTheme.surface.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
-                .stroke(CicadaTheme.border, lineWidth: 1)
-        )
+        .buttonStyle(.cicadaPlain)
+        .padding(.horizontal, -CicadaTheme.scaled(10))
+        .onHover { hovering = $0 }
+        .accessibilityValue(expanded ? "Open" : "Closed")
     }
 }
 
-// MARK: - View Mode Button (Rendered / Source)
+// MARK: - Style (R-DG13)
 
-private struct ViewModeButton: View {
-    let title: String
-    let icon: String
-    let isSelected: Bool
-    let action: () -> Void
+/// One card, two hosts: the Graph's detail column and Clusters' card.
+enum EntityCardStyle {
+    /// Clusters' detail column (DS-3c, R-DL10) — the card on its block inside the column's gutter.
+    case card
+    /// The Graph's detail column (§5.3): no card chrome, `bgBase`, the column's leading edge (DR-11).
+    case column
 
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(isSelected ? CicadaTheme.surfaceHover : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+    /// Leading inset in units: the mock's 28 in the column, the card's 16.
+    var inset: CGFloat { self == .column ? 28 : 16 }
+}
+
+/// R-DG21 — Rendered · Source as text tabs.
+enum EntityBodyView: Hashable {
+    case rendered, source
+
+    static let tabs: [TextTab<EntityBodyView>] = [
+        TextTab(id: .rendered, label: Copy.Graph.rendered),
+        TextTab(id: .source, label: Copy.Graph.source),
+    ]
+}
+
+private struct EntityCardChrome: ViewModifier {
+    let style: EntityCardStyle
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .card: content.glassCard()
+        case .column: content.background(CicadaTheme.bgBase).columnEdge()
         }
-        .buttonStyle(.cicadaPlain)
-        .help("\(title) view")
     }
 }
 
-// MARK: - Tab Button
+/// The tab bodies' insets: the column's (28 leading, 20 trailing, room to scroll past the last row) or the
+/// card's 16 all round.
+private struct EntityTabInsets: ViewModifier {
+    let style: EntityCardStyle
 
-private struct TabButton: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(isSelected ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-
-                Rectangle()
-                    .fill(isSelected ? CicadaTheme.accent : .clear)
-                    .frame(height: 2)
-            }
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch style {
+        case .card:
+            content.padding(CicadaTheme.spacingLG)
+        case .column:
+            content
+                .padding(.leading, CicadaTheme.scaled(style.inset))
+                .padding(.trailing, CicadaTheme.scaled(20))
+                .padding(.top, CicadaTheme.scaled(18))
+                .padding(.bottom, CicadaTheme.scaled(72))
         }
-        .buttonStyle(.cicadaPlain)
     }
 }
 

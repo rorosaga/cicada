@@ -23,7 +23,7 @@ import os
 import re
 from pathlib import Path
 
-from api.services import bank_index
+from api.services import bank_index, text_fold
 from api.services.claims import parse_claims
 
 # A Claude Code session id is a canonical UUID (`--session-id` requires one).
@@ -199,6 +199,9 @@ def aggregate_conversations(
     *,
     limit: int = 20,
     transcript_exists=default_transcript_exists,
+    harness: str | None = None,
+    origin: str | None = None,
+    q: str | None = None,
 ) -> list[dict]:
     """Recent conversations, newest write first.
 
@@ -206,12 +209,35 @@ def aggregate_conversations(
     names (``CamelModel`` has ``populate_by_name=True``, so
     ``ConversationSummary(**row)`` just works). ``project_dir`` is NOT included
     — only the resume endpoint ever sees it.
+
+    ``harness`` / ``origin`` (G124 R5) filter BEFORE the cap: the Sources
+    page's per-harness list must never lose an older conversation to a page
+    limit. ``harness="unknown"`` matches rows whose harness is empty — the
+    same value the overview reports for them.
+
+    ``q`` (G136, design §3.7/§3.9 item 4) is a title filter applied BEFORE
+    the cap for the same reason: the Harness-conversations field filters the
+    ≤ 200 rows it holds locally, and "beyond the cap" must mean the whole
+    bank, not the next page. Every word of ``q`` must be a folded substring
+    of the title (``text_fold.contains_all`` — case- and accent-blind, the
+    app's QuickMatch normalisation). It runs on the raw groups, before
+    ``project_conversation``, so a filtered-out row never costs its
+    ``transcript_exists`` probe.
     """
     groups = _group(Path(memory_path))
+    if q is not None and q.strip():
+        groups = {
+            cid: g for cid, g in groups.items() if text_fold.contains_all(g["title"], q)
+        }
     rows = [
         project_conversation(g, transcript_exists=transcript_exists)
         for g in groups.values()
     ]
+    if harness is not None:
+        wanted = "" if harness == "unknown" else harness
+        rows = [r for r in rows if r["harness"] == wanted]
+    if origin is not None:
+        rows = [r for r in rows if r["origin"] == origin]
     rows.sort(key=lambda r: (r["last_seen"], r["conversation_id"]), reverse=True)
     return rows[: max(1, int(limit or 20))]
 

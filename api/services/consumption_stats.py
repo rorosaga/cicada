@@ -27,25 +27,31 @@ def resolve_range(range_: str, today: date) -> date | None:
     return today - timedelta(days=days - 1)
 
 
-async def memory_write_days(memory_path: Path) -> dict[str, int]:
-    """ISO-day -> attributed-commit count, bucketed by **UTC** calendar day.
+async def _commit_days(memory_path: Path) -> list[tuple[str, list[str]]]:
+    """``(utc_day, authors)`` for every commit in the memory repo.
 
-    ``git log --date=short`` (or any ``%ad``-based format) buckets by the
-    author's recorded UTC *offset*, not UTC itself — a commit authored at
-    ``2026-08-27T23:30:00-07:00`` (= ``2026-08-28T06:30Z``) would land on
-    ``2026-08-27`` there, one day off from how the telemetry ledger buckets
-    its explicit-UTC ``ts[:10]`` timestamps. We instead take the strict-ISO
-    author date (``%aI``, includes the offset) and convert to UTC in Python
-    so both sources agree on one calendar-day definition.
+    ``authors`` is the parsed ``Cicada-Author`` trailer list — EMPTY for a
+    legacy untrailered commit, so callers decide what counts: the repo-wide
+    calendar keeps only attributed commits (a memory write is a trailered
+    write), the per-author calendar (G124 R14) selects one author, and the
+    ``"unknown"`` bucket selects exactly the empty lists. One walk, one rule,
+    so the three can never disagree on what a "write" is.
+
+    Buckets by **UTC** calendar day: ``git log --date=short`` (or any
+    ``%ad``-based format) buckets by the author's recorded UTC *offset*, so a
+    commit authored at ``2026-08-27T23:30:00-07:00`` (= ``2026-08-28T06:30Z``)
+    would land on ``08-27`` there, one day off from the ledger's explicit-UTC
+    ``ts[:10]``. Taking ``%aI`` and converting in Python makes both sources
+    agree on one day definition.
     """
     if not (memory_path / ".git").exists():
-        return {}
+        return []
     sep, rec = "\x1f", "\x1e"
     try:
         out = await git_service._run_git(memory_path, "log", f"--format=%aI{sep}%b{rec}")
     except git_service.GitError:
-        return {}
-    days: Counter[str] = Counter()
+        return []
+    commits: list[tuple[str, list[str]]] = []
     for record in out.split(rec):
         if sep not in record:
             continue
@@ -57,8 +63,29 @@ async def memory_write_days(memory_path: Path) -> dict[str, int]:
             day = datetime.fromisoformat(iso_date).astimezone(timezone.utc).date().isoformat()
         except ValueError:
             continue
-        if git_service._parse_authors(body):
-            days[day] += 1
+        commits.append((day, git_service._parse_authors(body)))
+    return commits
+
+
+async def memory_write_days(memory_path: Path) -> dict[str, int]:
+    """ISO-day -> attributed-commit count (every author). See ``_commit_days``
+    for the UTC rule; an untrailered commit is not a memory write."""
+    days: Counter[str] = Counter(
+        day for day, authors in await _commit_days(memory_path) if authors)
+    return dict(days)
+
+
+async def memory_write_days_by_author(memory_path: Path, author: str) -> dict[str, int]:
+    """ISO-day -> commit count for ONE ``Cicada-Author`` (G124 R14).
+
+    ``"unknown"`` selects legacy untrailered commits, matching
+    ``git_service.get_contributors``' bucket for them — the same walk, just
+    the commits whose parsed author list is empty.
+    """
+    if author == git_service.UNKNOWN_AUTHOR:
+        days = Counter(day for day, authors in await _commit_days(memory_path) if not authors)
+    else:
+        days = Counter(day for day, authors in await _commit_days(memory_path) if author in authors)
     return dict(days)
 
 
@@ -136,7 +163,7 @@ def _levels(values: dict[str, float]) -> dict[str, int]:
 
 async def calendar(memory_path: Path, *, weeks: int, today: date) -> list[dict]:
     start = today - timedelta(days=weeks * 7 - 1)
-    events = telemetry.read_events(start=start, end=today)
+    events = _activity(telemetry.read_events(start=start, end=today))
     writes = await memory_write_days(memory_path)
     per_day: dict[str, dict] = {}
     for i in range(weeks * 7):
@@ -164,6 +191,41 @@ async def calendar(memory_path: Path, *, weeks: int, today: date) -> list[dict]:
     return list(per_day.values())
 
 
+async def contributor_calendar(memory_path: Path, *, author: str, weeks: int, today: date) -> list[dict]:
+    """The ``/consumption/calendar`` shape for ONE contributor (G124 R14):
+    memory writes per UTC day, level from writes alone, every other counter
+    zero so ``HeatmapView`` renders it with no new cell type."""
+    start = today - timedelta(days=weeks * 7 - 1)
+    writes = await memory_write_days_by_author(memory_path, author)
+    rows: dict[str, dict] = {}
+    for i in range(weeks * 7):
+        d = (start + timedelta(days=i)).isoformat()
+        rows[d] = {"date": d, "memory_writes": writes.get(d, 0), "events": 0, "tokens": 0,
+                   "cost_usd": 0.0, "equiv_cost_usd": 0.0}
+    levels = _levels({d: float(r["memory_writes"]) for d, r in rows.items()})
+    for d, r in rows.items():
+        r["level"] = levels[d]
+    return list(rows.values())
+
+
+def top_read_entities(*, range_: str, today: date, limit: int) -> list[dict]:
+    """Most-read entity ids from the ``read`` ledger kind (G124 R11) — every
+    surface counted (the surface stays in ``refs`` for a later split, G120),
+    ids only, newest ``last_read`` kept per id."""
+    counts: Counter[str] = Counter()
+    last: dict[str, str] = {}
+    for e in _events_in(range_, today):
+        if e.kind != "read" or not isinstance(e.refs, dict):
+            continue
+        entity_id = str(e.refs.get("entity_id") or "").strip()
+        if not entity_id:
+            continue
+        counts[entity_id] += 1
+        last[entity_id] = max(last.get(entity_id, ""), e.ts)
+    return [{"entity_id": eid, "reads": n, "last_read": last[eid]}
+            for eid, n in counts.most_common(max(1, limit))]
+
+
 def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
     groups: dict[str, list[UsageEvent]] = defaultdict(list)
     for e in events:
@@ -185,8 +247,27 @@ def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
     return rows
 
 
+#: Per-turn receipts: one row per reply of every session (G105's `capture`) or
+#: per prompt (G149's `hook_recall`). Counting them charts the person's chat
+#: cadence, not Cicada's work (G105 final review F1), and `read_events` reads
+#: the sibling file `hook_recall` is filed in, so filing it apart is not enough.
+PER_TURN_KINDS = frozenset({"capture", telemetry.HOOK_RECALL_KIND})
+
+
+def _activity(events: list[UsageEvent]) -> list[UsageEvent]:
+    """G105 final review F1: a ``capture`` row is a Stop-hook receipt — one per
+    reply of every Claude Code/Codex session, zero tokens, zero invocations.
+    Counting it as activity made the Usage page's hour-of-day chart, daily
+    series, per-bank invocations and (via ``stage=<harness>``) a spurious
+    ``by_stage`` row track the person's chat cadence instead of Cicada's own
+    work. Feedback kinds (G113 R7) stay — a ``feedback`` stage row is a real
+    user action on the graph; a capture row is not an action on anything.
+    G149's `hook_recall` row (one per prompt) is the same class."""
+    return [e for e in events if e.kind not in PER_TURN_KINDS]
+
+
 async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
-    events = _events_in(range_, today)
+    events = _activity(_events_in(range_, today))
     calls = [e for e in events if e.kind in ("llm_call", "ask")]
     hours = [0] * 24
     for e in events:
@@ -207,11 +288,14 @@ async def stats(memory_path: Path, *, range_: str, today: date) -> dict:
     runs = [e for e in events if e.kind == "sleep_run" and e.duration_ms is not None]
     longest = max(runs, key=lambda e: e.duration_ms, default=None)
     by_model = _group(calls, "model", "model")
-    # R7 (G113): feedback rows carry no connection and no spend, so grouping
-    # them here would invent an "unknown" connection. ``by_stage``/``by_bank``
-    # keep them — a `feedback` stage row is informative there.
-    spend = [e for e in events if e.kind not in telemetry.FEEDBACK_KINDS]
-    all_events = telemetry.read_events()
+    # R7 (G113): feedback rows (and `handshake`, G75; `read`, G124 R12) carry no
+    # connection and no spend, so grouping them here would invent an "unknown"
+    # connection. ``by_stage``/``by_bank`` keep them — a `feedback`, `handshake`
+    # or `recall` stage row is informative there. G105 R10 adds the counts-only
+    # `capture` row to the same exclusion (``NON_SPEND_KINDS``); ``_activity``
+    # above already dropped it from every other view.
+    spend = [e for e in events if e.kind not in telemetry.NON_SPEND_KINDS]
+    all_events = _activity(telemetry.read_events())
     return {
         "by_model": by_model,
         "by_stage": _group(events, "stage", "stage"),
@@ -254,3 +338,89 @@ def per_connection(events: list[UsageEvent], connection_statuses: list[dict]) ->
             "by_model": _group([e for e in evs if e.kind in ("llm_call", "ask")], "model", "model"),
         })
     return rows
+
+
+_CAL_BUCKETS: tuple[tuple[str, float, float], ...] = (
+    ("<0.5", 0.0, 0.5), ("0.5–0.7", 0.5, 0.7), ("0.7–0.9", 0.7, 0.9), ("≥0.9", 0.9, 1.01),
+)
+
+
+def _rate(agreed: int, overruled: int) -> float | None:
+    judged = agreed + overruled
+    return round(agreed / judged, 4) if judged else None
+
+
+async def feedback(memory_path: Path, *, range_: str, today: date) -> dict:
+    """The grounded-reward ledger (G113) as numbers.
+
+    Reads only the three ``telemetry.FEEDBACK_KINDS`` events. A ``neutral``
+    verdict (defer / skip / "both") counts toward ``resolutions`` — it is
+    engagement — but never toward a rate: a deferral is not a judgement on
+    the extractor. Calibration buckets use the ``extractor_confidence`` ref
+    the resolution event carried; events without one (decay, clarification)
+    are simply absent from that table. ``memory_path`` is accepted for
+    signature parity with the other aggregators; nothing here reads the bank.
+    """
+    start = resolve_range(range_, today)
+    events = [e for e in _events_in(range_, today) if e.kind in telemetry.FEEDBACK_KINDS]
+    resolutions = [e for e in events if e.kind == "resolution"]
+
+    per_kind: dict[str, dict] = defaultdict(lambda: {"total": 0, "agreed": 0, "overruled": 0})
+    actions: Counter[str] = Counter()
+    cal: dict[str, dict] = {name: {"n": 0, "agreed": 0} for name, _, _ in _CAL_BUCKETS}
+    agreed = overruled = 0
+    for e in resolutions:
+        refs = e.refs or {}
+        verdict = refs.get("verdict")
+        kind = str(refs.get("kind") or "unknown")
+        row = per_kind[kind]
+        row["total"] += 1
+        actions[str(refs.get("action") or "unknown")] += 1
+        if verdict not in ("agreed", "overruled"):
+            continue
+        row[verdict] += 1
+        if verdict == "agreed":
+            agreed += 1
+        else:
+            overruled += 1
+        conf = refs.get("extractor_confidence")
+        if isinstance(conf, (int, float)):
+            for name, lo, hi in _CAL_BUCKETS:
+                if lo <= float(conf) < hi:
+                    cal[name]["n"] += 1
+                    cal[name]["agreed"] += verdict == "agreed"
+                    break
+
+    agreement = [
+        {"kind": k, "total": r["total"], "agreed": r["agreed"], "overruled": r["overruled"],
+         "rate": _rate(r["agreed"], r["overruled"])}
+        for k, r in per_kind.items()
+    ]
+    agreement.sort(key=lambda r: (-r["total"], r["kind"]))
+    calibration = [
+        {"bucket": name, "n": cal[name]["n"],
+         "agreed_rate": round(cal[name]["agreed"] / cal[name]["n"], 4) if cal[name]["n"] else None}
+        for name, _, _ in _CAL_BUCKETS
+    ]
+    by_action = [{"action": a, "n": n} for a, n in actions.most_common()]
+
+    audits = Counter(str((e.refs or {}).get("action")) for e in events if e.kind == "audit")
+    dedup_events = [e for e in events if e.kind == "dedup_verdict"]
+    dedup_verdicts = Counter(str((e.refs or {}).get("verdict")) for e in dedup_events)
+    return {
+        "range": range_,
+        "since": start.isoformat() if start else None,
+        "resolutions": len(resolutions),
+        "corrections": overruled,
+        "rate": _rate(agreed, overruled),
+        "agreement": agreement,
+        "calibration": calibration,
+        "by_action": by_action,
+        "audits": {"supersede": audits.get("supersede", 0), "rejected": audits.get("rejected", 0)},
+        "dedup": {
+            "same": dedup_verdicts.get("same", 0),
+            "different": dedup_verdicts.get("different", 0),
+            "unsure": dedup_verdicts.get("unsure", 0),
+            "merged": sum(1 for e in dedup_events if (e.refs or {}).get("applied") == "merged"),
+        },
+    }

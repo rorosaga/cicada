@@ -94,7 +94,11 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
     }
 
     var isSubscription: Bool { billing == "subscription" }
-    var isKeyBased: Bool { login?.mode == "key" }
+    /// A card that holds a pasted key. OpenRouter's `oauth` card is one too (R-AG10): signing in only adds a
+    /// second way to fill the same key, so its paste field and Remove stay.
+    var isKeyBased: Bool { login?.mode == "key" || login?.mode == "oauth" }
+    /// R-AG10 — the key card that can also sign in through the browser (OpenRouter's PKCE flow).
+    var signsIn: Bool { login?.mode == "oauth" }
 
     /// "Sleep extraction · Ask · clarification wording", or nil when this
     /// connection isn't powering anything.
@@ -102,22 +106,16 @@ struct ConnectionStatus: Identifiable, Codable, Hashable {
         powers.isEmpty ? nil : powers.joined(separator: " · ")
     }
 
-    /// The Max tier picker is a **cost-estimate** control, and only Claude
-    /// Max is tiered — showing it anywhere else implied it changed behaviour.
-    var showsTierPicker: Bool {
-        connected && isSubscription && id == "claude-plan" && plan == "max"
-    }
-
     /// Only a connected Claude plan can drive the Sleep engine — the `claude
     /// -p` rung does not exist for anything else.
     var showsSleepEngineToggle: Bool { id == "claude-plan" && connected }
 
-    /// "Claude Max 20x · $200/mo", "OpenAI API key · usage-based", "Ollama · free, local".
+    /// "Claude Max 20x", "OpenAI API key · usage-based", "Ollama · free, local" —
+    /// the plan's name, never its price (R-E26, the 2026-09-03 ruling). The
+    /// price fields stay on the wire for the retained `/consumption/*` endpoints.
     var priceLine: String {
         switch billing {
-        case "subscription":
-            if let usd = priceUsdMonth { return "\(planLabel ?? label) · $\(Int(usd))/mo" }
-            return planLabel ?? label
+        case "subscription": return planLabel ?? label
         case "free": return "\(planLabel ?? label) · free, local"
         default: return connected ? "\(label) · usage-based" : label
         }

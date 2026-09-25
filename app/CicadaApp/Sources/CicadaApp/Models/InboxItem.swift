@@ -6,6 +6,32 @@ import SwiftUI
 enum InboxKind: String, Codable {
     case decay, conflict, clarification
     case mergeSuggestion = "merge_suggestion"
+    // G113 slice 3: Sleep has written both kinds for months
+    // (`inbox_generator.py`'s `divergence_nudge`/`normalization_audit`
+    // branches); the API only just started decoding them (`InboxKind` in
+    // `api/models/schemas.py`) instead of dropping the item and warning.
+    case divergence
+    case normalization
+    // G129 slice 2: a bookmark removed from the browser — keep it or archive
+    // the media entity it named.
+    case removal
+    // G141 PJ-6: a quiet thread or a passed milestone — "How did it go?".
+    // Sleep's tail writes it; before this case it decoded as `.unknown` and
+    // wore the "Update available" label, which reads as a software update.
+    case followup
+    // Forward-compat fallback (matches `EntityType`/`Epistemic`/`SourceTrust`'s
+    // existing pattern in this codebase). Before this, an unrecognized raw
+    // value threw `DecodingError.dataCorrupted` out of `InboxItem.init(from:)`,
+    // which propagates out of `[InboxItem]`'s array decode and drops EVERY
+    // pending item, not just the one this build has never heard of — `removal`
+    // is what exposed the gap, but any future kind hits the same failure
+    // without this case.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = InboxKind(rawValue: raw) ?? .unknown
+    }
 
     var label: String {
         switch self {
@@ -13,6 +39,11 @@ enum InboxKind: String, Codable {
         case .conflict: "Conflict"
         case .clarification: "Clarification"
         case .mergeSuggestion: "Possible duplicate"
+        case .divergence: "Divergence"
+        case .normalization: "Predicate fold"
+        case .removal: "Removed bookmark"
+        case .followup: "Follow-up"
+        case .unknown: "Update available"
         }
     }
 
@@ -20,9 +51,14 @@ enum InboxKind: String, Codable {
     var icon: String {
         switch self {
         case .decay: "clock.arrow.circlepath"
-        case .conflict: "exclamationmark.triangle.fill"
-        case .clarification: "questionmark.circle.fill"
+        case .conflict: "exclamationmark.triangle"
+        case .clarification: "questionmark.circle"
         case .mergeSuggestion: "arrow.triangle.merge"
+        case .divergence: "arrow.triangle.branch"
+        case .normalization: "arrow.triangle.merge"
+        case .removal: "bookmark.slash"
+        case .followup: "arrow.uturn.backward.circle"
+        case .unknown: "questionmark.circle"
         }
     }
 
@@ -36,7 +72,10 @@ enum RequiredInput: String, Codable {
 
 /// One answerable option on an inbox question. Matches `InboxOption` in
 /// `api/models/schemas.py`. `ageDays` is derived server-side at read time.
-struct InboxOption: Identifiable, Codable, Hashable {
+/// G115 Phase 1: `recommended` marks the ONE option Sleep proposed (the key the
+/// ledger's `_verdict` grades `agreed`); `verdict` is on the wire for agents and
+/// tests and is never rendered as copy.
+struct InboxOption: Identifiable, Hashable {
     var key: String
     var label: String
     var description: String?
@@ -44,18 +83,88 @@ struct InboxOption: Identifiable, Codable, Hashable {
     var observedAt: String?
     var lastReferenced: String?
     var ageDays: Int?
+    var recommended: Bool = false
+    var verdict: String? = nil
 
     var id: String { key }
 
-    /// A trailing muted capsule: "today", "5 d", "3 wk", "6 mo", "2 y".
-    /// `nil` when the option has no claim behind it (the synthetic rows).
-    var ageCapsule: String? {
-        guard let days = ageDays else { return nil }
-        if days == 0 { return "today" }
-        if days < 14 { return "\(days) d" }
-        if days < 60 { return "\(Int((Double(days) / 7).rounded())) wk" }
-        if days < 365 { return "\(Int((Double(days) / 30).rounded())) mo" }
-        return "\(Int((Double(days) / 365).rounded())) y"
+    /// DR-58 / R-DI12 — the option's age as a `Tag`: "today", "5d", "3w", "6mo", "2y". One rule
+    /// with the row's age (`InboxAge.compact`), whose boundaries and half-even rounding are
+    /// `phrase(days:)`'s, so "3w" on the tag and "3 weeks ago" in the description never disagree
+    /// (the old capsule rounded half away from zero and could). `nil` when the option has no claim
+    /// behind it (the synthetic rows).
+    var ageCapsule: String? { ageDays.map(InboxAge.compact(days:)) }
+}
+
+// `Codable` is declared in an EXTENSION on purpose: a custom `init(from:)` in
+// the struct body would suppress the memberwise initialiser, and
+// `InboxItem.init(from:)`'s legacy flat-`[String]` branch calls it with seven
+// labelled arguments. In an extension the memberwise init survives, and
+// `recommended`/`verdict` — `var`s with defaults, declared last — are simply
+// omitted by that call.
+extension InboxOption: Codable {
+    enum CodingKeys: String, CodingKey {
+        case key, label, description, claimId, observedAt, lastReferenced, ageDays, recommended, verdict
+    }
+
+    /// Tolerant on purpose: a `SnapshotCache` payload written before G115 has
+    /// no `recommended`/`verdict`, and a synthesized decoder would refuse the
+    /// whole inbox over one missing key.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(String.self, forKey: .key)
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
+        observedAt = try c.decodeIfPresent(String.self, forKey: .observedAt)
+        lastReferenced = try c.decodeIfPresent(String.self, forKey: .lastReferenced)
+        ageDays = try c.decodeIfPresent(Int.self, forKey: .ageDays)
+        recommended = try c.decodeIfPresent(Bool.self, forKey: .recommended) ?? false
+        verdict = try c.decodeIfPresent(String.self, forKey: .verdict)
+    }
+}
+
+/// Why an item exists (G97): the conversation and sentence that raised it,
+/// resolved server-side at read. `mentionOffsets` index the EXCERPT as
+/// Unicode-scalar offsets (Python `str` indices); `start`/`end` are the
+/// EXCERPT WINDOW's absolute offsets into the episode body
+/// (`inbox_context.excerpt_around` — G118 slice 2 corrected this comment,
+/// which used to call them the mention's), so the mention itself sits at
+/// `start + mentionOffsets[0]` (R-PB16). `tier == "none"` carries the literal
+/// `[ no source recorded ]` in `excerpt` — shown, never hidden.
+struct InboxCause: Codable, Hashable {
+    var episodeId: String?
+    var timestamp: String?
+    var conversationId: String?
+    var harness: String?
+    var origin: String?
+    var conversationTitle: String?
+    var excerpt: String = ""
+    var mentionOffsets: [[Int]] = []
+    var start: Int?
+    var end: Int?
+    var tier: String = "none"
+    var spanKind: String = "derived"
+
+    enum CodingKeys: String, CodingKey {
+        case episodeId, timestamp, conversationId, harness, origin, conversationTitle
+        case excerpt, mentionOffsets, start, end, tier, spanKind
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        episodeId = try c.decodeIfPresent(String.self, forKey: .episodeId)
+        timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp)
+        conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
+        harness = try c.decodeIfPresent(String.self, forKey: .harness)
+        origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        conversationTitle = try c.decodeIfPresent(String.self, forKey: .conversationTitle)
+        excerpt = try c.decodeIfPresent(String.self, forKey: .excerpt) ?? ""
+        mentionOffsets = try c.decodeIfPresent([[Int]].self, forKey: .mentionOffsets) ?? []
+        start = try c.decodeIfPresent(Int.self, forKey: .start)
+        end = try c.decodeIfPresent(Int.self, forKey: .end)
+        tier = try c.decodeIfPresent(String.self, forKey: .tier) ?? "none"
+        spanKind = try c.decodeIfPresent(String.self, forKey: .spanKind) ?? "derived"
     }
 }
 
@@ -81,6 +190,9 @@ struct InboxItem: Identifiable, Codable {
     var allowDefer: Bool
     var predicate: String?
     var hint: String?
+    // G129 slice 2 — which browser channel (`chrome-bookmarks`/
+    // `safari-bookmarks`) proposed a `removal` item; nil for every other kind.
+    var channel: String?
     var remindAfter: String?
     var updatedDate: String?
     // clarification / merge extras
@@ -88,12 +200,25 @@ struct InboxItem: Identifiable, Codable {
     var suggestedClassification: String?
     var suggestedConfidence: Double?
     var mergeTargetHint: String?
+    // G115 Phase 1 — every one optional so a pre-G115 cache still decodes.
+    var entityType: String?
+    var sourceEpisode: String?
+    var sourceEpisodeTimestamp: String?
+    var claimId: String?
+    var cause: InboxCause?
+    var extractorConfidence: Double?
+    var extractorModel: String?
+    var recommendedKey: String?
+    /// G98: a conflict on a multi-valued predicate — shown, never asked.
+    var informational: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
         case entityId, entityName, title, body, options, createdDate
-        case question, allowOther, allowDefer, predicate, hint, remindAfter, updatedDate
+        case question, allowOther, allowDefer, predicate, hint, channel, remindAfter, updatedDate
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint
+        case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
+        case extractorConfidence, extractorModel, recommendedKey, informational
     }
 
     init(from decoder: Decoder) throws {
@@ -125,12 +250,22 @@ struct InboxItem: Identifiable, Codable {
         allowDefer = try c.decodeIfPresent(Bool.self, forKey: .allowDefer) ?? false
         predicate = try c.decodeIfPresent(String.self, forKey: .predicate)
         hint = try c.decodeIfPresent(String.self, forKey: .hint)
+        channel = try c.decodeIfPresent(String.self, forKey: .channel)
         remindAfter = try c.decodeIfPresent(String.self, forKey: .remindAfter)
         updatedDate = try c.decodeIfPresent(String.self, forKey: .updatedDate)
         uncertaintyType = try c.decodeIfPresent(String.self, forKey: .uncertaintyType)
         suggestedClassification = try c.decodeIfPresent(String.self, forKey: .suggestedClassification)
         suggestedConfidence = try c.decodeIfPresent(Double.self, forKey: .suggestedConfidence)
         mergeTargetHint = try c.decodeIfPresent(String.self, forKey: .mergeTargetHint)
+        entityType = try c.decodeIfPresent(String.self, forKey: .entityType)
+        sourceEpisode = try c.decodeIfPresent(String.self, forKey: .sourceEpisode)
+        sourceEpisodeTimestamp = try c.decodeIfPresent(String.self, forKey: .sourceEpisodeTimestamp)
+        claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
+        cause = try c.decodeIfPresent(InboxCause.self, forKey: .cause)
+        extractorConfidence = try c.decodeIfPresent(Double.self, forKey: .extractorConfidence)
+        extractorModel = try c.decodeIfPresent(String.self, forKey: .extractorModel)
+        recommendedKey = try c.decodeIfPresent(String.self, forKey: .recommendedKey)
+        informational = try c.decodeIfPresent(Bool.self, forKey: .informational) ?? false
     }
 
     /// Display name for the card header, falling back to the title when no
@@ -139,7 +274,7 @@ struct InboxItem: Identifiable, Codable {
         entityName.isEmpty ? title : entityName
     }
 
-    /// What `QuestionView` shows as the question line.
+    /// What the focus card shows as its H1, and a row as its question.
     var questionText: String {
         if let question, !question.isEmpty { return question }
         return title.isEmpty ? body : title
@@ -149,5 +284,34 @@ struct InboxItem: Identifiable, Codable {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.date(from: createdDate) ?? .now
+    }
+}
+
+extension InboxItem {
+    /// Open `removal` items proposed against one browser channel (G129 slice
+    /// 2) — pure so `ChannelSourceView`'s Deletions subsection is testable
+    /// without a view, same pattern as `SourceOverview.ownedItems`.
+    static func openRemovals(in items: [InboxItem], channelId: String) -> [InboxItem] {
+        items.filter { $0.kind == .removal && $0.channel == channelId }
+    }
+}
+
+extension InboxCause {
+    /// Where "Show in conversation" opens (G118 slice 2, design §4.7, R-PB16):
+    /// the mention's absolute offsets, asked for with NO hash — the cause is
+    /// recomputed at every read, so it is current by construction. A cause
+    /// found by name (`spanKind == "derived"`) stays labelled derived in the
+    /// Reader; an asserted G118 span lands washed. A cause with no mention
+    /// opens its conversation at the top; tier `none` has nothing to open.
+    func readerTarget(subjectId: String?) -> ReaderTarget? {
+        guard tier != "none", let episodeId, !episodeId.isEmpty else { return nil }
+        if let start, let pair = mentionOffsets.first, pair.count == 2, pair[0] >= 0, pair[1] > pair[0] {
+            return ReaderTarget(episode: episodeId,
+                                focus: .span(start: start + pair[0], end: start + pair[1], hash: nil,
+                                             derived: spanKind != "asserted"),
+                                subjectId: subjectId, knownTitle: conversationTitle, knownHarness: harness)
+        }
+        return ReaderTarget(episode: episodeId, subjectId: subjectId, knownTitle: conversationTitle,
+                            knownHarness: harness)
     }
 }

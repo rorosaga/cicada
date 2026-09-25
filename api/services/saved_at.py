@@ -138,6 +138,20 @@ def from_iso8601(raw: object) -> str | None:
     return _sane_iso_date(dt)
 
 
+def from_plist_date(raw: object) -> str | None:
+    """Safari ``Bookmarks.plist`` ``ReadingList.DateAdded`` -> ``YYYY-MM-DD`` (round 4, R-SR13).
+
+    ``plistlib`` hands a ``<date>`` back as a naive UTC ``datetime``; a hand-edited
+    file may carry an ISO string instead. Anything else is unknown, never a guess
+    (G99d) — the same contract as the sibling converters.
+    """
+    if isinstance(raw, datetime):
+        return _sane_iso_date(raw)
+    if isinstance(raw, str):
+        return from_iso8601(raw)
+    return None
+
+
 def from_tiktok(raw: object) -> str | None:
     """TikTok export ``Date`` — ``"YYYY-MM-DD HH:MM:SS"`` (naive UTC)."""
     if not isinstance(raw, str) or not raw.strip():

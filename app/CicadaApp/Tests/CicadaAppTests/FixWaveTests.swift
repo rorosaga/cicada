@@ -35,6 +35,38 @@ final class FixWaveTests: XCTestCase {
                        "SleepView must not call triggerManually() directly any more")
     }
 
+    /// R-A7 (upgrading G125 R10): "exactly ONE Consolidate control on the
+    /// Sleep page". The lint above greps only `SleepView.swift`, so moving
+    /// the control into a sibling file under `Views/Sleep/` kept it green
+    /// while defeating the rule — which is exactly what Task 4 does when it
+    /// lifts the button out of `StudyListCard`'s footer. This walks the whole
+    /// folder instead.
+    ///
+    /// It is deliberately NOT tree-wide, and that is a measured decision, not
+    /// a shortcut: `sleepVM.triggerManually()` also lives in
+    /// `Views/Common/TopBarControls.swift`, `Views/Sources/SourceQueueStrip.swift`,
+    /// `Views/Home/GettingStartedCard.swift` and `CicadaApp.swift` —
+    /// the top bar, the Sources queue strip, onboarding and the ⌘-key
+    /// command, four OTHER surfaces that each legitimately own a trigger. R10
+    /// and R-A7 are rulings about the Sleep PAGE, so the folder is the scope
+    /// that makes the rule true.
+    func testExactlyOneSleepPageFileDefinesTheConsolidateControl() throws {
+        // `ThemeTokenTests.swiftSources()` is a `static` internal helper over
+        // `Sources/CicadaApp/**/*.swift`, resolved from `#filePath` — reused
+        // rather than writing a fourth enumerator.
+        let sleepFiles = try ThemeTokenTests.swiftSources()
+            .filter { $0.path.contains("/Views/Sleep/") }
+        XCTAssertFalse(sleepFiles.isEmpty, "found no Views/Sleep sources — the lint would pass vacuously")
+        var defining: [String] = []
+        for url in sleepFiles {
+            // A `for … where` clause cannot throw, so the read is in the body.
+            let text = try String(contentsOf: url, encoding: .utf8)
+            if text.contains("sleepVM.triggerManually()") { defining.append(url.lastPathComponent) }
+        }
+        XCTAssertEqual(defining.sorted(), ["SleepHero.swift"],
+                       "exactly one file under Views/Sleep may define the Consolidate control (R-A7)")
+    }
+
     /// `SleepQueueCard` (reads `store.status.episodes.unprocessed`, SSE-live)
     /// and the page's own "EPISODES QUEUED (n)" header (used to read
     /// `sleepVM.episodes`, fetched once per visit) must agree. Pulled out as
@@ -115,45 +147,28 @@ final class FixWaveTests: XCTestCase {
     /// reads straight from `store.consumption` and is `nil` on a first-ever
     /// launch or after a bank switch, so the panel fell through to
     /// "No usage in this range" mid-reconcile.
+    /// G124 moved the static from the deleted `UsageAdvancedView` onto
+    /// `UsageViewModel`; the precedence rule is unchanged.
     func testUsageAdvancedShowsProgressWhileEitherLoadingFlagIsSet() {
-        XCTAssertTrue(UsageAdvancedView.showsProgress(isLoadingRange: true, isLoading: false))
-        XCTAssertTrue(UsageAdvancedView.showsProgress(isLoadingRange: false, isLoading: true))
-        XCTAssertFalse(UsageAdvancedView.showsProgress(isLoadingRange: false, isLoading: false))
+        XCTAssertTrue(UsageViewModel.showsProgress(isLoadingRange: true, isLoading: false))
+        XCTAssertTrue(UsageViewModel.showsProgress(isLoadingRange: false, isLoading: true))
+        XCTAssertFalse(UsageViewModel.showsProgress(isLoadingRange: false, isLoading: false))
     }
 
-    // MARK: M3 — Settings scene re-paints on theme toggle
-
-    /// `ContentView.swift` documents (and works around) the fact that
-    /// `CicadaTheme.*` are static reads SwiftUI doesn't track: it keys its
-    /// subtree on `.id(colorSchemeRaw)` alongside `.preferredColorScheme`.
-    /// The Settings scene needs the identical pairing or it keeps a stale
-    /// palette after a theme toggle while the window is open.
-    func testSettingsSceneIsKeyedOnTheColorScheme() throws {
-        let text = try sourceFile("CicadaApp.swift")
-        guard let settingsRange = text.range(of: "Settings {") else {
-            XCTFail("Settings scene not found in CicadaApp.swift")
-            return
-        }
-        let tail = String(text[settingsRange.lowerBound...])
-        XCTAssertTrue(tail.contains(".preferredColorScheme"),
-                      "precondition: the Settings scene still sets .preferredColorScheme")
-        XCTAssertTrue(tail.contains(".id(colorSchemeRaw)"),
-                      "Settings scene must key its subtree on colorSchemeRaw, matching ContentView's workaround")
-    }
-
-    // MARK: Low — Feed sort picker accessibility label
+    // MARK: Low — Feed sort tabs accessibility label
 
     /// Every other segmented control on the restructured pages (Activity,
     /// Usage range, Usage mode) got an `.accessibilityLabel`; the Feed sort
-    /// control was the one VoiceOver couldn't name.
-    func testFeedSortPickerHasAnAccessibilityLabel() throws {
-        let text = try sourceFile("Views/Feed/FeedView.swift")
+    /// control was the one VoiceOver couldn't name. The sort is text tabs in
+    /// the eyebrow since DS-3c (R-DL13), and it keeps its label.
+    func testFeedSortTabsHaveAnAccessibilityLabel() throws {
+        let text = try sourceFile("Views/Feed/FeedPage.swift")
         guard let pickerRange = text.range(of: "viewModel.sort = $0") else {
-            XCTFail("Feed sort picker not found in FeedView.swift")
+            XCTFail("Feed sort tabs not found in FeedPage.swift")
             return
         }
         let tail = String(text[pickerRange.lowerBound...].prefix(400))
         XCTAssertTrue(tail.contains(".accessibilityLabel("),
-                      "the Feed sort picker needs an accessibility label")
+                      "the Feed sort tabs need an accessibility label")
     }
 }

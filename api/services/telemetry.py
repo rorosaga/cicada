@@ -1,8 +1,9 @@
 """Consumption ledger (G51) — one JSONL line per unit of LLM/memory work.
 
 Append-only, machine-global (``$CICADA_HOME/telemetry/events-YYYY-MM.jsonl``,
-0600), never in a memory bank or git. ``record`` never raises: telemetry must
-not be able to break a Sleep cycle. Costs follow the honesty rules in the
+plus the sibling ``reads-YYYY-MM.jsonl`` for the ``read`` kind — see
+``ledger_file``; 0600), never in a memory bank or git. ``record`` never raises:
+telemetry must not be able to break a Sleep cycle. Costs follow the honesty rules in the
 spec: ``cost_usd`` is real money (usage-based rungs only), ``equiv_cost_usd``
 is the API list-price estimate for whatever tokens are known.
 """
@@ -20,8 +21,13 @@ from api.services.auth import cicada_home
 
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
-    "resolution", "audit", "dedup_verdict",
+    "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
+    "remote_call", "connector_auth", "hook_recall",
 )
+# G149: one row per recall-hook firing — harness, event, reason enum, the page
+# ids shown and their count, token and latency buckets, the model id when the
+# harness sent one (D7: an id is an enum). Never the prompt (R-H9, R-H10).
+HOOK_RECALL_KIND = "hook_recall"
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
 # or an answer string (the ledger is machine-global and outside the bank).
@@ -29,6 +35,18 @@ KINDS = (
 # they carry no spend: a ``resolution`` has ``connection=None`` and would
 # otherwise surface as an "unknown" connection.
 FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
+# G105 R10: a `capture` row (hook-driven transcript capture) is counts only
+# and carries no spend or connection. G75: a `handshake` row (whether an agent
+# ever RECEIVED the primer — ids/enums only) likewise carries no spend. G124
+# R12: a `read` row (an entity page opened by the app or served to an agent by
+# cicada_recall/recall_detail) is the same class. All join the feedback kinds
+# in being excluded from connection/cost rollups so they never surface as an
+# "unknown" connection. G135: a remote call and a connector
+# create/rotate/revoke/deny event are ids and enums with no spend and no
+# connection, the same class. G149: a ``hook_recall`` row is a per-prompt
+# receipt with no spend and no connection.
+NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth",
+                                    HOOK_RECALL_KIND)
 
 
 def now_iso() -> str:
@@ -122,8 +140,35 @@ def telemetry_dir() -> Path:
     return path
 
 
-def _file_for(ts: str) -> Path:
-    return telemetry_dir() / f"events-{ts[:7]}.jsonl"
+# G124 final review M2: the ``read`` kind lives in a SIBLING file. The app's
+# sync engine maps `sync_service.components["telemetry"]` — the mtime of the
+# current month's ``events-*.jsonl`` — onto its `.consumption` domain, and a
+# tick there refetches every `/consumption/*` endpoint (`/harness` walks
+# `~/.codex/sessions`, `/connections` re-probes vendor CLIs when its cache is
+# cold). Appending a read to the events file made every entity-card open cost
+# five GETs on the SSE loop. Reads go to ``reads-YYYY-MM.jsonl`` instead, which
+# no sync component stats; the one endpoint that reports them
+# (`/contributors/top-entities`) is fetched on demand and folds the reads
+# file's mtime into its own ETag.
+READS_KIND = "read"
+# G135 R-R36: a `remote_call` row is written on EVERY remote tool call, reads
+# included, so it is filed beside `read` for the reason above (G124 M2): a row
+# in the events file ticks the app's consumption domain and refetches every
+# `/consumption/*` endpoint. G149 R-H9: a hook row fires on every prompt, so
+# it is filed here for the same reason.
+SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND})
+_PREFIX_EVENTS = "events"
+_PREFIX_READS = "reads"
+
+
+def ledger_file(month: str, *, kind: str = "") -> Path:
+    """The ledger file a ``kind`` lands in for ``month`` (``YYYY-MM``)."""
+    prefix = _PREFIX_READS if kind in SIBLING_KINDS else _PREFIX_EVENTS
+    return telemetry_dir() / f"{prefix}-{month}.jsonl"
+
+
+def _file_for(ts: str, kind: str = "") -> Path:
+    return ledger_file(ts[:7], kind=kind)
 
 
 def record(event: UsageEvent) -> None:
@@ -131,7 +176,7 @@ def record(event: UsageEvent) -> None:
         return
     try:
         line = (event.to_json() + "\n").encode("utf-8")
-        fd = os.open(_file_for(event.ts), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        fd = os.open(_file_for(event.ts, event.kind), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
             os.write(fd, line)
         finally:
@@ -172,12 +217,34 @@ def record_audit(
             continue
 
 
+def record_read(entity_id: str, *, surface: str, bank: str | None) -> None:
+    """One ``read`` event: an entity page was looked at (G124 R11).
+
+    ``refs`` carries the entity id and a surface enum (``app`` — a card opened
+    in the companion app; ``mcp`` — ``cicada_recall_detail`` served the page;
+    ``mcp-recall`` — ``cicada_recall`` suggested it) and NOTHING else: never
+    the query, never the page. The ledger is machine-global and outside the
+    bank, so this is the same privacy line the G113 feedback rows draw. An
+    empty id is ignored; nothing here can raise into a recall or a card open.
+    """
+    if not (entity_id or "").strip():
+        return
+    record(UsageEvent(
+        kind="read", stage="recall", bank=bank, invocations=0, billing="free",
+        refs={"entity_id": entity_id, "surface": surface},
+    ))
+
+
 def read_events(start: date | None = None, end: date | None = None) -> list[UsageEvent]:
     out: list[UsageEvent] = []
     if not enabled():
         return out
-    for path in sorted(telemetry_dir().glob("events-*.jsonl")):
-        month = path.stem.removeprefix("events-")
+    # Both prefixes, month-ordered: a reader sees one ledger even though the
+    # `read` kind is filed apart (see ``ledger_file``).
+    ledger_dir = telemetry_dir()
+    paths = list(ledger_dir.glob(f"{_PREFIX_EVENTS}-*.jsonl")) + list(ledger_dir.glob(f"{_PREFIX_READS}-*.jsonl"))
+    for path in sorted(paths, key=lambda p: (p.stem.split("-", 1)[1], p.name)):
+        month = path.stem.split("-", 1)[1]
         if start and month < start.strftime("%Y-%m"):
             continue
         if end and month > end.strftime("%Y-%m"):
@@ -251,16 +318,15 @@ def usage_from_response(resp) -> dict:
 
 
 def connection_for_model(model: str) -> tuple[str, str]:
+    """Which connection card a model's spend belongs to. The key half is
+    ``byok.provider_for_model`` (R-AG11) — one rule with the engine card, so an
+    ``xai/…``, ``groq/…`` or ``mistral/…`` call is never billed to OpenAI."""
     m = (model or "").lower()
     if m.startswith("ollama/"):
         return "ollama-local", "free"
-    if m.startswith("openrouter/"):
-        return "byok-openrouter", "usage"
-    if m.startswith("anthropic/") or "claude" in m:
-        return "byok-anthropic", "usage"
-    if m.startswith("gemini/") or "gemini" in m:
-        return "byok-gemini", "usage"
-    return "byok-openai", "usage"
+    from api.services.connections import byok   # lazy: byok → secrets → auth, and telemetry is imported early
+
+    return f"byok-{byok.provider_for_model(m)}", "usage"
 
 
 def bank_name(settings) -> str:

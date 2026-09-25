@@ -1,0 +1,314 @@
+import Foundation
+
+/// The kinds `api/services/source_overview.KIND_ORDER` declares, plus a
+/// fallback so an unknown kind from a newer backend never drops the grid.
+enum SourceKind: String, Codable, CaseIterable {
+    case harness, browser, social, feed, messaging, voice, `import`, unknown
+
+    /// Grid order = the backend's `KIND_ORDER`; `unknown` sorts last. `voice`
+    /// (G134) holds note-takers: meetings and dictation.
+    static let order: [SourceKind] = [.harness, .browser, .social, .feed, .messaging, .voice, .import, .unknown]
+}
+
+/// Mirror of `api/models/schemas.py::SourceOverview` (G124). Every field but
+/// `id` is optional-with-a-default so an older backend — or a row with no
+/// state at all — still yields a usable card.
+struct SourceOverview: Codable, Identifiable, Hashable {
+    let id: String
+    let label: String
+    let kind: SourceKind
+    let mark: String
+    let conversations: Int
+    let episodes: Int
+    let entities: Int
+    let items: Int
+    let lastActivityAt: String?
+    let connected: Bool
+    let lastError: String?
+    let actions: [String]
+    let channelId: String?
+    let origins: [String]
+    let harness: String?
+    /// Captures per UTC calendar day for the last `source_overview.ACTIVITY_DAYS`
+    /// days, SPARSE — a silent day has no key (R-A16). Absolute date keys, not a
+    /// rolling array, so a 304'd payload renders a day short rather than a day
+    /// shifted. It rides the existing `episodes` ETag component (which
+    /// `VersionVector.mapping` already routes to `.sourcesOverview`), so the
+    /// ship-together rule is satisfied with no mapping change.
+    let activity: [String: Int]
+
+    init(id: String, label: String, kind: SourceKind, mark: String = "", conversations: Int = 0,
+         episodes: Int = 0, entities: Int = 0, items: Int = 0, lastActivityAt: String? = nil,
+         connected: Bool = false, lastError: String? = nil, actions: [String] = [],
+         channelId: String? = nil, origins: [String] = [], harness: String? = nil,
+         activity: [String: Int] = [:]) {
+        self.id = id; self.label = label; self.kind = kind; self.mark = mark
+        self.conversations = conversations; self.episodes = episodes; self.entities = entities
+        self.items = items; self.lastActivityAt = lastActivityAt; self.connected = connected
+        self.lastError = lastError; self.actions = actions; self.channelId = channelId
+        self.origins = origins; self.harness = harness; self.activity = activity
+    }
+
+    /// The Feed items belonging to this row, newest first (R6 — a client-side
+    /// filter over the existing `sources` Store domain, no new endpoint).
+    ///
+    /// A row takes the pages stamped with one of its origins, and the row that
+    /// `ownsUnstampedItems` also takes the pages carrying no `origin:` at all.
+    /// That is the same rule `source_overview.build_overview` counts by, so a
+    /// card's number and the page behind it cannot drift apart.
+    func ownedItems(from all: [MediaFeedItem]) -> [MediaFeedItem] {
+        let mine = Set(origins)
+        return all
+            .filter { item in
+                let origin = (item.origin ?? "").trimmingCharacters(in: .whitespaces)
+                return origin.isEmpty ? ownsUnstampedItems : mine.contains(origin)
+            }
+            .sorted { $0.recencyDate > $1.recencyDate }
+    }
+
+    /// Which queued episodes belong to this source, for the per-source
+    /// page's queue strip (Track D). A harness owns items stamped with its
+    /// own harness id, plus the legacy `mcp` origin when this row IS
+    /// `claude-code` — every MCP-tool-initiated episode (as opposed to a
+    /// hook-captured one) carries `origin: mcp` regardless of harness
+    /// (`mcp/server.py`), and `claude-code` is the one harness old enough to
+    /// have episodes from before the hook stamped `origin: <harness>`
+    /// directly (`OriginIconography.label`'s own comment). Every other row
+    /// owns items whose origin is one of its own `origins` — EXACT, with no
+    /// legacy-unstamped fallback (R-D8): unlike `ownedItems`, which also
+    /// adopts a nil-origin media page for `files`, `EpisodeQueueItem.origin`
+    /// defaults to the literal `"unknown"` on an older backend, and an
+    /// unknown queued episode is not evidence for any one source.
+    func ownedQueue(from all: [EpisodeQueueItem]) -> [EpisodeQueueItem] {
+        all.filter { ownsQueuedOrigin($0.origin) }
+    }
+
+    /// Whether an episode stamped `origin` is in this row's queue — the ONE
+    /// rule `ownedQueue(from:)` and `owning(origin:in:)` share, so a Sleep
+    /// spine's "Open in Sources ›" (Track Z §7.1) and this source's queue strip
+    /// can never disagree about whose episode it is.
+    func ownsQueuedOrigin(_ origin: String) -> Bool {
+        if let harness {
+            return origin == harness || (harness == "claude-code" && origin == "mcp")
+        }
+        return origins.contains(origin)
+    }
+
+    /// The inverse of `ownedQueue` — the row whose queue `origin` lands in, or
+    /// `nil` when none owns it, in which case the caller hides its link rather
+    /// than guessing (R-A14). First match in the order given; the catalog never
+    /// gives two rows one origin.
+    static func owning(origin: String, in rows: [SourceOverview]) -> SourceOverview? {
+        rows.first { $0.ownsQueuedOrigin(origin) }
+    }
+
+    /// Whether this row owns media pages that carry no `origin:` at all.
+    ///
+    /// Files & links is that row, and the backend agrees — `build_overview`
+    /// counts nil-origin media into this card's `items` for the same reason.
+    /// The three writers behind it (`POST /sources/save`, `cicada_save_url`,
+    /// the RSS poll) stamp an origin now, but every link saved before they did
+    /// carries none, and those pages belong here rather than nowhere.
+    var ownsUnstampedItems: Bool { id == "files" }
+
+    enum CodingKeys: String, CodingKey {
+        case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
+        case connected, lastError, actions, channelId, origins, harness, activity
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? id
+        kind = SourceKind(rawValue: (try c.decodeIfPresent(String.self, forKey: .kind)) ?? "") ?? .unknown
+        mark = try c.decodeIfPresent(String.self, forKey: .mark) ?? id
+        conversations = try c.decodeIfPresent(Int.self, forKey: .conversations) ?? 0
+        episodes = try c.decodeIfPresent(Int.self, forKey: .episodes) ?? 0
+        entities = try c.decodeIfPresent(Int.self, forKey: .entities) ?? 0
+        items = try c.decodeIfPresent(Int.self, forKey: .items) ?? 0
+        lastActivityAt = try c.decodeIfPresent(String.self, forKey: .lastActivityAt)
+        connected = try c.decodeIfPresent(Bool.self, forKey: .connected) ?? false
+        lastError = try c.decodeIfPresent(String.self, forKey: .lastError)
+        actions = try c.decodeIfPresent([String].self, forKey: .actions) ?? []
+        channelId = try c.decodeIfPresent(String.self, forKey: .channelId)
+        origins = try c.decodeIfPresent([String].self, forKey: .origins) ?? []
+        harness = try c.decodeIfPresent(String.self, forKey: .harness)
+        // Optional-with-default: a payload from before `activity` shipped (a
+        // cached snapshot, or an older backend) must still yield a usable card.
+        activity = try c.decodeIfPresent([String: Int].self, forKey: .activity) ?? [:]
+    }
+
+    /// `lastActivityAt` parsed for sorting — the same three shapes
+    /// `SourceChannel.lastSyncDate` accepts (fractional-seconds ISO8601,
+    /// plain ISO8601, bare `yyyy-MM-dd` anchored to 00:00 UTC).
+    var lastActivityDate: Date? {
+        guard let lastActivityAt, !lastActivityAt.isEmpty else { return nil }
+        let withFraction = ISO8601DateFormatter()
+        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = withFraction.date(from: lastActivityAt) { return d }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let d = plain.date(from: lastActivityAt) { return d }
+        let dayOnly = DateFormatter()
+        dayOnly.dateFormat = "yyyy-MM-dd"
+        dayOnly.timeZone = TimeZone(identifier: "UTC")
+        return dayOnly.date(from: lastActivityAt)
+    }
+
+    /// The grid's order, pure and unit-tested: kind (the backend's
+    /// `KIND_ORDER`), newest activity first, id for stability. Re-applied on
+    /// the client because a cached snapshot from an older backend may not be
+    /// sorted.
+    static func gridOrder(_ rows: [SourceOverview]) -> [SourceOverview] {
+        rows.sorted { a, b in
+            let ka = SourceKind.order.firstIndex(of: a.kind) ?? .max
+            let kb = SourceKind.order.firstIndex(of: b.kind) ?? .max
+            if ka != kb { return ka < kb }
+            switch (a.lastActivityDate, b.lastActivityDate) {
+            case let (l?, r?) where l != r: return l > r
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.id < b.id
+            }
+        }
+    }
+
+    /// What a card counts, by kind: a harness counts conversations, a browser
+    /// or social source counts items, a feed counts captures — or, when its
+    /// episodes carry no origin yet (RSS, R1), the subscriptions the channel
+    /// reports (`items` IS the subscription count for `rss`/`calendar`, see
+    /// `channel_registry._subscription_channel`) — everything else counts
+    /// captures; every kind shows the entities it credited. "Nothing yet" when
+    /// all are zero — a row of zeroes reads as a broken card.
+    var countLines: [String] {
+        var lines: [String] = []
+        if let headline {
+            // A5 — the harness case used to be `case .harness where
+            // conversations > 0`, and a failing `where` falls THROUGH to
+            // `default:`, which prints episodes as "captures". So a harness row
+            // whose conversations never resolved rendered "1 capture" beside
+            // "1 conversation" under one CHAT & AGENTS header — the unit
+            // changed silently. The unit is now the kind's own, always, and the
+            // sentence says why the number is a capture instead.
+            let phrase = Self.plural(headline.count, headline.noun)
+            lines.append(kind == .harness && conversations == 0
+                         ? phrase + " (no session recorded)"
+                         : phrase)
+        }
+        if entities > 0 { lines.append(Self.plural(entities, "entity", "entities")) }
+        return lines.isEmpty ? ["Nothing yet"] : lines
+    }
+
+    /// The tile's big number and its unit as a **pair**, not a sentence
+    /// (R-S19).
+    ///
+    /// `countLines` is the accessibility label and the detail page's prose;
+    /// the card sets the number and the noun in different fonts on the
+    /// sparkline's baseline, so it needs the two halves apart. Both read the
+    /// SAME switch — one fact, two renderings, so a tile and its spoken label
+    /// can never disagree about what a source has captured.
+    ///
+    /// It is the FIRST count line's pair, never the entity line's: entities are
+    /// what a source *credited* (G124 R3 — `source_episodes` only), a second
+    /// fact that belongs in the sentence and not in the headline.
+    ///
+    /// `nil` when there is nothing to count — the card prints "Nothing yet"
+    /// rather than a zero, because a row of zeroes reads as a broken card.
+    var headline: (count: Int, noun: String)? {
+        switch kind {
+        case .harness:
+            if conversations > 0 { return (conversations, "conversation") }
+            return episodes > 0 ? (episodes, "capture") : nil
+        case .browser, .social:
+            return items > 0 ? (items, "item") : nil
+        case .feed:
+            // R1: RSS episodes carry no origin today, so a feed with no
+            // captures counts the subscriptions its channel reports (`items`
+            // IS the subscription count — `channel_registry._subscription_channel`).
+            if episodes > 0 { return (episodes, "capture") }
+            return items > 0 ? (items, "subscription") : nil
+        default:
+            return episodes > 0 ? (episodes, "capture") : nil
+        }
+    }
+
+    private static func plural(_ n: Int, _ one: String, _ many: String? = nil) -> String {
+        "\(UsageFormat.count(n)) \(n == 1 ? one : (many ?? one + "s"))"
+    }
+}
+
+/// `GET /sources/overview`. A missing or malformed `sources` key decodes as an
+/// empty grid rather than a failed refresh, so a half-upgraded backend never
+/// leaves the page stuck on its last cached snapshot.
+struct SourceOverviewResponse: Codable {
+    let sources: [SourceOverview]
+    init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        sources = (try? c?.decodeIfPresent([SourceOverview].self, forKey: .sources)) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case sources }
+}
+
+/// Title filter for a harness's conversation list — the owner's words:
+/// "search is secondary; the view of the conversations that exist is the
+/// point", so this matches `displayTitle` and nothing more.
+enum ConversationFilter {
+    /// Titles, every word somewhere, folded like every other field (G136,
+    /// `QuickMatch`) — order kept: this list is newest-first, and a filter
+    /// must not reshuffle it (R-SU20).
+    static func apply(_ rows: [ConversationSummary], query: String) -> [ConversationSummary] {
+        let tokens = QuickMatch.tokens(query)
+        guard !tokens.isEmpty else { return rows }
+        return rows.filter {
+            QuickMatch.match(tokens, fields: [QuickMatch.Field($0.displayTitle, weight: QuickMatch.Weight.name)]) != nil
+        }
+    }
+}
+
+/// Folder / board / device counts for a channel source's items (G124): the
+/// media page's `folder:` is a bookmark folder path, a Pinterest board, a
+/// TikTok section or an iCloud device name depending on the importer.
+enum SourceItemsGrouping {
+    static let noFolder = "No folder"
+    static func folders(_ items: [MediaFeedItem]) -> [(folder: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for item in items {
+            let key = (item.folder?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 } ?? noFolder
+            counts[key, default: 0] += 1
+        }
+        return counts.map { (folder: $0.key, count: $0.value) }
+            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.folder < $1.folder }
+    }
+}
+
+/// Section headers for the Sources grid (Track D — "in a grid, grouped by
+/// kind, no horizontal scroll"). Pure: given the rows a page already has, in
+/// what order and under what caption they render. `SourceKind.order` decides
+/// section order (mirrors the backend's `KIND_ORDER`, with `.unknown` last
+/// for a kind a newer backend invents); a kind with no rows never prints an
+/// empty header (R2's "a row is shown only when it has evidence" extends
+/// naturally to "a section is shown only when it has a row"). Within a
+/// section the order is `gridOrder`'s own — re-derived here rather than
+/// assumed, so a caller that hands in an unsorted list still gets a
+/// correctly ordered grid.
+enum SourceSections {
+    private static let titles: [SourceKind: String] = [
+        .harness: "Chat & agents",
+        .browser: "Browsers",
+        .social: "Social & saved",
+        .feed: "Feeds & calendars",
+        .messaging: "Messaging",
+        .voice: "Voice & meetings",
+        .import: "Files & imports",
+        .unknown: "Other",
+    ]
+
+    static func group(_ rows: [SourceOverview]) -> [(kind: SourceKind, title: String, rows: [SourceOverview])] {
+        let ordered = SourceOverview.gridOrder(rows)
+        return SourceKind.order.compactMap { kind in
+            let inKind = ordered.filter { $0.kind == kind }
+            guard !inKind.isEmpty else { return nil }
+            return (kind: kind, title: titles[kind] ?? kind.rawValue.capitalized, rows: inKind)
+        }
+    }
+}

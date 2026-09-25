@@ -8,14 +8,24 @@ loads them into ``InboxItem`` and resolves them by routing on ``kind``.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxItem, InboxOption, InboxResolveRequest
-from api.services import decay_policy, inbox_questions, markdown_parser, telemetry
+from api.models.schemas import InboxCause, InboxCheck, InboxItem, InboxOption, InboxResolveRequest
+from api.services import (
+    decay_policy,
+    fact_sources,
+    inbox_context,
+    inbox_questions,
+    markdown_parser,
+    predicates,
+    source_check,
+    telemetry,
+)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 
 logger = logging.getLogger(__name__)
@@ -40,24 +50,95 @@ def next_inbox_num(inbox_dir: Path) -> int:
 
 
 def _required_input_for(kind: str) -> str:
-    if kind == "decay":
-        return "choice"
-    if kind == "conflict":
+    if kind in ("decay", "conflict", "divergence", "normalization", "removal", "followup"):
         return "choice"
     if kind == "merge_suggestion":
         return "merge"
     return "freetext"
 
 
-def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
+def _item_from_file(
+    filepath: Path, *, today: str | None = None, context: "inbox_context.InboxContext | None" = None
+) -> InboxItem:
+    """One inbox file → ``InboxItem``.
+
+    ``context`` (G115 Phase 1, R2) is the per-``load_inbox`` read cache; with it
+    the item also carries what the OLD read path threw away at the API boundary
+    (G97): the subject's type, the cause (conversation + excerpt), the
+    extractor's confidence/model behind the item, and the G98 ``informational``
+    flag for a conflict on a multi-valued predicate. Without it — every legacy
+    caller and test — the shape is exactly what it was.
+    """
     parsed = markdown_parser.parse(filepath)
     fm = parsed.frontmatter
     kind = str(fm.get("kind", "decay"))
     required_input = str(fm.get("required_input", "") or _required_input_for(kind))
     now = today or str(date.today())
+    entity_id = str(fm.get("entity_id", "") or "")
+    raw_options = inbox_questions.normalize_options(fm.get("options"))
+    question = _opt_str(fm.get("question"))
+    # Conflicts and clarifications always accept a free-text answer and a
+    # deferral on the resolve path, so legacy items (written before G60,
+    # no allow_* keys) must not lock the user into the closed option set.
+    allow_other = bool(fm.get("allow_other", kind in ("conflict", "clarification")))
+    allow_defer = bool(fm.get("allow_defer", kind in ("conflict", "clarification", "divergence")))
+
+    hint = _opt_str(fm.get("hint"))
+    extra: dict = {}
+    followup_human: bool | None = None
+    if context is not None:
+        # G61 phase 2 S0: a conflict's hint is derived from the subject's
+        # CURRENT sources, voiced by whoever added them (fact_sources.served_hint).
+        page = context.entity(entity_id)
+        hint = fact_sources.served_hint(fm, page.frontmatter.get("sources") if page is not None else None)
+        if kind == "followup":
+            # G141 PJ-6: served as a question at read, like decay — the file
+            # holds only which claim to ask about. A claim that is gone raises,
+            # so `load_inbox` skips the card with a logged warning and the next
+            # proposer run removes the file.
+            synthesised, followup_human = followup_synthesis(fm, context.claims(entity_id), now)
+            question = synthesised["question"]
+            raw_options = inbox_questions.normalize_options(synthesised["options"])
+            allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
+        if kind == "decay" and not raw_options:
+            # G115 R5: decay is SERVED as a question object and never written as
+            # one — the age phrase is computed from the subject page's live
+            # `last_referenced`, so a stored copy could only go stale.
+            synthesised = inbox_questions.decay_question(
+                str(fm.get("entity_name", "") or entity_id),
+                context.entity_last_referenced(entity_id),
+                now,
+            )
+            question = synthesised["question"]
+            raw_options = inbox_questions.normalize_options(synthesised["options"])
+            allow_other, allow_defer = synthesised["allow_other"], synthesised["allow_defer"]
+        # G115 R6: Sleep's own proposal is served FIRST so the card's initial
+        # highlight (and `1`) lands on it. The file on disk keeps its order —
+        # this is a read-time projection, like `age_days` and `cause`.
+        rec = recommended_key(kind, fm, raw_options)
+        raw_options = [o for o in raw_options if str(o.get("key")) == rec] + [
+            o for o in raw_options if str(o.get("key")) != rec
+        ]
+        extra["recommended_key"] = rec
+        extra["entity_type"] = context.entity_type(entity_id)
+        extra["cause"] = InboxCause(**context.cause_for(fm, raw_options).to_wire())
+        extra["informational"] = (
+            kind == "conflict"
+            and predicates.cardinality(context.memory_path, str(fm.get("predicate", "") or "")) == "multi"
+        )
+        extra.update(_extractor_refs(fm, kind, context))
+        # G61 phase 2 S2: which rung could answer this, derived at read and
+        # never stored (source_check). Read-only — nothing acts on it yet. A
+        # failure degrades to no `check`, never to a hidden card: load_inbox
+        # skips any item whose read raises (plan R-AC40; G115 — a card is
+        # never hidden for a derived field). Type only: a message could carry a ref.
+        try:
+            extra["check"] = InboxCheck(**source_check.for_item(fm, raw_options, context).to_wire())
+        except Exception as exc:  # noqa: BLE001 — a derived field never costs the card
+            logger.warning(f"checkability skipped for {filepath.name}: {type(exc).__name__}")
 
     options: list[InboxOption] = []
-    for raw in inbox_questions.normalize_options(fm.get("options")):
+    for raw in raw_options:
         observed = _opt_str(raw.get("observed_at"))
         last_ref = _opt_str(raw.get("last_referenced")) or observed
         options.append(
@@ -69,6 +150,15 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
                 observed_at=observed,
                 last_referenced=last_ref,
                 age_days=inbox_questions.age_days(last_ref, now),
+                # Both derived at read (G115 R6). Without a `context` the item
+                # keeps its pre-G115 shape: no marker, no wire verdict.
+                recommended=(context is not None and str(raw.get("key")) == extra.get("recommended_key")),
+                verdict=(
+                    None if context is None
+                    else _followup_verdict(str(raw.get("key", "")), bool(followup_human))
+                    if kind == "followup"
+                    else _option_verdict(kind, str(raw.get("key", "")), fm, raw_options)
+                ),
             )
         )
 
@@ -78,27 +168,56 @@ def _item_from_file(filepath: Path, *, today: str | None = None) -> InboxItem:
         required_input=required_input,
         status=str(fm.get("status", "pending") or "pending"),
         priority=float(fm.get("priority", 0.0) or 0.0),
-        entity_id=str(fm.get("entity_id", "") or ""),
+        entity_id=entity_id,
         entity_name=str(fm.get("entity_name", "") or ""),
         title=str(fm.get("title", "") or fm.get("entity_name", "") or ""),
         body=parsed.body,
         options=options,
         created_date=str(fm.get("created_date", "") or ""),
-        question=_opt_str(fm.get("question")),
-        # Conflicts and clarifications always accept a free-text answer and a
-        # deferral on the resolve path, so legacy items (written before G60,
-        # no allow_* keys) must not lock the user into the closed option set.
-        allow_other=bool(fm.get("allow_other", kind in ("conflict", "clarification"))),
-        allow_defer=bool(fm.get("allow_defer", kind in ("conflict", "clarification"))),
+        question=question,
+        allow_other=allow_other,
+        allow_defer=allow_defer,
         predicate=_opt_str(fm.get("predicate")),
-        hint=_opt_str(fm.get("hint")),
+        hint=hint,
+        channel=_opt_str(fm.get("channel")),
         remind_after=_opt_str(fm.get("remind_after")),
         updated_date=_opt_str(fm.get("updated_date")),
         uncertainty_type=fm.get("uncertainty_type"),
         suggested_classification=fm.get("suggested_classification"),
         suggested_confidence=fm.get("suggested_confidence"),
         merge_target_hint=fm.get("merge_target_hint"),
+        source_episode=_opt_str(fm.get("source_episode")),
+        source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
+        claim_id=_opt_str(fm.get("claim_id")),
+        **extra,
     )
+
+
+def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") -> dict:
+    """The extractor's side of the item, for the card's provenance line.
+
+    Mirrors what ``_feedback_refs`` records at resolve time (G113) so the app
+    can show ``Cicada's guess at 0.42`` BEFORE the person answers: decay →
+    the item's priority (the decayed confidence), clarification/merge → the
+    extractor's ``suggested_confidence``, conflict → the proposed claim's
+    ``confidence`` and ``authored_by``. Read-only; ids and numbers only.
+    """
+    from api.services import git_service
+
+    out: dict = {"extractor_confidence": None, "extractor_model": None}
+    if kind == "decay":
+        out["extractor_confidence"] = _as_float(fm.get("priority"))
+    elif kind in ("clarification", "merge_suggestion"):
+        out["extractor_confidence"] = _as_float(fm.get("suggested_confidence"))
+    else:
+        claim_id = _opt_str(fm.get("claim_id"))
+        if claim_id:
+            claim = next((c for c in context.claims(str(fm.get("entity_id", "") or "")) if c.id == claim_id), None)
+            if claim is not None:
+                out["extractor_confidence"] = _as_float(claim.confidence)
+                out["extractor_model"] = _opt_str(
+                    git_service.canonical_author(claim.authored_by) if claim.authored_by else None)
+    return out
 
 
 def _opt_str(value: object) -> str | None:
@@ -160,13 +279,22 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
       FROM an existing page) but kept for ``clarification`` — its subject can
       legitimately not have a page yet, and answering it is what creates one
       (see :func:`_subject_gone`).
+
+    G115 Phase 1: every item served carries its ``cause`` (G97, three tiers,
+    ``[ no source recorded ]`` when none), ``entity_type``, and — for a conflict
+    on a predicate the vocabulary marks multi-valued — ``informational: true``
+    (G98). All three are derived at read from one shared
+    :class:`inbox_context.InboxContext`, never stored.
     """
     inbox_dir = _inbox_dir(memory_path)
     today = str(date.today())
+    # G115 R2: one read cache for the whole inbox — episode + entity frontmatter
+    # through bank_index, claim blocks parsed once per subject.
+    context = inbox_context.InboxContext(memory_path, today=today)
     items: list[InboxItem] = []
     for filepath in sorted(inbox_dir.glob("inbox-*.md")):
         try:
-            item = _item_from_file(filepath, today=today)
+            item = _item_from_file(filepath, today=today, context=context)
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
@@ -276,6 +404,18 @@ def _action_label(kind: str, request: InboxResolveRequest, options: list[dict]) 
     key = (request.option_key or "").strip()
     if kind == "decay":
         return action or "answer"
+    if kind == "followup":
+        if action == "skip":
+            return "skip"
+        if key:
+            return key
+        return "answer" if (request.answer or "").strip() else (action or "answer")
+    if kind == "removal":
+        if action == "skip":
+            return "skip"
+        if key in ("keep", "remove"):
+            return key
+        return action or "answer"
     if kind in ("conflict", "divergence", "normalization"):
         if action == "dismiss":
             return "dismiss"
@@ -323,6 +463,12 @@ def _verdict(
     """
     if label in _NEUTRAL_LABELS:
         return "neutral"
+    # R3: the proposal came from the browser's own diff, never from the
+    # extractor — there is no model belief to agree or disagree with, the
+    # same reasoning already used for an entity-path conflict with no
+    # `claim_id` just below.
+    if kind == "removal":
+        return "neutral"
     if kind == "decay":
         return {"archive": "agreed", "keep_active": "overruled"}.get(label, "neutral")
     if kind == "conflict":
@@ -347,6 +493,172 @@ def _verdict(
     if kind == "merge_suggestion":
         return {"merge": "agreed", "reject": "overruled"}.get(label, "neutral")
     return "neutral"
+
+
+def _followup_verdict(label: str, human: bool) -> str:
+    """R-PJB24: grade the extractor or agent that said "ongoing" — never the
+    person. On a thread Sleep or an agent wrote, Done and Still going agree
+    with it and "That didn't happen" overrules it; Stopped, Missed, Dropped, a
+    move or free text say nothing about whether the claim was right. On the
+    person's own thread, or a G17 `due` (a date, not a belief), every answer
+    is neutral — there is no model to grade."""
+    if human or label in _NEUTRAL_LABELS:
+        return "neutral"
+    return {"done": "agreed", "still": "agreed", "didnt": "overruled"}.get(label, "neutral")
+
+
+def _followup_claim(claims: list, claim_id: str):
+    """The follow-up's claim — its open copy first (a withdrawn event keeps
+    its id on the closed half), else any claim with that id, else None."""
+    same = [c for c in claims if c.id == claim_id]
+    return next((c for c in same if c.valid_to is None), same[0] if same else None)
+
+
+def followup_human(claim) -> bool:
+    """Whose words the follow-up asks about, for R-PJB24's grade."""
+    from api.services.claim_reconciler import is_human
+
+    return is_human(claim) or claim.predicate == "due"
+
+
+def followup_synthesis(fm: dict, claims: list, today: str, *, verbatim_ok: bool = True) -> tuple[dict, bool]:
+    """`(question object, the claim is the person's)` for a `followup` item —
+    one synthesis for `GET /inbox` and both MCP readers, so the agent and the
+    app are shown the same card (G115 R9). Raises `LookupError` when the claim
+    is gone. `verbatim_ok` is the caller's `raw_excerpts` (R-PJ23)."""
+    claim_id = str(fm.get("claim_id") or "")
+    claim = _followup_claim(claims, claim_id) if claim_id else None
+    if claim is None:
+        raise LookupError(f"follow-up claim {claim_id!r} is gone")
+    predicate = str(fm.get("predicate") or claim.predicate or "")
+    name = str(fm.get("entity_name") or fm.get("entity_id") or "")
+    if predicate == "due":
+        from api.services.project_timeline import _due_name   # lazy: a wide import graph
+
+        name = _due_name(claim, name)
+    return (inbox_questions.followup_question(predicate, claim, name=name, today=today, verbatim_ok=verbatim_ok),
+            followup_human(claim))
+
+
+# G115 R5 — the keys `QuestionView` sends for a decay item, mapped onto the
+# legacy verbs so the G113 R1 trigger labels stay byte-identical.
+_DECAY_KEY_TO_ACTION = {"archive": "archive", "keep": "keep_active", "keep_active": "keep_active"}
+
+
+def _normalize_decay_request(kind: str, request: InboxResolveRequest) -> InboxResolveRequest:
+    """`resolve` + `option_key` on a decay item → the legacy verb (R5).
+
+    Every question-carrying kind is answered with one verb (``resolve``) and a
+    key; decay's resolver predates that and switches on ``keep_active``/
+    ``archive``. Translating here — before :func:`_action_label` — keeps
+    :func:`_resolve_decay` and the G113 R1 commit labels untouched. An unknown
+    key is a client bug: 400, nothing written, exactly as
+    :func:`_resolve_conflict` treats a typo'd key.
+
+    **Free text on a decay item is refused the same way** (final review H1).
+    ``decay_question`` sets ``allow_other: False`` — there is no free-text
+    answer a decay item can honour — but until this guard an ``answer`` without
+    a recognised key fell through to :func:`_resolve_decay`'s ``else`` branch,
+    which appended the prose to the entity body, left the page ``decaying`` at
+    its decayed confidence and deleted the item: a "yes, still relevant"
+    silently inverted into an archive-shaped outcome. Refusing is the only
+    honest answer — the caller should send ``keep``/``archive``, or ``defer``.
+    """
+    if kind != "decay" or (request.action or "").strip().lower() not in ("resolve", "answer"):
+        return request
+    key = (request.option_key or "").strip().lower()
+    if not key:
+        if (request.answer or "").strip():
+            raise HTTPException(
+                400,
+                "A decay item takes no free-text answer (allow_other is false) — "
+                f"send optionKey one of {sorted(inbox_questions.DECAY_OPTION_KEYS)}, "
+                "or action 'defer'.",
+            )
+        return request
+    if key not in _DECAY_KEY_TO_ACTION:
+        raise HTTPException(
+            400,
+            f"Unknown optionKey {key!r} for a decay item — expected one of "
+            f"{sorted(inbox_questions.DECAY_OPTION_KEYS)}.",
+        )
+    return request.model_copy(update={"action": _DECAY_KEY_TO_ACTION[key]})
+
+
+def _option_verdict(kind: str, key: str, fm: dict, options: list[dict]) -> str:
+    """What picking ``key`` would be graded as — the same table the ledger
+    writes, evaluated once at read so wire == ledger (G115 §4).
+
+    Never raises. :func:`_normalize_decay_request` 400s on a decay key it does
+    not know, which is right on the WRITE path and fatal on the read one: a
+    legacy decay item carrying flat options (keys ``"0"``/``"1"``) would raise
+    inside :func:`_item_from_file`, and ``load_inbox``'s broad ``except`` would
+    then log a warning and drop the card from the inbox entirely. An ungradeable
+    key is ``neutral`` here and stays answerable.
+    """
+    try:
+        request = _normalize_decay_request(kind, InboxResolveRequest(action="resolve", option_key=key))
+    except HTTPException:
+        return "neutral"
+    label = _action_label(kind, request, options)
+    return _verdict(kind, label, key, _opt_str(fm.get("claim_id")), options)
+
+
+def recommended_key(kind: str, fm: dict, options: list[dict]) -> str | None:
+    """The ONE option Sleep proposed (G115 R6) — the key :func:`_verdict` grades
+    ``agreed`` — or ``None``.
+
+    Never ``neither``/``both`` (G121: a stale-escalated question marks Sleep's
+    own claim or nothing), never on a ``merge_suggestion`` (G115 §4 — no initial
+    highlight on a merge) and never on a ``clarification`` (it proposes nothing;
+    every answer grades ``agreed``, so a marker would be freshness dressed as a
+    proposal). An entity-path conflict has no item ``claim_id``, grades every
+    pick ``neutral``, and therefore carries no recommendation — a large share of
+    live conflicts (G98), stated rather than papered over. Nor on ``removal`` —
+    Sleep proposed nothing here; the browser did (R3).
+
+    **A decay item's options are synthesised here when the caller has none**
+    (final review H2). R5 serves decay's question at READ time and never writes
+    it to the file, so the two call sites disagreed: ``_item_from_file`` passes
+    the synthesised options and gets ``archive``, while :func:`_emit_resolution`
+    reads the item's on-disk frontmatter — which has no ``options:`` at all —
+    and recorded ``recommended_key: null`` / ``picked_recommended: false`` for
+    the most common inbox kind, even though the card, the MCP blurb and the wire
+    all showed ``archive (Recommended)``. Synthesising the same two options here
+    makes the ledger's R8 signal agree with what the person was actually shown.
+    The name and date are irrelevant to the verdict table (only the KEYS are),
+    so the cheap placeholder question is enough.
+    """
+    if kind in ("merge_suggestion", "clarification", "removal", "followup"):
+        # G141 PJ-6: a follow-up proposes nothing — it asks how it went.
+        return None
+    if kind == "decay" and not options:
+        options = inbox_questions.normalize_options(
+            inbox_questions.decay_question("", None, str(date.today()))["options"]
+        )
+    agreed = [
+        str(o.get("key")) for o in options
+        if str(o.get("key") or "") not in _SPECIAL_KEYS and str(o.get("key") or "")
+        # A legacy decay item with flat options ("0"/"1") is not the synthesised
+        # question and has no proposal to mark — `_option_verdict` grades those
+        # `neutral`, so they simply never reach `agreed`.
+        and _option_verdict(kind, str(o.get("key")), fm, options) == "agreed"
+    ]
+    return agreed[0] if len(agreed) == 1 else None
+
+
+def _owner_observer(settings, memory_path=None) -> str:
+    """The observer id for a claim the OWNER states from the inbox.
+
+    G117: delegates to `owner_identity.resolve_observer` — the ONE
+    resolution every observer-literal site in the codebase now shares (see
+    that module's docstring). `memory_path` is optional only because two
+    legacy call sites here don't thread it yet; passing it enables R1's
+    migration-safety rung (rung 3).
+    """
+    from api.services import owner_identity
+
+    return owner_identity.resolve_observer(memory_path, settings)
 
 
 def _item_age_days(fm: dict, today: date) -> int | None:
@@ -380,6 +692,8 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
     yields no claim info — this is bookkeeping, never a reason to block a
     resolve. Only ids and numbers leave this function.
     """
+    from api.services import git_service
+
     out: dict = {"winner": None, "losers": [], "extractor_confidence": None, "extractor_model": None}
     item_claim = _opt_str(fm.get("claim_id"))
     existing_claim = _opt_str(fm.get("existing_claim_id"))
@@ -422,7 +736,8 @@ def _feedback_refs(fm: dict, kind: str, label: str, request: InboxResolveRequest
                 claim = next((c for c in parse_claims(parsed.body) if c.id == lookup_id), None)
                 if claim is not None:
                     out["extractor_confidence"] = _as_float(claim.confidence)
-                    out["extractor_model"] = _opt_str(claim.authored_by)
+                    out["extractor_model"] = _opt_str(
+                        git_service.canonical_author(claim.authored_by) if claim.authored_by else None)
         except Exception:  # noqa: BLE001 — no claim info is an acceptable answer
             logger.debug("feedback refs: claim lookup failed", exc_info=True)
     return out
@@ -440,6 +755,8 @@ def _emit_resolution(
     losers=(),
     extractor_confidence: float | None = None,
     extractor_model: str | None = None,
+    verdict_override: str | None = None,
+    extra_refs: dict | None = None,
 ) -> None:
     """Append one ``resolution`` ledger row. Ids/enums/numbers only. Never raises.
 
@@ -453,7 +770,8 @@ def _emit_resolution(
     """
     try:
         options = inbox_questions.normalize_options(fm.get("options") or [])
-        verdict = _verdict(kind, label, request.option_key, _opt_str(fm.get("claim_id")), options)
+        rec = recommended_key(kind, fm, options)
+        verdict = verdict_override or _verdict(kind, label, request.option_key, _opt_str(fm.get("claim_id")), options)
         telemetry.record(
             telemetry.UsageEvent(
                 kind="resolution",
@@ -474,6 +792,13 @@ def _emit_resolution(
                     "extractor_confidence": extractor_confidence,
                     "extractor_model": extractor_model,
                     "item_age_days": _item_age_days(fm, date.today()),
+                    # G115 R8: was Sleep's proposal the one picked? Key + bool
+                    # only — the ledger never carries a label or an excerpt.
+                    "recommended_key": rec,
+                    "picked_recommended": bool(rec)
+                    and (str(request.option_key or "").strip().lower() == rec or label == rec),
+                    # G141 PJ-6 (R-PJB24): ids and enums only — never the sentence.
+                    **(extra_refs or {}),
                 },
             )
         )
@@ -492,6 +817,27 @@ async def resolve(
     parsed = markdown_parser.parse(path)
     kind = str(parsed.frontmatter.get("kind", "decay"))
 
+    # G115 R5 — a decay item answered through `QuestionView` arrives as
+    # `resolve` + `archive|keep`; translate it into the legacy verb here, before
+    # `_action_label`, so the G113 R1 commit triggers stay byte-identical.
+    request = _normalize_decay_request(kind, request)
+    # G141 PJ-6 (R-PJB3): a follow-up's "not now" is 30 days, whatever asked
+    # for it — its explicit option, an MCP `defer`, or an older client's 7-day
+    # button — so a quiet thread is never re-asked within the month.
+    if kind == "followup" and ((request.action or "").strip().lower() in ("defer", "remind_later")
+                               or (request.option_key or "").strip() == "remind_later"):
+        days = max(inbox_questions.FOLLOWUP_DEFER_DAYS, int(request.remind_days or 0))
+        return await _defer(path, parsed, request.model_copy(update={"remind_days": days}), settings, item_id,
+                            label="remind_later")
+    # G113 R6 (landed by G115 Phase 1): `remind_later` was a snooze nothing
+    # read — it wrote `snooze_until`, left the item visible, and committed
+    # "entity updated" for an entity it never touched. It is a 7-day defer.
+    if kind == "decay" and (request.action or "").strip().lower() == "remind_later":
+        return await _defer(
+            path, parsed, request.model_copy(update={"remind_days": 7}), settings, item_id,
+            label="remind_later",
+        )
+
     # G60 §2.4 — `defer` is kind-agnostic: it never touches claims or the entity
     # page, it just pushes the item out of sight until `remind_after`.
     if request.action == "defer":
@@ -505,22 +851,37 @@ async def resolve(
     feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
 
     extra_lines: list[str] = []
+    emit_extra: dict = {}
     if kind == "decay":
         entity_id, skipped = await _resolve_decay(path, parsed, request, settings)
+    elif kind == "removal":
+        entity_id, skipped = await _resolve_removal(path, parsed, request, settings)
     elif kind == "conflict":
         entity_id, skipped, extra_lines = await _resolve_conflict(
             path, parsed, request, settings
         )
+    elif kind == "divergence":
+        entity_id, skipped, extra_lines = await _resolve_divergence(
+            path, parsed, request, settings, item_id
+        )
+    elif kind == "normalization":
+        entity_id, skipped, extra_lines = await _resolve_normalization(
+            path, parsed, request, settings, item_id
+        )
     elif kind in ("clarification", "merge_suggestion"):
-        entity_id, skipped = await _resolve_clarification(
+        entity_id, skipped, extra_lines = await _resolve_clarification(
             path, parsed, request, settings
+        )
+    elif kind == "followup":
+        entity_id, skipped, extra_lines, emit_extra = await _resolve_followup(
+            path, parsed, request, settings, item_id, label
         )
     else:
         raise HTTPException(400, f"Unknown kind {kind}")
 
     # A skip is a neutral row, not a missing one — "asked, not answered" is
     # itself informative about the question.
-    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback)
+    _emit_resolution(parsed.frontmatter, item_id, kind, request, label, settings, **feedback, **emit_extra)
 
     if skipped:
         return {"status": "skipped", "id": item_id}
@@ -537,6 +898,8 @@ async def resolve(
         change = "status archived"
     elif kind == "decay" and label == "keep_active":
         change = "status active"
+    elif kind == "removal" and label == "remove":
+        change = "status archived"
     await git_service.commit_resolution(
         settings.memory_path,
         entity_id,
@@ -544,6 +907,22 @@ async def resolve(
         extra_lines,
         change=change,
     )
+    # G53 (R4) — the pending count just changed; refresh the projection
+    # cheaply (no repo probes, previous blocks carried over) and commit it
+    # alone as `cicada`. Best-effort: a projection failure never fails a
+    # person's answer. Runs AFTER the commit on purpose: `commit_resolution`
+    # is `git add -A`, and refreshing first would attribute the projection
+    # to the person's answer. It commits its own rewrite for the mirror
+    # reason (final review, 2026-09-03): a rewrite left dirty was reproduced
+    # riding in the NEXT resolution's `Cicada-Author: user` commit — the
+    # G85-class smear R2/R3 exist to prevent — so `refresh_and_commit`, not
+    # `refresh`, is the only regeneration entry point that touches disk.
+    try:
+        from api.services import state_dictionary
+
+        await state_dictionary.refresh_and_commit(settings.memory_path, settings, probe_repos=False)
+    except Exception as exc:
+        logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
     return {"status": "resolved", "id": item_id}
 
 
@@ -584,7 +963,14 @@ async def _defer(path, parsed, request, settings, item_id: str, *, label: str = 
 
 
 async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
-    """Port of the nudges.py decay branch (keep / archive / remind_later)."""
+    """Port of the nudges.py decay branch (keep / archive).
+
+    ``remind_later`` is routed to :func:`_defer` by :func:`resolve` (G113 R6,
+    landed by G115 Phase 1) and never reaches here: the branch that used to
+    live here wrote a ``snooze_until`` key no reader consulted, so the item
+    stayed visible and the cycle committed "entity updated" for an entity it
+    had not touched.
+    """
     entity_id = parsed.frontmatter.get("entity_id", "")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
 
@@ -595,7 +981,39 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
             entity.frontmatter.get("confidence", 0.5), 0.6
         )
         entity.frontmatter["last_referenced"] = str(date.today())
-        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+        # G147 (plan R-FD3): "still relevant" is the person's own act — it counts
+        # as one more week the page came up, so a page kept once fades a little
+        # slower than one never answered for. Dates, not a counter:
+        # `decay_policy.mention_weeks` unions them with the page's episode weeks.
+        entity.frontmatter[decay_policy.KEPT_ON_KEY] = decay_policy.record_keep(
+            entity.frontmatter, str(date.today())
+        )
+        # G113 slice 3c: "still true" is a verdict on the CLAIM the decay nudge
+        # was raised over, not just the entity's summary confidence — without
+        # this, a `keep_active` left the claim itself faded (and, if decay had
+        # already closed it, still closed) while the entity page read `active`.
+        claim_id = _opt_str(parsed.frontmatter.get("claim_id"))
+        body = entity.body
+        if claim_id:
+            from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+
+            try:
+                claims = parse_claims(body)
+            except MalformedClaimsBlockError:
+                # A corrupt claims block degrades this to a no-op claim
+                # refresh rather than blocking the "still relevant" answer
+                # from clearing the decay nudge (default strict=False below
+                # never actually raises this; kept defensive for a future
+                # switch to strict=True).
+                claims = None
+            if claims:
+                for c in claims:
+                    if c.id == claim_id:
+                        c.confidence = max(float(c.confidence or 0), 0.6)
+                        if c.valid_to and not c.superseded_by:
+                            c.valid_to = None  # faded, not replaced — reopen it
+                body = write_claims(body, claims)
+        markdown_parser.write(entity_path, entity.frontmatter, body)
         path.unlink()
 
     elif request.action == "archive" and entity_path.exists():
@@ -604,15 +1022,13 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         markdown_parser.write(entity_path, entity.frontmatter, entity.body)
         path.unlink()
 
-    elif request.action == "remind_later":
-        new_date = date.today() + timedelta(days=7)
-        parsed.frontmatter["status"] = "snoozed"
-        parsed.frontmatter["snooze_until"] = str(new_date)
-        markdown_parser.write(path, parsed.frontmatter, parsed.body)
-
     else:
         # Unknown action on a decay item — fall through to deletion so a stray
-        # entity-less decay nudge can still be cleared.
+        # entity-less decay nudge can still be cleared. A `resolve`/`answer`
+        # carrying free text never reaches here any more: decay's question sets
+        # `allow_other: False`, so `_normalize_decay_request` 400s it rather
+        # than letting a "still relevant" answer be appended to the body while
+        # the page stays `decaying` (final review H1).
         if entity_path.exists() and request.answer:
             entity = markdown_parser.parse(entity_path)
             entity.frontmatter["last_referenced"] = str(date.today())
@@ -621,6 +1037,226 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         path.unlink()
 
     return entity_id, False
+
+
+async def _resolve_removal(path, parsed, request: InboxResolveRequest, settings) -> tuple[str, bool]:
+    """``keep`` closes the question with no change to the entity — the
+    browser's own diff produced this ask, not a belief to walk back. ``remove``
+    archives the media entity: NEVER deletes the page (G129 row rule) — it may
+    be claim-linked, and git keeps every version regardless of status.
+
+    Finding 2 (G129 slice-2 final review): ``skip`` is an item-preserving
+    no-op, like every sibling choice kind gives it (``_resolve_divergence``,
+    ``_resolve_normalization``) — the item file is left on disk (unlinked
+    nowhere below) so it is asked again later, and ``resolve()`` reports
+    ``{"status": "skipped"}`` instead of committing anything.
+    ``_action_label`` already computes ``label == "skip"`` for exactly this
+    input; without this branch that label was never reachable — the request
+    fell through to the "got an unrecognised optionKey/action" 400 below.
+    """
+    entity_id = str(parsed.frontmatter.get("entity_id", "") or "")
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip().lower()
+
+    if action == "skip":
+        return entity_id, True
+
+    verb = key if key in ("keep", "remove") else (action if action in ("keep", "remove") else "")
+
+    if not verb:
+        raise HTTPException(
+            400,
+            f"A removal item takes optionKey 'keep' or 'remove' — got {key or action!r}.",
+        )
+    if verb == "remove" and entity_path.exists():
+        entity = markdown_parser.parse(entity_path)
+        entity.frontmatter["status"] = "archived"
+        entity.frontmatter["last_referenced"] = str(date.today())
+        markdown_parser.write(entity_path, entity.frontmatter, entity.body)
+    path.unlink(missing_ok=True)
+    return entity_id, False
+
+
+# ---------- G141 PJ-6: follow-ups ----------
+
+# The answers each follow-up takes by key; `remind_later` is routed to
+# `_defer` by `resolve` before any of these is read.
+_FOLLOWUP_KEYS = {"happened": ("done", "still", "stopped", "didnt"),
+                  "milestone": ("done", "missed", "dropped"), "due": ("done", "missed", "dropped")}
+# The closed grammar a free-text answer is read with — a word, then an
+# optional day. Anything else on a thread is what happened, in the person's
+# words; anything else on a milestone is refused (it has only four answers).
+_FOLLOWUP_ANSWER = re.compile(
+    r"^\s*(?:(?P<done>done|finished|completed)|(?P<missed>missed)|(?P<dropped>dropped|stopped|cancell?ed)"
+    r"|(?P<still>still)|(?P<move>moved?(?:\s+it)?\s+to))\b[\s,.:;!-]*(?P<rest>.*)$", re.I | re.S)
+FOLLOWUP_MILESTONE_GRAMMAR = "Say done, missed, dropped, or 'move it to <date>'"
+FOLLOWUP_THREAD_MOVE = "A thread has no date to move — say done, still going or stopped"
+FOLLOWUP_BAD_DATE = "That date can't be read — try '<date>' or 'last Friday'"
+FOLLOWUP_TWO_DAYS = "Say one day, or pick it with the date chip"
+FOLLOWUP_NOT_HAPPENED = "The person said this did not happen"
+
+
+def _read_followup_answer(answer: str, predicate: str, anchor) -> tuple[str, "date | None", str | None, str | None]:
+    """Free text → `(verb, day, date_basis, target)` through the closed
+    grammar and `when.resolve` (R-PJ6: Python decides every date, against
+    `inbox_service`'s one clock). `verb` is an option key, `move`, or `note`
+    (an unrecognised answer on a thread: the person's own words)."""
+    from api.services import when
+
+    m = _FOLLOWUP_ANSWER.match(answer)
+    if m is None:
+        if predicate != "happened":
+            raise HTTPException(400, FOLLOWUP_MILESTONE_GRAMMAR)
+        return "note", None, None, None
+    rest = (m.group("rest") or "").strip()
+    if m.group("move"):
+        if predicate == "happened":
+            raise HTTPException(400, FOLLOWUP_THREAD_MOVE)
+        target, basis = when.resolve(rest, anchor, direction=when.FUTURE)
+        if target is None or basis != "stated":
+            raise HTTPException(400, FOLLOWUP_BAD_DATE)
+        return "move", None, "stated", target.isoformat()
+    if m.group("still"):
+        if predicate != "happened":
+            raise HTTPException(400, FOLLOWUP_MILESTONE_GRAMMAR)
+        return "still", anchor.day, "person", None
+    if m.group("done"):
+        verb = "done"
+    elif m.group("missed"):
+        # A thread has no plan to miss: it stopped without finishing.
+        verb = "stopped" if predicate == "happened" else "missed"
+    else:
+        verb = "stopped" if predicate == "happened" else "dropped"
+    day, basis = when.resolve(rest, anchor, direction=when.PAST)
+    if day is None:
+        raise HTTPException(400, FOLLOWUP_BAD_DATE)
+    return verb, day, ("stated" if basis == "stated" else "person"), None
+
+
+async def _resolve_followup(path, parsed, request, settings, item_id: str,
+                            label: str) -> tuple[str, bool, list[str], dict]:
+    """A follow-up's answer, written through `progress` — the ONE event writer
+    — as the person (`origin: clarification`, R-PJB13: an answer can arrive
+    through `cicada_resolve_inbox`, relayed by an agent, so it is the inbox's
+    human channel and never `companion_app`). Every day is today in the
+    machine zone unless the answer names one; a done `due` is done on its own
+    date. A claim that is gone or already settled makes the item a no-op
+    (removed, nothing written). Returns the ledger's R-PJB24 grade and ids."""
+    from datetime import time as dtime
+
+    from api.services import bank_index, claim_expiry, episode_scrub, handshake, progress, when
+    from api.services.claims import MalformedClaimsBlockError, parse_claims
+
+    fm = parsed.frontmatter
+    entity_id = str(fm.get("entity_id", "") or "")
+    predicate = str(fm.get("predicate", "") or "")
+    if (request.action or "").strip().lower() == "skip":
+        return entity_id, True, [], {}
+    memory = settings.memory_path
+    page = resolve_entity_file(memory, entity_id)
+    claim = None
+    if page is not None and page.exists():
+        try:
+            claims = parse_claims(markdown_parser.parse(page).body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            raise HTTPException(
+                409, f"Cannot resolve {path.stem}: the claims block in entities/{entity_id}.md is malformed. "
+                     "Fix the page by hand; the question has been kept.") from exc
+        claim = _followup_claim(claims, str(fm.get("claim_id", "") or ""))
+    settled = claim is None or bool(claim.superseded_by) or (
+        predicate != "due" and (claim.valid_to is not None or (predicate == "happened" and claim.status != "ongoing")))
+    if settled:
+        path.unlink(missing_ok=True)
+        return entity_id, False, [], {}
+
+    key = (request.option_key or "").strip().lower()
+    answer = (request.answer or "").strip()
+    tz_name = handshake.local_timezone() or "UTC"
+    tz = when.zone(tz_name)
+    today = date.today()        # the module's one clock (the tests pin it)
+    anchor = when.Anchor(datetime.combine(today, dtime(12, 0), tzinfo=tz), "written", tz)
+    target: str | None = None
+    if key:
+        allowed = _FOLLOWUP_KEYS.get(predicate, ())
+        if key not in allowed:
+            raise HTTPException(400, f"Unknown optionKey {key!r} for {path.stem} — expected one of "
+                                     f"{sorted((*allowed, 'remind_later'))}.")
+        verb, day, basis = key, today, "person"
+    elif answer:
+        verb, day, basis, target = _read_followup_answer(answer, predicate, anchor)
+    else:
+        raise HTTPException(400, "Pick an answer, or say what happened")
+
+    owner = _owner_observer(settings, memory)
+    who = dict(observer=owner, origin="clarification", authored_by="user", today=today, tz_name=tz_name)
+    extra_paths: list[str] = []
+    if predicate == "happened":
+        if verb in ("done", "stopped", "still"):
+            result = progress.record_happening(
+                memory, subject=entity_id, text=claim.text, status={"done": "done", "stopped": "dropped",
+                                                                    "still": "ongoing"}[verb],
+                participants=claim.participants, settles=None if verb == "still" else claim.id,
+                day=day, date_basis=basis, **who)
+        elif verb == "didnt":
+            result = progress.withdraw(memory, subject=entity_id, claim_id=claim.id, author="user",
+                                       reason=FOLLOWUP_NOT_HAPPENED, origin="clarification", today=today)
+        else:   # "note": the person's own words become the happening that settles the thread (G4)
+            try:
+                phrase, rest = when.split_phrase(answer)
+            except when.TwoDates:
+                raise HTTPException(400, FOLLOWUP_TWO_DAYS)
+            text = episode_scrub.scrub(rest)[0].strip()
+            if not text:
+                raise HTTPException(400, "Say what happened")
+            if when.has_relative(text):
+                raise HTTPException(400, FOLLOWUP_TWO_DAYS)
+            day, basis = today, "person"
+            if phrase:
+                day, _ = when.resolve(phrase, anchor, direction=when.PAST)
+                if day is None:
+                    raise HTTPException(400, FOLLOWUP_BAD_DATE)
+                basis = "stated"
+            name = str(fm.get("entity_name") or entity_id)
+            # The REAL instant, never `anchor.instant` (noon today): two answers the same
+            # day minted one `source_id` and staging rewrote the first episode in place,
+            # staling its claim's span and losing the person's words (G141 final review).
+            # The item id keys the note too, so even a same-second pair stays two episodes.
+            now = datetime.combine(today, datetime.now(tz).time(), tzinfo=tz)
+            ep = progress.write_note_episode(memory, answer, origin="inbox", title=f"Answer on {name}",
+                                             now=now, key=path.stem)
+            result = progress.record_happening(
+                memory, subject=entity_id, text=text, status="done", settles=claim.id,
+                participants=progress.link_participants(memory, text),
+                evidence=[{"episode": ep, "quote": episode_scrub.scrub(answer)[0]}], day=day, date_basis=basis,
+                **who)
+            if result.get("action") in ("error", "not_found"):
+                (memory / "episodes" / f"{ep}.md").unlink(missing_ok=True)
+                bank_index.invalidate()
+            else:
+                extra_paths.append(f"episodes/{ep}.md")
+    else:
+        end = claim_expiry.stated_end(claim) if predicate == "due" else None
+        slug = f"due-{end}" if predicate == "due" else str(claim.object or "")
+        if verb == "move":
+            result = progress.advance(memory, subject=entity_id, slug=slug, target=target, on=today,
+                                      date_basis="stated", **who)
+        else:
+            if predicate == "due" and verb == "done" and key and end:
+                day = date.fromisoformat(end)    # "Done (on its date)"
+            result = progress.advance(memory, subject=entity_id, slug=slug, status=verb, on=day,
+                                      date_basis=basis, **who)
+    if result.get("action") == "error":
+        raise HTTPException(400, result.get("error") or "That couldn't be saved")
+    if result.get("action") == "not_found":
+        path.unlink(missing_ok=True)
+        return entity_id, False, [], {}
+    path.unlink(missing_ok=True)
+    lines = [f"{p}: updated (source: {item_id}, trigger: inbox/followup/resolved)"
+             for p in [*result.get("paths", []), *extra_paths]]
+    return entity_id, False, lines, {
+        "verdict_override": _followup_verdict(label, followup_human(claim)),
+        "extra_refs": {"authored_by": claim.authored_by or "unknown", "date_basis": basis, "claim_id": claim.id}}
 
 
 def _user_claim_id(entity_id: str, predicate: str, obj: str, today: str) -> str:
@@ -660,7 +1296,6 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     competing claim. A claims block that will not parse aborts the resolve
     (409) with the page untouched and the question kept.
     """
-    from api.services import predicates
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
     from api.services.conflict_resolver import _synthesize_entity_update
 
@@ -678,13 +1313,23 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     # action="dismiss" with no key and no answer for such an item. Honor it the
     # old way: remove the item, touch no claims. A modern question item (has
     # `options` and/or a `question`) still gets the strict 400 below.
-    if (
-        request.action == "dismiss"
-        and not fm_item.get("options")
-        and not str(fm_item.get("question", "") or "").strip()
-        and not (request.option_key or "").strip()
-        and not (request.answer or "").strip()
+    informational = (
+        predicates.cardinality(settings.memory_path, str(fm_item.get("predicate", "") or "")) == "multi"
+    )
+    if request.action == "dismiss" and (
+        informational
+        or (
+            not fm_item.get("options")
+            and not str(fm_item.get("question", "") or "").strip()
+            and not (request.option_key or "").strip()
+            and not (request.answer or "").strip()
+        )
     ):
+        # Legacy pre-G60 items (above) AND G98/G115 R4 informational items: a
+        # conflict on a multi-valued predicate asked for a winner that does not
+        # exist — Stage 3 already kept every value open, so dismissing touches
+        # no claim. Its G113 R3 grade is `overruled`, and that is right: the
+        # belief overruled is the extractor's "these values conflict".
         path.unlink()
         return entity_id, False, []
 
@@ -810,7 +1455,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
                     object=answer,
                     # Keep the SAME belief slot (observer) as the claims being
                     # replaced so future reconciliation sees one lineage.
-                    observer=option_claims[0].observer if option_claims else "rodrigo",
+                    observer=option_claims[0].observer if option_claims else _owner_observer(settings, settings.memory_path),
                     context=option_claims[0].context if option_claims else "general",
                     source_trust="user_stated",
                     origin="clarification",
@@ -873,12 +1518,150 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     return entity_id, False, extra_lines
 
 
-async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool]:
-    """Port of the clarifications.py logic (answer / dismiss / merge / skip).
+async def _resolve_divergence(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+    """G113 slice 3: "I'm reading something different" — a two-claim variant
+    of `_resolve_conflict` for the narrow case Sleep already writes a
+    dedicated nudge for (`inbox_generator.py`'s `divergence_nudge` branch):
+    exactly one NEW claim (`claim_id`) against exactly one EXISTING one
+    (`existing_claim_id`). Mirrors `_resolve_conflict`'s shape (parse → mutate
+    → `write_claims` → `markdown_parser.write`) rather than reusing it,
+    because the two-claim case has no options list to fall back on and no LLM
+    body synthesis — a divergence never rewrites the entity's prose.
+    """
+    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+
+    fm = parsed.frontmatter
+    entity_id = _opt_str(fm.get("entity_id")) or ""
+    key = (request.option_key or "").strip()
+
+    if request.action == "skip":
+        return entity_id, True, []
+    if request.action == "dismiss" or key not in ("0", "1", "2"):
+        # An unrecognised key is a client bug, not a "none of these" answer —
+        # `_resolve_conflict` treats the analogous case as a 400 for a modern
+        # question item, but a divergence item always has exactly 3 fixed
+        # options and no free-text path, so there is nothing to interpret.
+        # Removing the item without touching claims is the same "clear the
+        # question" behaviour `_resolve_conflict` gives a missing entity page.
+        path.unlink(missing_ok=True)
+        return entity_id, False, []
+
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        path.unlink(missing_ok=True)
+        return entity_id, False, []
+
+    entity = markdown_parser.parse(entity_path)
+    try:
+        # strict=True: parse_claims defaults to strict=False (silently
+        # degrades a malformed block to []) — `_resolve_conflict` passes
+        # strict=True precisely so a malformed block ABORTS the resolve
+        # instead of silently treating a real claims block as empty and
+        # skipping the write. Omitting it here would never raise, and the
+        # 409 branch below would be dead code.
+        claims = parse_claims(entity.body, strict=True)
+    except MalformedClaimsBlockError as exc:
+        raise HTTPException(status_code=409, detail=f"claims block on {entity_id} will not parse: {exc}") from exc
+    by_id = {c.id: c for c in claims}
+    new = by_id.get(_opt_str(fm.get("claim_id")) or "")
+    existing = by_id.get(_opt_str(fm.get("existing_claim_id")) or "")
+    today = str(date.today())
+    if new is not None and existing is not None:
+        if key == "0":  # keep my statement: the new reading loses
+            _close_today(new, by=existing, today=today)
+            existing.confidence = max(float(existing.confidence or 0), 0.9)
+        elif key == "1":  # update: my old statement loses
+            _close_today(existing, by=new, today=today)
+            new.confidence = max(float(new.confidence or 0), 0.9)
+        elif new.predicate == "milestone" or existing.predicate == "milestone":
+            # A milestone slot holds ONE state (R-PJ4): "both true" cannot
+            # leave two open heads on one slug — the read model and PATCH
+            # /milestones/{slug} key on it (G141 final review). The agent's
+            # reading loses; the person's head stays.
+            from api.services.claim_reconciler import is_human
+
+            loser, winner = (existing, new) if is_human(new) and not is_human(existing) else (new, existing)
+            _close_today(loser, by=winner, today=today)
+        else:  # both true — different context
+            for c in (existing, new):
+                if not c.context or c.context == "general":
+                    c.context = f"as of {c.valid_from or today}"
+        efm = entity.frontmatter
+        efm["last_referenced"] = today
+        efm["version"] = int(efm.get("version", 1) or 1) + 1
+        markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+    path.unlink(missing_ok=True)
+    return entity_id, False, [f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/divergence/resolved)"]
+
+
+async def _resolve_normalization(path, parsed, request, settings, item_id: str) -> tuple[str, bool, list[str]]:
+    """G113 slice 3: confirm/reject a predicate fold `claim_reconciler` already
+    applied. `0` (correct fold) does nothing to the bank — the fold already
+    happened at extraction time, so the resolve is a pure acknowledgement.
+    `1` (wrong fold) is the substantive branch: it un-merges the raw label
+    from `_predicates.yaml`'s synonym map, adds it as its own canonical
+    predicate (R4 — never delete the entity's history, just stop folding the
+    label going forward), and repoints the one claim the nudge was raised for
+    back onto the raw (now canonical) predicate.
+    """
+    from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
+
+    fm = parsed.frontmatter
+    entity_id = _opt_str(fm.get("entity_id")) or ""
+    key = (request.option_key or "").strip()
+    if request.action == "skip":
+        return entity_id, True, []
+    extra: list[str] = []
+    if key == "1":  # wrong fold — keep the raw predicate separate
+        import yaml
+
+        raw = _opt_str(fm.get("raw_predicate")) or ""
+        # `predicates` is already imported at module scope; local imports here
+        # match `_resolve_conflict`'s style (`Claim`/`write_claims` imported
+        # locally too) so a divergence/normalization resolve never becomes a
+        # hard module-load dependency for the rest of this file.
+        raw_slug = predicates._slugify_predicate(raw)
+        if raw_slug:
+            runtime = settings.memory_path / predicates.RUNTIME_FILE
+            data = predicates._read_runtime_map(settings.memory_path)
+            syn = {str(k): v for k, v in (data.get("synonyms") or {}).items()}
+            for k in list(syn):
+                if k.strip().lower() in (raw.strip().lower(), raw_slug):
+                    syn.pop(k)
+            canonical = [str(c) for c in (data.get("canonical") or [])]
+            if raw_slug not in canonical:
+                canonical.append(raw_slug)
+            data["synonyms"], data["canonical"] = syn, canonical
+            runtime.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            extra.append(f"{predicates.RUNTIME_FILE}: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+            entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+            claim_id = _opt_str(fm.get("claim_id"))
+            if entity_path.exists() and claim_id:
+                entity = markdown_parser.parse(entity_path)
+                try:
+                    claims = parse_claims(entity.body)
+                except MalformedClaimsBlockError:
+                    claims = []
+                hit = False
+                for c in claims:
+                    if c.id == claim_id:
+                        c.predicate = raw_slug
+                        hit = True
+                if hit:
+                    efm = entity.frontmatter
+                    efm["version"] = int(efm.get("version", 1) or 1) + 1
+                    markdown_parser.write(entity_path, efm, write_claims(entity.body, claims))
+                    extra.append(f"entities/{entity_id}.md: updated (source: {path.stem}, trigger: inbox/normalization/resolved)")
+    path.unlink(missing_ok=True)
+    return entity_id, False, extra
+
+
+async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
     Lifted verbatim — the source_date/_max_date chronology handling is already
-    correct. Returns ``(entity_id, skipped)``; ``skipped`` short-circuits the
-    commit in :func:`resolve`.
+    correct. Returns ``(entity_id, skipped, extra_lines)``; ``skipped``
+    short-circuits the commit in :func:`resolve`.
 
     ``resolve`` is accepted as an alias for ``answer`` (G60 §2.1): the MCP tool
     and the app's ``QuestionView`` send one verb for *every* kind carrying a
@@ -889,6 +1672,33 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         "entity_mention", ""
     )
     entity_id = parsed.frontmatter.get("entity_id", "") or sanitize_id(entity_mention)
+
+    # G113 slice 3b — "these are NOT the same entity" is a verdict on the
+    # *pair*, not a dismissal of the item: without this, deleting the file was
+    # the whole effect, and the next Sleep's `_create_duplicate_clarification`
+    # (or a dedup sweep) recreated the exact same question. Recording the pair
+    # in `_merge_rejected.yaml` lets both producers skip it going forward
+    # (R5). Checked before the rest of the dispatch chain and before
+    # `source_episode`/`today` are computed — a reject never touches an entity
+    # page, so none of that chronology bookkeeping is relevant here.
+    if request.action == "reject":
+        kind = str(parsed.frontmatter.get("kind", "") or "")
+        if kind != "merge_suggestion":
+            raise HTTPException(status_code=400, detail="reject is only valid on a merge_suggestion item")
+        other = _opt_str(parsed.frontmatter.get("merge_target_hint")) or (
+            sanitize_id(request.merge_target) if request.merge_target else ""
+        )
+        if not other:
+            raise HTTPException(status_code=400, detail="reject needs a merge target (hint or mergeTarget)")
+        from api.services import merge_rejections
+
+        merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+        path.unlink()
+        return (
+            entity_id,
+            False,
+            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)"],
+        )
 
     source_episode = str(parsed.frontmatter.get("source_episode", "") or "").strip()
     source_timestamp = str(
@@ -940,7 +1750,50 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             entity.frontmatter["version"] = (
                 int(entity.frontmatter.get("version", 1) or 1) + 1
             )
-            body = entity.body.rstrip() + f"\n\n{answer_text}"
+            # G113 slice 3c: a clarification answer used to land as prose
+            # only — invisible to the claim layer, so nothing downstream
+            # (conflict detection, decay, `GET /entities/{id}`'s claims) ever
+            # saw it. Write a `user_stated` claim alongside the prose,
+            # mirroring `_resolve_conflict`'s free-text branch exactly
+            # (same field list, same `_owner_observer` portability rail —
+            # G115 R7, no owner name hardcoded here).
+            predicate = _opt_str(parsed.frontmatter.get("predicate")) or "description"
+            from api.services.claims import (
+                Claim,
+                MalformedClaimsBlockError,
+                parse_claims,
+                strip_claims_block,
+                write_claims,
+            )
+
+            try:
+                claims = parse_claims(entity.body)
+            except MalformedClaimsBlockError:
+                claims = None
+            if claims is not None:
+                # The raw body has the ```claims fence at the very end;
+                # `entity.body.rstrip() + answer_text` would leave the new
+                # prose trailing AFTER the machine layer. Strip the fence for
+                # the prose append, then let `write_claims` put the
+                # (re-rendered) block back where it belongs.
+                prose = strip_claims_block(entity.body)
+                body = f"{prose}\n\n{answer_text}" if prose else answer_text
+                claims.append(Claim(
+                    id=_user_claim_id(entity_id, predicate, answer_text, today),
+                    text=predicates.predicate_phrase(
+                        predicate, entity.frontmatter.get("name", entity_id), answer_text
+                    ),
+                    subject=entity_id, predicate=predicate, object=answer_text, object_kind="literal",
+                    observer=_owner_observer(settings, settings.memory_path), source_trust="user_stated", origin="clarification",
+                    authored_by="user", confidence=0.95, valid_from=today, recorded_at=today,
+                ))
+                body = write_claims(body, claims)
+            else:
+                # A corrupt claims block: leave it byte-identical (never
+                # silently discard content this module cannot parse) and just
+                # append the prose, exactly as before this task — a claim
+                # write never blocks the user's answer.
+                body = entity.body.rstrip() + f"\n\n{answer_text}"
             markdown_parser.write(entity_path, entity.frontmatter, body)
         else:
             entity_type = str(
@@ -1070,9 +1923,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             entity_id = survivor_slug
 
     elif action == "skip":
-        return entity_id, True
+        return entity_id, True, []
 
     else:
         raise HTTPException(400, f"Unknown action: {request.action}")
 
-    return entity_id, False
+    return entity_id, False, []

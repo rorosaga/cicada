@@ -199,3 +199,49 @@ def test_the_request_model_rejects_an_unknown_class():
 def test_the_request_model_accepts_both_camel_and_snake_case_bodies():
     assert EntityDecayUpdate(**{"decayClass": "durable"}).decay_class is DecayClass.durable
     assert EntityDecayUpdate(**{"decay_class": "durable"}).decay_class is DecayClass.durable
+
+
+# --- G147: the derived pace (plan R-FD9, R-FD11) -------------------------------
+
+from datetime import date as _date, datetime as _datetime, timedelta as _timedelta  # noqa: E402
+
+from api.services import conflict_resolver, decay_policy, decay_tuning  # noqa: E402
+
+
+def _weekly(n: int) -> list[str]:
+    return [f"ep_{(_date(2026, 3, 2) + _timedelta(days=7 * i)).isoformat()}_001" for i in range(n)]
+
+
+def test_entity_response_carries_the_derived_decay_block(tmp_path):
+    repo = _memory(tmp_path, decay_class="active", source_episodes=_weekly(12))
+    resp = run(entities_router.get_entity("mongodb", settings=_FakeSettings(repo)))
+    rate = round(0.05 * decay_policy.stability(12), 6)
+    assert resp.model_dump(mode="json")["decay"] == {
+        "class": "active", "effectiveRatePerWeek": rate, "mentionWeeks": 12,
+    }
+    assert resp.decay_rate == 0.05  # the base keeps its meaning for older readers
+
+
+def test_the_decay_block_reads_the_bank_pace_and_evergreen_is_zero(tmp_path):
+    repo = _memory(tmp_path)  # a `tool`, active, no episodes
+    decay_tuning.save(repo, {"tool": 0.5})
+    resp = run(entities_router.get_entity("mongodb", settings=_FakeSettings(repo)))
+    assert resp.decay.effective_rate_per_week == 0.025
+    media = _memory(tmp_path / "second", type="media")
+    assert run(entities_router.get_entity("mongodb", settings=_FakeSettings(media))).decay.effective_rate_per_week == 0.0
+
+
+def test_the_card_and_the_pass_agree(tmp_path):
+    repo = _memory(tmp_path, decay_class="active", confidence=0.8, source_episodes=_weekly(4))
+    resp = run(entities_router.get_entity("mongodb", settings=_FakeSettings(repo)))
+
+    class _Sleep(_FakeSettings):
+        archive_threshold = 0.2
+        decay_nudge_threshold = 0.4
+
+    fm = markdown_parser.parse(repo / "entities" / "mongodb.md").frontmatter
+    changes = run(conflict_resolver.resolve_and_prune(
+        [], [{"id": "mongodb", "frontmatter": fm, "body": ""}], _Sleep(repo),
+        now=_datetime(2026, 9, 1),
+    ))
+    assert 0.8 - changes[0]["new_confidence"] == pytest.approx(resp.decay.effective_rate_per_week, abs=1e-6)

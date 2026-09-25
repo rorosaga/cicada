@@ -11,10 +11,15 @@ import WebKit
 final class ClickableWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    /// Track I T5 (D10, R-IA24): a WKWebView registers for file drags itself and
+    /// would load a dropped export INTO the canvas. Never registering lets the drop
+    /// fall through to the window's one intake.
+    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {}
 }
 
 struct GraphView: NSViewRepresentable {
     @Environment(GraphViewModel.self) private var viewModel
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -26,14 +31,6 @@ struct GraphView: NSViewRepresentable {
         webView.layer?.backgroundColor = .clear
 
         // Load bundled HTML
-        // TODO(G26): theme graph.js webview. The SwiftUI chrome is now
-        // light/dark switchable (CicadaTheme.mode), but this WKWebView loads
-        // a static graph/index.html + graph.js that hard-codes the dark d3
-        // canvas palette. Follow-up: either postMessage the active
-        // AppColorScheme into the page (bridge already exists via
-        // `cicada` in WKUserContentController, see Coordinator below) and
-        // have graph.js swap its color constants, or accept the graph
-        // staying dark for now as scoped.
         if let resourceURL = Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html") {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }
@@ -43,6 +40,52 @@ struct GraphView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        // Mirror the toolbar's sticky pan mode into graph.js. Idempotent on the
+        // JS side, so re-sending on every update is harmless; only push once
+        // the page is ready (before that, graph.js has no setPanToggle yet).
+        if viewModel.isGraphReady, context.coordinator.lastPanMode != viewModel.panModeOn {
+            context.coordinator.lastPanMode = viewModel.panModeOn
+            webView.evaluateJavaScript("setPanToggle(\(viewModel.panModeOn))", completionHandler: nil)
+        }
+
+        // Quiet the hover highlight while the entity column is open (the owner's 2026-09-03 rule; R-DG10).
+        let cardOpen = viewModel.selectedEntity != nil
+        if viewModel.isGraphReady, context.coordinator.lastHoverSuppressed != cardOpen {
+            context.coordinator.lastHoverSuppressed = cardOpen
+            webView.evaluateJavaScript("setHoverSuppressed(\(cardOpen))", completionHandler: nil)
+        }
+
+        // Track P R11 — the canvas follows the app's colour scheme.
+        // `@Environment(\.colorScheme)` rather than a static `CicadaTheme.mode`
+        // read: `CicadaApp.swift` sets `.preferredColorScheme` from the
+        // persisted mode, so the environment value tracks it exactly — AND an
+        // environment change is what reliably re-runs `updateNSView` on an
+        // NSViewRepresentable, which reading an @Observable static in here
+        // would not. Guarded on `isGraphReady` like every other push (before
+        // that, graph.js has no `setTheme` yet) and latched on the
+        // coordinator so an unrelated update never re-sends.
+        let theme = colorScheme == .light ? "light" : "dark"
+        if viewModel.isGraphReady, context.coordinator.lastTheme != theme {
+            context.coordinator.lastTheme = theme
+            webView.evaluateJavaScript("setTheme(\"\(theme)\")", completionHandler: nil)
+        }
+
+        // G123: land on a searched node (R-DG25 — the id is a JSON literal).
+        if viewModel.isGraphReady, let id = viewModel.pendingReveal {
+            webView.evaluateJavaScript(GraphJS.revealNode(id), completionHandler: nil)
+            DispatchQueue.main.async { self.viewModel.pendingReveal = nil }
+        }
+
+        // DS-3a R-DG9 — the open entity's node: a neutral ring, kept in view as the column narrows the
+        // canvas. Latched like the theme so an unrelated update never re-sends. AFTER the reveal on purpose:
+        // `revealEntity` sets both in one update, and graph.js's reveal must hold the transform first.
+        let selected = viewModel.selectedEntity?.id
+        if viewModel.isGraphReady, !context.coordinator.hasPushedSelection || context.coordinator.lastSelected != selected {
+            context.coordinator.hasPushedSelection = true
+            context.coordinator.lastSelected = selected
+            webView.evaluateJavaScript(GraphJS.setSelectedNode(selected), completionHandler: nil)
+        }
+
         // Handle zoom actions from Swift UI
         if let action = viewModel.zoomAction {
             let jsCall: String
@@ -109,6 +152,14 @@ struct GraphView: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, WKScriptMessageHandler {
+        var lastPanMode = false
+        var lastHoverSuppressed = false
+        /// Latched so a theme push happens once per actual flip, never on
+        /// every unrelated `updateNSView` (R11).
+        var lastTheme: String?
+        /// DS-3a R-DG9 — the last open-entity id pushed to `setSelectedNode`, latched like `lastTheme`.
+        var lastSelected: String?
+        var hasPushedSelection = false
         let viewModel: GraphViewModel
         var webView: WKWebView?
         var isGraphReady = false
@@ -122,41 +173,27 @@ struct GraphView: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            guard let bodyString = message.body as? String,
-                  let data = bodyString.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = json["type"] as? String
-            else { return }
-
+            guard let parsed = GraphMessage.parse(message.body) else { return }
             DispatchQueue.main.async { [self] in
-                switch type {
-                case "graphReady":
+                switch parsed {
+                case .graphReady:
                     isGraphReady = true
                     viewModel.isGraphReady = true
                     pushGraphData()
-
-                case "nodeClicked":
-                    if let id = json["id"] as? String {
-                        viewModel.selectEntity(id: id)
-                    }
-
-                case "hubExpanded":
-                    // Hub tapped while in hubs-only paint: zoom into its
-                    // 1-hop neighborhood instead of opening a detail card.
-                    if let id = json["id"] as? String {
-                        webView?.evaluateJavaScript("setFocus('\(id)', 1)", completionHandler: nil)
-                    }
-
-                case "nodeFocused", "focusCleared":
-                    // Informational — focus state lives in JS.
-                    break
-
-                case "jsError":
-                    let stack = json["stack"] as? String ?? ""
-                    print("Graph JS error: \(json["message"] as? String ?? "?") @ \(json["source"] as? String ?? "?"):\(json["line"] as? Int ?? 0):\(json["col"] as? Int ?? 0)\(stack.isEmpty ? "" : "\n\(stack)")")
-
-                default:
-                    break
+                case .nodeClicked(let id):
+                    viewModel.selectEntity(id: id)
+                case .hubExpanded(let id):
+                    // Hub tapped while in hubs-only paint: zoom into its 1-hop neighbourhood instead of
+                    // opening a card.
+                    webView?.evaluateJavaScript(GraphJS.setFocus(id, hops: 1), completionHandler: nil)
+                case .backgroundClicked:
+                    viewModel.receive(.backgroundClicked)
+                case .escape:
+                    viewModel.receive(.escape)
+                case .nodeFocused, .focusCleared:
+                    break   // informational — focus state lives in JS
+                case .jsError(let detail):
+                    print("Graph JS error: \(detail)")
                 }
             }
         }

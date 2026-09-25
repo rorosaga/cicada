@@ -1,0 +1,905 @@
+"""G117 — a checked-in synthetic demo bank: fictional people/projects/tools,
+placeholder names only (`bob-example`, `alpha-project`, `example.com` — the
+standing privacy rule), so a fresh viewer can try Sleep/Inbox/decay/graph
+before wiring their own life in.
+
+R7 (binding): fully deterministic, no LLM call and no `random` anywhere in
+this module — every id, sentence and count below is a Python literal or a
+plain deterministic loop over one, so `test_demo_bank.py` can assert exact
+counts and exact filenames and get the same answer on every run, on every
+machine. The one non-literal piece is "today": every episode/entity date is
+relative to it so a demo bank always looks freshly captured rather than
+visibly stale the day after it ships. `populate(today=)` pins it (G141
+R-PJB7) — the project-timeline tests assert literal values ("quiet 24 days",
+Q = 20) that must not depend on the day the suite ran; omitted, it is
+`date.today()`.
+
+Reuses production writers end to end rather than hand-rolling shapes that
+would drift from them:
+  - `episode_ids.next_episode_id` / `utc_now_iso` (G114) for episode ids —
+    the same collision-free rule every real capture writer uses.
+  - `entity_body.compose_body_v2` + `decay_policy.frontmatter_fields` for
+    entity pages — byte-identical structure to a Stage-1-created page.
+  - `owner_identity.ensure_owner_entity` for the placeholder owner
+    (`bob-example`) — so the demo bank's owner page and a real onboarded
+    bank's owner page are ONE code path, not two things to keep in sync.
+  - `agentic_write.write_claim` for the handful of claims below — the G118
+    evidence-span verification (`api.services.evidence`) runs for real
+    against the episode bodies just written, exactly as it would for a live
+    bank, instead of a hand-rolled offset that could silently drift from
+    what `evidence.locate` actually does.
+"""
+from __future__ import annotations
+
+import asyncio
+import subprocess
+from datetime import date, timedelta
+from pathlib import Path
+
+from api.services import (decay_policy, demo_guard, demo_showcase, entity_body, episode_ids, episode_scrub,
+                          episode_staging, fact_sources, git_service, markdown_parser, owner_identity)
+from api.services.agentic_write import write_claim
+
+# --- Entity roster (~60 total + the owner page `ensure_owner_entity` adds) --
+#
+# `bob-example` is deliberately ABSENT from `_PEOPLE`: it is reserved for
+# `ensure_owner_entity` below, which either creates a fresh evergreen owner
+# page or (Task 1's R3) merges into an existing one — a name that already has
+# a generic `_write_entities` page would take the WRONG branch and end up
+# `decay_class: active` instead of the owner's `evergreen`, breaking the
+# byte-identical-to-a-real-bank promise R7 asks for.
+_PEOPLE = [
+    "carol-example", "dana-example", "erin-example", "frank-example", "grace-example",
+    "henry-example", "iris-example", "jack-example", "karen-example", "leo-example",
+    "maria-example", "nina-example", "oscar-example", "paula-example", "quinn-example",
+]  # 15
+_PROJECTS = [
+    "alpha-project", "beta-project", "gamma-project", "delta-project", "epsilon-project",
+    "zeta-project", "eta-project", "theta-project", "iota-project", "kappa-project",
+    "lambda-project", "mu-project",
+]  # 12
+_TOOLS = [f"tool-example-{c}" for c in "abcdefghij"]  # 10
+_COMPANIES = [
+    "acme-example", "globex-example", "initech-example", "umbrella-example",
+    "stark-example", "wayne-example", "hooli-example", "soylent-example",
+]  # 8
+_CONCEPTS = [
+    "deep-work", "spaced-repetition", "code-review", "pair-programming", "dark-mode",
+    "minimalism", "morning-routine", "note-taking", "remote-work", "open-source",
+    "async-communication", "first-principles", "design-systems", "test-driven-development",
+    "knowledge-management",
+]  # 15
+
+_ALL_ENTITIES = _PEOPLE + _PROJECTS + _TOOLS + _COMPANIES + _CONCEPTS  # 60
+
+_ORIGINS = ("claude-code", "safari-tab", "telegram", "rss")
+
+# G61 phase 2 S0 (plan R-AC26): the works-at conflict (`inbox-003`) gets one
+# person-added source, so a freshly generated demo shows the derived hint.
+_SOURCED_SUBJECT = "dana-example"
+_SOURCED_REF = "https://example.com/dana-example/team"
+
+# One sentence skeleton per episode "slot" (i % len), each naming three
+# entities by DISPLAY NAME only — episodes are raw, unlinked text per the
+# Awake/Sleep split (CLAUDE.md), never a `[[wikilink]]`. Cycling through a
+# fixed, small set of literal templates over a fixed entity rotation is what
+# keeps this deterministic (R7) without hand-typing 40 unique paragraphs.
+_EPISODE_SENTENCES = [
+    "Spent the afternoon pairing on {a} with {b} — {c} kept coming up as the thing to fix next.",
+    "Quick sync about {a}: {b} is blocking progress, so we talked through using {c} instead.",
+    "{a} and {b} were the whole conversation today, with {c} left as the open question.",
+    "Caught up on {a}. {b} is going well; still deciding whether {c} is worth adopting.",
+    "Read through notes on {a} before deciding {b} needs {c} to move forward.",
+    "Debated {a} versus {b} for a while, then circled back to {c} as the practical answer.",
+    "{a} shipped a small update today, and {b} noticed it now depends on {c}.",
+    "Long thread about {a}: {b} thinks {c} is the missing piece.",
+    "Reviewed {a} with {b}; the takeaway was that {c} needs more attention.",
+    "Planning session for {a}, where {b} and {c} both came up as dependencies.",
+]
+
+
+def populate(bank_dir: Path, today: date | None = None) -> None:
+    """Fill an already-scaffolded (``bank_registry.scaffold_bank``) empty
+    bank directory with the full synthetic graph: entities, episodes, inbox
+    items, the placeholder owner, a handful of evidenced claims, and real git
+    history. Idempotent only in the trivial sense that every write here is a
+    fresh-file write — calling this twice on the same dir just re-stamps the
+    same content (the router's ``POST /banks/demo`` never calls this for a
+    bank that exists — it re-opens a generated demo and refuses a real bank
+    named ``demo``, round 4 T-Demo — so this never needs to guard itself).
+
+    ``today`` (G141 R-PJB7) pins every relative date, ``recorded_at`` included.
+
+    The bank is marked demo FIRST (`demo_guard.write_manifest`, G141
+    capture-side track R-CS10), so a populate that fails half-way still
+    leaves a bank every capture writer refuses."""
+    bank_dir = Path(bank_dir)
+    today = today or date.today()
+    demo_guard.write_manifest(bank_dir)
+    _write_entities(bank_dir, today)
+    episodes = _write_episodes(bank_dir, today)
+    _write_inbox(bank_dir, episodes, today)
+    owner_identity.ensure_owner_entity(bank_dir, "Bob Example")
+    _write_claims_with_evidence(bank_dir, episodes, today)
+    _commit_history(bank_dir, today)
+    scenario = _write_scenario(bank_dir, today)
+    _commit_scenario(bank_dir, today, scenario)
+    _write_scenario_backlog(bank_dir, today)   # G150 R-B26 — before the events: a test reads their commits as newest
+    _expire_scenario(bank_dir, today)
+    _write_scenario_events(bank_dir, today, scenario)
+    _write_scenario_person(bank_dir, today)
+    _write_scenario_followups(bank_dir, today)
+    _write_showcase(bank_dir, today)   # round 4 T-Demo — last, so no id or byte the scenario tests pin moves
+
+
+def _write_showcase(bank_dir: Path, today: date) -> None:
+    """Round 4 (T-Demo): one of every thing a viewer should meet — pictures, a video, an article, a paper, a calendar
+    day, a tab group, signed beliefs, every inbox kind (`demo_showcase`). A step of its own so the scenario tests turn
+    it off by name (`_demo_scenario._STEPS`), as they do the G141 steps."""
+    demo_showcase.write(bank_dir, today, commit=_run_commit)
+
+
+def _roster_day(kind: str, entity_id: str, day: date) -> str:
+    """The day a roster page was created and last mentioned. The people the showcase draws pictures for
+    (`demo_showcase.PICTURED_PEOPLE`) are the ones the demo's today is about — Leo's conversation, the calendar's
+    standup, lunch and paper reading — so they are dated today; the rest of the roster's people, yesterday. Clusters
+    orders a card recently mentioned first, A→Z on a tie (R-PE13): with every person tied on today, the People card
+    opened on six alphabetical monograms and the showcase's pictures sat out of sight. One day is data the app already
+    reads honestly; nothing decays or goes quiet over it."""
+    if kind == "person" and entity_id not in demo_showcase.PICTURED_PEOPLE:
+        return str(day - timedelta(days=1))
+    return str(day)
+
+
+def _write_entities(bank_dir: Path, day: date) -> None:
+    for kind, ids in (
+        ("person", _PEOPLE),
+        ("project", _PROJECTS),
+        ("tool", _TOOLS),
+        ("company", _COMPANIES),
+        ("concept", _CONCEPTS),
+    ):
+        for entity_id in ids:
+            when = _roster_day(kind, entity_id, day)
+            fm = {
+                "name": entity_id.replace("-", " ").title(),
+                "type": kind,
+                "status": "active",
+                "confidence": 0.7,
+                "created": when,
+                "last_referenced": when,
+                **decay_policy.frontmatter_fields(decay_policy.default_class_for(kind)),
+                "source_episodes": [],
+                "tags": [],
+                "related": [],
+                "version": 1,
+                "layout_version": 2,
+            }
+            body = entity_body.compose_body_v2(
+                summary=f"A synthetic {kind} for trying Cicada.",
+                key_facts=[], history_entries=[], related=[], links=[], open_questions=[],
+            )
+            markdown_parser.write(bank_dir / "entities" / f"{entity_id}.md", fm, body)
+
+
+def _write_episodes(bank_dir: Path, day: date) -> list[dict]:
+    """~40 episodes across the four capture origins the plan names, dated
+    over the last ~30 days. Returns the written records (id, sentence, the
+    three entities it names) so ``_write_inbox``/``_write_claims_with_evidence``
+    can cite REAL episode ids and REAL verbatim substrings rather than
+    inventing their own — the same "cite what was actually written" shape a
+    live bank's Sleep cycle produces.
+    """
+    episodes_dir = bank_dir / "episodes"
+    today = day
+    n = len(_ALL_ENTITIES)
+    records: list[dict] = []
+    for i in range(40):
+        day_offset = i % 30
+        ep_date = today - timedelta(days=day_offset)
+        ep_date_str = str(ep_date)
+        ep_id = episode_ids.next_episode_id(episodes_dir, ep_date_str)
+
+        a_id, b_id, c_id = (
+            _ALL_ENTITIES[(i * 3) % n],
+            _ALL_ENTITIES[(i * 3 + 7) % n],
+            _ALL_ENTITIES[(i * 3 + 13) % n],
+        )
+        a, b, c = (x.replace("-", " ").title() for x in (a_id, b_id, c_id))
+        sentence = _EPISODE_SENTENCES[i % len(_EPISODE_SENTENCES)].format(a=a, b=b, c=c)
+        origin = _ORIGINS[i % len(_ORIGINS)]
+        # Older episodes read as already consolidated by a past Sleep cycle;
+        # the most recent ~6 days' worth are left `processed: false` so a
+        # fresh viewer's Sleep/Inbox pages have a real, non-empty queue to
+        # show rather than every episode already settled.
+        processed = day_offset > 5
+
+        fm: dict = {
+            "id": ep_id,
+            "timestamp": f"{ep_date_str}T09:00:00+00:00",
+            "processed": processed,
+            "origin": origin,
+            "title": f"Notes on {a}",
+        }
+        if processed:
+            fm["processed_by"] = "sleep"
+        if origin == "claude-code":
+            fm["harness"] = "claude-code"
+            fm["session_id"] = f"ses_demo_{i:03d}"
+
+        body = episode_scrub.scrub_body(f"user: {sentence}", writer="demo", bank=episodes_dir.parent.name)
+        markdown_parser.write(episodes_dir / f"{ep_id}.md", fm, body)
+        records.append({"id": ep_id, "sentence": sentence, "entities": (a_id, b_id, c_id), "date": ep_date_str})
+    return records
+
+
+# --- Inbox: 6 items across the four `kind`s (G60 question-object shape) ----
+
+
+def _write_inbox(bank_dir: Path, episodes: list[dict], day: date) -> None:
+    inbox_dir = bank_dir / "inbox"
+    today = str(day)
+    stale = str(day - timedelta(days=45))
+    merge_source = episodes[0]
+
+    # Two `decay` items: minimal shape (CLAUDE.md — decay is SERVED as a
+    # question, synthesised at read from the subject's own `last_referenced`,
+    # and must never be WRITTEN with an `options`/`question` payload — G115
+    # R5). `beta-project`/`gamma-project` both exist as real entity pages.
+    markdown_parser.write(
+        inbox_dir / "inbox-001.md",
+        {
+            "kind": "decay", "status": "pending", "priority": 0.3,
+            "entity_id": "beta-project", "entity_name": "Beta Project",
+            "title": "No recent mentions of Beta Project", "created_date": stale,
+        },
+        "No recent mentions.",
+    )
+    markdown_parser.write(
+        inbox_dir / "inbox-002.md",
+        {
+            "kind": "decay", "status": "pending", "priority": 0.25,
+            "entity_id": "gamma-project", "entity_name": "Gamma Project",
+            "title": "No recent mentions of Gamma Project", "created_date": stale,
+        },
+        "No recent mentions.",
+    )
+
+    # Two `conflict` items: full G60 question-object shape, modelled on
+    # `test_inbox_questions.py`'s `_conflict_fm` fixture.
+    markdown_parser.write(
+        inbox_dir / "inbox-003.md",
+        {
+            "kind": "conflict", "required_input": "choice", "status": "pending",
+            "entity_id": "dana-example", "entity_name": "Dana Example",
+            "title": "Where does Dana Example work now?",
+            "question": "Where does Dana Example work now?",
+            "predicate": "works-at", "created_date": today, "claim_id": "clm_demo_new",
+            "options": [
+                {"key": "a", "label": "Acme Example", "claim_id": "clm_demo_old"},
+                {"key": "b", "label": "Globex Example", "claim_id": "clm_demo_new"},
+                {"key": "both", "label": "Both are true (different contexts)"},
+            ],
+        },
+        "Conflicting employer claims.",
+    )
+    markdown_parser.write(
+        inbox_dir / "inbox-004.md",
+        {
+            "kind": "conflict", "required_input": "choice", "status": "pending",
+            "entity_id": "alpha-project", "entity_name": "Alpha Project",
+            "title": "What does Alpha Project use now?",
+            "question": "What does Alpha Project use now?",
+            "predicate": "uses", "created_date": today, "claim_id": "clm_demo_new2",
+            "options": [
+                {"key": "a", "label": "Tool Example A", "claim_id": "clm_demo_old2"},
+                {"key": "b", "label": "Tool Example B", "claim_id": "clm_demo_new2"},
+                {"key": "both", "label": "Both are true (different contexts)"},
+            ],
+        },
+        "Conflicting tooling claims.",
+    )
+
+    # One `clarification`: an ambiguous mention with no page yet — modelled
+    # on `test_inbox_load_gate.py`'s clarification fixture (`entity_id` need
+    # not resolve to a real page; a clarification is never gated on one).
+    markdown_parser.write(
+        inbox_dir / "inbox-005.md",
+        {
+            "kind": "clarification", "status": "pending",
+            "entity_id": "sam-unclear", "entity_name": "Sam",
+            "title": "Who is Sam?", "uncertainty_type": "who is this",
+            "options": [], "created_date": today,
+        },
+        "A name came up with no existing page to attach it to.",
+    )
+
+    # One `merge_suggestion`: modelled on
+    # `test_merge_direction_and_location.py`'s fixture — a mention that looks
+    # like a near-duplicate of an existing tool page.
+    markdown_parser.write(
+        inbox_dir / "inbox-006.md",
+        {
+            "kind": "merge_suggestion", "required_input": "merge", "status": "pending",
+            "entity_name": "Tool Example A (CLI)", "entity_id": "tool-example-a-cli",
+            "merge_target_hint": "tool-example-a",
+            "source_episode": merge_source["id"], "source_episode_timestamp": f"{merge_source['date']}T09:00:00+00:00",
+            "created_date": today,
+        },
+        "Possible duplicate of an existing tool page.",
+    )
+
+
+# --- Claims: ~10 write_claim calls with real, verbatim evidence quotes -----
+
+# (subject entity id, predicate, object, index into `episodes` to cite).
+# Every subject here is a real page from `_write_entities`/`ensure_owner_entity`
+# so `write_claim`'s `resolve_entity_file` hits its rung-1 exact-slug match —
+# no near-match/ambiguous-subject branch, no incidental new page.
+_CLAIM_SPECS: tuple[tuple[str, str, str, int], ...] = (
+    ("carol-example", "uses", "Tool Example A", 0),
+    ("alpha-project", "depends-on", "Tool Example B", 1),
+    ("dana-example", "works-at", "Globex Example", 2),
+    ("beta-project", "part-of", "Alpha Project", 3),
+    ("erin-example", "prefers", "Dark Mode", 4),
+    ("gamma-project", "uses", "Tool Example C", 5),
+    ("frank-example", "works-with", "Grace Example", 6),
+    ("deep-work", "description", "protecting long blocks of focused time", 7),
+    ("acme-example", "located-in", "a remote-first office", 8),
+    ("bob-example", "works-on", "Alpha Project", 9),
+)
+
+
+def _write_claims_with_evidence(bank_dir: Path, episodes: list[dict], today: date) -> None:
+    """Every subject but the owner's own is written with ``observer="agent"``
+    — these read as Stage-1 extraction, matching the `Cicada-Author:
+    <model>` "Sleep cycle" commits `_commit_history` folds them into below.
+    `bob-example` (the placeholder owner) gets the portable ``"owner"``
+    keyword instead, so its ONE claim resolves to `source_trust:
+    "user_stated"` (`agentic_write.py`'s trust gate) and lands, honestly, in
+    the dedicated `Cicada-Author: user` commit — the demo bank's one visible
+    example of the two claim provenances the app actually distinguishes.
+    """
+    for subject, predicate, obj, idx in _CLAIM_SPECS:
+        record = episodes[idx]
+        observer = owner_identity.DEFAULT_OBSERVER if subject == "bob-example" else "agent"
+        write_claim(
+            bank_dir, subject, predicate, obj,
+            observer=observer,
+            confidence=0.75,
+            source_episode=record["id"],
+            evidence=[{"episode": record["id"], "quote": record["sentence"]}],
+            today=today,
+        )
+
+
+# --- Git history: real Cicada-Author/Cicada-Engine trailers ---------------
+
+
+def _run_commit(bank_dir: Path, message: str, paths: list[str]) -> None:
+    """Run one `git_service.commit_paths` to completion from this module's
+    plain-sync call sites.
+
+    CORRECTNESS TRAP (why this wrapper exists at all): `commit_paths` is
+    `async def` — it shells out via `asyncio.create_subprocess_exec`
+    (`git_service.py`'s `_run_git`) — while `populate()` above is plain sync,
+    called unawaited by `test_demo_bank.py` and via `run_in_threadpool`'s
+    dedicated worker thread from `POST /banks/demo`. Calling the coroutine
+    without awaiting it would silently create-and-drop a coroutine object and
+    commit nothing. This is the exact guarded pattern already established at
+    `calendar_registry.py:452-455` for a sync caller that needs one of these
+    coroutines to actually run; the `except RuntimeError` branch (no loop
+    running) is the only one either of this module's two call sites ever
+    hits — `run_in_threadpool`'s worker thread has no event loop of its own.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(git_service.commit_paths(bank_dir, message, paths))
+
+
+def _commit_history(bank_dir: Path, day: date) -> None:
+    """A handful of commits grouped roughly the way a real Sleep cycle would
+    write them, so `GET /contributors` and entity-history views have
+    something real to show on a bank that has never actually run Sleep.
+
+    `scaffold_bank` (called by the router before `populate`) already ran
+    `git init`, but sets no commit identity — a fresh CI or install machine
+    may have none configured globally, and this bank's history must be
+    reproducible independent of whatever happens to be in the operator's
+    `~/.gitconfig` (R7). Placeholder identity only, same class of value as
+    every other name in this module.
+    """
+    subprocess.run(
+        ["git", "-C", str(bank_dir), "config", "user.email", demo_guard.GENERATOR_EMAIL],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(bank_dir), "config", "user.name", "Cicada Demo"],
+        check=True, capture_output=True,
+    )
+    # R-CS10: the manifest is a fact about the bank, so it is versioned —
+    # committed alone, first, as `cicada` (no model wrote it, no person's words
+    # are in it). Untracked, the next `git add -A` would sweep it into a Sleep
+    # commit under a model's name (the G85 smear).
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            "Demo bank",
+            [f"{demo_guard.MANIFEST}: created (trigger: user/companion_app)"],
+            authors=["cicada"],
+        ),
+        [demo_guard.MANIFEST],
+    )
+
+    today = str(day)
+    earlier = str(day - timedelta(days=1))
+
+    people_and_projects = [f"entities/{eid}.md" for eid in _PEOPLE + _PROJECTS]
+    # Episode paths are re-derived from disk rather than threaded through as
+    # a parameter — this function only needs paths to commit, not the record
+    # dicts `_write_claims_with_evidence` needed for their sentence text.
+    all_episode_paths = sorted(p.relative_to(bank_dir).as_posix() for p in (bank_dir / "episodes").glob("*.md"))
+    first_half_episodes = all_episode_paths[:20]
+    second_half_episodes = all_episode_paths[20:]
+
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            f"Sleep cycle {earlier}",
+            [f"{p}: created (source: n/a, trigger: sleep/extraction)" for p in people_and_projects + first_half_episodes],
+            authors=["gpt-5.4-mini"],
+            engine="litellm",
+        ),
+        people_and_projects + first_half_episodes,
+    )
+
+    tools_companies_concepts = [f"entities/{eid}.md" for eid in _TOOLS + _COMPANIES + _CONCEPTS]
+    inbox_paths = sorted(p.relative_to(bank_dir).as_posix() for p in (bank_dir / "inbox").glob("*.md"))
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            f"Sleep cycle {today}",
+            [f"{p}: created (source: n/a, trigger: sleep/extraction)"
+             for p in tools_companies_concepts + second_half_episodes + inbox_paths],
+            authors=["claude-sonnet-5"],
+            engine="claude-cli",
+        ),
+        tools_companies_concepts + second_half_episodes + inbox_paths,
+    )
+
+    # The owner page ONLY. `entities/bob-example.md` is never referenced by
+    # the two commits above (`bob-example` is excluded from `_PEOPLE` — see
+    # that list's docstring) and its ONE claim (`bob-example works-on Alpha
+    # Project`) is the only `_CLAIM_SPECS` row written with
+    # `observer=owner_identity.DEFAULT_OBSERVER` rather than `"agent"` — so
+    # this file's entire diff is genuinely `Cicada-Author: user` content,
+    # not a relabelled slice of what the two Sleep-cycle commits already
+    # cover (folding an already-committed, unchanged path into a second
+    # commit would stage nothing for it and silently understate what that
+    # commit's own manifest claims to contain).
+    owner_path = ["entities/bob-example.md"]
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            "Owner identity + starter claim",
+            [f"{p}: created (trigger: user/companion_app)" for p in owner_path],
+            authors=["user"],
+        ),
+        owner_path,
+    )
+
+    # G61 phase 2 S0: a person-added fact source, committed ALONE as the person's
+    # — the shape `POST /entities/{id}/sources` commits
+    # (`routers/entities._commit_sources`) — so it never rides a model-authored
+    # "Sleep cycle" commit above.
+    fact_sources.add_source(bank_dir, _SOURCED_SUBJECT, _SOURCED_REF, kind="url",
+                            predicate="works-at", added_by="user", added_at=today)
+    sourced = [f"entities/{_SOURCED_SUBJECT}.md"]
+    _run_commit(
+        bank_dir,
+        git_service.build_commit_message(
+            f"Add fact source {today}",
+            [f"{p}: updated (trigger: user/companion_app)" for p in sourced],
+            authors=["user"],
+        ),
+        sourced,
+    )
+
+# --- G141 scenario (spec §12): a planned robotics project, an unplanned one --
+#
+# Written AFTER the original 60 pages so their ids and sentences stay
+# byte-identical; the episodes are minted after `_write_episodes` through the
+# same `next_episode_id`, so no id is hard-coded. Every date is an offset from
+# `today`. Stand-ins (privacy rule): `hana-example` for <person-a>,
+# `pick-and-place-demo` for <demo-x>. Every URL is on example.com.
+
+_GUIDE_URL = "https://example.com/guides/lab-cluster-onboarding.pdf"
+
+# (id, type, display name, created offset, last_referenced offset, summary)
+_SCENARIO_PAGES = (
+    ("rover-arm-project", "project", "Rover Arm Project", -70, 0, "A small arm that picks parts off a tray."),
+    ("pick-and-place-demo", "project", "Pick And Place Demo", -35, 0, "The first demo of the rover arm picking a part."),
+    ("lab-cluster-example", "tool", "Lab Cluster Example", -1, 0, "The lab's shared compute cluster."),
+    ("hana-example", "person", "Hana Example", -1, 0, "A labmate who looks after the cluster."),
+    ("media-example-cluster-guide", "media", "Lab Cluster Onboarding Guide", -1, 0,
+     "A PDF that walks through connecting to the lab cluster."),
+    ("garden-sensor-project", "project", "Garden Sensor Project", -52, -9, "Soil sensors that report from the garden."),
+)
+
+# (key, offset, origin, session, hour UTC, user line, assistant line, turns sidecar?, processed?)
+_SCENARIO_EPISODES = (
+    ("S1", -70, "claude-code", "ses_demo_rover_01", 9,
+     "Started the Rover Arm Project today: a small arm that picks parts off a tray.", "Noted — a new project.", True, True),
+    ("S2", -63, "claude-code", "ses_demo_rover_01", 10,
+     "Plan for the Rover Arm Project: arm assembled by {m42}, first grasp by {m14}, the Pick And Place Demo "
+     "by {p12} and the lab showcase by {p40}.", "Four dates noted.", True, True),
+    ("S3", -45, "telegram", None, 11,
+     "The arm on the Rover Arm Project is fully assembled, running on Tool Example D.", "Great progress.", False, True),
+    ("S4", -35, "telegram", None, 12,
+     "Scoped the Pick And Place Demo as part of the Rover Arm Project.", "A good first milestone.", False, True),
+    ("S5", -24, "telegram", None, 13,
+     "Started calibrating the gripper camera on the Rover Arm Project with Tool Example F.", "Good luck.", False, True),
+    ("S6", -14, "telegram", None, 14,
+     "First grasp slipped: the Rover Arm Project leans on Tool Example E until the camera is calibrated.",
+     "Understood.", False, True),
+    ("S8", -1, "claude-code", "ses_demo_rover_03", 15,
+     "Lab Cluster Example will host the Pick And Place Demo: it has 4 GPU nodes, runs the Slurm-example "
+     "scheduler, and you log in at login.example.com.", "Noted the specs.", False, True),
+    ("S7", 0, "telegram", None, 16,
+     "Yesterday Hana Example sent me the lab cluster onboarding guide (" + _GUIDE_URL + "). It walks me "
+     "through connecting to Lab Cluster Example, and I'm connecting now so I can run the Pick And Place Demo.",
+     "Good luck with the login.", True, True),
+    # R-PJB8: S9 names the project too, so the Sleep queue's pending line counts it.
+    ("S9", 0, "claude-code", "ses_demo_rover_04", 17,
+     "Still connecting to Lab Cluster Example for the Pick And Place Demo; the login node asks for a key.",
+     "Try the key from the guide.", True, False),     # spec §12: S1, S2, S7 and S9 carry the sidecar
+    ("G1", -52, "telegram", None, 9,
+     "Started the Garden Sensor Project with Carol Example.", "Nice.", False, True),
+    ("G2", -30, "telegram", None, 9,
+     "The Garden Sensor Project now uses Tool Example C for the soil readings.", "Noted.", False, True),
+    ("G3", -9, "telegram", None, 9,
+     "The Garden Sensor Project reports every hour now, through Tool Example G.", "Nice.", False, True),
+)
+
+_SCENARIO_TITLES = {
+    "S1": "Starting the rover arm", "S2": "The rover arm plan", "S3": "Arm assembled", "S4": "Scoping the demo",
+    "S5": "Gripper camera", "S6": "First grasp slipped", "S7": "Notes on the lab cluster", "S8": "Lab cluster specs",
+    "S9": "Connecting to the cluster", "G1": "Garden sensors", "G2": "Soil readings", "G3": "Hourly reports",
+}
+
+# (episode key, subject, predicate, object, object_kind, claim text, quote). R-PJB22: a due's
+# date is a LITERAL here (Stage 1 writes a node, which draws a dangling edge to a date).
+_SCENARIO_CLAIMS = (
+    ("S1", "bob-example", "works-on", "rover-arm-project", "node", "Bob Example works on Rover Arm Project",
+     "Started the Rover Arm Project today"),
+    ("S2", "rover-arm-project", "due", "{m42}", "literal", "Arm assembled due {m42}", "arm assembled by {m42}"),
+    ("S2", "rover-arm-project", "due", "{m14}", "literal", "First grasp due {m14}", "first grasp by {m14}"),
+    ("S2", "pick-and-place-demo", "due", "{p12}", "literal", "Pick And Place Demo due {p12}",
+     "the Pick And Place Demo by {p12}"),
+    ("S2", "rover-arm-project", "due", "{p40}", "literal", "Lab showcase due {p40}", "the lab showcase by {p40}"),
+    ("S3", "rover-arm-project", "uses", "tool-example-d", "node", "Rover Arm Project uses Tool Example D",
+     "fully assembled, running on Tool Example D"),
+    ("S4", "pick-and-place-demo", "part-of", "rover-arm-project", "node",
+     "Pick And Place Demo is part of Rover Arm Project", "Scoped the Pick And Place Demo as part of the Rover Arm Project"),
+    ("S5", "rover-arm-project", "uses", "tool-example-f", "node", "Rover Arm Project uses Tool Example F",
+     "Started calibrating the gripper camera on the Rover Arm Project with Tool Example F"),
+    ("S6", "rover-arm-project", "uses", "tool-example-e", "node", "Rover Arm Project uses Tool Example E",
+     "the Rover Arm Project leans on Tool Example E"),
+    ("S8", "lab-cluster-example", "spec", "4 GPU nodes", "literal", "Lab Cluster Example has 4 GPU nodes", "it has 4 GPU nodes"),
+    ("S8", "lab-cluster-example", "spec", "Slurm-example scheduler", "literal",
+     "Lab Cluster Example runs the Slurm-example scheduler", "runs the Slurm-example scheduler"),
+    ("S8", "lab-cluster-example", "spec", "login.example.com", "literal",
+     "Lab Cluster Example logs in at login.example.com", "you log in at login.example.com"),
+    # R-PJB8: the node claim that lets the list's FTS path see the T-1 day, so list and detail agree.
+    ("S8", "lab-cluster-example", "hosts", "pick-and-place-demo", "node",
+     "Lab Cluster Example hosts Pick And Place Demo", "Lab Cluster Example will host the Pick And Place Demo"),
+    # The three S7 facts a moment leads with quote the WHOLE sentence (the §4.4 span): the lead rule's
+    # width tie-break then orders them by claim id, deterministically, ahead of the narrower one.
+    ("S7", "hana-example", "provides", "media-example-cluster-guide", "node",
+     "Hana Example provides Lab Cluster Onboarding Guide", "{s7}"),
+    ("S7", "pick-and-place-demo", "runs-on", "lab-cluster-example", "node",
+     "Pick And Place Demo runs on Lab Cluster Example", "{s7}"),
+    ("S7", "bob-example", "connects-to", "lab-cluster-example", "node", "Bob Example connects to Lab Cluster Example",
+     "{s7}"),
+    ("S7", "media-example-cluster-guide", "references", "lab-cluster-example", "node",
+     "Lab Cluster Onboarding Guide references Lab Cluster Example", "It walks me through connecting to Lab Cluster Example"),
+    ("G1", "bob-example", "works-on", "garden-sensor-project", "node", "Bob Example works on Garden Sensor Project",
+     "Started the Garden Sensor Project with Carol Example"),
+    ("G1", "carol-example", "works-on", "garden-sensor-project", "node", "Carol Example works on Garden Sensor Project",
+     "Started the Garden Sensor Project with Carol Example"),
+    ("G2", "garden-sensor-project", "uses", "tool-example-c", "node", "Garden Sensor Project uses Tool Example C",
+     "The Garden Sensor Project now uses Tool Example C"),
+    ("G3", "garden-sensor-project", "uses", "tool-example-g", "node", "Garden Sensor Project uses Tool Example G",
+     "reports every hour now, through Tool Example G"),
+)
+
+
+def _dates(today: date) -> dict[str, str]:
+    """The format fields every scenario string may use: four dates, and `s7`,
+    the owner's whole S7 sentence (a quote that is the entire user line)."""
+    s7 = next(e[5] for e in _SCENARIO_EPISODES if e[0] == "S7")   # (key, offset, origin, session, hour, USER, …)
+    return {"m42": str(today - timedelta(days=42)), "m14": str(today - timedelta(days=14)),
+            "p12": str(today + timedelta(days=12)), "p40": str(today + timedelta(days=40)), "s7": s7}
+
+
+def _write_scenario(bank_dir: Path, today: date) -> dict:
+    """Pages, episodes and ordinary claims — nothing an event writer adds (that
+    is PJ-3's). Returns ``{"episodes": {key: id}, "paths": [...]}``."""
+    from api.services import media_ingestor
+
+    ents, eps = bank_dir / "entities", bank_dir / "episodes"
+    paths: list[str] = []
+    for eid, etype, name, created, last, summary in _SCENARIO_PAGES:
+        cls = decay_policy.default_class_for(etype)       # media → evergreen (G66), the rest active
+        # 0.9 > the generic pages' 0.7, so `_state.md`'s top-7 project rows hold the scenario on any
+        # run day (`state_dictionary._score` divides both by the same age when last_referenced is T).
+        fm = {"name": name, "type": etype, "status": "active", "confidence": 0.9,
+              "created": str(today + timedelta(days=created)),
+              "last_referenced": str(today + timedelta(days=last)),
+              **decay_policy.frontmatter_fields(cls),
+              "source_episodes": [], "tags": [], "related": [], "version": 1, "layout_version": 2}
+        if etype == "media":
+            fm["media"] = {"url": _GUIDE_URL, "media_type": "document", "site": "example.com", "channel": None,
+                           "thumbnail": None, "saved_at": f"{today + timedelta(days=created)}T15:00:00+00:00",
+                           "url_hash": media_ingestor.url_hash(_GUIDE_URL)}
+        body = entity_body.compose_body_v2(summary=summary, key_facts=[], history_entries=[], related=[],
+                                           links=[], open_questions=[])
+        markdown_parser.write(ents / f"{eid}.md", fm, body)
+        paths.append(f"entities/{eid}.md")
+
+    dates = _dates(today)
+    ids: dict[str, str] = {}
+    for key, offset, origin, session, hour, user, assistant, stamped, processed in _SCENARIO_EPISODES:
+        day = str(today + timedelta(days=offset))
+        ep_id = episode_ids.next_episode_id(eps, day)
+        user_line = f"user: {user.format(**dates)}"
+        body = episode_scrub.scrub_body(f"{user_line}\nassistant: {assistant}", writer="demo", bank=bank_dir.name)
+        fm: dict = {"id": ep_id, "timestamp": f"{day}T{hour:02d}:00:00+00:00", "processed": processed,
+                    "origin": origin, "title": _SCENARIO_TITLES[key]}
+        if processed:
+            fm["processed_by"] = "sleep"
+        if origin == "claude-code":
+            fm["harness"] = "claude-code"
+        if session:
+            fm["session_id"] = session
+        if stamped:   # the episode_staging sidecar (R-PB4), through its one writer — always the LAST key
+            draft = episode_staging.EpisodeDraft(turns=[
+                episode_staging.Turn(text=user.format(**dates), speaker="user", ts=f"{day}T{hour:02d}:04:00+00:00"),
+                episode_staging.Turn(text=assistant, speaker="assistant", ts=f"{day}T{hour:02d}:05:00+00:00"),
+            ])
+            episode_staging.set_turn_stamps(fm, episode_staging.stamps_for(draft, body))
+        markdown_parser.write(eps / f"{ep_id}.md", fm, body)
+        ids[key] = ep_id
+        paths.append(f"episodes/{ep_id}.md")
+
+    for key, subject, predicate, obj, kind, text, quote in _SCENARIO_CLAIMS:
+        ep = ids[key]
+        write_claim(bank_dir, subject, predicate, obj.format(**dates), observer="agent", confidence=0.75,
+                    source_episode=ep, object_kind=kind, text=text.format(**dates),
+                    evidence=[{"episode": ep, "quote": quote.format(**dates)}], today=today)
+    for eid in ("bob-example", "carol-example"):
+        paths.append(f"entities/{eid}.md")
+    return {"episodes": ids, "paths": paths}
+
+
+def _commit_scenario(bank_dir: Path, today: date, scenario: dict) -> None:
+    _run_commit(bank_dir, git_service.build_commit_message(
+        f"Sleep cycle {today}",
+        [f"{p}: updated (source: n/a, trigger: sleep/extraction)" for p in scenario["paths"]],
+        authors=["gpt-5.4-mini"], engine="litellm"), scenario["paths"])
+
+
+def _expire_scenario(bank_dir: Path, today: date) -> None:
+    """The night the scenario's first two dates passed: expiry closes them, so
+    they read "passed, no word on how it went" (R-PJ4) — the shape a live bank
+    holds when a plan was never touched again."""
+    from api.services import claim_expiry
+
+    report = claim_expiry.expire(bank_dir, today)
+    if report.paths:
+        _run_commit(bank_dir, claim_expiry.commit_message(report, today), report.paths)
+
+
+# --- G141 PJ-3a (T5): the scenario's happenings, through the one event writer --
+#
+# (episode key, subject, sentence, status, when, participants, quote). The first
+# three are what a Sleep cycle extracts the night each was said; S7's two are
+# what an agent recorded live over MCP the evening the owner said them (§4.2).
+
+_SLEEP_EVENTS = (
+    ("S1", "rover-arm-project", "Bob started the Rover Arm Project", "done", None,
+     [{"role": "owner", "surface": "Bob"}], "Started the Rover Arm Project today"),
+    ("S3", "rover-arm-project", "The arm is fully assembled", "done", None, [],
+     "The arm on the Rover Arm Project is fully assembled"),
+    ("S5", "rover-arm-project", "Bob started calibrating the gripper camera", "ongoing", None,
+     [{"role": "owner", "surface": "Bob"}], "Started calibrating the gripper camera on the Rover Arm Project"),
+)
+_AGENT_EVENTS = (
+    ("S7", "pick-and-place-demo",
+     "Bob got the lab cluster onboarding guide from Hana Example; it walks through connecting to Lab Cluster Example",
+     "done", "yesterday",
+     [{"role": "owner", "surface": "Bob"},
+      {"role": "document", "surface": "lab cluster onboarding guide", "entity": "media-example-cluster-guide",
+       "url": _GUIDE_URL},
+      {"role": "from", "surface": "Hana Example", "entity": "hana-example"},
+      {"role": "about", "surface": "Lab Cluster Example", "entity": "lab-cluster-example"}],
+     "Yesterday Hana Example sent me the lab cluster onboarding guide (" + _GUIDE_URL + "). It walks me through "
+     "connecting to Lab Cluster Example"),
+    ("S7", "pick-and-place-demo", "Bob is connecting to Lab Cluster Example to run the Pick And Place Demo",
+     "ongoing", None,
+     [{"role": "owner", "surface": "Bob"}, {"role": "used", "surface": "Lab Cluster Example",
+                                           "entity": "lab-cluster-example"},
+      {"role": "for", "surface": "Pick And Place Demo", "entity": "pick-and-place-demo"}],
+     "I'm connecting now so I can run the Pick And Place Demo"),
+)
+_AGENT_SESSION = "ses_demo_rover_02"
+
+
+def _write_scenario_events(bank_dir: Path, today: date, scenario: dict) -> None:
+    """Five happenings through `progress.record_happening` — the writer every
+    live path uses, so the demo's events carry the same ids, spans, date bases
+    and born-closed validity as a real bank's — in two commits authored by who
+    wrote them: a Sleep-shaped one (model `gpt-5.4-mini`, each claim recorded
+    the night of its own episode, so a thread's quiet clock starts where a
+    real one would) and an `mcp/claude-code` one (spec §12).
+
+    Every call passes `tz_name="UTC"`, the scenario's own zone: on a machine
+    far from UTC a 13:00 UTC turn must not land on the next local day, and
+    `today`/`now` are pinned so no real clock reaches a page (R-PJB7)."""
+    from datetime import datetime, time, timezone
+
+    from api.services import progress
+
+    ids = scenario["episodes"]
+    offsets = {e[0]: e[1] for e in _SCENARIO_EPISODES}
+    origins = {e[0]: e[2] for e in _SCENARIO_EPISODES}
+
+    def run(rows, **who) -> list[tuple[str, str]]:
+        touched: list[tuple[str, str]] = []
+        for key, subject, text, status, when, participants, quote in rows:
+            ep = ids[key]
+            kw = dict(who)
+            if "today" not in kw:       # Sleep-shaped: recorded the night its episode was consolidated
+                kw.update(origin=origins[key], today=today + timedelta(days=offsets[key]))
+            result = progress.record_happening(
+                bank_dir, subject=subject, text=text, status=status, participants=participants, when=when,
+                evidence=[{"episode": ep, "quote": quote}], observer="agent", tz_name="UTC", **kw)
+            touched += [(p, ep) for p in result.get("paths") or []]
+        return touched
+
+    def commit(touched, subject: str, trigger: str, **trailers) -> None:
+        first: dict[str, str] = {}
+        for path, ep in touched:
+            first.setdefault(path, ep)
+        if first:
+            _run_commit(bank_dir, git_service.build_commit_message(
+                f"{subject} {today}",
+                [f"{p}: updated (source: {ep}, trigger: {trigger})" for p, ep in first.items()], **trailers),
+                list(first))
+
+    commit(run(_SLEEP_EVENTS, authored_by="gpt-5.4-mini"), "Sleep cycle", "sleep/extraction",
+           authors=["gpt-5.4-mini"], engine="litellm")
+    s7_day = today + timedelta(days=offsets["S7"])
+    commit(run(_AGENT_EVENTS, origin="mcp", authored_by="claude-code", session_id=_AGENT_SESSION, today=today,
+               now=datetime.combine(s7_day, time(18, 0), tzinfo=timezone.utc)),
+           "Agent write", "mcp/claude-code", authors=["claude-code"], sessions=[_AGENT_SESSION])
+
+
+def _write_scenario_person(bank_dir: Path, today: date) -> None:
+    """The person's two moves from the Projects page (spec §12, G141 PJ-3b):
+    the arm marked done three days before its date, and first grasp moved
+    after it slipped. Each goes through `progress.advance` exactly as
+    `routers/projects.py` calls it — `origin="companion_app"`, the resolved
+    owner as observer, `authored_by: user` — so `is_human` protects them as it
+    would a real tap (R-PJ18); `today` is pinned per move, so each is recorded
+    the day the person made it (R-PJB7). One commit, `Cicada-Author: user`,
+    trigger `user/companion_app` — what the app's own write commits."""
+    from api.services import progress
+
+    owner = owner_identity.resolve_observer(bank_dir, None)
+    rover = "rover-arm-project"
+    moves = (
+        dict(slug=f"due-{today - timedelta(days=42)}", status="done", on=today - timedelta(days=45),
+             today=today - timedelta(days=45)),
+        dict(slug=f"due-{today - timedelta(days=14)}", target=str(today + timedelta(days=8)),
+             on=today - timedelta(days=13), today=today - timedelta(days=13)),
+    )
+    paths: list[str] = []
+    for move in moves:
+        result = progress.advance(bank_dir, subject=rover, observer=owner, origin="companion_app",
+                                  authored_by="user", tz_name="UTC", **move)
+        paths += result.get("paths") or []
+    paths = list(dict.fromkeys(paths))
+    if paths:
+        _run_commit(bank_dir, git_service.build_commit_message(
+            f"Project update {today}", [f"{p}: updated (source: n/a, trigger: user/companion_app)" for p in paths],
+            authors=["user"]), paths)
+
+
+def _write_scenario_followups(bank_dir: Path, today: date) -> None:
+    """The night's follow-up (spec §12, G141 PJ-6): the gripper-camera thread
+    has been quiet 24 days against the project's Q of 20, so the engine-free
+    proposer asks "how did it go?" — exactly as Sleep's tail would, through
+    `followups.propose`, in its own `Follow-ups <date>` / `cicada` commit.
+    `tz_name="UTC"` like the rest of the scenario: a machine east of UTC+7
+    must not move S9's 17:00, or a turn stamp, onto the next local day and
+    change which thread is quiet."""
+    from api.services import followups
+
+    report = followups.propose(bank_dir, today, tz_name="UTC")
+    if report.written:
+        _run_commit(bank_dir, followups.commit_message(report, today), report.written)
+
+
+# --- G150 (R-B26): the scenario's backlog, through the one backlog writer ------
+#
+# (offset, author, session, title, triage, description), filed in this order so
+# the ids read RAP1…RAP5 oldest first; then (offset, item, author, session,
+# note, status). Every write commits at once under its own author, so an item
+# the person and an agent both touched keeps exact provenance.
+
+_BACKLOG_ITEMS = (
+    (-40, "user", None, "Write the assembly checklist", "apply",
+     "Assembly took three tries because nothing was written down. A checklist with the torque values and the "
+     "cable routing would make the next build one afternoon."),
+    (-20, "user", None, "Try a second tray camera", None,
+     "A second angle might help the grasp planner with parts that hide behind each other."),
+    (-12, "claude-code", _AGENT_SESSION, "Swap the gripper camera for a global-shutter one", "research",
+     "The gripper camera smears the tray edges when the arm moves at full speed, and calibration drifts "
+     "afterwards. A global-shutter camera should fix both; it has to fit the current wrist mount."),
+    (-6, "user", None, "Add a soft stop when the arm leaves the tray", "apply",
+     "The arm can swing past the tray's edge when a grasp fails. A soft stop at the tray bounds keeps it off "
+     "the bench."),
+    (-5, "claude-code", _AGENT_SESSION, "Pick a wrist servo", "decide",
+     "Two servos fit the wrist: a cheaper one with more backlash and a quieter one with less torque. It needs "
+     "the person's call."),
+)
+_BACKLOG_NOTES = (
+    (-30, "RAP1", "claude-code", _AGENT_SESSION, "The checklist is in the project notes, one step per line.",
+     "done"),
+    (-10, "RAP3", "claude-code", _AGENT_SESSION,
+     "Measured at full speed: the smear starts above half speed, and the drift follows it.", None),
+    (-8, "RAP2", "user", None, "One camera is enough once the shutter is fixed.", "dropped"),
+    (-3, "RAP3", "user", None, "Hana Example has a spare global-shutter camera in the lab.", None),
+    (-2, "RAP5", "user", None, "", "doing"),
+)
+
+
+def _write_scenario_backlog(bank_dir: Path, today: date) -> None:
+    """Five items on the rover project and five notes (spec R-B26), through
+    `backlog` — the writer every live path uses — each committed at once under
+    whoever wrote it: the person's as `Backlog update` / `user/companion_app`
+    (what the app commits), the agent's as `Agent write` / `mcp/claude-code`
+    with its session (what MCP commits). A pinned `now` per write and
+    `tz_name="UTC"`, like the rest of the scenario (R-PJB7), so no real clock
+    reaches a file and the app fixture never moves. `populate` calls this
+    BEFORE the scenario's events, whose two commits a test reads as the
+    newest."""
+    from datetime import datetime, time, timezone
+
+    from api.services import backlog
+
+    def at(offset: int) -> datetime:
+        return datetime.combine(today + timedelta(days=offset), time(15, 0), tzinfo=timezone.utc)
+
+    def commit(result: dict, author: str, session: str | None, action: str) -> None:
+        paths = result.get("paths") or []
+        if not paths:
+            return
+        if author == backlog.USER:
+            message = backlog.commit_message(paths, action=action, subject="Backlog update",
+                                             trigger="user/companion_app", day=str(today))
+        else:
+            message = backlog.commit_message(paths, action=action, subject="Agent write", trigger=f"mcp/{author}",
+                                             day=str(today), author=author, session=session)
+        _run_commit(bank_dir, message, paths)
+
+    for offset, author, session, title, triage, description in _BACKLOG_ITEMS:
+        commit(backlog.add_item(bank_dir, project="rover-arm-project", title=title, description=description,
+                                triage=triage, author=author, session=session, now=at(offset), tz_name="UTC"),
+               author, session, "created")
+    for offset, item, author, session, text, status in _BACKLOG_NOTES:
+        commit(backlog.add_note(bank_dir, project="rover-arm-project", item=item, note=text, status=status,
+                                author=author, session=session, now=at(offset), tz_name="UTC"),
+               author, session, "updated")

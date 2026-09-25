@@ -1,7 +1,8 @@
 import asyncio
 import time
-from dataclasses import dataclass
-from datetime import datetime
+import uuid
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
 from loguru import logger
@@ -53,8 +54,22 @@ class SleepState:
     # questions answered by later conversation and closed without the user acting.
     questions_refreshed: int = 0
     organic_resolutions: int = 0
+    # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
+    # because their subject has no page, and how many page-less subjects there
+    # were. Counts only — G141's M3 measure, carried into the `sleep_run`
+    # ledger row; never on `/sleep/status`.
+    claims_page_less: int = 0
+    subjects_page_less: int = 0
+    # G141 PJ-0b (R-HP12): the hold, per cycle — claims newly held for a
+    # pending name, held claims released onto their page, claims the per-name
+    # cap refused, and what still waits in the store after the cycle. Counts
+    # only, internal, never on `/sleep/status`.
+    claims_held: int = 0
+    claims_released: int = 0
+    claims_hold_capped: int = 0
+    claims_waiting: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
-    # "ollama" | "litellm"), and one sentence about its state. The Sleep page
+    # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
     # to check; these two make the real answer visible.
     last_engine: str | None = None
@@ -99,6 +114,14 @@ class SleepState:
     # scoped to it — see `progress_pct()` below — rather than inventing a
     # blended cross-stage metric stages 2-5 have no honest way to report.
     stage1_progress: int = 0
+    # G125 (the study desk) — the same per-episode unit as `stage1_progress`,
+    # split by source so the Sleep page's study list can count each source
+    # down while Stage 1 reads (R3). `queue_by_origin` is this cycle's
+    # SELECTED episodes (after the cap slice) grouped by `origin`;
+    # `read_by_origin` ticks per finished episode. Both reset with every
+    # other per-cycle counter at the top of `run()`.
+    queue_by_origin: dict[str, int] = field(default_factory=dict)
+    read_by_origin: dict[str, int] = field(default_factory=dict)
 
 
 _state = SleepState()
@@ -385,6 +408,164 @@ async def _poll_feeds_and_calendars_safely(memory_path: Path) -> None:
             logger.warning(f"{label} poll failed: {type(e).__name__}: {e}")
 
 
+def _link_summarizer():
+    """Stage 5.57's page summarizer, or ``None`` when Sleep may not read pages.
+
+    G61 phase 2 S0 (spec §2, plan R-AC18): the in-cycle pass read a web page on
+    every cycle with no gate at all, while its tail twin
+    (``_backfill_links_safely``) has been behind ``CICADA_ALLOW_CONNECTOR_FETCH``
+    since G102. Same gate, same reason — a fetch Cicada starts on its own — and
+    regardless of ``user_triggered``, exactly like the tail; the person's way to
+    read pages on demand is ``POST /maintenance/enrich-links``, never gated.
+    With ``None`` the pass still runs its zero-network §2a reuse; a thin page is
+    stamped ``no_description`` as in any hermetic run, which retires nothing:
+    ``scan_backfill`` never reads ``enrichment_attempted``.
+    """
+    from api.services.connectors.base import network_allowed
+    from api.services.link_enrichment import default_summarize
+
+    if network_allowed():
+        return default_summarize
+    logger.info("Stage 5.57: page read skipped — CICADA_ALLOW_CONNECTOR_FETCH is off (reuse still runs)")
+    return None
+
+
+async def _backfill_links_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """G102 cheap slice: describe + relate ``link_enrich_backfill_per_cycle``
+    saved links a night, oldest-imported first, until the bank is drained.
+
+    Lives on the engine-independent tail — idle nights included — because
+    the in-cycle Stage 5.57 pass (``enrich_media_links``, above in
+    ``_run_stages``) only runs after Stage 5 on a night with episodes and
+    takes the 20 MOST RECENT pages, which is why a bulk-imported bank had
+    hundreds of media pages and zero ``describes`` claims (2026-09-02).
+    Same contract as its neighbours: bounded, never fatal; and it MUST sit in
+    the clean-tree-guarded branch — its own commit is scoped
+    (``commit_paths``), but its writes on a half-written cycle would still be
+    swept by the next ``_finalize``'s ``git add -A`` under that cycle's model.
+
+    Engine (R10 + TODO.md ruling 4): the scan runs first; when it finds only
+    zero-LLM work (§2a reuse, junk) nothing is resolved and the run is
+    authored ``cicada`` (fix round 1, M1: an idle cycle must not touch the
+    connections registry for nothing). Only with a fetch or recon candidate
+    is ``engine_select.resolve_settings`` consulted — a scheduled cycle gets
+    byok before the registry is touched; a user-triggered one may probe
+    cache-first. ``CICADA_ALLOW_CONNECTOR_FETCH`` gates ONLY this unattended
+    step's default fetch (opt-out, the connector contract — G71 final review
+    H2); reuse and recon are never gated; the maintenance endpoint is never
+    gated at all.
+    """
+    try:
+        from api.services import agent_engine, engine_select, link_enrichment
+        from api.services.connectors.base import network_allowed
+        from api.services.link_recon import scan_recon
+
+        if not bool(getattr(settings, "link_enrich_enabled", True)):
+            return
+        per_cycle = int(getattr(settings, "link_enrich_backfill_per_cycle", 20) or 0)
+        if per_cycle <= 0:
+            return
+        scan = link_enrichment.scan_backfill(memory_path, settings)
+        recon_cards = scan_recon(memory_path, settings)
+        if not (scan.junk or scan.reuse or scan.fetch or recon_cards):
+            # Nothing owed: no write, no commit, and — deliberately — no
+            # progress marker. `conftest.py` isolates the fetch/telemetry
+            # gates but NOT `CICADA_HOME`, and several existing tail tests
+            # run this step with a stand-in Settings that predates
+            # `link_enrich_enabled`; on their empty tmp banks this return is
+            # what keeps a `$CICADA_HOME/link_enrich/<bank>.json` from being
+            # written into the developer's real ~/.cicada.
+            return
+        needs_llm = bool(scan.fetch) or bool(recon_cards)
+        resolved, engine = settings, None
+        if needs_llm:
+            resolved, why = await engine_select.resolve_settings(settings, user_triggered=user_triggered)
+            engine = engine_select.engine_label(resolved)
+            logger.info(f"Link backfill engine: {engine} ({why})")
+        # `network_allowed()` with no argument reads CICADA_ALLOW_CONNECTOR_FETCH
+        # exactly as the connector poll does — this is the same unattended
+        # transport the gate exists for.
+        fetch_ok = needs_llm and network_allowed()
+        if needs_llm and not fetch_ok:
+            logger.info(
+                "Link backfill: page fetch skipped — CICADA_ALLOW_CONNECTOR_FETCH is off "
+                "(reuse + recon still run)"
+            )
+        # Final review H1: the tail runs after the cycle's own `sleep:<id>`
+        # scope has closed, so without this it would share the never-reset
+        # ``_unscoped`` bucket with Ask — one throttle there would block every
+        # later backfill until a restart. Its own scope purges on exit.
+        with agent_engine.use_scope(f"links:{uuid.uuid4().hex}"):
+            report = await link_enrichment.backfill(
+                memory_path, resolved, limit=per_cycle,
+                summarize_fn=link_enrichment._summarize_excerpt if fetch_ok else None,
+                fetch_fn=link_enrichment.default_fetch if fetch_ok else None,
+                engine=engine,
+            )
+        if report.selected or report.related or report.skipped:
+            logger.info(
+                f"Link backfill: {report.reused} reused, {report.summarized} summarized, "
+                f"{report.related} related, {report.failed} failed, {report.remaining} remaining"
+            )
+    except Exception as e:
+        logger.warning(f"Link backfill failed: {type(e).__name__}: {e}")
+
+
+async def _resolve_papers_safely(memory_path: Path) -> None:
+    """G133: finish the paper parses a running cycle deferred (R-LS17), then fetch
+    paper details from the arXiv and Crossref APIs (R-LS18).
+
+    Same contract as its neighbours: bounded (``TAIL_ARXIV_IDS`` /
+    ``TAIL_CROSSREF_DOIS`` per cycle), never fatal, and in the clean-tree-guarded
+    branch — both halves write entity pages, and on a half-written cycle those
+    would ride the next ``git add -A``. The deterministic half runs regardless of
+    the network gate; the fetch is the "unattended background call"
+    ``CICADA_ALLOW_CONNECTOR_FETCH`` exists to gate, and a gated skip is recorded
+    (``record_skip``) so it never reads as "nothing to fetch". No LLM, so no
+    engine is resolved (TODO.md ruling 4 is untouched)."""
+    try:
+        from api.services import folder_source, paper_metadata, papers, sync_state
+        from api.services.connectors.base import network_allowed
+
+        deferred = await asyncio.to_thread(papers.reconcile_pending, memory_path)
+        if deferred["folders"]:
+            await folder_source.commit_paths_for(memory_path, deferred["paths"], subject="Folder papers",
+                                                 trigger="folder/papers", author="cicada",
+                                                 channel="papers")
+        if not await asyncio.to_thread(paper_metadata.has_pending, memory_path):
+            return
+        if not network_allowed():
+            sync_state.record_skip(memory_path, "papers", "network fetch disabled")
+            logger.info("Paper details skipped: CICADA_ALLOW_CONNECTOR_FETCH is off")
+            return
+        report = await paper_metadata.run_locked(
+            memory_path, max_arxiv=paper_metadata.TAIL_ARXIV_IDS, max_crossref=paper_metadata.TAIL_CROSSREF_DOIS)
+        if report:
+            logger.info(f"Paper details: {report['resolved']} resolved, {report['failed']} not found, "
+                        f"{report['remaining']} remaining")
+    except Exception as e:
+        logger.warning(f"Paper details failed: {type(e).__name__}: {e}")
+
+
+async def _replay_wispr_todos_safely(memory_path: Path) -> None:
+    """G134: write the Wispr Flow to-do claims a sync deferred because this cycle
+    was running (L final review, finding 5 — the owner's page is Stage 5's to
+    rewrite). Deterministic, no LLM; its commit is scoped to what it wrote, in
+    the clean-tree-guarded branch for the same reason as the paper step. The
+    claims are Wispr Flow's, not the cycle model's, so the author is
+    ``cicada``. Never fatal."""
+    try:
+        from api.services import folder_source, wispr_flow
+
+        report = await asyncio.to_thread(wispr_flow.replay_pending_todos, memory_path)
+        if report["paths"]:
+            await folder_source.commit_paths_for(memory_path, report["paths"], subject="Wispr Flow to-dos",
+                                                 trigger="wispr-flow/todos", author="cicada",
+                                                 channel=wispr_flow.CHANNEL_ID)
+    except Exception as e:
+        logger.warning(f"Wispr Flow to-dos failed: {type(e).__name__}: {e}")
+
+
 async def _refresh_questions_safely(memory_path: Path, settings: Settings) -> None:
     """G60 §2.3 on an IDLE cycle: keep open questions honest during quiet weeks.
 
@@ -473,7 +654,16 @@ def _engine_label(settings: Settings) -> str:
     return engine_select.engine_label(settings)
 
 
-def _stage1_failure_message(engine: str) -> str:
+def _requeue_note(requeued: int, breaker: str | None) -> str:
+    """R-E12: when a plan stop is why episodes stayed queued, the completion
+    sentence says so in the plan's own words — "re-run to continue" was true
+    but hid the one fact that mattered (wait for the reset)."""
+    if not requeued:
+        return ""
+    return f" — {requeued} episode(s) requeued ({breaker or 're-run to continue'})"
+
+
+def _stage1_failure_message(engine: str, engine_detail: str | None = None) -> str:
     """The user-visible reason Stage 1 produced nothing — per engine.
 
     L3 (Task 4 review, handed to Task 5): Stage 1 swallows ``EngineThrottled``
@@ -490,19 +680,25 @@ def _stage1_failure_message(engine: str) -> str:
     plan: a subscription has no credits to check, and the real fixes are
     completely different per rung.
     """
-    from api.services import agent_engine
+    from api.services import agent_engine, engine_select
 
     breaker = agent_engine.breaker_reason()
     if breaker:
         n = _state.episodes_total
-        return (
-            f"Claude plan throttled — stopped cleanly, {n} episode(s) left queued. "
-            f"({breaker})"
-        )
+        # R-E22: name the plan that actually ran — the breaker is shared by
+        # both plan engines (R-E19).
+        plan = engine_select.PLAN_NAMES.get(engine, "Claude plan")
+        return f"{plan} throttled — stopped cleanly, {n} episode(s) left queued. ({breaker})"
     if engine == "claude-cli":
         return (
             "Stage 1 extracted nothing — every episode failed on the Claude Code engine. "
             "Run `claude auth status` to check the plan is signed in. "
+            "The queue is intact; trigger Sleep again once it is."
+        )
+    if engine == "codex-cli":
+        return (
+            "Stage 1 extracted nothing — every episode failed on the ChatGPT plan engine. "
+            "Check ChatGPT is still signed in on Settings → Plans & keys. "
             "The queue is intact; trigger Sleep again once it is."
         )
     if engine == "ollama":
@@ -511,6 +707,15 @@ def _stage1_failure_message(engine: str) -> str:
             "Check the Ollama server is running and the model is pulled. "
             "The queue is intact for retry."
         )
+    # G117 — a plain byok install that never chose an engine (rung 4's
+    # "nobody chose" default) gets an honest reason instead of a diagnosis
+    # of a key that was never entered. `engine_detail` already carries this
+    # exact signal (engine_select.py:246,271) — reuse it rather than adding
+    # a second "was anything configured" probe (R8). This branch must sit
+    # AFTER the claude-cli/ollama checks above (unaffected by it) and BEFORE
+    # the generic byok return below (the one it replaces for this one case).
+    if engine_detail and "no sleep engine chosen" in engine_detail.lower():
+        return "Stage 1 extracted nothing — no engine chosen — pick one in Settings → Engines."
     return (
         "Stage 1 extracted nothing — every episode failed on the API engine "
         "(check the model id, and that the key still has credit). "
@@ -545,8 +750,143 @@ async def _tree_is_clean(memory_path: Path) -> bool:
         return True
 
 
+async def _refresh_state_safely(memory_path: Path, settings: Settings) -> None:
+    """G53 — regenerate `_state.md` and commit it alone as `cicada`.
+
+    FIRST step of the engine-independent tail, on every exit path — an idle
+    night, a cancelled cycle and an engine outage all still get a fresh
+    now-view. Runs BEFORE the connector/feed/calendar polls: their commits
+    are `git add -A`, so a projection left dirty for any reason (a failed
+    read-side commit, an older build) would otherwise be swept into a
+    `Sources ingest` / `Feed poll` commit under the wrong trigger and author
+    (R2 — the H1 guard does not cover this: it only consults the tree once
+    `_state.write_started` is set). `force=True`: Sleep is the one place the
+    file pays for live repo probes (R2). The write+commit is
+    `state_dictionary.refresh_and_commit` — the same helper `GET /state` and
+    an inbox resolution use, so every regeneration lands in the same
+    `State snapshot` / `Cicada-Author: cicada` shape via `commit_paths`,
+    never `git add -A`; on a half-written cycle only the projection lands
+    here and the dirty entity pages stay untouched. No engine trailer — no
+    LLM ran — exactly like the G85 decay commit. Unchanged content writes
+    nothing and commits nothing (R1); the helper never raises.
+    """
+    from api.services import state_dictionary
+
+    try:
+        result = await state_dictionary.refresh_and_commit(memory_path, settings, lock=_lock, force=True)
+    except Exception as exc:
+        logger.warning(f"State snapshot failed: {type(exc).__name__}: {exc}")
+        return
+    if result.get("committed"):
+        logger.info("State snapshot: _state.md regenerated and committed")
+    else:
+        logger.info(f"State snapshot: {result.get('reason', 'unchanged')}")
+
+
+async def _dirty_paths(memory_path: Path) -> frozenset[str]:
+    """Every path `git status` reports as changed or untracked, relative to the
+    bank root. `-z` so a name is never C-quoted; `--untracked-files=all` so a
+    new page is listed by name, not folded into its directory; a rename's
+    second record (its source) is kept too. Raises `GitError` rather than
+    `porcelain_status`'s empty string, so an unreadable tree never reads as a
+    clean one."""
+    out = await git_service._run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
+    records = out.split("\0")
+    dirty: set[str] = set()
+    i = 0
+    while i < len(records):
+        rec = records[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        dirty.add(rec[3:])
+        if rec[0] in "RC" or rec[1] in "RC":
+            if i < len(records) and records[i]:
+                dirty.add(records[i])
+            i += 1
+    return frozenset(dirty)
+
+
+async def _expire_claims_safely(memory_path: Path) -> None:
+    """G140 Q-R7 (R3 P8) — close facts whose stated end has passed, in one
+    `cicada` commit. Time-driven, not episode-driven, so it lives on the tail
+    and runs on idle nights too. Only in the guarded branch: `commit_paths`
+    stages whole files, and on a half-written cycle it would take Sleep's
+    uncommitted hunks on the same page. A failed commit restores the pages
+    (see `claim_expiry.restore`). Never raises.
+
+    Pages already dirty before expiry are skipped (Task 4 review round 1): the
+    guarded branch also runs on an idle night with a dirty tree, so a page can
+    carry an uncommitted Obsidian or app edit. Rewriting it would let
+    `restore`'s `git checkout` delete that edit on a failed commit (the stdio
+    MCP process commits outside `_lock`, so index.lock contention is real), or
+    commit it as `cicada` on a good one. If the tree cannot be read, nothing
+    is expired tonight — an end is re-derived, a lost edit is not."""
+    from api.services import claim_expiry
+
+    today = date.today()
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Claim expiry skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(claim_expiry.expire, memory_path, today, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Claim expiry failed: {type(exc).__name__}: {exc}")
+        return
+    if not report.paths:
+        return
+    if not (memory_path / ".git").exists():
+        logger.info(f"Claim expiry: {len(report.claims)} fact(s) closed (no git — not committed)")
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, claim_expiry.commit_message(report, today), report.paths)
+        logger.info(f"Claim expiry: {len(report.claims)} fact(s) reached their stated end")
+    except Exception as exc:
+        logger.warning(f"Claim expiry commit failed — restoring {len(report.paths)} page(s): "
+                       f"{type(exc).__name__}: {exc}")
+        await asyncio.to_thread(claim_expiry.restore, memory_path, report.paths)
+
+
+async def _propose_followups_safely(memory_path: Path) -> None:
+    """G141 PJ-6 — the engine-free follow-up proposer, in its own `cicada`
+    commit (R-PJB23). Same rules as expiry: pages dirty before it ran are
+    skipped (a person's uncommitted edit is never asked about or smeared), an
+    unreadable tree means nothing tonight, a failed commit undoes what it wrote.
+    Never raises."""
+    from api.services import followups
+
+    today = date.today()
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Follow-ups skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(followups.propose, memory_path, today, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Follow-ups failed: {type(exc).__name__}: {exc}")
+        return
+    paths = report.written + report.removed
+    if not paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, followups.commit_message(report, today), paths)
+        logger.info(f"Follow-ups: {len(report.written)} asked, {len(report.removed)} cleared")
+    except Exception as exc:
+        logger.warning(f"Follow-ups commit failed — undoing: {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(followups.restore, memory_path, report)
+
+
 async def _run_engine_independent_tail(
-    memory_path: Path, settings: Settings, outcome: _StageOutcome
+    memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
 ) -> None:
     """The work that never needed an LLM — on EVERY exit path.
 
@@ -576,7 +916,43 @@ async def _run_engine_independent_tail(
     ingests on a half-written cycle would sweep the Sleep cycle's own
     uncommitted entity pages into a ``Feed poll`` / ``Calendar poll`` commit
     with no session provenance.
+
+    G102: the link backfill (``_backfill_links_safely``) shares this branch
+    for the same reason as the feed poll. Its own commit is scoped
+    (``git_service.commit_paths``, never ``git add -A``), so it is not the
+    sweeper — but it writes media pages, and on a half-written cycle those
+    writes would sit on the dirty tree the NEXT ``_finalize`` sweeps under
+    that cycle's model. ``user_triggered`` is threaded through only for the
+    backfill's lazy engine resolution (R10): a scheduled cycle must resolve
+    byok without ever probing the plan — TODO.md ruling 4.
+
+    G133: ``_resolve_papers_safely`` shares this branch — it writes paper pages
+    (scoped commits), and the fetch half is gated by
+    ``CICADA_ALLOW_CONNECTOR_FETCH``. G134's ``_replay_wispr_todos_safely``
+    does too: it writes the owner's page.
+
+    G53: ``_refresh_state_safely`` runs FIRST and unconditionally — it
+    commits only ``_state.md`` via ``commit_paths``, so it is safe on a dirty
+    tree, and running it before the polls means their ``git add -A`` can
+    never sweep a projection left dirty (a failed read-side commit, an older
+    build) into a poll commit. Anything the polls or the question refresh
+    change afterwards leaves the file one read behind (R2, disclosed) — the
+    next ``GET /state`` regenerates and commits it as ``cicada``.
+
+    G140: expiry (_expire_claims_safely) shares this branch — its commit is
+    scoped, but on a half-written cycle it would stage Sleep's hunks on the
+    same page.
+
+    G141 PJ-6: the follow-up proposer (_propose_followups_safely) runs right
+    after expiry — tonight's closed dues are then visible to it — and before
+    any poll, whose `git add -A` would otherwise sweep its inbox files into a
+    poll commit; its own commit is scoped and `cicada`-authored.
+
+    G141 capture-side track (R-CS16): on a demo bank the outside-world steps
+    are skipped; expiry, the follow-up proposer, the state refresh, logos and
+    the question refresh still run.
     """
+    await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
         # Final-review H1 is preserved: on the happy path this still runs
         # AFTER ``_finalize``'s commit, so the connectors' (and the feed /
@@ -584,13 +960,30 @@ async def _run_engine_independent_tail(
         # that started writing and never committed, we only poll when the
         # tree is already clean anyway, so a partial Sleep write can never be
         # swept into a media/feed/calendar commit with no session provenance.
-        await _poll_connectors_safely(memory_path)
-        await _poll_feeds_and_calendars_safely(memory_path)
+        # G140 Q-R7: expiry commits itself via commit_paths; first, so no poll's git add -A can sweep it.
+        await _expire_claims_safely(memory_path)
+        # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
+        await _propose_followups_safely(memory_path)
+        from api.services import demo_guard
+
+        if demo_guard.is_demo(memory_path):
+            # G141 capture-side track (R-CS16): a demo bank's Sleep consolidates
+            # its own made-up episodes but never takes in the outside world —
+            # the connector credentials are machine-global, so a poll here would
+            # pull the person's real saves into the demo.
+            logger.info("demo bank: connector, feed/calendar, link-backfill, paper and Wispr to-do steps skipped")
+        else:
+            await _poll_connectors_safely(memory_path)
+            await _poll_feeds_and_calendars_safely(memory_path)
+            await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+            await _resolve_papers_safely(memory_path)
+            await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
-            "connector and feed/calendar polls skipped: this cycle wrote "
-            "entity/inbox changes but never committed them, and the polls' own "
-            "`git add -A` would absorb those uncommitted writes into a "
+            "claim expiry, follow-ups, connector, feed/calendar, link-backfill, paper details and Wispr "
+            "to-do steps skipped: this cycle "
+            "wrote entity/inbox changes but never committed them, and the polls' "
+            "own `git add -A` would absorb those uncommitted writes into a "
             "media/feed/calendar commit"
         )
     await _warm_logos_safely(memory_path)
@@ -599,6 +992,21 @@ async def _run_engine_independent_tail(
         # reached Stage 5.56 must still escalate questions everyone stopped
         # talking about (and clear ones answered organically).
         await _refresh_questions_safely(memory_path, settings)
+
+
+async def _flush_pending_commits_safely(memory_path: Path) -> None:
+    """F2-back R-B5: land the folder, paper and Wispr commits git refused, under
+    their own authors, BEFORE any stage writes — `_finalize`'s `git add -A` is
+    the writer that would otherwise sweep them under this cycle's model (the
+    G85 smear). Deterministic; never fatal."""
+    try:
+        from api.services import folder_source
+
+        landed = await folder_source.flush_pending_commits(memory_path)
+        if landed:
+            logger.info(f"Landed {landed} kept commit(s) before the cycle")
+    except Exception as e:
+        logger.warning(f"Kept commits not landed: {type(e).__name__}: {e}")
 
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True) -> None:
@@ -647,6 +1055,12 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.episodes_requeued = 0
     _state.questions_refreshed = 0
     _state.organic_resolutions = 0
+    _state.claims_page_less = 0
+    _state.subjects_page_less = 0
+    _state.claims_held = 0
+    _state.claims_released = 0
+    _state.claims_hold_capped = 0
+    _state.claims_waiting = 0
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
@@ -663,6 +1077,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.episode_cap = 0
     _state.episodes_queued = 0
     _state.stage1_progress = 0
+    _state.queue_by_origin = {}
+    _state.read_by_origin = {}
 
     memory_path = settings.memory_path
 
@@ -685,6 +1101,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
 
     outcome = _StageOutcome()
     try:
+        await _flush_pending_commits_safely(memory_path)
         with agent_engine.use_scope(f"sleep:{cycle_id}"):
             outcome = await _run_stages(
                 settings, cycle_id, memory_path, user_triggered=user_triggered
@@ -708,7 +1125,9 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
         # while `status == "running"`, so every later cycle would be silently
         # refused with no way to recover short of restarting the process.
         try:
-            await _run_engine_independent_tail(memory_path, settings, outcome)
+            await _run_engine_independent_tail(
+                memory_path, settings, outcome, user_triggered=user_triggered
+            )
         finally:
             _state.status = "idle"
 
@@ -759,6 +1178,13 @@ async def _run_stages(
         logger.info(f"Found {total_unprocessed} unprocessed episodes")
     _state.episodes_total = len(episodes)
 
+    # G125: what this cycle will read, by source — set once, from the capped
+    # slice, so the study list's denominators never move mid-cycle.
+    by_origin: dict[str, int] = {}
+    for ep in episodes:
+        by_origin[str(ep.get("origin") or "unknown")] = by_origin.get(str(ep.get("origin") or "unknown"), 0) + 1
+    _state.queue_by_origin = by_origin
+
     # Fix round 1, M1 (part 2): resolution moved to AFTER the idle-episode
     # return above — an idle cycle must never touch the connections registry
     # at all, not even the bounded cache-first probe. "auto" (and a default
@@ -775,7 +1201,7 @@ async def _run_stages(
     _state.engine_detail = engine_why
     logger.info(
         f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
-        f"model: {settings.litellm_model}"
+        f"model: {engine_select.author_model(settings)}"
     )
 
     # Sleep control — safe point: nothing has touched disk or spawned a
@@ -799,6 +1225,26 @@ async def _run_stages(
             _state.error = detail
             _state.progress = f"Failed: {detail}"
             return _StageOutcome()
+    elif _state.last_engine == "codex-cli":
+        # R-E18: one read-only `codex app-server` probe (≈0.5 s, no quota)
+        # answers signed-in, plan-vs-API-key and "limit already reached"
+        # BEFORE the first spawn, and names the plan's current default model
+        # when the person never picked one (R-E17) — every call this cycle
+        # then passes an explicit `-m`, and the Cicada-Author trailer is a
+        # real id that came from model/list, never from this file.
+        from api.services import codex_engine
+
+        ok, detail, default_model = await codex_engine.preflight()
+        _state.engine_detail = detail
+        if not ok:
+            logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
+            _state.error = detail
+            _state.progress = f"Failed: {detail}"
+            return _StageOutcome()
+        if default_model and not (getattr(settings, "codex_model", "") or "").strip():
+            settings = settings.model_copy(update={"codex_model": default_model})
+            # The "started" line above logged before this was known.
+            logger.info(f"Sleep cycle {cycle_id} — ChatGPT plan default model: {default_model}")
 
     # Stage 1: Entity & Relationship Extraction
     _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
@@ -808,8 +1254,13 @@ async def _run_stages(
     def _tick_stage1() -> None:
         _state.stage1_progress += 1
 
+    def _on_episode_done(ep: dict) -> None:
+        origin = str(ep.get("origin") or "unknown")
+        _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
+
     extracted = await extract(
-        episodes, settings, cancel_check=_cancel_requested, progress_callback=_tick_stage1,
+        episodes, settings, cancel_check=_cancel_requested,
+        progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
     )
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
@@ -832,7 +1283,7 @@ async def _run_stages(
     # committing a misleading empty "completed" cycle. Re-running after
     # fixing the cause retries the whole batch.
     if episodes and not extracted:
-        msg = _stage1_failure_message(_state.last_engine or "litellm")
+        msg = _stage1_failure_message(_state.last_engine or "litellm", _state.engine_detail)
         # Fix round 1, L2: `engine_detail` is now set on EVERY resolved
         # cycle (Task 7), not just an agent-rung pre-flight abort — a plain
         # byok install's `engine_detail` is just "why we're on byok"
@@ -841,7 +1292,7 @@ async def _run_stages(
         # install that never chose an engine at all. Only the claude-cli
         # rung's detail (the pre-flight probe's own sentence, e.g. "signed
         # out — run `claude auth login`") is actually diagnostic.
-        if _state.last_engine == "claude-cli" and _state.engine_detail:
+        if _state.last_engine in engine_select.PLAN_ENGINES and _state.engine_detail:
             msg = f"{msg} ({_state.engine_detail})"
         logger.error(msg)
         _state.error = msg
@@ -957,7 +1408,17 @@ async def _run_stages(
     try:
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
-        claim_result = run_claim_pipeline(extracted, existing, memory_path, settings)
+        claim_result = run_claim_pipeline(
+            extracted, existing, memory_path, settings,
+            # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
+            name_to_id=resolved_result.get("name_to_id"),
+        )
+        _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
+        _state.subjects_page_less = int(claim_result.get("subjects_skipped", 0) or 0)
+        _state.claims_held = int(claim_result.get("claims_held", 0) or 0)
+        _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
+        _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
+        _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
         nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
@@ -985,7 +1446,10 @@ async def _run_stages(
         logger.info(
             f"Stage 5.56: claim layer wrote {claim_result.get('claims_written', 0)} "
             f"claims across {claim_result.get('subjects_written', 0)} pages "
-            f"({claim_result.get('subjects_skipped', 0)} page-less), "
+            f"({claim_result.get('claims_page_less', 0)} claim(s) on "
+            f"{claim_result.get('subjects_skipped', 0)} page-less subject(s) neither written nor held; "
+            f"{claim_result.get('claims_held', 0)} held for a pending name, "
+            f"{claim_result.get('claims_released', 0)} released onto their page), "
             f"{nudge_result.get('written', 0)} claim nudges written, "
             f"{nudge_result.get('merged', 0)} merged into open items"
         )
@@ -1002,15 +1466,17 @@ async def _run_stages(
         logger.warning(f"Stage 5.6 hub generation failed: {type(e).__name__}: {e}")
 
     # Stage 5.57 (M5f): link-enrichment subagent — when a saved media link
-    # (e.g. a website Prof. John recommended) lacks a meaningful description,
-    # a bounded subagent fetches + summarizes it and records a `describes`
+    # (e.g. a website a person recommended) lacks a meaningful description,
+    # a bounded subagent reads + summarizes it and records a `describes`
     # claim + `recommends` claims, with bidirectional ![[…]] transclusion
-    # (m5-prep/link-enrichment.md). Offline-safe, LLM-call-capped; any failure
-    # logs a warning and continues — the cycle is never hard-blocked.
+    # (m5-prep/link-enrichment.md). The page read is the rail's
+    # (`default_fetch`) and only behind CICADA_ALLOW_CONNECTOR_FETCH
+    # (G61 phase 2 S0, `_link_summarizer`). Offline-safe, LLM-call-capped;
+    # any failure logs a warning and continues — the cycle is never hard-blocked.
     try:
-        from api.services.link_enrichment import default_summarize, enrich_media_links
+        from api.services.link_enrichment import enrich_media_links
         n_enriched = await enrich_media_links(
-            memory_path, changes, settings, summarize_fn=default_summarize
+            memory_path, changes, settings, summarize_fn=_link_summarizer()
         )
         if n_enriched:
             logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
@@ -1086,14 +1552,30 @@ async def _run_stages(
             logger.warning(f"vector {warning}")
             index_warnings.append(warning)
 
+    # G136: the lexical index, rebuilt in full beside the vectors (round-3
+    # spec decision 7) — independent of the vector indexer, so a missing
+    # embedding model never leaves search's FTS half stale. Off the event
+    # loop: 3–6 s of CPU at 2,000 entities / 1,500 episodes, while /search
+    # keeps answering from the previous snapshot (WAL). Same contract as the
+    # vector rebuilds: a failure is a warning on a cycle that still commits.
+    try:
+        from api.services import search_index
+
+        await asyncio.to_thread(search_index.rebuild, memory_path)
+    except Exception as e:
+        warning = f"search index rebuild failed: {type(e).__name__}: {e}"
+        logger.warning(warning)
+        index_warnings.append(warning)
+
     if index_warnings:
         _state.index_warning = "; ".join(index_warnings)
 
     # Commit
-    from api.services import agent_engine
+    from api.services import agent_engine, engine_select
 
     engine = _state.last_engine or "litellm"
     engine_models = agent_engine.models_used()
+    plan = engine_select.PLAN_ENGINES.get(engine)
     await _finalize(
         memory_path,
         cycle_id,
@@ -1102,10 +1584,10 @@ async def _run_stages(
         organic_resolution_paths=organic_resolution_paths,
         started=_state.started_monotonic,
         engine=engine,
-        # A plan cycle belongs to the claude-plan card and is billed
-        # against the subscription, not as money.
-        connection="claude-plan" if engine == "claude-cli" else None,
-        billing="subscription" if engine == "claude-cli" else None,
+        # A plan cycle belongs to its plan's card and is billed against the
+        # subscription, not as money (PLAN_ENGINES, R-E22).
+        connection=plan[0] if plan else None,
+        billing=plan[1] if plan else None,
         # The models the engine ACTUALLY used this cycle — the CLI may
         # route an internal side-call to a different model than the one we
         # asked for (V1d), and the trailer should say so.
@@ -1121,10 +1603,12 @@ async def _run_stages(
     # tail (`_run_engine_independent_tail`), which `run` executes in its
     # `finally` block on every exit path — not just this happy one.
 
-    requeue_note = (
-        f" — {_state.episodes_requeued} episode(s) requeued (re-run to continue)"
-        if _state.episodes_requeued else ""
-    )
+    # R-E12: a plan stop tripped mid-cycle is the cycle's engine detail and
+    # the reason in its requeue note — the plan's own sentence and reset time.
+    breaker = agent_engine.breaker_reason()
+    if breaker:
+        _state.engine_detail = breaker
+    requeue_note = _requeue_note(_state.episodes_requeued, breaker)
     # Episode cap: `episodes_queued` (the FULL unprocessed count found before
     # capping) > `episodes_total` (what this cycle actually attempted) means
     # the cap truncated this cycle. Surfaced in the progress sentence — same
@@ -1193,6 +1677,8 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
             # `Cicada-Session:` trailers.
             "session_id": str(fm.get("session_id") or "") or None,
             "source_id": str(fm.get("source_id") or "") or None,
+            # R-F2 / R-LS7: whose words a folder file holds, for Stage-1 evidence.
+            "evidence_kind": str(fm.get("evidence_kind") or "") or None,
         })
     # Order by INSTANT, not by string (G114 R2): a bank holds legacy
     # naive-local stamps beside `Z` and `+00:00` UTC ones, and a lexical sort
@@ -1208,10 +1694,17 @@ def _episode_sort_key(r: dict) -> tuple[str, str]:
 
 
 # Legacy `source` -> G9 `origin` derivation (origin-and-harness-sync.md §1b).
+# Track I (D4): `claude`, `claude_memory`, `claude_project`, `chatgpt` and
+# `gemini_export` are written ONLY by the chat importer (conversations.py), so
+# they derive to the export — not to `claude-code`, which credited a claude.ai
+# export's claims to the Claude Code harness. `export_origin_migration` stamps
+# the files themselves; this keeps a not-yet-migrated bank right meanwhile.
 _SOURCE_TO_ORIGIN = {
-    "claude": "claude-code",
-    "claude_memory": "claude-code",
-    "claude_project": "claude-code",
+    "claude": "claude-export",
+    "claude_memory": "claude-export",
+    "claude_project": "claude-export",
+    "chatgpt": "chatgpt-export",
+    "gemini_export": "gemini-export",
     "mcp": "claude-code",
     "chatgpt-export": "chatgpt-export",
     "claude-export": "claude-export",
@@ -1519,6 +2012,31 @@ async def _finalize(
             unfolded = stageable + unfolded
         other_changes = unfolded + other_changes
 
+    # G53 (R3) — the live state dictionary is a projection, regenerated by
+    # the tail and authored `cicada`. Every regeneration commits itself
+    # (`state_dictionary.refresh_and_commit`), but a failed commit or an
+    # older build can still leave it dirty here; without this split the main
+    # commit's `git add -A` would stamp a model's name on arithmetic it never
+    # touched — the exact G85 smear, on a different file. Same degrade
+    # contract as the decay split: if this fails the file rides in the main
+    # commit under the honest `sleep/state` trigger from
+    # `_infer_trigger_for_path`.
+    from api.services import state_dictionary
+
+    if (memory_path / state_dictionary.STATE_FILENAME).exists():
+        try:
+            porcelain = await git_service.porcelain_status(memory_path)
+            if any(line[3:].strip() == state_dictionary.STATE_FILENAME for line in porcelain.splitlines()):
+                async with _lock:
+                    await git_service.commit_paths(
+                        memory_path, state_dictionary.commit_message(), [state_dictionary.STATE_FILENAME]
+                    )
+        except Exception as exc:
+            logger.warning(
+                f"G53 state split failed — folding _state.md into the main commit: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
     # --- Entity lines from structured change data (decay changes excluded —
     # already committed above) ---
     entity_lines: list[str] = []
@@ -1625,6 +2143,14 @@ async def _finalize(
             "entities_updated": _state.entities_updated,
             "skills_detected": _state.skills_detected,
             "session_count": len(sessions or []),
+            # G141 PJ-0 (R-CS3): M3's per-cycle page-less count — integers only.
+            "claims_page_less": _state.claims_page_less,
+            "subjects_page_less": _state.subjects_page_less,
+            # G141 PJ-0b (R-HP12): the hold — integers only, never a name.
+            "claims_held": _state.claims_held,
+            "claims_released": _state.claims_released,
+            "claims_hold_capped": _state.claims_hold_capped,
+            "claims_waiting": _state.claims_waiting,
         },
     ))
 
@@ -1652,6 +2178,10 @@ def _infer_trigger_for_path(path: str) -> str:
         return "sleep/extraction"
     if path.startswith("leann/"):
         return "sleep/index_rebuild"
+    if path == "_state.md":
+        # G53 (R3): the projection normally lands in its own `cicada`
+        # commit; when that split fails it rides here under its honest name.
+        return "sleep/state"
     if path.startswith("hubs/") or path == "_index.md":
         return "sleep/hub_generation"
     if path == "graph_edges.yaml":

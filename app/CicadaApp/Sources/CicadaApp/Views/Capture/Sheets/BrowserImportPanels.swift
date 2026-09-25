@@ -4,7 +4,9 @@ import SwiftUI
 /// Shared by the Safari/Chrome flows and the Feed strip's "Sync now" (R1):
 /// read the file(s) off-main, POST bytes through `Store.perform`, return the
 /// honest one-line result. Throws `BrowserFileError` (with the fix) or the
-/// API error.
+/// API error. A request the person stopped (R-SR11, the row's ×) surfaces as a
+/// cancellation — `Task.checkCancellation()` before the failure — never as
+/// "Sync failed".
 ///
 /// `@MainActor` because `Store` is, and — unlike the panels below, which
 /// inherit it from `View` — a bare enum gets no isolation inference: without
@@ -19,26 +21,56 @@ enum BrowserImportActions {
             let db = try await BrowserFileReader.read(.safariTabsDb)
             let wal = try await BrowserFileReader.readIfPresent(.safariTabsWal)
             let m = SyncSafariTabs(db: db, wal: wal, devices: nil)
-            guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else { try Task.checkCancellation(); throw ImportActionError.failed(store.toast ?? "Sync failed") }
             return BrowserImportSummary.tabs(r)
         case "safari-bookmarks":
             let data = try await BrowserFileReader.read(.safariBookmarks)
             let m = SyncBrowserBookmarks(chromeData: nil, safariData: data, folders: nil)
-            guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else {
+                try Task.checkCancellation()
+                if m.wasBusy { throw ImportActionError.busy }
+                throw ImportActionError.failed(store.toast ?? "Sync failed")
+            }
             return BrowserImportSummary.bookmarks(r)
         case "chrome-bookmarks":
             let data = try await BrowserFileReader.read(.chromeBookmarks)
             let m = SyncBrowserBookmarks(chromeData: data, safariData: nil, folders: nil)
-            guard await store.perform(m), let r = m.result else { throw ImportActionError.failed(store.toast ?? "Sync failed") }
+            guard await store.perform(m), let r = m.result else {
+                try Task.checkCancellation()
+                if m.wasBusy { throw ImportActionError.busy }
+                throw ImportActionError.failed(store.toast ?? "Sync failed")
+            }
             return BrowserImportSummary.bookmarks(r)
         default:
-            throw ImportActionError.failed("Unknown channel \(id)")
+            // Round 4 (C9): a Chromium-family browser beyond Chrome — the same read, its own entry on the wire.
+            guard let spec = BrowserInventory.spec(forBookmarksChannel: id), spec.engine == .chromium, spec.id != "chrome",
+                  let file = BrowserFile.bookmarks(forBrowser: spec.id) else {
+                // Only `ChannelActions.syncRoute`'s `.browserFile` ids arrive here; an
+                // internal id never belongs in the person's copy (L final review, finding 1).
+                throw ImportActionError.failed("This source can't be synced from here.")
+            }
+            let data = try await BrowserFileReader.read(file)
+            let m = SyncChromiumBookmarks(browser: spec.id, data: data)
+            guard await store.perform(m), let r = m.result else {
+                try Task.checkCancellation()
+                if m.wasBusy { throw ImportActionError.busy }
+                throw ImportActionError.failed(store.toast ?? "Sync failed")
+            }
+            return BrowserImportSummary.bookmarks(r)
         }
     }
 
-    enum ImportActionError: Error, LocalizedError {
+    enum ImportActionError: Error, LocalizedError, Equatable {
         case failed(String)
-        var errorDescription: String? { if case .failed(let m) = self { return m }; return nil }
+        /// The backend is still finishing an earlier bookmark sync of this bank (a 409, `BookmarkSyncBusy`) — not a
+        /// failure: the watcher lights nothing and records nothing, so the next change or Sync now reads again.
+        case busy
+        var errorDescription: String? {
+            switch self {
+            case .failed(let m): return m
+            case .busy: return Copy.bookmarkSyncBusy
+            }
+        }
     }
 }
 
@@ -146,7 +178,7 @@ struct SafariTabsPanel: View {
                     }
                 }
             case .done(let summary):
-                Text(summary).font(.system(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
+                Text(summary).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
                 Text("Processed on the next Sleep cycle.").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 Button("Import again") { load() }.buttonStyle(.bordered)
             case .fileError(let error):
@@ -214,6 +246,8 @@ struct BookmarkFolderPanel: View {
     let browser: Browser
 
     @Environment(Store.self) private var store
+    /// Track I T1: an all-folders import turns the browser's watch on (R-IA2).
+    @Environment(BrowserWatcher.self) private var watcher
     @State private var stage: BrowserImportStage = .idle
     @State private var tree: BookmarkFolderNode?
     @State private var selection = BookmarkFolderSelection.all
@@ -253,7 +287,7 @@ struct BookmarkFolderPanel: View {
                     }
                 }
             case .done(let summary):
-                Text(summary).font(.system(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
+                Text(summary).font(CicadaTheme.font(size: 13, weight: .semibold)).foregroundStyle(CicadaTheme.success)
                 Text("Processed on the next Sleep cycle.").font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                 Button("Import again") { load() }.buttonStyle(.bordered)
             case .fileError(let error):
@@ -302,8 +336,17 @@ struct BookmarkFolderPanel: View {
             let m = SyncBrowserBookmarks(chromeData: browser == .chrome ? data : nil, safariData: browser == .safari ? data : nil, folders: folders)
             let ok = await store.perform(m)
             guard !Task.isCancelled else { return }
-            if ok, let r = m.result { stage = .done(BrowserImportSummary.bookmarks(r)) }
-            else { stage = .failed(store.toast ?? "Import failed") }
+            if ok, let r = m.result {
+                stage = .done(BrowserImportSummary.bookmarks(r))
+                // R-IA2: importing EVERY folder is the same scope the watch syncs,
+                // so it is consent to keep watching. A folder-scoped import stays
+                // one-shot — the watch would widen what the person just narrowed.
+                if folders == nil {
+                    watcher.enable(browser == .chrome ? "chrome-bookmarks" : "safari-bookmarks")
+                }
+            } else {
+                stage = .failed(store.toast ?? "Import failed")
+            }
         }
     }
 }

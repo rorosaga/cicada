@@ -1,4 +1,5 @@
-from datetime import datetime
+import asyncio
+from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, UploadFile
@@ -14,6 +15,7 @@ from api.models.schemas import (
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
+    PaperSummary,
     SafariTabsDevice,
     SafariTabsPreview,
     SafariTabsSyncRequest,
@@ -21,6 +23,8 @@ from api.models.schemas import (
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
+    SourceOverview,
+    SourceOverviewResponse,
     SourceRssRequest,
     SourceSaveRequest,
     SourceSaveResponse,
@@ -29,6 +33,7 @@ from api.models.schemas import (
     SourceUploadResponse,
 )
 from api.services import (
+    agent_commits,
     bookmark_sync,
     calendar_registry,
     channel_registry,
@@ -37,13 +42,28 @@ from api.services import (
     notes_sync,
     safari_tabs,
     saved_at as saved_at_service,
+    source_overview,
     sync_service,
     sync_state,
 )
 from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
+from api.routers.capture import refuse_capture_into_demo
 
 router = APIRouter()
+
+#: G141 capture-side track (R-CS15): every route below that takes something in
+#: answers 409 while the demo bank is open, before its handler runs.
+_DEMO_GATE = [Depends(refuse_capture_into_demo)]
+
+# A media page in either state is a decision the person made (an inbox
+# `remove`, G129 slice 2) or one the system already recorded (`dropped`,
+# never resurfaced) — hidden from every read path, never deleted (CLAUDE.md's
+# status lifecycle). Imported, not re-typed (F6): `source_overview` counts the
+# `files` card's headline number on its own entity walk, and a card whose
+# number disagrees with the list on its page is the defect this shares a
+# predicate to prevent.
+_HIDDEN_STATUSES = source_overview.HIDDEN_STATUSES
 
 
 class FeedSubscribeRequest(BaseModel):
@@ -64,7 +84,7 @@ class CalendarUnsubscribeRequest(BaseModel):
     url: str
 
 
-@router.post("/sources/save", response_model=SourceSaveResponse)
+@router.post("/sources/save", response_model=SourceSaveResponse, dependencies=_DEMO_GATE)
 async def save_source(
     request: SourceSaveRequest,
     settings: Settings = Depends(get_settings),
@@ -81,6 +101,12 @@ async def save_source(
         url=url,
         tags=request.tags,
         note=request.note,
+        # G9 provenance. Without it these pages were the bank's only nil-origin
+        # media, so the Sources page could count them but never attribute an
+        # episode, a conversation or an entity to them. An MCP save also passes
+        # a `session_id`, and `source_overview.source_key` reads that first, so
+        # an agent's save still credits its harness row, not this one.
+        origin="saved-link",
         session_id=request.session_id,
         harness=request.harness,
         project_dir=request.project_dir,
@@ -91,16 +117,49 @@ async def save_source(
     media_ingestor.save_url_index(memory_path, idx)
 
     if result.status == "created":
+        # G135 R-R12: this call used to omit `paths` and raise a TypeError that
+        # the except below swallowed, so no single save was ever committed. An
+        # MCP save (it carries a session id) is the agent's, not the person's.
+        paths = ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                 f"episodes/{result.episode_id}.md"]
+        by_agent = bool((request.session_id or "").strip())
+        author = agent_commits.author_for(request.harness) if by_agent else "user"
         try:
-            await media_ingestor._commit_media(memory_path, 1)
+            await media_ingestor._commit_media(
+                memory_path, 1, paths, author=author,
+                sessions=[request.session_id] if by_agent else None,
+                trigger=f"mcp/{author}" if by_agent else "user/media_save",
+            )
         except Exception as e:
             logger.warning(f"Media commit failed: {type(e).__name__}: {e}")
 
-    message = (
-        "Saved — it joins the graph after the next Sleep cycle"
-        if result.status == "created"
-        else "Already saved"
-    )
+    # G140 Q-R10: a note for a link that is already saved is kept, not dropped
+    # (G22's save-now-watch-later case). Committed alone, under whoever sent it
+    # — the same author rule as the created branch above (G135 R-R12).
+    note_episode_id = None
+    if result.status == "duplicate":
+        note = media_ingestor.write_note_episode(memory_path, item, result)
+        if note is not None:
+            note_episode_id, created_note = note
+            if created_note:
+                by_agent = bool((request.session_id or "").strip())
+                author = agent_commits.author_for(request.harness) if by_agent else "user"
+                trigger = f"mcp/{author}" if by_agent else "user/media_save"
+                from api.services import git_service
+
+                try:
+                    await git_service.commit_paths(memory_path, git_service.build_commit_message(
+                        f"Sources note {date.today().isoformat()}",
+                        [f"episodes/{note_episode_id}.md: created (trigger: {trigger})"],
+                        authors=[author], sessions=[request.session_id] if by_agent else None,
+                    ), [f"episodes/{note_episode_id}.md"])
+                except Exception as e:
+                    logger.warning(f"Note commit failed: {type(e).__name__}: {e}")
+
+    if result.status == "created":
+        message = "Saved — it joins the graph after the next Sleep cycle"
+    else:
+        message = "Already saved — your note was kept" if note_episode_id else "Already saved"
     return SourceSaveResponse(
         status=result.status,
         media_entity_id=result.media_entity_id,
@@ -109,10 +168,11 @@ async def save_source(
         media_type=result.media_type,
         thumbnail=result.thumbnail,
         message=message,
+        note_episode_id=note_episode_id,
     )
 
 
-@router.post("/sources/upload", response_model=None)
+@router.post("/sources/upload", response_model=None, dependencies=_DEMO_GATE)
 async def upload_sources(
     file: UploadFile,
     background_tasks: BackgroundTasks,
@@ -223,7 +283,7 @@ async def upload_sources(
     )
 
 
-@router.post("/sources/rss", response_model=SourceUploadResponse)
+@router.post("/sources/rss", response_model=SourceUploadResponse, dependencies=_DEMO_GATE)
 async def ingest_rss(
     request: SourceRssRequest,
     settings: Settings = Depends(get_settings),
@@ -306,7 +366,30 @@ async def ingest_rss(
     )
 
 
-@router.post("/sources/sync-bookmarks", response_model=None)
+# One bookmark sync per bank at a time (round 4 phase A final review, finding
+# 2). The app's × cancels only its own URLSession request: the route keeps
+# enriching and writing, while the app forgets the run at once and its Sync
+# now skips the file watcher's minimum interval. A second sync of the same
+# file started then would load `url_index.json` before the first saved, so
+# both would treat the same URLs as new — duplicate media episodes, an index
+# holding only the last writer's entries, and the seen-set and removal diff
+# run twice. The second caller gets a 409 rather than queueing, the
+# `POST /maintenance/enrich-links` precedent: process-local on purpose (the
+# backend is one uvicorn process), keyed by the resolved bank so a sync into
+# another bank is never held up. A preview stages nothing and takes no lock.
+_bookmark_sync_locks: dict[str, asyncio.Lock] = {}
+BOOKMARK_SYNC_BUSY = "A bookmark sync is still finishing"
+
+
+def _bookmark_sync_lock(memory_path: Path) -> asyncio.Lock:
+    key = str(Path(memory_path).resolve())
+    lock = _bookmark_sync_locks.get(key)
+    if lock is None:
+        lock = _bookmark_sync_locks[key] = asyncio.Lock()
+    return lock
+
+
+@router.post("/sources/sync-bookmarks", response_model=None, dependencies=_DEMO_GATE)
 async def sync_bookmarks(
     request: BookmarkSyncRequest | None = None,
     preview: bool = Query(False),
@@ -317,10 +400,20 @@ async def sync_bookmarks(
     Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
     data — what the companion app sends after reading the files itself, R1,
     and what tests use) to sync against that data hermetically. Omit the body
-    (or send neither field) to read the real local bookmark files instead —
-    best-effort, offline-safe; see ``bookmark_sync.sync_from_local_files``.
-    That fallback exists for ``curl``/tests and is never the app's path: the
-    launchd backend has no Full Disk Access.
+    ENTIRELY to read the real local bookmark files instead — best-effort,
+    offline-safe; see ``bookmark_sync.sync_from_local_files``. That fallback
+    exists for ``curl``/tests and is never the app's path: the launchd
+    backend has no Full Disk Access.
+
+    A body that carries no bookmark data is a 422, never the fallback, and an
+    unknown field is a 422 too (``extra="forbid"``). Round 4 phase A final
+    review, finding 3: a pre-round-4 route dropped the new ``chromium`` field,
+    saw no data, and read the Chrome file the person had not turned on —
+    Chrome's profile is not behind Full Disk Access, so the backend could.
+    The next new field fails loudly instead of reading local files.
+
+    409 while another bookmark sync of this bank is still running (see
+    ``_bookmark_sync_locks``).
 
     ``?preview=true`` (R5) parses the supplied bytes and returns each source's
     folder tree with leaf counts WITHOUT ingesting anything — the same
@@ -329,6 +422,8 @@ async def sync_bookmarks(
     preview; there is nothing to preview from the local-file fallback.
     ``folders`` on the body narrows the sync to those folder paths (segment-
     boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
+    ``chromium`` (round 4, C9) carries the Chromium-family browsers; 422 for an
+    unknown browser, one sent twice, or bad base64.
 
     The "diff" is the existing ``url_index.json`` hash dedup in
     ``media_ingestor.ingest_batch`` — already-saved bookmarks are silently
@@ -340,6 +435,7 @@ async def sync_bookmarks(
 
     chrome_data = None
     safari_data = None
+    chromium: list[tuple[str, bytes]] = []
     if request is not None:
         if request.chrome_data_b64:
             try:
@@ -351,27 +447,49 @@ async def sync_bookmarks(
                 safari_data = base64.b64decode(request.safari_data_b64)
             except Exception:
                 raise HTTPException(status_code=422, detail="Invalid safariDataB64")
+        # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
+        # both fields — a browser sent twice would ingest its file twice and write
+        # two seen-sets for one channel.
+        for entry in request.chromium or []:
+            browser = entry.browser.strip().lower()
+            if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+                raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+            if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+                raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+            try:
+                chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
+            except Exception:
+                raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
 
     if preview:
-        if chrome_data is None and safari_data is None:
-            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64 and/or safariDataB64")
+        if chrome_data is None and safari_data is None and not chromium:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
         # Off the event loop, same reason as the upload preview: a plist the
         # size of a real Safari library is a CPU-bound parse and must not
         # stall the SSE stream.
         result = await run_in_threadpool(
-            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data
+            bookmark_sync.preview_bookmarks, chrome_data=chrome_data, safari_data=safari_data, chromium=chromium
         )
         return BookmarkTreePreview(**result)
 
-    if chrome_data is not None or safari_data is not None:
-        result = await bookmark_sync.sync_bookmarks(
-            memory_path,
-            chrome_data=chrome_data,
-            safari_data=safari_data,
-            folders=request.folders if request is not None else None,
-        )
-    else:
-        result = await bookmark_sync.sync_from_local_files(memory_path)
+    has_data = chrome_data is not None or safari_data is not None or bool(chromium)
+    if request is not None and not has_data:
+        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
+
+    lock = _bookmark_sync_lock(memory_path)
+    if lock.locked():
+        raise HTTPException(status_code=409, detail=BOOKMARK_SYNC_BUSY)
+    async with lock:
+        if has_data:
+            result = await bookmark_sync.sync_bookmarks(
+                memory_path,
+                chrome_data=chrome_data,
+                safari_data=safari_data,
+                chromium=chromium,
+                folders=request.folders if request is not None else None,
+            )
+        else:
+            result = await bookmark_sync.sync_from_local_files(memory_path)
 
     # G62: the only durable trace that bookmark sync ever ran. `found` is the
     # number of bookmarks seen this pass (new + already-known), which is what
@@ -382,12 +500,14 @@ async def sync_bookmarks(
     for s in result.get("sources", []):
         channel = s.get("channel") or bookmark_sync.CHANNEL_BY_ORIGIN.get(s.get("origin", ""))
         if channel:
-            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0))
+            # R-SR14: Safari's two counts ride the entry as `extra`, so the row can say them.
+            extra = {k: int(s[k]) for k in bookmark_sync.PART_KEYS if k in s}
+            sync_state.record_sync(memory_path, channel, count=int(s.get("found") or 0), extra=extra or None)
 
     return BookmarkSyncResponse(**result)
 
 
-@router.post("/sources/sync-safari-tabs", response_model=None)
+@router.post("/sources/sync-safari-tabs", response_model=None, dependencies=_DEMO_GATE)
 async def sync_safari_tabs(
     request: SafariTabsSyncRequest,
     preview: bool = Query(False),
@@ -439,6 +559,35 @@ async def sync_safari_tabs(
     return SafariTabsSyncResponse(**result)
 
 
+def _description_excerpt(body: str, limit: int = 280) -> str | None:
+    """First ~``limit`` chars of the page's ``## Description``, cut on a word
+    boundary with an ellipsis — the Feed row's own copy of what the backfill
+    or ingest-time OpenGraph stored (G102 R12), so the preview sheet renders
+    instantly instead of fetching the entity first. Read from the page the
+    endpoint already parses: no extra I/O, and the existing ``entities`` ETag
+    component (max FILE mtime) already invalidates on the in-place edit that
+    writes a description. ``None`` when the section is absent — never a guess
+    from the title.
+
+    Read through ``link_enrichment._extract_description_section`` rather than a
+    bare ``parse_sections``: the ```claims fence is not an H2, so on every page
+    whose ``## Description`` is the last section before it — every backfilled
+    page (``_describe`` appends the block at the end), every G71
+    ``/save <url> <reason>`` page, every recon-touched page — the raw section
+    runs to EOF and the Feed row would carry the serialized claim YAML, which
+    the preview sheet renders verbatim (final review H1; the same trap Task 1
+    review H1 closed inside the backfill)."""
+    from api.services.link_enrichment import _extract_description_section
+
+    text = " ".join(_extract_description_section(body or "").split())
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{cut}…"
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -460,22 +609,59 @@ async def list_sources(
 
     items = []
     for entry in idx.values():
+        # R-LS14: a paper's second canonical URL is an alias of its first; one
+        # paper is one Feed row.
+        if isinstance(entry, dict) and entry.get("alias_of"):
+            continue
         entity_id = entry.get("media_entity_id", "")
         related_count = 0
         status = "active"
+        enrichment_status = ""
         tags: list[str] = []
         relevance = 0.0
         personal_relevance = None
         site = None
         channel = None
+        description: str | None = None
+        about: list[str] = []
+        origin: str | None = None
+        folder: str | None = None
+        provider: str | None = None
+        duration_s: int | None = None
+        kind: str | None = None
+        paper: PaperSummary | None = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
                 from api.services import markdown_parser
 
-                fm = markdown_parser.parse(entity_path).frontmatter or {}
+                parsed = markdown_parser.parse(entity_path)
+                fm = parsed.frontmatter or {}
+                # G102 R12 — read the excerpt + `about` ids straight after the
+                # parse, before any later field: this block is one `try` whose
+                # `except: pass` would otherwise drop them if relevance or
+                # `media` raised on an odd page.
+                description = _description_excerpt(parsed.body)
+                about = [str(r) for r in (fm.get("related") or []) if str(r).strip()]
+                # G124 R6 — the Sources page filters these items by source and
+                # groups them by folder/board/device, straight from the page.
+                origin = str(fm.get("origin") or "").strip() or None
+                folder = str(fm.get("folder") or "").strip() or None
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
+                # Track P R5 — what the person removed, and what enrichment
+                # retired, must stop rendering. G129 slice 2's `remove`
+                # ARCHIVES the media entity (`inbox_service.py:962-966`) and
+                # never deletes it, so the page is still on disk and this read
+                # path was still emitting a row for it — the answer read as
+                # ignored. `enrichment_status: "junk"` is `link_enrichment`'s
+                # permanent verdict on a consent or login interstitial
+                # (`:886`); until now its only readers were the enrichment
+                # scan (`:670`) and `link_recon` (`:145`), so a retired page
+                # kept a Feed row. Filtered HERE, on the one read path both
+                # the Feed and a source page's item list use, so the two
+                # agree.
+                enrichment_status = str(fm.get("enrichment_status") or "")
                 tags = fm.get("tags") or []
                 relevance = media_ingestor.compute_relevance(fm)
                 pr = fm.get("personal_relevance")
@@ -489,8 +675,29 @@ async def list_sources(
                     site = s if isinstance(s, str) and s else None
                     c = media.get("channel")
                     channel = c if isinstance(c, str) and c else None
+                    # Track V (R15) — same rule as site/channel: the two video
+                    # keys live on the page, never in `url_index.json`, so the
+                    # Feed row can show a play badge and a duration pill
+                    # without a second index to migrate.
+                    pv = media.get("provider")
+                    provider = pv if isinstance(pv, str) and pv else None
+                    d = media.get("duration_s")
+                    duration_s = d if isinstance(d, int) and not isinstance(d, bool) and d > 0 else None
+                    # G133 — a paper page's byline, from its own `paper:`
+                    # block (never the index), so the Feed can show and
+                    # search authors, the arXiv id and the DOI.
+                    k = media.get("kind")
+                    kind = k if isinstance(k, str) and k else None
+                    pp = fm.get("paper")
+                    if kind == "paper" and isinstance(pp, dict):
+                        paper = PaperSummary(
+                            authors=[str(a) for a in (pp.get("authors") or [])][:8],
+                            arxiv_id=pp.get("arxiv_id"), doi=pp.get("doi"),
+                            published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
             except Exception:
                 pass
+        if status in _HIDDEN_STATUSES or enrichment_status == "junk":
+            continue
         items.append(
             MediaSourceItem(
                 media_entity_id=entity_id,
@@ -507,6 +714,14 @@ async def list_sources(
                 related_count=related_count,
                 relevance=round(relevance, 4),
                 personal_relevance=personal_relevance,
+                description=description,
+                about=about,
+                origin=origin,
+                folder=folder,
+                provider=provider,
+                duration_s=duration_s,
+                kind=kind,
+                paper=paper,
             )
         )
 
@@ -525,6 +740,44 @@ async def list_sources(
     else:
         items.sort(key=_recency_key, reverse=True)
     return SourceListResponse(items=items, total=len(items))
+
+
+@router.get("/sources/overview", response_model=SourceOverviewResponse)
+async def sources_overview(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+):
+    """One card per memory source (G124) — the Sources page's grid.
+
+    Same ETag recipe as ``/sources/channels`` (R7): the payload is computed
+    from episodes, entities, ``sync_state.json``, the feed/calendar registries
+    and the url index — all inside the ``sources``/``episodes``/``entities``
+    components — plus the Telegram flag and connector credentials, which are
+    config facts no component sees. Off the event loop for the same reason
+    ``/origins`` and ``/sources/channels`` are: a cold ``bank_index`` re-parses
+    every frontmatter.
+    """
+    memory_path = settings.memory_path
+    connectors_connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
+    connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
+    etag = sync_service.etag_for(
+        memory_path, "sources", "episodes", "entities",
+        extra=f"overview|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+
+    def _build() -> list[dict]:
+        channels = channel_registry.build_channels(
+            memory_path,
+            telegram_enabled=settings.telegram_enabled,
+            connectors_connected=connectors_connected,
+        )
+        return source_overview.build_overview(memory_path, channels=channels)
+
+    rows = await run_in_threadpool(_build)
+    return SourceOverviewResponse(sources=[SourceOverview(**r) for r in rows])
 
 
 @router.get("/sources/channels", response_model=SourceChannelsResponse)
@@ -547,11 +800,12 @@ async def list_source_channels(
     # filesystem-in-the-bank ones: configuring a bot token, or connecting an
     # account, flips a channel to "connected" without touching any component
     # below, so without them in the ETag a warm client 304s and keeps showing
-    # "not connected" forever.
+    # "not connected" forever. `CHANNELS_SHAPE` covers the other case: the body
+    # changing for the same files (a new always-listed row), round 4 final review #3.
     connector_tag = ",".join(f"{k}:{v}" for k, v in sorted(connectors_connected.items()))
     etag = sync_service.etag_for(
         memory_path, "sources", "episodes", "entities",
-        extra=f"telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
+        extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -577,7 +831,7 @@ async def list_feed_subscriptions(settings: Settings = Depends(get_settings)):
     return {"feeds": feeds, "total": len(feeds)}
 
 
-@router.post("/sources/feeds")
+@router.post("/sources/feeds", dependencies=_DEMO_GATE)
 async def subscribe_feed(
     request: FeedSubscribeRequest,
     settings: Settings = Depends(get_settings),
@@ -602,7 +856,7 @@ async def unsubscribe_feed(
     return {"status": "ok", "url": request.url}
 
 
-@router.post("/sources/poll-feeds")
+@router.post("/sources/poll-feeds", dependencies=_DEMO_GATE)
 async def poll_feeds(settings: Settings = Depends(get_settings)):
     """Run a poll cycle over every subscribed feed.
 
@@ -625,7 +879,7 @@ async def list_calendar_subscriptions(settings: Settings = Depends(get_settings)
     return {"calendars": calendars, "total": len(calendars)}
 
 
-@router.post("/sources/calendars")
+@router.post("/sources/calendars", dependencies=_DEMO_GATE)
 async def subscribe_calendar(
     request: CalendarSubscribeRequest,
     settings: Settings = Depends(get_settings),
@@ -653,7 +907,7 @@ async def unsubscribe_calendar(
     return {"status": "ok", "url": request.url}
 
 
-@router.post("/sources/poll-calendars")
+@router.post("/sources/poll-calendars", dependencies=_DEMO_GATE)
 async def poll_calendars(settings: Settings = Depends(get_settings)):
     """Run a poll cycle over every subscribed calendar.
 
@@ -671,7 +925,7 @@ async def poll_calendars(settings: Settings = Depends(get_settings)):
 # --- Apple Notes one-way import ----------------------------------------------
 
 
-@router.post("/sources/sync-notes", response_model=NotesSyncResponse)
+@router.post("/sources/sync-notes", response_model=NotesSyncResponse, dependencies=_DEMO_GATE)
 async def sync_notes(
     request: NotesSyncRequest | None = None,
     settings: Settings = Depends(get_settings),

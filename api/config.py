@@ -101,10 +101,12 @@ class Settings(BaseSettings):
     # ``ollama_base_url``. ``"agent"`` runs every call through the user's own
     # ``claude`` CLI on their subscription (G74(a)); ``"auto"`` resolves to
     # the agent rung when the Claude plan probes connected, else the local
-    # rung when Ollama is running, else ``"byok"``. Resolution happens once
+    # rung when Ollama is running, else ``"byok"``. ``"codex"`` runs every
+    # call through Cicada's own ``codex exec`` sign-in on the person's ChatGPT
+    # plan (G49, Track E). Resolution happens once
     # per Sleep cycle in ``engine_select``; ``resolve_llm_fn`` treats an
     # unresolved ``"auto"`` as ``"byok"`` and never shells out synchronously.
-    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|local)
+    llm_mode: str = "byok"                    # CICADA_LLM_MODE (agent|auto|byok|codex|local)
     # Model name passed to Ollama when llm_mode="local" (litellm bind:
     # "ollama/<ollama_model>"). Does NOT include the "ollama/" prefix itself.
     ollama_model: str = "llama3.1"             # CICADA_OLLAMA_MODEL
@@ -122,6 +124,35 @@ class Settings(BaseSettings):
     # (10) and each fan-out slot would otherwise be one more process; 3 keeps
     # the machine usable and the plan's own rate limit further away.
     agent_max_concurrency: int = 3                  # CICADA_AGENT_MAX_CONCURRENCY
+    # R-E1/R-E11–R-E14 (2026-09-23) — the claude-cli rung, hardened the
+    # Hermes way. `--effort` for a call whose caller asked for reasoning OFF
+    # (Stage 1 and Stage 2's judge pass extra_body.reasoning.enabled=False,
+    # which the CLI has no other form for). `claude --help` 2.1.280:
+    # low|medium|high|xhigh|max. "" = the CLI's own default.
+    agent_low_effort: str = "low"                   # CICADA_AGENT_LOW_EFFORT
+    # CLAUDE_CODE_MAX_RETRIES for Cicada's spawns. The CLI default (10) can
+    # retry a plan 429 until the 300 s wall clock turns it into a timeout
+    # (R1 gap B); 2 still rides out a transient 5xx.
+    agent_cli_max_retries: int = 2                  # CICADA_AGENT_CLI_MAX_RETRIES
+    # Stop a cycle once the CLI reports the 5-hour window at or past this
+    # fraction, leaving the person room to work (R-E12).
+    agent_stop_utilization: float = 0.9             # CICADA_AGENT_STOP_UTILIZATION
+    # Let Sleep keep going on Claude extra usage (Anthropic bills it
+    # separately). Off unless chosen (G117); Settings → Engines's pref
+    # promotes it when CICADA_LLM_MODE is not pinned (R-E13).
+    agent_allow_overage: bool = False               # CICADA_AGENT_ALLOW_OVERAGE
+    # Stage 1 through `--json-schema`. OFF until the demo-bank comparison is
+    # recorded in G49 (R-E14, R1 §5.4).
+    agent_extraction_schema: bool = False           # CICADA_AGENT_EXTRACTION_SCHEMA
+
+    # R-E2/R-E17 — the codex rung (llm_mode="codex"): `codex exec` in
+    # Cicada's own Codex home. No model id is pinned in code: "" means the
+    # plan's current default (resolved from `model/list` at a cycle's
+    # pre-flight; no `-m` elsewhere). Every model on the live roster lists
+    # `low` effort (2026-09-23).
+    codex_model: str = ""                           # CICADA_CODEX_MODEL
+    codex_disambiguation_model: str = ""            # CICADA_CODEX_DISAMBIGUATION_MODEL
+    codex_reasoning_effort: str = "low"             # CICADA_CODEX_REASONING_EFFORT
 
     # Server
     host: str = "127.0.0.1"
@@ -137,6 +168,15 @@ class Settings(BaseSettings):
     sleep_promotion_threshold: int = 2
     decay_nudge_threshold: float = 0.4
     archive_threshold: float = 0.2
+
+    # G147 — spacing-aware decay. A page's weekly rate is its class's (or its
+    # explicit `decay_rate:`) x max(floor, 1 / (1 + alpha·ln w)), w = the
+    # distinct ISO weeks it came up in — fifty mentions in one afternoon are one
+    # week. 0.6 / 0.25 is the ruled curve (plan R-FD1: floor reached near 148
+    # weeks); `decay_policy.spacing_params` clamps both so a mis-set value can
+    # never freeze decay.
+    decay_spacing_alpha: float = 0.6     # CICADA_DECAY_SPACING_ALPHA
+    decay_spacing_floor: float = 0.25    # CICADA_DECAY_SPACING_FLOOR
 
     # Sleep-control episode cap — one cycle spawns roughly one LLM call chain
     # per episode across Stages 1-4 (the agent rung's own measurement is
@@ -169,11 +209,47 @@ class Settings(BaseSettings):
     link_enrich_max_per_cycle: int = 20       # hard cap on LLM summarize calls/cycle
     link_enrich_min_desc_len: int = 120       # chars; shorter OG desc => trigger summarize
     link_enrich_excerpt_chars: int = 2000     # chars of visible body text fed to the LLM
+    # G102 cheap slice + backfill (2026-09-02). `link_enrich_max_per_cycle`
+    # above caps the IN-CYCLE Stage 5.57 pass; this caps the Sleep-tail
+    # BACKFILL over the whole bank's pre-existing media pages, which runs on
+    # idle nights too (`sleep_cycle._backfill_links_safely`) and drains the
+    # bank oldest-first until nothing is left. 20/night keeps a 600-link
+    # bank draining in about a month with at most 20 fetches + 20 summaries
+    # + ~5 extraction calls per night.
+    link_enrich_backfill_per_cycle: int = 20   # CICADA_LINK_ENRICH_BACKFILL_PER_CYCLE
+    # A failed/blocked page fetch is recorded on the page (`fetch_status`,
+    # `fetch_attempted_at`) and not retried before this many days — so a
+    # dead link costs one fetch a month, not one a night, and a block is
+    # never hammered (G102 ToS rail).
+    link_enrich_fetch_retry_days: int = 30     # CICADA_LINK_ENRICH_FETCH_RETRY_DAYS
+    # G102 recon: links per Stage-1 extraction call (8 x ~400 tokens of
+    # title+description under the ~1.1k-token prompt stays a small call),
+    # and links related per run.
+    link_recon_batch_size: int = 8             # CICADA_LINK_RECON_BATCH_SIZE
+    link_recon_max_per_cycle: int = 40         # CICADA_LINK_RECON_MAX_PER_CYCLE
 
     # Hub tier (small-LLM traversal)
     hub_tag_min_members: int = 5     # min entities sharing a tag to spawn a topic hub
     hub_tag_max_hubs: int = 30       # cap on tag-cluster hubs
     hub_member_cap: int = 150        # max members listed per hub file
+
+    # G53 — live state dictionary (`<bank>/_state.md`): how many of each
+    # list the cursor carries. Small on purpose: the file is a pointer into
+    # the graph (ids + one-liners), never a copy of it, and is capped at
+    # `state_dictionary.MAX_BYTES` regardless of these.
+    state_projects: int = 7           # CICADA_STATE_PROJECTS
+    state_people: int = 7             # CICADA_STATE_PEOPLE
+    state_preferences: int = 5        # CICADA_STATE_PREFERENCES
+    state_conversations: int = 5      # CICADA_STATE_CONVERSATIONS
+    state_standing: int = 5           # CICADA_STATE_STANDING
+    state_focus: int = 5              # CICADA_STATE_FOCUS
+    # G53 — the owner's own entity id (e.g. `bob-example`), so `_state.md` can
+    # point an agent at "the person's page" without a name in code (the
+    # portability rail: no owner name anywhere). Empty = unset; the builder
+    # additionally requires `entities/<id>.md` to exist before it writes
+    # `owner_id`. Distinct from the claim layer's `observer=` seam in
+    # `agentic_write` — that names who asserted a claim, not whose bank it is.
+    observer_owner: str = ""          # CICADA_OBSERVER_OWNER
 
     # Telegram capture connector (Wave B ingestion) — a message forwarded/sent
     # to the user's own bot, POSTed by Telegram to `POST /capture/telegram`,
@@ -183,6 +259,13 @@ class Settings(BaseSettings):
     # accepted, so an unconfigured install gets zero added surface area. Set
     # CICADA_TELEGRAM_BOT_TOKEN to the token from @BotFather to activate.
     telegram_bot_token: str = ""  # CICADA_TELEGRAM_BOT_TOKEN
+
+    # G105 R7 — the one switch on hook-driven capture. True keeps the person's
+    # turns AND the agent's final reply per turn; false keeps only the
+    # person's turns (the owner's stated fallback if the assistant half
+    # proves noisy). Read by POST /capture/transcript, so flipping it needs
+    # no hook re-registration.
+    capture_assistant_replies: bool = True  # CICADA_CAPTURE_ASSISTANT_REPLIES
 
     model_config = {"env_prefix": "CICADA_", "env_file": ".env", "extra": "ignore"}
 

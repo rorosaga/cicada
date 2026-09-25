@@ -47,6 +47,8 @@ protocol SyncAPI: Sendable {
     func fetchCalendars(etag: String?) async throws -> Conditional<[CalendarSubscription]>
     func fetchContributors(etag: String?) async throws -> Conditional<[Contributor]>
     func fetchOrigins(etag: String?) async throws -> Conditional<[OriginStat]>
+    /// G124 — `GET /sources/overview`, one row per memory source.
+    func fetchSourcesOverview(etag: String?) async throws -> Conditional<[SourceOverview]>
     func fetchConnections(etag: String?) async throws -> Conditional<[ConnectionStatus]>
     /// Usage dashboard (G51) default view — fans out to all five
     /// `/consumption/*` endpoints and folds them into one bundle. See
@@ -64,7 +66,12 @@ protocol SyncAPI: Sendable {
 
     // G48 — on-demand, like `/contributors/commits`: no SyncDomain, no
     // SnapshotCache entry. On the protocol purely so tests can fake them.
-    func fetchRecentConversations(limit: Int) async throws -> [ConversationSummary]
+    /// G124 R5: `harness`/`origin` filter server-side, BEFORE the cap — a
+    /// client-side filter over a capped page would silently drop an older
+    /// conversation of the selected harness. `harness: "unknown"` matches rows
+    /// whose harness is empty.
+    /// `query` (G136 R-SU22) is a title filter the backend applies before the same cap (G136 R17).
+    func fetchRecentConversations(limit: Int, harness: String?, origin: String?, query: String?) async throws -> [ConversationSummary]
     /// Exact by-id lookup over the whole bank; `nil` = the bank has no episode
     /// carrying that id. NEVER resolve an id inside `fetchRecentConversations`'
     /// capped page — absence there means "not recent", not "not known".
@@ -100,8 +107,28 @@ protocol SyncAPI: Sendable {
     /// is the honest result the panel shows.
     func syncSafariTabs(db: Data, wal: Data?, devices: [String]?) async throws -> SafariTabsSyncResult
     func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult
+    /// Round 4 (C9) — one Chromium-family browser beyond Chrome, posted as `chromium: [{browser, dataB64}]`.
+    func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult
     func activateBank(name: String) async throws
     func triggerSleep() async throws -> SleepTriggerResponse
+    /// G141 PJ-5 (R-PP19) — the Projects page's five writes (`routers/projects.py`), each answering the claim it wrote,
+    /// the day and how that day was decided. Every day sent is `YYYY-MM-DD`: nothing relative is sent as a value
+    /// (R-PJ6). All answer 409 while a Sleep cycle runs.
+    func addProjectMilestone(project: String, name: String, target: String?) async throws -> ProjectWriteResponse
+    func changeProjectMilestone(project: String, slug: String, change: MilestoneChange) async throws -> ProjectWriteResponse
+    func logProjectHappening(project: String, text: String, status: String, when: String?) async throws -> ProjectWriteResponse
+    func settleProjectThread(project: String, claimId: String, status: String) async throws -> ProjectWriteResponse
+    func withdrawProjectHappening(project: String, claimId: String) async throws -> ProjectWriteResponse
+    /// C11 (G146) — the three picture writes (`routers/entities.py`): each answers the page's picture after it and the
+    /// inputs the twin re-resolves from; each answers 409 while Sleep runs.
+    func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer
+    func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer
+    func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer
+    /// G150 — the Backlog section's three writes (`routers/backlog.py`), each answering the item as it now stands. All
+    /// answer 409 while a Sleep cycle runs, and an add whose idea is already open answers 409 naming the item.
+    func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem
+    func addBacklogNote(project: String, item: String, note: String, status: String?) async throws -> BacklogItem
+    func updateBacklogItem(project: String, item: String, change: BacklogChange) async throws -> BacklogItem
 
     /// `GET /sync/version` — the current version vector.
     func fetchSyncVersion() async throws -> VersionVector
@@ -128,7 +155,14 @@ struct SleepEventPayload: Codable, Equatable {
     var cycleId: String?
     var stage: Int
     var totalStages: Int
-    var progress: Double?
+    /// The backend has always sent `state.progress`, the stage SENTENCE
+    /// ("Stage 1/5: Extracting entities from 12 episodes…" —
+    /// `sleep_cycle.py` -> `sync.py`), but this field was typed `Double?` and
+    /// decoded with `try?`, so it silently decoded to `nil` on every event
+    /// since it shipped. Typed to match the wire; the `try?` stays so an older
+    /// backend sending a number degrades to `nil` rather than dropping the
+    /// whole event.
+    var progress: String?
     var error: String?
     var progressPct: Int?
     var restedPct: Int?
@@ -137,23 +171,32 @@ struct SleepEventPayload: Codable, Equatable {
     var unprocessedCount: Int?
     var hasRunBefore: Bool?
     var hoursSinceLastCycle: Double?
+    /// G125 R3 — this cycle's selected episodes by source, and how many of
+    /// each Stage 1 has finished. `nil` (never a fabricated `[:]`) on an
+    /// older backend that predates these keys; `SleepViewModel`/the Sleep
+    /// page fall back to the REST-polled `SleepStatusResponse` fields.
+    var queueByOrigin: [String: Int]?
+    var readByOrigin: [String: Int]?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, stage, totalStages, progress, error
         case progressPct, restedPct, volumePct, agePct
         case unprocessedCount, hasRunBefore, hoursSinceLastCycle
+        case queueByOrigin, readByOrigin
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
-         totalStages: Int = 5, progress: Double? = nil, error: String? = nil,
+         totalStages: Int = 5, progress: String? = nil, error: String? = nil,
          progressPct: Int? = nil, restedPct: Int? = nil, volumePct: Int? = nil,
          agePct: Int? = nil, unprocessedCount: Int? = nil, hasRunBefore: Bool? = nil,
-         hoursSinceLastCycle: Double? = nil) {
+         hoursSinceLastCycle: Double? = nil, queueByOrigin: [String: Int]? = nil,
+         readByOrigin: [String: Int]? = nil) {
         self.status = status; self.cycleId = cycleId; self.stage = stage
         self.totalStages = totalStages; self.progress = progress; self.error = error
         self.progressPct = progressPct; self.restedPct = restedPct; self.volumePct = volumePct
         self.agePct = agePct; self.unprocessedCount = unprocessedCount
         self.hasRunBefore = hasRunBefore; self.hoursSinceLastCycle = hoursSinceLastCycle
+        self.queueByOrigin = queueByOrigin; self.readByOrigin = readByOrigin
     }
 
     init(from decoder: Decoder) throws {
@@ -162,7 +205,7 @@ struct SleepEventPayload: Codable, Equatable {
         cycleId = try? c.decodeIfPresent(String.self, forKey: .cycleId)
         stage = (try? c.decode(Int.self, forKey: .stage)) ?? 0
         totalStages = (try? c.decode(Int.self, forKey: .totalStages)) ?? 5
-        progress = try? c.decodeIfPresent(Double.self, forKey: .progress)
+        progress = try? c.decodeIfPresent(String.self, forKey: .progress)
         error = try? c.decodeIfPresent(String.self, forKey: .error)
         progressPct = try? c.decodeIfPresent(Int.self, forKey: .progressPct)
         restedPct = try? c.decodeIfPresent(Int.self, forKey: .restedPct)
@@ -171,5 +214,7 @@ struct SleepEventPayload: Codable, Equatable {
         unprocessedCount = try? c.decodeIfPresent(Int.self, forKey: .unprocessedCount)
         hasRunBefore = try? c.decodeIfPresent(Bool.self, forKey: .hasRunBefore)
         hoursSinceLastCycle = try? c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
+        queueByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin)
+        readByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .readByOrigin)
     }
 }

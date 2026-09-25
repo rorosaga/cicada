@@ -1,0 +1,111 @@
+import XCTest
+@testable import CicadaApp
+
+/// R-E4 / R-E25 — every decision the Settings → Engines engine row makes.
+final class EngineOptionTests: XCTestCase {
+    private func card(_ id: String, available: Bool = true, connected: Bool = true,
+                      models: [String] = [], label: String? = nil) -> SleepEngineCandidate {
+        SleepEngineCandidate(id: id, label: label ?? id, available: available,
+                             connected: connected, models: models, detail: nil)
+    }
+
+    func testAPlanCardIsSelectableOnlyWhenSignedInOrAlreadyChosen() {
+        XCTAssertTrue(EngineOption.isSelectable(card("codex"), selectedMode: "auto"))
+        XCTAssertFalse(EngineOption.isSelectable(card("codex", connected: false), selectedMode: "auto"))
+        XCTAssertTrue(EngineOption.isSelectable(card("codex", connected: false), selectedMode: "codex"))
+        XCTAssertFalse(EngineOption.isSelectable(card("agent", available: false, connected: false),
+                                                 selectedMode: "byok"))
+        for id in ["auto", "local", "byok"] {
+            XCTAssertTrue(EngineOption.isSelectable(card(id, available: false, connected: false),
+                                                    selectedMode: "agent"), id)
+        }
+    }
+
+    func testEveryCardSaysItsStateInPlainWords() {
+        XCTAssertEqual(EngineOption.caption(for: card("codex")), "Signed in")
+        XCTAssertEqual(EngineOption.caption(for: card("codex", connected: false)), "Not signed in")
+        XCTAssertEqual(EngineOption.caption(for: card("agent", available: false, connected: false)), "Not installed")
+        XCTAssertEqual(EngineOption.caption(for: card("local", models: ["llama3.1"])), "Ready")
+        XCTAssertEqual(EngineOption.caption(for: card("local", connected: false)), "Not running")
+        XCTAssertEqual(EngineOption.caption(for: card("local", available: false, connected: false)), "Not installed")
+        XCTAssertEqual(EngineOption.caption(for: card("auto")), "Picks for you")
+        XCTAssertEqual(EngineOption.caption(for: card("byok")), "Uses your key")
+    }
+
+    func testThePlanCardsWearTheSameMarksAsPlansAndKeys() {
+        XCTAssertEqual(EngineOption.logoName(for: "agent"), ConnectionMark.logoName(connectionId: "claude-plan"))
+        XCTAssertEqual(EngineOption.logoName(for: "codex"), ConnectionMark.logoName(connectionId: "chatgpt-plan"))
+        XCTAssertEqual(EngineOption.logoName(for: "local"), ConnectionMark.logoName(connectionId: "ollama-local"))
+        XCTAssertNil(EngineOption.logoName(for: "byok"))
+        XCTAssertEqual(EngineOption.symbol(for: "byok"), "key.fill")
+        XCTAssertNil(EngineOption.logoName(for: "auto"))
+        XCTAssertEqual(EngineOption.symbol(for: "auto"), "sparkles")
+    }
+
+    func testTheSignInHintNamesOnlyInstalledSignedOutPlans() {
+        let cards = [card("agent", label: "Claude plan"),
+                     card("codex", connected: false, label: "ChatGPT plan"),
+                     card("local", connected: false)]
+        XCTAssertEqual(EngineOption.signInHint(cards), "To use your ChatGPT plan, sign in on")
+        XCTAssertNil(EngineOption.signInHint([card("codex", available: false, connected: false)]))
+        XCTAssertNil(EngineOption.signInHint([card("agent"), card("codex")]))
+    }
+
+    func testTheExtraUsageSwitchShowsOnlyWhereTheClaudePlanCanRun() {
+        XCTAssertTrue(EngineOption.showsOverageToggle(selectedMode: "agent"))
+        XCTAssertTrue(EngineOption.showsOverageToggle(selectedMode: "auto"))
+        XCTAssertFalse(EngineOption.showsOverageToggle(selectedMode: "codex"))
+        XCTAssertFalse(EngineOption.showsOverageToggle(selectedMode: "local"))
+    }
+
+    /// G117 (owner 2026-09-04) — each option states its cost model before it is chosen; never a price.
+    func testEveryCompactCardStatesItsCostModelAndNeverAPrice() throws {
+        for id in ["agent", "codex", "local", "byok"] {
+            let line = try XCTUnwrap(EngineOption.costModel(for: id), id)
+            XCTAssertFalse(line.contains("$"), line)
+            XCTAssertNil(line.rangeOfCharacter(from: .decimalDigits), "a cost model, not a price: \(line)")
+        }
+        XCTAssertNil(EngineOption.costModel(for: "auto"))
+    }
+
+    func testTheCompactRowHidesAutoBecauseUntouchedMeansAuto() {
+        XCTAssertEqual(EngineOption.compactCandidates([card("auto"), card("agent"), card("byok")]).map(\.id), ["agent", "byok"])
+    }
+
+    func testTheRingFollowsThePickThenAnEngineThatCanRun() {
+        XCTAssertEqual(EngineOption.ringed(pick: "local", readiness: .ready(candidate: "agent")), "local")
+        XCTAssertEqual(EngineOption.ringed(pick: nil, readiness: .ready(candidate: "agent")), "agent")
+        XCTAssertNil(EngineOption.ringed(pick: nil, readiness: .needsChoice))
+    }
+
+    func testAKeyCardSaysWhetherAKeyExists() {
+        XCTAssertEqual(EngineOption.compactCaption(for: card("byok"), hasKey: false), Copy.engineAddKey)
+        XCTAssertEqual(EngineOption.compactCaption(for: card("byok"), hasKey: true), Copy.engineKeySaved)
+        XCTAssertEqual(EngineOption.compactCaption(for: card("codex"), hasKey: false), "Signed in")
+    }
+    func testOnlyOllamaIsLocal() {
+        XCTAssertTrue(EngineOption.isLocal("local"))
+        for id in ["auto", "agent", "codex", "openrouter", "byok"] { XCTAssertFalse(EngineOption.isLocal(id), id) }
+        XCTAssertEqual(Copy.engineLocalTag, "Local")
+        XCTAssertEqual(EngineOption.costModel(for: "openrouter"), "Billed per use by OpenRouter")
+    }
+
+    func testPickingAProviderWritesItsDefaultOnlyWhenItChangesSomething() {
+        let groq = SleepEngineProvider(id: "groq", label: "Groq", connectionId: "byok-groq", hasKey: true,
+                                       defaultModel: "groq/openai/gpt-oss-120b", keyUrl: "https://example.com")
+        XCTAssertEqual(EngineOption.providerWrite(groq, selectedCard: "byok", currentModel: "gpt-5.4-mini"),
+                       EngineWrite(mode: "byok", model: "groq/openai/gpt-oss-120b"))
+        XCTAssertNil(EngineOption.providerWrite(groq, selectedCard: "byok", currentModel: "groq/openai/gpt-oss-120b"))
+        XCTAssertEqual(EngineOption.providerWrite(groq, selectedCard: "agent", currentModel: "sonnet"),
+                       EngineWrite(mode: "byok", model: "groq/openai/gpt-oss-120b"), "picking selects the key card")
+    }
+
+    /// Round 4 final review: an id pasted from OpenRouter's own site (no `openrouter/` prefix) must still
+    /// run on OpenRouter, never be routed by LiteLLM straight to that provider's key.
+    func testTheOpenRouterFieldAlwaysWritesAnOpenRouterId() {
+        XCTAssertEqual(EngineOption.openRouterModelID("anthropic/claude-sonnet-4.5"), "openrouter/anthropic/claude-sonnet-4.5")
+        XCTAssertEqual(EngineOption.openRouterModelID("  openrouter/~openai/gpt-mini-latest "), "openrouter/~openai/gpt-mini-latest")
+        XCTAssertEqual(EngineOption.openRouterModelID("   "), "", "an empty field writes nothing")
+        XCTAssertTrue(EngineOption.runsOnOpenRouter(EngineOption.openRouterModelID("mistralai/mistral-large")))
+    }
+}

@@ -55,6 +55,8 @@ final class ConsumptionFetchTests: XCTestCase {
                 return self.ok(request.url!, #"{"connections":[{"id":"anthropic","label":"Anthropic","tokens":42}],"range":"month"}"#)
             case "/consumption/harness":
                 return self.ok(request.url!, #"{"claudeCode":{"total_sessions":7}}"#)
+            case "/consumption/feedback":
+                return self.ok(request.url!, #"{"range":"month","resolutions":4,"corrections":1,"rate":0.75}"#)
             default:
                 XCTFail("unexpected path \(request.url!.path)")
                 throw URLError(.badURL)
@@ -80,6 +82,8 @@ final class ConsumptionFetchTests: XCTestCase {
             case "/consumption/stats": return self.ok(request.url!, #"{"byModel":[],"byStage":[],"byConnection":[],"byBank":[],"hourHistogram":[0],"series":[],"range":"month"}"#)
             case "/consumption/connections": return self.ok(request.url!, #"{"connections":[],"range":"month"}"#)
             case "/consumption/harness": return self.ok(request.url!, "{}")
+            case "/consumption/feedback":
+                return self.ok(request.url!, #"{"range":"month","resolutions":4,"corrections":1,"rate":0.75}"#)
             default:
                 XCTFail("unexpected path \(request.url!.path)")
                 throw URLError(.badURL)
@@ -89,5 +93,29 @@ final class ConsumptionFetchTests: XCTestCase {
         let result = try await APIClient(session: MockURLProtocol.makeSession()).fetchConsumption(etag: nil, current: nil)
         XCTAssertFalse(result.notModified)
         XCTAssertEqual(result.value?.summary.costUsd, 1.5)
+        XCTAssertEqual(result.value?.feedback?.rate, 0.75)
+    }
+
+    /// An older backend without `/consumption/feedback` must not sink the
+    /// whole dashboard: the section is nil, everything else still lands.
+    func testA404OnFeedbackLeavesTheRestOfTheBundleIntact() async throws {
+        MockURLProtocol.handler = { request in
+            switch request.url!.path {
+            case "/consumption/summary": return self.ok(request.url!, #"{"costUsd":1.5,"range":"month"}"#)
+            case "/consumption/calendar": return self.ok(request.url!, #"{"days":[],"weeks":53}"#)
+            case "/consumption/stats": return self.ok(request.url!, #"{"byModel":[],"byStage":[],"byConnection":[],"byBank":[],"hourHistogram":[0],"series":[],"range":"month"}"#)
+            case "/consumption/connections": return self.ok(request.url!, #"{"connections":[],"range":"month"}"#)
+            case "/consumption/harness": return self.ok(request.url!, "{}")
+            case "/consumption/feedback":
+                return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            default:
+                XCTFail("unexpected path \(request.url!.path)")
+                throw URLError(.badURL)
+            }
+        }
+        let result = try await APIClient(session: MockURLProtocol.makeSession()).fetchConsumption(etag: nil, current: nil)
+        XCTAssertFalse(result.notModified)
+        XCTAssertEqual(result.value?.summary.costUsd, 1.5)
+        XCTAssertNil(result.value?.feedback)
     }
 }

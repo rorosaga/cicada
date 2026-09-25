@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// A transparent AppKit passthrough container that accepts the first mouse
 /// click even when its window isn't key yet. `ClickableWebView`
@@ -25,13 +26,86 @@ struct CicadaApp: App {
     @State private var graphVM: GraphViewModel
     @State private var inboxVM: InboxViewModel
     @State private var sleepVM: SleepViewModel
+    /// G122: the engine-and-model picker (Settings → Engines since G139 A3). No `Store`
+    /// dependency (ruling 6 — a plain `APIClient` round trip, nothing else
+    /// observes this domain) — constructed bare, unlike every view model
+    /// above it.
+    @State private var sleepEngineVM = SleepEngineViewModel()
+    /// G126 R9 — the Feed hand-off, and since DR-33 the Settings panel's
+    /// open state (R-DS21 … R-DS24). No `Store` dependency, same reasoning as
+    /// `sleepEngineVM` above: nothing but the main window's views — the panel
+    /// included — and the menu commands observe this.
+    @State private var appRouter = AppRouter()
+    /// G152 — the guided tour, app-lifetime like the router: every door asks it, `TourLayer` runs it.
+    @State private var tour = TourController()
+    /// G118 slice 2 — the Reader's navigation and its in-memory payload
+    /// cache. Main window only: the Settings panel never opens a Reader, and
+    /// neither is a Store domain (R-PB11), so neither needs the Store.
+    @State private var provenanceRouter = ProvenanceRouter()
+    @State private var provenanceCache = ProvenanceCache()
+    /// G141 PJ-5 (R-PP3) — the Projects page's in-memory cache; app-level so a tab switch keeps what was read.
+    @State private var projectsCache = ProjectsCache()
+    /// G150 (R-B18) — the Backlog section's in-memory cache; app-level for ProjectsCache's reason.
+    @State private var backlogCache = BacklogCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
     @State private var connectionsVM: ConnectionsViewModel
     @State private var usageVM: UsageViewModel
+    /// G136 — the ⌘K find palette's state, one per app, so its Ask history,
+    /// recents and instant index survive the palette closing.
+    @State private var findModel: FindPaletteModel
+    /// Track I part b (R-IB4) — Home's field: a second palette model sharing
+    /// the palette's one Ask, keeping no recents, so a ⌘K elsewhere never wipes
+    /// what was left typed on Home.
+    @State private var homeSearch: HomeSearch
     @State private var menuBarManager = MenuBarManager()
-    @State private var backend = BackendProcess()
+    @State private var backend: BackendProcess
+    /// Round-4 D3 (G143) — Settings → General → In the background. App-lifetime so the
+    /// login item's remembered intent and the service probe are one instance per app.
+    @State private var loginItems = LoginItemService()
+    @State private var backendAgent: BackendAgentService
+    /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
+    /// without a button. App-side because the launchd backend has no Full Disk
+    /// Access — see `BrowserWatch.swift`.
+    @State private var browserWatcher: BrowserWatcher
+    /// Round 4 (R-SR17) — the one registry of running syncs every `SourceRow` reads, and where its × goes.
+    @State private var syncActivity: SyncActivity
+    /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
+    /// never opens them). Lights ride `browserWatcher` (R-LS26).
+    @State private var localSources: LocalSourceWatcher
+    /// Round-4 D2 (C6, C7): the Calendar app's events, read by the app through EventKit only after Connect in
+    /// Settings → Integrations, and posted to the backend (R-FA11).
+    @State private var calendarReader = CalendarReader()
+    /// Round 4 (G160 first slice): Chrome's open tab groups, read by the app from its session file only after the
+    /// person turns on their own switch (R-SR3), and posted per memory.
+    @State private var tabGroups: TabGroupWatcher
+    /// Round 4 (G154): the Mac's address book, read by the app only after Connect in Settings → Integrations and
+    /// posted per memory, where it enriches the people Cicada already knows (R-SR8, R-SR10).
+    @State private var contactsReader: ContactsReader
+    /// Track I T5 (design §5.1) — the one intake: a drop anywhere, the Dock,
+    /// File → Import…, the menu-bar worm, an empty state and the `+` tiles all
+    /// go through it, and its request counter owns `Store.intakeInFlight`.
+    @State private var intakeRouter = IntakeRouter()
+    /// Track I part b (R-IB14) — what Start does, app-lifetime so a Welcome that
+    /// has faded out keeps reporting its rows to Home's Getting started card.
+    @State private var setupRunner = SetupRunner()
+    /// One inventory for the Welcome and Getting started, so a row's state is
+    /// the same probe on both (the `+` strip keeps its own per appearance).
+    @State private var inventory: LocalInventory
+    /// Track I part b (R-IB22) — export reminders: a per-viewer convenience in
+    /// defaults, told by the Feed, the menu bar and Getting started whether or
+    /// not notifications were allowed.
+    @State private var exportWaits = ExportWaitStore()
+    /// R-IA25 — the one AppKit hook SwiftUI's `App` lacks: a Dock "Open With"
+    /// or a drop on the Dock icon. Its queue holds a cold launch's URLs until
+    /// `.onAppear` attaches the router.
+    @NSApplicationDelegateAdaptor(CicadaAppDelegate.self) private var appDelegate
+    /// G130: the local key monitor that routes ⌘⇧= to `CicadaTheme.zoomIn()`
+    /// (see `ZoomKeyRouter`). Held so `.onAppear` (which can fire again —
+    /// see `enableFirstMouseAcceptance`'s own idempotence note below) never
+    /// installs a second monitor and double-fires every zoom keystroke.
+    @State private var zoomMonitor: Any?
 
     // Theme: persisted mode driving both the SwiftUI environment
     // (`.preferredColorScheme`, so system materials/controls follow) and the
@@ -39,7 +113,13 @@ struct CicadaApp: App {
     // doesn't pick up from SwiftUI state automatically — see
     // `syncWindowChrome` below.
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
-    private var appColorScheme: AppColorScheme { AppColorScheme(rawValue: colorSchemeRaw) ?? .dark }
+    /// Round-4 decision 6 (R-HO16) — Settings → General → Show in menu bar, per viewer, on by default.
+    @AppStorage(MenuBarPreference.defaultsKey) private var menuBarVisible = true
+    /// R-O4 — the preference resolved against the system appearance
+    /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
+    private var appColorScheme: AppColorScheme {
+        AppearancePreference.stored(colorSchemeRaw).resolved(systemIsDark: ThemeStore.shared.systemIsDark)
+    }
 
     init() {
         // Swift Package executable targets launch without an Info.plist, so AppKit
@@ -48,7 +128,13 @@ struct CicadaApp: App {
         // responder — that's the "can't type in the search/clarification fields"
         // bug. Explicitly requesting .regular activation fixes it.
         NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        // Activation is the launch's: an interactive one activates in `LaunchState.record`, a login one stays quiet (R-OB18).
+
+        // G139 final review: the System-appearance observer lives at app
+        // scope, not on one window — see `ThemeStore.observeSystemAppearance`.
+        ThemeStore.shared.observeSystemAppearance()
+        // Round-4 D4 — the hero's clock, app scope like the appearance observer.
+        SceneStore.shared.start()
 
         // Build the Store as a plain local value first — referencing `self`
         // (which `store` would, via the property wrapper) isn't allowed yet
@@ -58,6 +144,19 @@ struct CicadaApp: App {
         // independently.
         let store = Store()
         _store = State(initialValue: store)
+        // R-FA8 — once the background service is installed, the app hands launchd :8000 by
+        // stopping only the uvicorn child it spawned itself (never a developer's).
+        let backend = BackendProcess()
+        _backend = State(initialValue: backend)
+        _backendAgent = State(initialValue: BackendAgentService(onInstalled: { [backend] in backend.stopSpawnedChild() }))
+        let activity = SyncActivity()
+        _syncActivity = State(initialValue: activity)
+        let lights = BrowserWatcher(activity: activity)
+        _browserWatcher = State(initialValue: lights)
+        _localSources = State(initialValue: LocalSourceWatcher(lights: lights))
+        _tabGroups = State(initialValue: TabGroupWatcher(lights: lights, activity: activity, bank: { [store] in store.bank }))
+        _contactsReader = State(initialValue: ContactsReader(activity: activity, bank: { [store] in store.bank }))
+        _inventory = State(initialValue: LocalInventory(probes: LocalInventory.live(watcher: lights)))
         _graphVM = State(initialValue: GraphViewModel(store: store))
         _inboxVM = State(initialValue: InboxViewModel(store: store))
         _sleepVM = State(initialValue: SleepViewModel(store: store))
@@ -66,30 +165,130 @@ struct CicadaApp: App {
         _contributorsVM = State(initialValue: ContributorsViewModel(store: store))
         _connectionsVM = State(initialValue: ConnectionsViewModel(store: store))
         _usageVM = State(initialValue: UsageViewModel(store: store))
+        let find = FindPaletteModel(store: store)
+        _findModel = State(initialValue: find)
+        _homeSearch = State(initialValue: HomeSearch(model: FindPaletteModel(store: store, ask: find.ask,
+                                                                              keepsRecents: false)))
     }
 
+    /// R-DS23 — ⌘, can reopen the one window: with the app living in the menu bar and no
+    /// window open, `ShellCommands` opens this one and the staged Settings request lands in it.
+    static let mainWindowID = "main"
+
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             ContentView()
                 .environment(graphVM)
                 .environment(inboxVM)
                 .environment(sleepVM)
+                .environment(sleepEngineVM)
+                .environment(appRouter)
+                .environment(tour)
+                .environment(provenanceRouter)
+                .environment(provenanceCache)
+                .environment(projectsCache)
+                .environment(backlogCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
                 .environment(connectionsVM)
                 .environment(usageVM)
                 .environment(store)
+                .environment(findModel)
+                .environment(homeSearch)
+                .environment(browserWatcher)
+                .environment(syncActivity)
+                .environment(localSources)
+                .environment(calendarReader)
+                .environment(tabGroups)
+                .environment(contactsReader)
+                .environment(loginItems)
+                .environment(backendAgent)
+                .environment(intakeRouter)
+                .environment(setupRunner)
+                .environment(inventory)
+                .environment(exportWaits)
+                // R-IA24 — a Dock open reuses this window instead of opening a
+                // second one (the router, and its overlay, live in this one).
+                .handlesExternalEvents(preferring: Set(["*"]), allowing: Set(["*"]))
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                .onChange(of: colorSchemeRaw) { _, newValue in
-                    let mode = AppColorScheme(rawValue: newValue) ?? .dark
-                    CicadaTheme.mode = mode
-                    if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                        syncWindowChrome(window, mode: mode)
-                    }
+                .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
+                .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
+                .onReceive(DistributedNotificationCenter.default()
+                    .publisher(for: AppearancePreference.systemChangedNotification)
+                    .receive(on: RunLoop.main)) { _ in
+                    // The app-scope observer re-resolves the tokens; this one
+                    // exists for the AppKit chrome only. Refreshing here too
+                    // makes the two orderless (both writes are guarded).
+                    ThemeStore.shared.refreshSystemAppearance()
+                    applyAppearance()
+                }
+                // G133 / G134: folders and Wispr Flow settings are per memory, so a
+                // bank switch re-reads them and re-arms the watches.
+                .onChange(of: store.bank) { _, _ in
+                    Task { await localSources.reload() }
+                    // Round-4 D2 — the new memory gets the calendar too (a demo's 409 is said in words).
+                    Task { await calendarReader.bankChanged() }
+                    // G160 — the new memory gets the open groups too (its digest is its own).
+                    Task { await tabGroups.bankChanged() }
+                    // G154 (R-SR10) — the new memory's people get their Contacts sources too.
+                    Task { await contactsReader.bankChanged() }
                 }
                 .onAppear {
+                    // G130 R5: the View menu's CommandGroup below already
+                    // owns bare ⌘=/⌘−/⌘0; this monitor exists only to catch
+                    // ⌘⇧= (what a US keyboard sends for "⌘+"), which no
+                    // single `keyboardShortcut` can express alongside ⌘=
+                    // without two "Zoom In" menu rows. Guarded so a second
+                    // `.onAppear` (e.g. the window closing and reopening —
+                    // see `enableFirstMouseAcceptance`'s own precedent a few
+                    // lines below) never stacks a second monitor.
+                    if zoomMonitor == nil {
+                        zoomMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                            guard let action = ZoomKeyRouter.action(
+                                characters: event.charactersIgnoringModifiers ?? "",
+                                modifiers: event.modifierFlags
+                            ) else { return event }
+                            switch action {
+                            case .zoomIn: CicadaTheme.zoomIn()
+                            case .zoomOut: CicadaTheme.zoomOut()
+                            case .reset: CicadaTheme.resetZoom()
+                            }
+                            return nil
+                        }
+                    }
                     backend.start()
+                    // Arms the per-browser watches and catches up on anything
+                    // saved while the app was closed.
+                    browserWatcher.start(store: store)
+                    // Track I T5 — the one intake owns `store.intakeInFlight`
+                    // through its request counter, and the Dock's opens wait in
+                    // `DockOpenQueue` until this line attaches it (R-IA25).
+                    intakeRouter.attach(store: store)
+                    intakeRouter.attach(activity: syncActivity)
+                    appDelegate.opens.attach { [intakeRouter, appRouter] urls in
+                        appRouter.showMainWindow()
+                        intakeRouter.accept(urls: urls, from: .dock)
+                    }
+                    localSources.start(store: store)
+                    // R-FA11 — reads only if the person connected before and macOS still says yes. A reopened
+                    // window runs this again: `arm()` is guarded, so that costs one catch-up sync and nothing more.
+                    calendarReader.start()
+                    // G160 (R-SR3) — reads only if the person turned the tab-groups switch on.
+                    tabGroups.start()
+                    // G154 (R-SR10) — reads only after Connect, and on launch only when the book moved or a day passed.
+                    contactsReader.start()
+                    // R-IB22 — the export someone was waiting for arrived (a sniff
+                    // recognised its vendor): its wait, in the active memory, is done.
+                    intakeRouter.onVendorSniffed = { [exportWaits, store] vendor in
+                        exportWaits.clear(vendor: vendor, bank: store.bank)
+                    }
+                    // A tapped reminder opens the one intake idle for that vendor —
+                    // never a cycle (G125 R10). Queued until now on a cold launch.
+                    appDelegate.reminderTaps.attach { [intakeRouter, appRouter] vendor in
+                        appRouter.showMainWindow()
+                        intakeRouter.present(from: .reminder(vendor))
+                    }
                     // When SleepViewModel observes a cycle finish (running ->
                     // idle, no error), refresh the graph/topics layer in
                     // place. Without this, Sleep finishes successfully but
@@ -104,27 +303,48 @@ struct CicadaApp: App {
                     inboxVM.onResolved = { [menuBarManager] in
                         await menuBarManager.refreshAfterAction()
                     }
+                    // DR-42 (R-DI3) — ⌘Q inside an Undo window sends the held answer first.
+                    appDelegate.heldAnswer = { [store] in store.hasAnswerInFlight }
+                    appDelegate.sendHeldAnswer = { [store] in await store.sendHeldAndDrain() }
+                    // G139 final review: a reopened window re-reads the system
+                    // appearance rather than trusting the last one this scene saw.
+                    ThemeStore.shared.refreshSystemAppearance()
                     // Ensure the main window is key so TextFields can accept input.
                     if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
                         syncWindowChrome(window, mode: appColorScheme)
                         enableFirstMouseAcceptance(for: window)
-                        window.makeKeyAndOrderFront(nil)
+                        switch LaunchState.shared.firstWindowAction() {
+                        case .show:
+                            window.makeKeyAndOrderFront(nil)
+                        case .close:
+                            // R-OB18 — a login start: everything above ran (backend, watchers, menu bar, sync engine
+                            // — all app-level), so the window can go the way a closed last window goes.
+                            window.orderOut(nil)
+                            DispatchQueue.main.async { window.close() }
+                        }
+                    }
+                    // Read as the menu opens, so "requested 2 hours ago" is true then.
+                    menuBarManager.exportWaitLines = { [exportWaits, store] in
+                        exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
                     menuBarManager.setup(
-                        onOpenApp: {
-                            NSApplication.shared.activate(ignoringOtherApps: true)
-                            if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
-                                window.makeKeyAndOrderFront(nil)
-                            }
-                        },
+                        onOpenApp: { [appRouter] in appRouter.showMainWindow() },
                         onRunSleep: {
                             await sleepVM.triggerManually()
                             await menuBarManager.refreshAfterAction()
                         },
                         onSaveClipboardURL: {
                             await menuBarManager.saveClipboardURL()
+                        },
+                        // R-IA26 — "Import a file…": bring the window forward and
+                        // open the intake idle, like File → Import….
+                        onImportFile: { [intakeRouter, appRouter] in
+                            appRouter.showMainWindow()
+                            intakeRouter.present(from: .menuBar)
                         }
                     )
+                    // R-HO16 — the switch, applied at launch too.
+                    menuBarManager.setVisible(menuBarVisible)
 
                     // Drive the menu-bar bookworm's stage dots live during a
                     // running cycle (1s cadence), separate from the coarse 30s
@@ -151,24 +371,48 @@ struct CicadaApp: App {
                 // and the bookworm is fed by the Store's status snapshot.
         }
         .defaultSize(width: 1200, height: 800)
+        // DR-23 — the titlebar is a command bar: the window's title is hidden, and the toolbar's
+        // unified 52 pt band holds the toggle, the bar and the `?` (R-DS16).
+        .windowToolbarStyle(.unified(showsTitle: false))
+        // G130 R5: the View menu — ⌘+/⌘−/⌘0 scale the whole SwiftUI chrome
+        // through the one persisted `CicadaTheme.uiScale` (Task 1). Placed
+        // `after: .sidebar` so it lands right after macOS's own "Enter Full
+        // Screen" section in the View menu, the natural home for view-scale
+        // controls. `.keyboardShortcut("=", modifiers: .command)` is what a
+        // US keyboard reports for bare ⌘=; ⌘⇧= (what people actually type
+        // for "⌘+") is covered by the local key monitor above via
+        // `ZoomKeyRouter`, since SwiftUI cannot give one menu item two key
+        // equivalents.
+        .commands {
+            CommandGroup(after: .sidebar) {
+                Button("Zoom In") { CicadaTheme.zoomIn() }
+                    .keyboardShortcut("=", modifiers: .command)
+                Button("Zoom Out") { CicadaTheme.zoomOut() }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("Actual Size") { CicadaTheme.resetZoom() }
+                    .keyboardShortcut("0", modifiers: .command)
+            }
+            // G136 A6 — ⌘K (Find in Memory…) and ⌘F (Find on This Page…).
+            FindCommands(router: appRouter)
+            // DS-1 T3 (R-DS15) — View → Show labelled sidebar / Show icon rail (⌃⌘S);
+            // DS-1 T6 (R-DS23) — Settings… ⌘, opens the in-app panel.
+            ShellCommands(router: appRouter)
+            // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
+            // of every drop (design §5.1).
+            CommandGroup(after: .newItem) {
+                Button(Copy.intakeFileMenuItem) { intakeRouter.present(from: .fileMenu) }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+            }
+        }
+    }
 
-        // ⌘, and the sidebar's footer gear. Gets the same environment as the
-        // main window — `ConnectionsView` is a projection over the same Store.
-        // `sleepVM` added for the Schedule tab (G106 amendment) — the SAME
-        // view model instance the main window's Sleep page uses, so a
-        // change made here (or a Pause tap over there) is visible in both
-        // without a refetch.
-        Settings {
-            SettingsScene()
-                .environment(connectionsVM)
-                .environment(sleepVM)
-                .environment(store)
-                .preferredColorScheme(appColorScheme == .light ? .light : .dark)
-                // M3: `CicadaTheme.*` are static reads SwiftUI doesn't track
-                // (see `ContentView`'s `.id(colorSchemeRaw)` above), so without
-                // this the Settings window keeps a stale palette after a
-                // theme toggle even though `.preferredColorScheme` updates.
-                .id(colorSchemeRaw)
+    /// One place the resolved mode reaches the tokens and the AppKit chrome —
+    /// a preference change and a system flip both land here.
+    private func applyAppearance() {
+        let mode = appColorScheme
+        CicadaTheme.mode = mode
+        if let window = NSApplication.shared.windows.first(where: { $0.canBecomeKey }) {
+            syncWindowChrome(window, mode: mode)
         }
     }
 
@@ -187,11 +431,13 @@ struct CicadaApp: App {
         switch mode {
         case .dark:
             window.appearance = NSAppearance(named: .darkAqua)
-            window.backgroundColor = NSColor(red: 14 / 255, green: 15 / 255, blue: 20 / 255, alpha: 1)
         case .light:
             window.appearance = NSAppearance(named: .aqua)
-            window.backgroundColor = NSColor(red: 245 / 255, green: 246 / 255, blue: 250 / 255, alpha: 1)
         }
+        // G137 R-M10: the one AppKit surface that paints a theme colour reads
+        // the token — the hand-copied RGB that was here went stale the moment
+        // the neutrals moved.
+        window.backgroundColor = CicadaTheme.windowBackground(for: mode)
     }
 
     /// Reparents the window's existing (SwiftUI-owned) content view under a

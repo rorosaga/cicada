@@ -85,4 +85,20 @@ final class FeedIdentityTests: XCTestCase {
 
         XCTAssertEqual(vm.items.map(\.mediaEntityId), ["recent-ingest", "old-true-date"])
     }
+
+    // G102: rows may carry the link's description excerpt and `about`
+    // neighbours; an older backend omits both and the row still decodes.
+    func testDescriptionAndAboutDecodeWhenPresentAndDefaultWhenAbsent() {
+        let bare = item("media-a", "https://one.example")
+        XCTAssertNil(bare.description)
+        XCTAssertNil(bare.about)
+        let json = """
+        {"mediaEntityId": "media-b", "url": "https://two.example", "title": "t", "mediaType": "bookmark",
+         "savedAt": "2026-07-13", "relevance": 0.5, "tags": [],
+         "description": "A programme page.", "about": ["ros", "knowledge-graphs"]}
+        """
+        let rich = try! JSONDecoder().decode(MediaFeedItem.self, from: Data(json.utf8))
+        XCTAssertEqual(rich.description, "A programme page.")
+        XCTAssertEqual(rich.about, ["ros", "knowledge-graphs"])
+    }
 }

@@ -17,9 +17,121 @@ fail closed (unresolvable in a network-less sandbox = refused). Default it to
 a fixed public address instead; the handful of tests that exercise the guard
 itself pass their own ``resolver=``, which always wins over this default.
 """
+import os
+from pathlib import Path
+
+import json
+import sys
+
 import pytest
 
 from api.services import logo_service
+from api.services import codex_app_server as _codex_app_server
+from api.services.connections import base as _conn_base
+
+#: Captured at import, before `_no_real_agent_spawn` replaces it per test —
+#: `fake_cli` restores it so a test can drive the genuine subprocess path
+#: against a binary that can never reach a vendor.
+_REAL_RUN_CLI_SYNC = _conn_base.run_cli_sync
+#: The genuine app-server transport, captured before `_no_real_codex_app_server`
+#: replaces it per test (R-E18).
+_REAL_STDIO_TRANSPORT = _codex_app_server._stdio_transport
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _forget_the_developers_dotenv():
+    """Stop `api/.env` leaking into the suite through litellm.
+
+    `litellm/__init__.py` calls `load_dotenv()` at import time, so the first
+    test that transitively imports it — anything reaching `api.main` — copies
+    the developer's own `api/.env` into `os.environ` for the rest of the
+    process. Every later bare `Settings()` then reads that machine's config
+    instead of the packaged defaults, which is order-dependent by construction:
+    the same test passes alone and fails in the full run, and which tests fail
+    depends on collection order and on what the developer happens to have
+    configured. It cost this session a false attribution before it was found.
+
+    Import litellm here so its side effect is done deterministically, then drop
+    exactly the names `api/.env` defines. A test that wants one of them sets it
+    with `monkeypatch.setenv`, which runs after this and still wins.
+    """
+    try:
+        import litellm  # noqa: F401  (imported for its load_dotenv side effect)
+    except Exception:
+        litellm = None
+
+    # Round 4 (orchestrator): `load_dotenv()` searches upward from litellm's own file, so it finds the `.env`
+    # beside the virtualenv it is installed in — in a git worktree that shares the main checkout's venv, the
+    # MAIN checkout's `api/.env`, never this tree's. Only dropping this tree's names leaked the developer's
+    # engine choice into every worktree run (test_sleep_engine_prefs read `auto` from it).
+    dotenvs = [Path(__file__).resolve().parents[1] / ".env"]
+    if litellm is not None and getattr(litellm, "__file__", None):
+        for parent in Path(litellm.__file__).resolve().parents:
+            if (parent / ".env").is_file():
+                dotenvs.append(parent / ".env")
+                break
+    for dotenv in dotenvs:
+        if not dotenv.exists():
+            continue
+        for line in dotenv.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            os.environ.pop(line.split("=", 1)[0].removeprefix("export ").strip(), None)
+
+
+@pytest.fixture(autouse=True)
+def _default_cicada_home(tmp_path, monkeypatch):
+    """G117: `owner_identity.resolve_observer` now sits on the observer/
+    claim-write hot path (`agentic_write.write_claim`, `telegram_capture`,
+    `inbox_service._owner_observer`), so it calls `cicada_home()` — reading
+    `~/.cicada/owner.json` — on every claim write those functions make.
+    Without a default here, any test exercising those call sites without
+    setting `CICADA_HOME` itself would read (and `cicada_home()`'s own
+    ``mkdir`` would touch) the developer's REAL ``~/.cicada`` — the same
+    class of leak `_disable_connector_fetch` below already guards against
+    for `secrets.env`. A test that wants a specific `CICADA_HOME` still
+    wins: `monkeypatch.setenv` inside the test body runs after fixture
+    setup and simply overwrites this default.
+    """
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "_default_cicada_home"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_agent_home(tmp_path, monkeypatch):
+    """G138: the handshake and GET /skills/recommended look for SKILL.md files
+    and plugin ids under the agents' home. The suite must never read the
+    developer's own `~/.claude` — every test gets an empty tmp home."""
+    from api.services import skill_catalog
+
+    home = tmp_path / "_agent_home"
+    monkeypatch.setattr(skill_catalog, "agent_home", lambda: home)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_browser_files(tmp_path, monkeypatch):
+    """Round 4 phase A final review, finding 5: a body-less
+    `POST /sources/sync-bookmarks` falls back to `sync_from_local_files`, which
+    reads THIS machine's Chrome and Safari bookmark files. Task 1's red run did
+    exactly that into pytest tmp banks. Every test gets absent paths; the two
+    `sync_from_local_files` tests that point these at fixture files override
+    them on top."""
+    from api.services import bookmark_sync
+
+    monkeypatch.setattr(bookmark_sync, "chrome_bookmarks_path", lambda: tmp_path / "_absent-chrome-bookmarks")
+    monkeypatch.setattr(bookmark_sync, "safari_bookmarks_path", lambda: tmp_path / "_absent-safari-bookmarks.plist")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_sleep_probe(monkeypatch):
+    """G135 final review: a stdio `cicada_write_claim` asks the backend's
+    `GET /sleep/status` before committing. Unpinned, every such test would hit
+    whatever backend is listening on 127.0.0.1:8000 — the developer's live
+    one included — and a cycle running there would change the test's outcome.
+    Pinned to "not running"; the test for the gate patches it back."""
+    from api.services import mcp_tools
+
+    monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda url, headers: False)
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +147,17 @@ def _disable_logo_fetch(monkeypatch):
 @pytest.fixture(autouse=True)
 def _default_public_logo_resolver(monkeypatch):
     monkeypatch.setattr(logo_service, "_resolve_host", lambda host: ["93.184.216.34"])
+
+
+@pytest.fixture(autouse=True)
+def _default_public_net_guard_resolver(monkeypatch):
+    """G135 R-R10: `net_guard` resolves every hostname a fetcher is about to
+    request, exactly as the logo ladder above does — so the same fixed public
+    address stands in for DNS, or every `example.com` fixture would fail closed
+    in a network-less run. Tests of the guard itself pass `resolver=`."""
+    from api.services import net_guard
+
+    monkeypatch.setattr(net_guard, "_resolve_host", lambda host: ["93.184.216.34"])
 
 
 @pytest.fixture(autouse=True)
@@ -78,6 +201,91 @@ def _no_real_agent_spawn(monkeypatch):
         )
 
     monkeypatch.setattr(base, "run_cli_sync", _boom)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_codex_app_server(monkeypatch):
+    """R-E18: no test may spawn the real `codex app-server`. The default
+    transport degrades to "unavailable" (→ every caller falls back to `codex
+    login status`), deterministically; a test that wants a snapshot injects
+    one. The cache is cleared around every test."""
+    async def _unavailable(*, timeout):
+        raise FileNotFoundError("codex app-server is not spawned in tests — inject a transport")
+
+    monkeypatch.setattr(_codex_app_server, "_stdio_transport", _unavailable)
+    _codex_app_server.invalidate()
+    yield
+    _codex_app_server.invalidate()
+
+
+@pytest.fixture
+def real_app_server_transport():
+    """The genuine stdio transport, for the one test that drives it against a
+    fake `codex app-server` script (never the real binary)."""
+    return _REAL_STDIO_TRANSPORT
+
+
+@pytest.fixture(autouse=True)
+def _no_plan_override_env(monkeypatch):
+    """R-E6: a developer's shell must not leak an ANTHROPIC_BASE_URL or a
+    CODEX_API_KEY into `how` sentences the suite pins verbatim."""
+    for key in (*_conn_base.CLAUDE_PLAN_OVERRIDE_ENV, *_conn_base.CODEX_PLAN_OVERRIDE_ENV,
+                "CODEX_HOME", "CLAUDE_CODE_RETRY_WATCHDOG"):
+        monkeypatch.delenv(key, raising=False)
+
+
+_FAKE_CLI = r'''#!@PYTHON@
+"""A stand-in vendor CLI for hermetic tests: it records what it was given
+and prints a recorded stream. It can never reach a vendor."""
+import json, os, sys, time
+watch = json.loads(os.environ.get("CICADA_FAKE_WATCH") or "[]")
+record = {"argv": sys.argv[1:], "env": {k: os.environ.get(k) for k in watch},
+          "stdin": sys.stdin.read()}
+with open(os.environ["CICADA_FAKE_SEEN"], "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(record) + "\n")
+with open(os.environ["CICADA_FAKE_STDOUT"], encoding="utf-8") as fh:
+    sys.stdout.write(fh.read())
+sys.stdout.flush()
+time.sleep(float(os.environ.get("CICADA_FAKE_SLEEP") or 0))
+sys.exit(int(os.environ.get("CICADA_FAKE_RC") or 0))
+'''
+
+
+@pytest.fixture
+def fake_cli(tmp_path, monkeypatch):
+    """Install a fake `claude`/`codex` behind `resolve_binary`'s
+    `CICADA_<NAME>_CLI` override and restore the REAL `run_cli_sync`, so the
+    genuine argv/env/stdin path runs. Returns
+    `install(name, stdout, *, rc=0, sleep=0.0, watch=()) -> read_seen`, where
+    `read_seen()` is every invocation's `{argv, env (watched names), stdin}`.
+    The `CICADA_FAKE_*` variables pass the scrub by design (not in any list)."""
+    monkeypatch.setattr(_conn_base, "run_cli_sync", _REAL_RUN_CLI_SYNC)
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir(exist_ok=True)
+
+    def install(name, stdout, *, rc=0, sleep=0.0, watch=()):
+        script = bindir / name
+        script.write_text(_FAKE_CLI.replace("@PYTHON@", sys.executable), encoding="utf-8")
+        script.chmod(0o755)
+        out = tmp_path / f"{name}.stdout"
+        out.write_text(stdout, encoding="utf-8")
+        seen = tmp_path / f"{name}.seen.jsonl"
+        monkeypatch.setenv(f"CICADA_{name.upper()}_CLI", str(script))
+        monkeypatch.setenv("CICADA_FAKE_STDOUT", str(out))
+        monkeypatch.setenv("CICADA_FAKE_SEEN", str(seen))
+        monkeypatch.setenv("CICADA_FAKE_RC", str(rc))
+        monkeypatch.setenv("CICADA_FAKE_SLEEP", str(sleep))
+        monkeypatch.setenv("CICADA_FAKE_WATCH", json.dumps(list(watch)))
+
+        def read_seen():
+            if not seen.exists():
+                return []
+            return [json.loads(line) for line in seen.read_text(encoding="utf-8").splitlines()
+                    if line.strip()]
+
+        return read_seen
+
+    return install
 
 
 @pytest.fixture(autouse=True)
@@ -176,6 +384,83 @@ def agent_envelopes():
 
 
 @pytest.fixture
+def claude_stream(agent_envelopes):
+    """`claude -p --output-format stream-json --verbose` stdout (R-E1).
+    `system/init` and `rate_limit_event` are shaped from claude-agent-sdk
+    0.2.157's own parser tests (R1 §2.7), `system/api_retry` from
+    code.claude.com/docs/en/headless; the `result` line is an
+    `agent_envelopes` entry verbatim. `result=None` omits it (a truncated
+    stream). The live-recorded twin is fixtures/claude_stream_live.jsonl."""
+    def make(result="success", *, rate_limits=(), retries=(), api_key_source="none"):
+        lines = [{"type": "system", "subtype": "init", "session_id": "ses-fixture",
+                  "model": "claude-sonnet-5", "tools": [], "mcp_servers": [],
+                  "permissionMode": "default", "apiKeySource": api_key_source}]
+        for retry in retries:
+            lines.append({"type": "system", "subtype": "api_retry", "attempt": 1,
+                          "max_retries": 2, "retry_delay_ms": 500, **retry})
+        for info in rate_limits:
+            lines.append({"type": "rate_limit_event", "rate_limit_info": info,
+                          "uuid": "u-fixture", "session_id": "ses-fixture"})
+        if result is not None:
+            lines.append(agent_envelopes[result])
+        return "\n".join(json.dumps(line) for line in lines) + "\n"
+
+    return make
+
+
+@pytest.fixture
+def codex_events():
+    """`codex exec --json` stdout recorded on codex-cli 0.154.0 (2026-09-23).
+    `ok` is R2's trivial structured run (ids replaced); `signed_out` is a real
+    signed-out run against an empty isolated home (cf-ray / request ids
+    dropped) — note the top-level `error` RETRY NOTICES before `turn.failed`
+    (R-E16). `usage_limit` and `reconnected_then_ok` are shaped from those two;
+    the exact usage-limit text could not be produced on demand."""
+    def lines(*objs):
+        return "\n".join(json.dumps(o) for o in objs) + "\n"
+
+    started = ({"type": "thread.started", "thread_id": "t-fixture"}, {"type": "turn.started"})
+    warning = {"type": "item.completed", "item": {"id": "item_0", "type": "error", "message":
+               "Skill descriptions were shortened to fit the skills context budget. Codex can "
+               "still see every skill, but some descriptions are shorter."}}
+
+    def answer(text):
+        return {"type": "item.completed", "item": {"id": "item_1", "type": "agent_message", "text": text}}
+
+    done = {"type": "turn.completed", "usage": {"input_tokens": 11589, "cached_input_tokens": 0,
+            "cache_write_input_tokens": 0, "output_tokens": 15, "reasoning_output_tokens": 0}}
+    unauthorized = ("unexpected status 401 Unauthorized: Missing bearer or basic authentication "
+                    "in header, url: https://api.openai.com/v1/responses")
+    extraction = {"entities": [{
+        "name": "alpha-project", "type": "project", "aliases": [],
+        "summary": "A backend project moving from PostgreSQL to SQLite.",
+        "key_facts": ["The demo is due on 2026-10-15."], "history_entries": [],
+        "links": [{"url": "https://example.com/alpha-project", "title": "alpha-project repository",
+                   "note": "Repository for the project."}],
+        "open_questions": [], "tags": ["backend"], "confidence": 0.9, "decay_class": "active"}],
+        "relationships": [{"source": "alpha-project", "target": "2026-10-15", "label": "due",
+                           "evidence_quote": None}]}
+    return {
+        "ok": lines(*started, warning, answer('{"ok":true}'), done),
+        "extraction": lines(*started, answer(json.dumps(extraction)), done),
+        "signed_out": lines(
+            *started,
+            {"type": "error", "message": "Reconnecting... 2/5 (unexpected status 401 Unauthorized: "
+             "Missing bearer or basic authentication in header, url: wss://api.openai.com/v1/responses)"},
+            {"type": "item.completed", "item": {"id": "item_0", "type": "error", "message":
+             "Falling back from WebSockets to HTTPS transport. " + unauthorized.replace("https://", "wss://")}},
+            {"type": "error", "message": unauthorized},
+            {"type": "turn.failed", "error": {"message": unauthorized}}),
+        "usage_limit": lines(*started, {"type": "turn.failed", "error": {
+            "message": "You've hit your usage limit. Try again later."}}),
+        "reconnected_then_ok": lines(
+            *started, {"type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion)"},
+            answer('{"ok":true}'), done),
+        "no_answer": lines(*started, done),
+    }
+
+
+@pytest.fixture
 def agent_runner():
     """Factory: `agent_runner(envelope_or_result, ...)` -> a recording runner.
 
@@ -194,9 +479,10 @@ def agent_runner():
             def __init__(self):
                 self.calls: list[dict] = []
 
-            def __call__(self, argv, *, stdin=None, timeout=None, cwd=None):
+            def __call__(self, argv, *, stdin=None, timeout=None, cwd=None, env_overrides=None):
                 self.calls.append({"argv": list(argv), "stdin": stdin,
-                                   "timeout": timeout, "cwd": cwd})
+                                   "timeout": timeout, "cwd": cwd,
+                                   "env_overrides": env_overrides})
                 item = queue[min(len(self.calls) - 1, len(queue) - 1)]
                 if isinstance(item, CliResult):
                     return item

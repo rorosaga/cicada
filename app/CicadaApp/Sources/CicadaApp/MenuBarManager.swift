@@ -12,6 +12,15 @@ import AppKit
 final class MenuBarManager: NSObject {
     private(set) var state: BookwormState = .awake
 
+    /// F-10's *Show in menu bar* (R-HO16): the status item stays built — its sprite, badge and menu keep updating — and
+    /// only its visibility follows the switch, so turning it back on shows the current state at once.
+    private(set) var isVisible = true
+
+    func setVisible(_ visible: Bool) {
+        isVisible = visible
+        statusItem?.isVisible = visible
+    }
+
     /// 24 cells at 0.75 pt (ruling R3): the standard status-item image height,
     /// and what the previous template glyph used. A 24 pt image would fill the
     /// whole menu bar and clip on a 22 pt status button.
@@ -40,20 +49,31 @@ final class MenuBarManager: NSObject {
     private var onOpenApp: (() -> Void)?
     private var onRunSleep: (() async -> Void)?
     private var onSaveClipboardURL: (() async -> Void)?
+    /// Track I T5 (R-IA26) — "Import a file…" opens the one intake.
+    private var onImportFile: (() -> Void)?
+    /// Track I part b (R-IB22) — the export waits of the active memory, as the
+    /// menu's lines. Set by the app; a closure, not state to observe, so it is
+    /// read when the menu is built or opened and never re-renders anything.
+    @ObservationIgnored var exportWaitLines: () -> [String] = { [] }
+    /// Tags the reminder lines so a menu open can swap them without a rebuild.
+    static let exportWaitTag = 9_101
 
     // MARK: - Setup
 
     func setup(
         onOpenApp: @escaping () -> Void,
         onRunSleep: @escaping () async -> Void,
-        onSaveClipboardURL: @escaping () async -> Void
+        onSaveClipboardURL: @escaping () async -> Void,
+        onImportFile: @escaping () -> Void
     ) {
         self.onOpenApp = onOpenApp
         self.onRunSleep = onRunSleep
         self.onSaveClipboardURL = onSaveClipboardURL
+        self.onImportFile = onImportFile
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem?.button?.imagePosition = .imageOnly
+        statusItem?.isVisible = isVisible
         transition(to: .awake)
         rebuildMenu()
 
@@ -213,6 +233,8 @@ final class MenuBarManager: NSObject {
         let nextItem = NSMenuItem(title: "Next sleep: \(nextSleepDescription())", action: nil, keyEquivalent: "")
         nextItem.isEnabled = false
         menu.addItem(nextItem)
+        // R-IB22 — the text twin of an export reminder, permission or not.
+        insertExportWaitItems(in: menu, at: menu.items.count)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -227,6 +249,12 @@ final class MenuBarManager: NSObject {
         saveItem.target = self
         menu.addItem(saveItem)
 
+        // Track I T5 (R-IA26): the one intake from the menu bar; the status
+        // button as a drag target waits on design §14 item 5.
+        let importItem = NSMenuItem(title: Copy.intakeMenuBarItem, action: #selector(importFileAction), keyEquivalent: "i")
+        importItem.target = self
+        menu.addItem(importItem)
+
         let openItem = NSMenuItem(title: "Open Cicada", action: #selector(openApp), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
@@ -237,7 +265,24 @@ final class MenuBarManager: NSObject {
         quitItem.target = self
         menu.addItem(quitItem)
 
+        menu.delegate = self
         statusItem?.menu = menu
+    }
+
+    /// Swaps the tagged reminder lines for the current ones, right after "Next sleep".
+    fileprivate func refreshExportWaitItems(in menu: NSMenu) {
+        for item in menu.items where item.tag == Self.exportWaitTag { menu.removeItem(item) }
+        let anchor = menu.items.firstIndex { $0.title.hasPrefix("Next sleep:") }
+        insertExportWaitItems(in: menu, at: anchor.map { $0 + 1 } ?? 0)
+    }
+
+    private func insertExportWaitItems(in menu: NSMenu, at index: Int) {
+        for (offset, line) in exportWaitLines().enumerated() {
+            let item = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            item.tag = Self.exportWaitTag
+            menu.insertItem(item, at: index + offset)
+        }
     }
 
     private func relativeLastSleep() -> String {
@@ -276,6 +321,10 @@ final class MenuBarManager: NSObject {
         Task { await onSaveClipboardURL() }
     }
 
+    @objc private func importFileAction() {
+        onImportFile?()
+    }
+
     @objc private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
@@ -284,7 +333,7 @@ final class MenuBarManager: NSObject {
     /// endpoint. The endpoint ships in a later wave, so a 404 surfaces a
     /// transient "coming soon" header in the menu rather than crashing.
     func saveClipboardURL() async {
-        guard let raw = NSPasteboard.general.string(forType: .string),
+        guard let raw = AppPasteboard.board.string(forType: .string),
               let url = Self.firstURL(in: raw) else {
             flashHeader("Clipboard has no URL")
             return
@@ -343,7 +392,7 @@ extension MenuBarManager {
     /// Overlays are already baked into the frame (R2), so nothing is merged.
     static func debugRenderAllStates() -> [(String, NSImage)] {
         let states: [BookwormState] = [
-            .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry, .error,
+            .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry, .reading, .error,
         ]
         return states.map { st in
             (st.caseName, BookwormRenderer.image(grid: BookwormSprites.frames(for: st).frames[0], pointSize: spritePointSize))
@@ -351,3 +400,11 @@ extension MenuBarManager {
     }
 }
 #endif
+
+extension MenuBarManager: NSMenuDelegate {
+    /// "requested 2 hours ago" must be true when the menu opens, not when it was
+    /// last rebuilt — AppKit calls this just before showing the menu.
+    nonisolated func menuNeedsUpdate(_ menu: NSMenu) {
+        MainActor.assumeIsolated { self.refreshExportWaitItems(in: menu) }
+    }
+}

@@ -12,13 +12,15 @@ struct BeliefTimelineView: View {
     let subject: String
     let predicate: String
     let context: String
+    /// R-DG23 — false inline in the Timeline tab, whose disclosure row already names the belief.
+    var showsHeader = true
 
     @State private var timeline: ClaimTimeline?
     @State private var isLoading = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-            header
+            if showsHeader { header }
 
             if isLoading {
                 ProgressView().controlSize(.small)
@@ -64,7 +66,7 @@ struct BeliefTimelineView: View {
     private var emptyState: some View {
         VStack(spacing: CicadaTheme.spacingSM) {
             Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 24))
+                .font(CicadaTheme.font(size: 24))
                 .foregroundStyle(CicadaTheme.textTertiary)
             Text("No timeline for this belief yet.")
                 .font(CicadaTheme.bodyFont)
@@ -205,13 +207,16 @@ struct SupersededRow: View {
                 ClaimChip(claim: claim)
 
                 if !isCurrent, claim.supersededBy != nil {
+                    // DR-54 — words on the row; the replacing claim's id only in `.help`.
+                    let words = BeliefTimelineWords.superseded(by: claim.supersededBy)
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.down")
-                            .font(.system(size: 9, weight: .semibold))
-                        Text("superseded by \(claim.supersededBy ?? "")")
+                            .font(CicadaTheme.font(size: 9, weight: .semibold))
+                        Text(words.text)
                             .font(CicadaTheme.captionFont)
                     }
                     .foregroundStyle(CicadaTheme.textTertiary)
+                    .help(words.help ?? "")
                 }
             }
             .padding(.bottom, CicadaTheme.spacingLG)

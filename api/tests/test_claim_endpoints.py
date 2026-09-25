@@ -316,3 +316,98 @@ def test_transclude_endpoint_empty_ref_soft_stub(tmp_path):
     (tmp_path / "entities").mkdir()
     payload = run(claims_router.get_transclusion(ref="", settings=_FakeSettings(tmp_path)))
     assert payload.resolved is False
+
+
+# --------------------------------------------------------------------------- #
+# G118 slice 1 — `evidence` rides the claim projections, camelCase, additive
+# --------------------------------------------------------------------------- #
+
+
+def test_claims_endpoint_projects_evidence_camelcase(tmp_path):
+    from api.routers import claims as claims_router
+    from api.services.claims import Evidence
+
+    _write_page(tmp_path, "alpha-project", "Alpha Project", [
+        Claim(id="clm_e", text="alpha-project uses sqlite-vec", subject="alpha-project", predicate="uses",
+              object="sqlite-vec", context="engineering",
+              evidence=[Evidence(episode="ep_2026-09-01_001", start=6, end=40, kind="user", hash="0123456789ab")]),
+        Claim(id="clm_legacy", text="alpha-project uses git", subject="alpha-project", predicate="uses",
+              object="git", context="engineering"),
+    ])
+    resp = run(claims_router.get_entity_claims("alpha-project", settings=_FakeSettings(tmp_path)))
+    by_id = {c.id: c for c in resp.claims}
+    assert by_id["clm_legacy"].evidence == []
+    (ev,) = by_id["clm_e"].evidence
+    assert (ev.episode, ev.start, ev.end, ev.kind, ev.hash) == ("ep_2026-09-01_001", 6, 40, "user", "0123456789ab")
+    wire = {c["id"]: c for c in resp.model_dump(by_alias=True)["claims"]}
+    assert wire["clm_legacy"]["evidence"] == []
+    # Round 4 C3 adds `model`/`effort`, derived at read (null for a `user` span).
+    assert set(wire["clm_e"]["evidence"][0]) == {"episode", "start", "end", "kind", "hash", "model", "effort"}
+    assert "sourceEpisodes" in wire["clm_e"]  # the rest of the shape is untouched (camelCase)
+    tl = run(claims_router.get_entity_timeline("alpha-project", predicate="uses", context="engineering",
+                                               settings=_FakeSettings(tmp_path)))
+    assert {c.id: len(c.evidence) for c in tl.claims} == {"clm_e": 1, "clm_legacy": 0}
+
+
+# --------------------------------------------------------------------------- #
+# G141 R-PJB10 — event claims only with include_events
+# --------------------------------------------------------------------------- #
+
+
+def test_claims_endpoint_hides_events_unless_asked(tmp_path):
+    """The shipped card calls any (predicate, context) key with two claims
+    "contested" — two happenings would grow a bogus row, so events are opt-in."""
+    from api.routers import claims as claims_router
+
+    _write_page(
+        tmp_path, "alpha-project", "Alpha Project",
+        [
+            Claim(id="clm_u", text="Alpha uses sqlite-vec.", subject="alpha-project",
+                  predicate="uses", object="sqlite-vec"),
+            Claim(id="clm_h1", text="Started the arm rewrite", subject="alpha-project", predicate="happened",
+                  object="started the arm rewrite", object_kind="literal", valid_from="2026-09-20",
+                  status="ongoing", date_basis="written"),
+            Claim(id="clm_m1", text="First grasp", subject="alpha-project", predicate="milestone",
+                  object="first-grasp", object_kind="literal", valid_from="2026-09-20", status="planned",
+                  target="2026-10-01", participants=[{"role": "with", "entity": "hana-example"}]),
+        ],
+    )
+    settings = _FakeSettings(tmp_path)
+    resp = run(claims_router.get_entity_claims("alpha-project", settings=settings))
+    assert [c.id for c in resp.claims] == ["clm_u"]
+    resp = run(claims_router.get_entity_claims("alpha-project", include_events=True, settings=settings))
+    assert [c.id for c in resp.claims] == ["clm_u", "clm_h1", "clm_m1"]
+    wire = resp.claims[2].model_dump(by_alias=True)
+    assert (wire["status"], wire["target"], wire["participants"]) == (
+        "planned", "2026-10-01", [{"role": "with", "surface": None, "entity": "hana-example", "url": None}])
+    assert wire["dateBasis"] is None and "expectedEnd" in wire
+
+
+def test_the_model_join_never_runs_on_the_event_loop(tmp_path, monkeypatch):
+    """Round 4 final review #2: the C3 model join scans the episode index and
+    reads cited capture bodies — seconds cold on a big bank. `/claims`,
+    `/timeline` and `/transclude` build it in the threadpool, never on the loop
+    where it would stall SSE and every other request."""
+    from api.routers import claims as claims_router
+    from api.services import turn_authorship
+
+    _write_page(tmp_path, "cicada", "Cicada", [
+        Claim(id="clm_v", text="Cicada uses sqlite-vec.", subject="cicada",
+              predicate="uses", object="sqlite-vec", context="engineering")])
+    real = turn_authorship.TurnAuthorship
+    seen: list[bool] = []
+
+    def spy(*args, **kwargs):
+        try:
+            asyncio.get_running_loop()
+            seen.append(True)
+        except RuntimeError:
+            seen.append(False)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(turn_authorship, "TurnAuthorship", spy)
+    s = _FakeSettings(tmp_path)
+    run(claims_router.get_entity_claims("cicada", settings=s))
+    run(claims_router.get_entity_timeline("cicada", predicate="uses", context="engineering", settings=s))
+    run(claims_router.get_transclusion(ref="cicada", settings=s))
+    assert seen and not any(seen), "the model join must not run on the event loop"

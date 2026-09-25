@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, engine_errors, entity_body, json_parse, markdown_parser
+from api.services import decay_policy, decay_tuning, engine_errors, entity_body, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -34,13 +34,22 @@ MAX_DECAY_DAYS_PER_CYCLE = 7
 
 
 async def resolve_and_prune(
-    resolved: list[dict], existing: list[dict], settings: Settings, *, now: datetime | None = None
+    resolved: list[dict],
+    existing: list[dict],
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+    tuning: dict[str, float] | None = None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
 
     ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
     ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
     can simulate elapsed time without monkeypatching the stdlib clock.
+
+    ``tuning``: the per-type pace (G147, ``{type: multiplier}``); ``None``
+    reads the bank's ``_decay_tuning.yaml`` (``decay_tuning.load``), so a test
+    can inject a pace without writing the file.
     """
     changes: list[dict] = list(resolved)
 
@@ -140,9 +149,19 @@ async def resolve_and_prune(
 
     progress.close()
 
-    # Temporal decay for unreferenced entities. The per-week rate and the class
-    # both come from `decay_policy.resolve` — evergreen entities are skipped.
+    # Temporal decay for unreferenced entities (G147). The weekly rate is
+    # `decay_policy.effective`: the class's (or explicit) rate x the spacing
+    # factor over distinct mention weeks x the per-type pace the person chose —
+    # the SAME function `GET /entities/{id}` serves, so the card's pace is the
+    # pace charged. Evergreen entities are skipped.
     now = now or datetime.now()
+    alpha, floor = decay_policy.spacing_params(settings)
+    if tuning is None:
+        # G147: the per-type pace the person approved in Settings → Memory. One
+        # small file read per cycle; a demo or test settings object without a
+        # bank path has none.
+        memory_path = getattr(settings, "memory_path", None)
+        tuning = decay_tuning.load(memory_path) if memory_path else {}
     decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
     decay_progress = tqdm(
         total=len(decay_candidates),
@@ -165,7 +184,8 @@ async def resolve_and_prune(
             continue
 
         confidence = fm.get("confidence", 0.5)
-        decay_class, decay_rate = decay_policy.resolve(fm)
+        effective = decay_policy.effective(fm, alpha=alpha, floor=floor, tuning=tuning)
+        decay_class, decay_rate = effective.decay_class, effective.rate
         if decay_class is DecayClass.evergreen:
             # An artifact, not a belief: it does not become less true by going
             # unmentioned. No decay math, no decay nudge, never auto-archived.
@@ -692,6 +712,11 @@ async def _synthesize_entity_update(
     return body or None
 
 
+# Track P R9 — every example in here is a neutral placeholder, never a name.
+# This is a module constant built at import, so there is no bank to resolve one
+# from; and interpolating a real owner would prime the extractor with a person
+# who has nothing to do with the entity it is judging — on a shared or demo
+# bank, with somebody else's name.
 _CONTRADICTION_PROMPT = """You are checking whether two descriptions of the same entity contain an unresolvable contradiction.
 
 A contradiction is unresolvable when newer information alone does not make it obvious which statement is currently true. For example: two different stacks mentioned across two conversations with no date cue, or two different roles for the same person.
@@ -708,7 +733,7 @@ Respond with JSON only:
 {{
   "has_unresolvable_contradiction": true | false,
   "contradiction": "one-sentence description of the contradiction, or empty",
-  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does Rodrigo work now?'). Empty when there is no contradiction.",
+  "question": "ONE short question, in the user's voice, that resolves it (e.g. 'Where does the owner work now?'). Empty when there is no contradiction.",
   "options": [
     {{"label": "the existing claim, 1-4 words", "description": "one short clause saying where this came from and when"}},
     {{"label": "the new claim, 1-4 words", "description": "one short clause saying where this came from and when"}},

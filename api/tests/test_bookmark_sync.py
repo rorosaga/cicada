@@ -22,8 +22,11 @@ from __future__ import annotations
 import base64
 import json
 import plistlib
+import subprocess
 
-from api.services import bookmark_sync
+import pytest
+
+from api.services import bookmark_sync, markdown_parser, sync_state
 from api.services.media_ingestor import RawItem
 
 # --- Fixtures ----------------------------------------------------------------
@@ -159,6 +162,8 @@ def test_sync_bookmarks_reports_new_and_skipped_via_injected_ingest_fn(tmp_path)
         "sources": [
             {"origin": "chrome-bookmark", "channel": "chrome-bookmarks", "found": 2, "new": 1, "skipped": 1},
         ],
+        "removals_proposed": 0,
+        "removals_skipped": None,
     }
     # The injected fn was actually invoked with the parsed items, tagged with
     # their origin, and from_bookmark_file=True (bookmark, not raw url paste).
@@ -174,7 +179,10 @@ def test_sync_bookmarks_no_data_provided_ingests_nothing(tmp_path):
         raise AssertionError("ingest_fn must not be called when no data is supplied")
 
     result = run(bookmark_sync.sync_bookmarks(tmp_path / "memory", ingest_fn=unreachable))
-    assert result == {"new": 0, "skipped": 0, "sources": []}
+    assert result == {
+        "new": 0, "skipped": 0, "sources": [],
+        "removals_proposed": 0, "removals_skipped": None,
+    }
 
 
 def test_sync_bookmarks_safari_fixture_flows_through(tmp_path):
@@ -194,7 +202,8 @@ def test_sync_bookmarks_safari_fixture_flows_through(tmp_path):
     assert result["new"] == 4
     assert result["skipped"] == 0
     assert result["sources"] == [
-        {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 4, "new": 4, "skipped": 0},
+        {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 4, "new": 4, "skipped": 0,
+         "reading_list": 1, "favorites": 3},
     ]
     # Folder path threaded through parse_safari_bookmarks survives into the
     # items handed to ingest_fn — raw plist keys, never display names (R5).
@@ -273,6 +282,8 @@ def _make_client(tmp_path, monkeypatch):
 
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
+    # Real bookmark files are never read: conftest's `_no_real_browser_files`
+    # points both paths at absent tmp files for every test (final review, finding 5).
     return TestClient(main.app), memory
 
 
@@ -291,6 +302,26 @@ def _offline_enrich(monkeypatch):
         )
 
     monkeypatch.setattr(media_ingestor, "enrich", fake_enrich)
+
+
+def _git_init(memory):
+    """A real (bare-minimum) git repo, mirroring test_link_backfill.py's
+    ``_bank(..., git=True)`` — this finding's whole point is provenance a
+    fake ``git_service`` monkeypatch cannot demonstrate."""
+    for args in (("init", "-q"), ("config", "user.email", "t@example.com"), ("config", "user.name", "t")):
+        subprocess.run(["git", "-C", str(memory), *args], check=True, capture_output=True)
+
+
+def _git_log(memory):
+    return subprocess.run(
+        ["git", "-C", str(memory), "log", "-1", "--format=%B"], check=True, capture_output=True, text=True,
+    ).stdout
+
+
+def _git_porcelain(memory):
+    return subprocess.run(
+        ["git", "-C", str(memory), "status", "--porcelain"], check=True, capture_output=True, text=True,
+    ).stdout
 
 
 def test_sync_bookmarks_endpoint_inline_chrome_data(tmp_path, monkeypatch):
@@ -339,7 +370,10 @@ def test_sync_bookmarks_endpoint_no_body_reads_local_files_best_effort(tmp_path,
     resp = client.post("/sources/sync-bookmarks")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body == {"new": 0, "skipped": 0, "sources": []}
+    assert body == {
+        "new": 0, "skipped": 0, "sources": [],
+        "removalsProposed": 0, "removalsSkipped": None,
+    }
 
 
 def test_sync_bookmarks_endpoint_invalid_base64_rejected(tmp_path, monkeypatch):
@@ -404,7 +438,8 @@ def test_sync_bookmarks_with_folders_ingests_only_that_folder(tmp_path):
         tmp_path / "memory", safari_data=plistlib.dumps(SAFARI_PLIST_TREE),
         folders=["BookmarksBar/Big Folder"], ingest_fn=fake_ingest_fn))
     assert result["sources"] == [
-        {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 2, "new": 2, "skipped": 0},
+        {"origin": "safari-bookmark", "channel": "safari-bookmarks", "found": 2, "new": 2, "skipped": 0,
+         "reading_list": 0, "favorites": 2},
     ]
     assert {i.url for i in captured} == {"https://example.org/a", "https://example.org/b"}
 
@@ -454,3 +489,286 @@ def test_sync_bookmarks_endpoint_preview_and_folders(tmp_path, monkeypatch):
     state = sync_state.read_sync_state(memory)
     assert state["safari-bookmarks"]["count"] == 1
     assert "chrome-bookmarks" not in state and "bookmarks" not in state
+
+
+# --- G129 slice 2: removal proposals -----------------------------------------
+
+def _one_url_chrome_json():
+    return {
+        "version": 1,
+        "roots": {
+            "bookmark_bar": {"type": "folder", "name": "Bookmarks bar", "children": [
+                {"type": "url", "name": "Example One", "url": "https://example.com/one"},
+            ]},
+            "other": {"type": "folder", "name": "Other bookmarks", "children": []},
+        },
+    }
+
+
+def test_sync_bookmarks_proposes_removal_when_a_url_drops_out(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+
+    r1 = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode()))
+    assert r1["removals_proposed"] == 0
+    assert r1["removals_skipped"] is None
+
+    # Second sync: only one of the two Chrome bookmarks survives.
+    r2 = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
+    assert r2["removals_proposed"] == 1
+    assert r2["removals_skipped"] is None
+
+    files = sorted((memory / "inbox").glob("inbox-*.md"))
+    assert len(files) == 1
+    fm = markdown_parser.parse(files[0]).frontmatter
+    assert fm["kind"] == "removal"
+    assert fm["channel"] == "chrome-bookmarks"
+    assert fm["browser"] == "Chrome"
+    assert [o["key"] for o in fm["options"]] == ["keep", "remove"]
+    assert fm["question"] == "It was removed from Chrome."
+
+    # Third sync, SAME one-url state: idempotent — no second item.
+    r3 = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
+    assert r3["removals_proposed"] == 0
+    assert len(list((memory / "inbox").glob("inbox-*.md"))) == 1
+
+
+def test_removal_proposal_and_seen_set_are_committed_scoped_and_cicada_authored(tmp_path, monkeypatch):
+    """Finding 1 (G129 slice-2 final review): the removal item + the
+    ``bookmark_seen.json`` write must land in their OWN commit — never sit
+    dirty for some unrelated later ``git add -A`` writer to absorb under the
+    wrong author/trigger — and that commit must never sweep up a pre-existing
+    dirty file elsewhere in the bank (the same scoping guarantee
+    ``media_ingestor._commit_media`` gives ``sources/url_index.json``)."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    memory.mkdir(parents=True)
+    _git_init(memory)
+
+    run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode()))
+    # The first sync's own commit(s) — `_commit_media` plus this finding's
+    # `_commit_removals` — already leave the tree clean; nothing left for a
+    # separate "seed" commit to pick up, which is itself evidence the fix
+    # works (before the fix, `sources/bookmark_seen.json` sat dirty here).
+    assert _git_porcelain(memory) == ""
+
+    # A dirty file this sync must NEVER touch (e.g. a hand-edit in progress).
+    unrelated = memory / "entities" / "untouched-note.md"
+    unrelated.parent.mkdir(parents=True, exist_ok=True)
+    unrelated.write_text("dirty and unrelated", encoding="utf-8")
+
+    r2 = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
+    assert r2["removals_proposed"] == 1
+
+    log = _git_log(memory)
+    assert "Cicada-Author: cicada" in log
+    assert "sync/bookmark_removal" in log
+    assert "sources/bookmark_seen.json" in log
+    inbox_files = sorted((memory / "inbox").glob("inbox-*.md"))
+    assert len(inbox_files) == 1
+    assert f"inbox/{inbox_files[0].name}" in log
+
+    # The unrelated dirty file is still dirty — the commit was scoped, not `-A`.
+    porcelain = _git_porcelain(memory)
+    assert "untouched-note.md" in porcelain
+
+
+def test_removed_url_is_never_reproposed_once_it_stays_gone(tmp_path, monkeypatch):
+    """R5: the seen-set advances regardless of whether the person answered —
+    a URL that stays out of the browser is never asked about twice."""
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode()))
+    run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
+    before = sorted((memory / "inbox").glob("inbox-*.md"))
+    for _ in range(3):
+        r = run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_one_url_chrome_json()).encode()))
+        assert r["removals_proposed"] == 0
+    assert sorted((memory / "inbox").glob("inbox-*.md")) == before
+
+
+def test_folder_scope_change_refuses_and_records_why(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    memory = tmp_path / "memory"
+    data = plistlib.dumps(SAFARI_PLIST_TREE)
+    run(bookmark_sync.sync_bookmarks(memory, safari_data=data, folders=["BookmarksBar"]))
+    r2 = run(bookmark_sync.sync_bookmarks(memory, safari_data=data, folders=["BookmarksBar/Big Folder"]))
+    assert r2["removals_proposed"] == 0
+    assert r2["removals_skipped"] is not None
+    assert "safari-bookmarks" in r2["removals_skipped"]
+
+
+def _example_two_only_chrome_json():
+    """Same tree as `CHROME_BOOKMARKS_JSON` minus `https://example.com/one` —
+    i.e. what Chrome looks like after the person unbookmarks it."""
+    return {
+        "version": 1,
+        "roots": {
+            "bookmark_bar": {"type": "folder", "name": "Bookmarks bar", "children": [
+                {"type": "url", "name": "Example Two", "url": "https://example.com/two"},
+            ]},
+            "other": {"type": "folder", "name": "Other bookmarks", "children": []},
+        },
+    }
+
+
+def test_removal_hint_names_the_url_s_original_source(tmp_path, monkeypatch):
+    """R2: a URL first saved manually (origin `saved-link`), later also seen
+    in a Chrome sync, then removed from Chrome — the card says where it
+    actually came from."""
+    _offline_enrich(monkeypatch)
+    from api.services.media_ingestor import RawItem, ingest_batch
+
+    memory = tmp_path / "memory"
+    manual = RawItem(url="https://example.com/one", title="Example One", origin="saved-link")
+    run(ingest_batch([manual], memory, from_bookmark_file=False))
+
+    # Chrome now ALSO has it (a duplicate hit — no new entity) plus one other.
+    run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(CHROME_BOOKMARKS_JSON).encode()))
+    # Chrome drops it — only "Example Two" survives.
+    run(bookmark_sync.sync_bookmarks(memory, chrome_data=json.dumps(_example_two_only_chrome_json()).encode()))
+
+    files = sorted((memory / "inbox").glob("inbox-*.md"))
+    assert len(files) == 1
+    fm = markdown_parser.parse(files[0]).frontmatter
+    assert fm["hint"] == "Also saved via saved-link"
+
+
+# --- Round 4 (C9, R-SR2): the Chromium family, one parser, their own channels ---
+
+
+def test_a_chromium_browser_syncs_under_its_own_origin_and_channel(tmp_path):
+    data = json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")
+    captured: list = []
+
+    async def fake_ingest_fn(items, memory_path, from_bookmark_file=False, **kwargs):
+        captured.extend(items)
+        return len(items), 0
+
+    result = run(bookmark_sync.sync_bookmarks(tmp_path / "memory", chromium=[("brave", data)],
+                                              ingest_fn=fake_ingest_fn))
+    assert result["sources"] == [
+        {"origin": "brave-bookmark", "channel": "brave-bookmarks", "found": 2, "new": 2, "skipped": 0},
+    ]
+    assert {i.origin for i in captured} == {"brave-bookmark"}
+    assert bookmark_sync.CHANNEL_BY_ORIGIN["dia-bookmark"] == "dia-bookmarks"
+    assert set(bookmark_sync.CHROMIUM_BROWSERS) == {"chrome", "brave", "vivaldi", "comet", "dia"}
+
+
+def test_an_unknown_chromium_browser_is_refused(tmp_path):
+    async def unreachable(*args, **kwargs):
+        raise AssertionError("an unknown browser must be refused before anything is ingested")
+
+    with pytest.raises(ValueError):
+        run(bookmark_sync.sync_bookmarks(tmp_path / "memory", chromium=[("arc", b"{}")], ingest_fn=unreachable))
+
+
+def _reading_leaf(url, day):
+    from datetime import datetime
+
+    return {"WebBookmarkType": "WebBookmarkTypeLeaf", "URLString": url, "URIDictionary": {"title": url},
+            "ReadingList": {"DateAdded": datetime(2026, 9, day, 12, 0)}}
+
+
+def test_safari_counts_its_reading_list_and_favorites_and_reads_recently_saved_first(tmp_path):
+    tree = {"Title": "", "WebBookmarkType": "WebBookmarkTypeList", "Children": [
+        SAFARI_PLIST_TREE["Children"][0],
+        {"WebBookmarkType": "WebBookmarkTypeList", "Title": "com.apple.ReadingList", "Children": [
+            _reading_leaf("https://example.org/older", 1), _reading_leaf("https://example.org/newer", 20),
+        ]},
+    ]}
+    captured: list = []
+
+    async def fake_ingest_fn(items, memory_path, from_bookmark_file=False, **kwargs):
+        captured.extend(items)
+        return len(items), 0
+
+    result = run(bookmark_sync.sync_bookmarks(tmp_path / "memory", safari_data=plistlib.dumps(tree),
+                                              ingest_fn=fake_ingest_fn))
+    (safari,) = result["sources"]
+    assert (safari["found"], safari["reading_list"], safari["favorites"]) == (5, 2, 3)
+    assert [i.url for i in captured[:2]] == ["https://example.org/newer", "https://example.org/older"]
+    assert [i.url for i in captured[2:]] == ["https://example.org/bar", "https://example.org/a", "https://example.org/b"]
+
+
+def test_the_endpoint_syncs_a_chromium_browser_and_stamps_its_own_channel(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    client, memory = _make_client(tmp_path, monkeypatch)
+    b64 = base64.b64encode(json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")).decode()
+    r = client.post("/sources/sync-bookmarks", json={"chromium": [{"browser": "vivaldi", "dataB64": b64}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["sources"][0]["channel"] == "vivaldi-bookmarks"
+    assert sync_state.read_sync_state(memory)["vivaldi-bookmarks"]["count"] == 2
+    row = next(ch for ch in client.get("/sources/channels").json()["channels"] if ch["id"] == "vivaldi-bookmarks")
+    assert (row["label"], row["connected"], row["actions"], row["parts"]) == (
+        "Vivaldi bookmarks", True, ["sync"], [])
+
+
+@pytest.mark.parametrize("body", [
+    {"chromium": [{"browser": "arc", "dataB64": "e30="}]},
+    {"chromeDataB64": "e30=", "chromium": [{"browser": "chrome", "dataB64": "e30="}]},
+    {"chromium": [{"browser": "brave", "dataB64": "e30="}, {"browser": "brave", "dataB64": "e30="}]},
+    {"chromium": [{"browser": "brave", "dataB64": "%%%"}]},
+])
+def test_a_browser_the_backend_cannot_trust_is_refused(tmp_path, monkeypatch, body):
+    client, memory = _make_client(tmp_path, monkeypatch)
+    assert client.post("/sources/sync-bookmarks", json=body).status_code == 422
+    assert sync_state.read_sync_state(memory) == {}
+
+
+def test_safari_parts_ride_sync_state_to_the_channel_row(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    client, memory = _make_client(tmp_path, monkeypatch)
+    b64 = base64.b64encode(plistlib.dumps(SAFARI_PLIST_TREE)).decode()
+    body = client.post("/sources/sync-bookmarks", json={"safariDataB64": b64}).json()
+    assert (body["sources"][0]["readingList"], body["sources"][0]["favorites"]) == (1, 3)
+    row = next(ch for ch in client.get("/sources/channels").json()["channels"] if ch["id"] == "safari-bookmarks")
+    assert row["parts"] == [{"key": "reading-list", "count": 1}, {"key": "favorites", "count": 3}]
+
+
+# --- round 4 phase A final review: findings 2 and 3 --------------------------
+
+
+def test_a_body_with_no_bookmark_data_is_a_422_never_the_local_file_fallback(tmp_path, monkeypatch):
+    """Finding 3: a pre-round-4 route dropped `chromium`, saw no data and read
+    the Chrome file nobody turned on. A body is now data or a 422."""
+    _offline_enrich(monkeypatch)
+    client, _ = _make_client(tmp_path, monkeypatch)
+
+    def _refuse(*_a, **_k):
+        raise AssertionError("a body reached the local-file fallback")
+
+    monkeypatch.setattr(bookmark_sync, "sync_from_local_files", _refuse)
+    assert client.post("/sources/sync-bookmarks", json={}).status_code == 422
+    assert client.post("/sources/sync-bookmarks", json={"folders": ["Bar"]}).status_code == 422
+    assert client.post("/sources/sync-bookmarks", json={"chromium": []}).status_code == 422
+
+
+def test_an_unknown_field_is_a_422_not_silently_dropped(tmp_path, monkeypatch):
+    _offline_enrich(monkeypatch)
+    client, _ = _make_client(tmp_path, monkeypatch)
+    b64 = base64.b64encode(json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")).decode()
+    r = client.post("/sources/sync-bookmarks", json={"chromeDataB64": b64, "tabGroups": []})
+    assert r.status_code == 422
+
+
+def test_a_second_sync_of_the_same_bank_while_one_runs_is_a_409(tmp_path, monkeypatch):
+    """Finding 2: the app's × stops only its own request; the backend's run
+    goes on. A second sync of the same bank then answers 409 instead of
+    racing the first over `url_index.json`."""
+    from api.routers import sources
+
+    _offline_enrich(monkeypatch)
+    client, memory = _make_client(tmp_path, monkeypatch)
+
+    class _Held:
+        def locked(self):
+            return True
+
+    monkeypatch.setitem(sources._bookmark_sync_locks, str(memory.resolve()), _Held())
+    b64 = base64.b64encode(json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8")).decode()
+    r = client.post("/sources/sync-bookmarks", json={"chromeDataB64": b64})
+    assert r.status_code == 409
+    assert r.json()["detail"] == sources.BOOKMARK_SYNC_BUSY
+    # A preview stages nothing and takes no lock.
+    assert client.post("/sources/sync-bookmarks?preview=true", json={"chromeDataB64": b64}).status_code == 200

@@ -11,6 +11,28 @@ import Foundation
 /// the app, with the fix beside it (R9).
 enum BrowserFile: CaseIterable {
     case safariTabsDb, safariTabsWal, safariBookmarks, chromeBookmarks
+    /// G134 — Wispr Flow's local store. Same seam: the app reads it, the backend
+    /// parses what the app projects (R-N1), and a refused read shows the fix.
+    case wisprFlowDatabase
+    /// Round 4 (C9, R-SR1): the Chromium family beyond Chrome — each browser's default-profile `Bookmarks` JSON.
+    /// The default profile only, like Chrome's: reading every `Profile N` would bring in a profile nobody ticked.
+    case braveBookmarks, vivaldiBookmarks, cometBookmarks, diaBookmarks
+    /// Round 4 (G160): Chrome's default-profile `Sessions/` directory — a folder, read by `ChromiumSessionFiles`,
+    /// never by `BrowserFileReader.read`. The default profile only (R-SR1) and Chrome only (R-SR3).
+    case chromeSessions
+
+    /// Round 4 (C9): a browser's bookmarks file by its `BrowserInventory` id.
+    static func bookmarks(forBrowser id: String) -> BrowserFile? {
+        switch id {
+        case "chrome": .chromeBookmarks
+        case "safari": .safariBookmarks
+        case "brave": .braveBookmarks
+        case "vivaldi": .vivaldiBookmarks
+        case "comet": .cometBookmarks
+        case "dia": .diaBookmarks
+        default: nil
+        }
+    }
 
     /// Where the file lives, most-likely first. iCloud tabs moved into
     /// Safari's container on modern macOS; the legacy path is kept second
@@ -20,6 +42,7 @@ enum BrowserFile: CaseIterable {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let container = home.appendingPathComponent("Library/Containers/com.apple.Safari/Data/Library/Safari")
         let legacy = home.appendingPathComponent("Library/Safari")
+        let appSupport = home.appendingPathComponent("Library/Application Support")
         switch self {
         case .safariTabsDb:
             return [container.appendingPathComponent("CloudTabs.db"), legacy.appendingPathComponent("CloudTabs.db")]
@@ -29,6 +52,20 @@ enum BrowserFile: CaseIterable {
             return [legacy.appendingPathComponent("Bookmarks.plist")]
         case .chromeBookmarks:
             return [home.appendingPathComponent("Library/Application Support/Google/Chrome/Default/Bookmarks")]
+        case .wisprFlowDatabase:
+            return [WisprFlowReader.standardRoot.appendingPathComponent("flow.sqlite")]
+        // Default-profile paths verified from public sources (the round-4 sources plan); Dia keeps Chromium's
+        // `User Data` level, the others do not.
+        case .braveBookmarks:
+            return [appSupport.appendingPathComponent("BraveSoftware/Brave-Browser/Default/Bookmarks")]
+        case .vivaldiBookmarks:
+            return [appSupport.appendingPathComponent("Vivaldi/Default/Bookmarks")]
+        case .cometBookmarks:
+            return [appSupport.appendingPathComponent("Comet/Default/Bookmarks")]
+        case .diaBookmarks:
+            return [appSupport.appendingPathComponent("Dia/User Data/Default/Bookmarks")]
+        case .chromeSessions:
+            return [appSupport.appendingPathComponent("Google/Chrome/Default/Sessions")]
         }
     }
 
@@ -37,6 +74,23 @@ enum BrowserFile: CaseIterable {
         case .safariTabsDb, .safariTabsWal: "Safari iCloud tabs"
         case .safariBookmarks: "Safari bookmarks"
         case .chromeBookmarks: "Chrome bookmarks"
+        case .wisprFlowDatabase: "Wispr Flow"
+        case .braveBookmarks: "Brave bookmarks"
+        case .vivaldiBookmarks: "Vivaldi bookmarks"
+        case .cometBookmarks: "Comet bookmarks"
+        case .diaBookmarks: "Dia bookmarks"
+        case .chromeSessions: "Chrome's open tabs"
+        }
+    }
+
+    /// The browser's own name, for the Chromium family's "missing" sentence.
+    fileprivate var browserName: String? {
+        switch self {
+        case .braveBookmarks: "Brave"
+        case .vivaldiBookmarks: "Vivaldi"
+        case .cometBookmarks: "Comet"
+        case .diaBookmarks: "Dia"
+        default: nil
         }
     }
 }
@@ -87,6 +141,12 @@ enum BrowserFileError: Error, Equatable, LocalizedError {
                 return "Safari has no Bookmarks.plist on this Mac."
             case .chromeBookmarks:
                 return "Chrome isn't installed, or has no default profile bookmarks yet."
+            case .wisprFlowDatabase:
+                return "Wispr Flow isn't on this Mac yet, or hasn't recorded anything."
+            case .braveBookmarks, .vivaldiBookmarks, .cometBookmarks, .diaBookmarks:
+                return "\(file.browserName ?? file.displayName) isn't installed, or has no bookmarks in its main profile yet."
+            case .chromeSessions:
+                return "Chrome hasn't saved any open windows on this Mac yet."
             }
         }
     }

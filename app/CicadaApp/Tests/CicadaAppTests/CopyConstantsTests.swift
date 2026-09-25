@@ -10,6 +10,7 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertEqual(Copy.settingsPlansAndKeys, "\(Copy.settings) → \(Copy.plansAndKeys)")
         XCTAssertTrue(Copy.noConnections.contains(Copy.settingsPlansAndKeys),
                       "the empty-connections line must point somewhere real")
+        XCTAssertEqual(Copy.settingsPrivacy, "\(Copy.settings) → \(Copy.privacyAndData)")
     }
 
     /// The app is single-user; the observer is "You", never the account
@@ -38,7 +39,17 @@ final class CopyConstantsTests: XCTestCase {
             ("Inbox", Copy.inboxSubtitle),
             (Copy.agents, Copy.agentsSubtitle),
             (Copy.plansAndKeys, Copy.plansAndKeysSubtitle),
-            (Copy.schedule, Copy.scheduleSubtitle),
+            (Copy.sleepSettings, Copy.sleepSettingsSubtitle),
+            (Copy.sources, Copy.sourcesSubtitle),
+            (Copy.integrations, Copy.integrationsSubtitle),
+            (Copy.general, Copy.generalSubtitle),
+            (Copy.engines, Copy.enginesSubtitle),
+            (Copy.fromAnywhere, Copy.remoteSubtitle),
+            (Copy.youSection, Copy.youSubtitle),
+            (Copy.privacyAndData, Copy.privacySubtitle),
+            (Copy.memorySection, Copy.memorySubtitle),
+            (Copy.advanced, Copy.advancedSubtitle),
+            (Copy.skills, Copy.skillsSubtitle),
         ]
         for (title, subtitle) in pairs {
             XCTAssertLessThanOrEqual(subtitle.count, 60, "\(title): \"\(subtitle)\"")
@@ -56,6 +67,37 @@ final class CopyConstantsTests: XCTestCase {
         }
     }
 
+    /// Track P — the `?` popover is reachable from Graph, Clusters and Feed,
+    /// so every sentence in it has to be true on all three. Two things it
+    /// used to get wrong: capture was described as an MCP-client property
+    /// (G105 replaced that with the harness's own Stop hook) and
+    /// consolidation was described as automatic (a fresh install's schedule
+    /// is `manual` — `api/services/sleep_scheduler.py::_DEFAULT`).
+    func testTheAboutPopoverDoesNotClaimAutomaticConsolidationOrMCPCapture() {
+        let sleep = Copy.aboutCicadaSleep
+        XCTAssertFalse(sleep.lowercased().contains("automatically"))
+        XCTAssertFalse(sleep.lowercased().contains("mcp client"))
+        XCTAssertTrue(sleep.contains(Copy.settingsSleep), "it must point at the place a schedule is set")
+        XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
+    }
+
+    /// R-IB21's rule, for the paged Welcome (R-OB17): its one action and its exits in plain words, and a promise that
+    /// is true — a reader may send what it reads, so the files are "kept on this Mac", never "never uploaded".
+    func testTheWelcomeNamesItsOneActionAndItsSecondaryExits() {
+        XCTAssertEqual(Copy.onboardingGetStarted, "Get started")
+        XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeSetUpLater))
+        XCTAssertTrue(Copy.onboardingLabels.contains(Copy.welcomeTryTheDemo))
+        XCTAssertFalse(Copy.welcomePromise.lowercased().contains("episode"))
+        XCTAssertFalse(Copy.welcomePromise.lowercased().contains("never uploaded"))
+    }
+
+    /// Track P — the empty state must say what to DO, not just that there is
+    /// nothing (the same bar `emptyGraphMessage` set for G117).
+    func testIntegrationsEmptyStateNamesTheThingToCheck() {
+        XCTAssertFalse(Copy.integrationsEmpty.isEmpty)
+        XCTAssertTrue(Copy.integrationsEmpty.lowercased().contains("backend"))
+    }
+
     /// CI-style grep: these literals exist once, in Copy.swift. The whole file
     /// is scanned, comments included — a comment that repeats a label is
     /// exactly how these strings drifted in the first place. "on the Capture
@@ -71,6 +113,55 @@ final class CopyConstantsTests: XCTestCase {
                 XCTAssertFalse(text.contains(literal),
                                "\(file.lastPathComponent) re-types \(literal) — use Copy")
             }
+        }
+    }
+
+    /// Track I T4 — the intake and found-row labels are short, and "claim" never
+    /// reaches onboarding copy (design §7: the word means nothing to a new person).
+    func testIntakeLabelsAreShortAndNeverSayClaim() {
+        XCTAssertGreaterThan(Copy.intakeLabels.count, 20, "a lint over nothing passes vacuously")
+        for label in Copy.intakeLabels {
+            XCTAssertLessThanOrEqual(label.count, 60, label)
+            XCTAssertFalse(label.lowercased().contains("claim"), label)
+        }
+        for sentence in Copy.intakeSentences {
+            XCTAssertFalse(sentence.lowercased().contains("claim"), sentence)
+        }
+    }
+
+    /// Track I final review, findings 6 and 7: a refusal never tells the person
+    /// to run by hand what the allowlist refused, and the drop zone never
+    /// promises "nothing is read" — the sniff reads the file, and "read" is a
+    /// Sleep read a schedule runs unasked.
+    func testIntakeCopyNeverUndoesARefusalOrPromisesNoRead() {
+        XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("terminal"))
+        XCTAssertFalse(Copy.foundRefused.localizedCaseInsensitiveContains("copy them"))
+        XCTAssertFalse(Copy.intakeDropSubtitle.localizedCaseInsensitiveContains("read"))
+    }
+
+    /// Track I part b — Welcome, Getting started, Home and reminder labels are short,
+    /// never say "claim", and never state a price or a token count (2026-09-03).
+    func testWelcomeAndHomeCopyIsShortPlainAndPriceless() {
+        XCTAssertGreaterThan(Copy.welcomeHomeLabels.count, 10, "a lint over nothing passes vacuously")
+        for label in Copy.welcomeHomeLabels {
+            XCTAssertLessThanOrEqual(label.count, 60, label)
+        }
+        for text in Copy.welcomeHomeLabels + Copy.welcomeHomeSentences {
+            XCTAssertFalse(text.lowercased().contains("claim"), text)
+            XCTAssertFalse(text.contains("$"), text)
+            XCTAssertFalse(text.lowercased().contains("token"), text)
+        }
+    }
+
+    /// Round-4 phase B — the onboarding's words: short labels, plain sentences, no price, no token, no jargon.
+    func testOnboardingCopyIsShortPlainAndPriceless() {
+        XCTAssertGreaterThan(Copy.onboardingLabels.count, 20, "a lint over nothing passes vacuously")
+        for label in Copy.onboardingLabels { XCTAssertLessThanOrEqual(label.count, 60, label) }
+        for text in Copy.onboardingLabels + Copy.onboardingSentences + ExportWalkthrough.allCaptions {
+            for banned in ["claim", "episode", "token", "price"] {
+                XCTAssertFalse(text.lowercased().contains(banned), "\(banned) in \(text)")
+            }
+            for banned in ["$", "MCP"] { XCTAssertFalse(text.contains(banned), "\(banned) in \(text)") }
         }
     }
 }

@@ -1,23 +1,185 @@
 import SwiftUI
 
-// MARK: - Sleep Dashboard
+// MARK: - The page's arrangement (Track Z Z3)
 
+/// The Sleep page's one column (Track Z R-Z6 / §4.1 — R-A1's two columns are
+/// retired). 760 pt is the width the stacked page always had; it is not
+/// scaled because the room is the widest thing in it and fits at every zoom
+/// step (`SleepLayoutTests`, Z-P23).
+enum SleepLayout {
+    static let contentWidth: CGFloat = 760
+}
+
+// MARK: - Liveness (G125 v3 Task 8 — spec R-A12)
+
+/// Whether what the page is showing is a live reading or a last-known-good
+/// one, and — when it is the latter — the moment it was good at.
+///
+/// The Store's whole design is last-known-good projections that **never
+/// blank** (CLAUDE.md, the sync engine). The cost of that promise is that a
+/// dead backend looks exactly like a healthy one. This is the honest tax:
+/// one desaturation step and a chip that dates the page, so a reader can tell
+/// "nothing has changed" from "nothing is arriving" without the page ever
+/// throwing away the numbers it already has.
+enum SleepLiveness: Equatable {
+    case live
+    case stale(asOf: Date)
+
+    /// ONE step (R-A12). Named rather than written into a `.saturation(0.85)`
+    /// at each call site so "one step" stays one number.
+    static let staleSaturation: Double = 0.85
+
+    /// How old the last backend confirmation has to be before the page will
+    /// call itself stale (final review, finding 1).
+    ///
+    /// **`store.isConnected` is not "the backend is down" — it is "the SSE
+    /// stream is not currently open."** `SyncEngine.start` sets it false for
+    /// the *whole* backoff window (1 s doubling to 30 s) while the loop inside
+    /// that window keeps polling `GET /sync/version` every 3 s and keeps
+    /// refreshing whatever changed. So every backend restart and every dropped
+    /// stream flipped the flag and this page printed "Not connected — showing
+    /// the last reading · as of 16:12" with 16:12 seconds old: a warning
+    /// contradicted by its own timestamp, on the one feature here built to be
+    /// honest about freshness.
+    ///
+    /// 60 s is chosen to clear the transport's own worst case with room —
+    /// `SyncEngine.pollInterval` is 3 s and `maxBackoff` 30 s — so a reconnect
+    /// never trips the chip, while a backend that has genuinely stopped
+    /// answering trips it within a minute of its last confirmation (and
+    /// immediately, if contact was already older than that).
+    ///
+    /// No timer is needed to make the chip appear: the reconnect loop re-assigns
+    /// `store.isConnected` on every backoff iteration, and an `@Observable`
+    /// write re-evaluates the body whether or not the value changed. The motion
+    /// budget's "idle is still" (rule 1) survives — a settled, connected page
+    /// still costs zero redraws.
+    static let staleAfter: TimeInterval = 60
+
+    var saturation: Double {
+        switch self {
+        case .live: 1.0
+        case .stale: Self.staleSaturation
+        }
+    }
+
+    var asOf: Date? {
+        if case .stale(let date) = self { return date }
+        return nil
+    }
+
+    /// The page draws several domains, each with its own
+    /// `Snapshot.refreshedAt`. The chip is ONE number, so it takes the OLDEST
+    /// of them: naming the newest would date the page by its freshest card and
+    /// quietly overstate how current the stalest one is. A domain the backend
+    /// has never confirmed contributes nothing — it has no reading to be
+    /// stale, and `sleepLiveness` refuses to print a chip when they all say
+    /// nothing.
+    ///
+    /// **`refreshedAt`, never `loadedAt`** (review round 2). `loadedAt` moves
+    /// on a disk-cache hydrate too, so a cold launch against a stopped backend
+    /// stamped both domains with the launch time and this chip printed the
+    /// minute the app opened over data that could be days old — the fabricated
+    /// timestamp the docstring below refuses, in the state the feature exists
+    /// for.
+    static func stalestRefreshedAt(_ dates: Date?...) -> Date? {
+        dates.compactMap { $0 }.min()
+    }
+}
+
+/// R-A12. Three refusals, in order:
+///
+/// - Connected → `.live`. Nothing to disclose.
+/// - **A failed CYCLE is on screen → `.live`, even disconnected.** The page is
+///   reporting news the reader can act on, and news at 85% saturation is a
+///   warning whispered. `isError` means `sleepVM.lastError` — `status.error`,
+///   the last cycle's own failure — and **never** the transport failure in
+///   `sleepVM.errorMessage`. Review round 1 caught the confusion: a stopped
+///   backend sets `errorMessage` on every `load()`, so feeding that in made
+///   liveness inert in exactly the case it exists for, and *intermittently* —
+///   the chip appeared until the next fetch failed, then vanished. The error
+///   banner's own contrast is not this function's job: `SleepDetails` keeps
+///   Last cycle outside every `.saturation` group, so both errors render at
+///   full contrast whatever this returns.
+/// - **The backend has never confirmed anything → `.live`.** There is no hour
+///   to print, and a chip reading "as of 00:00" would be a fabricated
+///   timestamp — the same refusal `—` carries everywhere else on this page
+///   (P18). `refreshedAt` is what makes this refusal real: review round 2
+///   caught the caller feeding `Snapshot.loadedAt`, which a disk hydrate
+///   stamps, so a cold launch against a stopped backend printed the launch
+///   minute over data of any age. A never-refreshed page now falls through
+///   here and shows no chip at all.
+///
+/// - **The last confirmation is recent → `.live`.** Final review, finding 1:
+///   `isConnected` goes false for the whole reconnect backoff while the poll
+///   loop inside it is still talking to a healthy backend, so keying the chip
+///   off the flag alone made it fire on every backend restart and every
+///   dropped stream — dating the page by a timestamp seconds old. The claim
+///   this page makes is about *freshness*, so it is freshness that decides:
+///   nothing is called stale until the backend has been silent for
+///   `SleepLiveness.staleAfter`.
+///
+/// `now` is injected rather than read from the clock so the function stays
+/// pure and testable (the R8 rule the speech bubble already follows). It is
+/// the fourth refusal that uses it; the call site passes the default, which is
+/// re-read on every body evaluation.
+func sleepLiveness(isConnected: Bool,
+                   refreshedAt: Date?,
+                   isError: Bool,
+                   now: Date = Date()) -> SleepLiveness {
+    guard !isConnected, !isError, let refreshedAt,
+          now.timeIntervalSince(refreshedAt) > SleepLiveness.staleAfter else { return .live }
+    return .stale(asOf: refreshedAt)
+}
+
+// MARK: - Sleep Dashboard — the study desk (G125)
+
+/// **The motion budget (G125 v3 Task 8, spec R-A13).** Four rules, and every
+/// one of them has a test or a lint behind it — a budget that lives only in a
+/// comment is a budget that drifts:
+///
+/// 1. **Idle is still.** Nothing on a settled page moves except the worm's own
+///    frame loop. `DeskSceneView` has no `TimelineView` (its docstring says
+///    so), and `SleepStageStrip` starts one *only* while a pip is actually
+///    active — an idle page costs zero redraws.
+/// 2. **Nothing animates longer than 400 ms**, except the stage pulse, which
+///    is capped separately at 1.2 s (`SleepStages.pulsePeriod`) because a
+///    breath is a state indicator, not a transition. Every duration on this
+///    page is a named constant on `SleepMotion`, and
+///    `SleepNumbersLintTests.testTheSleepFolderDeclaresNoLiteralAnimationDuration`
+///    fails the build on a literal `duration:` anywhere else under
+///    `Views/Sleep/`.
+/// 3. **Reduce Motion holds every animation at its terminal frame.** The worm
+///    through `BookwormView.frameIndex(…reduceMotion:)`, the pulse through
+///    `stagePulse(at:reduceMotion:)`, and every value-driven settle through
+///    `SleepMotion.settle/pile/disclosure(reduceMotion:)`, which return `nil`
+///    — SwiftUI for "jump to the new value".
+/// 4. **No spinner where a real count exists.** A `ProgressView` on this page
+///    appears only where there is genuinely nothing to count yet: the queue
+///    before its first fetch, a history row's detail mid-load, and the
+///    Consolidate/Cancel buttons' own in-flight state. The queue's rows lost
+///    theirs in Task 6 — they have `read of total`.
 struct SleepView: View {
     @Binding var selectedTab: AppTab
+    /// Entity chips inside the consolidation history's expanded detail land
+    /// here (mirrors `SourcesPageView`'s own closure at `ContentView.swift`)
+    /// — jump to Graph and open the card, exactly like an Ask citation.
+    var onSelectEntity: ((String) -> Void)?
+
     @Environment(SleepViewModel.self) private var sleepVM
-    // H1: the "EPISODES QUEUED" header and `SleepQueueCard` above it must
-    // agree on one count. `Store.status` is the SSE-live source; reading it
-    // here (instead of only `sleepVM.queuedEpisodes.count`, which is fetched
-    // once per visit) keeps the two readouts from disagreeing when an MCP
-    // capture lands while this page is open.
+    /// R-HS7 / R-HS12 — the engine menu's model, the one `EngineChooser` reads; its response is the
+    /// page's first source for every engine line.
+    @Environment(SleepEngineViewModel.self) private var engineVM
+    // H1: the study list's header and the desk card's bubble/pile must agree
+    // on one live reading of the queue. `Store.status`/`Store.sleepEvent` are
+    // the SSE-live sources; reading them here (instead of only
+    // `sleepVM.queuedEpisodes.count`, fetched once per visit) keeps every
+    // readout on the page from disagreeing when a capture lands while it's
+    // open.
     @Environment(Store.self) private var store
-    @State private var scheduleDate: Date = Self.defaultDate()
-    @State private var scheduleEnabled: Bool = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Track Z Z10 — Increase Contrast hides the optional sky band (§11).
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var loadedOnce: Bool = false
-    @State private var showUploadOverlay = false
-    // Default to descending (newest first) — the common case when reviewing
-    // what's about to be consolidated.
-    @State private var sortAscending: Bool = false
     // PR #19 review: rapid live-count changes (a capture landing, then
     // another one right behind it) fired an untracked `sleepVM.load()` Task
     // per change with no cancellation. Mirrors `UsageViewModel.rangeTask`:
@@ -35,106 +197,130 @@ struct SleepView: View {
     // menu-bar bookworm respectively), so this view tracks its own edge via
     // `.onChange` instead of contending for either slot.
     @State private var justFinishedAt: Date?
-
-    private var sortedQueuedEpisodes: [EpisodeQueueItem] {
-        let base = sleepVM.queuedEpisodes
-        return sortAscending ? base : base.reversed()
-    }
-
-    private var sortedProcessedEpisodes: [EpisodeQueueItem] {
-        let base = sleepVM.processedEpisodes
-        return sortAscending ? base : base.reversed()
-    }
-
-    private static func defaultDate() -> Date {
-        var comps = DateComponents()
-        comps.hour = 3
-        comps.minute = 0
-        return Calendar.current.date(from: comps) ?? Date()
-    }
+    /// Spec decision 16 — Details is closed by default and remembered per
+    /// viewer. `@AppStorage` is a per-viewer convenience, which is exactly
+    /// the use browser-style storage is for: losing it only closes Details.
+    @AppStorage(SleepDetails.openKey) private var detailsOpen = SleepDetails.defaultOpen
+    /// The Details section a tail link asked for, held until Details has been
+    /// built and its anchor exists (`openDetails`).
+    @State private var pendingScroll: DetailsSection?
+    /// Track Z Z5 — the room's interaction state (gaze, perk, the answer
+    /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
+    /// never outlives the visit it was asked in.
+    @State private var room = RoomModel()
 
     var body: some View {
+        let page = resolvePage()
         ZStack {
             // No .ignoresSafeArea(): the title bar is darkened at the window level
             // (CicadaApp). Ignoring the safe area here pushed content under the menu
             // bar and stretched the window to full screen height.
             CicadaTheme.background
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
-                    headerRow
-                    moodCard
-                    if let engine = sleepVM.status?.lastEngine {
-                        engineLine(engine, detail: sleepVM.status?.engineDetail)
-                    }
-                    if let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty {
-                        errorBanner(error)
-                    }
-                    SleepQueueCard()
-                    pauseCard
-                    SleepDebtBreakdown(episodes: sleepVM.queuedEpisodes)
-                    progressCard
-                    queueCard
+            // Track Z Z10 (spec decision 16) — the optional sky band: behind
+            // everything, fixed across the top, following the window's weather.
+            // `SkyBand.ships` is the one switch (Z-B16).
+            if SkyBand.isDrawn(contrast: contrast) {
+                VStack(spacing: 0) {
+                    SleepSkyBand(weather: windowWeather(for: page.mood))
+                    Spacer(minLength: 0)
                 }
-                .padding(CicadaTheme.spacingXL)
-                .frame(maxWidth: 760)
-                .frame(maxWidth: .infinity, alignment: .top)
             }
 
-            // Top-right: Sleep + Upload + Help buttons — same pattern as
-            // GraphContainerView and TopicsView so the Import (Upload)
-            // button is available from every primary screen.
-            VStack {
-                HStack {
-                    Spacer()
-                    TopBarControls(
-                        selectedTab: $selectedTab,
-                        showUploadOverlay: $showUploadOverlay
-                    )
-                    .padding(CicadaTheme.spacingLG)
+            // One column at every width (R-Z6): the room card, the one
+            // Details row, and Details itself only while it is open.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                        headerRow
+                        // R-A12: `.saturation` is UNCONDITIONAL, at the
+                        // identity 1.0 while live — an `if` around it would
+                        // change the card's structural identity and rebuild
+                        // it every time the connection flaps.
+                        roomCard(page)
+                            .saturation(liveness.saturation)
+                        DetailsDisclosureRow(open: detailsOpen) {
+                            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen.toggle() }
+                        }
+                        if detailsOpen {
+                            SleepDetails(page: page, liveness: liveness, pageError: pageError,
+                                         status: sleepVM.status, episodes: sleepVM.queuedEpisodes,
+                                         history: sleepVM.history, details: sleepVM.details,
+                                         expanded: sleepVM.expanded, onToggleHistory: toggleHistory,
+                                         onSelectEntity: onSelectEntity, room: room)
+                        }
+                    }
+                    .padding(CicadaTheme.spacingXL)
+                    .frame(maxWidth: SleepLayout.contentWidth)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    // I4 — a mood change resets the ladder: an answer about
+                    // the state that just ended is no longer true, and any
+                    // feed line about a moment that has passed (Z-B11).
+                    .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
                 }
-                Spacer()
-            }
-
-            if showUploadOverlay {
-                UploadOverlay(isPresented: $showUploadOverlay)
-                    .transition(.opacity)
+                // Details is built only while open, so an anchor inside it
+                // exists one update after `detailsOpen` flips: scroll then.
+                .onChange(of: pendingScroll) { _, section in
+                    guard let section else { return }
+                    DispatchQueue.main.async {
+                        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
+                            proxy.scrollTo(section.anchorID, anchor: .top)
+                        }
+                        pendingScroll = nil
+                    }
+                }
             }
         }
-        .animation(.spring(duration: 0.3), value: showUploadOverlay)
         .task {
             if !loadedOnce {
                 loadedOnce = true
                 await sleepVM.load()
-                syncScheduleState()
             }
+            // R-HS12 — every visit, unconditionally: the chooser's response may have been loaded
+            // long before (Home's Getting started loads it at launch), and the page reads it FIRST,
+            // so a stale one would hold the button, the lamp and the answers on an old engine. The
+            // GET is engine-free, and `EngineChooser` re-syncs from `vm.response` (`onChange`), so
+            // a reload never stomps a choice.
+            await engineVM.load()
         }
-        .onChange(of: sleepVM.schedule) { _, _ in
-            syncScheduleState()
-        }
-        // G106 amendment: this view's own edge-detection for the mood
-        // card's `.digesting` window — see `justFinishedAt`'s declaration
-        // for why this can't reuse `SleepViewModel.onCycleCompleted` or
-        // `Store.onStatus`.
+        // G106 amendment + Track Z §6.5 / Z-P17. This view's own edge
+        // detection — see `justFinishedAt`'s declaration for why it can't
+        // reuse `SleepViewModel.onCycleCompleted` or `Store.onStatus`.
+        // `justFinishedAt` is stamped on every running → idle edge as before:
+        // `deriveSleepPageMood` alone decides that a cancel never chews.
+        // Task 8 review r1: the baseline a completion is compared against is
+        // taken at the START edge — the backend commits several seconds
+        // before it reports idle (the engine-independent tail runs in
+        // between), and a reconcile `load()` in that window already brings
+        // the new commit, so an idle-edge baseline would be the commit
+        // itself. The end edge then resolves against the history in hand,
+        // and the history observer below catches a commit that lands later.
         .onChange(of: sleepVM.status?.status) { oldValue, newValue in
-            if oldValue == "running" && newValue == "idle" {
-                justFinishedAt = Date()
+            if oldValue == "running" && newValue == "idle" { justFinishedAt = Date() }
+            if newValue == "running" && oldValue != "running" {
+                room.cycleStarted(baseline: lastCycleEntry(sleepVM.history)?.commitHash,
+                                  historyLoaded: sleepVM.historyLoaded)
+            }
+            if oldValue == "running" && newValue != "running" {
+                let real = isRealCompletion(old: oldValue, new: newValue,
+                                            cancelled: sleepVM.status?.cancelled == true,
+                                            error: sleepVM.status?.error)
+                if room.cycleEnded(real: real, edgeBaseline: lastCycleEntry(sleepVM.history)?.commitHash,
+                                   history: sleepVM.history) != nil {
+                    celebrateCompletion()
+                }
             }
         }
-        .onChange(of: showUploadOverlay) { _, isOpen in
-            // When the import overlay closes, refresh the episode queue so
-            // newly-uploaded conversations show up immediately.
-            if !isOpen {
-                Task { @MainActor in await sleepVM.load() }
-            }
+        .onChange(of: sleepVM.history) { _, history in
+            if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
         }
-        // PR #19 review: the header count reads SSE-live `store.status`
-        // while the rows below it stay pinned to whatever `sleepVM.load()`
-        // last fetched, once per visit. A capture (or another Sleep cycle
+        // PR #19 review: the study list's header reads SSE-live `store.status`
+        // while its rows stay pinned to whatever `sleepVM.load()` last
+        // fetched, once per visit. A capture (or another Sleep cycle
         // finishing elsewhere) bumps the live count without touching the
-        // rows, so the header and the list contradict each other for as
-        // long as the page stays open. One freshness model: whenever the
-        // live unprocessed count disagrees with the loaded rows, refetch.
+        // rows, so the two contradict each other for as long as the page
+        // stays open. One freshness model: whenever the live unprocessed
+        // count disagrees with the loaded rows, refetch.
         .onChange(of: store.status.value?.episodes.unprocessed) { _, newValue in
             if Self.queueNeedsReconcile(liveUnprocessed: newValue,
                                         loadedQueuedCount: sleepVM.queuedEpisodes.count) {
@@ -147,6 +333,79 @@ struct SleepView: View {
                 reconcileTask = Task { @MainActor in await runReconcile() }
             }
         }
+    }
+
+    /// Track Z Z1 — the page, resolved once per body (§9). Every reader below
+    /// takes its numbers from this value, so the room, the queue and the
+    /// controls cannot disagree about which reading they show (H1, now
+    /// structural). `now` is the body's own clock read — `studyRows` ages and
+    /// the 6 s digest window already depended on it.
+    private func resolvePage(now: Date = .now) -> SleepPageModel {
+        SleepPageModel.resolve(
+            status: sleepVM.status, sse: store.sleepEvent, queued: sleepVM.queuedEpisodes,
+            schedule: sleepVM.schedule,
+            enginePreview: SleepEnginePreviewSource.current(chooser: engineVM.response, page: sleepVM.enginePreview),
+            history: sleepVM.history,
+            storeStatus: store.status.value,
+            queueLoad: StudyListCard.loadState(status: store.status.value,
+                                               isLoading: store.status.isEmpty && store.status.isRefreshing,
+                                               error: store.domainErrors[.status]),
+            justFinishedAt: justFinishedAt, intakeInFlight: store.intakeInFlight, now: now)
+    }
+
+    /// The one error the page has to tell, if there is one — `lastError`
+    /// preferred over the transient `errorMessage`, which is how the page has
+    /// always resolved it.
+    ///
+    /// This drives Details › Last cycle and nothing else. It is deliberately NOT what
+    /// `liveness` reads: `errorMessage` is a *fetch* failure, which a stopped
+    /// backend raises constantly, so it says "we could not reach it" — the
+    /// same fact the chip is there to state — rather than "a cycle failed".
+    private var pageError: String? {
+        guard let error = sleepVM.lastError ?? sleepVM.errorMessage, !error.isEmpty else { return nil }
+        return error
+    }
+
+    /// R-A12. Both domains this page projects are asked when the BACKEND last
+    /// confirmed them (`Snapshot.refreshedAt`, not `loadedAt` — review round
+    /// 2: a disk hydrate moves `loadedAt`, so reading it dated a cold launch
+    /// against a dead backend by the launch minute); `stalestRefreshedAt`
+    /// takes the older of the two, so the chip never dates the page by its
+    /// freshest card, and returns nil — no chip — while neither has ever been
+    /// confirmed.
+    ///
+    /// **`isError` is the CYCLE's error, not the page's** (review round 1).
+    /// `pageError` folds in `sleepVM.errorMessage`, which a stopped backend
+    /// sets on every `load()` — routing that here made a disconnected page
+    /// report itself `.live`, i.e. killed the feature in the one state it was
+    /// built for. `lastError` is `status?.error`: a cycle that actually
+    /// failed, which is real news and stays at full contrast. `pageError`
+    /// keeps its one job — driving Details › Last cycle's error banner, which
+    /// `SleepDetails` places outside every desaturated group.
+    ///
+    /// `now` is left at its default, which is read fresh on every body
+    /// evaluation — that is what lets `SleepLiveness.staleAfter` do its work
+    /// (final review, finding 1). It is deliberately NOT the R8 case: R8 bans
+    /// the wall clock from `sleepBubbleText` because prose that flickers
+    /// between renders is a lie about *state*; here the elapsed time since the
+    /// last backend answer IS the state being reported.
+    private var liveness: SleepLiveness {
+        sleepLiveness(
+            isConnected: store.isConnected,
+            refreshedAt: SleepLiveness.stalestRefreshedAt(store.status.refreshedAt,
+                                                          store.sourcesOverview.refreshedAt),
+            isError: sleepVM.lastError != nil
+        )
+    }
+
+    // MARK: Details (Track Z Z3, R-Z6)
+
+    /// Open Details and land on one section — a tail link's destination
+    /// (Z-P5). The scroll waits for `pendingScroll`'s `onChange`, because a
+    /// closed Details has no anchors to scroll to yet.
+    private func openDetails(_ section: DetailsSection) {
+        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { detailsOpen = true }
+        pendingScroll = section
     }
 
     /// PR #19 round-4 review: a single `sleepVM.load()` was fired per live
@@ -182,6 +441,12 @@ struct SleepView: View {
     /// Reconcile retry policy, pulled out as pure functions (mirrors
     /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
     /// curve are unit-testable without standing up a view or a live Task loop.
+    /// The one requested point size for the whole hero. `BookwormView` and
+    /// `deskSceneLayout` each snap it the same way (G130 R6), so passing this
+    /// single number to both is what puts the room and the character on one
+    /// lattice — P12: two pixel scales in one picture read as a bug.
+    static let wormPointSize: CGFloat = 120
+
     static let maxReconcileAttempts = 3
 
     static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {
@@ -192,312 +457,10 @@ struct SleepView: View {
         .seconds(min(8, 1 << attempt))
     }
 
-    private func syncScheduleState() {
-        scheduleEnabled = sleepVM.schedule.enabled
-        var comps = DateComponents()
-        comps.hour = sleepVM.schedule.hour
-        comps.minute = sleepVM.schedule.minute
-        if let d = Calendar.current.date(from: comps) {
-            scheduleDate = d
-        }
-    }
-
-    // MARK: Header
-
-    private var headerRow: some View {
-        // SleepView's scroll content already carries `spacingXL` padding around
-        // the whole VStack, so this header strips PageHeader's outer padding and
-        // just reuses its title/subtitle typography for visual parity.
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            Text("Sleep Cycle")
-                .font(CicadaTheme.titleFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text(Copy.sleepSubtitle)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: Mood (G106 amendment; G107 art)
-
-    /// The mascot card: the 24×24 colour bookworm (G107) at 120 pt — five
-    /// whole cells per point-row, so the pixels stay crisp (ruling R3) — in
-    /// the mood `deriveSleepPageMood` derives, with the bracketed,
-    /// monospaced status line kept underneath as its caption (ruling R9:
-    /// same text, same colour, now under the worm rather than standing in
-    /// for it), plus the Rested % reading and the components it's built
-    /// from — "explainable, not a black box" (spec). Both the mood and the
-    /// debt numbers prefer the continuously-updating SSE `sleep` event
-    /// (`store.sleepEvent`) and fall back to the last REST `/sleep/status`
-    /// fetch, via `resolveSleepDebt`/`resolveProgressPct`.
-    private var moodCard: some View {
-        let debt = resolveSleepDebt(sse: store.sleepEvent, status: sleepVM.status)
-        let progress = resolveProgressPct(sse: store.sleepEvent, status: sleepVM.status)
-        let mood = deriveSleepPageMood(status: sleepVM.status, debt: debt, justFinishedAt: justFinishedAt)
-        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            BookwormView(
-                state: mood,
-                pointSize: 120,
-                caption: sleepDebtBracketText(mood, debt: debt),
-                captionFont: .system(size: 24, weight: .semibold, design: .monospaced),
-                captionColor: sleepDebtBracketColor(mood),
-                alignment: .leading
-            )
-
-            moodDetailLine(mood: mood, debt: debt, progress: progress)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    @ViewBuilder
-    private func moodDetailLine(mood: BookwormState, debt: SleepDebtView?, progress: Int?) -> some View {
-        if case .sleeping = mood, let progress {
-            // Progress % — literally "episodes processed / episodes in this
-            // cycle", live during Stage 1 (the only stage with a natural
-            // per-episode unit; see the backend's `sleep_cycle.progress_pct`
-            // docstring). Absent (this branch skipped) once Stage 1 finishes
-            // rather than freezing at 100% while stages 2-5 still run.
-            Text("Stage 1 progress: \(progress)%")
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        } else if let debt {
-            if let rested = debt.restedPct {
-                Text("Rested \(rested)% — volume \(debt.volumePct)%, age \(debt.agePct)%")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                // No baseline: the queue is empty and Sleep has never run in
-                // this bank — an honest state, not a fabricated 100%.
-                Text("No baseline yet — Sleep hasn't run in this bank.")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-    }
-
-    // MARK: Schedule (quick control — the full editor moved to Settings → Schedule)
-
-    /// One of the Sleep page's three quick controls (run — `SleepQueueCard`
-    /// — pause, cancel — G106 amendment). Flips the SAME `ScheduleConfig.
-    /// enabled` the Settings → Schedule tab's time picker edits; the hour/
-    /// minute this toggle preserves is whatever was last set there, never
-    /// reset to a default. No time picker here on purpose — that lives in
-    /// exactly one place (`SettingsSleepView`) so the two can't disagree.
-    private var pauseCard: some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            Image(systemName: scheduleEnabled ? "moon.fill" : "moon.zzz")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(scheduleEnabled ? CicadaTheme.accent : CicadaTheme.textTertiary)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill((scheduleEnabled ? CicadaTheme.accent : CicadaTheme.textTertiary).opacity(0.12)))
-                .overlay(Circle().stroke(CicadaTheme.border, lineWidth: 1))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(scheduleEnabled ? "Auto-run at \(formattedTime(scheduleDate)) daily" : "Manual triggers only")
-                    .font(CicadaTheme.headingFont)
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Change the time in \(Copy.settingsSchedule).")
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-
-            Spacer()
-
-            Button {
-                scheduleEnabled.toggle()
-                commitSchedule()
-            } label: {
-                Text(scheduleEnabled ? Copy.pauseAutoRun : Copy.resumeAutoRun)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .padding(.horizontal, CicadaTheme.spacingLG)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-                    .background(CicadaTheme.surfaceElevated)
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(scheduleEnabled ? Copy.pauseAutoRun : Copy.resumeAutoRun)
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    private func commitSchedule() {
-        let comps = Calendar.current.dateComponents([.hour, .minute], from: scheduleDate)
-        let new = ScheduleConfig(
-            enabled: scheduleEnabled,
-            hour: comps.hour ?? 3,
-            minute: comps.minute ?? 0
-        )
-        Task { @MainActor in
-            await sleepVM.updateSchedule(new)
-        }
-    }
-
-    private func formattedTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.timeStyle = .short
-        f.dateStyle = .none
-        return f.string(from: date)
-    }
-
-    // MARK: Progress
-
-    private var progressCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            // H1: the trigger lives solely on `SleepQueueCard` now (spec
-            // §2.8/§2.9 — "one voice"). This card is read-only progress.
-            Text("PROGRESS")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.2)
-
-            ProgressView(value: sleepVM.progressFraction)
-                .progressViewStyle(.linear)
-                .tint(CicadaTheme.accent)
-                .animation(.easeInOut(duration: 0.35), value: sleepVM.progressFraction)
-
-            Text(sleepVM.status?.progress ?? "Idle")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Review fix L1/L4: `cancelled`/`episodeCap`/`episodesQueued` were
-            // decoded but read by no view — only the free-text `progress`
-            // sentence mentioned either. Both get a real, structured
-            // readout here rather than depending on the human sitting there
-            // to parse a sentence.
-            if sleepVM.status?.cancelled == true {
-                cancelledBanner
-            }
-            if let s = sleepVM.status, s.episodesQueued > s.episodesTotal {
-                capBanner(processed: s.episodesTotal, queued: s.episodesQueued, cap: s.episodeCap)
-            }
-
-            // Non-fatal warnings (e.g. LEANN episode index rebuild failed
-            // even though entity writes + commit succeeded). Surfaced so a
-            // "completed with warnings" cycle never looks like a clean pass.
-            if let warning = sleepVM.status?.indexWarning, !warning.isEmpty {
-                warningBanner(warning)
-            }
-
-            HStack(spacing: CicadaTheme.spacingMD) {
-                counterChip(
-                    label: "Episodes",
-                    value: sleepVM.status?.episodesTotal ?? 0,
-                    caption: episodesCaption
-                )
-                counterChip(
-                    label: "Entities",
-                    value: (sleepVM.status?.entitiesCreated ?? 0)
-                        + (sleepVM.status?.entitiesUpdated ?? 0)
-                )
-                counterChip(
-                    label: "Relationships",
-                    value: sleepVM.status?.relationshipsCreated ?? 0
-                )
-                counterChip(label: "Skills", value: sleepVM.status?.skillsDetected ?? 0)
-            }
-        }
-        .padding(CicadaTheme.spacingLG)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-
-    /// "25 of 230" under the Episodes chip when the cap truncated this
-    /// cycle — `nil` (chip shows just the count, as before) otherwise.
-    private var episodesCaption: String? {
-        guard let s = sleepVM.status, s.episodesQueued > s.episodesTotal else { return nil }
-        return "of \(s.episodesQueued) queued"
-    }
-
-    /// Episode cap (sleep control) truncated this cycle — informational,
-    /// not a warning: the cap is a deliberate safety feature (spec: bound
-    /// one cycle's wall-clock instead of an unbounded first run), and the
-    /// remaining episodes are simply picked up next cycle, nothing lost.
-    private func capBanner(processed: Int, queued: Int, cap: Int) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "tray.and.arrow.down")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Episode cap reached (\(cap))")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("\(processed) of \(queued) processed — the rest stay queued for the next cycle.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    /// The last cycle stopped early because of a `/sleep/cancel` request
-    /// (as opposed to completing normally, or a cancel that arrived too
-    /// late to matter — see `sleep_cycle._cycle_cancelled`). Informational
-    /// tone, matching `Copy.cancelSleepExplainer`'s own promise: nothing
-    /// was lost.
-    private var cancelledBanner: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "xmark.circle")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Cancelled")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text("Stopped cleanly before any writes — nothing was lost.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    private func counterChip(label: String, value: Int, caption: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased())
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.0)
-            Text("\(value)")
-                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .contentTransition(.numericText())
-                .animation(.easeInOut(duration: 0.3), value: value)
-            if let caption {
-                Text(caption)
-                    .font(.system(size: 9))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.surfaceHover)
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    // MARK: Queue
-
-    /// The count `queueCard`'s header and `SleepQueueCard` must agree on
-    /// (H1): SSE-live `store.status.episodes.unprocessed` when a snapshot has
-    /// arrived, falling back to the once-per-visit `sleepVM.queuedEpisodes`
-    /// count before the first one does. Pulled out as a pure function so the
+    /// The count `StudyListCard`'s content must agree with (H1): SSE-live
+    /// `store.status.episodes.unprocessed` when a snapshot has arrived,
+    /// falling back to the once-per-visit `sleepVM.queuedEpisodes` count
+    /// before the first one does. Pulled out as a pure function so the
     /// precedence is unit-testable without standing up a view.
     static func queueCount(status: StatusSnapshot?, fallback: Int) -> Int {
         status?.episodes.unprocessed ?? fallback
@@ -505,7 +468,7 @@ struct SleepView: View {
 
     /// Whether the SSE-live unprocessed count has drifted from the rows
     /// `sleepVM.queuedEpisodes` is currently showing — the signal that owes
-    /// `queueCard` a refetch (H1 follow-up, PR #19 review). `nil` (no status
+    /// the page a refetch (H1 follow-up, PR #19 review). `nil` (no status
     /// snapshot yet) never triggers a reconcile — `queueCount` already falls
     /// back to `loadedQueuedCount` in that case, so there is nothing to
     /// disagree with. Pulled out as a pure function, mirroring `queueCount`
@@ -515,216 +478,239 @@ struct SleepView: View {
         return liveUnprocessed != loadedQueuedCount
     }
 
-    private var queueCard: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Text("EPISODES QUEUED (\(Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)))")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                Spacer()
-                Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        sortAscending.toggle()
-                    }
-                } label: {
-                    Image(systemName: sortAscending
-                          ? "arrow.up"
-                          : "arrow.down")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .help(sortAscending ? "Oldest first" : "Newest first")
+    // MARK: History disclosure (G125 R12)
 
-                Button {
-                    Task { @MainActor in await sleepVM.load() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.cicadaPlain)
-                .help("Refresh queue")
-            }
+    /// A second click on an already-expanded row just closes it — no
+    /// re-fetch. `loadDetail` itself is the cache-hit guard for the OPEN
+    /// case: a row that's been opened once before never asks the network
+    /// again this session.
+    private func toggleHistory(_ commit: String) {
+        let opening = sleepVM.expanded != commit
+        withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) {
+            sleepVM.expanded = opening ? commit : nil
+        }
+        if opening {
+            Task { @MainActor in await sleepVM.loadDetail(commit) }
+        }
+    }
 
-            if sleepVM.queuedEpisodes.isEmpty {
-                Text("No episodes queued. Capture a conversation to get started.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.vertical, CicadaTheme.spacingSM)
-            } else {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    ForEach(sortedQueuedEpisodes) { item in
-                        EpisodeRow(item: item)
-                    }
-                }
-            }
+    /// R-Z12 — one of the page's two beats not caused by input, and it has a
+    /// fact behind it: the new commit. The one helper both completion
+    /// observers call (the end edge and a later history change, Task 8
+    /// review r1), so the cheer and its announcement can never diverge. The
+    /// §6.4 matrix decides whether the mood may cheer now (`.digesting` /
+    /// `.happy`); a history that lands after the 6 s digest still sets the
+    /// link, silently. The announcement is the cheer's text twin (§11).
+    private func celebrateCompletion() {
+        room.play(.cheer, state: resolvePage().mood, reduceMotion: reduceMotion)
+        AccessibilityNotification.Announcement(Copy.sleepFinished).post()
+    }
 
-            if !sleepVM.processedEpisodes.isEmpty {
-                Divider().background(CicadaTheme.border).padding(.vertical, CicadaTheme.spacingXS)
-                Text("RECENTLY PROCESSED")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .tracking(1.2)
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    ForEach(sortedProcessedEpisodes.prefix(10)) { item in
-                        EpisodeRow(item: item)
-                            .opacity(0.6)
-                    }
+    /// T7 / I17 — open Details, expand the cycle's history row (its detail
+    /// loads through the one cached path, `toggleHistory` → `loadDetail`),
+    /// and land on Past nights. The link clears as it is followed: what
+    /// changed is now on screen, so the sentence goes back to the state.
+    private func showWhatChanged() {
+        guard let commit = room.followWhatChanged() else { return }
+        if sleepVM.expanded != commit { toggleHistory(commit) }
+        openDetails(.pastNights)
+    }
+
+    // MARK: Header
+
+    private var headerRow: some View {
+        // The title is `PageTitle`, the same view `PageHeader` draws (Z-B4):
+        // the page keeps its own row because the title sits inside the centred
+        // column (R-Z6) with the staleness chip beside it (R-A12).
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+                // The subtitle stopped rendering (Track Z §4.1); it survives as
+                // the title's VoiceOver hint — on this one element, not the
+                // page's `ZStack`, where it would spread to every button.
+                PageTitle(Copy.sleepPageTitle)
+                    .accessibilityHint(Copy.sleepSubtitle)
+                // R-A12: the chip explains the dimming below it, so it stays at
+                // full contrast and sits outside every desaturated group.
+                if let asOf = liveness.asOf {
+                    stalenessChip(asOf)
                 }
+                Spacer(minLength: 0)
             }
         }
-        .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "as of 16:12" — the moment the numbers below were last confirmed by a
+    /// backend that is no longer answering. A dated page is honest; a blank
+    /// one loses work the reader can still use, and an undated one lies by
+    /// omission.
+    private func stalenessChip(_ asOf: Date) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "wifi.slash")
+                .font(CicadaTheme.font(size: 9, weight: .semibold))
+            Text(Copy.asOf(asOf))
+                .font(CicadaTheme.font(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(CicadaTheme.textTertiary)
+        .padding(.horizontal, CicadaTheme.spacingSM)
+        .padding(.vertical, 3)
+        .background(CicadaTheme.surfaceElevated)
+        .clipShape(Capsule())
+        .help(Copy.notConnectedExplainer)
+        // Collapse FIRST, then label — the folder's house pattern
+        // (`SleepHero`, `BookPile` and `SleepStageStrip` all do this). Without it SwiftUI propagates the
+        // container's label to each child and VoiceOver reads the whole
+        // sentence twice, once for the glyph and once for the text.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(Copy.notConnectedExplainer) \(Copy.asOf(asOf))")
+    }
+
+    // MARK: The desk (G106 amendment; G107 art; G125 the study desk)
+
+    /// The mascot card, now "the study room" (G125 v3 Task 3): a night
+    /// window, a floor lamp, a plant, a cushion and a mug,
+    /// with the 24×24 colour bookworm (G107) sitting on the cushion at 120 pt
+    /// — five whole cells per point-row, so the pixels stay crisp (ruling R3)
+    /// — and the REAL `BookPileView` standing in the column
+    /// `deskSceneLayout` reserves for it beside him. Nothing in the room is
+    /// painted books (P10): the page's one volume encoding is that pile.
+    ///
+    /// Every value it draws comes from `page` (Track Z Z1), which resolved the
+    /// SSE-over-REST precedence (`store.sleepEvent` first, the last
+    /// `/sleep/status` fetch second) once for the whole body — the card no
+    /// longer re-derives the mood, the pile or the strip on its own.
+    ///
+    /// The scene box is a FIXED height at a given zoom (R-A2), so idle →
+    /// running → idle never reflows the art: the mood changes the worm's
+    /// frames, never the room's geometry.
+    ///
+    /// Track Z Z2 (R-Z5): the bubble that floated above the room is gone. The
+    /// worm speaks in one fixed slot directly under it — the display-face sentence —
+    /// then the one control and the whisper line, all centred on the room.
+    ///
+    /// Track Z Z3 (R-Z6): this card IS the default view. The readout, the
+    /// banners and the engine line moved into Details; the strip stays, but
+    /// only with news, and at the card's last row (Z-P9) so neither the
+    /// sentence nor the control the person just pressed moves when it appears.
+    private func roomCard(_ page: SleepPageModel) -> some View {
+        // One reading feeds the status line AND the answers (Task 6), so the
+        // worm can never answer from a different snapshot than it states.
+        let context = page.roomContext(recentCycleCommit: room.recentCycleCommit)
+        let status = roomSentence(context)
+        let answers = wormAnswers(context)
+
+        return VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
+            // Track Z Z5 (R-Z8): the room is its own view — the inert art,
+            // the worm on its lattice, the real pile, and a hotspot layer
+            // derived from the same pure layout. The bracket line (P8) moved
+            // from this group's label onto the worm's own element as its value.
+            StudyRoom(page: page, statusLine: status, answers: answers, room: room,
+                      episodes: sleepVM.queuedEpisodes, onOpenDetails: openDetails,
+                      onWhatChanged: room.recentCycleCommit == nil ? nil : { showWhatChanged() },
+                      reachable: liveness == .live)
+                .accessibilitySortPriority(RoomA11yOrder.room)
+
+            // R-Z5 — the one slot the worm speaks in; an answer replaces the
+            // status here (R-Z7). Every action has its destination since
+            // Task 8 (Z-P5's seam is gone), so the switch is exhaustive: a
+            // new action cannot ship without somewhere to go.
+            RoomSentenceView(line: status, answers: answers, room: room,
+                             feedAsleep: feedIsAsleep(page.mood),
+                             perform: { action in
+                                 switch action {
+                                 case .retry: Task { await store.refresh([.status]) }
+                                 case .openDetails(let section): openDetails(section)
+                                 case .openInbox: selectedTab = .inbox
+                                 // Z-P25 — the sentence names the lamp, so the
+                                 // popover points at the lamp, not the whisper line.
+                                 case .openLamp: room.lampPopover = .lamp
+                                 case .whatChanged: showWhatChanged()
+                                 }
+                             })
+            SleepControlRow(consolidateEnabled: page.consolidateEnabled,
+                            queuedCount: page.queuedCount)
+                .accessibilitySortPriority(RoomA11yOrder.control)
+                .tourAnchor(.consolidate)
+            whisperRow(page)
+                .accessibilitySortPriority(RoomA11yOrder.whisper)
+
+            // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
+            // after one was cancelled or failed (its frozen record, P15).
+            if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.cancelled,
+                                   failed: page.cycleError != nil) {
+                SleepStageStrip(pips: page.pips)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .padding(CicadaTheme.spacingLG)
+        .frame(maxWidth: .infinity)
         .glassCard()
     }
 
-    // MARK: Warning banner
-
-    private func warningBanner(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 12))
-                .foregroundStyle(CicadaTheme.warning)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Completed with warnings")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(text)
-                    .font(.system(size: 10))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingSM)
-        .frame(maxWidth: .infinity)
-        .background(CicadaTheme.warning.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
-    }
-
-    // MARK: Engine line
-
-    /// Which engine the last cycle ran on. Named, not implied — a Sleep page
-    /// that says "check API credits" while running on a subscription is the
-    /// exact confusion this replaces.
-    private func engineLine(_ engine: String, detail: String?) -> some View {
-        HStack(spacing: CicadaTheme.spacingXS) {
-            Text("ENGINE")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .tracking(1.1)
-            Text(Copy.engineLabel(engine))
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textSecondary)
-            if let detail, !detail.isEmpty {
-                Text("· \(detail)")
+    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3),
+    /// replacing the queue card's schedule row and footer (Z-P4). Since Z6 it
+    /// is a control: it opens the same `LampPopover` the lamp does, anchored
+    /// here (Z-P25). Its "Change…" link and the "Scheduled runs use …" note
+    /// left with that step — the popover carries both, and its engine line
+    /// shows the scheduled engine ALWAYS, not only when it differs, so ruling
+    /// 4 is on screen at the moment someone chooses to schedule.
+    private func whisperRow(_ page: SleepPageModel) -> some View {
+        Button { room.lampPopover = .whisper } label: {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: "moon.zzz")
+                    .font(CicadaTheme.font(size: 11))
+                    .iconHover()
+                Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
+                                 lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .lineLimit(2)
             }
-            Spacer()
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .contentShape(Rectangle())
         }
-    }
-
-    // MARK: Error banner
-
-    private func errorBanner(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(CicadaTheme.danger)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Sleep cycle error")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                Text(text)
-                    .font(.system(size: 11))
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Spacer()
-        }
-        .padding(CicadaTheme.spacingMD)
+        .buttonStyle(.cicadaPlain)
+        .roomLinkCursor()
+        // R-A14 — "Next run —" is a value with a reason; an empty help
+        // string renders no tooltip, so a real time carries none.
+        .help(page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : "")
+        .accessibilityHint(Copy.lampHint)
+        .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
+                                      set: { if !$0 { room.lampPopover = nil } }),
+                 arrowEdge: .bottom) { LampPopover(page: page) }
         .frame(maxWidth: .infinity)
-        .background(CicadaTheme.danger.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
     }
 }
 
-// MARK: - Episode Row
+/// The one row that opens Details (R-Z6), with Meadow's hover (Z-B15): the
+/// chevron acknowledges the pointer once (`iconHover`) and the words brighten
+/// — a fill change, never a lift, because a row is not a card (R-M14). Its
+/// own `@State`, so a hover never re-evaluates the page. `if detailsOpen {}`
+/// in the page's `body`, not an opacity, is what keeps a closed Details free.
+private struct DetailsDisclosureRow: View {
+    let open: Bool
+    let toggle: () -> Void
 
-private struct EpisodeRow: View {
-    let item: EpisodeQueueItem
+    @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
-            Circle()
-                .fill(item.processed ? CicadaTheme.textTertiary : CicadaTheme.accent)
-                .frame(width: 8, height: 8)
-                .padding(.top, 6)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Text(item.title ?? item.id)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(1)
-
-                    Text(item.source)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(CicadaTheme.surfaceHover)
-                        .clipShape(Capsule())
-
-                    Spacer()
-
-                    Text(shortTimestamp(item.timestamp))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                }
-
-                if !item.preview.isEmpty {
-                    Text(item.preview)
-                        .font(.system(size: 11))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(2)
-                }
+        Button(action: toggle) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                Image(systemName: open ? "chevron.down" : "chevron.right")
+                    .font(CicadaTheme.icon(.inline))
+                    .frame(width: 12)
+                    .iconHover(hovering: hovering)
+                // DR-16 — 13 medium: a row's title, not one of semibold's short list (R-HS15).
+                Text(Copy.sleepDetails)
+                    .font(CicadaTheme.rowFont)
+                Spacer(minLength: 0)
             }
+            .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+            .animation(SleepMotion.hover(reduceMotion: reduceMotion), value: hovering)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, CicadaTheme.spacingMD)
-        .padding(.vertical, CicadaTheme.spacingSM)
-        .background(CicadaTheme.surfaceHover.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall))
+        .buttonStyle(.cicadaPlain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(Copy.sleepDetails)
+        .accessibilityValue(open ? "expanded" : "collapsed")
     }
-
-    private func shortTimestamp(_ raw: String) -> String {
-        guard !raw.isEmpty else { return "—" }
-        // Accept both ISO-8601 and plain dates; fall back to raw on parse failure.
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: raw) {
-            return Self.display.string(from: date)
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: raw) {
-            return Self.display.string(from: date)
-        }
-        return String(raw.prefix(16))
-    }
-
-    private static let display: DateFormatter = {
-        let f = DateFormatter()
-        // Include the year — the queue can span multiple years after a bulk
-        // import and a bare "Nov 3" is ambiguous without it.
-        f.dateFormat = "MMM d, yyyy HH:mm"
-        return f
-    }()
 }

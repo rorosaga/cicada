@@ -1,0 +1,18 @@
+{
+  "cases": [
+    {"context": "general", "valid": true, "facet": false, "display": "General"},
+    {"context": "engineering", "valid": true, "facet": true, "display": "Engineering"},
+    {"context": "family", "valid": true, "facet": true, "display": "Family"},
+    {"context": "machine-learning", "valid": true, "facet": true, "display": "Machine learning"},
+    {"context": "q3-planning", "valid": true, "facet": true, "display": "Q3 planning"},
+    {"context": "folder:f0a1b2:reading-list", "valid": false, "facet": false, "display": null},
+    {"context": "as of 2026-05-01", "valid": false, "facet": false, "display": null},
+    {"context": "Engineering", "valid": false, "facet": false, "display": null},
+    {"context": "two words", "valid": false, "facet": false, "display": null},
+    {"context": "", "valid": false, "facet": false, "display": null},
+    {"context": "-lead", "valid": false, "facet": false, "display": null},
+    {"context": "trail-", "valid": false, "facet": false, "display": null},
+    {"context": "a--b", "valid": false, "facet": false, "display": null},
+    {"context": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "valid": false, "facet": false, "display": null}
+  ]
+}

@@ -107,7 +107,20 @@ enum BrowserImportSummary {
         let newPart = r.new == 0 ? "Nothing new" : "\(r.new) new"
         return "\(newPart) · \(r.skipped) already saved · \(r.seen) \(r.seen == 1 ? "tab" : "tabs") seen"
     }
-    static func bookmarks(_ r: BookmarkSyncResult) -> String {
-        "\(r.new == 0 ? "Nothing new" : "\(r.new) new") · \(r.skipped) already saved"
+    static func bookmarks(_ r: BookmarkSyncResult, locale: Locale = .autoupdatingCurrent) -> String {
+        var line = "\(r.new == 0 ? "Nothing new" : "\(r.new) new") · \(r.skipped) already saved"
+        // G129 slice 2 — only mention removals when there's something to
+        // review; a sync with none reads exactly as it did before this row.
+        if r.removalsProposed > 0 {
+            line += " · \(r.removalsProposed) removal\(r.removalsProposed == 1 ? "" : "s") to review"
+        }
+        // R-SR13 — Safari says what came from where; a part that is zero says nothing.
+        if let safari = r.sources.first(where: { $0.origin == "safari-bookmark" }) {
+            var parts: [String] = []
+            if let n = safari.readingList, n > 0 { parts.append(Copy.readingListCount(n, locale: locale)) }
+            if let n = safari.favorites, n > 0 { parts.append(Copy.favoritesCount(n, locale: locale)) }
+            if !parts.isEmpty { line += " · " + parts.joined(separator: " · ") }
+        }
+        return line
     }
 }

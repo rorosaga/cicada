@@ -13,19 +13,22 @@ import shutil
 import time
 from pathlib import Path
 
+from loguru import logger
+
 from api.config import Settings
 from api.models.schemas import ConnectionStatus
 from api.services import engine_select
 from api.services.auth import cicada_home
-from api.services.connections import base, byok, claude_cli, codex_cli, ollama
+from api.services.connections import base, byok, claude_cli, codex_cli, ollama, openrouter
 
 PREFS_FILE_NAME = "connections.json"
 STATUS_TTL_SECONDS = 30
 VALID_TIERS = ("5x", "20x")
 # G63: what the *selected* engine actually does, and what every other connected
-# connection is doing instead. Only one adapter is the engine at a time (see
-# api/routers/status.py, which picks the first connected `engine_role`), so this
-# assignment belongs to the registry — an adapter probing itself cannot know.
+# connection is doing instead. Only one adapter is the engine at a time — the
+# one a Sleep you start would run on (R-E24, `engine_connection_id`; the same
+# answer api/routers/status.py reports) — so this assignment belongs to the
+# registry: an adapter probing itself cannot know.
 ENGINE_POWERS = ["Sleep extraction", "Ask", "clarification wording"]
 STANDBY_POWERS = ["Standby"]
 
@@ -66,7 +69,9 @@ class Registry:
         return [
             claude_cli.ClaudePlanAdapter(runner=runner, tier=prefs.get("claude-plan", {}).get("tier")),
             codex_cli.CodexPlanAdapter(runner=runner, tier=prefs.get("chatgpt-plan", {}).get("tier")),
-            *[byok.ByokAdapter(p) for p in byok.BYOK_PROVIDERS],
+            # R-AG10: OpenRouter's card is the one key card that can also sign in.
+            *[openrouter.OpenRouterAdapter() if p.id == "openrouter" else byok.ByokAdapter(p.id)
+              for p in byok.PROVIDERS],
             ollama.OllamaAdapter(self._settings, fetch_tags=_ollama_fetch_tags),
         ]
 
@@ -78,28 +83,45 @@ class Registry:
 
     # --- status (cached) ---------------------------------------------------
     @staticmethod
-    def assign_powers(statuses: list[ConnectionStatus]) -> list[ConnectionStatus]:
+    def assign_powers(statuses: list[ConnectionStatus], engine_id: str | None) -> list[ConnectionStatus]:
         """Stamp `powers` across a probed set, in place.
 
-        The first connected adapter in adapter order is the engine — the same
-        rule `GET /status` uses to report `engine` — so it gets the real list
-        and every other connected one reads "Standby". Disconnected adapters
-        keep an empty list: they aren't powering anything.
+        R-E24 (2026-09-23): the engine is the connection a Sleep you start
+        would actually run on (`engine_select.powered_connection_id` —
+        configured mode against this set's connected ids, never a probe), not
+        "the first connected adapter". The old rule put the Claude card's
+        POWERS line on a default install whose Sleep ran on an API key, and
+        would have kept it there after the person chose their ChatGPT plan.
+        Disconnected adapters keep an empty list.
         """
-        engine_assigned = False
         for status in statuses:
             if not status.connected:
                 status.powers = []
-                continue
-            if not engine_assigned:
+            elif status.id == engine_id:
                 status.powers = list(ENGINE_POWERS)
-                engine_assigned = True
             else:
                 status.powers = list(STANDBY_POWERS)
         return statuses
 
+    def engine_connection_id(self, statuses: list[ConnectionStatus]) -> str | None:
+        """R-E24: the id `assign_powers` crowns and `GET /status` reports as
+        the engine — one answer for both, computed from an already-probed set
+        so neither ever shells out to decide it."""
+        connected = [status.id for status in statuses if status.connected]
+        try:
+            return engine_select.powered_connection_id(self._settings, self, connected)
+        except Exception as exc:  # powers are a label; never break a listing over one
+            logger.warning(f"engine connection id unavailable: {type(exc).__name__}: {exc}")
+            return None
+
     def invalidate(self) -> None:
         self._cache.clear()
+        # The ChatGPT card's plan/email ride the app-server snapshot's own
+        # 30 s cache; a registry refresh that kept it would re-serve a stale
+        # plan behind a "fresh" card. Imported here: keep the edge lazy.
+        from api.services import codex_app_server
+
+        codex_app_server.invalidate()
 
     async def status(self, connection_id: str, fresh: bool = False) -> ConnectionStatus:
         now = time.monotonic()
@@ -121,8 +143,8 @@ class Registry:
         would give it.
 
         ``powers`` is a property of the *set*, not of an adapter — only the
-        first connected adapter is the engine — so a single probe can't derive
-        it and ``status()`` leaves it ``[]``. Single-connection responses go
+        connection Sleep would run on is the engine (R-E24) — so a single
+        probe can't derive it and ``status()`` leaves it ``[]``. Single-connection responses go
         straight into the app's store (``ConnectionsViewModel.pollUntilConnected``
         writes the row it polls), so returning ``[]`` visibly drops a card's
         "Powers" line. Probe the whole ordered set (warm-cached per adapter,
@@ -132,14 +154,14 @@ class Registry:
             # Probe ONLY the requested adapter fresh. The login poll calls
             # this every 3 s for up to 5 minutes; a full-registry fresh
             # fan-out would re-shell every vendor CLI on each tick. `powers`
-            # only depends on which adapters are connected (in order), and
-            # the warm per-adapter cache answers that.
+            # only depends on which adapters are connected (plus the stored
+            # engine choice), and the warm per-adapter cache answers that.
             target = await self.status(connection_id, fresh=True)
             statuses = [
                 target if status.id == connection_id else status
                 for status in await self.statuses(fresh=False)
             ]
-            self.assign_powers(statuses)
+            self.assign_powers(statuses, self.engine_connection_id(statuses))
             for status in statuses:
                 if status.id == connection_id:
                     return status
@@ -173,7 +195,7 @@ class Registry:
                     statuses.append(cached[1])
                 continue
             statuses.append(result)
-        return self.assign_powers(statuses)
+        return self.assign_powers(statuses, self.engine_connection_id(statuses))
 
     def cached_statuses(self) -> list[ConnectionStatus]:
         """Cache-only snapshot, in adapter order — never probes.

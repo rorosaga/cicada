@@ -55,12 +55,13 @@ def _write_entity(memory: Path, entity_id: str, *, status: str = "active") -> Pa
 
 
 def _claim(cid: str, obj: str, *, valid_from: str, valid_to: str | None = None,
-           source_trust: str = "agent_extracted", recorded_at: str | None = None) -> Claim:
+           source_trust: str = "agent_extracted", recorded_at: str | None = None,
+           origin: str | None = None) -> Claim:
     return Claim(
         id=cid, text=f"Rodrigo works at {obj}", subject="rodrigo",
         predicate="works-at", object=obj, source_trust=source_trust,
         valid_from=valid_from, valid_to=valid_to,
-        recorded_at=recorded_at or valid_from,
+        recorded_at=recorded_at or valid_from, origin=origin,
     )
 
 
@@ -115,7 +116,7 @@ def test_refresh_resolves_organically_on_a_user_stated_claim(tmp_path):
         _claim("clm_a", "mongodb", valid_from="2026-02-18"),
         _claim("clm_b", "supahost", valid_from="2026-02-18"),
         _claim("clm_user", "acme", valid_from="2026-08-28",
-               source_trust="user_stated"),
+               source_trust="user_stated", origin="clarification"),
     ]}
 
     result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")
@@ -152,7 +153,7 @@ def test_refresh_does_not_organically_resolve_on_a_stale_user_stated_claim(tmp_p
         _claim("clm_a", "mongodb", valid_from="2026-02-18"),
         _claim("clm_b", "supahost", valid_from="2026-02-18"),
         _claim("clm_old_user", "acme", valid_from="2026-01-01",
-               source_trust="user_stated"),
+               source_trust="user_stated", origin="clarification"),
     ]}
 
     result = inbox_questions.refresh_open_questions(memory, claims, "2026-08-30")

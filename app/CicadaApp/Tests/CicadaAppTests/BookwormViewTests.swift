@@ -33,4 +33,14 @@ final class BookwormViewTests: XCTestCase {
             XCTAssertEqual(size.truncatingRemainder(dividingBy: 24), 0, "\(size)")
         }
     }
+
+    /// G130 R6: the mascot snaps its SCALED size back onto a multiple of 24
+    /// (`max(24, 24 · round(x / 24))`) so ⌘+/⌘− never leaves a sprite cell a
+    /// fractional point and the cache key — an `Int` — stays stable.
+    func testSnappedPointSizeRoundsToTheNearestCellMultiple() {
+        XCTAssertEqual(BookwormRenderer.snappedPointSize(120), 120, "already on a cell boundary")
+        XCTAssertEqual(BookwormRenderer.snappedPointSize(120 * 1.1), 144, "132 rounds up (schoolbook 5.5 -> 6)")
+        XCTAssertEqual(BookwormRenderer.snappedPointSize(120 * 0.8), 96, "96 is already a multiple of 24")
+        XCTAssertEqual(BookwormRenderer.snappedPointSize(10), 24, "the floor is one cell, never zero")
+    }
 }
