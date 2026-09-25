@@ -47,4 +47,34 @@ final class OnboardingPagesTests: XCTestCase {
         XCTAssertEqual(OnboardingLayout.importColumns(columnWidth: 532, scale: 1), 1, "1200 × 800")
         XCTAssertEqual(OnboardingLayout.importColumns(columnWidth: 772, scale: 1.4), 1)
     }
+
+    /// F-02 live pass — the privacy banner is never wider than the flow's column and never cuts its sentence: at the
+    /// 1200 × 800 column, at every zoom, it fits; squeezed to a sliver it grows taller (it wraps) instead of staying
+    /// one clipped line.
+    @MainActor
+    func testThePrivacyBannerFitsTheColumnAndWrapsRatherThanTruncates() throws {
+        let saved = CicadaTheme.uiScale
+        defer { CicadaTheme.uiScale = saved }
+        for scale in [1.0, 1.2, 1.4] {
+            CicadaTheme.uiScale = scale
+            let s = CGFloat(scale)
+            let column = 1200 - OnboardingLayout.paneWidth(windowWidth: 1200, scale: s)
+                - 2 * OnboardingLayout.columnPadding * s
+            func rendered(_ width: CGFloat) throws -> CGSize {
+                let renderer = ImageRenderer(content: ImportPrivacyBanner(memoryRoot: "/tmp"))
+                renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+                return try XCTUnwrap(renderer.nsImage).size
+            }
+            let atColumn = try rendered(column)
+            let squeezed = try rendered(260 * s)
+            XCTAssertLessThanOrEqual(atColumn.width, column + 0.5, "\(scale): \(atColumn.width) > \(column)")
+            XCTAssertLessThanOrEqual(squeezed.width, 260 * s + 0.5, "\(scale)")
+            XCTAssertGreaterThan(squeezed.height, atColumn.height, "\(scale): a narrow banner wraps, never truncates")
+            if scale == 1.0 {
+                // The live pass's column: title and sentence one line each, Show in Finder trailing — one row, as
+                // tall as the button and the banner's padding (the old layout wrapped the title to three lines).
+                XCTAssertLessThanOrEqual(atColumn.height, TextButton.height + 2 * 12 + 0.5, "\(atColumn.height)")
+            }
+        }
+    }
 }
