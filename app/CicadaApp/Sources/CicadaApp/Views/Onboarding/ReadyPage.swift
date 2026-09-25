@@ -11,6 +11,9 @@ struct ReadyPage: View {
     /// The connected agents' own marks beside their names (DR-52: a service named is a service marked).
     let agentMarks: [AgentCatalogEntry]
     let startup: String?
+    /// `OnboardingScheduleLine` — "Nothing is read until you say so" only on a first run; a rerun after a schedule was
+    /// chosen reads what that schedule does.
+    let scheduleLine: String?
     let busy: Bool
     let onBack: () -> Void
     let onOpen: () -> Void
@@ -39,8 +42,10 @@ struct ReadyPage: View {
                     .accessibilityAddTraits(.isHeader)
                 quoteBlock
                 rows(now: context.date)
-                Text(Copy.readyNothingRead).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let scheduleLine {
+                    Text(scheduleLine).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: CicadaTheme.spacingSM) {
                     TextButton(title: Copy.onboardingBack, action: onBack)
                     Spacer()

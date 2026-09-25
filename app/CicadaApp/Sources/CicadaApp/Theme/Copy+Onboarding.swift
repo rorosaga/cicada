@@ -26,8 +26,10 @@ extension Copy {
     static let importCalendarMeta = "Every calendar on this Mac"
     static let importCalendarIdle = "Asks macOS once for your calendars"
     static let importNotesMeta = "Every folder"
-    /// R-OB11 — Notes syncs on demand; the row never says "keeps up".
-    static let importNotesIdle = "Reads your notes now; sync again any time"
+    /// R-OB11 — Notes syncs on demand; the row never says "keeps up". A tick runs the backend's osascript read at
+    /// once, which raises macOS's Automation prompt (api/services/notes_sync.py), so the line names that prompt the way
+    /// Calendar's does — G145: no permission prompt beyond the one a row names (final review).
+    static let importNotesIdle = "macOS asks once for Notes, then Cicada reads them now"
     static let importWisprMeta = "Meetings · dictation stays off"
 
     // MARK: F-02 (Task 4)

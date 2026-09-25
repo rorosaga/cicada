@@ -20,6 +20,24 @@ enum WhoReadsFoot {
     static func line(note: String?) -> String { note == nil ? Copy.privacyEverything : Copy.privacyEverythingElse }
 }
 
+/// F-05's and F-07's schedule line (final review of R-OB5). "Nothing is read until you say so" and "whether it keeps
+/// reading on its own is asked after your first read" are true only while the schedule is `manual` and Getting
+/// started has not asked yet — a first run. A rerun (Settings → Run setup again, the demo's *Finish setting up*) after
+/// the person chose daily, interval or after-import, or after the question was asked, would be told a falsehood, so
+/// every other case reads `ScheduleHonesty.afterImportLine` over the server's previews (ruling 4 shown, never
+/// promised away). Unknown is never an answer (R-IB20): before `/sleep/schedule` answers, no line at all.
+enum OnboardingScheduleLine {
+    enum Page { case whoReads, ready }
+
+    static func line(_ page: Page, loaded: Bool, asked: Bool, honesty: HonestyInputs) -> String? {
+        guard loaded else { return nil }
+        if ScheduleChoice.asks(honesty.schedule) && !asked {
+            return page == .whoReads ? Copy.whoReadsNothingYet : Copy.readyNothingRead
+        }
+        return ScheduleHonesty.afterImportLine(honesty)
+    }
+}
+
 /// F-07's lines (R-OB15), from real state: the agents Cicada saw connect, in catalog order, and how Cicada starts.
 enum ReadySummary {
     static func agents(connected: Set<String>, locale: Locale = .autoupdatingCurrent) -> String? {

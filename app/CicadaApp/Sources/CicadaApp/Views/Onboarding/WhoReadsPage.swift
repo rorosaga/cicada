@@ -5,14 +5,20 @@ import SwiftUI
 /// line). A click writes through the chooser's one rule (R-AG12); this page writes nothing itself, so an untouched
 /// choice keeps the configured engine (R-OB5, pinned by `OnboardingSourceTests`). DR-5, DR-40, DR-44.
 struct WhoReadsPage: View {
+    /// The schedule line under the chooser (`OnboardingScheduleLine`): the first-run sentence only while it is true,
+    /// otherwise what the schedule and both previews actually do — never a fixed promise on a rerun.
+    let scheduleLine: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             OnboardingHeadline(title: Copy.welcomeWhoReads, subline: Copy.whoReadsSubline)
             EngineChooser()
-            Text(Copy.whoReadsNothingYet)
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let scheduleLine {
+                Text(scheduleLine)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

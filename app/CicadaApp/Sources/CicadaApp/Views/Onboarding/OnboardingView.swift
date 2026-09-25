@@ -23,6 +23,7 @@ struct OnboardingView: View {
     @Environment(LocalSourceWatcher.self) private var local
     @Environment(CalendarReader.self) private var calendar: CalendarReader?
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(SleepViewModel.self) private var sleepVM
     @Environment(LoginItemService.self) private var loginItems
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(MenuBarPreference.defaultsKey) private var showsMenuBar = true
@@ -166,7 +167,7 @@ struct OnboardingView: View {
                        columnWidth: width - 2 * CicadaTheme.scaled(OnboardingLayout.columnPadding),
                        dropTargeted: dropTargeted, onTick: tick, onSeeHow: { seeHow = $0 })
         case .agents: AgentsPage(live: live)
-        case .whoReads: WhoReadsPage()
+        case .whoReads: WhoReadsPage(scheduleLine: scheduleLine(.whoReads))
         case .keepRunning: KeepRunningPage()
         case .welcome, .ready: EmptyView()
         }
@@ -199,6 +200,16 @@ struct OnboardingView: View {
         }
     }
 
+    /// F-05's and F-07's schedule sentence from the real schedule, the per-bank "asked" record and both previews
+    /// (`OnboardingScheduleLine`) — a rerun after a schedule was chosen is never told nothing reads on its own.
+    private func scheduleLine(_ page: OnboardingScheduleLine.Page) -> String? {
+        let _ = runner.checklistRevision
+        let asked = GettingStartedState.load(bank: store.bank)?.scheduleAsked ?? false
+        let honesty = HonestyInputs.from(schedule: sleepVM.schedule, response: engineVM.response,
+                                         connections: store.connections.value ?? [])
+        return OnboardingScheduleLine.line(page, loaded: sleepVM.scheduleLoaded, asked: asked, honesty: honesty)
+    }
+
     // MARK: Welcome and You're set
 
     private func card(size: CGSize) -> some View {
@@ -214,6 +225,7 @@ struct OnboardingView: View {
                           agents: ReadySummary.agents(connected: live.connected),
                           agentMarks: AgentCatalog.featured.filter { live.connected.contains($0.id) },
                           startup: ReadySummary.startup(opensAtLogin: loginItems.state == .on, menuBar: showsMenuBar),
+                          scheduleLine: scheduleLine(.ready),
                           busy: busy, onBack: { go(.keepRunning, .pointer) }, onOpen: { advance(.pointer) })
             }
         }
@@ -346,6 +358,8 @@ struct OnboardingView: View {
         if name.isEmpty { name = WelcomeName.initial(saved: owner?.name, fullUserName: NSFullUserName()) }
         editingName = !OnboardingFlow.canStart(name: name)
         if engineVM.response == nil { Task { await engineVM.load() } }
+        // The schedule line (`OnboardingScheduleLine`) shows nothing until the schedule is known — Home's guard.
+        if !sleepVM.scheduleLoaded { Task { await sleepVM.load() } }
         browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
         memoryRoot = (try? await APIClient.shared.fetchHealth())?.memoryRoot
         await inventory.refresh()
