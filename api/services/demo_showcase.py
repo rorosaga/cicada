@@ -79,6 +79,9 @@ _AVATARS = (
     ("nina-example", (232, 222, 240), (201, 186, 222), (140, 118, 170)),
 )
 _MARKS = (("acme-example", (245, 236, 214), (226, 205, 160), (176, 132, 60)),)
+#: The people drawn above. `demo_bank` dates them today and the rest of its roster yesterday, so Clusters' People card,
+#: ordered recently mentioned first (R-PE13), opens on their pictures rather than on six monograms tied on one day.
+PICTURED_PEOPLE = tuple(eid for eid, *_ in _AVATARS)
 
 _LEO_SUMMARY = "A robotics engineer Bob works with on motion planning."
 
