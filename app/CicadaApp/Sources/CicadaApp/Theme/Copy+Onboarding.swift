@@ -30,7 +30,16 @@ extension Copy {
     /// once, which raises macOS's Automation prompt (api/services/notes_sync.py), so the line names that prompt the way
     /// Calendar's does — G145: no permission prompt beyond the one a row names (final review).
     static let importNotesIdle = "macOS asks once for Notes, then Cicada reads them now"
-    static let importWisprMeta = "Meetings · dictation stays off"
+    /// The driver keeps the person's own dictation setting, so the meta follows it (`ImportContext.wisprDictation`)
+    /// rather than promising dictation stays off.
+    static let importWisprMeta = "Meetings and notes"
+    static let importWisprMetaDictation = "Meetings, notes and dictation"
+    /// G154 — what a tick does: one macOS prompt; it fills in people Cicada already knows and never adds a page.
+    static let importContactsMeta = "Fills in people Cicada already knows"
+    static let importContactsIdle = "Asks macOS once. Never a page per contact"
+    /// G160 — what the sub-row reads; Chrome keeps no private window on disk, so none is ever read.
+    static let importTabGroupsMeta = "Group names, colours, tab titles and links"
+    static let importTabGroupsIdle = "Tick to bring them in. Never private windows"
 
     // MARK: F-02 (Task 4)
     static let importTitle = "Bring in what you have"
@@ -123,7 +132,7 @@ extension Copy {
     static let welcomePromise = "One memory for every AI you use, kept on this Mac in plain files you own. Your agents read it, add to it, and sign what they write."
     static let welcomeWorksWith = "Works with the agents you already use"
     static let welcomeJustLooking = "Just looking?"
-    static let welcomeDemoBlurb = "The demo is a made-up memory with pictures and videos, and every page filled in. Finish setting up from it any time."
+    static let welcomeDemoBlurb = "The demo is a made-up memory with pictures, a video and a project to open. Finish setting up from it any time."
     static let welcomeTryTheDemo = "Try the demo"
     /// R-OB2 — a drop on Welcome is held until Get started; the card says so.
     static func welcomeDropsWaiting(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
@@ -149,7 +158,8 @@ extension Copy {
     static var onboardingLabels: [String] {
         [importReading(9, of: 17, noun: "conversations"), importBrowsers, importCalendar, importCalendarAndContacts,
          importNotesAndFiles, importVoice, importNotes, importWispr, importTickToBringIn, importCalendarMeta,
-         importCalendarIdle, importNotesMeta, importNotesIdle, importWisprMeta, importTitle, importPrivateLead,
+         importCalendarIdle, importNotesMeta, importNotesIdle, importWisprMeta, importWisprMetaDictation,
+         importContactsMeta, importContactsIdle, importTabGroupsMeta, importTabGroupsIdle, importTitle, importPrivateLead,
          importPrivateTail, importTickHelp, importUntickHelp, importDropLead, importDropDetail, importSeeHow,
          importMoreSources, onboardingSettingsIntegrations, seeHowTitle, seeHowReplay, seeHowDone, seeHowClaudePath,
          seeHowChatGPTPath, seeHowGeminiPath, seeHowOpenPage("ChatGPT"), seeHowSteps(11), seeHowStepOf(11, 11),

@@ -47,11 +47,10 @@ enum TabGroupRows {
             return model
         }
         model.meta = Copy.tabGroupsLive
-        let tabs = groups.reduce(0) { $0 + $1.tabs.count }
         switch status {
         case .missing: model.line = Copy.tabGroupsNoneYet
         case .failed: model.line = nil
-        default: model.line = groups.isEmpty ? Copy.tabGroupsNoneOpen : Copy.tabGroupsCount(groups.count, tabs: tabs)
+        default: model.line = countLine(groups)
         }
         if let run {
             model.status = .syncing(detail: run.detail, fraction: run.fraction, cancellable: run.cancellable)
@@ -63,5 +62,12 @@ enum TabGroupRows {
             model.status = status == .missing ? .idle : .notYet
         }
         return model
+    }
+
+    /// What the last read found, in words — this row's line and onboarding's sub-row's (`AppSourceDrivers.tabGroups`),
+    /// so the two never count differently.
+    static func countLine(_ groups: [ChromiumTabGroup]) -> String {
+        groups.isEmpty ? Copy.tabGroupsNoneOpen
+                       : Copy.tabGroupsCount(groups.count, tabs: groups.reduce(0) { $0 + $1.tabs.count })
     }
 }

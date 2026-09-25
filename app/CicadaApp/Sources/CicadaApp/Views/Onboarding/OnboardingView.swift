@@ -22,6 +22,10 @@ struct OnboardingView: View {
     @Environment(SyncActivity.self) private var activity
     @Environment(LocalSourceWatcher.self) private var local
     @Environment(CalendarReader.self) private var calendar: CalendarReader?
+    /// Seam 4 — the Contacts row and Chrome's open tab-group sub-row start through their readers; optional like the
+    /// calendar, so a host without them registers no driver and the row finishes in Integrations.
+    @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(LoginItemService.self) private var loginItems
@@ -45,16 +49,19 @@ struct OnboardingView: View {
     @State private var pageShownAt = Date()
     @FocusState private var rootFocused: Bool
 
-    private var apps: [String: AppSourceDriver] { AppSourceDrivers.live(calendar: calendar, local: local, store: store) }
+    private var apps: [String: AppSourceDriver] {
+        AppSourceDrivers.live(calendar: calendar, local: local, store: store, contacts: contacts, tabGroups: tabGroups)
+    }
 
     private var entries: [ImportEntry] {
-        ImportCatalog.entries(ImportContext(browsers: browsers, wisprInstalled: local.wisprInstalled))
+        ImportCatalog.entries(ImportContext(browsers: browsers, wisprInstalled: local.wisprInstalled,
+                                            wisprDictation: local.wisprSettings.includeDictation))
     }
 
     private var effects: LiveSetupEffects {
         LiveSetupEffects(store: store,
                          deps: .live(inventory: inventory, watcher: watcher, intake: intake, calendar: calendar,
-                                     local: local, store: store),
+                                     local: local, store: store, contacts: contacts, tabGroups: tabGroups),
                          owner: owner, onShowHome: onShowHome, onClose: onClose,
                          onChecklistChanged: runner.checklistChanged)
     }

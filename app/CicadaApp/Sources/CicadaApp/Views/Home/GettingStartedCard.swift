@@ -27,10 +27,12 @@ struct GettingStartedCard: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(ExportWaitStore.self) private var waits
-    /// R-OB9 — the app-side sources (Calendar, Apple Notes, Wispr Flow) turn on through their registered drivers, so
-    /// their rows start here exactly as they do on the Import page. Optional: a host without the reader registers
-    /// no Calendar driver and its row still finishes in Integrations.
+    /// R-OB9 — the app-side sources (Calendar, Apple Notes, Wispr Flow, Contacts, Chrome's open tab groups) turn on
+    /// through their registered drivers, so their rows start here exactly as they do on the Import page. Optional: a
+    /// host without a reader registers no driver for it and its row still finishes in Integrations.
     @Environment(CalendarReader.self) private var calendar: CalendarReader?
+    @Environment(ContactsReader.self) private var contacts: ContactsReader?
+    @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(LocalSourceWatcher.self) private var local
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -130,13 +132,14 @@ struct GettingStartedCard: View {
 
     /// The live app-source registrations (R-OB9) — read for the rows' on/known state and handed to the turn-on.
     private var apps: [String: AppSourceDriver] {
-        AppSourceDrivers.live(calendar: calendar, local: local, store: store)
+        AppSourceDrivers.live(calendar: calendar, local: local, store: store, contacts: contacts, tabGroups: tabGroups)
     }
 
     private var effects: LiveSetupEffects {
         LiveSetupEffects(store: store,
                          deps: .live(inventory: inventory, watcher: watcher, intake: intake,
-                                     calendar: calendar, local: local, store: store),
+                                     calendar: calendar, local: local, store: store, contacts: contacts,
+                                     tabGroups: tabGroups),
                          onChecklistChanged: runner.checklistChanged)
     }
 

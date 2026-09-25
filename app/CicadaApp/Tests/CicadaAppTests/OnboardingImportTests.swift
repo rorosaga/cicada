@@ -11,7 +11,8 @@ final class OnboardingImportTests: XCTestCase {
 
     func testOnlySupportedInstalledBrowsersGetARowAndTheyComeFirst() {
         let entries = ImportCatalog.entries(ImportContext(browsers: inventory(["safari", "chrome", "arc"])))
-        XCTAssertEqual(entries.prefix(2).map(\.id), [.browser("chrome-bookmarks"), .browser("safari-bookmarks")])
+        XCTAssertEqual(entries.filter { $0.parent == nil }.prefix(2).map(\.id),
+                       [.browser("chrome-bookmarks"), .browser("safari-bookmarks")], "Chrome's sub-row aside")
         XCTAssertFalse(entries.contains { $0.title == "Arc" }, "an unsupported browser is named once, never a row")
         XCTAssertEqual(entries.first { $0.id == .browser("safari-bookmarks") }?.meta,
                        BrowserInventory.readsLine(BrowserInventory.spec(id: "safari")!),
@@ -21,7 +22,7 @@ final class OnboardingImportTests: XCTestCase {
     func testTheOtherCategoriesAndNothingUntested() {
         let entries = ImportCatalog.entries(ImportContext(browsers: inventory(["safari"]), wisprInstalled: true))
         XCTAssertEqual(entries.map(\.category),
-                       [.browsers, .calendarAndContacts, .notesAndFiles, .voiceAndMeetings])
+                       [.browsers, .calendarAndContacts, .calendarAndContacts, .notesAndFiles, .voiceAndMeetings])
         let words = entries.map { "\($0.title) \($0.meta ?? "")".lowercased() }.joined(separator: " ")
         for banned in ["obsidian", "pinterest", "reddit", "instagram", "tiktok", "linkedin", "youtube", " x "] {
             XCTAssertFalse(words.contains(banned), banned)
@@ -51,6 +52,52 @@ final class OnboardingImportTests: XCTestCase {
         let contacts = ImportEntry(id: .app("contacts-local"), category: .calendarAndContacts, title: "Contacts",
                                    origin: "contacts-local")
         XCTAssertEqual(ImportCategory.calendarAndContacts.title(entries: [calendar, contacts]), "Calendar & contacts")
+    }
+
+    /// Seam 4 (G154) — Contacts is one entry beside Calendar, and the category's label follows it by itself.
+    func testContactsJoinsCalendarAndTheCategoryReadsCalendarAndContacts() throws {
+        let entries = ImportCatalog.entries(ImportContext())
+        let group = try XCTUnwrap(ImportCatalog.grouped(entries).first { $0.category == .calendarAndContacts })
+        XCTAssertEqual(group.entries.map(\.id), [.app(AppSourceDrivers.calendar), .app(AppSourceDrivers.contacts)])
+        let contacts = group.entries[1]
+        XCTAssertEqual(contacts.origin, "contacts-local", "the installed Contacts app's own mark (DR-52)")
+        XCTAssertTrue(contacts.keepsUp)
+        XCTAssertEqual(ImportCategory.calendarAndContacts.title(entries: entries), Copy.importCalendarAndContacts)
+        XCTAssertEqual(ImportCategory.calendarAndContacts.title(entries: [group.entries[0]]), Copy.importCalendar)
+    }
+
+    /// Seam 4 (G160) — Chrome's open tab groups are their own tick, right under Chrome, and only where Chrome is.
+    func testTheTabGroupSubRowSitsRightAfterChromeOnlyWhenChromeIsSupported() throws {
+        let entries = ImportCatalog.entries(ImportContext(browsers: inventory(["safari", "chrome", "brave"])))
+        XCTAssertEqual(entries.prefix(4).map(\.id), [.browser("chrome-bookmarks"), .app(AppSourceDrivers.tabGroups),
+                                                     .browser("safari-bookmarks"), .browser("brave-bookmarks")])
+        let groups = entries[1]
+        XCTAssertEqual(groups.parent, .browser("chrome-bookmarks"))
+        XCTAssertEqual(groups.category, .browsers)
+        XCTAssertEqual(groups.origin, "chrome-tab-group", "Chrome's own mark")
+        for ids in [["safari", "brave"], []] {
+            XCTAssertFalse(ImportCatalog.entries(ImportContext(browsers: inventory(ids)))
+                            .contains { $0.id == .app(AppSourceDrivers.tabGroups) }, "no Chrome, no sub-row: \(ids)")
+        }
+    }
+
+    /// A child with no parent row is never drawn on its own.
+    func testASubRowWithoutItsParentIsDropped() {
+        let safari = ImportEntry(id: .browser("safari-bookmarks"), category: .browsers, title: "Safari", origin: "safari-bookmark")
+        let groups = ImportEntry(id: .app("chrome-tab-groups"), category: .browsers, title: "Open tab groups",
+                                 origin: "chrome-tab-group", parent: .browser("chrome-bookmarks"))
+        XCTAssertEqual(ImportCatalog.ordered([safari, groups]).map(\.id), [safari.id])
+    }
+
+    /// Seam-4 final review — the driver keeps the person's own dictation setting, so the meta says what is true.
+    func testWisprFlowsMetaFollowsTheDictationSetting() {
+        func meta(_ dictation: Bool) -> String? {
+            ImportCatalog.entries(ImportContext(wisprInstalled: true, wisprDictation: dictation))
+                .first { $0.id == .app(AppSourceDrivers.wispr) }?.meta
+        }
+        XCTAssertEqual(meta(false), Copy.importWisprMeta)
+        XCTAssertEqual(meta(true), Copy.importWisprMetaDictation)
+        XCTAssertFalse(Copy.importWisprMeta.lowercased().contains("dictation"), "never promises dictation stays off")
     }
 
     /// R-OB6 / R-OB8 — nothing is pre-ticked; a started row reads ticked; a one-time read becomes a ✓.

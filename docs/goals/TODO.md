@@ -61,8 +61,9 @@ click; You're set shows one of seven checked public-domain lines (`MemoryQuotes`
 Every row, the topbar, You're set and Getting started read one projection, `SetupProgress`. **The quiet login start
 (R-OB18, answers G143's open question):** a login launch opens no window — the bookworm waits in the menu bar and the
 Dock icon brings the window; `-CicadaLaunchKind loginItem` exercises it without a logout. No backend change; seams 1–3
-used as given. **Seams handed to the orchestrator:** a Contacts row and Chrome's open tab-group sub-row — one
-`ImportEntry` + one `AppSourceDriver` each (the category then reads "Calendar & contacts"). **Verified by the
+used as given. **Seam 4 shipped (2026-09-25, same branch):** a Contacts row under "Calendar & contacts" and Chrome's
+open tab-group sub-row under Chrome — one `ImportEntry` + one `AppSourceDriver` each, registered on the Import page
+and Home's Getting started. **Verified by the
 orchestrator on install:** the plan's end checks — both suites green, the two lints that must bite, each page live at
 1440 × 900 and 1200 × 800 in both themes and scenes (a tick reading before Continue, × stopping a browser run, Safari's
 Full Disk Access fix starting it by itself, Codex's four commands, F-05 leaving `connections.json` untouched without a

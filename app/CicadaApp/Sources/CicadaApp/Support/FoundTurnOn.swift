@@ -19,9 +19,9 @@ enum FoundTurnOnResult: Equatable {
     case rechecked
 }
 
-/// R-OB9 — a source the APP turns on: Calendar, Apple Notes and Wispr Flow today; Contacts and Chrome's open tab groups
-/// register one each when they land (the phase-B seam). `FoundTurnOn` stays the one turn-on (Track I): it looks the
-/// driver up, so a new source is one registration, never a second switch.
+/// R-OB9 — a source the APP turns on: Calendar, Apple Notes, Wispr Flow, Contacts and Chrome's open tab groups (seam 4,
+/// one registration each). `FoundTurnOn` stays the one turn-on (Track I): it looks the driver up, so a new source is
+/// one registration, never a second switch.
 struct AppSourceDriver {
     /// Consent and the first read, together; returns the row's new line, or nil for its default.
     var start: @MainActor () async throws -> String?
@@ -33,19 +33,27 @@ struct AppSourceDriver {
 }
 
 enum AppSourceDrivers {
-    /// Plain strings, so `ImportCatalog` (nonisolated) can name them; `wispr` is `LocalSourceWatcher.wisprChannel`'s
-    /// value, pinned by `FoundTurnOnTests.testTheWisprIdIsTheWatchersChannel`.
+    /// Plain strings, so `ImportCatalog` (nonisolated) can name them; `wispr`, `contacts` and `tabGroups` are
+    /// `LocalSourceWatcher.wisprChannel`'s, `ContactsReader.channel`'s and `TabGroupWatcher.channel`'s values, pinned by
+    /// `FoundTurnOnTests` — the row's run in `SyncActivity` and its light are keyed by that channel, so a drifted id
+    /// would draw a row that never says "Syncing now".
     static let calendar = "calendar-local"
     static let notes = "notes"
     static let wispr = "wispr-flow"
+    static let contacts = "contacts-local"
+    static let tabGroups = "chrome-tab-groups"
 
     /// The live registrations. Each reader keeps its own rules (R-FA11's one prompt, the backend's Notes read, Wispr
     /// Flow's column whitelist); a driver only calls them. Missing collaborators register nothing.
     ///
     /// Wispr Flow's speaker names are never guessed here: the driver keeps the person's `ownerSpeakerNames` as they
     /// are (provenance never guesses who spoke; they are set in Settings → Integrations → Wispr Flow).
+    ///
+    /// Contacts and the tab groups default to nil so a host that has neither (the `+` strip, a test) keeps compiling
+    /// and registers nothing for them — their rows then finish in Integrations, as any unregistered source does.
     @MainActor
-    static func live(calendar: CalendarReader?, local: LocalSourceWatcher?, store: Store?) -> [String: AppSourceDriver] {
+    static func live(calendar: CalendarReader?, local: LocalSourceWatcher?, store: Store?,
+                     contacts: ContactsReader? = nil, tabGroups: TabGroupWatcher? = nil) -> [String: AppSourceDriver] {
         var out: [String: AppSourceDriver] = [:]
         if let calendar {
             out[Self.calendar] = AppSourceDriver(
@@ -84,6 +92,39 @@ enum AppSourceDrivers {
                 },
                 isOn: { local.wisprSettings.enabled })
         }
+        if let contacts {
+            // G154 — Connect is the one macOS prompt and the first read, together. An empty book is not a failure
+            // (nothing to post, R-SR8's never-an-empty-post), so it is the row's line; a refusal is said in the
+            // reader's own words, which name where to turn access back on.
+            out[Self.contacts] = AppSourceDriver(
+                start: {
+                    await contacts.connect()
+                    switch contacts.status {
+                    case .denied: throw BrowserImportActions.ImportActionError.failed(Copy.contactsDenied)
+                    case .failed(let why): throw BrowserImportActions.ImportActionError.failed(why)
+                    case .empty: return Copy.contactsEmpty
+                    // The reader keeps no summary of its last post; the channel's count line fills the row in.
+                    case .off, .syncing, .watching: return nil
+                    }
+                },
+                stop: { contacts.disconnect() },
+                isOn: { contacts.enabled })
+        }
+        if let tabGroups {
+            // G160 — its own consent (R-SR3), never folded into Chrome's bookmark tick: the sub-row's tick is the
+            // switch. No Sessions file yet is not a failure — the switch stays on and the watch catches the first one.
+            out[Self.tabGroups] = AppSourceDriver(
+                start: {
+                    await tabGroups.enable()
+                    switch tabGroups.status {
+                    case .failed(let why): throw BrowserImportActions.ImportActionError.failed(why)
+                    case .missing: return Copy.tabGroupsNoneYet
+                    case .off, .syncing, .watching: return TabGroupRows.countLine(tabGroups.groups)
+                    }
+                },
+                stop: { tabGroups.disable() },
+                isOn: { tabGroups.enabled })
+        }
         return out
     }
 }
@@ -110,7 +151,8 @@ struct FoundTurnOnDeps {
     @MainActor
     static func live(inventory: LocalInventory, watcher: BrowserWatcher, intake: IntakeRouter,
                      calendar: CalendarReader? = nil, local: LocalSourceWatcher? = nil,
-                     store: Store? = nil) -> FoundTurnOnDeps {
+                     store: Store? = nil, contacts: ContactsReader? = nil,
+                     tabGroups: TabGroupWatcher? = nil) -> FoundTurnOnDeps {
         var deps = FoundTurnOnDeps(
             wiring: { inventory.wiring },
             installRoot: BackendProcess.installRoot(),
@@ -120,7 +162,8 @@ struct FoundTurnOnDeps {
             open: { NSWorkspace.shared.open($0) },
             commitDrop: { await intake.commitWelcomeDrop($0) },
             refresh: { await inventory.refresh() })
-        deps.apps = AppSourceDrivers.live(calendar: calendar, local: local, store: store)
+        deps.apps = AppSourceDrivers.live(calendar: calendar, local: local, store: store, contacts: contacts,
+                                          tabGroups: tabGroups)
         deps.disableBrowser = { watcher.disable($0) }
         return deps
     }

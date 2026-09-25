@@ -44,8 +44,10 @@ enum GettingStartedProgress {
         .merging(Dictionary(uniqueKeysWithValues: BrowserInventory.catalog.compactMap { spec in
             spec.bookmarksChannel.map { ("browser:\($0)", spec.name) }
         })) { first, _ in first }
-        // R-OB9 — the app-side sources onboarding can start (`AppSourceDrivers`).
-        .merging(["app:calendar-local": "Calendar", "app:notes": "Apple Notes", "app:wispr-flow": "Wispr Flow"]) { first, _ in first }
+        // R-OB9 — the app-side sources onboarding can start (`AppSourceDrivers`). On Home the tab groups have no Chrome
+        // row above them, so their name says whose they are.
+        .merging(["app:calendar-local": "Calendar", "app:notes": "Apple Notes", "app:wispr-flow": "Wispr Flow",
+                  "app:contacts-local": "Contacts", "app:chrome-tab-groups": "Chrome's open tab groups"]) { first, _ in first }
 
     static func rows(_ i: GettingStartedInputs) -> [GettingStartedRow] {
         // A dropped export lives only in this session's runner (R-IB17), after

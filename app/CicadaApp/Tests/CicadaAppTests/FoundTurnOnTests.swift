@@ -139,6 +139,88 @@ final class FoundTurnOnTests: XCTestCase {
         XCTAssertEqual(AppSourceDrivers.wispr, LocalSourceWatcher.wisprChannel)
     }
 
+    /// Seam 4 — the row's run and light are keyed by the reader's channel, so the ids must be those channels.
+    func testTheContactsAndTabGroupIdsAreTheirReadersChannels() {
+        XCTAssertEqual(AppSourceDrivers.contacts, ContactsReader.channel)
+        XCTAssertEqual(AppSourceDrivers.tabGroups, TabGroupWatcher.channel)
+        XCTAssertEqual(BrowserInventory.spec(id: "chrome")?.tabGroupsChannel, AppSourceDrivers.tabGroups)
+    }
+
+    func testContactsAndTabGroupsStartAndStopThroughTheirDrivers() async {
+        var stopped: [String] = []
+        var d = deps()
+        d.apps = [AppSourceDrivers.contacts: driver(start: { "12 contacts" }, onStop: { stopped.append("contacts") }),
+                  AppSourceDrivers.tabGroups: driver(start: { "2 open groups" }, onStop: { stopped.append("groups") })]
+        let contacts = await FoundTurnOn.run(.app(AppSourceDrivers.contacts), deps: d)
+        let groups = await FoundTurnOn.run(.app(AppSourceDrivers.tabGroups), deps: d)
+        XCTAssertEqual(contacts, .on("12 contacts"))
+        XCTAssertEqual(groups, .on("2 open groups"))
+        await FoundTurnOn.stop(.app(AppSourceDrivers.contacts), deps: d)
+        await FoundTurnOn.stop(.app(AppSourceDrivers.tabGroups), deps: d)
+        XCTAssertEqual(stopped, ["contacts", "groups"])
+    }
+
+    // MARK: The live Contacts and tab-group drivers, over fakes (never the real address book or Chrome profile)
+
+    private func contactsReader(_ store: FakeContactStore) -> ContactsReader {
+        ContactsReader(store: store, api: FakeContactsAPI(), defaults: UserDefaults(suiteName: "seam4-\(UUID())")!,
+                       bank: { "alpha" })
+    }
+
+    private func liveDeps(contacts: ContactsReader? = nil, tabGroups: TabGroupWatcher? = nil) -> FoundTurnOnDeps {
+        var d = deps()
+        d.apps = AppSourceDrivers.live(calendar: nil, local: nil, store: nil, contacts: contacts, tabGroups: tabGroups)
+        return d
+    }
+
+    func testNoReaderRegistersNoDriverAndTheRowFinishesInIntegrations() async {
+        XCTAssertTrue(AppSourceDrivers.live(calendar: nil, local: nil, store: nil).isEmpty)
+        let r = await FoundTurnOn.run(.app(AppSourceDrivers.contacts), deps: liveDeps())
+        XCTAssertEqual(r, .finishInSettings(.integrations))
+    }
+
+    func testContactsConnectsOnTheTickAndTheUntickDisconnects() async throws {
+        let store = FakeContactStore()
+        let reader = contactsReader(store)
+        let d = liveDeps(contacts: reader)
+        let r = await FoundTurnOn.run(.app(AppSourceDrivers.contacts), deps: d)
+        XCTAssertEqual(r, .on(nil), "the channel's count line fills the row in")
+        XCTAssertEqual(store.snapshots, 1, "one read, after the one prompt")
+        XCTAssertTrue(try XCTUnwrap(d.apps[AppSourceDrivers.contacts]).isOn())
+        await FoundTurnOn.stop(.app(AppSourceDrivers.contacts), deps: d)
+        XCTAssertFalse(reader.enabled)
+        XCTAssertFalse(try XCTUnwrap(d.apps[AppSourceDrivers.contacts]).isOn())
+    }
+
+    func testContactsRefusedIsItsOwnSentenceAndAnEmptyBookIsALine() async {
+        let refused = FakeContactStore()
+        refused.grant = false
+        let denied = await FoundTurnOn.run(.app(AppSourceDrivers.contacts), deps: liveDeps(contacts: contactsReader(refused)))
+        XCTAssertEqual(denied, .failed(Copy.contactsDenied))
+        let blank = FakeContactStore()
+        blank.records = []
+        let empty = await FoundTurnOn.run(.app(AppSourceDrivers.contacts), deps: liveDeps(contacts: contactsReader(blank)))
+        XCTAssertEqual(empty, .on(Copy.contactsEmpty), "nothing to read is not a failure")
+    }
+
+    func testTabGroupsTurnOnAndNoSessionsYetIsALineNotAFailure() async throws {
+        // An empty temporary folder stands in for Chrome's Sessions/: nothing of the person's is opened.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("seam4-\(UUID().uuidString)/Sessions")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let api = FakeTabGroupsAPI()
+        let watcher = TabGroupWatcher(api: api, defaults: UserDefaults(suiteName: "seam4-\(UUID())")!, directory: dir,
+                                      makeWatch: { _, _ in nil }, bank: { "alpha" })
+        let d = liveDeps(tabGroups: watcher)
+        let r = await FoundTurnOn.run(.app(AppSourceDrivers.tabGroups), deps: d)
+        XCTAssertEqual(r, .on(Copy.tabGroupsNoneYet))
+        XCTAssertTrue(watcher.enabled, "the switch stays on; the watch catches Chrome's first save")
+        XCTAssertEqual(api.payloads.count, 0)
+        await FoundTurnOn.stop(.app(AppSourceDrivers.tabGroups), deps: d)
+        XCTAssertFalse(watcher.enabled)
+        XCTAssertFalse(try XCTUnwrap(d.apps[AppSourceDrivers.tabGroups]).isOn())
+    }
+
     func testUntickTurnsOffABrowserOrAnAppAndNeverAnAgentOrADrop() async {
         var disabled: [String] = [], stopped = 0
         var d = deps()

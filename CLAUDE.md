@@ -890,8 +890,9 @@ tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-si
 (a browser's; a chat export shows its progress and never an ×). Nothing is pre-ticked and nothing is read before a
 tick. The Import rows are one table (`ImportCatalog`: supported installed browsers, Calendar, Apple Notes — a
 one-time read — Wispr Flow when present, the chat drop zone and *See how* per provider, a drawn walkthrough over
-`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`); Contacts and Chrome's open tab groups join as one
-entry and one driver each. Every row, the topbar's count, You're set and Home's Getting started read one projection,
+`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`); Contacts sits under *Calendar & contacts* and
+Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each one `ImportEntry` and one driver over
+its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
 `AgentSetupSteps` with a live ✓; Claude Code's and Codex's *Connect for me* here also turns on *Remembers
 automatically* (its commands shown first; Settings → Agents keeps it its own click). Who reads is `EngineChooser`,
@@ -956,7 +957,8 @@ each and side by side (round 4: at 2 s the live Welcome read Claude Code as 'cou
 time'), a timeout is `unknown`) and *auto-save* (the G105 Stop hook, via `api/hooks/registry.py`; an
 unparseable settings file is `invalid`, never `off`), *auto-recall* (G149: `autorecall`
 = `on|off|stale|invalid|n/a` for the recall hooks, with `autorecallOn` / `autorecallOff` argv kept apart from
-`connect`, which onboarding runs; Settings → Agents → *Remembers automatically* runs them), plus the exact
+`connect`: onboarding's *Connect for me* for Claude Code and Codex runs `connect` and then `autorecallOn` (every command
+shown before the click), and Settings → Agents → *Remembers automatically* keeps its own click), plus the exact
 argv install.sh would run. The **app** runs them, only after the person's click (spec decision 14, D-1), with
 `CICADA_CAPTURE=off`, behind an allowlist pinned to its own checkout (which also accepts the recall hook's two
 events and `registry.py uninstall --hook recall`); the backend never writes a harness root. `GET /agents/setup?harness=` (round 4 C5, G76's in-app half) serves what to hand an
