@@ -101,8 +101,7 @@ struct EngineChooser: View {
 
     @ViewBuilder
     private func content(for response: SleepEngineResponse) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(112)), spacing: CicadaTheme.spacingSM)],
-                  alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        EngineCardGrid(minimum: CicadaTheme.scaled(112), spacing: CicadaTheme.spacingSM) {
             ForEach(response.candidates) { candidate in
                 EngineOptionCard(
                     candidate: candidate,
@@ -488,14 +487,16 @@ struct EngineOptionCard: View {
                 Text(captionText)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
                 if showsWillRead {
                     Text(Copy.welcomeWillRead)
                         .font(CicadaTheme.font(size: 11, weight: .semibold))
                         .foregroundStyle(CicadaTheme.accent)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // G122 live pass — fills the height its row offers (`EngineCardGrid`), so a card with a cost line
+            // and a caption stands no taller than its neighbours; its words keep to the top.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(CicadaTheme.spacingSM)
             .background(
                 RoundedRectangle(cornerRadius: CicadaTheme.cornerRadiusSmall)
@@ -525,6 +526,60 @@ struct EngineOptionCard: View {
                 .foregroundStyle(CicadaTheme.accent)
                 .frame(width: markSize, height: markSize)
                 .background(RoundedRectangle(cornerRadius: markSize * 0.2).fill(CicadaTheme.surfaceElevated))
+        }
+    }
+}
+
+/// G122 live pass — the engine cards in rows of equal height. `LazyVGrid` sized each card to its own words, so the
+/// OpenRouter card (its cost line wrapping over "Signed in") stood taller than Auto and the plans beside it and the
+/// row's tops and bottoms stopped lining up. Columns follow `GridItem(.adaptive(minimum:))`'s rule; each row is as
+/// tall as its tallest card, and every card in it is offered that height (`EngineOptionCard` fills it). Settings →
+/// Engines, onboarding's Who reads (the same `EngineChooser`) and `.compact` all lay their cards out here.
+struct EngineCardGrid: Layout {
+    var minimum: CGFloat
+    var spacing: CGFloat
+
+    /// `GridItem.adaptive`'s count: as many `minimum`-wide columns as fit, never fewer than one. An unbounded width
+    /// (an ideal-size pass) gets one row of every card.
+    static func columns(width: CGFloat, minimum: CGFloat, spacing: CGFloat, count: Int) -> Int {
+        guard width.isFinite else { return max(1, count) }
+        return max(1, Int(((width + spacing) / (max(minimum, 1) + spacing)).rounded(.down)))
+    }
+
+    /// Each row's height is its tallest card's.
+    static func rowHeights(_ heights: [CGFloat], columns: Int) -> [CGFloat] {
+        stride(from: 0, to: heights.count, by: max(1, columns)).map { start in
+            heights[start..<min(start + max(1, columns), heights.count)].max() ?? 0
+        }
+    }
+
+    private func metrics(width: CGFloat, subviews: Subviews) -> (columns: Int, column: CGFloat, rows: [CGFloat]) {
+        let columns = Self.columns(width: width, minimum: minimum, spacing: spacing, count: subviews.count)
+        let column = width.isFinite ? max(0, (width - spacing * CGFloat(columns - 1)) / CGFloat(columns)) : minimum
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: column, height: nil)).height }
+        return (columns, column, Self.rowHeights(heights, columns: columns))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let count = CGFloat(subviews.count)
+        let width = proposal.width ?? (count * minimum + max(0, count - 1) * spacing)
+        let m = metrics(width: width, subviews: subviews)
+        let height = m.rows.reduce(0, +) + spacing * CGFloat(max(0, m.rows.count - 1))
+        let used = CGFloat(m.columns) * m.column + spacing * CGFloat(max(0, m.columns - 1))
+        return CGSize(width: width.isFinite ? width : used, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let m = metrics(width: bounds.width, subviews: subviews)
+        var y = bounds.minY
+        for (row, height) in m.rows.enumerated() {
+            for col in 0..<m.columns {
+                let index = row * m.columns + col
+                guard index < subviews.count else { break }
+                subviews[index].place(at: CGPoint(x: bounds.minX + CGFloat(col) * (m.column + spacing), y: y),
+                                      anchor: .topLeading, proposal: ProposedViewSize(width: m.column, height: height))
+            }
+            y += height + spacing
         }
     }
 }

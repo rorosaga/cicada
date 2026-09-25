@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
@@ -99,5 +100,56 @@ final class EngineCardTests: XCTestCase {
         XCTAssertFalse(try JSONDecoder().decode(SleepEngineResponse.self, from: Data(old.utf8)).allowOverage)
         let new = #"{"mode":"agent","model":"sonnet","disambiguationModel":"haiku","source":"prefs","allowOverage":true}"#
         XCTAssertTrue(try JSONDecoder().decode(SleepEngineResponse.self, from: Data(new.utf8)).allowOverage)
+    }
+
+    /// G122 live pass — `GridItem.adaptive`'s column count and one height per row: the tallest card's.
+    func testTheCardGridCountsColumnsLikeAdaptiveAndSizesARowByItsTallestCard() {
+        XCTAssertEqual(EngineCardGrid.columns(width: 532, minimum: 112, spacing: 8, count: 6), 4)
+        XCTAssertEqual(EngineCardGrid.columns(width: 240, minimum: 112, spacing: 8, count: 6), 2)
+        XCTAssertEqual(EngineCardGrid.columns(width: 60, minimum: 112, spacing: 8, count: 6), 1, "never fewer than one")
+        XCTAssertEqual(EngineCardGrid.columns(width: .infinity, minimum: 112, spacing: 8, count: 6), 6)
+        XCTAssertEqual(EngineCardGrid.rowHeights([80, 104, 80, 80, 92, 80], columns: 4), [104, 92])
+        XCTAssertEqual(EngineCardGrid.rowHeights([], columns: 4), [])
+    }
+
+    /// G122 live pass — in onboarding's column (1200 × 800) and Settings' panel, at every zoom, OpenRouter's cost line
+    /// and caption no longer make it taller than Auto and the plans in its row: every card in a row is one height.
+    func testEveryCardInARowIsOneHeight() throws {
+        final class Heights { var byID: [String: CGFloat] = [:] }
+        let saved = CicadaTheme.uiScale
+        defer { CicadaTheme.uiScale = saved }
+        let store = Store(cache: SnapshotCache(
+            root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        ), api: FakeSyncAPI())
+        let cards = [("auto", "Auto"), ("agent", "Claude plan"), ("codex", "ChatGPT plan"), ("openrouter", "OpenRouter")]
+            .map { SleepEngineCandidate(id: $0.0, label: $0.1, available: true, connected: true, models: [], detail: nil) }
+        for scale in [1.0, 1.2, 1.4] {
+            CicadaTheme.uiScale = scale
+            let heights = Heights()
+            let grid = EngineCardGrid(minimum: CicadaTheme.scaled(112), spacing: CicadaTheme.spacingSM) {
+                ForEach(cards) { candidate in
+                    EngineOptionCard(candidate: candidate, isSelected: candidate.id == "auto", isSelectable: true,
+                                     costModel: candidate.id == "openrouter"
+                                         ? EngineOption.costModel(for: candidate.id) : nil) {}
+                        .background(GeometryReader { proxy -> Color in
+                            heights.byID[candidate.id] = proxy.size.height
+                            return Color.clear
+                        })
+                }
+            }
+            .environment(store)
+            let width = 532 * CGFloat(scale)
+            let renderer = ImageRenderer(content: grid)
+            renderer.proposedSize = ProposedViewSize(width: width, height: nil)
+            _ = try XCTUnwrap(renderer.nsImage)
+            let columns = EngineCardGrid.columns(width: width, minimum: CicadaTheme.scaled(112),
+                                                 spacing: CicadaTheme.spacingSM, count: cards.count)
+            for row in stride(from: 0, to: cards.count, by: columns) {
+                let ids = cards[row..<min(row + columns, cards.count)].map(\.id)
+                let row = ids.compactMap { heights.byID[$0] }
+                XCTAssertEqual(row.count, ids.count, "\(scale): every card laid out")
+                XCTAssertEqual((row.max() ?? 0) - (row.min() ?? 0), 0, accuracy: 0.5, "\(scale): \(ids) \(row)")
+            }
+        }
     }
 }

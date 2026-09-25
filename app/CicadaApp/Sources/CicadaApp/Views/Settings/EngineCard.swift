@@ -90,8 +90,7 @@ private struct CompactEngineChooser: View {
         let readiness = EngineReadiness.resolve(candidates: response.candidates, connections: connections,
                                                 preview: response.preview)
         let ringed = EngineOption.ringed(pick: pick?.wrappedValue, readiness: readiness)
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: CicadaTheme.scaled(128)), spacing: CicadaTheme.spacingSM)],
-                  alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        EngineCardGrid(minimum: CicadaTheme.scaled(128), spacing: CicadaTheme.spacingSM) {
             ForEach(EngineOption.compactCandidates(response.candidates)) { candidate in
                 let selected = candidate.id == ringed
                 EngineOptionCard(
