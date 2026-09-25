@@ -24,6 +24,10 @@ struct GettingStartedInputs {
     /// `/agents/wiring` answered at least once — an agent missing from a real
     /// answer is gone, one missing because nothing answered is waiting.
     var wiringLoaded = false
+    /// R-OB9 — the app-side sources that are on now (`AppSourceDriver.isOn`), and every one that has a driver. A
+    /// known source that is not on reads Off; an unknown one still finishes in Integrations.
+    var appsOn: Set<String> = []
+    var appsKnown: Set<String> = []
 }
 
 /// Track I part b (design §4.2, R-IB18) — the card's rows: this session's
@@ -40,6 +44,10 @@ enum GettingStartedProgress {
         .merging(Dictionary(uniqueKeysWithValues: BrowserInventory.catalog.compactMap { spec in
             spec.bookmarksChannel.map { ("browser:\($0)", spec.name) }
         })) { first, _ in first }
+        // R-OB9 — the app-side sources onboarding can start (`AppSourceDrivers`). On Home the tab groups have no Chrome
+        // row above them, so their name says whose they are.
+        .merging(["app:calendar-local": "Calendar", "app:notes": "Apple Notes", "app:wispr-flow": "Wispr Flow",
+                  "app:contacts-local": "Contacts", "app:chrome-tab-groups": "Chrome's open tab groups"]) { first, _ in first }
 
     static func rows(_ i: GettingStartedInputs) -> [GettingStartedRow] {
         // A dropped export lives only in this session's runner (R-IB17), after
@@ -82,7 +90,10 @@ enum GettingStartedProgress {
             return item?.readiness == .needsPermission ? (.needsAction(Copy.foundAllow), nil) : (.off, nil)
         case .dropped:
             return (.on, nil)
-        case .app:
+        case .app(let app):
+            // R-OB9 — a registered source says its real state; anything else still finishes in Integrations.
+            if i.appsOn.contains(app) { return (.on, nil) }
+            if i.appsKnown.contains(app) { return (.off, nil) }
             return (.needsAction(Copy.gsFinishInIntegrations), .integrations)
         }
     }
@@ -239,13 +250,24 @@ enum ScheduleChoice {
 /// browser row says when it last synced and can be stopped while it runs; every other row keeps its own words and
 /// state. Pure, so the card only renders it.
 enum GettingStartedSourceRows {
+    /// A browser's or an app source's channel (R-OB9: an app row says "Last synced" too); an agent and a drop have
+    /// none.
     static func channelId(_ id: FoundItemID) -> String? {
-        if case .browser(let channel) = id { return channel }
-        return nil
+        switch id {
+        case .browser(let channel), .app(let channel): channel
+        case .agent, .dropped: nil
+        }
     }
 
+    /// Where a row's live run sits in `SyncActivity`: its channel, or a drop's import key (R-OB10).
+    static func runKey(_ id: FoundItemID) -> String? {
+        if case .dropped(let drop) = id { return IntakeRouter.runKey(drop) }
+        return channelId(id)
+    }
+
+    /// `finishedAt` is `SetupRunner.finishedAt[row.id]` — a finished drop says "Imported …", never "Last synced".
     static func model(_ row: GettingStartedRow, origin: String, channel: SourceChannel?, watch: BrowserWatchState?,
-                      run: SyncActivity.Run?) -> SourceRowModel {
+                      run: SyncActivity.Run?, finishedAt: Date? = nil) -> SourceRowModel {
         let status: SourceRowStatus
         switch row.state {
         case .working(let text) where channelId(row.id) == nil && run == nil:
@@ -259,9 +281,27 @@ enum GettingStartedSourceRows {
         case .off, .needsAction:
             status = run.map { .syncing(detail: $0.detail, fraction: $0.fraction, cancellable: $0.cancellable) } ?? .idle
         case .on:
-            status = channelId(row.id) == nil ? .idle : SourceRowText.status(channel: channel, watch: watch, run: run)
+            if case .dropped = row.id, let finishedAt {
+                status = .imported(finishedAt)          // an import is not a sync (R-SR12)
+            } else {
+                status = channelId(row.id) == nil ? .idle : SourceRowText.status(channel: channel, watch: watch, run: run)
+            }
         }
         let line = channel.flatMap { SourceRowText.countLine($0) } ?? (row.detail.isEmpty ? nil : row.detail)
         return SourceRowModel(id: row.id.key, origin: origin, title: row.title, line: line, status: status)
+    }
+}
+
+extension GettingStartedInputs {
+    /// Home's card and onboarding build their inputs here and nowhere else, so a row can never read differently on
+    /// the two (R-OB4).
+    @MainActor
+    static func live(record: GettingStartedRecord, inventory: LocalInventory, runner: SetupRunner,
+                     watcher: BrowserWatcher, apps: [String: AppSourceDriver]) -> GettingStartedInputs {
+        GettingStartedInputs(record: record, items: inventory.items, runnerRows: runner.rows,
+                             runnerDetail: runner.detail, titles: runner.titles,
+                             browserOn: Set(BrowserWatchPolicy.watched.map(\.channel).filter(watcher.isEnabled)),
+                             wiringLoaded: inventory.wiring != nil,
+                             appsOn: Set(apps.filter { $0.value.isOn() }.keys), appsKnown: Set(apps.keys))
     }
 }

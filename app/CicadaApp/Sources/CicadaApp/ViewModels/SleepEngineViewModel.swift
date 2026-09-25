@@ -16,8 +16,7 @@ import Observation
 /// Injectable (`fetch`/`update`, the same shape as `SleepViewModel`'s `fetch…` closures) so
 /// `EngineQuickMenuTests` drives it with synthetic bodies and never reaches `APIClient.shared`.
 /// `writeFailed` is the quick menu's "nothing changed" line; a success clears `errorMessage`,
-/// which the pre-DS-3b model never did (`LiveSetupEffects.saveEngine` still clears it first and
-/// reads it after, unchanged).
+/// which the pre-DS-3b model never did.
 @Observable
 @MainActor
 final class SleepEngineViewModel {

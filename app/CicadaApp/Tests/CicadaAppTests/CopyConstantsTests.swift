@@ -81,13 +81,14 @@ final class CopyConstantsTests: XCTestCase {
         XCTAssertFalse(Copy.aboutCicadaCapture.lowercased().contains("mcp client"))
     }
 
-    /// R-IB21 — the retired sheet's copy is gone with it; the Welcome says Start's
-    /// consequence in words a new person reads (design §4.1.2).
+    /// R-IB21's rule, for the paged Welcome (R-OB17): its one action and its exits in plain words, and a promise that
+    /// is true — a reader may send what it reads, so the files are "kept on this Mac", never "never uploaded".
     func testTheWelcomeNamesItsOneActionAndItsSecondaryExits() {
-        XCTAssertEqual(Copy.welcomeStart, "Start remembering")
+        XCTAssertEqual(Copy.onboardingGetStarted, "Get started")
         XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeSetUpLater))
-        XCTAssertTrue(Copy.welcomeHomeLabels.contains(Copy.welcomeTryDemo))
-        XCTAssertFalse(Copy.welcomeSubline.lowercased().contains("episode"))
+        XCTAssertTrue(Copy.onboardingLabels.contains(Copy.welcomeTryTheDemo))
+        XCTAssertFalse(Copy.welcomePromise.lowercased().contains("episode"))
+        XCTAssertFalse(Copy.welcomePromise.lowercased().contains("never uploaded"))
     }
 
     /// Track P — the empty state must say what to DO, not just that there is
@@ -149,6 +150,18 @@ final class CopyConstantsTests: XCTestCase {
             XCTAssertFalse(text.lowercased().contains("claim"), text)
             XCTAssertFalse(text.contains("$"), text)
             XCTAssertFalse(text.lowercased().contains("token"), text)
+        }
+    }
+
+    /// Round-4 phase B — the onboarding's words: short labels, plain sentences, no price, no token, no jargon.
+    func testOnboardingCopyIsShortPlainAndPriceless() {
+        XCTAssertGreaterThan(Copy.onboardingLabels.count, 20, "a lint over nothing passes vacuously")
+        for label in Copy.onboardingLabels { XCTAssertLessThanOrEqual(label.count, 60, label) }
+        for text in Copy.onboardingLabels + Copy.onboardingSentences + ExportWalkthrough.allCaptions {
+            for banned in ["claim", "episode", "token", "price"] {
+                XCTAssertFalse(text.lowercased().contains(banned), "\(banned) in \(text)")
+            }
+            for banned in ["$", "MCP"] { XCTAssertFalse(text.contains(banned), "\(banned) in \(text)") }
         }
     }
 }

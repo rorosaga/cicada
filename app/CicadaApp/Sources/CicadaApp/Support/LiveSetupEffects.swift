@@ -1,10 +1,5 @@
 import Foundation
 
-enum SetupError: LocalizedError {
-    case engine(String)
-    var errorDescription: String? { if case .engine(let why) = self { return why }; return nil }
-}
-
 /// The real `SetupEffects` (R-IB14). The owner PUT carries the loaded handle and
 /// email back, because `PUT /settings/owner` writes what it is given and clears
 /// what is omitted (`api/routers/settings.py`). `markOnboarded` and every
@@ -13,7 +8,6 @@ enum SetupError: LocalizedError {
 @MainActor
 struct LiveSetupEffects: SetupEffects {
     let store: Store
-    let engineVM: SleepEngineViewModel
     let deps: FoundTurnOnDeps
     var owner: OwnerSettings? = nil
     /// `@MainActor` so a main-actor method reference (`runner.checklistChanged`)
@@ -30,22 +24,6 @@ struct LiveSetupEffects: SetupEffects {
         var current = owner
         if current == nil { current = try? await APIClient.shared.fetchOwnerSettings() }
         _ = try await APIClient.shared.updateOwnerSettings(name: name, handle: current?.handle, email: current?.email)
-    }
-
-    /// `SleepEngineViewModel.set` never throws — it sets `errorMessage` — so the
-    /// failure is read back from there and becomes one line on the *Who reads*
-    /// row rather than stopping Start (R-IB14).
-    ///
-    /// `candidateId` is a picked CARD; R-AG12 turns it into a mode through `EngineWrite.mode(of:)`,
-    /// so the OpenRouter card writes `byok` with its model rather than a mode the server refuses.
-    func saveEngine(_ candidateId: String) async throws {
-        let candidate = engineVM.response?.candidates.first { $0.id == candidateId }
-        let model = candidate?.models.first
-        engineVM.errorMessage = nil
-        await engineVM.set(mode: candidate.map(EngineWrite.mode(of:)) ?? candidateId, model: model,
-                           disambiguationModel: nil)
-        if let why = engineVM.errorMessage { throw SetupError.engine(why) }
-        await store.refresh([.connections])
     }
 
     func markOnboarded() { OnboardingState.markOnboarded(bank: store.bank) }
@@ -67,6 +45,18 @@ struct LiveSetupEffects: SetupEffects {
     }
 
     func turnOn(_ id: FoundItemID) async -> FoundTurnOnResult { await FoundTurnOn.run(id, deps: deps) }
+
+    /// R-OB8 — untick through the one turn-on's twin, so a browser, Calendar and Wispr Flow stop the same way from
+    /// every host.
+    func turnOff(_ id: FoundItemID) async { await FoundTurnOn.stop(id, deps: deps) }
+
+    func forgetRecord(_ id: FoundItemID) {
+        GettingStartedState.remove(id, bank: store.bank)
+        onChecklistChanged()
+    }
+
+    /// Seam 3 — onboarding's Open Cicada asks; T-Demo's Home offer answers once.
+    func requestTour() { TourOffer.request() }
 
     func settle(_ id: FoundItemID) {
         GettingStartedState.settle(id, bank: store.bank)

@@ -28,10 +28,11 @@ final class HomeF09Tests: XCTestCase {
     /// Runs the plans through the spy rather than grepping a source file: the r4-home final review found the arm
     /// folded into the shared `recordGettingStarted` effect, which Home's card also calls, and a string check passed.
     func testTheWelcomesStartArmsTheTipAndTheDemoDoesNot() async {
-        for mode in [OnboardingMode.firstRun, .setUpLater, .rerun] {
+        for plan in [OnboardingFlow.finishSteps(recorded: []), OnboardingFlow.laterSteps(name: "Ada", ownerSaved: false),
+                     OnboardingFlow.laterSteps(name: "Ada", ownerSaved: true)] {
             let fx = FakeSetupEffects()
-            await SetupRunner().run(OnboardingFlow.plan(name: "Ada", pickedEngine: nil, ticked: [], mode: mode), effects: fx)
-            XCTAssertEqual(fx.calls.filter { $0 == "armTip" }.count, 1, "\(mode)")
+            await SetupRunner().run(plan, effects: fx)
+            XCTAssertEqual(fx.calls.filter { $0 == "armTip" }.count, 1, "\(plan)")
         }
         let demo = FakeSetupEffects()
         await SetupRunner().run(SetupRunner.demoPlan, effects: demo)

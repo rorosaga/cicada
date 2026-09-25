@@ -9,6 +9,9 @@ struct AgentStep: Identifiable, Equatable {
         case setUpClaude
         case openFromAnywhere
         case createLink(RemoteApp, enabled: Bool)
+        /// R-OB12 — onboarding's own "Remembers automatically · Turn on" step, offered when Connect for me is not
+        /// (the agent is already connected): the recall hooks' install argv, shown before the click.
+        case autoRecall([AgentWiringStep])
     }
 
     let id: Int
@@ -25,21 +28,35 @@ struct AgentStep: Identifiable, Equatable {
 
 enum AgentSteps {
     static func steps(for entry: AgentCatalogEntry, setups: [String: AgentSetupPrompt], wiring: AgentWiring?,
-                      live: AgentLiveRow?, remoteReady: Bool, now: Date = .now,
+                      live: AgentLiveRow?, remoteReady: Bool, bundleAutoRecall: Bool = false, now: Date = .now,
                       locale: Locale = .autoupdatingCurrent) -> [AgentStep] {
         var out: [(String, String, Bool, [AgentStep.Action], String?, Bool)] = []   // title, detail, advanced, actions, snippet, done
         switch entry.kind {
         case .prompt(let runsItself):
             let setup = setups[entry.id]
             let text = setup?.kind == "prompt" ? setup?.prompt.flatMap { $0.isEmpty ? nil : $0 } : nil
+            // R-OB12 — onboarding turns Remembers automatically on with the connection (G149: recall must not depend
+            // on the model calling a tool); Settings passes false, so R-H11 (recall its own click) holds there, and
+            // the wire's `connect` list and the Copy prompt are unchanged either way.
+            let recall = bundleAutoRecall ? recallSteps(for: wiring) : []
             var actions: [AgentStep.Action] = []
+            var bundled = false
             for quick in AgentQuickSetup.actions(catalogId: entry.id, setup: setup, wiring: wiring) {
-                if case .connectForMe(let steps) = quick { actions.append(.connectForMe(steps)) }
+                if case .connectForMe(let steps) = quick {
+                    actions.append(.connectForMe(steps + recall))
+                    bundled = !recall.isEmpty
+                }
             }
             if let text { actions.append(.copy(text)) }
-            let detail = text == nil ? Copy.agentStepPreparing
+            var detail = text == nil ? Copy.agentStepPreparing
                 : (runsItself ? Copy.agentStepSendRuns(entry.name) : Copy.agentStepSendConfig(entry.name))
+            if bundled && text != nil { detail += " " + Copy.agentStepAlsoRecalls }
             out.append((Copy.agentStepSend(entry.name), detail, false, text == nil ? [] : actions, text, false))
+            // Connect for me not offered (already connected, or no setup yet): recall gets its own step, so the person
+            // can still turn it on here without a trip to Settings → Agents.
+            if !recall.isEmpty && !bundled {
+                out.append((Copy.autoRecallGroup, Copy.agentStepRecallHow, false, [.autoRecall(recall)], nil, false))
+            }
         case .deeplink:
             out.append((Copy.agentStepOpenCursor, setups[entry.id]?.note ?? Copy.agentStepCursorHow, false,
                         [.openCursor], nil, false))
@@ -62,6 +79,16 @@ enum AgentSteps {
                                done: live?.connected == true,
                                trailing: confirmLine(live: live, name: entry.name, now: now, locale: locale)))
         return steps
+    }
+
+    /// The recall hooks' install argv when they are off or stale (`AutoRecall`'s one rule) — only Claude Code and
+    /// Codex carry them; every other agent answers `n/a` and gets nothing (R-OB12).
+    static func recallSteps(for wiring: AgentWiring?) -> [AgentWiringStep] {
+        guard let wiring else { return [] }
+        switch AutoRecall.state(of: wiring) {
+        case .off, .needsUpdate: return wiring.autorecallOn
+        case .on, .unreadable, .unavailable: return []
+        }
     }
 
     static func confirmLine(live: AgentLiveRow?, name: String, now: Date, locale: Locale) -> String {

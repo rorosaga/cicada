@@ -54,6 +54,10 @@ final class CicadaAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
     /// Only inside a real `.app`: `UNUserNotificationCenter.current()` raises in a
     /// process with no bundle proxy (`swift test`, a bare `swift run`).
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // R-OB18 — the 'oapp' event is current only now; first, because the reminder guard below returns early in a
+        // process with no bundle (`swift test`, a bare `swift run`).
+        LaunchState.shared.record(LaunchKind.resolve(event: NSAppleEventManager.shared().currentAppleEvent,
+                                                     arguments: ProcessInfo.processInfo.arguments))
         guard ReminderAvailability.current else { return }
         UNUserNotificationCenter.current().delegate = self
     }

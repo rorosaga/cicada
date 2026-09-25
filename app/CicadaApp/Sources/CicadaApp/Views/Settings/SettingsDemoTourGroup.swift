@@ -9,7 +9,6 @@ struct SettingsDemoTourGroup: View {
     @Environment(Store.self) private var store
     @Environment(TourController.self) private var tour
     @Environment(SetupRunner.self) private var runner
-    @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(LocalInventory.self) private var inventory
     @Environment(BrowserWatcher.self) private var watcher
     @Environment(IntakeRouter.self) private var intake
@@ -39,7 +38,7 @@ struct SettingsDemoTourGroup: View {
 
     /// `GettingStartedCard`'s effects, with Home as the landing — the demo plan ends on `.showHome`.
     private var effects: LiveSetupEffects {
-        LiveSetupEffects(store: store, engineVM: engineVM,
+        LiveSetupEffects(store: store,
                          deps: .live(inventory: inventory, watcher: watcher, intake: intake),
                          onShowHome: { router.pendingTab = .home },
                          onChecklistChanged: runner.checklistChanged)

@@ -103,6 +103,27 @@ struct ExportAskMenu: View {
     }
 }
 
+/// F-03's footer (R-OB21): the *Remind me* half of `ExportAskMenu`, alone — the page is the sheet's primary.
+struct ExportReminderMenu: View {
+    let vendor: ChatVendor
+    @Environment(ExportWaitStore.self) private var waits
+    @Environment(Store.self) private var store
+    @State private var denied = false
+
+    var body: some View {
+        Menu(Copy.reminderRemindMe) {
+            ForEach(ReminderDelay.allCases) { delay in
+                Button(delay.label) {
+                    Task { if !(await waits.remind(vendor: vendor.rawValue, bank: store.bank, delay: delay)) { denied = true } }
+                }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(denied ? Copy.reminderNotificationsOff : Copy.reminderRemindMe)
+    }
+}
+
 extension ExportWait {
     /// Where a wait's *Choose a file…* or drop says it came from: the reminder's
     /// vendor, or `fallback` when a stored vendor is not one this build names.

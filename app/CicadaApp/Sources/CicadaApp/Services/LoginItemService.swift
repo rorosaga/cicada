@@ -42,10 +42,12 @@ enum LoginItemState: Equatable {
         }
     }
 
-    var detail: String {
+    /// R-OB18 — what the switch does, said truthfully now that a login launch opens no window: the bookworm is
+    /// what is left when the menu bar switch is on, the Dock icon when it is off. Approval and "not kept" keep their
+    /// own sentences (R-FA7).
+    func detail(menuBarVisible: Bool) -> String {
         switch self {
-        case .off: Copy.loginItemOff
-        case .on: Copy.loginItemOn
+        case .off, .on: Copy.loginItemQuiet(menuBarVisible: menuBarVisible)
         case .needsApproval: Copy.loginItemNeedsApproval
         case .notKept(let why): why
         }

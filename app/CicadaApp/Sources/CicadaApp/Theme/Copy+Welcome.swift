@@ -59,7 +59,6 @@ extension Copy {
 
     // MARK: Getting started (Tasks 2–3)
     static let gsBringingIn = "Bringing it in…"
-    static let gsEngineFailed = "Couldn't save who reads. Choose again below."
     static let gsTitle = "Getting started"
     static let gsHide = "Hide"
     static let gsDone = "You're set up."
@@ -104,31 +103,15 @@ extension Copy {
 
     // MARK: The Welcome (Task 4, design §4.1)
     static let welcomeHelloNoName = "Hello."
-    static let welcomeFound = "Here's what Cicada found on this Mac."
-    static let welcomeSubline = "One memory for every AI you use. It lives on this Mac, in plain files you own."
     static let welcomeYourName = "Your name"
-    static let welcomeAddName = "Add your name to start"
-    static let welcomeYourAIApps = "Your AI apps"
-    static let welcomeYourBrowsers = "Your browsers"
-    static let welcomeYourChatHistory = "Your chat history"
     static let welcomeWhoReads = "Who reads what you save"
-    static let welcomeNothingFound = "Nothing to bring over automatically. That's fine."
-    static let welcomeDropExport = "Drop a Claude, ChatGPT or Gemini export here"
-    static let welcomeStart = "Start remembering"
-    static let welcomeSaveChanges = "Save changes"
     static let welcomeStarting = "Starting…"
-    static let welcomeTryDemo = "Try the demo instead"
     static let welcomeSetUpLater = "Set up later"
-    static let welcomeSetUpLaterNeedsName = "Set up later (add your name first)"
     static let welcomeClose = "Close"
-    static let welcomeAllowed = "Allowed. Safari bookmarks will come along."
     /// The ✕ beside a staged export: it only un-stages it (nothing was imported yet).
     static let welcomeRemoveDrop = "Remove"
     static func welcomeHello(_ first: String) -> String { "Hello, \(first)." }
     static func welcomeNotYou(_ first: String) -> String { "Not \(first)? Change" }
-    static func welcomeSettingUp(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        n == 1 ? "Cicada is setting up 1 thing." : "Cicada is setting up \(UsageFormat.count(n, locale: locale)) things."
-    }
 
     /// Buttons, titles and one-line captions — ≤ 60 characters (CopyConstantsTests).
     // MARK: Reminders (Task 5, design §5.5, R-IB22)
@@ -159,17 +142,14 @@ extension Copy {
         homeCapturedHelp, homeLoading, homeNothingCapturedToday, homeNothingWaiting, homeNothingNeedsYou,
         homeNothingReadYet, homeNothingChanged, homeShowOnGraph("alpha-project"), homeOpenSleep, homeSaveLink,
         costModelPlan, costModelLocal, costModelKey, engineKeySaved, engineAddKey, welcomeWillRead,
-        welcomeNotChosen, welcomeProviderLine, welcomePickSaved("ChatGPT plan"), gsBringingIn, gsEngineFailed,
-        gsTitle, gsHide, gsDone, gsAgentOn, gsAgentGone, gsFinishInIntegrations, gsChatHistory, gsChatDrop,
+        welcomeNotChosen, welcomeProviderLine, welcomePickSaved("ChatGPT plan"), gsBringingIn, gsTitle, gsHide,
+        gsDone, gsAgentOn, gsAgentGone, gsFinishInIntegrations, gsChatHistory, gsChatDrop,
         gsReading, gsFinishedNoCount, gsWatchOnSleep, gsOpenGraph, gsTryAgain, gsScheduleQuestion, gsWhenIAsk,
         gsAfterImports, gsNightly, gsNotNow, gsAlsoFound, gsDismiss, gsShowChecklist, gsWhoReads,
         gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061),
         gsCapped(read: 1_061, left: 1_061), gsReadNext(1_061),
-        welcomeHelloNoName, welcomeFound, welcomeYourName, welcomeAddName, welcomeYourAIApps, welcomeYourBrowsers,
-        welcomeYourChatHistory, welcomeWhoReads, welcomeNothingFound, welcomeDropExport, welcomeStart,
-        welcomeSaveChanges, welcomeStarting, welcomeTryDemo, welcomeSetUpLater, welcomeSetUpLaterNeedsName,
-        welcomeClose, welcomeAllowed, welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"),
-        welcomeSettingUp(1), welcomeSettingUp(1_061),
+        welcomeHelloNoName, welcomeYourName, welcomeWhoReads, welcomeStarting, welcomeSetUpLater, welcomeClose,
+        welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"),
         reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,
         reminderDropHere, reminderDismiss, welcomeAskForOne,
         reminderRowLine(requested: "2 hours ago", reminder: "in 21 hours"),
@@ -177,7 +157,7 @@ extension Copy {
     /// Longer sentences — the vocabulary rule only.
     /// `welcomeDemoFailed` carries the server's own reason, so its length is not ours.
     static let welcomeHomeSentences: [String] = [welcomeDemoFailed("the service is not running"),
-                                                 gsNothingYet, gsLeaveWhileReading, welcomeSubline,
+                                                 gsNothingYet, gsLeaveWhileReading,
                                                  reminderNotificationsOff, reminderTitle("ChatGPT"),
                                                  reminderStripLine("ChatGPT", requested: "2 hours ago"),
                                                  reminderMenuLine("ChatGPT", requested: "2 hours ago")]

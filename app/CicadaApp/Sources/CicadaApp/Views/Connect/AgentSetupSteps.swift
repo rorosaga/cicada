@@ -114,7 +114,7 @@ struct AgentSetupSteps: View {
                 }
             }
             if let snippet = step.snippet { promptBox(snippet) }
-            if let steps = connectSteps(step) {
+            if let steps = commandSteps(step) {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     caption(Copy.agentConnectHow)
                     ForEach(steps, id: \.self) { CommandBox(command: $0.display) }
@@ -150,8 +150,15 @@ struct AgentSetupSteps: View {
         }
     }
 
-    private func connectSteps(_ step: AgentStep) -> [AgentWiringStep]? {
-        for action in step.actions { if case .connectForMe(let steps) = action { return steps } }
+    /// The commands a click on this step would run — Connect for me's or onboarding's Remembers automatically
+    /// (R-OB12) — shown in full before either click (spec decision 14).
+    private func commandSteps(_ step: AgentStep) -> [AgentWiringStep]? {
+        for action in step.actions {
+            switch action {
+            case .connectForMe(let steps), .autoRecall(let steps): return steps
+            default: continue
+            }
+        }
         return nil
     }
 
@@ -172,6 +179,9 @@ struct AgentSetupSteps: View {
                     NSWorkspace.shared.open(deeplink)
                 }
             }
+        case .autoRecall(let steps):
+            NeutralButton(title: running ? Copy.autoRecallWorking : Copy.autoRecallTurnOn,
+                          leading: mark(of: entry), isDisabled: running) { run(steps, done: Copy.autoRecallOn) }
         case .setUpClaude:
             NeutralButton(title: Copy.agentSetUpClaude, leading: mark(of: entry)) { setUpClaude() }
         case .openFromAnywhere:
@@ -182,7 +192,9 @@ struct AgentSetupSteps: View {
         }
     }
 
-    private func run(_ steps: [AgentWiringStep]) {
+    /// `done` is the caption a success leaves: "Connected" for Connect for me, recall's own "On." for its step, so a
+    /// caption never claims a connection the click did not make.
+    private func run(_ steps: [AgentWiringStep], done: String = Copy.agentConnected) {
         running = true
         connectCaption = nil
         Task { @MainActor in
@@ -190,7 +202,7 @@ struct AgentSetupSteps: View {
             running = false
             switch result {
             case .done:
-                connectCaption = Outcome(text: Copy.agentConnected, isProblem: false)
+                connectCaption = Outcome(text: done, isProblem: false)
                 // Fetch the wiring again so a now-wired agent drops this action (R-FA15).
                 onConnected()
             case .refused: connectCaption = Outcome(text: Copy.agentRefused, isProblem: true)

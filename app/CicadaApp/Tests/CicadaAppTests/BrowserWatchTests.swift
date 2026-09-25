@@ -324,6 +324,25 @@ final class BrowserWatcherTests: XCTestCase {
         watcher.stop()
     }
 
+    /// R-OB8 — an untick on the Import page: the watch stops reading this browser, what came in stays, and the next
+    /// Turn on reads again.
+    func testDisableStopsTheWatchAndATurnOnReadsAgain() async throws {
+        try atomicallyReplace(with: "{}")
+        var synced: [String] = []
+        let watcher = makeWatcher { synced.append($0) }
+        watcher.start(store: store)
+        _ = try await watcher.syncNow("chrome-bookmarks")
+        watcher.disable("chrome-bookmarks")
+        XCTAssertFalse(watcher.isEnabled("chrome-bookmarks"))
+        XCTAssertEqual(watcher.state(for: "chrome-bookmarks"), .off)
+        try atomicallyReplace(with: String(repeating: "q", count: 40))
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(synced, ["chrome-bookmarks"], "off means off")
+        _ = try await watcher.syncNow("chrome-bookmarks")
+        XCTAssertEqual(synced.count, 2)
+        watcher.stop()
+    }
+
     /// R-IA2's migration: an install that synced before the gate existed has a
     /// signature and no flag, and keeps syncing.
     func testAnInstallThatSyncedBeforeTheGateKeepsWatching() async throws {

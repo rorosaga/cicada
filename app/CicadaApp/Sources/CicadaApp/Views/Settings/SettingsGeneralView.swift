@@ -19,8 +19,8 @@ import SwiftUI
 /// clock paints now beside its title and F-10's two lines under it. Text size stays in Look — F-10 omits it, and removing
 /// a working control needs the owner's word. Show in menu bar (`MenuBarPreference`) hides the bookworm without tearing
 /// it down; the app keeps its Dock icon, so hiding it never strands Cicada. The rows never promise what the app does not
-/// do (R-FA7): F-10's "no window, just the bookworm" and "calendar polls keep going" are not used — Cicada opens its
-/// window at login, and the Calendar read is app-side (D2).
+/// do (R-FA7): the login row says the quiet start R-OB18 built, and 'calendar polls keep going' is not used — the
+/// Calendar read is app-side (D2).
 ///
 /// Startup and When Cicada is closed (round-4 D3, G143): Open Cicada at login (`LoginItemService` over `SMAppService.mainApp` —
 /// the switch shows the person's intent, the sentence under it macOS's answer, so an unsigned build macOS never
@@ -106,7 +106,8 @@ struct SettingsGeneralView: View {
             }
             // F-10 — Startup: onboarding's F-06 switches, reversible here (decision 6).
             SettingsGroupCard(header: Copy.startupGroup) {
-                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.detail) {
+                SettingsRow(.openAtLogin, title: Copy.openAtLogin, detail: loginItems.state.detail(
+                    menuBarVisible: showsMenuBar)) {
                     Toggle(Copy.openAtLogin, isOn: Binding(get: { loginItems.requested },
                                                            set: { loginItems.setEnabled($0) }))
                         .toggleStyle(.switch)
@@ -126,28 +127,10 @@ struct SettingsGeneralView: View {
             SettingsGroupCard(header: Copy.whenClosedGroup) {
                 SettingsRow(.backgroundService, title: Copy.keepMemoryWorking,
                             detail: Copy.backgroundDetail(backendAgent.state)) {
-                    switch backendAgent.state {
-                    case .missing, .stopped, .failed:
-                        // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which
-                        // would kill a running cycle mid-stage and leave its pages for the next `git add -A` writer
-                        // (the G85 smear); the Projects writes' own gate, so the two never disagree about "running".
-                        let sleeping = ProjectWriteGate.blocked(store.status.value)
-                        NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
-                                      help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
-                            guard !ProjectWriteGate.blocked(store.status.value) else { return }
-                            Task { await backendAgent.install() }
-                        }
-                    case .unknown:
-                        NeutralButton(title: Copy.foundRetry, size: .compact) { Task { await backendAgent.refresh() } }
-                    case .checking, .installing:
-                        ProgressView().controlSize(.small)
-                    case .running:
-                        EmptyView()
-                    }
+                    BackgroundServiceButton()
                 } below: {
-                    switch backendAgent.state {
-                    case .missing, .stopped, .failed: CommandBox(command: backendAgent.display)
-                    default: EmptyView()
+                    if BackgroundServiceButton.showsCommand(backendAgent.state) {
+                        CommandBox(command: backendAgent.display)
                     }
                 }
             }
@@ -178,6 +161,43 @@ struct SettingsGeneralView: View {
             }
             // G152 + G117 round 4 — the tour's replay and the demo's door, in their own view (one line here).
             SettingsDemoTourGroup()
+        }
+    }
+}
+
+/// R-OB14 — *Keep memory working when Cicada is closed*: one control in Settings → General and onboarding's F-06,
+/// so the two can never disagree about what the click does. Install runs only after the click, with the command
+/// shown first beside it (spec decision 14, R-FA8/R-FA9, DR-19), and waits while Sleep reads (finding 6, DR-41).
+struct BackgroundServiceButton: View {
+    @Environment(BackendAgentService.self) private var backendAgent
+    @Environment(Store.self) private var store
+
+    /// The command shows before the click, beside the button (`CommandBox`, DR-19) — only while Install is offered.
+    static func showsCommand(_ state: BackendAgentState) -> Bool {
+        switch state {
+        case .missing, .stopped, .failed: true
+        default: false
+        }
+    }
+
+    var body: some View {
+        switch backendAgent.state {
+        case .missing, .stopped, .failed:
+            // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which would kill
+            // a running cycle mid-stage and leave its pages for the next `git add -A` writer (the G85 smear); the
+            // Projects writes' own gate, so the two never disagree about "running".
+            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
+                          help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
+                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                Task { await backendAgent.install() }
+            }
+        case .unknown:
+            NeutralButton(title: Copy.foundRetry, size: .compact) { Task { await backendAgent.refresh() } }
+        case .checking, .installing:
+            ProgressView().controlSize(.small)
+        case .running:
+            EmptyView()
         }
     }
 }

@@ -50,6 +50,26 @@ phase B: call `AppearanceTipPolicy.arm()` when onboarding ends, add each onboard
 `MeadowPlacementLintTests.allowed`, and set `\.scenePaused` on a page behind another. Getting started's last-sync line
 arrives with T-Sources' `SourceRow`.
 
+**Phase B, T-Onboard (G145, G153, G143)** — built on `feat/r4-onboard` (plan
+`docs/superpowers/plans/2026-09-24-r4-onboard.md`, rulings R-OB1–R-OB24, six dated in DESIGN_RULES §9). The one-scroll
+Welcome became six pages: Welcome and You're set on the full painting with a card; Import, Agents, Who reads and Keep it
+running in a split frame (`OnboardingPane` beside the column, "Step n of 6 · k still coming in"). Get started is the owner
+PUT alone; after it a tick starts that source at once through `FoundTurnOn` (app-side sources through `AppSourceDriver`),
+an untick stops keeping up and keeps what came in, × only on a browser's run; *See how* is a drawn walkthrough per chat
+provider; Claude Code's and Codex's *Connect for me* also turns on *Remembers automatically*; Who reads writes only on a
+click; You're set shows one of seven checked public-domain lines (`MemoryQuotes`, G153 ✅) and requests `TourOffer`.
+Every row, the topbar, You're set and Getting started read one projection, `SetupProgress`. **The quiet login start
+(R-OB18, answers G143's open question):** a login launch opens no window — the bookworm waits in the menu bar and the
+Dock icon brings the window; `-CicadaLaunchKind loginItem` exercises it without a logout. No backend change; seams 1–3
+used as given. **Seam 4 shipped (2026-09-25, same branch):** a Contacts row under "Calendar & contacts" and Chrome's
+open tab-group sub-row under Chrome — one `ImportEntry` + one `AppSourceDriver` each, registered on the Import page
+and Home's Getting started. **Verified by the
+orchestrator on install:** the plan's end checks — both suites green, the two lints that must bite, each page live at
+1440 × 900 and 1200 × 800 in both themes and scenes (a tick reading before Continue, × stopping a browser run, Safari's
+Full Disk Access fix starting it by itself, Codex's four commands, F-05 leaving `connections.json` untouched without a
+click, F-06 agreeing with Settings, the same quote on a rerun, Open Cicada landing on Home with the tour offer pending),
+the rerun path, and the quiet start by launch argument and by Dock click.
+
 **Phase B, T-Demo (G117 round 4, G152)** — built on `feat/r4-demo` (plan `docs/superpowers/plans/2026-09-24-r4-demo.md`):
 the demo shows everything (`demo_showcase`), `/banks` says which bank is the demo, `POST /banks/demo` re-opens it,
 `POST /banks/leave-demo` and the F-08 banner lead home, and the six-stop guided tour; rulings R-DT1–R-DT17. A demo

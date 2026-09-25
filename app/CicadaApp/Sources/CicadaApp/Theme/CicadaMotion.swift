@@ -213,6 +213,18 @@ extension CicadaMotion {
     static func tipRise(reduceMotion: Bool) -> Animation {
         (reduceMotion ? fade : CicadaCurve.out(tipRiseDuration)).delay(tipRiseDelay)
     }
+
+    // MARK: See how (F-03, R-OB21)
+    // A demonstration of a click path at reading pace — a dated DR-61 exception like `sceneCrossfade` (R-HO4): the
+    // camera is the lesson, not chrome. UI around it keeps the 300 ms ceiling.
+    static let walkthroughStep: TimeInterval = 3
+    static let walkthroughGlide: TimeInterval = 0.9
+    static let walkthroughPointer: TimeInterval = 1.2
+    static let walkthroughRing: ClosedRange<TimeInterval> = 1.6...2.2
+    /// The menu, a dialog, the mail notice crossfade in 150 ms; under Reduce Motion the steps themselves crossfade.
+    static func walkthroughOverlay(reduceMotion: Bool) -> Animation {
+        reduceMotion ? fade : CicadaCurve.ease(cardFadeDuration)
+    }
 }
 
 // MARK: - The guided tour (G152)

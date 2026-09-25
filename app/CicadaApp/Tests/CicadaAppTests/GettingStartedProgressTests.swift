@@ -190,4 +190,25 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertEqual(wiring.status, .idle, "connecting an agent is never 'Syncing now'")
         XCTAssertEqual(wiring.line, "Connecting Codex…")
     }
+
+    /// R-OB9 — an app source reads its real state: on, off, or (unregistered) finish in Integrations.
+    func testAnAppRowIsOnOffOrFinishInIntegrations() {
+        var i = GettingStartedInputs(record: GettingStartedRecord(enabled: [.app("calendar-local"), .app("notes"),
+                                                                            .app("pinterest")]))
+        i.appsOn = ["calendar-local"]
+        i.appsKnown = ["calendar-local", "notes"]
+        let rows = GettingStartedProgress.rows(i)
+        XCTAssertEqual(rows.map(\.state), [.on, .off, .needsAction(Copy.gsFinishInIntegrations)])
+        XCTAssertEqual(rows.map(\.title), ["Calendar", "Apple Notes", "app:pinterest"])
+    }
+
+    func testAnAppRowShowsItsLastSyncAndADropItsImportTime() {
+        XCTAssertEqual(GettingStartedSourceRows.channelId(.app("calendar-local")), "calendar-local")
+        XCTAssertEqual(GettingStartedSourceRows.runKey(.dropped("d1")), IntakeRouter.runKey("d1"))
+        let at = Date(timeIntervalSince1970: 1_790_000_000)
+        let row = GettingStartedRow(id: .dropped("d1"), title: "Claude history", detail: "", state: .on)
+        XCTAssertEqual(GettingStartedSourceRows.model(row, origin: "claude-export", channel: nil, watch: nil, run: nil,
+                                                      finishedAt: at).status, .imported(at),
+                       "an import is not a sync (R-SR12)")
+    }
 }

@@ -32,20 +32,4 @@ final class FoundPolicyTests: XCTestCase {
         ])
         XCTAssertEqual(ordered.map(\.title), ["Claude Code", "Codex", "Cursor", "Chrome"])
     }
-
-    func testTheStartSummaryIsWhatStartDoes() {
-        XCTAssertEqual(FoundPolicy.startSummary([], locale: en), Copy.foundStartNothing)
-        XCTAssertEqual(FoundPolicy.startSummary([item(.agent("a"), .agents), item(.agent("b"), .agents)], locale: en),
-                       "Connects 2 apps.")
-        XCTAssertEqual(FoundPolicy.startSummary([item(.agent("a"), .agents),
-                                                 item(.browser("chrome-bookmarks"), .browsers, count: 2104, noun: "bookmark")],
-                                                locale: en),
-                       "Connects 1 app and brings in 2,104 bookmarks.")
-        XCTAssertEqual(FoundPolicy.startSummary([item(.browser("safari-bookmarks"), .browsers)], locale: en),
-                       "Brings in your bookmarks.")
-        XCTAssertEqual(FoundPolicy.startSummary([item(.dropped("export.zip"), .chatHistory, count: 412, noun: "conversation"),
-                                                 item(.browser("chrome-bookmarks"), .browsers, count: 1, noun: "bookmark")],
-                                                locale: en),
-                       "Brings in 1 bookmark and 412 conversations.")
-    }
 }
