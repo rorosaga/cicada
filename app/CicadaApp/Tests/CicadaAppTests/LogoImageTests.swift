@@ -20,7 +20,7 @@ final class LogoImageTests: XCTestCase {
     }
 
     func testLeadingNonLettersAreSkipped() {
-        XCTAssertEqual(LogoImage.monogram(for: "  ~/Documents roros_lab"), "DR")
+        XCTAssertEqual(LogoImage.monogram(for: "  ~/Documents my_lab"), "DM")
         XCTAssertEqual(LogoImage.monogram(for: "3M Company"), "3C")
     }
 

@@ -252,8 +252,8 @@ def test_entity_ids_are_capped_with_an_honest_total(tmp_path):
 
 
 def test_project_slug_maps_every_non_alphanumeric_char_to_a_dash():
-    assert session_stats.project_slug("/Users/rorosaga/Documents/roros_lab/cicada") == \
-        "-Users-rorosaga-Documents-roros-lab-cicada"
+    assert session_stats.project_slug("/Users/alice/Documents/my_lab/cicada") == \
+        "-Users-alice-Documents-my-lab-cicada"
 
 
 def test_project_slug_handles_a_path_containing_a_dot():
