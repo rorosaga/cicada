@@ -359,8 +359,12 @@ def parse_anthropic_projects(data: list) -> list[dict]:
         description = project.get("description", "") or ""
         prompt_template = project.get("prompt_template", "") or ""
 
-        # Skip empty or default projects
-        if not description.strip() or name == "How to use Claude":
+        # Skip Claude's starter project and a project with neither a description
+        # nor instructions — one with instructions alone still says how the
+        # person works.
+        if project.get("is_starter_project") or name == "How to use Claude":
+            continue
+        if not description.strip() and not prompt_template.strip():
             continue
 
         content_parts = [f"Project: {name}"]

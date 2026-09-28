@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 
 from _intake_fixtures import (BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
-                              claude_zip, gemini_activity_html, gemini_takeout_zip)
+                              claude_project_files, claude_zip, gemini_activity_html, gemini_takeout_zip)
 from api import config
 from api.routers import conversations as conv
 from api.routers import intake
@@ -50,6 +50,23 @@ def test_a_claude_zip_parses_every_member_and_names_the_account_file():
     assert parsed.counts == {"conversations": 2, "memories": 2, "projects": 1}
     assert parsed.vendor == "claude" and parsed.format == "claude"
     assert {e["origin"] for e in parsed.episodes} == {"claude-export"}, "D2: every path stamps"
+
+
+def test_a_zip_with_one_file_per_project_imports_every_project():
+    parsed = intake.parse_export(_zip({"conversations.json": json.dumps(claude_conversations(1)),
+                                       **claude_project_files()}), "projects-000.zip")
+    assert parsed.counts == {"conversations": 1, "projects": 2}, "the starter project is skipped"
+    assert parsed.warnings == [], "a project file is never counted as an attachment"
+    titles = sorted(e["title"] for e in parsed.episodes if e["source"] == "claude_project")
+    assert titles == ["Claude Project — alpha-project", "Claude Project — bob-example rules"]
+    rules = next(e for e in parsed.episodes if e["title"].endswith("bob-example rules"))
+    assert "Prompt template: Answer briefly." in rules["messages"][0]["text"]
+
+
+def test_a_single_project_file_parses_on_its_own():
+    name, body = next(iter(claude_project_files().items()))
+    parsed = intake.parse_export(body.encode(), name)
+    assert parsed.counts == {"projects": 1} and parsed.vendor == "claude"
 
 
 def test_a_chatgpt_zip_skips_its_known_extras_by_name_and_counts_the_rest():

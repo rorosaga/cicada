@@ -222,6 +222,10 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
         data = json.loads(content)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise HTTPException(400, f"Failed to parse file: {e}")
+    if isinstance(data, dict) and "prompt_template" in data and "uuid" in data:
+        # Claude's newer export writes one project per file (`projects/<name>.json`,
+        # a single object) where the older one wrote a `projects.json` list.
+        data = [data]
     source = conv.detect_source(data, base)
     shape = _JSON_SHAPES.get(source)
     if shape is None:
