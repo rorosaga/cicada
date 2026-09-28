@@ -5,9 +5,9 @@ CloudTabs.db`` arrive from the companion app (R1: the app reads ``~/Library``
 because it is the bundle the user grants Full Disk Access to; the launchd
 backend has none and must never try). This module never opens a path under
 the user's home — it only ever parses bytes it was handed. There is
-deliberately no ``sync_from_local_files`` twin here: a missing-FDA failure
-must surface exactly once, in the app, with the fix — not a second time as
-a silent empty sync from the backend.
+deliberately no local-read fallback here (nor in ``bookmark_sync``): a
+missing-FDA failure must surface exactly once, in the app, with the fix —
+not a second time as a silent empty sync from the backend.
 
 Parsing (R2): the bytes are written to a private temp dir and opened with
 stdlib ``sqlite3`` through a read-only URI. Safari keeps the store in WAL

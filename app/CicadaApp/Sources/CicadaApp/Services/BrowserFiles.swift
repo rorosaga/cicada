@@ -6,9 +6,9 @@ import Foundation
 /// bundle is the thing the user grants it to. Before this seam existed the
 /// app called `POST /sources/sync-bookmarks` with no body, the backend tried
 /// `~/Library/Safari/Bookmarks.plist` itself, and — lacking the grant —
-/// silently synced nothing (`bookmark_sync.sync_from_local_files` swallows
-/// the `OSError`). Reading here means a missing grant fails exactly once, in
-/// the app, with the fix beside it (R9).
+/// silently synced nothing. That fallback is gone (a body-less call is a
+/// 422). Reading here means a missing grant fails exactly once, in the app,
+/// with the fix beside it (R9).
 enum BrowserFile: CaseIterable {
     case safariTabsDb, safariTabsWal, safariBookmarks, chromeBookmarks
     /// G134 — Wispr Flow's local store. Same seam: the app reads it, the backend

@@ -2737,11 +2737,12 @@ class ChromiumBookmarksFile(CamelModel):
 
 
 class BookmarkSyncRequest(CamelModel):
-    # Both optional + base64-encoded so the same endpoint works for an inline
-    # hermetic test payload and (when omitted entirely) a local-file sync.
+    # The bookmark files the companion app read, base64-encoded. Each field is
+    # optional, but the route answers 422 unless at least one carries data:
+    # the backend never reads a browser's file itself (the `~/Library` rail).
     # `forbid` (round 4 phase A final review, finding 3): an unknown field is
-    # a 422, never silently dropped into the no-data local-file fallback —
-    # that is how a pre-round-4 route read Chrome for a `chromium`-only body.
+    # a 422, never silently dropped — that is how a pre-round-4 route saw no
+    # data in a `chromium`-only body and read Chrome's file instead.
     model_config = ConfigDict(extra="forbid")
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None

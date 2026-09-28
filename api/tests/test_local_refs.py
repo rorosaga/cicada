@@ -6,8 +6,8 @@ Covers:
 - ``extract_local_refs``: parses both documented syntaxes
   (``![[file:...|device:...]]`` and ``[label](file://...)``) out of an entity
   markdown body;
-- the ``GET /local-ref`` router via FastAPI TestClient: present, missing,
-  other-device.
+- ``GET /local-ref`` staying unmounted (no route stats a path the request
+  names).
 
 No real user paths — every filesystem check runs against ``tmp_path``. No
 network, no live ``memory/``.
@@ -15,9 +15,7 @@ network, no live ``memory/``.
 
 from __future__ import annotations
 
-from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
@@ -145,55 +143,19 @@ def test_extract_no_refs_returns_empty_list():
     assert local_refs.extract_local_refs("Just a plain note, nothing local here.") == []
 
 
-# --- router: GET /local-ref ----------------------------------------------------
+# --- no route stats a path the request names -------------------------------
 
 
-def _make_client(tmp_path: Path, monkeypatch) -> TestClient:
+def test_no_route_stats_a_path_the_request_names(tmp_path, monkeypatch):
+    """`GET /local-ref?path=` stat'd any path a caller supplied and had no
+    caller in the app; it is gone. Only the app reads the person's Mac."""
     memory = tmp_path / "memory"
     (memory / "entities").mkdir(parents=True, exist_ok=True)
-    (memory / "episodes").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
-    return TestClient(main.app)
-
-
-def test_router_present_file(tmp_path, monkeypatch):
-    client = _make_client(tmp_path, monkeypatch)
     f = tmp_path / "present.txt"
     f.write_text("hi", encoding="utf-8")
 
-    resp = client.get("/local-ref", params={"path": str(f)})
+    resp = TestClient(main.app).get("/local-ref", params={"path": str(f)})
 
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "present"
-    assert data["exists"] is True
-    assert data["is_dir"] is False
-
-
-def test_router_missing_file(tmp_path, monkeypatch):
-    client = _make_client(tmp_path, monkeypatch)
-    ghost = tmp_path / "gone.txt"
-
-    resp = client.get("/local-ref", params={"path": str(ghost)})
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "moved_or_missing"
-    assert data["exists"] is False
-
-
-def test_router_other_device(tmp_path, monkeypatch):
-    client = _make_client(tmp_path, monkeypatch)
-    f = tmp_path / "elsewhere.txt"
-    f.write_text("hi", encoding="utf-8")
-
-    resp = client.get(
-        "/local-ref", params={"path": str(f), "device": "some-other-machine"}
-    )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "other_device"
-    assert data["exists"] is False
-    assert data["device"] == "some-other-machine"
+    assert resp.status_code == 404

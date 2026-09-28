@@ -28,7 +28,6 @@ from api.routers import (
     graph,
     inbox,
     intake,
-    local_refs,
     local_sources,
     maintenance,
     memory,
@@ -221,7 +220,6 @@ app.include_router(sources.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(settings_router.router, tags=["settings"])
-app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(local_sources.router, tags=["local-sources"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])

@@ -577,23 +577,6 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
     return items
 
 
-def read_live_safari_bookmarks() -> list[RawItem]:
-    """Read the current user's real ``~/Library/Safari/Bookmarks.plist``, if present.
-
-    Convenience for a future "Import from Safari" button — not exercised by
-    tests (hermetic tests never touch the live filesystem). Missing file or
-    any read/parse error degrades to ``[]``, same as ``parse_safari_bookmarks``.
-    """
-    from pathlib import Path as _Path
-
-    plist_path = _Path.home() / "Library" / "Safari" / "Bookmarks.plist"
-    try:
-        data = plist_path.read_bytes()
-    except OSError:
-        return []
-    return parse_safari_bookmarks(data)
-
-
 def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
     """Chrome ``Bookmarks`` JSON — recurse the roots tree, type=='url'.
 
