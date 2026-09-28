@@ -1,6 +1,6 @@
 import Foundation
 
-/// Lists the folder a `directory` or `location` page declares (issue #7).
+/// Lists the folder a `directory` or `location` page declares.
 ///
 /// The backend only says which path the page declares (`GET /entities/{id}/location`)
 /// and never touches it: under launchd its interpreter is what macOS names, so a
