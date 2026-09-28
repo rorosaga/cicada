@@ -260,7 +260,7 @@ _CAPABILITIES = (
     "- Decay: every entity has a `decay_class` (evergreen | durable | active | volatile); a claim's evidence is a "
     "span, readable via GET /episodes/{id}/span?start=&end=&hash=.\n"
     "- Repos: `cicada_repo_context(entity_id|path)` returns live git state on demand; the branches below are as "
-    "of `repos_probed_at`.\n"
+    "of when Cicada last looked (`repos_probed_at`).\n"
     "- Map: `cicada_open_hub('projects')` etc. walks `_index.md` → hubs → entities without search."
 )
 

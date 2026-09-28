@@ -421,13 +421,12 @@ struct LocationListing: Codable, Equatable {
 
 // MARK: - Project repository context (G9 companion)
 //
-// `GET /entities/{id}/repos` surfaces the git-repo context declared under a
-// project/directory entity's `repos:` frontmatter — local checkout status,
-// branch, ahead/behind, worktrees, last commit — so the companion app can
-// show "what's the state of this repo on disk" without the user opening a
-// terminal. NOT INTEGRATION-TESTED against a live backend (built in parallel
-// by another agent) — this matches the shared API contract exactly and is
-// compile-verified only.
+// `GET /entities/{id}/repos` names the repos a project/directory entity's
+// `repos:` frontmatter declares; `GitRunner` runs git in the ones on this Mac
+// and `POST /entities/{id}/repos/observed` answers the parsed context — local
+// checkout status, branch, ahead/behind, worktrees, last commit — so the
+// companion app can show "what's the state of this repo on disk" without the
+// user opening a terminal, and without the backend ever opening the folder.
 //
 // Unlike the rest of this file's endpoints (which ride the app-wide camelCase
 // wire convention — see `api/models/schemas.py::to_camel`), this endpoint is
@@ -503,7 +502,7 @@ struct RepoLastCommit: Codable, Hashable {
 struct RepoContext: Codable, Identifiable {
     let path: String
     let device: String?
-    /// `ok | other_device | missing | not_a_repo | git_unavailable | timeout`
+    /// `ok | other_device | missing | not_a_repo | denied | git_unavailable | timeout`
     let status: String
     let exists: Bool
     let isGitRepo: Bool
@@ -554,7 +553,54 @@ struct RepoContext: Codable, Identifiable {
     }
 }
 
-/// `GET /entities/{id}/repos` response envelope.
+/// One `repos:` entry as the page declares it (`GET /entities/{id}/repos`): `path` exactly as written — the key
+/// `POST …/repos/observed` is answered by. The backend never looks at the folder; `GitRunner` does.
+struct RepoDeclaration: Codable, Equatable, Sendable {
+    let path: String
+    let device: String?
+
+    enum CodingKeys: String, CodingKey { case path, device }
+
+    init(path: String, device: String?) {
+        self.path = path
+        self.device = device
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        device = try c.decodeIfPresent(String.self, forKey: .device)
+    }
+}
+
+/// `GET /entities/{id}/repos` — the declarations and which device this Mac is (`this_device`, snake_case like the
+/// rest of this contract).
+struct RepoDeclarationList: Codable, Equatable, Sendable {
+    let entityId: String
+    let thisDevice: String
+    let repos: [RepoDeclaration]
+
+    enum CodingKeys: String, CodingKey {
+        case entityId = "entity_id"
+        case thisDevice = "this_device"
+        case repos
+    }
+
+    init(entityId: String, thisDevice: String, repos: [RepoDeclaration]) {
+        self.entityId = entityId
+        self.thisDevice = thisDevice
+        self.repos = repos
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entityId = try c.decodeIfPresent(String.self, forKey: .entityId) ?? ""
+        thisDevice = try c.decodeIfPresent(String.self, forKey: .thisDevice) ?? ""
+        repos = (try c.decodeIfPresent([RepoDeclaration].self, forKey: .repos) ?? []).filter { !$0.path.isEmpty }
+    }
+}
+
+/// `POST /entities/{id}/repos/observed` response envelope.
 struct RepoContextList: Codable {
     let entityId: String
     let repos: [RepoContext]

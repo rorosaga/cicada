@@ -151,7 +151,6 @@ def api_bank(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
-    monkeypatch.setattr(state_dictionary, "REPO_BUDGET_S", 0.0)
     config.get_settings.cache_clear()
     yield memory
     config.get_settings.cache_clear()

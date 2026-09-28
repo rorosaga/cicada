@@ -14,10 +14,15 @@ Three rails, each from a review that cost something:
   rebuild when nothing changed, and a forced rebuild writes only when the
   rendering differs with ``generated_at`` masked. An idle night therefore
   makes no commit, and two runs on a still bank are byte-identical.
-* **Bounded probes.** Repo state is live (``repo_context``) but under one
-  total budget (``REPO_BUDGET_S``); a repo past the budget is recorded as
-  ``state: unavailable`` and never probed. ``sleep.last_at`` is one
-  ``git log`` with a timeout, ``check=False``, never raising.
+* **No probes of the person's folders.** A project's repo block is the last
+  observation the APP made (``repo_observations``: it runs git when a card
+  opens and posts the outputs) — never a ``git`` the backend runs in a
+  declared path, which under launchd made macOS name "python3.12".
+  ``repos_probed_at`` is the OLDEST rendered observation's time and an
+  observation past ``repo_observations.STALE_AFTER`` renders ``state:
+  stale``; no timestamp sits inside a block, so a newer look at the same
+  branch changes nothing that is compared (R1). ``sleep.last_at`` is one
+  ``git log`` in the bank with a timeout, ``check=False``, never raising.
 * **Never persisted: ``resumable`` (G48) or anything not already on a page.**
   Conversations carry id/harness/title/last_seen/episode_count; the API adds
   ``resumable`` per request. No transcript content, no claim text, no secret
@@ -60,7 +65,6 @@ import contextlib
 import hashlib
 import json
 import subprocess
-import time
 from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -86,7 +90,6 @@ SCHEMA_VERSION = 4
 MAX_BYTES = 6 * 1024
 TITLE_LIMIT = 60
 ONE_LINER_LIMIT = 120
-REPO_BUDGET_S = 2.0
 GIT_TIMEOUT_S = 2.0
 # The sync components the file is a function of. `bank` is included so a
 # bank switch can never serve another bank's cursor from a stale digest.
@@ -307,51 +310,48 @@ def _unavailable(path: str, state: str = "unavailable") -> dict:
     return {"path": path, "branch": None, "dirty": None, "ahead_behind": None, "state": state}
 
 
-def _repo_blocks(
-    declared: list, *, resolver: RepoResolver | None, budget: list[float], previous: dict[str, dict] | None,
-) -> list[dict]:
-    """One block per declared repo, live-probed under the shared budget.
+def _repo_blocks(declared: list, *, resolver: RepoResolver, now: datetime) -> tuple[list[dict], list[datetime]]:
+    """One block per declared repo from the resolver (the app's last
+    observation by default), plus each rendered observation's time.
 
-    ``budget`` is a one-element list (remaining seconds) shared across every
-    project so the WHOLE file costs at most ``REPO_BUDGET_S`` of git. A repo
-    that would start past the budget is recorded ``unavailable`` — the
-    honest answer, and cheaper than a timeout. With ``resolver=None`` the
-    previous file's block for that path is carried over (R4: a read-side
-    refresh never pays for git).
+    An ``ok`` observation older than ``repo_observations.STALE_AFTER`` keeps
+    its branch but reads ``state: stale``. The times travel beside the blocks,
+    never inside them: ``repos_probed_at`` is masked when ``refresh`` compares
+    content, a block is not (R1).
     """
+    from api.services.repo_observations import STALE_AFTER
+
     out: list[dict] = []
+    seen: list[datetime] = []
     for decl in declared or []:
         if not isinstance(decl, dict) or not decl.get("path"):
             continue
         path = str(decl["path"])
-        if resolver is None:
-            prev = (previous or {}).get(path)
-            out.append(prev or _unavailable(path))
-            continue
-        remaining = budget[0]
-        if remaining <= 0.05:
-            out.append(_unavailable(path))
-            continue
-        started = time.monotonic()
         try:
-            ctx = resolver(decl, timeout_s=min(remaining, 2.0))
-        except Exception as exc:  # a probe must degrade one block, never the file
-            logger.warning(f"repo probe failed for a declared repo: {type(exc).__name__}")
-            ctx = {"path": path, "status": "git_unavailable"}
-        budget[0] -= time.monotonic() - started
+            ctx = resolver(decl)
+        except Exception as exc:  # a lookup must degrade one block, never the file
+            logger.warning(f"repo lookup failed for a declared repo: {type(exc).__name__}")
+            ctx = {"path": path, "status": "unavailable"}
         status = str(ctx.get("status") or "unavailable")
+        observed_at = ctx.get("observed_at")
+        if isinstance(observed_at, datetime):
+            seen.append(observed_at)
         if status == "ok":
             ahead, behind = ctx.get("ahead"), ctx.get("behind")
+            try:
+                stale = isinstance(observed_at, datetime) and now - observed_at > STALE_AFTER
+            except TypeError:  # a naive clock against an aware observation: say nothing rather than guess
+                stale = False
             out.append({
                 "path": path,
                 "branch": ctx.get("current_branch"),
                 "dirty": ctx.get("dirty_files"),
                 "ahead_behind": None if ahead is None and behind is None else f"{ahead or 0}/{behind or 0}",
-                "state": "ok",
+                "state": "stale" if stale else "ok",
             })
         else:
             out.append(_unavailable(path, status))
-    return out
+    return out, seen
 
 
 def _engine_block(settings, connected_ids: list[str] | None) -> dict:
@@ -461,12 +461,9 @@ def build(
     *,
     today: date | None = None,
     now: datetime | None = None,
-    probe_repos: bool = True,
-    previous: dict | None = None,
     repo_resolver: RepoResolver | None = None,
     git_runner=None,
     connected_ids: list[str] | None = None,
-    repo_budget_s: float | None = None,
 ) -> tuple[dict, str]:
     """Render the state dictionary. Pure given its seams; never calls an LLM."""
     memory_path = Path(memory_path)
@@ -475,18 +472,12 @@ def build(
     # the injected clock's date under test, so the two never disagree.
     today = today or now.astimezone().date()
     git_runner = git_runner or _default_git_runner
-    if probe_repos and repo_resolver is None:
-        from api.services.repo_context import resolve_repo_context
-        repo_resolver = resolve_repo_context
-    resolver = repo_resolver if probe_repos else None
-    prev_repos: dict[str, dict] = {}
-    for p in (previous or {}).get("projects", []) or []:
-        for r in p.get("repos", []) or []:
-            if r.get("path"):
-                prev_repos[str(r["path"])] = dict(r)
-    # Read the module constant at call time (not as a default-arg binding) so
-    # a test can monkeypatch `REPO_BUDGET_S` to 0.0 and probe nothing.
-    budget = [float(REPO_BUDGET_S if repo_budget_s is None else repo_budget_s)]
+    if repo_resolver is None:
+        # The app's last look, never git in a declared path (see the module docstring).
+        from api.services import repo_observations
+
+        repo_resolver = repo_observations.resolver(memory_path)
+    observed: list[datetime] = []
 
     # Imported here, not at module load: the handshake imports this module on
     # every connect, and must never pull the project read model in with it.
@@ -508,8 +499,9 @@ def build(
             "id": f.stem, "name": _name(f), "one_liner": _one_liner(f),
             "confidence": round(float(f.frontmatter.get("confidence", 0.5) or 0.0), 2),
             "last_referenced": str(f.frontmatter.get("last_referenced") or "")[:10] or None,
-            "repos": _repo_blocks(f.frontmatter.get("repos") or [], resolver=resolver, budget=budget, previous=prev_repos),
         }
+        row["repos"], seen = _repo_blocks(f.frontmatter.get("repos") or [], resolver=repo_resolver, now=now)
+        observed.extend(seen)
         # G141 §10.3: the cursor's two project fields, absolute and read
         # without today, so an idle night still renders byte-identically (R1).
         try:
@@ -553,7 +545,7 @@ def build(
         "preferences": preferences,
         "standing": _standing(memory_path, _limit(settings, "state_standing")),
         "focus": _focus(memory_path, today, _limit(settings, "state_focus")),
-        "repos_probed_at": now.isoformat() if resolver is not None else (previous or {}).get("repos_probed_at"),
+        "repos_probed_at": min(observed).isoformat() if observed else None,
         "world_facts_note": WORLD_FACTS_NOTE,
     })
     _fit(fm)
@@ -577,7 +569,9 @@ def render_body(fm: dict) -> str:
     for p in fm["projects"]:
         repo_bits = ", ".join(
             f"{r['path']}@{r['branch']}" + (f" (dirty {r['dirty']})" if r.get("dirty") else "")
-            if r.get("state") == "ok" else f"{r['path']} ({r.get('state')})" for r in p.get("repos", [])
+            if r.get("state") == "ok"
+            else f"{r['path']}@{r['branch']} (stale)" if r.get("state") == "stale" and r.get("branch")
+            else f"{r['path']} ({r.get('state')})" for r in p.get("repos", [])
         )
         tail = f" — {p['one_liner']}" if p.get("one_liner") else ""
         lines.append(f"- [[{p['name']}]] (`{p['id']}`){tail}{_cursor(p)}"
@@ -662,7 +656,6 @@ def refresh(
     settings=None,
     *,
     force: bool = False,
-    probe_repos: bool | None = None,
     today: date | None = None,
     now: datetime | None = None,
     repo_resolver: RepoResolver | None = None,
@@ -670,21 +663,19 @@ def refresh(
 ) -> dict:
     """Regenerate ``_state.md`` when its inputs changed (or ``force``).
 
-    ``probe_repos`` defaults to ``force``: Sleep pays for git nightly, a
-    read-side refresh carries the previous blocks over. ``connected_ids``
+    Repo blocks come from ``repo_observations`` on every rebuild — a file
+    read, never git. ``connected_ids``
     defaults to the registry's cache (``cached_connected_ids``). Returns
     ``{"written", "reason", "path"}``; never raises on a normal bank.
     """
     memory_path = Path(memory_path)
     path = state_path(memory_path)
     previous = read_state(memory_path)
-    if probe_repos is None:
-        probe_repos = force
     if not force and previous is not None and previous.get("inputs_version") == inputs_version(memory_path):
         return {"written": False, "reason": "inputs unchanged", "path": str(path)}
     if connected_ids is None:
         connected_ids = cached_connected_ids(settings)
-    fm, body = build(memory_path, settings, today=today, now=now, probe_repos=probe_repos, previous=previous,
+    fm, body = build(memory_path, settings, today=today, now=now,
                      repo_resolver=repo_resolver, connected_ids=connected_ids)
     text = render(fm, body)
     if path.exists() and _masked(path.read_text(encoding="utf-8")) == _masked(text):
@@ -755,6 +746,3 @@ async def refresh_and_commit(
         )
     return result
 
-
-def _sleep_for_tests(seconds: float) -> None:  # pragma: no cover - a test seam
-    time.sleep(seconds)

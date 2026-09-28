@@ -1,0 +1,14 @@
+{
+  "_comment": "The one list of read-only commands run in a declared repo, as `<git> <prefix> -C <path> <args>`. repo_context.REPO_COMMANDS (the parser's keys and the MCP runner) and the app's GitRunner.commands both equal this file; `inside` runs first and nothing else runs unless it prints true.",
+  "prefix": ["-c", "core.fsmonitor=false"],
+  "commands": [
+    {"key": "inside", "args": ["rev-parse", "--is-inside-work-tree"]},
+    {"key": "remote", "args": ["remote", "get-url", "origin"]},
+    {"key": "branch", "args": ["rev-parse", "--abbrev-ref", "HEAD"]},
+    {"key": "origin_head", "args": ["symbolic-ref", "refs/remotes/origin/HEAD"]},
+    {"key": "status", "args": ["status", "--porcelain=v1", "--branch"]},
+    {"key": "worktrees", "args": ["worktree", "list", "--porcelain"]},
+    {"key": "common_dir", "args": ["rev-parse", "--path-format=absolute", "--git-common-dir"]},
+    {"key": "last_commit", "args": ["log", "-1", "--format=%H%x1f%an%x1f%aI%x1f%s"]}
+  ]
+}

@@ -908,7 +908,7 @@ async def resolve(
         change=change,
     )
     # G53 (R4) — the pending count just changed; refresh the projection
-    # cheaply (no repo probes, previous blocks carried over) and commit it
+    # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
     # person's answer. Runs AFTER the commit on purpose: `commit_resolution`
     # is `git add -A`, and refreshing first would attribute the projection
@@ -920,7 +920,7 @@ async def resolve(
     try:
         from api.services import state_dictionary
 
-        await state_dictionary.refresh_and_commit(settings.memory_path, settings, probe_repos=False)
+        await state_dictionary.refresh_and_commit(settings.memory_path, settings)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
     return {"status": "resolved", "id": item_id}

@@ -66,7 +66,6 @@ def _quiet_tail(monkeypatch):
 def test_idle_cycle_writes_and_commits_the_state_as_cicada(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
     _quiet_tail(monkeypatch)
-    monkeypatch.setattr(state_dictionary, "REPO_BUDGET_S", 0.0)  # no git probes of user repos here
 
     asyncio.run(sleep_cycle.run(_settings(memory), "cycle-state"))
 
@@ -92,7 +91,6 @@ def test_second_idle_cycle_makes_no_commit(tmp_path, monkeypatch):
     _git(memory, "add", "sleep_schedule.yaml")
     _git(memory, "commit", "-q", "-m", "schedule")
     _quiet_tail(monkeypatch)
-    monkeypatch.setattr(state_dictionary, "REPO_BUDGET_S", 0.0)
     night_one = datetime(2026, 9, 3, 3, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(state_dictionary, "_now", lambda: night_one)
     asyncio.run(sleep_cycle.run(_settings(memory), "cycle-a"))
@@ -136,7 +134,6 @@ def api_bank(tmp_path: Path, monkeypatch) -> Path:
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
-    monkeypatch.setattr(state_dictionary, "REPO_BUDGET_S", 0.0)
     config.get_settings.cache_clear()
     yield memory
     config.get_settings.cache_clear()
@@ -161,26 +158,30 @@ def test_get_state_builds_lazily_and_serves_etag(api_bank):
         assert r2.status_code == 200 and r2.json()["inbox"]["pending"] == 1
 
 
-def test_get_state_refresh_true_forces_a_rebuild_with_probes(api_bank, monkeypatch):
-    from api.routers import state as state_router
+def test_get_state_refresh_true_rebuilds_from_the_apps_last_look(api_bank, monkeypatch):
+    """`?refresh=true` forces a rebuild, and the repo block is the app's last
+    observation — the backend never runs git in the declared folder."""
+    from datetime import timezone as tz
 
-    probes: list = []
-
-    def fake_resolver(decl, *, timeout_s=2.0):
-        probes.append(decl["path"])
-        return {"path": decl["path"], "status": "ok", "current_branch": "main", "dirty_files": 0, "ahead": 0, "behind": 0}
+    from api.services import local_refs, repo_context, repo_observations
 
     fm = markdown_parser.parse(api_bank / "entities" / "alpha-project.md")
     fm.frontmatter["repos"] = [{"path": "~/src/alpha"}]
     markdown_parser.write(api_bank / "entities" / "alpha-project.md", fm.frontmatter, fm.body)
-    monkeypatch.setattr(state_dictionary, "REPO_BUDGET_S", 2.0)
-    monkeypatch.setattr(state_router, "repo_resolver", fake_resolver)
+    monkeypatch.setattr(repo_context, "run_repo_commands", lambda *a, **k: pytest.fail("git ran in a declared repo"))
     with TestClient(main.app) as client:
-        assert client.get("/state").status_code == 200
-        assert probes == [], "a lazy read never probes git"
+        first = client.get("/state")
+        assert first.status_code == 200
+        assert first.json()["projects"][0]["repos"][0]["state"] == "unavailable"
+        seen = datetime.now(tz.utc)
+        repo_observations.record(api_bank, [{"path": "~/src/alpha", "device": local_refs.current_device_id(),
+                                             "status": "ok", "current_branch": "main", "dirty_files": 0,
+                                             "ahead": 0, "behind": 0}], now=seen)
         r = client.get("/state", params={"refresh": "true"})
-        assert r.status_code == 200 and probes == ["~/src/alpha"]
-        assert r.json()["projects"][0]["repos"][0]["branch"] == "main"
+        assert r.status_code == 200
+        assert r.json()["projects"][0]["repos"][0] == {"path": "~/src/alpha", "branch": "main", "dirty": 0,
+                                                       "ahead_behind": "0/0", "state": "ok"}
+        assert r.json()["repos_probed_at"] == seen.isoformat()
 
 
 def test_get_state_read_commits_its_own_rewrite_as_cicada(api_bank):

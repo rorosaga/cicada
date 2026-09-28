@@ -1,195 +1,137 @@
-"""Device-scoped live git context for an entity's declared ``repos:`` (backlog G-repo).
+"""Device-scoped git context for an entity's declared ``repos:`` (backlog G-repo).
 
-An entity's frontmatter can declare that it "has a repo" on disk — e.g. the
-capstone `project` entity pointing at ``~/code/cicada`` — via a
-``repos:`` list (path + optional device/remote/default_branch/worktrees hints,
-see the module-level ``RepoContext`` schema in ``api/models/schemas.py`` for the
-exact wire shape). This module answers "what does that repo actually look like
-right now, on THIS machine?" by shelling out to a small, fixed allowlist of
-read-only git plumbing commands.
+An entity's frontmatter can declare that it "has a repo" on disk — a
+``project`` entity pointing at ``~/src/alpha-project`` — via a ``repos:`` list
+(path + optional device/remote/default_branch/worktrees hints; the wire shape is
+``RepoContext`` in ``api/models/schemas.py``). This module answers "what does
+that repo look like on THIS machine?" from the outputs of a small, fixed list of
+read-only git commands, :data:`REPO_COMMANDS`.
 
-Mirrors ``api/services/local_refs.py``'s safety posture exactly:
+**Who runs git.** Never the backend. Under launchd the backend's interpreter is
+what macOS names, so a ``git -C ~/Documents/…`` there made the Mac ask whether
+"python3.12" may read the person's folder. The app runs the list itself
+(``GitRunner``, pinned to the same list by ``api/tests/fixtures/repo_commands.json``)
+and posts the raw outputs; the backend only parses them with
+:func:`parse_snapshot` — the ``~/Library`` rail: the app reads the Mac, the
+backend parses bytes. The one other caller of git here is the MCP tool
+``cicada_repo_context`` (:func:`resolve_repo_context`), which runs in the process
+the agent harness launched, so macOS attributes it to that harness — honestly.
+
+Rails:
 
 1. **Never read file contents.** Only git plumbing (``rev-parse``, ``status``,
-   ``log``, ``worktree list``, ``symbolic-ref``, ``remote get-url``) — the same
-   "does it still exist / what does it look like" oracle, not a file server.
-2. **Other-device short-circuit.** When a repo declares a ``device`` that isn't
-   :func:`local_refs.current_device_id`, we do NOT run git against the path —
-   it would be probing an unrelated repo that happens to share a path on this
-   machine. ``status`` is ``"other_device"`` and nothing is observed.
-3. **Every failure mode degrades to a status value — this module never raises
-   to the caller.** Missing path, non-repo directory, no git binary, a hung git
-   process (timeout) — each maps to its own ``status`` and the rest of the
-   fields fall back to ``None``/``[]`` rather than propagating an exception.
-
-Two entry points:
-
-- :func:`git_repo_snapshot` — the low-level, device-unaware probe: given a path
-  already known to belong to this machine, run the fixed command allowlist and
-  return a plain live-observation dict. Never looks at declared/frontmatter
-  values.
-- :func:`resolve_repo_context` — the entry point routers/MCP should call. Takes
-  one declared ``repos:`` entry (a dict — ``path``, optional ``device`` /
-  ``remote`` / ``default_branch`` / ``worktrees``), applies the other-device
-  short-circuit, calls :func:`git_repo_snapshot`, and merges declared metadata
-  on top (worktree ``declared`` flags, ``default_branch_declared`` vs
-  ``_observed``, ``stale_hint``) to produce the full ``RepoContext`` shape.
+   ``log``, ``worktree list``, ``symbolic-ref``, ``remote get-url``).
+2. **Other-device short-circuit.** A repo that declares a ``device`` other than
+   :func:`local_refs.current_device_id` is ``other_device`` and nothing is run
+   or read — it would be probing an unrelated checkout that shares a path here.
+3. **Every failure is a status, never an exception.** ``missing``,
+   ``not_a_repo``, ``denied`` (macOS refused the folder), ``git_unavailable``,
+   ``timeout`` — each degrades the rest of the fields to ``None``/``[]``.
+4. **The parser never touches the filesystem.** No ``resolve``, no ``exists``:
+   the main worktree is ``git rev-parse --path-format=absolute
+   --git-common-dir`` minus ``/.git``, compared as a string.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
-from pathlib import Path
 from typing import Any
 
 from api.services import local_refs
 
-# --- fixed, read-only git command allowlist ---------------------------------
+# --- the fixed, read-only command list ---------------------------------------
 #
-# Every subprocess call in this module runs exactly one of these forms (never
-# shell=True, never a caller-supplied argv fragment):
-#
-#   git rev-parse --is-inside-work-tree
-#   git rev-parse --abbrev-ref HEAD
-#   git rev-parse --git-common-dir
-#   git remote get-url origin
-#   git status --porcelain=v1 --branch
-#   git log -1 --format=<fixed format string>
-#   git worktree list --porcelain
-#   git symbolic-ref refs/remotes/origin/HEAD
-#
-# All read-only; none of them can mutate the repo or read a tracked file's
-# contents.
+# Stable keys: the app posts `{key: {rc, stdout, stderr?}}` under exactly these
+# names. Every command runs as `git <GIT_PREFIX> -C <path> <args>` — never a
+# shell, never a caller-supplied fragment — with GIT_OPTIONAL_LOCKS=0 (a status
+# never rewrites the index) and LC_ALL=C (the refusal classifier reads English).
+# `inside` runs first; when it does not answer "true" nothing else runs.
 
 _LOG_FORMAT = "%H%x1f%an%x1f%aI%x1f%s"  # hash / author / iso-date / subject
 _AHEAD_RE = re.compile(r"ahead (\d+)")
 _BEHIND_RE = re.compile(r"behind (\d+)")
 
-# Statuses a snapshot/context can carry. "ok" is the only status with live data.
-STATUSES = ("ok", "other_device", "missing", "not_a_repo", "git_unavailable", "timeout")
+GIT_PREFIX: tuple[str, ...] = ("-c", "core.fsmonitor=false")
+
+REPO_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("inside", ("rev-parse", "--is-inside-work-tree")),
+    ("remote", ("remote", "get-url", "origin")),
+    ("branch", ("rev-parse", "--abbrev-ref", "HEAD")),
+    ("origin_head", ("symbolic-ref", "refs/remotes/origin/HEAD")),
+    ("status", ("status", "--porcelain=v1", "--branch")),
+    ("worktrees", ("worktree", "list", "--porcelain")),
+    ("common_dir", ("rev-parse", "--path-format=absolute", "--git-common-dir")),
+    ("last_commit", ("log", "-1", f"--format={_LOG_FORMAT}")),
+)
+COMMAND_KEYS: frozenset[str] = frozenset(k for k, _ in REPO_COMMANDS)
+
+# Statuses a context can carry. "ok" is the only status with live data.
+STATUSES = ("ok", "other_device", "missing", "not_a_repo", "denied", "git_unavailable", "timeout")
+# What the runner (or the app) reports when git gave no output to parse at all.
+RUN_ERRORS = ("git_unavailable", "timeout", "missing")
+
+_DENIED_MARKERS = ("Operation not permitted", "Permission denied")
+_MISSING_MARKER = "No such file or directory"
 
 
-def _run(args: list[str], cwd: Path, timeout_s: float) -> subprocess.CompletedProcess:
-    """Run one read-only git command. Raises TimeoutExpired/FileNotFoundError
-    (never anything else via ``check=False``) — callers decide how to degrade."""
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        timeout=timeout_s,
-        check=False,
-    )
+def _is_int_like(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _empty_snapshot(status: str) -> dict[str, Any]:
-    return {
-        "status": status,
-        "exists": status != "missing",
-        "is_git_repo": False,
-        "remote": None,
-        "current_branch": None,
-        "default_branch_observed": None,
-        "ahead": None,
-        "behind": None,
-        "dirty_files": None,
-        "worktrees": [],
-        "last_commit": None,
-    }
-
-
-def git_repo_snapshot(path: str, timeout_s: float = 2.0) -> dict[str, Any]:
-    """Live, device-unaware git observation of ``path`` — never raises.
-
-    Assumes the caller has already established that ``path`` belongs to THIS
-    machine (the other-device short-circuit lives in
-    :func:`resolve_repo_context`, one layer up). Returns a plain dict (no
-    Pydantic dependency here, so this stays trivially unit-testable) with keys
-    matching the live-observation subset of ``RepoContext``: ``status``,
-    ``exists``, ``is_git_repo``, ``remote``, ``current_branch``,
-    ``default_branch_observed``, ``ahead``, ``behind``, ``dirty_files``,
-    ``worktrees`` (each ``declared: False`` — the caller merges declared info),
-    ``last_commit``.
-    """
-    resolved = Path(path).expanduser()
-    if not resolved.exists():
-        return _empty_snapshot("missing")
-
-    try:
-        proc = _run(["rev-parse", "--is-inside-work-tree"], resolved, timeout_s)
-    except subprocess.TimeoutExpired:
-        return _empty_snapshot("timeout")
-    except FileNotFoundError:
-        return _empty_snapshot("git_unavailable")
-
-    if proc.returncode != 0 or proc.stdout.strip() != "true":
-        return _empty_snapshot("not_a_repo")
-
-    # Repo confirmed valid from here on — every further probe degrades ONLY
-    # its own field on failure; a hiccup on one probe never invalidates the
-    # fields other probes already got cleanly.
-    return {
-        "status": "ok",
-        "exists": True,
-        "is_git_repo": True,
-        "remote": _origin_remote(resolved, timeout_s),
-        "current_branch": _current_branch(resolved, timeout_s),
-        "default_branch_observed": _observed_default_branch(resolved, timeout_s),
-        **_status_counts(resolved, timeout_s),
-        "worktrees": _worktrees(resolved, timeout_s),
-        "last_commit": _last_commit(resolved, timeout_s),
-    }
-
-
-def _current_branch(resolved: Path, timeout_s: float) -> str | None:
-    try:
-        proc = _run(["rev-parse", "--abbrev-ref", "HEAD"], resolved, timeout_s)
-    except Exception:
+def _out(outputs: dict, key: str) -> str | None:
+    """A command's stdout when it succeeded, else ``None`` (absent, failed, malformed)."""
+    entry = outputs.get(key) if isinstance(outputs, dict) else None
+    if not isinstance(entry, dict) or entry.get("rc") != 0:
         return None
-    if proc.returncode != 0:
-        return None
-    branch = proc.stdout.strip()
-    if not branch or branch == "HEAD":  # detached HEAD -> no "current branch"
+    stdout = entry.get("stdout")
+    return stdout if isinstance(stdout, str) else None
+
+
+def _inside_status(outputs: dict) -> str:
+    """``ok`` when the first command said this is a work tree, else why not."""
+    entry = outputs.get("inside") if isinstance(outputs, dict) else None
+    if not isinstance(entry, dict):
+        return "not_a_repo"
+    if entry.get("rc") == 0 and str(entry.get("stdout") or "").strip() == "true":
+        return "ok"
+    stderr = str(entry.get("stderr") or "")
+    if any(m in stderr for m in _DENIED_MARKERS):
+        return "denied"
+    if "cannot change to" in stderr and _MISSING_MARKER in stderr:
+        return "missing"
+    return "not_a_repo"
+
+
+# --- the parsers (pure) ------------------------------------------------------
+
+
+def _current_branch(outputs: dict) -> str | None:
+    out = _out(outputs, "branch")
+    branch = (out or "").strip()
+    if not branch or branch == "HEAD" or "\n" in branch:  # detached HEAD -> no "current branch"
         return None
     return branch
 
 
-def _origin_remote(resolved: Path, timeout_s: float) -> str | None:
-    try:
-        proc = _run(["remote", "get-url", "origin"], resolved, timeout_s)
-    except Exception:
-        return None
-    if proc.returncode != 0:
-        return None
-    url = proc.stdout.strip()
+def _origin_remote(outputs: dict) -> str | None:
+    url = (_out(outputs, "remote") or "").strip()
     return url or None
 
 
-def _observed_default_branch(resolved: Path, timeout_s: float) -> str | None:
+def _observed_default_branch(outputs: dict) -> str | None:
     """Origin's HEAD symref, tolerating absence (no remote / never fetched)."""
-    try:
-        proc = _run(
-            ["symbolic-ref", "refs/remotes/origin/HEAD"], resolved, timeout_s
-        )
-    except Exception:
-        return None
-    if proc.returncode != 0:
-        return None
-    ref = proc.stdout.strip()
+    ref = (_out(outputs, "origin_head") or "").strip()
     return ref.rsplit("/", 1)[-1] if ref else None
 
 
-def _status_counts(resolved: Path, timeout_s: float) -> dict[str, int | None]:
+def _status_counts(outputs: dict) -> dict[str, int | None]:
     """ahead/behind (None when there's no upstream to compare against) + dirty count."""
-    try:
-        proc = _run(["status", "--porcelain=v1", "--branch"], resolved, timeout_s)
-    except Exception:
+    out = _out(outputs, "status")
+    if out is None:
         return {"ahead": None, "behind": None, "dirty_files": None}
-    if proc.returncode != 0:
-        return {"ahead": None, "behind": None, "dirty_files": None}
-
-    lines = proc.stdout.splitlines()
+    lines = out.splitlines()
     if not lines or not lines[0].startswith("##"):
         return {"ahead": None, "behind": None, "dirty_files": None}
 
@@ -210,14 +152,8 @@ def _status_counts(resolved: Path, timeout_s: float) -> dict[str, int | None]:
     return {"ahead": ahead, "behind": behind, "dirty_files": dirty}
 
 
-def _last_commit(resolved: Path, timeout_s: float) -> dict[str, str] | None:
-    try:
-        proc = _run(["log", "-1", f"--format={_LOG_FORMAT}"], resolved, timeout_s)
-    except Exception:
-        return None
-    if proc.returncode != 0:
-        return None
-    out = proc.stdout.strip("\n")
+def _last_commit(outputs: dict) -> dict[str, str] | None:
+    out = (_out(outputs, "last_commit") or "").strip("\n")
     if not out:
         return None  # empty repo, no commits yet
     parts = out.split("\x1f")
@@ -227,35 +163,20 @@ def _last_commit(resolved: Path, timeout_s: float) -> dict[str, str] | None:
     return {"hash": hash_, "author": author, "date": date_, "subject": subject}
 
 
-def _main_worktree_path(resolved: Path, timeout_s: float) -> Path | None:
-    """The main worktree's own path, derived from ``--git-common-dir``.
+def _main_worktree_path(outputs: dict) -> str | None:
+    """The main worktree's path: the absolute common dir minus ``/.git``.
 
-    The common dir is always the main worktree's real ``.git`` directory
-    (linked worktrees have their OWN private git-dir under
-    ``<common>/worktrees/<name>`` but share the same common-dir) — so its
-    parent is the main worktree's path. Bare repos (common-dir not named
-    ``.git``) are out of scope; returns ``None`` and every worktree entry then
-    degrades ``is_main`` to ``False``.
+    Linked worktrees have a private git-dir under ``<common>/worktrees/<name>``
+    but share the common dir, which is the main worktree's ``.git``. Git prints
+    both it and ``worktree list``'s main entry through its own realpath, so a
+    string compare is exact — no ``resolve()`` here, ever. Bare repos (a common
+    dir not named ``.git``) are out of scope: ``None``, and every worktree then
+    reads ``is_main: False``.
     """
-    try:
-        proc = _run(["rev-parse", "--git-common-dir"], resolved, timeout_s)
-    except Exception:
+    raw = (_out(outputs, "common_dir") or "").strip().rstrip("/")
+    if not raw.startswith("/") or not raw.endswith("/.git"):
         return None
-    if proc.returncode != 0:
-        return None
-    raw = proc.stdout.strip()
-    if not raw:
-        return None
-    common_path = Path(raw)
-    if not common_path.is_absolute():
-        common_path = resolved / common_path
-    try:
-        common_path = common_path.resolve()
-    except OSError:
-        return None
-    if common_path.name != ".git":
-        return None
-    return common_path.parent
+    return raw[: -len("/.git")] or "/"
 
 
 def _parse_worktree_porcelain(output: str) -> list[dict[str, Any]]:
@@ -281,46 +202,26 @@ def _parse_worktree_porcelain(output: str) -> list[dict[str, Any]]:
     return entries
 
 
-def _worktrees(resolved: Path, timeout_s: float) -> list[dict[str, Any]]:
-    try:
-        proc = _run(["worktree", "list", "--porcelain"], resolved, timeout_s)
-    except Exception:
+def _worktrees(outputs: dict) -> list[dict[str, Any]]:
+    out = _out(outputs, "worktrees")
+    if out is None:
         return []
-    if proc.returncode != 0:
-        return []
-
-    entries = _parse_worktree_porcelain(proc.stdout)
-    main_path = _main_worktree_path(resolved, timeout_s)
-
-    out: list[dict[str, Any]] = []
-    for entry in entries:
-        entry_path = Path(entry["path"])
-        is_main = False
-        if main_path is not None:
-            try:
-                is_main = entry_path.resolve() == main_path
-            except OSError:
-                is_main = str(entry_path) == str(main_path)
-        out.append(
-            {
-                "path": entry["path"],
-                "branch": entry.get("branch"),
-                "is_main": is_main,
-                "is_dirty": None,
-                "declared": False,  # merged with declared info by the caller
-            }
-        )
-    return out
-
-
-# --- declared-repo entry point (device short-circuit + merge) ---------------
+    main_path = _main_worktree_path(outputs)
+    return [
+        {
+            "path": entry["path"],
+            "branch": entry.get("branch"),
+            "is_main": main_path is not None and entry["path"].rstrip("/") == main_path,
+            "is_dirty": None,
+            "declared": False,  # merged with declared info below
+        }
+        for entry in _parse_worktree_porcelain(out)
+    ]
 
 
 def _norm_path(path: str) -> str:
-    try:
-        return str(Path(path).expanduser().resolve())
-    except OSError:
-        return str(Path(path).expanduser())
+    """String normalisation only — ``~`` expanded, dots folded. Never ``resolve()``."""
+    return os.path.normpath(os.path.expanduser(str(path)))
 
 
 def _declared_worktrees_as_dicts(declared: list[Any]) -> list[dict[str, Any]]:
@@ -331,7 +232,7 @@ def _declared_worktrees_as_dicts(declared: list[Any]) -> list[dict[str, Any]]:
         out.append(
             {
                 "path": str(w["path"]),
-                "branch": w.get("branch"),
+                "branch": str(w["branch"]) if w.get("branch") else None,
                 "is_main": bool(w.get("primary", False)),
                 "is_dirty": None,
                 "declared": True,
@@ -340,96 +241,141 @@ def _declared_worktrees_as_dicts(declared: list[Any]) -> list[dict[str, Any]]:
     return out
 
 
-def _merge_worktrees(
-    observed: list[dict[str, Any]], declared: list[Any]
-) -> list[dict[str, Any]]:
+def _merge_worktrees(observed: list[dict[str, Any]], declared: list[Any]) -> list[dict[str, Any]]:
     declared_paths = {
         _norm_path(w["path"]) for w in (declared or []) if isinstance(w, dict) and w.get("path")
     }
-    merged: list[dict[str, Any]] = []
-    for w in observed:
-        merged.append({**w, "declared": _norm_path(w["path"]) in declared_paths})
-    return merged
+    return [{**w, "declared": _norm_path(w["path"]) in declared_paths} for w in observed]
 
 
-def resolve_repo_context(repo_decl: dict[str, Any], *, timeout_s: float = 2.0) -> dict[str, Any]:
-    """Build a full ``RepoContext`` dict for one declared ``repos:`` entry.
+def declared_device(decl: dict[str, Any]) -> str | None:
+    device = decl.get("device") if isinstance(decl, dict) else None
+    return (str(device).strip() or None) if device else None
 
-    ``repo_decl`` is one entry from an entity's ``repos:`` frontmatter list —
-    ``{"path": ..., "device": ..., "remote": ..., "default_branch": ...,
-    "worktrees": [...]}`` — everything but ``path`` optional. Never raises;
-    every failure mode maps to a ``status`` value (see :data:`STATUSES`) with
-    the rest of the fields degraded to ``None``/``[]``.
+
+def is_other_device(decl: dict[str, Any], this_device: str | None = None) -> bool:
+    device = declared_device(decl)
+    return bool(device) and device != (this_device or local_refs.current_device_id())
+
+
+def parse_snapshot(
+    outputs: dict[str, Any],
+    decl: dict[str, Any],
+    *,
+    error: str | None = None,
+    this_device: str | None = None,
+) -> dict[str, Any]:
+    """A full ``RepoContext`` dict from one declaration and the raw command outputs.
+
+    ``outputs`` maps :data:`REPO_COMMANDS` keys to ``{"rc", "stdout", "stderr"?}``;
+    a key that is absent or failed degrades only its own field. ``error`` names
+    why there is nothing to parse (:data:`RUN_ERRORS`). Pure: no filesystem, no
+    subprocess, never raises on malformed input.
     """
-    path = str(repo_decl.get("path", "") or "")
-    device = repo_decl.get("device")
-    device = str(device).strip() or None if device else None
-    declared_remote = repo_decl.get("remote")
-    declared_default_branch = repo_decl.get("default_branch")
-    declared_worktrees = repo_decl.get("worktrees") or []
-    dbd = str(declared_default_branch).strip() if declared_default_branch else None
+    decl = decl if isinstance(decl, dict) else {}
+    outputs = outputs if isinstance(outputs, dict) else {}
+    path = str(decl.get("path", "") or "")
+    device = declared_device(decl)
+    declared_remote = decl.get("remote")
+    declared_remote = str(declared_remote) if declared_remote else None
+    dbd = str(decl.get("default_branch")).strip() if decl.get("default_branch") else None
+    declared_worktrees = decl.get("worktrees") if isinstance(decl.get("worktrees"), list) else []
+    current = this_device or local_refs.current_device_id()
 
-    current = local_refs.current_device_id()
+    def degraded(status: str, *, exists: bool) -> dict[str, Any]:
+        return {
+            "path": path,
+            "device": device if status == "other_device" else (device or current),
+            "status": status,
+            "exists": exists,
+            "is_git_repo": False,
+            "remote": declared_remote,
+            "current_branch": None,
+            "default_branch_declared": dbd,
+            "default_branch_observed": None,
+            "ahead": None,
+            "behind": None,
+            "dirty_files": None,
+            "worktrees": _declared_worktrees_as_dicts(declared_worktrees),
+            "last_commit": None,
+            "stale_hint": None,
+        }
 
     if device and device != current:
-        return {
-            "path": path,
-            "device": device,
-            "status": "other_device",
-            "exists": False,
-            "is_git_repo": False,
-            "remote": str(declared_remote) if declared_remote else None,
-            "current_branch": None,
-            "default_branch_declared": dbd,
-            "default_branch_observed": None,
-            "ahead": None,
-            "behind": None,
-            "dirty_files": None,
-            "worktrees": _declared_worktrees_as_dicts(declared_worktrees),
-            "last_commit": None,
-            "stale_hint": None,
-        }
+        return degraded("other_device", exists=False)
+    if error in RUN_ERRORS:
+        return degraded(error, exists=error != "missing")
+    status = _inside_status(outputs)
+    if status != "ok":
+        return degraded(status, exists=status != "missing")
 
-    snap = git_repo_snapshot(path, timeout_s=timeout_s)
-
-    if snap["status"] != "ok":
-        return {
-            "path": path,
-            "device": device or current,
-            "status": snap["status"],
-            "exists": snap["exists"],
-            "is_git_repo": False,
-            "remote": str(declared_remote) if declared_remote else None,
-            "current_branch": None,
-            "default_branch_declared": dbd,
-            "default_branch_observed": None,
-            "ahead": None,
-            "behind": None,
-            "dirty_files": None,
-            "worktrees": _declared_worktrees_as_dicts(declared_worktrees),
-            "last_commit": None,
-            "stale_hint": None,
-        }
-
-    dbo = snap["default_branch_observed"]
+    dbo = _observed_default_branch(outputs)
     stale_hint = None
     if dbd and dbo and dbd != dbo:
         stale_hint = f"declared default branch '{dbd}' differs from observed '{dbo}'"
-
     return {
         "path": path,
         "device": device or current,
         "status": "ok",
         "exists": True,
         "is_git_repo": True,
-        "remote": snap["remote"] or (str(declared_remote) if declared_remote else None),
-        "current_branch": snap["current_branch"],
+        "remote": _origin_remote(outputs) or declared_remote,
+        "current_branch": _current_branch(outputs),
         "default_branch_declared": dbd,
         "default_branch_observed": dbo,
-        "ahead": snap["ahead"],
-        "behind": snap["behind"],
-        "dirty_files": snap["dirty_files"],
-        "worktrees": _merge_worktrees(snap["worktrees"], declared_worktrees),
-        "last_commit": snap["last_commit"],
+        **_status_counts(outputs),
+        "worktrees": _merge_worktrees(_worktrees(outputs), declared_worktrees),
+        "last_commit": _last_commit(outputs),
         "stale_hint": stale_hint,
     }
+
+
+# --- the runner: the MCP tool's, never the backend's -------------------------
+
+
+def run_repo_commands(path: str, *, timeout_s: float = 2.0) -> tuple[dict[str, dict], str | None]:
+    """Run :data:`REPO_COMMANDS` against ``path`` and return ``(outputs, error)``.
+
+    Only ``mcp/server.py``'s ``cicada_repo_context`` reaches this (through
+    :func:`resolve_repo_context`): it runs in the agent harness's process. The
+    backend never calls it — ``test_backend_never_reads_folders`` holds that.
+    Never raises; a failure of ``inside`` is the ``error``, a later command's
+    only drops its own key.
+    """
+    target = os.path.expanduser(str(path))
+    env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C", "LANG": "C", "CICADA_CAPTURE": "off"}
+    outputs: dict[str, dict] = {}
+    for key, args in REPO_COMMANDS:
+        try:
+            proc = subprocess.run(
+                ["git", *GIT_PREFIX, "-C", target, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                check=False,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            if key == "inside":
+                return outputs, "timeout"
+            continue
+        except OSError:  # FileNotFoundError: no git binary on PATH
+            if key == "inside":
+                return outputs, "git_unavailable"
+            continue
+        outputs[key] = {"rc": proc.returncode, "stdout": proc.stdout or "", "stderr": proc.stderr or ""}
+        if key == "inside" and _inside_status(outputs) != "ok":
+            break
+    return outputs, None
+
+
+def resolve_repo_context(repo_decl: dict[str, Any], *, timeout_s: float = 2.0) -> dict[str, Any]:
+    """The MCP tool's live probe: the device short-circuit, the runner, the parser.
+
+    ``repo_decl`` is one ``repos:`` entry — ``{"path", "device"?, "remote"?,
+    "default_branch"?, "worktrees"?}``. Never raises.
+    """
+    if is_other_device(repo_decl):
+        return parse_snapshot({}, repo_decl)
+    outputs, error = run_repo_commands(str(repo_decl.get("path", "") or ""), timeout_s=timeout_s)
+    return parse_snapshot(outputs, repo_decl, error=error)
