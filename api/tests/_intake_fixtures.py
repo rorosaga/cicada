@@ -117,6 +117,18 @@ def claude_zip(n: int = 2) -> bytes:
                                             "email_address": "bob@example.com"}])})
 
 
+def claude_project_files() -> dict[str, str]:
+    """The newer export's layout: one object per project under ``projects/``."""
+    def one(uuid, name, description, prompt_template, *, starter=False):
+        return json.dumps({"uuid": uuid, "name": name, "description": description,
+                           "prompt_template": prompt_template, "is_private": True,
+                           "is_starter_project": starter, "created_at": "2026-01-10T08:00:00Z",
+                           "updated_at": "2026-01-11T08:00:00Z", "creator": {"uuid": "u-1"}, "docs": []})
+    return {"projects/alpha-project.json": one("p-1", "alpha-project", "A synthetic project.", ""),
+            "projects/bob-example-rules.json": one("p-2", "bob-example rules", "", "Answer briefly."),
+            "projects/starter.json": one("p-3", "Starter", "Learn the basics.", "", starter=True)}
+
+
 def chatgpt_loose_files(n: int = 2) -> dict[str, bytes | str]:
     return {"conversations.json": json.dumps(chatgpt_conversations(n)),
             "chat.html": CHAT_HTML,
