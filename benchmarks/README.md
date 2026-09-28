@@ -14,7 +14,7 @@ The runners assume you invoke them from the repo root (`cicada/`) with
 the API's venv Python:
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/thesis/cicada
+cd <your cicada checkout>
 api/.venv/bin/python -m benchmarks.run_table1 --questions benchmarks/questions.example.yaml
 ```
 

@@ -441,7 +441,7 @@ def test_directory_type_has_a_hub_so_entities_are_discoverable(tmp_path):
             "confidence": 0.9,
             "name": "Cicada Repo",
         },
-        "The repo at /Users/rorosaga/cicada.",
+        "The repo at /Users/alice/cicada.",
     )
 
     settings = config.get_settings()

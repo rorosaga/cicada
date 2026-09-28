@@ -567,7 +567,7 @@ TOOLS = [
                 },
                 "path": {
                     "type": "string",
-                    "description": "A raw filesystem path to a git repo (e.g. '~/Documents/roros_lab/cicada'). Exactly one of entity_id/path is required.",
+                    "description": "A raw filesystem path to a git repo (e.g. '~/code/my-project'). Exactly one of entity_id/path is required.",
                 },
             },
         },

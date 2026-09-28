@@ -1,7 +1,7 @@
 """Device-scoped live git context for an entity's declared ``repos:`` (backlog G-repo).
 
 An entity's frontmatter can declare that it "has a repo" on disk — e.g. the
-capstone `project` entity pointing at ``~/Documents/roros_lab/cicada`` — via a
+capstone `project` entity pointing at ``~/code/cicada`` — via a
 ``repos:`` list (path + optional device/remote/default_branch/worktrees hints,
 see the module-level ``RepoContext`` schema in ``api/models/schemas.py`` for the
 exact wire shape). This module answers "what does that repo actually look like
