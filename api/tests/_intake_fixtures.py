@@ -129,6 +129,27 @@ def claude_project_files() -> dict[str, str]:
             "projects/starter.json": one("p-3", "Starter", "Learn the basics.", "", starter=True)}
 
 
+def claude_split_export() -> dict[str, bytes]:
+    """The newer export's five zips (placeholder values): memories as one object
+    with Claude's memory-tool files, artifacts in `frames`, account data alone."""
+    memories = {"account_uuid": "acct-1", "conversations_memory": "bob-example works on alpha-project.",
+                "project_memories": {"p-0123456789": "alpha-project stores vectors in sqlite-vec."},
+                "memory_files": [{"path": "/memories/alpha-project.md", "content": "Ships on Friday.",
+                                  "updated_at": "2026-03-02T09:00:00.000000+00:00"},
+                                 {"path": "/memories/empty.md", "content": "  ",
+                                  "updated_at": "2026-03-02T09:00:00.000000+00:00"}]}
+    return {
+        "conversations-000.zip": _zip({"conversations.json": json.dumps(claude_conversations(1))}),
+        "projects-000.zip": _zip(claude_project_files()),
+        "memories-000.zip": _zip({"memories/acct-1.json": json.dumps(memories)}),
+        "frames-000.zip": _zip({"artifacts/a-1/artifact.json": json.dumps({"id": "a-1", "kind": "html"}),
+                                "artifacts/a-1/versions/1-aa.html": "<html><a href='https://example.com'>x</a></html>",
+                                "artifacts/a-2/artifact.json": json.dumps({"id": "a-2", "kind": "html"})}),
+        "light_metadata-000.zip": _zip({"users.json": json.dumps([{"uuid": "u-1"}]),
+                                        "login_history.json": json.dumps({"login_events": []})}),
+    }
+
+
 def chatgpt_loose_files(n: int = 2) -> dict[str, bytes | str]:
     return {"conversations.json": json.dumps(chatgpt_conversations(n)),
             "chat.html": CHAT_HTML,

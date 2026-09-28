@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 
 from _intake_fixtures import (BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
-                              claude_project_files, claude_zip, gemini_activity_html, gemini_takeout_zip)
+                              claude_project_files, claude_split_export, claude_zip, gemini_activity_html, gemini_takeout_zip)
 from api import config
 from api.routers import conversations as conv
 from api.routers import intake
@@ -67,6 +67,32 @@ def test_a_single_project_file_parses_on_its_own():
     name, body = next(iter(claude_project_files().items()))
     parsed = intake.parse_export(body.encode(), name)
     assert parsed.counts == {"projects": 1} and parsed.vendor == "claude"
+
+
+def test_the_split_export_imports_memories_and_names_what_it_skips():
+    zips = claude_split_export()
+    memories = intake.parse_export(zips["memories-000.zip"], "memories-000.zip")
+    titles = sorted(e["title"] for e in memories.episodes)
+    assert titles == ["Claude Memory — /memories/alpha-project.md", "Claude Memory — Conversation Context",
+                      "Claude Memory — Project p-012345"], "an empty memory file is skipped"
+    tool_file = next(e for e in memories.episodes if e["title"].endswith("alpha-project.md"))
+    assert tool_file["source_id"] == "claude-memory:acct-1:/memories/alpha-project.md", "G20: edits land in place"
+    assert tool_file["original_date"] == "2026-03-02"
+
+    frames = intake.parse_export(zips["frames-000.zip"], "frames-000.zip")
+    assert frames.episodes == [] and frames.warnings == []
+    assert [i["name"] for i in frames.ignored] == ["artifacts"] and "2 Claude artifacts" in frames.ignored[0]["reason"]
+
+    account = intake.parse_export(zips["light_metadata-000.zip"], "light_metadata-000.zip")
+    assert sorted(i["name"] for i in account.ignored) == ["login_history.json", "users.json"]
+
+
+def test_a_zip_with_nothing_but_artifacts_is_named_skipped_never_saved_links(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    sniff = intake.sniff_bytes(claude_split_export()["frames-000.zip"], "frames-000.zip", config.get_settings(), None)
+    assert not sniff.recognized and sniff.kind != "saved"
+    assert [i.name for i in sniff.ignored] == ["artifacts"]
 
 
 def test_a_chatgpt_zip_skips_its_known_extras_by_name_and_counts_the_rest():

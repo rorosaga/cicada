@@ -53,6 +53,7 @@ SKIPPED_MEMBERS: dict[str, str] = {
     "message_feedback.json": "ratings you gave replies, not conversations",
     "model_comparisons.json": "model comparisons, not conversations",
     "shared_conversations.json": "links you shared; the chats are in conversations.json",
+    "login_history.json": "your sign-in history, not conversations",
 }
 CHAT_HTML = "chat.html"
 CHAT_HTML_SKIP = "a viewer page with the same chats as conversations.json"
@@ -222,9 +223,11 @@ def _parse_json(content: bytes, base: str) -> ParsedExport:
         data = json.loads(content)
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise HTTPException(400, f"Failed to parse file: {e}")
-    if isinstance(data, dict) and "prompt_template" in data and "uuid" in data:
-        # Claude's newer export writes one project per file (`projects/<name>.json`,
-        # a single object) where the older one wrote a `projects.json` list.
+    if isinstance(data, dict) and (("prompt_template" in data and "uuid" in data)
+                                   or "conversations_memory" in data or "memory_files" in data):
+        # Claude's newer export writes one project per file (`projects/<name>.json`)
+        # and its memories as one object (`memories/<account>.json`), where the
+        # older one wrote a `projects.json` / `memories.json` list.
         data = [data]
     source = conv.detect_source(data, base)
     shape = _JSON_SHAPES.get(source)
@@ -247,6 +250,7 @@ def _parse_zip(content: bytes) -> ParsedExport:
         raise HTTPException(400, f"Invalid zip file: {e}")
     out = ParsedExport()
     others = 0
+    artifacts: set[str] = set()
     for info in sorted(zf.infolist(), key=lambda i: i.filename):
         if info.is_dir():
             continue
@@ -256,6 +260,12 @@ def _parse_zip(content: bytes) -> ParsedExport:
             continue
         if low in SKIPPED_MEMBERS:
             out.ignored.append({"name": base, "reason": SKIPPED_MEMBERS[low]})
+            continue
+        if member.parts[0] == "artifacts" and len(member.parts) > 2:
+            # Claude's `frames` zip: `artifacts/<id>/artifact.json` and each
+            # version's page. Named once, never parsed — a version page is not
+            # a chat, and the saved-links parser would read its links.
+            artifacts.add(member.parts[1])
             continue
         if low == CHAT_HTML:
             out.ignored.append({"name": base, "reason": CHAT_HTML_SKIP})
@@ -290,7 +300,12 @@ def _parse_zip(content: bytes) -> ParsedExport:
             others += 1
             continue
         out.absorb(part)
-    if not out.episodes and not out.members:
+    if artifacts:
+        n = len(artifacts)
+        out.ignored.append({"name": "artifacts",
+                            "reason": f"{n} Claude artifact{'' if n == 1 else 's'} — what Claude made in your chats, "
+                                      "not conversations"})
+    if not out.episodes and not out.members and not out.ignored:
         raise HTTPException(400, EMPTY_ZIP_REASON)
     if others == 1:
         out.warnings.append("1 other file in the zip isn't a conversation (images, attachments, settings).")
