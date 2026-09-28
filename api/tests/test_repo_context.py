@@ -732,3 +732,28 @@ def test_graph_without_repos_key_has_no_repo_nodes(tmp_path):
 
     assert [n for n in resp.nodes if n.type == "repo"] == []
     assert [l for l in resp.links if l.label == "has repo"] == []
+
+
+def test_a_friendly_device_name_or_this_macs_computer_name_is_this_mac(tmp_path, monkeypatch):
+    """Device drift: a page that says `device: Mac`, or names this Mac by its computer
+    name, is observed here — never `other_device` forever."""
+    memory = _init_memory(tmp_path)
+    monkeypatch.setattr(local_refs, "current_device_id", lambda: "mac-a.local")
+    monkeypatch.setattr(local_refs, "this_device_names", lambda: frozenset({"maca", "alexsmacbookpro"}))
+    _write_entity(
+        memory, "alpha-project",
+        {"name": "Alpha", "type": "project", "status": "active", "confidence": 0.9,
+         "repos": [{"path": "~/src/a", "device": "Mac"}, {"path": "~/src/b", "device": "Alex's MacBook Pro"},
+                   {"path": "~/src/c", "device": "MAC-A"}, {"path": "~/src/d", "device": "mac-b"},
+                   {"path": "~/src/e"}]},
+        "A page.",
+    )
+    from api.routers import entities as entities_router
+
+    resp = run(entities_router.get_entity_repos("alpha-project", settings=_Settings(memory)))
+    assert [(r.path, r.on_this_device) for r in resp.repos] == [
+        ("~/src/a", True), ("~/src/b", True), ("~/src/c", True), ("~/src/d", False), ("~/src/e", True)]
+    for decl in ({"path": "/x", "device": "Mac"}, {"path": "/x", "device": "Alex's MacBook Pro"}):
+        assert not repo_context.is_other_device(decl)
+        assert repo_context.parse_snapshot({}, decl, error="missing")["status"] == "missing"
+    assert repo_context.is_other_device({"path": "/x", "device": "mac-b"})

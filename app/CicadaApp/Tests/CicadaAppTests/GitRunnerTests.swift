@@ -167,6 +167,26 @@ final class GitRunnerTests: XCTestCase {
         XCTAssertFalse(calls.all.joined().contains("/Users/example/src/beta"))
     }
 
+    /// Device drift: the backend decides which declarations are this Mac (`device: Mac`, the computer name); the app
+    /// follows its answer and never compares names itself — only an older backend without it falls back.
+    func testTheBackendsOnThisDeviceAnswerWinsOverTheNames() async throws {
+        let calls = Calls()
+        let wire = Data("""
+        {"entity_id": "alpha-project", "this_device": "mac-a.local", "repos": [
+          {"path": "/Users/example/src/a", "device": "Mac", "on_this_device": true},
+          {"path": "/Users/example/src/b", "device": "mac-a.local", "on_this_device": false},
+          {"path": "/Users/example/src/c", "device": "mac-b"}]}
+        """.utf8)
+        let declared = try JSONDecoder().decode(RepoDeclarationList.self, from: wire)
+        XCTAssertEqual(declared.repos.map { $0.isOnThisMac(thisDevice: declared.thisDevice) }, [true, false, false])
+        _ = await GitRunner.observeAll(declared, run: { _, a, _, _ in
+            calls.add(a)
+            return a.contains("--is-inside-work-tree") ? self.out(0, "false\n") : self.out()
+        }, git: "/usr/local/bin/git")
+        XCTAssertEqual(calls.all.count, 1, "git runs only in the repo the backend called this Mac's")
+        XCTAssertTrue(calls.all.joined().contains("/Users/example/src/a"))
+    }
+
     func testTheCardPostsWhatItSawAndRendersTheAnswer() async throws {
         let posted = Calls()
         let answer = try JSONDecoder().decode(RepoContextList.self, from: Data("""

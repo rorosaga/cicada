@@ -254,8 +254,7 @@ def declared_device(decl: dict[str, Any]) -> str | None:
 
 
 def is_other_device(decl: dict[str, Any], this_device: str | None = None) -> bool:
-    device = declared_device(decl)
-    return bool(device) and device != (this_device or local_refs.current_device_id())
+    return not local_refs.is_this_device(declared_device(decl), this_device)
 
 
 def parse_snapshot(
@@ -301,7 +300,7 @@ def parse_snapshot(
             "stale_hint": None,
         }
 
-    if device and device != current:
+    if is_other_device(decl, this_device):
         return degraded("other_device", exists=False)
     if error in RUN_ERRORS:
         return degraded(error, exists=error != "missing")

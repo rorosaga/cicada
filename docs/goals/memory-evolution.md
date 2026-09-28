@@ -570,10 +570,14 @@ in a declared repo — under launchd macOS named "python3.12" in the Files and F
 outputs to `POST /entities/{id}/repos/observed`, parsed by `repo_context.parse_snapshot`; the
 last observation per `(path, device)` is kept in `$CICADA_HOME/repos/<bank>.json` (never in a
 bank) and is what `_state.md` shows (stale past 7 days). The MCP tool still probes live, in
-the harness's process. **Open: device-id drift.** A declaration's `device:` is compared as a
-string with `socket.gethostname()`; a page written with a friendly name (`device: Mac`) or on
-a Mac whose host name later changed reads as `other_device` forever, and nothing remaps it
-(the same gap G92 and G132 name). Real values redacted.
+the harness's process. **Device-id drift — fixed 2026-09-28.** A declaration's `device:` was
+compared as a string with `socket.gethostname()`, so a page written with a friendly name
+(`device: Mac`) or under the computer name read as `other_device` forever. Now every reader goes
+through `local_refs.is_this_device`: no device or a generic word (`Mac`, `this Mac`, `laptop`…)
+is this Mac; otherwise the folded name must be one of this Mac's host, local host or computer
+names (`scutil`). `GET` sends `on_this_device` per repo so the app never compares names; folder
+registrations match folded too. Still open: a Mac *renamed* since the page was written matches
+none of its new names — the same cross-device gap G92 and G132 name. Real values redacted.
 
 ---
 

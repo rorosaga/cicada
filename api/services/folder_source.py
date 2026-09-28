@@ -151,7 +151,10 @@ def register(memory_path: Path, *, label: str, path: str, include=None, exclude=
 def _register_locked(memory_path: Path, *, label: str, path: str, include, exclude, authorship,
                      project_id: str | None, device: str) -> dict:
     folders = list_folders(memory_path)
-    existing = next((f for f in folders if f.get("device") == device and f.get("path") == path), None)
+    from api.services import local_refs
+
+    existing = next((f for f in folders
+                     if local_refs.same_device(f.get("device"), device) and f.get("path") == path), None)
     key = hashlib.sha1(f"{device}\x00{path}".encode()).hexdigest()[:6]
     slug = (sanitize_id(label) or "folder")[:40].strip("-") or "folder"
     record = existing if existing is not None else {"id": f"{slug}-{key}", "created_at": episode_ids.utc_now_iso()}

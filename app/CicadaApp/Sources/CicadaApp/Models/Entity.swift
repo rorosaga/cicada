@@ -558,18 +558,33 @@ struct RepoContext: Codable, Identifiable {
 struct RepoDeclaration: Codable, Equatable, Sendable {
     let path: String
     let device: String?
+    /// The backend's answer (`local_refs.is_this_device`): a friendly `device: Mac` or this Mac's computer name is
+    /// this Mac too. Nil from an older backend, which then falls back to comparing with `this_device`.
+    let onThisDevice: Bool?
 
-    enum CodingKeys: String, CodingKey { case path, device }
+    enum CodingKeys: String, CodingKey {
+        case path, device
+        case onThisDevice = "on_this_device"
+    }
 
-    init(path: String, device: String?) {
+    init(path: String, device: String?, onThisDevice: Bool? = nil) {
         self.path = path
         self.device = device
+        self.onThisDevice = onThisDevice
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
         device = try c.decodeIfPresent(String.self, forKey: .device)
+        onThisDevice = try c.decodeIfPresent(Bool.self, forKey: .onThisDevice)
+    }
+
+    /// Whether git runs here for this repo — never decided by comparing names in the app.
+    func isOnThisMac(thisDevice: String) -> Bool {
+        if let onThisDevice { return onThisDevice }
+        guard let device, !device.isEmpty else { return true }
+        return device == thisDevice
     }
 }
 
