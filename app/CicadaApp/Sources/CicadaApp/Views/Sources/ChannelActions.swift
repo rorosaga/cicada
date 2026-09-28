@@ -103,8 +103,8 @@ enum ChannelActions {
             }
             return try await BrowserImportActions.syncChannel(channelId, store: store)
         case .notes:
-            // Notes syncs server-side: osascript runs where the backend does.
-            let r = try await APIClient.shared.syncNotes()
+            // The app reads Notes and the backend parses the dump (the ~/Library rail).
+            let r = try await AppleNotesReader.syncNow()
             return "\(r.new) new · \(r.skipped) unchanged"
         case .connector:
             return ConnectorSetupState.syncSummary(try await APIClient.shared.syncConnector(channelId))

@@ -89,6 +89,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSCalendarsFullAccessUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory, kept in plain files on this Mac.</string>
   <key>NSCalendarsUsageDescription</key><string>Cicada reads your calendar events so your meetings and plans become part of your memory, kept in plain files on this Mac.</string>
   <key>NSContactsUsageDescription</key><string>Cicada reads your contacts to recognise the people you already talk about — where to look up their details, and their photo. It never adds anyone new, and it stays on this Mac.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Cicada reads your notes in Apple Notes when you sync them, so what you write there becomes part of your memory, kept in plain files on this Mac. It never changes a note.</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

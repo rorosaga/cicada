@@ -61,17 +61,17 @@ PREFIXES = ("/capture/", "/sources/", "/intake/")
 
 @pytest.fixture(autouse=True)
 def _no_local_reader(monkeypatch):
-    """With no body, `/sources/sync-bookmarks` and `/sources/sync-notes` fall
-    back to THIS machine's bookmark files and Notes.app (`sources.py:428,883`).
+    """With no body, `/sources/sync-bookmarks` falls back to THIS machine's
+    bookmark files (`/sources/sync-notes` has no local read since it moved to
+    the app; it answers 422 instead).
     A bodiless call that reaches a handler (this file's red phase, or a gate
     removed on purpose to prove the lint) must fail loudly, never read them."""
-    from api.services import bookmark_sync, notes_sync
+    from api.services import bookmark_sync
 
     def _refuse(*_a, **_k):
         raise AssertionError("a demo-gate test reached a local reader; the gate is missing")
 
     monkeypatch.setattr(bookmark_sync, "sync_from_local_files", _refuse)
-    monkeypatch.setattr(notes_sync, "sync_from_local_notes", _refuse)
 
 
 def _routes() -> dict[tuple[str, str], APIRoute]:
