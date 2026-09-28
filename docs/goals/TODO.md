@@ -6,6 +6,13 @@
 
 ## Where things stand (2026-09-25) — round 4 closed
 
+**2026-09-28 fixes (on `dev`):** #118 drops the owner's paths from the MCP tool description, docs and test
+fixtures (the agent setup prompt was already per-machine); #119 imports Claude projects exported one file per project
+(`projects/<name>.json` — they were counted as attachments and dropped; project `docs` are still not imported); #120
+moves the Apple Notes read into the app (`AppleNotesReader`), so the Automation prompt names Cicada instead of the
+launchd backend's `python3.12`. Not yet seen live: that prompt on a freshly built app. The same rail question stands
+for `/sources/sync-bookmarks`' bodiless fallback, which still reads this Mac's bookmark files from the backend.
+
 **Round 4 is merged (PRs #101–#117, all on `dev`, promoted to `main` on the owner's instruction).** Phase A: the
 per-turn model/effort join (#104/#105), frequency-aware decay G147 (#102), implicit recall G149 (#106), backlogs in
 memory G150 (#107), the clipboard fix (#108), browsers + Safari extras + `SourceRow` (#109), pictures + Clusters + the
