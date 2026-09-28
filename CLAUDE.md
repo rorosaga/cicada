@@ -408,7 +408,8 @@ G134) | `media` (what a video said — a watch record's timed `video [m:ss]:` li
 in the video is derived at read, never stored) | `reasoning` (the contributor's own inference:
 `start == end == -1`, never a faked span); an episode's `evidence_kind: user|assistant` (a folder's
 authorship rule, R-F2) overrides the line markers. One marker grammar, `evidence._marker`, reads
-both line families. One module, `api/services/evidence.py`, does the work for every writer: locate
+both line families, plus the chat importer's `attachment [<file name>]:` turn — the text Claude extracted from an
+upload, every line quoted (`> `) so it can open no turn — which is `page`, never the person's words. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
 becomes `reasoning` and **the claim is still written — provenance never blocks memory**. Legacy
 claims carry no `evidence` and `to_dict` omits the empty key; there is no backfill.
