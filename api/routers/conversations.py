@@ -206,7 +206,7 @@ def detect_source(data, filename: str = "") -> str:
     if not (isinstance(data, list) and data and isinstance(data[0], dict)):
         return "unknown"
     first = data[0]
-    if "conversations_memory" in first:
+    if "conversations_memory" in first or "memory_files" in first:
         return "anthropic_memories"
     if "prompt_template" in first:
         return "anthropic_projects"
@@ -288,7 +288,10 @@ def parse_anthropic_memories(data: list) -> list[dict]:
     """Parse Anthropic memories.json as a bootstrapping source.
 
     Contains Claude's existing memory about the user — free entity seed data.
-    Structure: [{conversations_memory: str, project_memories: {uuid: str, ...}}]
+    Structure: [{conversations_memory: str, project_memories: {uuid: str, ...},
+    memory_files?: [{path, content, updated_at}], account_uuid?}] — the newer
+    export adds ``memory_files``, the files Claude's memory tool keeps. Each is
+    keyed by its path, so a file Claude later edits updates in place (G20).
     """
     episodes: list[dict] = []
 
@@ -324,6 +327,25 @@ def parse_anthropic_memories(data: list) -> list[dict]:
                         "timestamp": entry_ts,
                         "original_date": entry_date,
                     })
+
+        account = entry.get("account_uuid") or ""
+        for memory_file in entry.get("memory_files") or []:
+            if not isinstance(memory_file, dict):
+                continue
+            path = str(memory_file.get("path") or "").strip()
+            content = memory_file.get("content") or ""
+            if not path or not isinstance(content, str) or not content.strip():
+                continue
+            file_ts = _export_entry_timestamp(memory_file) or entry_ts
+            episodes.append({
+                "title": f"Claude Memory — {path}",
+                "source": "claude_memory",
+                "source_id": f"claude-memory:{account}:{path}",
+                "source_updated_at": memory_file.get("updated_at"),
+                "messages": [{"role": "system", "text": content, "timestamp": file_ts}],
+                "timestamp": file_ts,
+                "original_date": _extract_date(file_ts),
+            })
 
     return episodes
 
