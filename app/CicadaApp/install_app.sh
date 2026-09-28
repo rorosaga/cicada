@@ -4,7 +4,7 @@
 #
 # Builds via bundle.sh (never `swift run` — see bundle.sh's own header for
 # why). The install is non-destructive: the new build is staged into a
-# hidden sibling dir, ad-hoc signed, and *verified* there — nothing about
+# hidden sibling dir, signed, and *verified* there — nothing about
 # the currently-installed app is touched while any of that can still fail.
 # Only once the staged build passes `codesign --verify --deep --strict` do
 # we quit a running instance and swap it into place, moving the previous
@@ -12,10 +12,14 @@
 # (and the next run restores it after a hard kill) rather than leave
 # ~/Applications with no working Cicada at all. Uses `ditto`, not
 # `cp -r` (ditto preserves the bundle correctly; cp -r can mangle it).
-# Ad-hoc code-signing (`codesign --force --deep --sign -`) also keeps one
-# stable Launch Services app identity across reinstalls instead of a new,
-# unsigned binary each time — a prerequisite for G91's future share
-# extension, which needs a signed, installed host app.
+# Code-signing also keeps one stable Launch Services app identity across
+# reinstalls instead of a new, unsigned binary each time — a prerequisite for
+# G91's future share extension, which needs a signed, installed host app.
+# The identity comes from sign_identity.sh: CICADA_SIGN_IDENTITY, else a
+# self-signed "Cicada Local" certificate in the keychain, else ad hoc. Only a
+# certificate keeps macOS's privacy grants across rebuilds — an ad-hoc
+# signature is tied to the build's own hash (scripts/dev/README.md, "Keep
+# privacy grants across rebuilds").
 #
 # Usage:
 #   ./install_app.sh                 release build, install, don't launch
@@ -95,9 +99,16 @@ ok "Staged ($CONFIG build)"
 # copy — never on the source tree — is the whole fix.
 xattr -cr "$STAGING" 2>/dev/null || true
 
-step "Ad-hoc code-signing the staged build…"
-if ! codesign --force --deep --sign - "$STAGING"; then
-  err "Code-signing failed on the staged build."
+# shellcheck source=sign_identity.sh
+. ./sign_identity.sh
+cicada_sign_identity
+sign_args=(--force --deep --sign "$SIGN_IDENTITY")
+# A certificate signature would otherwise ask Apple's timestamp server; a
+# local build has no use for a trusted timestamp and must not need the network.
+[ "$SIGN_IDENTITY" = "-" ] || sign_args+=(--timestamp=none)
+step "Code-signing the staged build (${SIGN_LABEL})…"
+if ! codesign "${sign_args[@]}" "$STAGING"; then
+  err "Code-signing failed on the staged build (${SIGN_LABEL})."
   err "The previously installed Cicada.app at $DEST was never touched."
   rm -rf "$STAGING"
   exit 1
@@ -110,7 +121,11 @@ if ! codesign --verify --deep --strict "$STAGING" >/dev/null 2>&1; then
   rm -rf "$STAGING"
   exit 1
 fi
-ok "Signed and verified (ad-hoc — stabilizes the Launch Services identity across reinstalls; not a Gatekeeper-trusted signature)"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  ok "Signed and verified (ad hoc — stabilizes the Launch Services identity across reinstalls; privacy grants are asked again after each rebuild; not a Gatekeeper-trusted signature)"
+else
+  ok "Signed and verified with ${SIGN_LABEL} — privacy grants carry across rebuilds; not a Gatekeeper-trusted signature"
+fi
 
 # --- Replace-while-running, handled deterministically ---
 # Only now — with a verified build ready to install — do we quit a live
@@ -191,6 +206,6 @@ else
   warn "quarantine flag and opens without a prompt. If macOS ever blocks it as 'unidentified"
   warn "developer' (e.g. after it's been zipped/AirDropped/downloaded), right-click Cicada.app"
   warn "in Finder -> Open -> Open, once — that one-time click is the whole trade-off of shipping"
-  warn "unsigned/ad-hoc rather than through notarization."
+  warn "a local signature rather than through notarization."
   echo "  Launch it: open \"$DEST\"  (or find Cicada in ~/Applications / Spotlight)"
 fi
