@@ -294,9 +294,14 @@ struct EntityDetailCard: View {
             // lands via `graphVM.selectedEntity`/`entities`, which is what
             // feeds this view its `entity`.
             await graphVM.loadFullEntity(id: entity.id)
-            // Only location entities have a directory listing to fetch.
-            if entity.type == .location {
-                locationListing = try? await APIClient.shared.fetchLocationListing(id: entity.id)
+            // Location and directory pages declare a folder. The backend names the path only;
+            // the app lists it, so any macOS prompt names Cicada (the ~/Library rail).
+            if Self.listsFolder(entity.type) {
+                let declared = (try? await APIClient.shared.fetchLocationListing(id: entity.id))?.path ?? entity.path
+                if let declared, !declared.isEmpty {
+                    let listing = await LocationLister.list(declared)
+                    if !Task.isCancelled { locationListing = listing }
+                }
             }
             // Only project/directory entities carry a `repos:` frontmatter key.
             if entity.type == .project || entity.type == .directory {
@@ -334,7 +339,7 @@ struct EntityDetailCard: View {
                 }
                 if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
             }
-            if entity.type == .location { locationSection }
+            if Self.listsFolder(entity.type) { locationSection }
             if !repoContexts.isEmpty { repositorySection }
             if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
                 WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
@@ -399,9 +404,15 @@ struct EntityDetailCard: View {
 
     // MARK: - Location Section (issue #7)
     //
-    // For `.location` entities, shows the declared directory path (monospace,
-    // copyable) and a bounded listing of its immediate children. Degrades
-    // quietly: no path / inaccessible / endpoint absent → renders nothing.
+    // For `.location` and `.directory` entities, shows the declared directory path
+    // (monospace, copyable) and a bounded listing of its immediate children, read by
+    // `LocationLister` on this Mac. Degrades quietly: no path → renders nothing; a
+    // folder macOS will not let Cicada read says where to allow it.
+
+    /// The page types that declare a folder (G18: `directory`; `location` for legacy graphs).
+    static func listsFolder(_ type: EntityType) -> Bool {
+        type == .location || type == .directory
+    }
 
     @ViewBuilder
     private var locationSection: some View {
@@ -436,12 +447,11 @@ struct EntityDetailCard: View {
     private var locationContents: some View {
         if let listing = locationListing {
             if !listing.exists {
-                locationNote("Directory not found.", icon: "questionmark.folder")
+                locationNote(Copy.Graph.folderNotFound, icon: "questionmark.folder")
             } else if !listing.accessible {
-                locationNote("Permission denied — can't list this directory.",
-                             icon: "lock")
+                locationNote(Copy.Graph.folderNotAllowed, icon: "lock")
             } else if listing.entries.isEmpty {
-                locationNote("Empty directory.", icon: "tray")
+                locationNote(Copy.Graph.folderEmpty, icon: "tray")
             } else {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(listing.entries) { entry in
@@ -466,7 +476,7 @@ struct EntityDetailCard: View {
                         .padding(.vertical, 2)
                     }
                     if listing.truncated {
-                        Text("…listing truncated")
+                        Text(Copy.Graph.folderTruncated)
                             .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .padding(.top, 2)

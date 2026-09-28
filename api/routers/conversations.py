@@ -161,6 +161,11 @@ async def resume_conversation(
 
     No transcript is opened. Nothing about the transcript beyond "it exists"
     influences the response.
+
+    ``cwd`` is the conversation's recorded folder when it is absolute (or
+    ``~``-rooted) and passes ``CWD_SAFE_RE``; the backend never stats it. The
+    app's terminal enters it, so macOS names the terminal, and a folder that
+    has since vanished fails visibly there.
     """
     conversation_id = (conversation_id or "").strip()
     if not session_stats.is_uuid(conversation_id):
@@ -181,7 +186,6 @@ async def resume_conversation(
         project_dir
         and (project_dir.startswith("/") or project_dir.startswith("~"))
         and CWD_SAFE_RE.match(project_dir)
-        and Path(project_dir).expanduser().is_dir()
     ):
         cwd = project_dir
 

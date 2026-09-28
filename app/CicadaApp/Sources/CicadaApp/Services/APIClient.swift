@@ -1301,11 +1301,11 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff")
     }
 
-    /// `GET /entities/{id}/location` (issue #7) — the directory a location
-    /// entity declares in its frontmatter, plus a bounded listing of immediate
-    /// children. Returns `nil` on a 404 (endpoint not shipped yet) or any other
-    /// error so the detail card degrades quietly to just the description. The
-    /// backend reads ONLY the entity's own declared path — never a request path.
+    /// `GET /entities/{id}/location` (issue #7) — the directory a location or
+    /// directory entity declares (frontmatter `path:`, else a path in its body).
+    /// Only `path` is filled: the backend never touches the folder, and
+    /// `LocationLister` lists it on this Mac. Returns `nil` on a 404 so the
+    /// detail card degrades quietly to just the description.
     func fetchLocationListing(id: String) async throws -> LocationListing? {
         do {
             return try await get("/entities/\(encodedID(id))/location")

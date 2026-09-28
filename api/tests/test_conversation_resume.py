@@ -6,6 +6,8 @@ Hermetic: a tmp_path bank plus an injected `transcript_exists`. The real
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -93,12 +95,38 @@ def test_a_cwd_failing_the_charset_gate_is_omitted(client):
     assert body["argv"] == ["claude", "--resume", UUID_A]
 
 
-def test_a_cwd_that_no_longer_exists_is_omitted(client):
+def test_a_cwd_that_no_longer_exists_is_still_returned(client):
+    """The backend never stats the folder: the terminal enters it, so macOS
+    names the terminal, and a vanished folder fails visibly there."""
     c, memory = client
-    _episode(memory, "ep_1", session_id=UUID_A, project_dir=str(memory / "gone"))
+    gone = str(memory / "gone")
+    _episode(memory, "ep_1", session_id=UUID_A, project_dir=gone)
     bank_index.invalidate()
 
-    assert c.post(f"/conversations/{UUID_A}/resume").json()["cwd"] is None
+    assert c.post(f"/conversations/{UUID_A}/resume").json()["cwd"] == gone
+
+
+def test_resume_never_touches_the_folder(client, monkeypatch):
+    c, memory = client
+    folder = "/Users/example/src/alpha-project"
+    _episode(memory, "ep_1", session_id=UUID_A, project_dir=folder)
+    bank_index.invalidate()
+
+    real = {name: getattr(Path, name) for name in ("is_dir", "exists", "resolve", "stat")}
+
+    def _guard(name):
+        def probe(self, *args, **kwargs):
+            if str(self).startswith(folder) or str(self).startswith("/Users/example"):
+                raise AssertionError(f"the backend touched a declared folder: {name}")
+            return real[name](self, *args, **kwargs)
+        return probe
+
+    for name in real:
+        monkeypatch.setattr(Path, name, _guard(name))
+
+    resp = c.post(f"/conversations/{UUID_A}/resume")
+    assert resp.status_code == 200
+    assert resp.json()["cwd"] == folder
 
 
 def test_a_relative_cwd_is_refused(client):

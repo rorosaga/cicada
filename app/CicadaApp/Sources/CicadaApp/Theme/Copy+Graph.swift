@@ -67,6 +67,10 @@ extension Copy.Graph {
     static let copyMarkdown = "Copy markdown"
     static let copyPath = "Copy path"
     static let folder = "Folder"
+    static let folderNotFound = "This folder isn't on this Mac."
+    static let folderNotAllowed = "Cicada isn't allowed to read this folder. Allow it in System Settings → Privacy & Security → Files and Folders → Cicada, then open this page again."
+    static let folderEmpty = "Empty folder."
+    static let folderTruncated = "…listing truncated"
     static let repository = "Repository"
     static let repositories = "Repositories"
     static func changedFiles(_ n: Int) -> String { "\(UsageFormat.count(n)) changed \(n == 1 ? "file" : "files")" }

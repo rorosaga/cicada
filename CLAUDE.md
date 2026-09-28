@@ -152,7 +152,9 @@ Seven rails hold across all of them:
   (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
-  route stats a path the request names.
+  route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
+  returns the path and the app lists it (`LocationLister`), and Resume's folder is entered by the terminal — the
+  backend never stats either.
   A browser is read only after the person turned it on — a Sync now, an all-folders import, or
   onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
   before this gate keeps syncing (Track I T1). Browsers (round 4, C9): Chrome, Safari, Brave,
