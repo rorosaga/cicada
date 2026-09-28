@@ -808,7 +808,7 @@ struct AddSourceSheet: View {
     private func syncNotes() async {
         busy = true
         do {
-            let r = try await APIClient.shared.syncNotes()
+            let r = try await AppleNotesReader.syncNow()
             await finish("\(r.new) new · \(r.skipped) unchanged")
         } catch { fail(error) }
     }

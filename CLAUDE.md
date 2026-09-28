@@ -148,6 +148,9 @@ Seven rails hold across all of them:
 
 - **The app reads `~/Library`, the backend parses bytes.** The launchd backend has no Full Disk
   Access and must never open those paths itself. An unreadable file shows the exact fix in the app.
+  Apple Notes is the same: the app runs the AppleScript as its own child `osascript`
+  (`AppleNotesReader`, `NSAppleEventsUsageDescription`) and posts the dump to `POST /sources/sync-notes`,
+  which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
   A browser is read only after the person turned it on — a Sync now, an all-folders import, or
   onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
   before this gate keeps syncing (Track I T1). Browsers (round 4, C9): Chrome, Safari, Brave,

@@ -1767,14 +1767,12 @@ actor APIClient {
         return try await post("/sources/sync-safari-tabs", body: body)
     }
 
-    /// One-way Apple Notes sync (`POST /sources/sync-notes`). Mirrors
-    /// `syncBookmarks()` — keyless, reads local Notes via AppleScript/osascript
-    /// (no login, no OAuth). The first call triggers a macOS automation
-    /// permission prompt for Notes; the Capture page's "Sync Notes now" action
-    /// calls this with no arguments.
+    /// One-way Apple Notes sync (`POST /sources/sync-notes`): the dump the APP read
+    /// (`AppleNotesReader`, the `~/Library` rail), parsed and staged by the backend,
+    /// which never runs `osascript` itself.
     @discardableResult
-    func syncNotes() async throws -> NoteSyncResult {
-        return try await post("/sources/sync-notes")
+    func syncNotes(dump: String) async throws -> NoteSyncResult {
+        return try await post("/sources/sync-notes", body: ["notesDump": dump])
     }
 
     // MARK: - Local sources (G133 / G134)

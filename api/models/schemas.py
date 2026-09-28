@@ -2903,10 +2903,9 @@ class MaintenanceEnrichLinksResponse(CamelModel):
 
 
 class NotesSyncRequest(CamelModel):
-    # The raw delimited osascript dump (what tests and a future companion-app
-    # path use), mirroring BookmarkSyncRequest's inline-data shape. Omitted
-    # entirely -> the endpoint falls back to a real local osascript enumeration.
-    notes_dump: Optional[str] = None
+    # The raw delimited dump the companion app read from Notes.app
+    # (`AppleNotesReader.swift`). Required: the backend never runs osascript.
+    notes_dump: str
 
 
 class NotesSyncResponse(CamelModel):

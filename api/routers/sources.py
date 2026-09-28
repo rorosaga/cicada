@@ -927,16 +927,13 @@ async def poll_calendars(settings: Settings = Depends(get_settings)):
 
 @router.post("/sources/sync-notes", response_model=NotesSyncResponse, dependencies=_DEMO_GATE)
 async def sync_notes(
-    request: NotesSyncRequest | None = None,
+    request: NotesSyncRequest,
     settings: Settings = Depends(get_settings),
 ):
-    """Keyless Apple Notes sync: enumerate local Notes via ``osascript`` and
-    write an episode for every new or modified note.
-
-    Body is optional. Pass an inline ``notesDump`` (the raw delimited dump —
-    what tests and a future companion-app path use) to sync against that data
-    hermetically. Omit the body to read the real local Notes.app via
-    ``osascript`` instead — never exercised in tests.
+    """Keyless Apple Notes sync: parse the dump the app read from Notes.app
+    (``notesDump``) and write an episode for every new or modified note. The
+    backend never reads Notes itself — the ``~/Library`` rail — so a request
+    without a dump is a 422, never a local read.
 
     Dedup/re-emit is entirely ``memory/sources/notes_index.json`` (keyed on
     note id, last-seen modification date): unchanged notes are skipped,
@@ -944,10 +941,7 @@ async def sync_notes(
     """
     memory_path = settings.memory_path
 
-    if request is not None and request.notes_dump is not None:
-        result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
-    else:
-        result = await notes_sync.sync_from_local_notes(memory_path)
+    result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
 
     sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0))
 
