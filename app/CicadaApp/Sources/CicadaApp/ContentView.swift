@@ -50,6 +50,7 @@ struct ContentView: View {
     @Environment(ProvenanceCache.self) private var provenanceCache
     @Environment(ProjectsCache.self) private var projectsCache
     @Environment(BacklogCache.self) private var backlogCache
+    @Environment(ChannelItemsCache.self) private var channelItemsCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -89,12 +90,14 @@ struct ContentView: View {
         // Reader and forgets every cached document rather than show another
         // bank's conversation under this one.
         // R-DI19 — and the Inbox's open question and tab go with it: ids repeat across banks — and the Projects
-        // cache: project ids repeat across banks (R-PP3) — and the backlog's: item ids repeat across banks (R-B18).
+        // cache: project ids repeat across banks (R-PP3) — and the backlog's: item ids repeat across banks (R-B18) —
+        // and what each source brought in (G161): episode and page ids repeat across banks too.
         .onChange(of: store.bank) { _, _ in
             provenance.close()
             provenanceCache.reset()
             projectsCache.reset()
             backlogCache.reset()
+            channelItemsCache.reset()
             inboxVM.resetColumns()
         }
         // A cached hover preview has no validator, so any change to the

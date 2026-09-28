@@ -263,6 +263,7 @@ struct ImportSourceRow: View {
 
     @Environment(SyncActivity.self) private var activity
     @Environment(BrowserWatcher.self) private var watcher
+    @Environment(Store.self) private var store
 
     var body: some View {
         let control = ImportRows.control(entry, phase: snapshot?.phase)
@@ -305,6 +306,22 @@ struct ImportSourceRow: View {
                 Text(Copy.importNeedsAccess).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // G161 — which ones came in, by name, once something did. A preview here: a Reader opened from the
+            // onboarding layer would sit hidden under it, so the rows open nothing.
+            if let channel = ImportRows.capturedChannel(entry, channels: store.channels.value ?? []) {
+                CapturedItemsList(channel: channel, interactive: false)
+                    .padding(.leading, CicadaTheme.scaled(28))
+            }
         }
+    }
+}
+
+extension ImportRows {
+    /// G161 — the channel whose list sits under an Import row: a row with a channel (a browser or an app source) that
+    /// has brought something in. Nothing is listed before a tick (R-IB12) — a zero count lists nothing.
+    static func capturedChannel(_ entry: ImportEntry, channels: [SourceChannel]) -> String? {
+        guard let id = GettingStartedSourceRows.channelId(entry.id),
+              let channel = channels.first(where: { $0.id == id }), channel.count > 0 else { return nil }
+        return id
     }
 }

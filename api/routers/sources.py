@@ -36,6 +36,7 @@ from api.services import (
     agent_commits,
     bookmark_sync,
     calendar_registry,
+    channel_items,
     channel_registry,
     feed_registry,
     media_ingestor,
@@ -808,6 +809,39 @@ async def list_source_channels(
         connectors_connected=connectors_connected,
     )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
+
+
+@router.get("/sources/channels/{channel_id}/items")
+async def list_channel_items(
+    channel_id: str,
+    request: Request,
+    response: Response,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(channel_items.LIMIT_DEFAULT, ge=1, le=channel_items.LIMIT_MAX),
+    settings: Settings = Depends(get_settings),
+):
+    """What a channel brought in, by name (G161): each item's title and day, newest first, a page at a time.
+
+    Derived at read from the set the row's count means (`channel_items`' docstring names it per channel) —
+    titles only, never a body; for Contacts, the matched page's name only. Engine-free and read-only, and NOT a
+    Store domain: the app keeps each page in memory and revalidates it with this ETag, like provenance. The
+    ETag rides `sources` (the notes index, the bookmark seen-set and the url index live there), `episodes` and
+    `entities`, plus the shape, the channel and the page asked for.
+    """
+    memory_path = settings.memory_path
+    if not channel_items.known(memory_path, channel_id):
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    etag = sync_service.etag_for(
+        memory_path, "sources", "episodes", "entities",
+        extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
+    page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    return page
 
 
 # --- Feed subscriptions (registry + poll) -----------------------------------

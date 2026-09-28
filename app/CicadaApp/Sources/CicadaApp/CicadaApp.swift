@@ -47,6 +47,8 @@ struct CicadaApp: App {
     @State private var projectsCache = ProjectsCache()
     /// G150 (R-B18) — the Backlog section's in-memory cache; app-level for ProjectsCache's reason.
     @State private var backlogCache = BacklogCache()
+    /// G161 — what each source brought in, by name; app-level for ProjectsCache's reason, never a Store domain.
+    @State private var channelItemsCache = ChannelItemsCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -188,6 +190,7 @@ struct CicadaApp: App {
                 .environment(provenanceCache)
                 .environment(projectsCache)
                 .environment(backlogCache)
+                .environment(channelItemsCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
