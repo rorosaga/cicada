@@ -92,7 +92,7 @@ extension ExcerptText {
 enum MarkupScan {
     /// The writers' turn markers (`evidence._TURN_RE` and `_SPEAKER_RE`), plus the one space after.
     private static let roleMarker = try? NSRegularExpression(
-        pattern: #"^(?:(?:user|human|assistant|ai|system|unknown)\s*:|speaker:[^:\n]{1,64}:|(?:video|media)\s*\[\d{1,2}(?::\d{2}){1,2}\]\s*:) ?"#,
+        pattern: #"^(?:(?:user|human|assistant|ai|system|unknown)\s*:|speaker:[^:\n]{1,64}:|(?:video|media)\s*\[\d{1,2}(?::\d{2}){1,2}\]\s*:|attachment\s*\[[^\]\n]{1,128}\]\s*:) ?"#,
         options: [.caseInsensitive])
 
     static func roleMarkerLength(_ s: [Unicode.Scalar], _ from: Int, _ end: Int) -> Int? {

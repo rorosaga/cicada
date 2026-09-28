@@ -28,6 +28,8 @@ final class QuoteMarkupTests: XCTestCase {
         XCTAssertEqual(strip("user: moved it\nassistant: Noted."), "moved it\nNoted.")
         XCTAssertEqual(strip("speaker:Bob Example: we ship Friday"), "we ship Friday")
         XCTAssertEqual(strip("video [1:05]: the arm moves"), "the arm moves")
+        XCTAssertEqual(strip("attachment [alpha-plan.pdf]: > ships Friday"), "ships Friday",
+                       "an uploaded file's label and its quote marker are markup")
     }
 
     /// The labels are the writers' own (`evidence._TURN_RE`) — pinned to the one list the app keeps of them.

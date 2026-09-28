@@ -86,6 +86,11 @@ _ASSISTANT_ROLES = frozenset({"assistant", "ai"})
 # note-taker adapters (`wispr_flow.speaker_marker`). It is someone other than
 # the owner — never `user`, and not `assistant` either (a colleague is not a model).
 _SPEAKER_RE = re.compile(r"^speaker:[^:\n]{1,64}:")
+# The text Claude extracted from a file the person uploaded, written by the
+# chat importer as `attachment [<file name>]:` with every line of the document
+# quoted (`> `), so nothing inside it can open a turn. It is `page` evidence —
+# the document's words, never the person's (a pasted contract is not "You said").
+_ATTACHMENT_RE = re.compile(r"^attachment\s*\[[^\]\n]{1,128}\]\s*:", re.IGNORECASE)
 # R-F2 / R-LS7: an episode may declare whose words it holds (a folder file's
 # authorship). Only these two values are honoured; anything else falls back to markers.
 OVERRIDE_KINDS = frozenset({"user", "assistant"})
@@ -217,6 +222,9 @@ def _marker(line: str) -> tuple[str, str, int, str | None] | None:
     m = _SPEAKER_RE.match(line)
     if m:
         return "speaker", m.group(0)[:-1], m.end(), None
+    m = _ATTACHMENT_RE.match(line)
+    if m:
+        return "page", m.group(0)[:-1].rstrip(), m.end(), None
     m = _TURN_RE.match(line)
     if m:
         if m.group(2):

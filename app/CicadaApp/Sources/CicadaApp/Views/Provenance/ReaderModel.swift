@@ -59,6 +59,15 @@ enum EvidenceSpeaker {
     /// Reader is allowed to be more precise about what the line actually was.
     /// A meeting speaker is never "You" (R-N2): with no confirmed name it is
     /// "Someone else".
+    /// The file name inside an `attachment [<name>]` marker (the server sends the marker as written, as it does a
+    /// `speaker:<label>`); nil for any other marker.
+    static func attachmentName(_ marker: String?) -> String? {
+        guard let marker, marker.lowercased().hasPrefix("attachment"),
+              let open = marker.firstIndex(of: "["), let close = marker.lastIndex(of: "]"), open < close else { return nil }
+        let name = marker[marker.index(after: open)..<close].trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
     static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?) -> String {
         switch turn.role {
         case "assistant":
@@ -69,7 +78,7 @@ enum EvidenceSpeaker {
                                         harness: nil, model: turn.model, effort: turn.effort)
                 ?? Copy.Provenance.theAgent
         case "page":
-            return ""
+            return attachmentName(turn.marker).map(Copy.Provenance.attached) ?? ""
         case "speaker":
             return named(turn.speaker) ?? Copy.Provenance.someoneElse
         default:

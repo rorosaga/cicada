@@ -220,6 +220,34 @@ def detect_source(data, filename: str = "") -> str:
 # --- Anthropic / Claude Export ---
 
 
+#: Per attached file, like ``notes_sync.MAX_NOTE_BODY_CHARS``: an episode is a
+#: staging chunk, and Sleep needs what the document is about, not all of it.
+MAX_ATTACHMENT_CHARS = 20_000
+
+
+def _attachment_turns(msg: dict) -> list[dict]:
+    """The text Claude extracted from each file uploaded with ``msg``
+    (``attachments[].extracted_content``), one ``attachment [<name>]`` turn per
+    file — ``page`` evidence (``evidence._ATTACHMENT_RE``), never the person's
+    words. Every line is quoted so the document can never forge a ``user:`` or
+    ``assistant:`` turn. Images carry no text in the export (``files[]`` holds
+    names only) and are skipped."""
+    turns: list[dict] = []
+    for attachment in msg.get("attachments") or []:
+        if not isinstance(attachment, dict):
+            continue
+        text = attachment.get("extracted_content")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        name = re.sub(r"[\[\]\r\n]+", " ", str(attachment.get("file_name") or "")).strip()[:128] or "attachment"
+        body = text.strip()
+        if len(body) > MAX_ATTACHMENT_CHARS:
+            body = body[:MAX_ATTACHMENT_CHARS].rstrip() + "\n[truncated]"
+        quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in body.splitlines())
+        turns.append({"role": f"attachment [{name}]", "text": "\n" + quoted, "timestamp": None})
+    return turns
+
+
 def parse_anthropic_conversations(data: list) -> list[dict]:
     """Parse Anthropic conversations.json export.
 
@@ -251,14 +279,17 @@ def parse_anthropic_conversations(data: list) -> list[dict]:
                     if block.get("type") == "text" and block.get("text"):
                         text = block["text"]
                         break
-            if not text or not text.strip():
+            attached = _attachment_turns(msg) if role == "user" else []
+            if (not text or not text.strip()) and not attached:
                 continue
 
-            parsed_msgs.append({
-                "role": role,
-                "text": text.strip(),
-                "timestamp": msg.get("created_at"),
-            })
+            if text and text.strip():
+                parsed_msgs.append({
+                    "role": role,
+                    "text": text.strip(),
+                    "timestamp": msg.get("created_at"),
+                })
+            parsed_msgs.extend(attached)
 
         if not parsed_msgs:
             continue
