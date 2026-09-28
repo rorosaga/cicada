@@ -18,14 +18,28 @@
 # Usage: scripts/install-backend-agent.sh [--dry-run]
 # Env (defaults are the real locations):
 #   CICADA_REPO          repo root         (default: this script's parent dir)
-#   CICADA_MEMORY_PATH   memory dir        (default: ~/cicada/memory)
+#   CICADA_MEMORY_PATH   memory dir        (default: api/.env's CICADA_MEMORY_PATH, else ~/cicada/memory)
 #   LAUNCH_AGENTS_DIR    LaunchAgents dir  (default: ~/Library/LaunchAgents)
 #   CICADA_PORT          port              (default: 8000)
 # Exit: 0 installed · 2 bad flag · 3 no Python environment · 4 launchd refused
 set -euo pipefail
 
 REPO="${CICADA_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-MEMORY_PATH="${CICADA_MEMORY_PATH:-$HOME/cicada/memory}"
+# The plist's own CICADA_MEMORY_PATH wins over api/.env at runtime, so an unset
+# variable must fall back to what api/.env says before the default: the app's
+# Install runs this with no environment, and a person whose memory lives
+# elsewhere got an empty ~/cicada/memory served instead of their bank.
+env_file_memory() {
+  local line
+  [ -f "$REPO/api/.env" ] || return 0
+  line=$(grep -E '^CICADA_MEMORY_PATH=' "$REPO/api/.env" | tail -n1 || true)
+  line="${line#CICADA_MEMORY_PATH=}"
+  line="${line%\"}"; line="${line#\"}"; line="${line%\'}"; line="${line#\'}"
+  case "$line" in "~") line="$HOME" ;; "~/"*) line="$HOME/${line#\~/}" ;; esac
+  printf '%s' "$line"
+}
+MEMORY_PATH="${CICADA_MEMORY_PATH:-$(env_file_memory)}"
+MEMORY_PATH="${MEMORY_PATH:-$HOME/cicada/memory}"
 LAUNCH_AGENTS_DIR="${LAUNCH_AGENTS_DIR:-$HOME/Library/LaunchAgents}"
 PORT="${CICADA_PORT:-8000}"
 VENV_PY="$REPO/api/.venv/bin/python"
