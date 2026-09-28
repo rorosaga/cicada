@@ -119,9 +119,9 @@ def test_location_endpoint_accepts_directory_type(tmp_path):
             self.memory_path = p
 
     resp = run(entities_router.get_entity_location("src-dir", settings=_Settings(repo)))
-    assert resp.exists is True
-    names = {e.name for e in resp.entries}
-    assert "a.txt" in names
+    # The path only: the app lists the folder, the backend never touches it.
+    assert resp.path == str(target)
+    assert resp.entries == []
 
 
 def test_location_endpoint_still_accepts_legacy_location_type(tmp_path):
@@ -145,7 +145,7 @@ def test_location_endpoint_still_accepts_legacy_location_type(tmp_path):
             self.memory_path = p
 
     resp = run(entities_router.get_entity_location("legacy-loc", settings=_Settings(repo)))
-    assert resp.exists is True
+    assert resp.path == str(target)
 
 
 def test_location_endpoint_rejects_unrelated_type(tmp_path):

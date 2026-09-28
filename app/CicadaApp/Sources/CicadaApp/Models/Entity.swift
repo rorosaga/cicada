@@ -360,8 +360,8 @@ struct ContributorCommitsResponse: Codable {
 
 // MARK: - Location listing (issue #7)
 
-/// One immediate child of a location entity's declared directory path. The
-/// backend returns names + is-dir + size ONLY — never file contents.
+/// One immediate child of a location entity's declared directory path.
+/// `LocationLister` reads names + is-dir + size ONLY — never file contents.
 struct LocationEntry: Codable, Identifiable, Hashable {
     let name: String
     let isDir: Bool
@@ -371,6 +371,12 @@ struct LocationEntry: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey { case name, isDir, size }
 
+    init(name: String, isDir: Bool, size: Int) {
+        self.name = name
+        self.isDir = isDir
+        self.size = size
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -379,10 +385,12 @@ struct LocationEntry: Codable, Identifiable, Hashable {
     }
 }
 
-/// `GET /entities/{id}/location` — the directory a location entity references,
-/// plus a bounded listing of its immediate children. `exists`/`accessible`
-/// degrade gracefully (path missing or permission denied → empty entries).
-struct LocationListing: Codable {
+/// The directory a location entity references, plus a bounded listing of its
+/// immediate children. `GET /entities/{id}/location` fills only `path` — the
+/// backend never touches the folder — and `LocationLister` fills the rest on
+/// this Mac. `exists`/`accessible` degrade gracefully (path missing or
+/// permission denied → empty entries).
+struct LocationListing: Codable, Equatable {
     let path: String?
     let exists: Bool
     let accessible: Bool
@@ -391,6 +399,14 @@ struct LocationListing: Codable {
 
     enum CodingKeys: String, CodingKey {
         case path, exists, accessible, truncated, entries
+    }
+
+    init(path: String?, exists: Bool, accessible: Bool, truncated: Bool, entries: [LocationEntry]) {
+        self.path = path
+        self.exists = exists
+        self.accessible = accessible
+        self.truncated = truncated
+        self.entries = entries
     }
 
     init(from decoder: Decoder) throws {

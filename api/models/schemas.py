@@ -624,14 +624,14 @@ class LocationEntry(CamelModel):
 
 
 class LocationListing(CamelModel):
-    """Safe immediate-children listing for a ``type: location`` entity.
+    """The folder a ``directory``/``location`` entity declares.
 
     The ``path`` is read from the entity itself (frontmatter ``path:`` if present,
-    else a path detected in the body) — never from the request — so there is no
-    arbitrary-path traversal. ``exists``/``accessible`` degrade gracefully:
-    a missing path → ``exists=False``; a permission error → ``accessible=False``;
-    both still 200 with empty ``entries``. ``truncated`` is set when the child
-    count exceeds the bound and the list was clipped.
+    else a path detected in the body) — never from the request. The backend fills
+    ``path`` only and never touches the folder; the app lists it
+    (``LocationLister``) into this same shape: a missing path → ``exists=False``;
+    a permission error → ``accessible=False``; ``truncated`` when the child count
+    exceeds the bound and the list was clipped.
     """
 
     path: Optional[str] = None

@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import os
 import re
 from datetime import date
 from pathlib import Path
@@ -25,7 +24,6 @@ from api.models.schemas import (
     EntitySource,
     EntitySourceCreate,
     EntitySourceList,
-    LocationEntry,
     LocationListing,
     PaperDetailResponse,
     PictureInputsModel,
@@ -417,10 +415,6 @@ async def update_entity_decay(
     return await get_entity(entity_id, settings=settings)
 
 
-# Bound on the number of immediate children returned, so a huge directory can
-# never produce an unbounded payload.
-LOCATION_MAX_ENTRIES = 200
-
 # Detect an absolute filesystem path inside a location entity's body when no
 # ``path:`` frontmatter key is present (TODO: Sleep should extract this into
 # frontmatter — see ``get_entity_location``). POSIX-only, anchored at a slash
@@ -449,15 +443,16 @@ async def get_entity_location(
     entity_id: str,
     settings: Settings = Depends(get_settings),
 ):
-    """Safe immediate-children listing for a ``type: location`` entity.
+    """The folder a ``directory`` or ``location`` page declares — the path only.
 
-    Security model: the only path ever used is the one the ENTITY ITSELF declares
-    (frontmatter ``path:`` if present, else a path detected in the body) — never a
-    path supplied by the request — so there is no arbitrary-path traversal. Lists
-    immediate children only (``os.scandir``, depth 1), reports name/isDir/size
-    (stat metadata only, never file contents), bounds the count at
-    ``LOCATION_MAX_ENTRIES``, and degrades gracefully: missing path →
-    ``exists=False``; permission error → ``accessible=False``; both still 200.
+    The path is the one the ENTITY ITSELF declares (frontmatter ``path:`` if
+    present, else a path detected in the body), never one the request names.
+    The backend never touches it: no ``resolve``, ``stat``, ``is_dir`` or
+    listing. The app lists the folder itself (``LocationLister``), so a macOS
+    privacy prompt names Cicada, not the launchd backend's interpreter (the
+    ``~/Library`` rail: the app reads the person's Mac, the backend parses).
+    The envelope keeps ``exists``/``accessible``/``entries`` at their defaults;
+    they are the app's to fill.
 
     TODO (Sleep): the entity extractor should write a ``path:`` key into
     ``type: location`` frontmatter when a description names a directory, so this
@@ -475,54 +470,7 @@ async def get_entity_location(
     if str(fm.get("type", "")).lower() not in ("directory", "location"):
         raise HTTPException(400, f"Entity {entity_id} is not a directory or location")
 
-    declared = _detect_location_path(fm, parsed.body)
-    if not declared:
-        return LocationListing(path=None, exists=False, entries=[])
-
-    resolved = Path(os.path.expanduser(declared)).resolve()
-    if not resolved.is_dir():
-        # Missing, or points at a file rather than a listable directory.
-        return LocationListing(path=declared, exists=False, entries=[])
-
-    entries: list[LocationEntry] = []
-    truncated = False
-    try:
-        with os.scandir(resolved) as it:
-            raw = list(it)
-    except PermissionError:
-        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
-    except OSError:
-        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
-
-    # Sort dirs-first, then by name (case-insensitive) for stable display.
-    def _sort_key(d: os.DirEntry) -> tuple:
-        try:
-            is_dir = d.is_dir(follow_symlinks=False)
-        except OSError:
-            is_dir = False
-        return (0 if is_dir else 1, d.name.lower())
-
-    raw.sort(key=_sort_key)
-    if len(raw) > LOCATION_MAX_ENTRIES:
-        truncated = True
-        raw = raw[:LOCATION_MAX_ENTRIES]
-
-    for d in raw:
-        try:
-            is_dir = d.is_dir(follow_symlinks=False)
-        except OSError:
-            is_dir = False
-        size = 0
-        if not is_dir:
-            try:
-                size = d.stat(follow_symlinks=False).st_size
-            except OSError:
-                size = 0
-        entries.append(LocationEntry(name=d.name, is_dir=is_dir, size=size))
-
-    return LocationListing(
-        path=declared, exists=True, accessible=True, truncated=truncated, entries=entries
-    )
+    return LocationListing(path=_detect_location_path(fm, parsed.body))
 
 
 @router.get("/entities/{entity_id}/repos", response_model=RepoContextList)
