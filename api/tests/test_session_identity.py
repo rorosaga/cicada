@@ -18,11 +18,11 @@ server = stdio_server()
 def test_claude_code_env_wins_and_carries_the_project_dir():
     ident = server.resolve_session_identity({
         "CLAUDE_CODE_SESSION_ID": "0f8f1c2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b",
-        "CLAUDE_PROJECT_DIR": "/Users/x/Documents/roros_lab/cicada",
+        "CLAUDE_PROJECT_DIR": "/Users/x/Documents/my_lab/cicada",
     })
     assert ident.session_id == "0f8f1c2a-4b5d-4e6f-8a9b-0c1d2e3f4a5b"
     assert ident.harness == "claude-code"
-    assert ident.project_dir == "/Users/x/Documents/roros_lab/cicada"
+    assert ident.project_dir == "/Users/x/Documents/my_lab/cicada"
 
 
 def test_a_non_uuid_claude_session_id_is_refused_and_falls_through():

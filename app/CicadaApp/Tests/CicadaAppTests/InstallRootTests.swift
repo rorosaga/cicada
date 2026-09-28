@@ -111,9 +111,9 @@ final class InstallRootTests: XCTestCase {
         let root = BackendProcess.installRoot(
             bundlePath: installedBundlePath,
             stampedRepoRoot: nil,
-            homeDirectory: URL(fileURLWithPath: "/Users/rorosaga"),
+            homeDirectory: URL(fileURLWithPath: "/Users/alice"),
             pathExists: { _ in false }
         )
-        XCTAssertEqual(root.path, "/Users/rorosaga/cicada")
+        XCTAssertEqual(root.path, "/Users/alice/cicada")
     }
 }

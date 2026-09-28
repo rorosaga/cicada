@@ -11,8 +11,8 @@ final class TerminalLaunchScriptTests: XCTestCase {
 
     func testASafeResumeCommandAndCwdPass() {
         XCTAssertTrue(TerminalLauncher.isSafeCommand("claude --resume \(uuid)"))
-        XCTAssertTrue(TerminalLauncher.isSafeCwd("/Users/rorosaga/Documents/roros_lab/cicada"))
-        XCTAssertTrue(TerminalLauncher.isSafeCwd("~/Documents/roros_lab/cicada"))
+        XCTAssertTrue(TerminalLauncher.isSafeCwd("/Users/alice/Documents/my_lab/cicada"))
+        XCTAssertTrue(TerminalLauncher.isSafeCwd("~/Documents/my_lab/cicada"))
     }
 
     func testQuotesBackslashesAndShellMetacharactersAreRefused() {

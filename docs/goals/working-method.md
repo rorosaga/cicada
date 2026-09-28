@@ -102,7 +102,7 @@ here are the file:line anchors, here is the ruling" produces a mergeable branch.
 ### Starting a track
 
 ```sh
-cd /Users/rorosaga/Documents/roros_lab/cicada
+cd <your cicada checkout>
 git worktree add -q .worktrees/<name> -b feat/<branch> dev
 ln -s "$PWD/api/.venv" .worktrees/<name>/api/.venv     # the venv is not per-worktree
 mkdir -p "<scratchpad>/<name>"
