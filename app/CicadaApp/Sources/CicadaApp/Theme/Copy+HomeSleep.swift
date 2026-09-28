@@ -9,6 +9,11 @@ extension Copy {
     /// The owner's quick switch (2026-09-23; R-HS7…R-HS11).
     enum EngineMenu {
         static let title = "Engine for the cycles you start"
+        /// `sleep_engine_prefs.env_pin_sentence`'s words: the environment, not this menu, sets the engine.
+        static func pinnedByEnvironment(_ mode: String) -> String {
+            "CICADA_LLM_MODE=\(mode) in Cicada's environment (api/.env) sets the engine, so a choice here changes "
+                + "nothing. Remove that line and restart Cicada to choose here."
+        }
         static let buttonHelp = "Engine and model for the cycles you start"
         static func buttonAccessibility(_ label: String) -> String { "\(title): \(label)" }
         static let model = "Model"

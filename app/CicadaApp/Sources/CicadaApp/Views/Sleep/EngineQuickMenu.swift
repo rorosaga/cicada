@@ -41,6 +41,8 @@ struct EngineQuickMenuModel: Equatable {
     let command: String?
     let previews: [Preview]
     let showsRuling: Bool
+    /// Set while `CICADA_LLM_MODE` pins the engine: said above the rows, which then choose nothing.
+    var pinnedNote: String? = nil
 
     /// What the button says (R-HS8): the engine and model a cycle you start would run — the manual
     /// preview, in the card's own name — prefixed "Auto ·" while Auto is the choice. The retired
@@ -61,10 +63,12 @@ struct EngineQuickMenuModel: Equatable {
         let rows = response.candidates.map { candidate -> Row in
             let caption = EngineOption.caption(for: candidate)
             let selectable = EngineOption.isSelectable(candidate, selectedMode: current)
+                && !response.isPinnedByEnvironment
             return Row(id: candidate.id, label: candidate.label, caption: caption,
                        logo: EngineOption.logoName(for: candidate.id), symbol: EngineOption.symbol(for: candidate.id),
                        isSelected: candidate.id == current, isSelectable: selectable,
-                       help: selectable ? "\(candidate.label) — \(caption)" : Copy.EngineMenu.signInFirst(candidate.label))
+                       help: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode)
+                           : selectable ? "\(candidate.label) — \(caption)" : Copy.EngineMenu.signInFirst(candidate.label))
         }
         let chosen = response.candidates.first { $0.id == current }
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
@@ -89,7 +93,8 @@ struct EngineQuickMenuModel: Equatable {
             showsPlansAndKeysLink: current == "byok",
             command: command,
             previews: previews,
-            showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false)
+            showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false,
+            pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil)
     }
 }
 
@@ -181,6 +186,14 @@ struct EngineQuickMenu: View {
                 .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.top, CicadaTheme.spacingSM)
                 .padding(.bottom, CicadaTheme.spacingXS)
+            if let pinned = model.pinnedNote {
+                Text(pinned)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.bottom, CicadaTheme.spacingXS)
+            }
             ForEach(model.rows) { row in
                 EngineMenuRow(row: row, isSaving: isSaving) { choose(row.id) }
             }

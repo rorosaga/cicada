@@ -56,6 +56,17 @@ def selected_card(mode: str, model: str | None) -> str:
     return "openrouter" if mode == "byok" and (model or "").startswith("openrouter/") else mode
 
 
+def env_pin_sentence(mode: str) -> str:
+    """What the app and a 409 say when ``CICADA_LLM_MODE`` pins the engine."""
+    return (f"CICADA_LLM_MODE={mode} in Cicada's environment (api/.env) sets the engine, so a choice here "
+            "changes nothing. Remove that line and restart Cicada to choose here.")
+
+
+def configured_choice(settings: Settings, reg) -> tuple[str, str]:
+    """Public name of :func:`_configured_choice` — the PUT's env-pin check reads it."""
+    return _configured_choice(settings, reg)
+
+
 def _configured_choice(settings: Settings, reg) -> tuple[str, str]:
     """The ``(mode, source)`` this GET reports, mirroring the env/prefs
     precedence ``engine_select.resolve_llm_mode`` applies (rungs 1-2) but
