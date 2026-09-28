@@ -15,6 +15,10 @@ if [ "${1:-}" = "--uninstall" ]; then
   exit 0
 fi
 
+# Started through the checkout's venv Python, not /bin/bash: under launchd a
+# process is refused files in a protected folder (a checkout under ~/Documents)
+# unless macOS already let it in, and that Python is the one the backend job
+# already runs as. bash, git and swift then run as its children.
 # launchd's PATH is bare: git, swift and codesign live in /usr/bin, uv usually in Homebrew.
 UV_DIR="$(dirname "$(command -v uv 2>/dev/null || echo /opt/homebrew/bin/uv)")"
 mkdir -p "$(dirname "$PLIST")" "$REPO/logs"
@@ -25,7 +29,11 @@ cat > "$PLIST" <<EOF
 <dict>
   <key>Label</key><string>$LABEL</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/bash</string><string>$REPO/scripts/dev/auto-update.sh</string></array>
+  <array>
+    <string>$REPO/api/.venv/bin/python</string><string>-c</string>
+    <string>import subprocess, sys; sys.exit(subprocess.call(["/bin/bash", sys.argv[1]]))</string>
+    <string>$REPO/scripts/dev/auto-update.sh</string>
+  </array>
   <key>StartInterval</key><integer>300</integer>
   <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
