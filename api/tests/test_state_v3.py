@@ -9,7 +9,7 @@ def test_project_rows_carry_next_and_the_file_is_idempotent_across_a_day(tmp_pat
     bank = day_one(tmp_path, index=False)
     now = datetime(2026, 9, 23, 20, 0, tzinfo=timezone.utc)
     # `today=` pinned: `build` otherwise takes `now.astimezone().date()`, the MACHINE's day.
-    first = state_dictionary.refresh(bank, None, force=True, today=T, now=now, probe_repos=False)
+    first = state_dictionary.refresh(bank, None, force=True, today=T, now=now)
     assert first["written"]
     st = state_dictionary.read_state(bank)
     assert st["schema_version"] == state_dictionary.SCHEMA_VERSION   # v4 (G150) only adds backlog_open, and this bank has no backlog
@@ -20,13 +20,13 @@ def test_project_rows_carry_next_and_the_file_is_idempotent_across_a_day(tmp_pat
     # and would pass even if `next` depended on today. Forced, it rebuilds against the next day and
     # must find the content unchanged (§10.3 — the `test_state_dictionary.py:206` idle-night shape).
     again = state_dictionary.refresh(bank, None, force=True, today=T + timedelta(days=1),
-                                     now=now + timedelta(days=1), probe_repos=False)
+                                     now=now + timedelta(days=1))
     assert again["written"] is False and again["reason"] == "content unchanged"
 
 
 def test_the_primer_shows_the_current_line_and_stays_in_budget(tmp_path, monkeypatch):
     bank = day_one(tmp_path, index=False)
-    state_dictionary.refresh(bank, None, force=True, today=T, probe_repos=False)
+    state_dictionary.refresh(bank, None, force=True, today=T)
     text = handshake.build(state_dictionary.read_state(bank), variant="claude-code", bank="demo", tz="UTC")
     assert f"`rover-arm-project` Rover Arm Project — A small arm that picks parts off a tray. · next: Pick And Place Demo, {d(12)}" in text
     assert "Ask where a project stands with `cicada_project(project)`." in text
@@ -52,7 +52,7 @@ def test_seven_projects_with_now_fit_in_six_kilobytes(tmp_path):
         _entity(memory, pid, type="project", confidence=0.95, last_referenced="2026-09-20",
                 body=write_claims(f"## Summary\n{pid} is a synthetic project with a one-line summary.\n", claims))
     bank_index.invalidate()
-    state_dictionary.refresh(memory, None, force=True, probe_repos=False)
+    state_dictionary.refresh(memory, None, force=True)
     assert len(state_dictionary.state_path(memory).read_bytes()) <= state_dictionary.MAX_BYTES
     rows = [p for p in state_dictionary.read_state(memory)["projects"] if p["id"].startswith("omega-")]
     assert len(rows) == 7 and all(p.get("now") and p.get("next") for p in rows)
@@ -66,7 +66,7 @@ def test_a_record_only_connection_gets_no_project_cursor(tmp_path):
     from api.remote import catalog
 
     bank = day_one(tmp_path, index=False)
-    state_dictionary.refresh(bank, None, force=True, today=T, probe_repos=False)
+    state_dictionary.refresh(bank, None, force=True, today=T)
     state = state_dictionary.read_state(bank)
     record_only = handshake.build_remote(state, tools=catalog.tool_names_for({"record"}), bank="demo", tz="UTC")
     assert "`rover-arm-project`" in record_only

@@ -80,7 +80,7 @@ def test_the_list_and_the_derived_state_agree(bank):
 
 
 def test_state_v3_carries_the_newest_open_thread_as_now(bank):
-    state_dictionary.refresh(bank, None, force=True, today=T, probe_repos=False)
+    state_dictionary.refresh(bank, None, force=True, today=T)
     rover = next(p for p in state_dictionary.read_state(bank)["projects"] if p["id"] == "rover-arm-project")
     tl = project_timeline.build(bank, "rover-arm-project", tz_name="UTC")
     assert rover["now"] == {"claim": tl.now.threads[0].claim_id, "text": ONGOING, "since": d(0)}

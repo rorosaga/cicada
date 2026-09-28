@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -29,7 +30,10 @@ from api.models.schemas import (
     PictureInputsModel,
     RepoContext,
     RepoContextList,
+    RepoDeclaration,
+    RepoDeclarationList,
     RepoInput,
+    RepoObservedRequest,
     RepoUpdateRequest,
     VideoChapter,
 )
@@ -39,9 +43,11 @@ from api.services import (
     entity_picture,
     fact_sources,
     git_service,
+    local_refs,
     logo_service,
     markdown_parser,
     repo_context,
+    repo_observations,
     telemetry,
 )
 from api.services.claims import strip_claims_block
@@ -473,31 +479,120 @@ async def get_entity_location(
     return LocationListing(path=_detect_location_path(fm, parsed.body))
 
 
-@router.get("/entities/{entity_id}/repos", response_model=RepoContextList)
+def _repo_declarations(frontmatter: dict) -> list[dict]:
+    """The page's ``repos:`` read leniently — entries come from Sleep and generators
+    too: a non-dict is skipped, a scalar is coerced to a string, and ``path`` is
+    kept exactly as written (it is the key the app posts back)."""
+    raw = frontmatter.get("repos") if isinstance(frontmatter, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or entry.get("path") is None or isinstance(entry["path"], (dict, list)):
+            continue
+        path = entry["path"] if isinstance(entry["path"], str) else str(entry["path"])
+        if not path.strip():
+            continue
+        decl: dict = {"path": path}
+        for key in ("device", "remote", "default_branch"):
+            value = entry.get(key)
+            if value is not None and not isinstance(value, (dict, list)) and str(value).strip():
+                decl[key] = str(value).strip()
+        worktrees = []
+        for w in entry.get("worktrees") if isinstance(entry.get("worktrees"), list) else []:
+            if isinstance(w, dict) and w.get("path") is not None and str(w["path"]).strip():
+                branch = w.get("branch")
+                worktrees.append({
+                    "path": str(w["path"]),
+                    "branch": str(branch) if branch is not None and not isinstance(branch, (dict, list)) else None,
+                    "primary": bool(w.get("primary", False)),
+                })
+        if worktrees:
+            decl["worktrees"] = worktrees
+        out.append(decl)
+    return out
+
+
+def _declared_repos(settings: Settings, entity_id: str) -> list[dict]:
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return _repo_declarations(markdown_parser.parse(entity_path).frontmatter)
+
+
+def _declarations_payload(entity_id: str, declared: list[dict]) -> RepoDeclarationList:
+    return RepoDeclarationList(
+        entity_id=entity_id,
+        this_device=local_refs.current_device_id(),
+        repos=[RepoDeclaration(**d) for d in declared],
+    )
+
+
+@router.get("/entities/{entity_id}/repos", response_model=RepoDeclarationList)
 async def get_entity_repos(
     entity_id: str,
     settings: Settings = Depends(get_settings),
 ):
-    """Live git context for an entity's declared ``repos:`` frontmatter (G-repo).
+    """The repos a page declares (G-repo), and which device this Mac is.
 
-    Trust boundary mirrors ``get_entity_location``: the only paths ever probed
-    are the ones the ENTITY ITSELF declares (frontmatter ``repos: [...]``) —
-    never a request-supplied path. 404 only when the entity file itself does
-    not exist; an entity with no ``repos:`` key returns ``repos: []`` at 200.
+    Declarations only: the backend never runs git, stats or resolves a
+    declared path — under launchd its interpreter is what macOS names, so a
+    probe here made the Mac ask whether "python3.12" may read the person's
+    folder. The app runs ``repo_context.REPO_COMMANDS`` (pinned by
+    ``api/tests/fixtures/repo_commands.json``) in each repo on this Mac and
+    posts the outputs to ``POST …/repos/observed``. 404 only when the entity
+    file does not exist; no ``repos:`` key is ``repos: []``.
     """
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
+    return _declarations_payload(entity_id, _declared_repos(settings, entity_id))
 
-    parsed = markdown_parser.parse(entity_path)
-    declared_repos = parsed.frontmatter.get("repos") or []
 
-    contexts = [
-        RepoContext(**repo_context.resolve_repo_context(decl))
-        for decl in declared_repos
-        if isinstance(decl, dict) and decl.get("path")
-    ]
-    return RepoContextList(entity_id=entity_id, repos=contexts)
+def _match_declaration(declared: list[dict], path: str, device: str | None) -> dict | None:
+    """The declaration a posted observation answers: the same path string, and the
+    same device when the page declares that path more than once."""
+    same_path = [d for d in declared if d["path"] == path]
+    if not same_path:
+        return None
+    device = (device or "").strip() or None
+    for d in same_path:
+        if d.get("device") == device:
+            return d
+    return same_path[0]
+
+
+@router.post("/entities/{entity_id}/repos/observed", response_model=RepoContextList)
+async def post_entity_repos_observed(
+    entity_id: str,
+    request: RepoObservedRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Parse what the app's git printed in the page's declared repos (G-repo).
+
+    Each observation names a path exactly as the page declares it — any other
+    path is a 422, so a request can never make the backend describe a folder
+    the page does not claim. ``repo_context.parse_snapshot`` (the one parser the
+    MCP tool uses too) turns the outputs into the card's ``RepoContext``; a repo
+    declared on another device is ``other_device`` whatever was posted. Only a
+    summary is kept — branch, dirty, ahead/behind, status and when — in
+    ``$CICADA_HOME/repos/<bank>.json`` (``repo_observations``), never in the
+    bank, so ``_state.md`` can name the branch without a probe of its own.
+    """
+    declared = _declared_repos(settings, entity_id)
+    this_device = local_refs.current_device_id()
+    contexts: list[dict] = []
+    for obs in request.repos:
+        decl = _match_declaration(declared, obs.path, obs.device)
+        if decl is None:
+            raise HTTPException(422, "a posted repo is not one this page declares")
+        unknown = set(obs.outputs) - repo_context.COMMAND_KEYS
+        if unknown:
+            raise HTTPException(422, f"unknown command keys: {', '.join(sorted(unknown))}")
+        other = repo_context.is_other_device(decl, this_device)
+        if not other and obs.error is None and "inside" not in obs.outputs:
+            raise HTTPException(422, "an observation on this device needs the 'inside' output or an error")
+        outputs = {} if other else {k: v.model_dump() for k, v in obs.outputs.items()}
+        contexts.append(repo_context.parse_snapshot(outputs, decl, error=obs.error, this_device=this_device))
+    await run_in_threadpool(repo_observations.record, settings.memory_path, contexts)
+    return RepoContextList(entity_id=entity_id, repos=[RepoContext(**c) for c in contexts])
 
 
 def _repo_input_to_frontmatter(r: RepoInput) -> dict:
@@ -517,7 +612,7 @@ def _repo_input_to_frontmatter(r: RepoInput) -> dict:
     return out
 
 
-@router.patch("/entities/{entity_id}/repos", response_model=RepoContextList)
+@router.patch("/entities/{entity_id}/repos", response_model=RepoDeclarationList)
 async def update_entity_repos(
     entity_id: str,
     request: RepoUpdateRequest,
@@ -530,6 +625,7 @@ async def update_entity_repos(
     Every other frontmatter key and the body are left untouched. Commits via
     the same structured-commit-message + git_service pattern as every other
     Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user``.
+    Answers the declarations, like ``GET`` — never a probe.
     """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
@@ -552,13 +648,7 @@ async def update_entity_repos(
     )
     await git_service.commit_changes(settings.memory_path, message)
 
-    declared_repos = fm.get("repos") or []
-    contexts = [
-        RepoContext(**repo_context.resolve_repo_context(decl))
-        for decl in declared_repos
-        if isinstance(decl, dict) and decl.get("path")
-    ]
-    return RepoContextList(entity_id=entity_id, repos=contexts)
+    return _declarations_payload(entity_id, _repo_declarations(fm))
 
 
 def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:

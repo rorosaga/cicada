@@ -760,8 +760,9 @@ async def _refresh_state_safely(memory_path: Path, settings: Settings) -> None:
     read-side commit, an older build) would otherwise be swept into a
     `Sources ingest` / `Feed poll` commit under the wrong trigger and author
     (R2 — the H1 guard does not cover this: it only consults the tree once
-    `_state.write_started` is set). `force=True`: Sleep is the one place the
-    file pays for live repo probes (R2). The write+commit is
+    `_state.write_started` is set). `force=True`: Sleep always rebuilds, picking up
+    the app's latest repo observations (``repo_observations`` — never a git
+    run in a declared folder). The write+commit is
     `state_dictionary.refresh_and_commit` — the same helper `GET /state` and
     an inbox resolution use, so every regeneration lands in the same
     `State snapshot` / `Cicada-Author: cicada` shape via `commit_paths`,

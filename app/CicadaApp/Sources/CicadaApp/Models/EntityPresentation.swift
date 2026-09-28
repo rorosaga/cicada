@@ -196,8 +196,15 @@ enum RepoWords {
         case "not_a_repo": "Not a git folder"
         case "git_unavailable": "git isn't installed"
         case "timeout": "git didn't answer"
+        case "denied": "Not allowed to open"
+        case "stale": "Last looked a while ago"
         default: "Can't tell right now"
         }
+    }
+
+    /// The one failure whose fix the card can name: macOS refused Cicada the folder (`denied`).
+    static func fix(_ status: String) -> String? {
+        status == "denied" ? Copy.Graph.folderNotAllowed : nil
     }
 
     /// Neutral tags, never semantic fills (DR-7).

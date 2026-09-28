@@ -153,8 +153,8 @@ Seven rails hold across all of them:
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
   `POST /sources/sync-bookmarks` likewise 422s without bookmark bytes (there is no local-file fallback), and no
   route stats a path the request names. Folders a page declares follow it too: `GET /entities/{id}/location`
-  returns the path and the app lists it (`LocationLister`), and Resume's folder is entered by the terminal — the
-  backend never stats either.
+  returns the path and the app lists it (`LocationLister`), a declared repo's git runs in the app (`GitRunner`,
+  see `repos:`), and Resume's folder is entered by the terminal — the backend never stats any of them.
   A browser is read only after the person turned it on — a Sync now, an all-folders import, or
   onboarding's tick — through `cicada.browserWatch.enabled.<channel>`; an install that synced
   before this gate keeps syncing (Track I T1). Browsers (round 4, C9): Chrome, Safari, Brave,
@@ -480,8 +480,17 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
 **Optional frontmatter keys**, each with a narrow meaning — don't conflate them:
 
 - `repos:` — links a project/directory entity to local git checkouts. The page only ever *declares*
-  which repos; live git context (branch, ahead/behind, dirty, worktrees) is resolved **on demand,
-  never cached** — `git_service` shells out fresh on every call.
+  which repos; **the backend never runs git, stats or resolves a declared path**. `GET
+  /entities/{id}/repos` serves the declarations (path exactly as written) and `this_device`; the app's
+  `GitRunner` runs one fixed read-only list (`repo_context.REPO_COMMANDS`, pinned on both sides by
+  `api/tests/fixtures/repo_commands.json`; CLT/Xcode/Homebrew git, never the `/usr/bin/git` shim) in the
+  ones on this Mac and posts the raw outputs to `POST …/repos/observed`, which refuses any undeclared path
+  and parses them with the one parser, `repo_context.parse_snapshot` (a refusal is `denied`, and the card
+  names Files and Folders). Only the last observation per `(path, device)` is kept —
+  branch, dirty, ahead/behind, status, when — in `$CICADA_HOME/repos/<bank>.json`, **never in a bank**.
+  `_state.md` renders that cache: `repos_probed_at` is the oldest observation shown, one older than 7
+  days reads `state: stale`, and no time sits inside a block (R1). The MCP tool `cicada_repo_context`
+  still probes live, in the process the agent harness launched.
 - `sources:` (G61) — *where to look a fact up*, distinct from `source_episodes` (where a belief came
   from) and from the body's `## Links`. Keyed on `(ref, predicate)`, so one link can serve two facts.
   A conflict card's `hint` is **derived at read** from them (`fact_sources.served_hint` — the wire,

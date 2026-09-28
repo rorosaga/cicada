@@ -1314,20 +1314,18 @@ actor APIClient {
         }
     }
 
-    /// `GET /entities/{id}/repos` (G9 companion) — the git-repo(s) declared on
-    /// a project/directory entity's `repos:` frontmatter, enriched with live
-    /// local-checkout status. Returns `[]` on a 404 (endpoint not shipped yet,
-    /// or entity carries no `repos:` key) or any other error so the entity
-    /// detail card degrades quietly — no Repository section rather than an
-    /// error state. NOT INTEGRATION-TESTED against a live backend (built in
-    /// parallel by another agent); matches the shared contract exactly.
-    func fetchEntityRepos(entityId: String) async throws -> [RepoContext] {
-        do {
-            let r: RepoContextList = try await get("/entities/\(encodedID(entityId))/repos")
-            return r.repos
-        } catch {
-            return []
-        }
+    /// `GET /entities/{id}/repos` (G9 companion) — the repos a project/directory page declares under `repos:`, and
+    /// which device this Mac is. Declarations only: the backend never opens the folder; `GitRunner` does.
+    func fetchEntityRepoDeclarations(entityId: String) async throws -> RepoDeclarationList {
+        try await get("/entities/\(encodedID(entityId))/repos")
+    }
+
+    /// `POST /entities/{id}/repos/observed` — what `GitRunner` saw in each declared repo, parsed by the backend's
+    /// one parser into the card's `RepoContext`s (and kept as the last look `_state.md` names).
+    func postObservedRepos(entityId: String, _ observations: [GitRunner.Observation]) async throws -> [RepoContext] {
+        let list: RepoContextList = try await post("/entities/\(encodedID(entityId))/repos/observed",
+                                                   body: ["repos": observations.map(\.json)])
+        return list.repos
     }
 
     // MARK: - Fact sources (G61)

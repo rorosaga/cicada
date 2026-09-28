@@ -715,10 +715,11 @@ class RepoLastCommit(BaseModel):
 
 
 class RepoContext(BaseModel):
-    """Live git snapshot for one declared ``repos:`` entry on an entity.
+    """Git snapshot for one declared ``repos:`` entry on an entity, parsed by
+    ``repo_context.parse_snapshot`` from outputs the app (or the MCP tool) ran.
 
     ``status`` is one of ``ok`` | ``other_device`` | ``missing`` |
-    ``not_a_repo`` | ``git_unavailable`` | ``timeout`` — only ``ok`` carries
+    ``not_a_repo`` | ``denied`` | ``git_unavailable`` | ``timeout`` — only ``ok`` carries
     live data; every other status degrades the rest of the fields to
     ``None``/``[]`` rather than raising. ``stale_hint`` is populated only when
     a declared value contradicts what git actually observes (e.g. a declared
@@ -743,7 +744,7 @@ class RepoContext(BaseModel):
 
 
 class RepoContextList(BaseModel):
-    """``GET /entities/{id}/repos`` response — [] when the entity has no ``repos:`` key."""
+    """``POST /entities/{id}/repos/observed`` response — one context per posted repo."""
 
     entity_id: str
     repos: list[RepoContext] = []
@@ -769,6 +770,64 @@ class RepoUpdateRequest(BaseModel):
     """``repos: []`` removes the frontmatter key entirely (not written as an empty list)."""
 
     repos: list[RepoInput] = []
+
+
+class RepoDeclaration(BaseModel):
+    """One ``repos:`` entry as the page declares it — ``path`` exactly as written.
+
+    ``GET /entities/{id}/repos`` serves only these: the backend never looks at
+    the folder. The app runs git there and posts the outputs back.
+    """
+
+    path: str
+    device: Optional[str] = None
+    remote: Optional[str] = None
+    default_branch: Optional[str] = None
+    worktrees: list[RepoWorktreeInput] = []
+
+
+class RepoDeclarationList(BaseModel):
+    """``GET``/``PATCH /entities/{id}/repos`` — declarations plus which device this Mac is."""
+
+    entity_id: str
+    this_device: str
+    repos: list[RepoDeclaration] = []
+
+
+#: One command's stdout cap — ~1,500 porcelain lines; past it a dirty count is a floor.
+REPO_OUTPUT_MAX = 64 * 1024
+#: Only the first command's refusal is read, so its stderr is short.
+REPO_STDERR_MAX = 4 * 1024
+#: The most repos one ``POST /entities/{id}/repos/observed`` may carry.
+REPO_OBSERVED_MAX = 50
+
+
+class RepoCommandOutput(BaseModel):
+    """What one command of ``repo_context.REPO_COMMANDS`` printed, as the app ran it."""
+
+    rc: int
+    stdout: str = Field("", max_length=REPO_OUTPUT_MAX)
+    stderr: str = Field("", max_length=REPO_STDERR_MAX)
+
+
+class RepoObservation(BaseModel):
+    """One declared repo as the app observed it: ``path`` exactly as the page declares it.
+
+    ``outputs`` is keyed by ``repo_context.REPO_COMMANDS``; ``error`` says why
+    there is nothing to parse (no git on this Mac, the first command timed out,
+    or a path that names no folder here).
+    """
+
+    path: str = Field(..., min_length=1, max_length=4096)
+    device: Optional[str] = Field(None, max_length=255)
+    outputs: dict[str, RepoCommandOutput] = Field(default_factory=dict)
+    error: Optional[Literal["git_unavailable", "timeout", "missing"]] = None
+
+
+class RepoObservedRequest(BaseModel):
+    """``POST /entities/{id}/repos/observed``."""
+
+    repos: list[RepoObservation] = Field(default_factory=list, max_length=REPO_OBSERVED_MAX)
 
 
 # --- Claims (M5b — the CPCG belief atom on the wire) ---

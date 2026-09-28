@@ -57,7 +57,7 @@ struct EntityDetailCard: View {
     // Repository context (G9 companion). Loaded lazily on appear for
     // `.project`/`.directory` entities; empty while loading, on 404, or when
     // the entity carries no `repos:` key — the section renders nothing in
-    // all three cases (see `fetchEntityRepos`).
+    // all three cases (see `RepoCard.load`).
     @State private var repoContexts: [RepoContext] = []
 
     // Fact sources (G61) — "where to look this fact up" refresh references.
@@ -303,9 +303,11 @@ struct EntityDetailCard: View {
                     if !Task.isCancelled { locationListing = listing }
                 }
             }
-            // Only project/directory entities carry a `repos:` frontmatter key.
+            // Only project/directory entities carry a `repos:` frontmatter key. The backend names the repos;
+            // the app runs git in the ones on this Mac (so a prompt names Cicada) and posts what it printed.
             if entity.type == .project || entity.type == .directory {
-                repoContexts = (try? await APIClient.shared.fetchEntityRepos(entityId: entity.id)) ?? []
+                let contexts = await RepoCard.load(entityId: entity.id)
+                if !Task.isCancelled { repoContexts = contexts }
             }
         }
     }
@@ -514,12 +516,12 @@ struct EntityDetailCard: View {
     // MARK: - Repository Section (G9 companion)
     //
     // For `.project`/`.directory` entities carrying a `repos:` frontmatter
-    // key, shows the live local-checkout state per declared repo — remote,
+    // key, shows the local-checkout state per declared repo — remote,
     // branch, dirty/ahead/behind counts, last commit, worktrees, and any
-    // `stale_hint`. Gated entirely by `!repoContexts.isEmpty` in `contentTab`,
+    // `stale_hint` — as `RepoCard` loads it (git run by the app, parsed by the
+    // backend). Gated entirely by `!repoContexts.isEmpty` in `contentTab`,
     // so this only ever renders once data has actually arrived — no empty
-    // section, no loading skeleton. NOT INTEGRATION-TESTED against a live
-    // backend (built in parallel by another agent).
+    // section, no loading skeleton.
 
     private var repositorySection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -528,7 +530,7 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// G9 — live git context, resolved on demand and never cached. R-DG21: words and neutral tags, one block on
+    /// G9 — git context as the app just saw it (`RepoCard`). R-DG21: words and neutral tags, one block on
     /// `bgFocus` with a resting ring (DR-7, DR-9). Paths, hashes and branches stay copyable (DR-19).
     private func repoBlock(_ repo: RepoContext) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -574,6 +576,10 @@ struct EntityDetailCard: View {
             }
             if let hint = repo.staleHint, !hint.isEmpty {
                 Text(hint).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+            if let fix = RepoWords.fix(repo.status) {
+                Text(fix).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(CicadaTheme.spacingMD)

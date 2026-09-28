@@ -102,62 +102,12 @@ enum AppleNotesReader {
         return .success(dump)
     }
 
-    /// `/usr/bin/osascript -e <script>` as a child `Process` (never a shell). Both pipes drain while it runs — a
-    /// library's dump is far larger than a pipe's buffer, so reading only at exit would deadlock.
+    /// `/usr/bin/osascript -e <script>` as a child `Process` (never a shell), through `ChildProcess`: both pipes
+    /// drain while it runs — a library's dump is far larger than a pipe's buffer, so reading only at exit would
+    /// deadlock. A launch failure reads as status 127, as it always did.
     static let runOsascript: Runner = { script, timeout in
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                process.arguments = ["-e", script]
-                let out = Pipe(), err = Pipe()
-                process.standardOutput = out
-                process.standardError = err
-                process.standardInput = FileHandle.nullDevice
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(returning: Output(status: 127, stdout: "", stderr: "", timedOut: false))
-                    return
-                }
-                let timedOut = TimeoutFlag()
-                let timer = DispatchWorkItem {
-                    if process.isRunning {
-                        timedOut.set()
-                        process.terminate()
-                    }
-                }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
-                let errors = ErrorBuffer()
-                let group = DispatchGroup()
-                group.enter()
-                DispatchQueue.global().async {
-                    errors.data = err.fileHandleForReading.readDataToEndOfFile()
-                    group.leave()
-                }
-                let data = out.fileHandleForReading.readDataToEndOfFile()
-                group.wait()
-                process.waitUntilExit()
-                timer.cancel()
-                continuation.resume(returning: Output(status: process.terminationStatus,
-                                                      stdout: String(decoding: data, as: UTF8.self),
-                                                      stderr: String(decoding: errors.data, as: UTF8.self),
-                                                      timedOut: timedOut.isSet))
-            }
-        }
+        let out = await ChildProcess.run(URL(fileURLWithPath: "/usr/bin/osascript"), arguments: ["-e", script],
+                                         timeout: timeout)
+        return Output(status: out.status, stdout: out.stdout, stderr: out.stderr, timedOut: out.timedOut)
     }
-}
-
-/// Written by the stderr reader and read only after `group.wait()`, so the group orders the two accesses.
-private final class ErrorBuffer: @unchecked Sendable {
-    var data = Data()
-}
-
-private final class TimeoutFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    func set() { lock.lock(); value = true; lock.unlock() }
-
-    var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
 }

@@ -564,6 +564,17 @@ to disk. Surfaced in the graph as synthetic `repo:<slug>` nodes (one per distinc
 path, edge "has repo" from the owning entity), and via the `cicada_repo_context` MCP tool.
 See root `CLAUDE.md`'s "Repo links" subsection for the full frontmatter shape.
 
+**Amended 2026-09-28 (the `~/Library` rail reaches folders).** The backend no longer runs git
+in a declared repo — under launchd macOS named "python3.12" in the Files and Folders prompt.
+`GET` serves declarations + `this_device`; the app runs the fixed command list and posts the
+outputs to `POST /entities/{id}/repos/observed`, parsed by `repo_context.parse_snapshot`; the
+last observation per `(path, device)` is kept in `$CICADA_HOME/repos/<bank>.json` (never in a
+bank) and is what `_state.md` shows (stale past 7 days). The MCP tool still probes live, in
+the harness's process. **Open: device-id drift.** A declaration's `device:` is compared as a
+string with `socket.gethostname()`; a page written with a friendly name (`device: Mac`) or on
+a Mac whose host name later changed reads as `other_device` forever, and nothing remaps it
+(the same gap G92 and G132 name). Real values redacted.
+
 ---
 
 ## Live-conversation provenance & resume (2026-08-20)
