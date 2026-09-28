@@ -270,6 +270,11 @@ private struct IntegrationChannelRow: View {
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
+            // G161 — which ones came in, by name, under the row that says how many.
+            if channel.connected {
+                CapturedItemsList(channel: channel.id)
+                    .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
+            }
         }
         .settingsRow(.channel(channel.id))
     }

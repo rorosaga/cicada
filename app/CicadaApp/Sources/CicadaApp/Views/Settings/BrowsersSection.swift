@@ -75,6 +75,11 @@ private struct BrowserSourceRow: View {
             if let feedback {
                 Text(feedback).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
             }
+            // G161 — the bookmarks the last sync saw, by name.
+            if channel?.connected == true {
+                CapturedItemsList(channel: channelId)
+                    .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
+            }
         }
         .settingsRow(.channel(channelId))
     }

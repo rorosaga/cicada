@@ -15,10 +15,17 @@ struct ContactsRow: View {
     static let privacyURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts")!
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
-            SourceRow(model: ContactsRowText.model(reader.status, channel: channel,
-                                                   run: activity.run(for: ContactsReader.channel)),
-                      now: context.date, onCancel: { activity.cancel(ContactsReader.channel) }) { actions }
+        VStack(alignment: .leading, spacing: 2) {
+            TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+                SourceRow(model: ContactsRowText.model(reader.status, channel: channel,
+                                                       run: activity.run(for: ContactsReader.channel)),
+                          now: context.date, onCancel: { activity.cancel(ContactsReader.channel) }) { actions }
+            }
+            // G161 — the people a card matched, by their page's name only (never a card's facts).
+            if channel?.connected == true {
+                CapturedItemsList(channel: ContactsReader.channel)
+                    .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
+            }
         }
         .settingsRow(.contactsApp)
         .confirmationDialog(Copy.contactsStopTitle, isPresented: $confirmStop) {

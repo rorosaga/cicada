@@ -1045,6 +1045,19 @@ with an × or 'Last synced 2 minutes ago' (the persisted `lastSync`, re-read eve
 Home's Getting started rows use it. `BrowserWatcher`, `TabGroupWatcher` and `ContactsReader` report their runs into
 `SyncActivity`; `LocalSourceWatcher` and `CalendarReader` keep their own lights (R-SR17).
 
+**What came in, by name (G161).** Under a source row, a "What came in" disclosure (collapsed, remembered per viewer
+per channel, `cicada.sources.capturedOpen.<channel>`) lists the items that source brought in by their own title and
+day, newest first, twenty at a time with "Show more" (`CapturedItemsList`): under onboarding's Import rows (a preview —
+the rows open nothing there), under every Integrations row, and as the Sources detail column's content for a source
+whose items are not saved links. `GET /sources/channels/{id}/items?offset&limit` (≤ 200; `api/services/channel_items.py`)
+derives it at read from the same set the row's count means — the notes index, the calendar and tab-group episodes (never
+a tombstoned one), the bookmark seen-set joined to the url index, a channel's media pages, a folder's files — engine-free
+and read-only; titles only (scrubbed, one line), never a body, and for Contacts the matched page's name only. Its
+`total` is its own count, not a promise to equal the row's (a notes index keeps a deleted note). It ETags over
+`sources`+`episodes`+`entities` with the channel and page in `extra`, and is **not** a Store domain: `ChannelItemsCache`
+keeps it in memory, revalidates when the list opens or the channels move, and empties on a bank switch. A row opens its
+episode in the Reader, a saved item in the Feed, a person in Clusters.
+
 **Clusters and the Feed (Direction D, DS-3c).** Both are list pages in progressive columns: an eyebrow row with
 text tabs (`AdaptiveTextTabs`: with counts, then without, then a menu, so a tab is never clipped), the list, a
 detail column, and the Reader as the third column (each list page hosts its own: `AppTab.hostsOwnReader`).

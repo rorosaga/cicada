@@ -108,4 +108,31 @@ extension Copy {
     static let contactsConnectFirst = "Connect Contacts in Settings → Integrations first — Cicada reads them only after you do."
     static let contactsSyncFailed = "Couldn't sync your contacts. Cicada will try again."
     static let contactsCardRef = "Their card in Contacts"
+
+    // MARK: What came in, by name (G161)
+    static let capturedTitle = "What came in"
+    static let capturedHelp = "Each thing this source brought in, by its own title, newest first"
+    static let capturedLoading = "Reading what came in…"
+    static let capturedNone = "Nothing has come in from this source yet."
+    /// Contacts lists the people Cicada knows that a card matched — never a card itself.
+    static let capturedNoPeople = "No one in your contacts matched a person Cicada knows yet."
+    static let capturedLoadFailed = "Couldn't read what came in. Cicada will try again when you open it."
+    static let capturedShowMore = "Show more"
+    /// "20 of 229 notes" — `noun` is `CapturedItems.noun`'s pair, so the unit is always said (DR-21).
+    static func capturedShown(_ shown: Int, of total: Int, noun: (one: String, many: String),
+                              locale: Locale = .autoupdatingCurrent) -> String {
+        "\(UsageFormat.count(shown, locale: locale)) of \(UsageFormat.count(total, locale: locale)) "
+            + (total == 1 ? noun.one : noun.many)
+    }
+    static func capturedOpenHelp(_ kind: ChannelItem.Kind) -> String {
+        switch kind {
+        case .episode: "Open in the Reader"
+        case .media: "Open in the Feed"
+        case .page: "Open their card"
+        case .unknown: ""
+        }
+    }
+    static func capturedRowLabel(_ title: String, age: String?) -> String {
+        [title, age].compactMap { $0 }.joined(separator: ", ")
+    }
 }
