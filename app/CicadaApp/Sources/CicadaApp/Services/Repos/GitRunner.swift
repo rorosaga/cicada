@@ -131,15 +131,16 @@ enum GitRunner {
         return observation
     }
 
-    /// Every declared repo: this Mac's (no device, or `thisDevice`) are observed; another Mac's are posted with no
-    /// outputs, and the backend answers `other_device` from the declaration alone. One lookup of git for them all.
+    /// Every declared repo: this Mac's (as the backend decided, `RepoDeclaration.isOnThisMac`) are observed; another
+    /// Mac's are posted with no outputs, and the backend answers `other_device` from the declaration alone. One
+    /// lookup of git for them all.
     static func observeAll(_ declarations: RepoDeclarationList, run: Runner = runProcess,
                            git: String? = GitRunner.executable()) async -> [Observation] {
         var out: [Observation] = []
         for repo in declarations.repos {
             if Task.isCancelled { break }
-            if let device = repo.device, !device.isEmpty, device != declarations.thisDevice {
-                out.append(Observation(path: repo.path, device: device))
+            if !repo.isOnThisMac(thisDevice: declarations.thisDevice) {
+                out.append(Observation(path: repo.path, device: repo.device))
             } else {
                 out.append(await observe(path: repo.path, device: repo.device, git: git, run: run))
             }

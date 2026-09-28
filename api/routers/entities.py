@@ -524,7 +524,7 @@ def _declarations_payload(entity_id: str, declared: list[dict]) -> RepoDeclarati
     return RepoDeclarationList(
         entity_id=entity_id,
         this_device=local_refs.current_device_id(),
-        repos=[RepoDeclaration(**d) for d in declared],
+        repos=[RepoDeclaration(**d, on_this_device=local_refs.is_this_device(d.get("device"))) for d in declared],
     )
 
 

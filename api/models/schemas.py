@@ -784,6 +784,10 @@ class RepoDeclaration(BaseModel):
     remote: Optional[str] = None
     default_branch: Optional[str] = None
     worktrees: list[RepoWorktreeInput] = []
+    #: Whether ``device`` is this Mac (``local_refs.is_this_device`` — the one rule,
+    #: so the app never compares names itself): no device, a word like ``Mac``, or
+    #: any of this Mac's host, local host or computer names.
+    on_this_device: bool = True
 
 
 class RepoDeclarationList(BaseModel):

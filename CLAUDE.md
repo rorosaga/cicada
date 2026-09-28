@@ -481,7 +481,9 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
 
 - `repos:` — links a project/directory entity to local git checkouts. The page only ever *declares*
   which repos; **the backend never runs git, stats or resolves a declared path**. `GET
-  /entities/{id}/repos` serves the declarations (path exactly as written) and `this_device`; the app's
+  /entities/{id}/repos` serves the declarations (path exactly as written), `this_device`, and per repo
+  `on_this_device` — `local_refs.is_this_device`, the one device rule: no device or a word like `Mac` is this
+  Mac, else any of its host, local host or computer names, folded (case, `.local`, punctuation); the app's
   `GitRunner` runs one fixed read-only list (`repo_context.REPO_COMMANDS`, pinned on both sides by
   `api/tests/fixtures/repo_commands.json`; CLT/Xcode/Homebrew git, never the `/usr/bin/git` shim) in the
   ones on this Mac and posts the raw outputs to `POST …/repos/observed`, which refuses any undeclared path
