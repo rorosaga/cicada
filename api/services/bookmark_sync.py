@@ -1,9 +1,9 @@
 """Keyless browser-bookmark sync connector.
 
-Polls the local Chrome/Safari bookmark files (or accepts inline bytes, e.g.
-from the companion app or a test), diffs the parsed URLs against what has
-already been ingested, and pushes only the *new* ones into the existing
-ingest pipeline.
+Accepts the bookmark bytes the companion app read from the browsers' files
+(or a test's inline bytes), diffs the parsed URLs against what has already
+been ingested, and pushes only the *new* ones into the existing ingest
+pipeline.
 
 No new dedup logic here. ``media_ingestor.ingest_batch`` already re-checks
 ``memory/sources/url_index.json`` (keyed on ``url_hash``) at call time and
@@ -31,9 +31,8 @@ drops anything already present — that IS the diff. This module only adds:
    memory-based diff would re-propose it forever — see that module's
    docstring for both correctness rails).
 
-Nothing here reads a real file path unless ``sync_from_local_files`` is
-called explicitly, and that function is best-effort/offline-safe: a missing
-or unreadable bookmark file is silently excluded, never raised.
+Nothing here reads a browser's file: the app reads ``~/Library`` and the
+backend parses bytes (the launchd backend has no Full Disk Access).
 """
 
 from __future__ import annotations
@@ -51,27 +50,6 @@ from api.services.media_ingestor import RawItem
 # (items, memory_path, from_bookmark_file) -> (created, duplicates), matching
 # media_ingestor.ingest_batch's signature (commit kwarg has a default there).
 IngestFn = Callable[..., Awaitable[tuple[int, int]]]
-
-
-# --- Standard macOS bookmark file locations ---------------------------------
-
-
-def chrome_bookmarks_path() -> Path:
-    """The standard macOS location of Chrome's default-profile ``Bookmarks`` JSON file."""
-    return (
-        Path.home()
-        / "Library"
-        / "Application Support"
-        / "Google"
-        / "Chrome"
-        / "Default"
-        / "Bookmarks"
-    )
-
-
-def safari_bookmarks_path() -> Path:
-    """The standard macOS location of Safari's ``Bookmarks.plist``."""
-    return Path.home() / "Library" / "Safari" / "Bookmarks.plist"
 
 
 # --- Parsers ---
@@ -524,36 +502,3 @@ async def _commit_removals(memory_path: Path, removal_paths: list[str], seen_tou
         await git_service.commit_paths(memory_path, message, paths)
     except Exception as e:  # pragma: no cover - non-git workspace (most unit tests)
         logger.warning(f"Bookmark removal commit failed: {type(e).__name__}: {e}")
-
-
-async def sync_from_local_files(memory_path: Path) -> dict[str, Any]:
-    """Best-effort, offline-safe sync against the real local bookmark files.
-
-    For a scheduled/triggered sync (cron, "sync now" button) where no inline
-    data is supplied. Reads ``chrome_bookmarks_path()`` / ``safari_bookmarks_path()``
-    if they exist; a missing file, permission error, or unreadable file is
-    swallowed and that source is simply excluded — this function never raises.
-    If neither file is present, returns ``{"new": 0, "skipped": 0, "sources": []}``
-    without touching ``ingest_batch`` at all. Not exercised against the real
-    filesystem in tests.
-    """
-    chrome_data: bytes | None = None
-    try:
-        path = chrome_bookmarks_path()
-        if path.exists():
-            chrome_data = path.read_bytes()
-    except OSError as e:
-        logger.debug(f"Could not read Chrome bookmarks: {type(e).__name__}: {e}")
-
-    safari_data: bytes | None = None
-    try:
-        path = safari_bookmarks_path()
-        if path.exists():
-            safari_data = path.read_bytes()
-    except OSError as e:
-        logger.debug(f"Could not read Safari bookmarks: {type(e).__name__}: {e}")
-
-    if chrome_data is None and safari_data is None:
-        return {"new": 0, "skipped": 0, "sources": []}
-
-    return await sync_bookmarks(memory_path, chrome_data=chrome_data, safari_data=safari_data)

@@ -391,26 +391,21 @@ def _bookmark_sync_lock(memory_path: Path) -> asyncio.Lock:
 
 @router.post("/sources/sync-bookmarks", response_model=None, dependencies=_DEMO_GATE)
 async def sync_bookmarks(
-    request: BookmarkSyncRequest | None = None,
+    request: BookmarkSyncRequest,
     preview: bool = Query(False),
     settings: Settings = Depends(get_settings),
 ) -> BookmarkSyncResponse | BookmarkTreePreview:
     """Keyless bookmark sync: diff Chrome/Safari bookmarks and ingest only new URLs.
 
-    Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
-    data — what the companion app sends after reading the files itself, R1,
-    and what tests use) to sync against that data hermetically. Omit the body
-    ENTIRELY to read the real local bookmark files instead — best-effort,
-    offline-safe; see ``bookmark_sync.sync_from_local_files``. That fallback
-    exists for ``curl``/tests and is never the app's path: the launchd
-    backend has no Full Disk Access.
-
-    A body that carries no bookmark data is a 422, never the fallback, and an
-    unknown field is a 422 too (``extra="forbid"``). Round 4 phase A final
-    review, finding 3: a pre-round-4 route dropped the new ``chromium`` field,
-    saw no data, and read the Chrome file the person had not turned on —
-    Chrome's profile is not behind Full Disk Access, so the backend could.
-    The next new field fails loudly instead of reading local files.
+    The body carries base64 ``chromeDataB64``/``safariDataB64``/``chromium`` —
+    the files the companion app read itself (R1), or a test's inline bytes.
+    The backend never reads a browser's file (the ``~/Library`` rail), so a
+    request without a body, or with one that carries no bookmark data, is a
+    422, never a local read. An unknown field is a 422 too
+    (``extra="forbid"``). Round 4 phase A final review, finding 3: a
+    pre-round-4 route dropped the new ``chromium`` field, saw no data, and
+    read the Chrome file the person had not turned on — Chrome's profile is
+    not behind Full Disk Access, so the backend could.
 
     409 while another bookmark sync of this bank is still running (see
     ``_bookmark_sync_locks``).
@@ -418,8 +413,7 @@ async def sync_bookmarks(
     ``?preview=true`` (R5) parses the supplied bytes and returns each source's
     folder tree with leaf counts WITHOUT ingesting anything — the same
     staging-free contract as ``/sources/upload?preview=true`` — so the app can
-    show the folders before the user picks one. Inline data is required for a
-    preview; there is nothing to preview from the local-file fallback.
+    show the folders before the user picks one.
     ``folders`` on the body narrows the sync to those folder paths (segment-
     boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
     ``chromium`` (round 4, C9) carries the Chromium-family browsers; 422 for an
@@ -436,34 +430,36 @@ async def sync_bookmarks(
     chrome_data = None
     safari_data = None
     chromium: list[tuple[str, bytes]] = []
-    if request is not None:
-        if request.chrome_data_b64:
-            try:
-                chrome_data = base64.b64decode(request.chrome_data_b64)
-            except Exception:
-                raise HTTPException(status_code=422, detail="Invalid chromeDataB64")
-        if request.safari_data_b64:
-            try:
-                safari_data = base64.b64decode(request.safari_data_b64)
-            except Exception:
-                raise HTTPException(status_code=422, detail="Invalid safariDataB64")
-        # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
-        # both fields — a browser sent twice would ingest its file twice and write
-        # two seen-sets for one channel.
-        for entry in request.chromium or []:
-            browser = entry.browser.strip().lower()
-            if browser not in bookmark_sync.CHROMIUM_BROWSERS:
-                raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
-            if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
-                raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
-            try:
-                chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
-            except Exception:
-                raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
+    if request.chrome_data_b64:
+        try:
+            chrome_data = base64.b64decode(request.chrome_data_b64)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid chromeDataB64")
+    if request.safari_data_b64:
+        try:
+            safari_data = base64.b64decode(request.safari_data_b64)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid safariDataB64")
+    # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
+    # both fields — a browser sent twice would ingest its file twice and write
+    # two seen-sets for one channel.
+    for entry in request.chromium or []:
+        browser = entry.browser.strip().lower()
+        if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+            raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+        if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+            raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+        try:
+            chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
+
+    if chrome_data is None and safari_data is None and not chromium:
+        if preview:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
+        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
 
     if preview:
-        if chrome_data is None and safari_data is None and not chromium:
-            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
         # Off the event loop, same reason as the upload preview: a plist the
         # size of a real Safari library is a CPU-bound parse and must not
         # stall the SSE stream.
@@ -472,24 +468,17 @@ async def sync_bookmarks(
         )
         return BookmarkTreePreview(**result)
 
-    has_data = chrome_data is not None or safari_data is not None or bool(chromium)
-    if request is not None and not has_data:
-        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
-
     lock = _bookmark_sync_lock(memory_path)
     if lock.locked():
         raise HTTPException(status_code=409, detail=BOOKMARK_SYNC_BUSY)
     async with lock:
-        if has_data:
-            result = await bookmark_sync.sync_bookmarks(
-                memory_path,
-                chrome_data=chrome_data,
-                safari_data=safari_data,
-                chromium=chromium,
-                folders=request.folders if request is not None else None,
-            )
-        else:
-            result = await bookmark_sync.sync_from_local_files(memory_path)
+        result = await bookmark_sync.sync_bookmarks(
+            memory_path,
+            chrome_data=chrome_data,
+            safari_data=safari_data,
+            chromium=chromium,
+            folders=request.folders,
+        )
 
     # G62: the only durable trace that bookmark sync ever ran. `found` is the
     # number of bookmarks seen this pass (new + already-known), which is what

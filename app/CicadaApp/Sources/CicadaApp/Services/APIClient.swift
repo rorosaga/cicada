@@ -1001,6 +1001,15 @@ enum APIError: Error, LocalizedError {
     }
 }
 
+/// `APIClient.syncBookmarks` was handed no bookmark bytes. The backend never
+/// reads a browser's file itself (the `~/Library` rail), so there is nothing
+/// to send — the call throws instead of posting a body the server would 422.
+enum BookmarkSyncError: Error, LocalizedError, Equatable {
+    case noData
+
+    var errorDescription: String? { "No bookmark file was read, so there was nothing to sync" }
+}
+
 actor APIClient {
     static let shared = APIClient()
 
@@ -1731,22 +1740,22 @@ actor APIClient {
 
     /// Keyless bookmark sync (`POST /sources/sync-bookmarks`). The app always
     /// passes the bytes it read itself (R1 — `BrowserFileReader`): the
-    /// launchd backend has no Full Disk Access, so the body-less form, which
-    /// makes the backend try the local files (`bookmark_sync
-    /// .sync_from_local_files`), silently synced nothing and is now only a
-    /// `curl`/test convenience. `folders` (R5) narrows the sync to those
+    /// backend never reads a browser's file and answers 422 without bookmark
+    /// data, so a call with neither file throws `BookmarkSyncError.noData`
+    /// before any request is sent. `folders` (R5) narrows the sync to those
     /// folder-path prefixes; nil sends no key and is byte-identical to the
     /// pre-existing everything sync. The dedup diff is the same
     /// `url_index.json` hash check every other source path uses, so
     /// already-saved bookmarks come back as `skipped`, not re-ingested.
     @discardableResult
-    func syncBookmarks(chromeData: Data? = nil, safariData: Data? = nil,
-                       folders: [String]? = nil) async throws -> BookmarkSyncResult {
+    func syncBookmarks(chromeData: Data?, safariData: Data?,
+                       folders: [String]?) async throws -> BookmarkSyncResult {
         var body: [String: Any] = [:]
-        if let chromeData { body["chromeDataB64"] = chromeData.base64EncodedString() }
-        if let safariData { body["safariDataB64"] = safariData.base64EncodedString() }
+        if let chromeData, !chromeData.isEmpty { body["chromeDataB64"] = chromeData.base64EncodedString() }
+        if let safariData, !safariData.isEmpty { body["safariDataB64"] = safariData.base64EncodedString() }
+        guard !body.isEmpty else { throw BookmarkSyncError.noData }
         if let folders { body["folders"] = folders }
-        return try await post("/sources/sync-bookmarks", body: body.isEmpty ? nil : body)
+        return try await post("/sources/sync-bookmarks", body: body)
     }
 
     /// `POST /sources/sync-bookmarks` with `chromium` (round 4, C9): one Chromium-family browser's default-profile file,
