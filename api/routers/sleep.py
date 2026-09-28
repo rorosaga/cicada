@@ -205,5 +205,10 @@ async def put_sleep_engine(body: SleepEngineChoice, settings: Settings = Depends
     `build_response` a GET would use — the echoed body can never drift from
     what a follow-up GET reports."""
     reg = get_registry(settings)
+    pinned, source = sleep_engine_prefs.configured_choice(settings, reg)
+    if source == "env" and body.mode != pinned:
+        # CICADA_LLM_MODE in the environment outranks the stored choice, so a
+        # write here would answer 200 and change nothing the person can see.
+        raise HTTPException(status_code=409, detail=sleep_engine_prefs.env_pin_sentence(pinned))
     sleep_engine_prefs.validate_and_write(body, reg)
     return await sleep_engine_prefs.build_response(settings, reg)

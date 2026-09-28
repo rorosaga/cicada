@@ -101,12 +101,19 @@ struct EngineChooser: View {
 
     @ViewBuilder
     private func content(for response: SleepEngineResponse) -> some View {
+        if response.isPinnedByEnvironment {
+            Text(Copy.EngineMenu.pinnedByEnvironment(response.mode))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         EngineCardGrid(minimum: CicadaTheme.scaled(112), spacing: CicadaTheme.spacingSM) {
             ForEach(response.candidates) { candidate in
                 EngineOptionCard(
                     candidate: candidate,
                     isSelected: candidate.id == selectedCard,
-                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard),
+                    isSelectable: EngineOption.isSelectable(candidate, selectedMode: selectedCard)
+                        && !response.isPinnedByEnvironment,
                     // R-AG14 — how OpenRouter and Ollama are paid for is not obvious from their names.
                     costModel: ["openrouter", "local"].contains(candidate.id)
                         ? EngineOption.costModel(for: candidate.id) : nil,

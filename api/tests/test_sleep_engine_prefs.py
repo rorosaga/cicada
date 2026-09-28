@@ -256,3 +256,19 @@ def test_auto_on_a_key_names_that_key_s_provider(client, monkeypatch):
     body = client.put("/sleep/engine", json={"mode": "auto"}).json()
     assert body["preview"]["manual"]["engine"] == "litellm"
     assert (body["selected"], body["provider"]) == ("auto", "openai")      # gpt-5.4-mini, the env default
+
+
+def test_an_environment_pin_refuses_a_different_choice_in_words(client, monkeypatch):
+    """CICADA_LLM_MODE outranks the stored choice: a write that would answer 200
+    and change nothing is a 409 saying where the pin lives, and nothing is stored."""
+    monkeypatch.setenv("CICADA_LLM_MODE", "auto")
+    config.get_settings.cache_clear()
+    got = client.get("/sleep/engine").json()
+    assert got["mode"] == "auto" and got["source"] == "env"
+
+    refused = client.put("/sleep/engine", json={"mode": "codex"})
+    assert refused.status_code == 409
+    assert "CICADA_LLM_MODE=auto" in refused.json()["detail"]
+    assert "sleep-engine" not in reg_mod.get_registry(config.get_settings()).prefs()
+
+    assert client.put("/sleep/engine", json={"mode": "auto"}).status_code == 200, "the pinned mode itself is fine"

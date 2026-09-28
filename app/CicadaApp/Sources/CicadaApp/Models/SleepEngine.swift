@@ -58,6 +58,10 @@ struct SleepEnginePreviews: Codable, Hashable {
 /// settings page can render from a stale local cache before the first
 /// network round-trip — still decodes instead of crashing the card.
 struct SleepEngineResponse: Codable, Hashable {
+    /// `CICADA_LLM_MODE` in the backend's environment outranks the stored choice (`source == "env"`): a
+    /// card or a menu row would write and change nothing, so every surface says so and chooses nothing.
+    var isPinnedByEnvironment: Bool { source == "env" }
+
     let mode: String
     let model: String
     let disambiguationModel: String
