@@ -58,6 +58,7 @@ final class CicadaAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
         // process with no bundle (`swift test`, a bare `swift run`).
         LaunchState.shared.record(LaunchKind.resolve(event: NSAppleEventManager.shared().currentAppleEvent,
                                                      arguments: ProcessInfo.processInfo.arguments))
+        TerminateOnSignal.install()
         guard ReminderAvailability.current else { return }
         UNUserNotificationCenter.current().delegate = self
     }
