@@ -29,7 +29,7 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   `scripts/install-backend-agent.sh`, `install.sh` (MCP + hooks), `scripts/dev/install-auto-update.sh`, and
   `make install-app`; the checklist is in the agent's project memory. Owner-machine only — `install.md` clones to
   `~/cicada`.
-- *G155* Google Calendar slice (scoped 2026-09-28) is an open row. *G161* the captured-items list shipped (PR #PRNUM):
+- *G155* Google Calendar slice (scoped 2026-09-28) is an open row. *G161* the captured-items list shipped (PR #134):
   "What came in" under each source row, `GET /sources/channels/{id}/items`.
 
 **Round 4 is merged (PRs #101–#117, all on `dev`, promoted to `main` on the owner's instruction).** Phase A: the
