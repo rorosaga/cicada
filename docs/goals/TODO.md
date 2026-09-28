@@ -10,8 +10,26 @@
 fixtures (the agent setup prompt was already per-machine); #119 imports Claude projects exported one file per project
 (`projects/<name>.json` — they were counted as attachments and dropped; project `docs` are still not imported); #120
 moves the Apple Notes read into the app (`AppleNotesReader`), so the Automation prompt names Cicada instead of the
-launchd backend's `python3.12`. Not yet seen live: that prompt on a freshly built app. The same rail question stands
-for `/sources/sync-bookmarks`' bodiless fallback, which still reads this Mac's bookmark files from the backend.
+launchd backend's `python3.12`. The same day, the rest of the rail: #121 reads Claude's split five-zip export
+(memories object, memory files, named skips); #125 removes the backend's bookmark fallback, the dead Safari reader and
+`/local-ref`; #128 imports the text Claude extracted from uploads as `page` evidence (`attachment [<name>]:`, quoted);
+#129 lets builds sign with a stable "Cicada Local" identity; #130 has the app list a location's folder and Resume stop
+statting its cwd; #131 has the app run git in a declared repo and the backend only parse (`$CICADA_HOME/repos/`);
+#132 matches a `device:` by any of this Mac's names (`local_refs.is_this_device`). Dev tooling: #122–#127 keep the
+owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cicada.dev-autoupdate`).
+
+**Pending after 2026-09-28 (owner asked to record these):**
+- *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt
+  naming **Cicada** on a location or repo card; (2) the card's "not allowed" sentence after a Don't Allow; (3) a Sleep
+  with no `git` child of the backend (`ps`); (4) with a "Cicada Local" certificate, a Documents/Contacts grant that
+  survives two rebuilds in a row; (5) the Notes Automation prompt naming Cicada.
+- *Move the owner's checkout out of `~/Documents`* (agreed 2026-09-28): launchd processes are refused a protected folder
+  unless already granted — the auto-update job only works because it starts through the venv Python the backend job
+  already runs as. Move it, then re-point `api/.env` / `banks.yaml` (the bank lives inside), re-run
+  `scripts/install-backend-agent.sh`, `install.sh` (MCP + hooks), `scripts/dev/install-auto-update.sh`, and
+  `make install-app`; the checklist is in the agent's project memory. Owner-machine only — `install.md` clones to
+  `~/cicada`.
+- *G155* Google Calendar slice (scoped 2026-09-28) and *G161* the captured-items list are open rows.
 
 **Round 4 is merged (PRs #101–#117, all on `dev`, promoted to `main` on the owner's instruction).** Phase A: the
 per-turn model/effort join (#104/#105), frequency-aware decay G147 (#102), implicit recall G149 (#106), backlogs in
