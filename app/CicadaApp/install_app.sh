@@ -114,17 +114,19 @@ ok "Signed and verified (ad-hoc — stabilizes the Launch Services identity acro
 
 # --- Replace-while-running, handled deterministically ---
 # Only now — with a verified build ready to install — do we quit a live
-# instance. The osascript quit request is backgrounded (never `wait`ed on)
-# so a permission prompt it might trigger can never hang this script — the
-# poll loop below is what actually decides when to move on.
+# instance. SIGTERM, never an AppleScript quit: an Apple Event makes macOS ask
+# whether this shell may control Cicada, and the app turns SIGTERM into its
+# own ⌘Q (`TerminateOnSignal`), so a held Inbox answer is still sent. The poll
+# loop decides when to move on; a build too old to have that handler just
+# exits on the signal.
 if pgrep -x CicadaApp >/dev/null 2>&1; then
   step "Quitting the running Cicada instance…"
-  ( osascript -e 'tell application "Cicada" to quit' >/dev/null 2>&1 & ) 2>/dev/null || true
+  pkill -TERM -x CicadaApp 2>/dev/null || true
   waited=0
   while pgrep -x CicadaApp >/dev/null 2>&1; do
     if [ "$waited" -ge "$QUIT_TIMEOUT" ]; then
-      warn "Cicada didn't quit within ${QUIT_TIMEOUT}s — sending SIGTERM"
-      pkill -x CicadaApp 2>/dev/null || true
+      warn "Cicada didn't quit within ${QUIT_TIMEOUT}s — sending SIGKILL"
+      pkill -KILL -x CicadaApp 2>/dev/null || true
       sleep 1
       break
     fi
