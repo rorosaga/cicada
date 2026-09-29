@@ -3,12 +3,12 @@ import Foundation
 /// Wire mirror of `api.models.schemas.SleepEngineCandidate` — one row of the
 /// G122 Settings → Engines picker's segmented control. Deliberately NOT a
 /// reuse of `ConnectionStatus` (that model carries login/billing fields no
-/// candidate needs, and G124 bans price/token fields from this surface
-/// entirely) — a candidate only needs enough to render a segment and, once
-/// selected, a model list. The backend always sends every field here (Task
-/// 1), so a plain synthesized `Codable` is sufficient — only the
-/// *response's* `candidates`/`preview` fields (below) need the extra decode
-/// tolerance a cached-from-before-G122 payload requires.
+/// candidate needs) — a candidate only needs enough to render a segment and, once
+/// selected, a model list. Since the 2026-09-28 ruling it may also carry one `usage`
+/// caption source and the picker's per-model list prices (Sleep page only); both are
+/// decoded leniently, so a malformed one never empties the picker. The *response's*
+/// `candidates`/`preview` fields (below) need the extra decode tolerance a
+/// cached-from-before-G122 payload requires.
 struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     let id: String
     let label: String
@@ -20,6 +20,25 @@ struct SleepEngineCandidate: Codable, Identifiable, Hashable {
     /// under the hood. Absent (an older backend, or any other card) → `nil`, and the id is the
     /// mode; read only through `EngineWrite.mode(of:)`.
     var mode: String? = nil
+    /// 2026-09-28 — a plan's window state or a key card's model price; absent on an older backend.
+    var usage: SleepEngineUsage? = nil
+    /// Model id → list price per million tokens, a parallel map so `models` keeps its type.
+    var modelPrices: [String: SleepEngineModelPrice] = [:]
+}
+
+extension SleepEngineCandidate {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        label = try c.decode(String.self, forKey: .label)
+        available = try c.decode(Bool.self, forKey: .available)
+        connected = try c.decode(Bool.self, forKey: .connected)
+        models = try c.decode([String].self, forKey: .models)
+        detail = try c.decodeIfPresent(String.self, forKey: .detail)
+        mode = try c.decodeIfPresent(String.self, forKey: .mode)
+        usage = (try? c.decodeIfPresent(SleepEngineUsage.self, forKey: .usage)) ?? nil
+        modelPrices = ((try? c.decodeIfPresent([String: SleepEngineModelPrice].self, forKey: .modelPrices)) ?? nil) ?? [:]
+    }
 }
 
 /// R-AG11 — one row of the API-key card's provider picker, from `GET /sleep/engine`.

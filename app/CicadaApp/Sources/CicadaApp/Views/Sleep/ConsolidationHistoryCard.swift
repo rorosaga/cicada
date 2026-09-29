@@ -206,6 +206,49 @@ struct ConsolidationHistoryCard: View {
         return parts.joined(separator: ", ")
     }
 
+    /// 2026-09-28 — per model: calls, tokens in and out, and the cost with its basis in words; then the
+    /// total, and a plan's window before → after with the honest limit. Nothing here for an inbox or
+    /// decay commit, which never has a `sleep_run`.
+    @ViewBuilder
+    private func usageBlock(_ d: SleepCycleDetail) -> some View {
+        let lines = CycleUsageText.detailLines(d.usage, kind: d.kind)
+        if let empty = lines.empty {
+            Text(empty)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        } else if !lines.models.isEmpty || !lines.plan.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                SectionLabel(Copy.SleepUsage.modelsTitle)
+                ForEach(lines.models, id: \.self) { line in
+                    Text(line)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let total = lines.total {
+                    Text(total)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                }
+                ForEach(Array(lines.plan.enumerated()), id: \.offset) { _, row in
+                    Text(row.text)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .help(row.help)
+                }
+                if !lines.plan.isEmpty {
+                    Text(Copy.SleepUsage.planNote)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     /// Counts go through `UsageFormat` (DR-21); entity links are `accentText` (DR-5 use 5).
     @ViewBuilder
     private func detail(for entry: SleepHistoryEntry) -> some View {
@@ -248,6 +291,8 @@ struct ConsolidationHistoryCard: View {
                         }
                     }
                 }
+
+                usageBlock(d)
 
                 if d.inboxChanges > 0 {
                     Text("\(UsageFormat.count(d.inboxChanges)) inbox item\(d.inboxChanges == 1 ? "" : "s") changed")
@@ -298,7 +343,20 @@ private struct PastNightRow: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .frame(width: CicadaTheme.scaled(60), alignment: .leading)
 
-                headline(isDecay: isDecay)
+                VStack(alignment: .leading, spacing: 1) {
+                    headline(isDecay: isDecay)
+                    // 2026-09-28 — what the cycle cost, one line under the counts; words come from
+                    // `CycleUsageText`, so no figure is spelled in this view.
+                    if let usage = CycleUsageText.summaryLine(kind: entry.kind, summary: entry.usageSummary) {
+                        Text(usage)
+                            .font(CicadaTheme.metaFont)
+                            .monospacedDigit()
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .help(CycleUsageText.summaryHelp(entry.usageSummary) ?? "")
+                    }
+                }
 
                 // The pill is also set for an author-only commit with no engine; the mark shows
                 // only when there is an engine to mean.

@@ -360,6 +360,17 @@ def resolve_llm_fn(
         connection, billing = telemetry.connection_for_model(resolved_model)
         argv_model = resolved_model
 
+    def _with_cycle(refs: dict | None) -> dict:
+        """Tag a call with the Sleep cycle whose scope it runs in (contextvar,
+        so it survives `to_thread`/`gather`); calls outside a cycle stay untagged."""
+        from api.services import agent_engine
+
+        out = dict(refs or {})
+        cycle_id = agent_engine.cycle_id_from_scope(scope or agent_engine.current_scope())
+        if cycle_id:
+            out["cycle_id"] = cycle_id
+        return out
+
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
               equiv_override: float | None = None, refs: dict | None = None) -> None:
         try:
@@ -391,7 +402,7 @@ def resolve_llm_fn(
                 cache_write_tokens=usage["cache_write_tokens"],
                 cost_usd=cost, equiv_cost_usd=equiv,
                 duration_ms=int((time.perf_counter() - started) * 1000), ok=ok,
-                refs=refs or {},
+                refs=_with_cycle(refs),
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
@@ -482,6 +493,7 @@ def resolve_llm_fn(
                 refs = {"warnings": len(parsed.warnings)} if parsed.warnings else {}
             agent_engine.record_model_used(used)
         except (engine_errors.EngineThrottled, engine_errors.EngineExhausted) as exc:
+            _note_plan_signals(mode, resolved_scope, seen)
             # R-E12: a throttle trips in any scope (unchanged). An exhaustion
             # trips only inside a workload scope. Trip BEFORE emitting so a
             # concurrent caller cannot also trip.
@@ -502,14 +514,24 @@ def resolve_llm_fn(
                 _emit_throttle(str(exc), seen.get("stream"))
             raise
         except Exception:
+            _note_plan_signals(mode, resolved_scope, seen)
             _emit(None, started, ok=False)
             raise
         _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
+        _note_plan_signals(mode, resolved_scope, seen)
         stop = seen.get("stop")
         if (stop is not None and in_workload
                 and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope)):
             _emit_throttle(stop.sentence, seen.get("stream"))
         return resp
+
+    def _note_plan_signals(mode_: str, scope_: str, seen_: dict) -> None:
+        # A cycle that ends on a rate limit is the one whose final window matters most.
+        if mode_ == "agent" and seen_.get("stream") is not None:
+            from api.services import cycle_usage
+
+            cycle_usage.note_signals(agent_engine.cycle_id_from_scope(scope_),
+                                     seen_["stream"].rate_limits)
 
     def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
         with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):

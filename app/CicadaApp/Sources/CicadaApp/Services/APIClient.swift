@@ -899,12 +899,14 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     let sessions: Int
     let authors: [String]
     let durationMs: Int?
+    /// 2026-09-28 — what the cycle cost, one flat value; `nil` = not recorded (or an older backend).
+    let usageSummary: CycleUsageSummary?
 
     var id: String { commitHash }
 
     enum CodingKeys: String, CodingKey {
         case commitHash, date, message, filesChanged, engine, kind
-        case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs
+        case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs, usageSummary
     }
 
     init(from decoder: Decoder) throws {
@@ -921,6 +923,7 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
         sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
         authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
     }
 }
 
@@ -954,13 +957,16 @@ struct SleepCycleDetail: Codable, Identifiable, Equatable {
     let truncated: Bool
     let episodesByOrigin: [String: Int]
     let inboxChanges: Int
+    /// 2026-09-28 — per-model usage; `nil` = not recorded (or an older backend).
+    let usage: CycleUsage?
+    let usageSummary: CycleUsageSummary?
 
     var id: String { commitHash }
 
     enum CodingKeys: String, CodingKey {
         case commitHash, date, message, filesChanged, engine, kind
         case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs
-        case entities, truncated, episodesByOrigin, inboxChanges
+        case entities, truncated, episodesByOrigin, inboxChanges, usage, usageSummary
     }
 
     init(from decoder: Decoder) throws {
@@ -981,6 +987,8 @@ struct SleepCycleDetail: Codable, Identifiable, Equatable {
         truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
         episodesByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .episodesByOrigin) ?? [:]
         inboxChanges = try c.decodeIfPresent(Int.self, forKey: .inboxChanges) ?? 0
+        usage = (try? c.decodeIfPresent(CycleUsage.self, forKey: .usage)) ?? nil
+        usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
     }
 }
 

@@ -5,7 +5,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
@@ -1243,7 +1243,7 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
     3.12.11 — unsliced, this endpoint and ``get_sleep_cycle_detail`` both 500
     the moment the format changes).
     """
-    from api.services import sleep_history, sync_service, telemetry
+    from api.services import cycle_usage, sleep_history, sync_service, telemetry
 
     limit = max(1, int(limit))
     key = (str(memory_path), sync_service.git_head(memory_path), limit)
@@ -1286,8 +1286,12 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
     # that grows with the SIZE of everything that ever happened, not with
     # what this request actually needs). Nothing to join → skip the read.
     if out:
-        oldest = min(date.fromisoformat(e.date[:10]) for e in out)
-        sleep_history.attach_durations(out, telemetry.read_events(start=oldest))
+        # A day early: a cycle that ran across midnight UTC has calls on the
+        # day before its commit. One ledger read serves both joins.
+        oldest = min(date.fromisoformat(e.date[:10]) for e in out) - timedelta(days=1)
+        events = telemetry.read_events(start=oldest)
+        sleep_history.attach_durations(out, events)
+        cycle_usage.attach_usage(out, events)
     return out
 
 
@@ -1298,7 +1302,7 @@ async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDe
     ``--date=iso-strict`` and the ``[:10]`` slice on the telemetry bound are
     the same pair as in ``get_sleep_history`` above, and for the same reason —
     they must move together or this endpoint raises ``ValueError``."""
-    from api.services import sleep_history, telemetry
+    from api.services import cycle_usage, sleep_history, telemetry
 
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
         return None
@@ -1318,7 +1322,9 @@ async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDe
         episodes_by_origin=sleep_history.episodes_by_origin(memory_path, manifest.episodes),
         inbox_changes=manifest.inbox_changes,
     )
-    sleep_history.attach_durations([detail], telemetry.read_events(start=date.fromisoformat(detail.date[:10])))
+    events = telemetry.read_events(start=date.fromisoformat(detail.date[:10]) - timedelta(days=1))
+    sleep_history.attach_durations([detail], events)
+    cycle_usage.attach_usage([detail], events, detail=True)
     return detail
 
 

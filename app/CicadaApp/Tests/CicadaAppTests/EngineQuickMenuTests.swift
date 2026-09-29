@@ -191,9 +191,9 @@ final class EngineQuickMenuTests: XCTestCase {
         XCTAssertEqual(EngineMark.source(for: "litellm"), .symbol("key"))
     }
 
-    // MARK: No price, ever (2026-09-03)
+    // MARK: No price without usage (2026-09-03, narrowed 2026-09-28 — see CycleUsageTextTests)
 
-    func testNoPriceOrTokenAnywhereInTheMenu() {
+    func testNoPriceOrTokenInTheMenuWhenTheWireCarriesNoUsage() {
         for r in [response(mode: "auto"), response(mode: "agent", codexSignedIn: false),
                   response(mode: "byok", manual: ("litellm", "example-model")), response(mode: "local")] {
             let m = EngineQuickMenuModel.from(r)

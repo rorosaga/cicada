@@ -643,6 +643,17 @@ and the model id when the harness sends one. It is filed beside `read` for the s
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
 prompt never is.
 
+**Cycle usage (2026-09-28 ruling, Sleep page only).** Every `llm_call` a Sleep cycle makes carries `refs.cycle_id`
+(from the ambient `sleep:<id>` scope, so it survives `to_thread`/`gather`; the engine-independent tail runs outside
+that scope and is never counted), and the cycle's `sleep_run` gains `usage_tagged: true` plus, when observed,
+`plan: {connection, windows: [{window, before, after, resets_at, before_is_first_seen}]}` — numbers and enums only.
+Claude's windows come from the calls' rate-limit signals (`before` is the value after the first call); the ChatGPT
+plan's from two fresh app-server snapshots bracketing the cycle. `api/services/cycle_usage.py` derives `usage` for
+`GET /sleep/history/{commit}` and `usageSummary` for `GET /sleep/history` at read, joined after the git cache; every
+figure carries its basis (`charged` | `list` | `plan` | `free`), and a cycle without the marker reads `null`, never zero.
+The Sleep page's Details (Last cycle, Past nights, an opened cycle's Models) and the engine menu's captions read them
+(2026-09-28 ruling); a `plan` block and a `cycle_id` are numbers and ids, never text.
+
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
 winner/loser claim ids, the extractor's confidence and model — ids and enums only, never claim
@@ -816,9 +827,12 @@ thin projections and **never blank** — always last-known-good. Writes go throu
 optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
-**Ruling (2026-09-03): prices and token usage are not shown anywhere in the app** — no cost tiles,
-no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and the ledger are
-unchanged for future use.
+**Ruling (2026-09-28, TODO ruling 12): plan usage and model prices show on the Sleep page's Details and its engine
+menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
+in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and
+the `/consumption/*` endpoints are unchanged. Every figure states its basis in words ("charged", "at list price", a
+plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
+(`CycleUsageText`, `UsageFormat.currency`).
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
 Sleep, Inbox, Sources, Projects at ⌘1–8 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
@@ -940,7 +954,7 @@ start a cycle" / "Scheduled cycles", the one wording app-wide. The Claude plan's
 same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
-only: the Max-tier cost-estimate picker is gone (the no-price ruling).
+only: the Max-tier cost-estimate picker is gone (prices live on the Sleep page, ruling 12).
 **Who reads (round 4, R-AG10…R-AG14).** OpenRouter is its own card: *Sign in with OpenRouter* (PKCE, the nonce in
 the callback path) or *Paste a key instead*; under the hood it is `byok` with an `openrouter/` model, so ruling 4 is
 unchanged and `PUT {mode: "openrouter"}` is a 422 — every card becomes a mode through `EngineWrite.mode(of:)`, and
@@ -1158,7 +1172,7 @@ page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro D
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
-Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, estimates, prices.
+Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12) — inside them only a measured or list-price figure that states its basis ("charged", "at list price", a plan window's share).
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

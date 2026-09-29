@@ -467,6 +467,12 @@ def activate_bank(root: Path, name: str) -> None:
         banks[previous]["last_active_at"] = datetime.now(timezone.utc).isoformat()
     registry["active"] = name
     save_registry(root, registry)
+    try:
+        from api.services import cycle_usage
+
+        cycle_usage.reset_cache()  # the engine menu's "last cycle" is per bank
+    except Exception:  # pragma: no cover - defensive
+        pass
 
 
 def most_recent_real_bank(root: Path) -> str | None:
