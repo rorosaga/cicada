@@ -177,3 +177,23 @@ for the owner's call. Record the amendment's scope as a dated TODO ruling when t
   animation — the globe spins, the phone lights, the computer flickers, a book tilts out — plus a popover with the counts and
   one link to where the thing lives). Still bound by "no click on art changes what the machine does": clicks animate and
   inform, never start work. Keyboard focus and VoiceOver labels on every prop.
+
+## 10. The worm comes first, and how it reads and sleeps (owner, 2026-09-29, later still; backlog G176)
+
+> "i'd actually like to start by iterating on a base design of the worm, so asking it to come up with several different
+> designs so i can decide … include the flipping of the pages when the worm is reading … have z, zz, zzz appear when it
+> sleeps and stuff."
+
+- **Step 1 is the worm alone.** Before any room, prop or mark work: 5–6 genuinely different worm directions (silhouette
+  and proportions, face, glasses, palette and outline, 32 vs 48 grid), each with a hero portrait at room size and 18×18,
+  an expression sheet, three short loops (idle, reading, sleeping) and a room thumbnail by day and night — on the design
+  canvas, one board each plus a comparison board. The session stops for the owner's pick (or a combination) and iterates
+  on it round by round, keeping every round's boards. The room's palette and proportions follow the approved worm.
+- **Reading flips pages.** While consolidating, the worm's eyes track the lines and it turns pages — the page lifts, curls
+  across the spine and settles — every few seconds, never in lockstep; a finished book is set aside and the next picked up.
+- **Sleeping shows z's.** On the bean bag with a slow breath, a "z", then "zz", then "zzz" rising, growing and fading as
+  they drift, looping gently. The other moods get the same care: a yawn before sleep, a stretch on waking, a cheer when a
+  cycle finishes, worry on an error, a gulp when fed a file.
+- The handoff prompt that runs all of this is
+  [`2026-09-29-study-room-sprites-handoff-prompt.md`](2026-09-29-study-room-sprites-handoff-prompt.md); edit the two
+  together.
