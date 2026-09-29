@@ -60,9 +60,10 @@ def test_asking_again_resets_the_state_and_forgets_the_outcome(memory):
     assert len(reading_asks.all_rows(memory, now=T0 + timedelta(minutes=6))) == 1
 
 
-def test_an_outcome_for_a_link_nobody_asked_about_gets_its_own_row(memory):
-    row = reading_asks.record_outcome(memory, H, "blocked", host="blog.bob-example.org", now=T0)
-    assert row["state"] == "blocked" and row["asked_at"] == row["outcome_at"]
+def test_an_outcome_for_a_link_nobody_asked_about_writes_nothing(memory):
+    assert reading_asks.record_outcome(memory, H, "blocked", host="blog.bob-example.org", now=T0) is None
+    assert reading_asks.all_rows(memory, now=T0) == [] and not reading_asks.path_for(memory).exists()
+    reading_asks.ask(memory, H, host="blog.bob-example.org", host_class="public", now=T0)
     with pytest.raises(ValueError):
         reading_asks.record_outcome(memory, H, "waiting")
     with pytest.raises(ValueError):
@@ -71,6 +72,7 @@ def test_an_outcome_for_a_link_nobody_asked_about_gets_its_own_row(memory):
 
 def test_via_and_note_are_plain_short_and_scrubbed(memory):
     secret = "sk-" + "Z" * 24
+    reading_asks.ask(memory, H, host="h", host_class="public", now=T0)
     row = reading_asks.record_outcome(
         memory, H, "failed", via="<b>Chrome</b>\nharness " + "x" * 80, note=f"see {secret} " + "n" * 400, now=T0)
     assert "<" not in row["via"] and "\n" not in row["via"] and len(row["via"]) <= reading_asks.MAX_VIA_CHARS

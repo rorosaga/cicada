@@ -296,6 +296,14 @@ nothing. One drain shares one `DecayBudget`, so a cycle still opens at most `dec
 questions however many batches it runs. `episodesQueued == episodesTotal` is the whole drain, `stage1_progress` counts
 across batches, and `episodeCap` on `/sleep/status` is always 0 (kept so an older client decodes; nothing is capped).
 The Rested % volume reference is its own constant (`sleep_debt.VOLUME_REFERENCE`), not a limit.
+**Each batch is its own ledger unit.** `_drain` runs a batch under its own scope `sleep:<id>` — the first batch keeps
+the trigger's id, batch n is `<id>.b<n>` — so its `llm_call`s, its plan window (taken and popped per batch) and its
+`sleep_run` row (`refs.cycle_id`, and a `duration_ms` measured from that batch's start) are its own; a history entry
+shows its own batch's calls, never the drain's total. The plan-stop breaker lives in the batch's scope and is purged when
+it leaves, so `_run_stages` hands it back as `_StageOutcome.breaker`. **The window is long, and it is disclosed, not
+hidden:** while a drain runs Sleep is busy, so every guarded write (the app's inbox answers, Projects and settings
+writes, every remote write) answers 409 and `cicada_record_read` with `read` is refused on stdio the way the remote path
+refuses it (a stdio write would sit uncommitted and the next `git add -A` writer would sweep it in under its own author).
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
@@ -817,7 +825,7 @@ needs_login | blocked | not_found | failed`. Only a **successful read is memory*
 (`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
 *reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
 claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
-the harness and never mints a page. **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+the harness and never mints a page. **Only a link the person asked about can be recorded**: `cicada_record_read` refuses every outcome for a URL with no live ask row (a saved link with no ask included), and `reading_asks.record_outcome` never creates a row — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about. A `read` is also refused while Sleep runs on stdio. **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
 gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
 shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
 it read with — self-reported, never proof. Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
@@ -834,6 +842,20 @@ Routes (`routers/reading.py`, none a Store domain): `GET|PUT /reading/settings`,
 `DELETE /reading/asks/{urlHash}`, `GET /reading/prompt`; `GET /sources` carries `MediaSourceItem.read`
 (`status, by, tier, at, via, harness, host, hostKey, askable, reason`, merged from the page stamp and the ask row,
 newest wins) so the app holds no host table.
+**The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
+bank write) refreshes the Feed over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
+a value this build cannot read, drops the block and never the row). **Settings → Agents → Reading pages**
+(`ReadingAgentGroup`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and answered by every write):
+"Let an agent read pages for you", off by default. Turning it on raises `SettingsSheet`'s first-use sheet (what asking
+does, that Cicada only asks, the sites' terms, the five per-site switches all off, an "I understand" that must be ticked,
+DR-41) and nothing changes until "Turn on", which sends the acknowledgement and the sites in one `PUT /reading/settings`;
+once on, one switch per site and "Copy for an agent" (`GET /reading/prompt`) sit in the group. The **Feed's detail column**
+gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",
+"Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
+app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
+hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or the link is on a login-walled
+site (where the disabled button says which switch is off); an ordinary page with agent reading off draws nothing. No line
+says "in your browser" of what an agent did, or promises what it will not do.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.

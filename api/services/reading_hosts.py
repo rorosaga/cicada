@@ -249,8 +249,8 @@ def classify(url: str) -> Verdict:
 
 def switch_off_reason(verdict: Verdict) -> str:
     label = HOST_LABELS.get(verdict.host_key or "", verdict.host)
-    return (f"{label} is not turned on for your agent. Turn it on in Settings, Reading the web, "
-            "With an agent, then ask again.")
+    return (f"{label} is not turned on for your agent. Turn it on in Settings, Agents, "
+            "Reading pages, then ask again.")
 
 
 def agent_may_read(url: str, *, enabled: bool, allowed_hosts) -> Verdict:
@@ -262,7 +262,7 @@ def agent_may_read(url: str, *, enabled: bool, allowed_hosts) -> Verdict:
         return verdict
     if not enabled:
         return Verdict(False, "off", verdict.host, verdict.host_key, verdict.walled,
-                       "Agent reading is off. Turn it on in Settings, Reading the web, With an agent.")
+                       "Agent reading is off. Turn it on in Settings, Agents, Reading pages.")
     if verdict.host_key is not None and verdict.host_key not in set(allowed_hosts or ()):
         return Verdict(False, "off", verdict.host, verdict.host_key, True, switch_off_reason(verdict))
     return verdict

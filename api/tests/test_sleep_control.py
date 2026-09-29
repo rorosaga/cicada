@@ -485,6 +485,39 @@ def test_one_trigger_drains_the_whole_queue_in_batches(tmp_path, monkeypatch, ta
     assert "cap" not in (state.progress or "").lower()
 
 
+def test_each_batch_writes_its_own_ledger_row_with_its_own_scope_and_duration(tmp_path, monkeypatch, tail_spy):
+    """A drain's batches must not each claim the whole run: every `sleep_run` row
+    carries its batch's own id (so `usage_of_run` joins only that batch's calls),
+    its plan window is its own, and `duration_ms` is the batch's, not cumulative."""
+    from api.services import agent_engine, cycle_usage, telemetry
+
+    ids = [f"ep_2026-09-01_{i:03d}" for i in range(4)]
+    memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches)
+    inner = entity_extractor.extract
+    scopes: list[str] = []
+
+    async def slow_first(episodes, settings, *a, **kw):
+        scopes.append(agent_engine.current_scope())
+        if len(scopes) == 1:
+            await asyncio.sleep(0.4)
+        return await inner(episodes, settings, *a, **kw)
+
+    monkeypatch.setattr("api.services.entity_extractor.extract", slow_first)
+    rows = []
+    monkeypatch.setattr(telemetry, "record", lambda ev: rows.append(ev))
+
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-x"))
+
+    runs = [r for r in rows if r.kind == "sleep_run"]
+    assert [r.refs["cycle_id"] for r in runs] == ["cycle-x", "cycle-x.b2"], "one row per batch, each its own id"
+    assert scopes == ["sleep:cycle-x", "sleep:cycle-x.b2"], "each batch's calls are tagged with its own id"
+    assert runs[0].duration_ms >= 350 and runs[1].duration_ms < 300, "the second row is its own batch, not cumulative"
+    for held in (cycle_usage._CLAUDE, cycle_usage._CODEX_START):
+        assert not [k for k in held if str(k).startswith("cycle-x")], "no batch's windows outlive the drain"
+
+
 def test_a_small_queue_is_one_batch_and_reads_as_before(tmp_path, monkeypatch, tail_spy):
     ids = ["ep_2026-09-01_001", "ep_2026-09-01_002"]
     memory = _seed_git_bank(tmp_path, ids)

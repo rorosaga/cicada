@@ -199,21 +199,25 @@ def ask(memory_path: Path, url_hash: str, *, host: str, host_class: str, now: da
 
 
 def record_outcome(memory_path: Path, url_hash: str, state: str, *, host: str = "", host_class: str = "public",
-                   via=None, harness: str | None = None, note=None, now: datetime | None = None) -> dict:
-    """The agent's outcome for one link. A link with a row keeps its ask time; a
-    saved link nobody asked about gets a row of its own, so the outcome still
-    shows on the link (the agent may read a link the person saved)."""
+                   via=None, harness: str | None = None, note=None, now: datetime | None = None) -> dict | None:
+    """The agent's outcome for a link the person asked about. The row keeps its
+    ask time and host. **A link with no live row gets none**: an outcome is an
+    answer to an ask, so an agent cannot plant a state on a link nobody asked
+    about (returns ``None``, writes nothing). ``host`` and ``host_class`` are
+    used only when the stored row lacks them."""
     if state not in OUTCOMES:
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}")
     moment = _now(now)
     with _locked(memory_path) as target:
         rows = [r for r in _read_file(memory_path) if _alive(r, moment)]
         current = next((r for r in rows if r["url_hash"] == url_hash), None)
+        if current is None:
+            return None
         rows = [r for r in rows if r["url_hash"] != url_hash]
         row = {"url_hash": url_hash,
-               "host": (current or {}).get("host") or str(host or "")[:120],
-               "host_class": (current or {}).get("host_class") or ("walled" if host_class == "walled" else "public"),
-               "asked_at": (current or {}).get("asked_at") or _iso(moment), "state": state,
+               "host": current.get("host") or str(host or "")[:120],
+               "host_class": current.get("host_class") or ("walled" if host_class == "walled" else "public"),
+               "asked_at": current.get("asked_at") or _iso(moment), "state": state,
                "outcome_at": _iso(moment)}
         for key, value in (("via", clean_via(via)), ("harness", (harness or "").strip()[:60] or None),
                            ("note", clean_note(note))):

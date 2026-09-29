@@ -77,7 +77,7 @@ enum SettingsIndex {
         .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .calendarApp, .contactsApp,
-        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall,
+        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsReading,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
@@ -137,6 +137,10 @@ enum SettingsIndex {
         SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
                       keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
                       detail: Copy.autoRecallDetail),
+        SettingsEntry(.agentsReading, .agents, Copy.Reading.switchTitle,
+                      keywords: ["read", "pages", "links", "browser", "linkedin", "x", "twitter", "sign in", "login",
+                                 "ask an agent", "browser harness", "reading"],
+                      detail: Copy.Reading.switchDetail),
         // Cicada's own skills (G138) — per-item ids, so outside the bare-name lint
         SettingsEntry(.skill(CicadaSkillBundle.cicada.rawValue), .skills, CicadaSkillBundle.cicada.title,
                       keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),

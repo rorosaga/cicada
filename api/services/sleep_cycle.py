@@ -21,6 +21,10 @@ class SleepState:
     # adjustments (NTP, DST). Distinct from ``started_at``, which is the
     # human-readable timestamp shown in the Sleep dashboard.
     started_monotonic: float | None = None
+    # When the batch in flight began (== `started_monotonic` for a drain's first
+    # batch): the `sleep_run` row's `duration_ms` is THIS batch's, never the
+    # drain's running total.
+    batch_started_monotonic: float | None = None
     progress: str | None = None
     # Set to a string when the most recent run hit an exception. The benchmark
     # harness reads this to distinguish a real success from a swallowed
@@ -645,6 +649,9 @@ class _StageOutcome:
     #: A cancel arrived after this batch began writing: it finished its commit
     #: (by design) and the drain must not start another batch.
     cancel_late: bool = False
+    #: The plan-stop reason the batch ended with (read inside the batch's own
+    #: scope, which is purged when the batch leaves it), or ``None``.
+    breaker: str | None = None
 
 
 #: Per-batch counters the ledger row (`_finalize`) reads from `_state` for THAT
@@ -1188,34 +1195,50 @@ async def _drain(
     drain = _Drain()
     totals = {key: 0 for key in _BATCH_TOTALS}
     outcome = _StageOutcome()
-    while True:
-        outcome = await _run_stages(settings, cycle_id, memory_path, user_triggered=user_triggered, drain=drain)
-        if not outcome.committed:
-            break
-        drain.passes += 1
-        for key in _BATCH_TOTALS:
-            totals[key] += getattr(_state, key)
-        _state.drain_committed += _state.episodes_processed
-        if outcome.cancel_late or _state.error or agent_engine.breaker_reason():
-            break
-        if _state.cancel_requested:
-            _cycle_cancelled()
-            break
-        try:
-            remaining = [e for e in _get_unprocessed_episodes(memory_path) if e["id"] not in drain.attempted]
-        except Exception as e:  # noqa: BLE001 — a listing problem ends the drain, never the cycle
-            logger.warning(f"Sleep drain: could not list the queue: {type(e).__name__}: {e}")
-            break
-        if not remaining:
-            break
-        logger.info(f"Sleep drain: batch {drain.passes} committed; {len(remaining)} episode(s) still queued")
+    batch_ids: list[str] = []
+    try:
+        while True:
+            # Each batch is its own ledger scope, so its `llm_call`s, its plan
+            # window and its `sleep_run` row are its own (the first batch keeps
+            # the trigger's id). The plan-stop breaker lives in that scope and is
+            # purged when the batch leaves it, so `_run_stages` reports it back.
+            batch_id = cycle_id if not drain.passes else f"{cycle_id}.b{drain.passes + 1}"
+            batch_ids.append(batch_id)
+            with agent_engine.use_scope(f"sleep:{batch_id}"):
+                outcome = await _run_stages(
+                    settings, batch_id, memory_path, user_triggered=user_triggered, drain=drain)
+                outcome.breaker = outcome.breaker or agent_engine.breaker_reason()
+            if not outcome.committed:
+                break
+            drain.passes += 1
+            for key in _BATCH_TOTALS:
+                totals[key] += getattr(_state, key)
+            _state.drain_committed += _state.episodes_processed
+            if outcome.cancel_late or _state.error or outcome.breaker:
+                break
+            if _state.cancel_requested:
+                _cycle_cancelled()
+                break
+            try:
+                remaining = [e for e in _get_unprocessed_episodes(memory_path) if e["id"] not in drain.attempted]
+            except Exception as e:  # noqa: BLE001 — a listing problem ends the drain, never the cycle
+                logger.warning(f"Sleep drain: could not list the queue: {type(e).__name__}: {e}")
+                break
+            if not remaining:
+                break
+            logger.info(f"Sleep drain: batch {drain.passes} committed; {len(remaining)} episode(s) still queued")
+    finally:
+        from api.services import cycle_usage
+
+        for batch_id in batch_ids:
+            cycle_usage.discard(batch_id)  # bounded: a batch that never finalized frees its windows
     if drain.passes > 1:
         for key in _BATCH_TOTALS:
             setattr(_state, key, totals[key])
         if not _state.error and not _state.cancelled and (_state.progress or "").startswith("Completed"):
             _state.progress = (
                 f"Completed — {totals['episodes_processed']} episode(s) read in {drain.passes} batches"
-                + _requeue_note(totals["episodes_requeued"], agent_engine.breaker_reason())
+                + _requeue_note(totals["episodes_requeued"], outcome.breaker)
             )
     return outcome
 
@@ -1283,6 +1306,7 @@ async def _run_stages(
         logger.info("No unattempted episodes left in this drain")
         _state.progress = "No unprocessed episodes"
         return _StageOutcome()
+    _state.batch_started_monotonic = time.monotonic() if drain.passes else _state.started_monotonic
     if drain.passes:
         # A later batch: the page's stage strip and progress restart, the
         # per-batch counters the ledger row reads start clean, and the
@@ -1708,7 +1732,7 @@ async def _run_stages(
         changes,
         settings,
         organic_resolution_paths=organic_resolution_paths,
-        started=_state.started_monotonic,
+        started=_state.batch_started_monotonic or _state.started_monotonic,
         engine=engine,
         # A plan cycle belongs to its plan's card and is billed against the
         # subscription, not as money (PLAN_ENGINES, R-E22).
@@ -1761,7 +1785,8 @@ async def _run_stages(
             f"{requeue_note}{cancel_note}"
         )
     _state.stage = 5
-    return _StageOutcome(committed=True, questions_refreshed=questions_refreshed, cancel_late=cancel_late)
+    return _StageOutcome(committed=True, questions_refreshed=questions_refreshed, cancel_late=cancel_late,
+                         breaker=breaker)
 
 
 def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:

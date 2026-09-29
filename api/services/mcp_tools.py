@@ -565,9 +565,9 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
 
     Order of refusals is fixed: a demo bank first (the one reason every write
     tool gives there), then agent reading off, then the URL (a denied class, or a
-    walled host whose switch is off), then a link nobody asked about and nobody
-    saved. **Only a successful ``read`` is memory**: it lands on the saved-link
-    page (never a minted one) with its own episode and commit, as
+    walled host whose switch is off), then a link the person did not ask an agent
+    to read (a saved link with no ask is refused too). **Only a successful
+    ``read`` is memory**: it lands on the saved-link page (never a minted one) with its own episode and commit, as
     ``page_read`` describes. ``needs_login``, ``blocked``, ``not_found`` and
     ``failed`` touch only the machine-wide ask store, so a login wall shows on the
     link at once, with no bank write, no commit and no Sleep gate."""
@@ -592,14 +592,16 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
         ask_row = reading_asks.get(memory_path, h)
     except ValueError:
         ask_row = None
-    if target is None and ask_row is None:
-        return ("Not recorded: that link is not on the person's reading list and is not saved in Cicada. "
+    if ask_row is None:
+        return ("Not recorded: that link is not on the person's reading list. "
                 "Only a link the person asked an agent to read can be recorded.")
     host = reading_hosts.display_host(verdict.host)
     if outcome != "read":
-        reading_asks.record_outcome(
-            memory_path, h, outcome, host=host, host_class=verdict.host_class, via=via,
-            harness=ctx.author, note=note)
+        if reading_asks.record_outcome(
+                memory_path, h, outcome, host=host, host_class=verdict.host_class, via=via,
+                harness=ctx.author, note=note) is None:
+            return ("Not recorded: that link is no longer on the person's reading list. "
+                    "Only a link the person asked an agent to read can be recorded.")
         _read_agent_row(ctx, memory_path, entity_id=target.entity_id if target else None, outcome=outcome,
                         host_class=verdict.host_class)
         if outcome == "needs_login":
@@ -611,6 +613,12 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
     if target is None:
         return ("Not recorded: that link is not saved in Cicada, so there is no page to put the read on. "
                 "The person can save it and ask again.")
+    if ctx.sleep_running():
+        # A read writes a page and an episode: with Sleep running (a long drain, ruling 14) they would sit
+        # uncommitted and the next `git add -A` writer would sweep them in under its own author. Refuse
+        # instead, as the remote path does; an outcome other than `read` never gets here.
+        return ("Not recorded: Cicada is consolidating memory right now, and a read is written into it. "
+                "Nothing was saved. Try `cicada_record_read` again in a few minutes.")
     from api.config import get_settings
 
     r = page_read.record(

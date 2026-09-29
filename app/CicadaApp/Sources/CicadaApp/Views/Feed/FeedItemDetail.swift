@@ -34,6 +34,8 @@ struct FeedItemDetail: View {
             why
             SectionLabel(Copy.Lists.savedFrom).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
             savedFrom
+            // G166 — what an agent did with this link, and "Ask an agent".
+            FeedReadSection(item: item)
             Text(meta)
                 .font(CicadaTheme.metaFont)
                 .monospacedDigit()

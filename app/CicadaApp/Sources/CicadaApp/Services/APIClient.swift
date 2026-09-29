@@ -264,6 +264,10 @@ struct MediaFeedItem: Codable, Identifiable {
     /// row and from an older backend.
     let kind: String?
     let paper: PaperSummary?
+    /// G166 — how an agent read (or was asked to read) this link and whether it may be asked: the row's `read`
+    /// block. `nil` from an older backend, and for a link that is not a page to read (a video, a paper) with
+    /// nothing recorded. It moves on the `reading` sync component, so a `needs_login` shows here over SSE.
+    let read: MediaReadState?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -311,6 +315,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case origin, folder
         case provider, durationS
         case kind, paper
+        case read
     }
 
     init(from decoder: Decoder) throws {
@@ -337,6 +342,7 @@ struct MediaFeedItem: Codable, Identifiable {
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
+        read = try? c.decodeIfPresent(MediaReadState.self, forKey: .read)
     }
 
     var isPaper: Bool { kind == "paper" }
@@ -2213,6 +2219,35 @@ actor APIClient {
     /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
     /// already chosen. Not a Store domain, no ETag.
     func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
+
+    // MARK: Reading with the person's own agent (G166)
+
+    /// `GET /reading/settings` — the switch, the five per-site switches and the first-use acknowledgement.
+    func fetchReadingSettings() async throws -> ReadingSettingsResponse { try await get("/reading/settings") }
+
+    /// `PUT /reading/settings` — only the fields passed are sent. Turning the switch on needs a current
+    /// acknowledgement, given in the same call (`acknowledge`) or already stored; a 422 carries the sentence why.
+    func setReadingSettings(agentEnabled: Bool? = nil, agentHosts: [String]? = nil,
+                            acknowledge: Bool = false) async throws -> ReadingSettingsResponse {
+        var body: [String: Any] = [:]
+        if let agentEnabled { body["agentEnabled"] = agentEnabled }
+        if let agentHosts { body["agentHosts"] = agentHosts }
+        if acknowledge { body["acknowledge"] = true }
+        return try await put("/reading/settings", body: body)
+    }
+
+    /// `GET /reading/prompt` — the generic, URL-free sentence to hand the person's own agent.
+    func fetchReadingPrompt() async throws -> String {
+        struct Reply: Decodable { let prompt: String }
+        let reply: Reply = try await get("/reading/prompt")
+        return reply.prompt
+    }
+
+    /// `POST /reading/asks` — "Ask an agent" on one link. 409 while the switch (or the link's site) is off, 422 for a
+    /// link an agent is never offered; both carry a sentence written for the person.
+    func askAgentToRead(url: String) async throws -> ReadingAskResponse {
+        try await post("/reading/asks", body: ["url": url])
+    }
 
     /// `PUT /memory/decay-tuning` (G147) — `nil` clears a kind back to the usual pace. 409
     /// while Sleep runs; 422 with a plain sentence for a pace outside what the server allows.

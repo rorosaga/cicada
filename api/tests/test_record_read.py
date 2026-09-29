@@ -250,7 +250,7 @@ def test_a_walled_host_whose_switch_is_off_is_refused(reading):
     assert record(server, url=WALLED, outcome="needs_login").startswith("Recorded: the person needs to sign in")
 
 
-def test_a_link_nobody_asked_about_and_nobody_saved_is_refused_but_a_saved_one_records(reading):
+def test_a_link_the_person_did_not_ask_about_is_refused_saved_or_not(reading):
     server, memory = reading
     other = "https://blog.bob-example.org/saved-by-hand"
     assert "reading list" in record(server, url=other, outcome="failed")
@@ -258,9 +258,15 @@ def test_a_link_nobody_asked_about_and_nobody_saved_is_refused_but_a_saved_one_r
 
     from api.services import reading_service
 
-    # saved by the person some other way, never asked about: its outcome still records
+    # saved by the person some other way, never asked about: still refused, and nothing is written
     asyncio.run(reading_service.ask(memory, other))
     reading_asks.drop(memory, media_ingestor.url_hash(other))
+    for outcome in ("blocked", "needs_login", "read"):
+        assert record(server, url=other, outcome=outcome, summary=SUMMARY).startswith("Not recorded:")
+    assert reading_asks.get(memory, media_ingestor.url_hash(other)) is None
+    assert not list((memory / "episodes").glob("*page-read*"))
+    # once the person asks, the same outcome records
+    asyncio.run(reading_service.ask(memory, other))
     assert record(server, url=other, outcome="blocked").startswith("Recorded: the page blocked the read")
     assert reading_asks.get(memory, media_ingestor.url_hash(other))["state"] == "blocked"
 
@@ -276,13 +282,15 @@ def test_a_read_needs_a_saved_page_even_with_an_ask_row(reading):
 # --- Sleep and the remote runtime -------------------------------------------------
 
 
-def test_a_read_while_sleep_runs_is_written_but_left_for_the_next_commit(saved, monkeypatch):
+def test_a_read_while_sleep_runs_is_refused_and_writes_nothing(saved, monkeypatch):
     server, memory = saved
     monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda *a, **k: True)
     before = git_log(memory)
     out = record(server)
-    assert out.startswith("Recorded your read") and git_log(memory) == before
-    assert porcelain(memory) != ""
+    assert out.startswith("Not recorded") and "consolidating" in out
+    assert git_log(memory) == before and porcelain(memory) == ""
+    # an outcome that touches only the ask store is not gated
+    assert record(server, outcome="needs_login").startswith("Recorded: the person needs to sign in")
 
 
 def _phone(scopes=catalog.DEFAULT_SCOPES):

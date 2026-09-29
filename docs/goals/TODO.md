@@ -589,6 +589,10 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       port), nor is a local or reserved host, an AI vendor's own page, a video (the video path owns it) or a paper.
     - **R-RW9 — `--chrome` is in no argv** (`test_reading_never_spawns_browser.py`). Measured: it overrides
       `--safe-mode`, `--strict-mcp-config` and `--tools ""`.
+    - **Only a link the person asked about can be recorded (review, 2026-09-29).** `cicada_record_read` refuses every
+      outcome, `read` included, for a URL with no live ask row, whether or not the link is saved, and
+      `reading_asks.record_outcome` writes nothing without one. Before this a saved link with no ask took any outcome
+      (a rewritten description, a planted `needs_login`), which is what a page steering an agent would use.
     - **The outcome is stored where it can be shown at once.** `needs_login`, `blocked`, `not_found` and `failed` live
       only in the machine-wide ask store (no bank write, no commit, no Sleep gate) and move the `reading` sync component;
       only a successful `read` is memory. Chosen over writing the page because a page write needs a commit, is refused
@@ -610,7 +614,16 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     (decay charges once) and ruling 4 (a scheduled cycle never spends plan quota) are untouched; a plan stop ends the
     drain and the next trigger resumes it. `episodeCap` stays on the wire as 0 for older clients. **The first-run
     checklist's step 3 and 6 (raise the cap, "drain by hand one capped cycle at a time") are obsolete**; G163's
-    "reading everything that is waiting" is what this delivers for the backend.
+    "reading everything that is waiting" is what this delivers for the backend. **Consequences, decided with it
+    (review, 2026-09-29):** (a) each batch is its own ledger unit — its own scope id (`<id>`, `<id>.b2`, …), plan window,
+    `sleep_run` row and duration — so Past nights never shows the whole drain's calls on every commit; (b) Sleep is busy
+    for the whole drain, which on a first run is hours, so every guarded write answers 409 that long — the cost of "no
+    cap", accepted; the app already answers a 409 with "Sleep is running — try again when it finishes" and disables
+    Projects writes while it runs (`ProjectWriteGate`), so no new copy is needed; (c) `cicada_record_read` with `read` is refused while Sleep runs on stdio (the remote path already refuses),
+    because a stdio write would sit uncommitted across batches and be swept into a later batch's commit under the wrong
+    author; other stdio write tools keep their existing skip-the-commit behaviour and are the open edge (a G85-class
+    smear risk that grows with the window; fixing it means a gate or a per-path commit in each tool). Not built:
+    releasing the busy state between batches — it would let a second trigger start mid-drain.
 
 ## How work is run here
 
