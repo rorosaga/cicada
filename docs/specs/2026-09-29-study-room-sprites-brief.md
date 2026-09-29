@@ -143,3 +143,37 @@ never restyled) **for the pixel world only**; every non-pixel surface keeps the 
 recognisable, never on the worm itself, nominative only, and recorded in a manifest beside the sheets (source mark, the
 vendor's brand-guideline link where one exists, "pixel rendition"). Flag any vendor whose guidelines forbid altered logos
 for the owner's call. Record the amendment's scope as a dated TODO ruling when the first pixel marks ship.
+
+## 9. The owner's refinements (2026-09-29, later) — these win over §3 and §4 where they differ
+
+> "remove the antennas of the worm, … go a bit more detailed on the pixel art of the room, … a computer for example for
+> ai conversations that have to be consolidated, a phone for social media and stuff that rings … once in a while, a globe
+> of the earth that spins when clicked, it can sleep on the bean bag, be reading books when consolidating, night light at
+> night, etc. All assets interactive."
+
+- **The worm has no antennae.** The concept's antenna language (`concept-2026-09-29/`, `worm.py`) goes; expression moves to
+  the eyes behind the glasses, the brows, the mouth, the body's posture and the tail. Keep the green body and the orange
+  glasses, redraw everything else at a higher level of pixel craft.
+- **A richer room.** More detailed pixel art throughout: textured walls and floor, furniture with volume and shading, small
+  lived-in details (a mug, a plant, framed pictures, cables, a rug), consistent light direction, and proper day / afternoon
+  / night palettes (the Home scenes' times of day, `SceneClock`) in addition to the mood-driven window weather.
+- **Props and what they mean** (replaces §3's table where it differs; each still a pure function of a real count, with a text
+  twin):
+
+  | Prop | Shows | Behaviour |
+  |---|---|---|
+  | **Computer** (a CRT-style desktop on the desk) | AI conversations waiting to be consolidated (Claude, ChatGPT, Codex, Claude Code, Gemini… — the chat and harness origins) | dark when none; on with a pixel chat window and the waiting origins' pixel marks (G175) when some wait; typing / scrolling while a batch is being read |
+  | **Phone** | Social saves waiting (X, Reddit, Instagram, LinkedIn, Pinterest, TikTok) | dark when none; lit with a notification dot when some wait; **rings once in a while** (a short buzz-and-light loop every so often, never constantly) while they wait |
+  | **Globe** | Web pages / saved links waiting to be read (the reading queue), with a pin when any **needs login** | **spins when clicked** (response art) and opens its popover; an idle slow drift optional |
+  | **Bookshelf + reading pile** | Episodes waiting and what got filed (§3) | books move from the pile to the shelf as batches file |
+  | **TV / letter tray / calendar** | Videos, inbox questions, calendar events (§3) | as §3 |
+  | **Bean bag** | Where the worm sleeps | replaces the cushion: the worm **sleeps on the bean bag** (slow breath, drifting z's) |
+  | **Night light** | Night | a small plug-in night light glows **at night** (time of day), softly lighting the floor |
+
+- **The worm's places:** it **reads books while consolidating** (turning pages, eyes tracking lines, a finished book set on
+  the cart), sleeps on the bean bag when idle at night or when the schedule rests, and reacts to the props (looks at the
+  phone when it rings, turns toward the globe when it spins, glances at the computer when a batch starts).
+- **All assets interactive.** Every prop has hover (a highlight and its real count in words) and click (a small response
+  animation — the globe spins, the phone lights, the computer flickers, a book tilts out — plus a popover with the counts and
+  one link to where the thing lives). Still bound by "no click on art changes what the machine does": clicks animate and
+  inform, never start work. Keyboard focus and VoiceOver labels on every prop.
