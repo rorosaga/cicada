@@ -273,16 +273,24 @@ def _excluded_media(url: str, mtype: str) -> bool:
     return "instagram.com" in url or "linkedin.com" in url
 
 
-def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
+def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
+                scour_floor: int = 0) -> list[Path]:
     """Media pages needing IN-CYCLE enrichment: type==media, not an excluded
     host (``_excluded_media``), not junk (``classify_page`` — G86: a cookie
     banner must never be summarized), not already attempted. Capped at
     ``max_per_cycle`` (most recent first). The whole-bank, oldest-first pass
-    over pages this one never reaches is ``backfill`` below."""
+    over pages this one never reaches is ``backfill`` below.
+
+    The cap is one budget over two kinds of page: *reuse* (a substantive
+    description already on the page, no LLM) and *scour* (needs a summary). Most
+    recent first across both would let 20 reuse pages starve every scour page,
+    so ``scour_floor`` slots are reserved for scour pages that exist (Track C,
+    the same rule as ``backfill``'s ``fetch_floor``); unused ones go back to
+    reuse. ``0`` (the default) keeps the plain most-recent-first cut."""
     entities_dir = memory_path / "entities"
     if not entities_dir.exists():
         return []
-    out: list[tuple[str, Path]] = []
+    out: list[tuple[str, Path, bool]] = []
     for fp in entities_dir.glob("media-*.md"):
         try:
             parsed = markdown_parser.parse(fp)
@@ -304,9 +312,17 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
             continue
         if classify_page(str(fm.get("name") or ""), url) is not None:
             continue
-        out.append((str(fm.get("last_referenced", "") or ""), fp))
+        reuse = _is_substantive(_claim_description(_extract_description_section(parsed.body), min_len), min_len)
+        out.append((str(fm.get("last_referenced", "") or ""), fp, reuse))
     out.sort(key=lambda t: t[0], reverse=True)
-    return [fp for _, fp in out[:max_per_cycle]]
+    if scour_floor <= 0:
+        return [fp for _, fp, _ in out[:max_per_cycle]]
+    scour = [t for t in out if not t[2]]
+    reserved = min(len(scour), scour_floor, max_per_cycle)
+    reuse_taken = [t for t in out if t[2]][: max_per_cycle - reserved]
+    picked = reuse_taken + scour[: max_per_cycle - len(reuse_taken)]
+    picked.sort(key=lambda t: t[0], reverse=True)
+    return [fp for _, fp, _ in picked]
 
 
 def _episode_persons(memory_path: Path, changes: list[dict]) -> dict[str, list[str]]:
@@ -442,7 +458,10 @@ async def enrich_media_links(
     model = getattr(settings, "litellm_model", "") or "unknown"
     today = str(date.today())
 
-    candidates = _candidates(memory_path, cap)
+    # Track C: with a summarizer wired, scour pages keep a floor of the cycle's
+    # cap so a run of reuse-ready pages never starves reading the rest.
+    candidates = _candidates(memory_path, cap, min_len=min_len,
+                             scour_floor=fetch_floor(settings, cap) if summarize_fn is not None else 0)
     if not candidates:
         return 0
 
@@ -726,6 +745,23 @@ def _in_fetch_backoff(fm: dict, today: date, retry_days: int) -> bool:
     return (today - attempted).days < retry_days
 
 
+def fetch_floor(settings, cap: int) -> int:
+    """How much of a cycle's ``cap`` reading NEW pages is guaranteed.
+
+    Reuse (a description the page already carries -> claim) is zero-network and
+    zero-LLM; a fetch costs a page read plus a summary. They used to share one
+    budget with reuse spent first, so a night with >= ``cap`` reuse candidates
+    fetched nothing and a bank never past its reuse queue never read a new page
+    (Track C). The floor is ``link_enrich_fetch_min_per_cycle`` when set, else
+    half the cap (rounded up), clamped to ``[0, cap]``. It only ever *reserves*
+    fetch slots that fetch candidates exist for — an idle fetch tier hands its
+    slots back to reuse, so the total per night stays ``cap``.
+    """
+    raw = getattr(settings, "link_enrich_fetch_min_per_cycle", None)
+    floor = (cap + 1) // 2 if raw is None else int(raw)
+    return max(0, min(floor, cap))
+
+
 def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> _Scan:
     """Classify every media page by what the backfill still owes it (R1/R2).
 
@@ -1001,14 +1037,19 @@ async def backfill(
     # §2a reuse — zero LLM. R3: no model touched it, so the claim is authored
     # ``cicada`` (the in-cycle pass stamps ``litellm_model`` on a zero-LLM
     # reuse; the backfill does not repeat that inaccuracy).
-    for cand in scan.reuse[:cap]:
+    # Fetch keeps its floor when the tier can run at all (Track C): reuse is the
+    # cheap side, so it yields the slots a waiting fetch candidate is owed.
+    fetch_enabled = summarize_fn is not None and fetch_fn is not None
+    reserved = min(len(scan.fetch), fetch_floor(settings, cap)) if fetch_enabled else 0
+    for cand in scan.reuse[: max(0, cap - reserved)]:
         report.selected += 1
         if _describe(cand, cand.description, "cicada"):
             report.reused += 1
         else:
             report.failed += 1
 
-    # §2b fetch + summarize — bounded by what is left of the cap.
+    # §2b fetch + summarize — bounded by what is left of the cap, which reuse
+    # cannot have taken below the floor above.
     model = str(getattr(settings, "litellm_model", "") or "unknown")
     if engine in engine_select.PLAN_ENGINES:
         model = engine_select.author_model(settings)

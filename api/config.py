@@ -217,6 +217,11 @@ class Settings(BaseSettings):
     # bank draining in about a month with at most 20 fetches + 20 summaries
     # + ~5 extraction calls per night.
     link_enrich_backfill_per_cycle: int = 20   # CICADA_LINK_ENRICH_BACKFILL_PER_CYCLE
+    # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
+    # reuse spent first, so a night with 20 reuse candidates read no new page.
+    # This many of the cap are reserved for fetches while any wait (the in-cycle
+    # pass reserves the same for summaries); unset = half the cap, rounded up.
+    link_enrich_fetch_min_per_cycle: int | None = None   # CICADA_LINK_ENRICH_FETCH_MIN_PER_CYCLE
     # A failed/blocked page fetch is recorded on the page (`fetch_status`,
     # `fetch_attempted_at`) and not retried before this many days — so a
     # dead link costs one fetch a month, not one a night, and a block is
