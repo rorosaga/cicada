@@ -1643,19 +1643,55 @@ def _truncate_utf8(s: str, max_bytes: int) -> tuple[str, bool]:
     return "", True
 
 
-def _media_entity_id(meta: MediaMeta, item: RawItem) -> str:
+def _page_url_hash(fm: dict) -> str | None:
+    """The URL hash a media page was written for: its ``media.url_hash``, else
+    the hash of its ``media.url`` (a page from before the key existed). ``None``
+    when the page names neither — treated as someone else's page."""
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    stored = str(media.get("url_hash") or "")
+    if stored:
+        return stored
+    url = str(media.get("url") or "")
+    return url_hash(url) if url else None
+
+
+def _media_entity_id(meta: MediaMeta, item: RawItem, entities_dir: Path | None = None) -> str:
+    """The page id for a link about to be written: ``media-<title slug>``.
+
+    Two different links can share a title (a site's "Home", a docs page and its
+    mirror), and ``write_media_entity`` overwrites, so the second save used to
+    replace the first's page and orphan its ``url_index`` row. The URL-hash
+    suffix a truncated slug always carried is therefore also added when the page
+    the plain id names already exists for a *different* URL. Given
+    ``entities_dir`` only: without it the id is a pure function of the title, as
+    before.
+
+    Ids are never renamed: a URL already in the index returns ``duplicate``
+    before this runs, so an existing page keeps its id, and a page for the same
+    URL (index lost) keeps the plain id and is rewritten in place. Only a new
+    link that would land on someone else's file moves to the suffixed id — and
+    it is deterministic (the URL's hash), so a re-save finds it again.
+    """
     slug = sanitize_id(meta.title) if meta.title else ""
     if not slug or slug == "unnamed":
         slug = sanitize_id(_fallback_title(item.url))
 
     slug, truncated = _truncate_utf8(slug, _MAX_SLUG_BYTES)
     slug = slug.strip("-") or "unnamed"
+    suffix = hashlib.sha256(normalize_url(item.url).encode("utf-8")).hexdigest()[:8]
     if truncated:
         # A stable suffix derived from the URL so two different long titles
         # that truncate to the same prefix never collide on the same filename.
-        suffix = hashlib.sha256(normalize_url(item.url).encode("utf-8")).hexdigest()[:8]
-        slug = f"{slug}-{suffix}"
-    return f"media-{slug}"
+        return f"media-{slug}-{suffix}"
+    plain = f"media-{slug}"
+    if entities_dir is not None and (entities_dir / f"{plain}.md").exists():
+        try:
+            owner = _page_url_hash(markdown_parser.parse(entities_dir / f"{plain}.md").frontmatter or {})
+        except Exception:
+            owner = None
+        if owner != url_hash(item.url):
+            return f"{plain}-{suffix}"
+    return plain
 
 
 def write_media_entity(
@@ -1885,7 +1921,7 @@ async def ingest_one(
     if item.preview and not (meta.description or "").strip():
         meta.description = item.preview
 
-    entity_id = _media_entity_id(meta, item)
+    entity_id = _media_entity_id(meta, item, memory_path / "entities")
     episode_id = write_media_episode(
         memory_path / "episodes", item, meta, entity_id
     )
