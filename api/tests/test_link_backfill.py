@@ -588,6 +588,22 @@ def test_backoff_and_never_scraped_rails_still_hold_under_the_floor(tmp_path):
     assert report.deferred == 1
 
 
+def test_in_cycle_candidates_honour_the_fetch_backoff(tmp_path):
+    memory = _bank(tmp_path)
+    for i in range(3):
+        _media(memory, f"media-thin-{i}", f"Thin {i}", f"https://example.com/thin/{i}", saved_at=f"2026-01-0{i + 1}")
+    _media(memory, "media-blocked", "Blocked", "https://example.com/blocked", saved_at="2025-01-01",
+           extra_fm={"fetch_status": "blocked", "fetch_attempted_at": date.today().isoformat()})
+    _media(memory, "media-old-fail", "Old fail", "https://example.com/old", saved_at="2025-01-02",
+           extra_fm={"fetch_status": "failed:timeout", "fetch_attempted_at": "2020-01-01"})
+    _media(memory, "media-blocked-rich", "Blocked rich", "https://example.com/rich", saved_at="2025-01-03",
+           description=LONG, extra_fm={"fetch_status": "blocked", "fetch_attempted_at": date.today().isoformat()})
+    for kwargs in ({"scour_floor": 10}, {}):
+        stems = {p.stem for p in link_enrichment._candidates(memory, 20, **kwargs)}
+        assert "media-blocked" not in stems                       # inside its 30-day window
+        assert {"media-old-fail", "media-blocked-rich"} <= stems  # window over; reuse needs no fetch
+
+
 def test_in_cycle_pass_summarizes_new_pages_beside_a_run_of_reuse_pages(tmp_path):
     memory = _bank(tmp_path)
     # Reuse pages are the MOST recent, so a plain most-recent-first cut fills the cap with them.

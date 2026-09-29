@@ -274,10 +274,13 @@ def _excluded_media(url: str, mtype: str) -> bool:
 
 
 def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
-                scour_floor: int = 0) -> list[Path]:
+                scour_floor: int = 0, retry_days: int = 30) -> list[Path]:
     """Media pages needing IN-CYCLE enrichment: type==media, not an excluded
     host (``_excluded_media``), not junk (``classify_page`` — G86: a cookie
-    banner must never be summarized), not already attempted. Capped at
+    banner must never be summarized), not already attempted, and — for a page
+    that would need a fetch — not inside the ``retry_days`` backoff a failed or
+    blocked fetch stamped (the tail backfill stamps ``fetch_status`` only, so
+    the ``enrichment_attempted`` gate alone never sees it). Capped at
     ``max_per_cycle`` (most recent first). The whole-bank, oldest-first pass
     over pages this one never reaches is ``backfill`` below.
 
@@ -313,6 +316,9 @@ def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
         if classify_page(str(fm.get("name") or ""), url) is not None:
             continue
         reuse = _is_substantive(_claim_description(_extract_description_section(parsed.body), min_len), min_len)
+        # A reuse page needs no network; a page that would be fetched honours the 30-day backoff.
+        if not reuse and _in_fetch_backoff(fm, date.today(), retry_days):
+            continue
         out.append((str(fm.get("last_referenced", "") or ""), fp, reuse))
     out.sort(key=lambda t: t[0], reverse=True)
     if scour_floor <= 0:
@@ -460,7 +466,8 @@ async def enrich_media_links(
 
     # Track C: with a summarizer wired, scour pages keep a floor of the cycle's
     # cap so a run of reuse-ready pages never starves reading the rest.
-    candidates = _candidates(memory_path, cap, min_len=min_len,
+    retry_days = int(getattr(settings, "link_enrich_fetch_retry_days", 30) or 30)
+    candidates = _candidates(memory_path, cap, min_len=min_len, retry_days=retry_days,
                              scour_floor=fetch_floor(settings, cap) if summarize_fn is not None else 0)
     if not candidates:
         return 0
