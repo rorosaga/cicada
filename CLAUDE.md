@@ -643,6 +643,15 @@ and the model id when the harness sends one. It is filed beside `read` for the s
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
 prompt never is.
 
+**Cycle usage (2026-09-28 ruling, Sleep page only).** Every `llm_call` a Sleep cycle makes carries `refs.cycle_id`
+(from the ambient `sleep:<id>` scope, so it survives `to_thread`/`gather`; the engine-independent tail runs outside
+that scope and is never counted), and the cycle's `sleep_run` gains `usage_tagged: true` plus, when observed,
+`plan: {connection, windows: [{window, before, after, resets_at, before_is_first_seen}]}` — numbers and enums only.
+Claude's windows come from the calls' rate-limit signals (`before` is the value after the first call); the ChatGPT
+plan's from two fresh app-server snapshots bracketing the cycle. `api/services/cycle_usage.py` derives `usage` for
+`GET /sleep/history/{commit}` and `usageSummary` for `GET /sleep/history` at read, joined after the git cache; every
+figure carries its basis (`charged` | `list` | `plan` | `free`), and a cycle without the marker reads `null`, never zero.
+
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
 winner/loser claim ids, the extractor's confidence and model — ids and enums only, never claim

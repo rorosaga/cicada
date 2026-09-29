@@ -175,12 +175,27 @@ def test_prefs_file_is_0600(client, tmp_path):
     assert oct(path.stat().st_mode)[-3:] == "600"
 
 
-def test_get_never_returns_a_price_or_token_field(client):
+def test_get_carries_prices_only_in_usage_fields_and_never_a_token_count(client):
+    """2026-09-28 ruling: list prices ride `usage`/`modelPrices` (Sleep page only);
+    no token count and no price anywhere else on the body."""
     resp = client.get("/sleep/engine")
     assert resp.status_code == 200
-    text = resp.text.lower()
-    assert "price" not in text
-    assert "token" not in text
+    body = resp.json()
+
+    def walk(node, path=""):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                assert "token" not in k.lower(), k
+                yield from walk(v, f"{path}.{k}")
+        elif isinstance(node, list):
+            for v in node:
+                yield from walk(v, path)
+        else:
+            yield path
+
+    paths = list(walk(body))
+    priced = [p for p in paths if "price" in p.lower() or "cost" in p.lower() or "usd" in p.lower()]
+    assert all(".usage" in p or ".modelPrices" in p for p in priced), priced
 
 
 # --- R-AG12 / R-AG13: the OpenRouter card, the key-provider list, the selected card ---
@@ -272,3 +287,69 @@ def test_an_environment_pin_refuses_a_different_choice_in_words(client, monkeypa
     assert "sleep-engine" not in reg_mod.get_registry(config.get_settings()).prefs()
 
     assert client.put("/sleep/engine", json={"mode": "auto"}).status_code == 200, "the pinned mode itself is fine"
+
+
+# --- 2026-09-28 ruling: each card's caption source (Sleep page only) ---
+
+
+def test_a_signed_in_chatgpt_card_carries_its_fullest_window_and_its_reading_time(client, monkeypatch):
+    from api.services import codex_app_server
+    from api.services.codex_app_server import CodexSnapshot
+
+    async def signed_in(argv):
+        if argv[:3] == ["codex", "login", "status"]:
+            return CliResult(0, "Logged in using ChatGPT", "")
+        if argv[:3] == ["claude", "auth", "status"]:
+            return CliResult(0, json.dumps({"loggedIn": False}), "")
+        return CliResult(0, "", "")
+
+    async def snap(**_kw):
+        return CodexSnapshot(signed_in=True, plan="plus", models=("gpt-6-astra",),
+                             windows=(("primary", 31, 1790000000), ("secondary", 62, 1790500000)),
+                             as_of="2026-09-29T10:20:00Z")
+
+    monkeypatch.setattr(base, "run_cli", signed_in)
+    monkeypatch.setattr(codex_app_server, "snapshot", snap)
+    reg_mod.reset_registry()
+    codex = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "codex")
+    assert codex["usage"] == {
+        "kind": "plan-window", "window": "secondary", "usedFraction": 0.62, "resetsAt": 1790500000,
+        "asOf": "2026-09-29T10:20:00Z", "source": "codex-snapshot", "lastCycleCostUsd": None,
+        "model": None, "inputPerMillionUsd": None, "outputPerMillionUsd": None,
+    }
+
+
+def test_the_claude_card_reads_its_window_from_the_last_recorded_cycle(client, monkeypatch):
+    from api.services import cycle_usage
+
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None: {
+        "claude-plan": {"window": "five_hour", "used_fraction": 0.18, "resets_at": 1790000000,
+                        "as_of": "2026-09-29T09:00:00Z"}})
+    agent = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "agent")
+    assert agent["usage"]["source"] == "last-cycle" and agent["usage"]["usedFraction"] == 0.18
+    assert agent["usage"]["asOf"] == "2026-09-29T09:00:00Z"
+
+
+def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeypatch):
+    from api.services import cycle_usage
+
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None: {
+        "openrouter": {"cost_usd": 0.42, "as_of": "2026-09-29T09:00:00Z"}})
+    monkeypatch.setattr(cycle_usage, "list_price_per_million", lambda m: (0.4, 1.6))
+    cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
+    usage = cards["openrouter"]["usage"]
+    assert usage["kind"] == "list-price" and usage["inputPerMillionUsd"] == 0.4
+    assert usage["outputPerMillionUsd"] == 1.6 and usage["lastCycleCostUsd"] == 0.42
+    assert cards["openrouter"]["modelPrices"] == {
+        "openrouter/~openai/gpt-mini-latest": {"inputPerMillionUsd": 0.4, "outputPerMillionUsd": 1.6}}
+    assert cards["byok"]["usage"]["lastCycleCostUsd"] is None
+    assert cards["local"]["usage"] is None and cards["auto"]["usage"] is None
+
+
+def test_an_unpriced_model_leaves_the_caption_source_empty(client, monkeypatch):
+    from api.services import cycle_usage
+
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None: {})
+    monkeypatch.setattr(cycle_usage, "list_price_per_million", lambda m: (None, None))
+    cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
+    assert cards["openrouter"]["usage"] is None and cards["openrouter"]["modelPrices"] == {}

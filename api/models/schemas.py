@@ -2172,6 +2172,72 @@ class SleepStatusResponse(CamelModel):
     read_by_origin: dict[str, int] = Field(default_factory=dict)
 
 
+class CycleUsageModel(CamelModel):
+    """One ``(engine, model)`` a cycle called (2026-09-28 ruling: the Sleep
+    page shows cost). ``basis`` says what the money figure IS: ``charged`` (the
+    provider's own bill — API key/OpenRouter), ``list`` (a list-price estimate,
+    never a charge — the Claude plan's metering or the price table), ``plan``
+    (a plan call with no tokens or cost to show — the ChatGPT plan) or
+    ``free`` (a local model). Null figures are unknown, never zero."""
+    model: Optional[str] = None
+    engine: Optional[str] = None
+    calls: int = 0
+    failed_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
+    basis: Optional[str] = None
+
+
+class CycleUsagePlanWindow(CamelModel):
+    """One plan window's share used across the cycle — fractions 0.0-1.0.
+    ``before_is_first_seen``: Claude only reports a window after a call, so its
+    ``before`` is the value after the cycle's first call."""
+    window: str
+    before: float
+    after: float
+    resets_at: Optional[int] = None
+    before_is_first_seen: bool = False
+
+
+class CycleUsagePlan(CamelModel):
+    connection: Optional[str] = None
+    windows: list[CycleUsagePlanWindow] = Field(default_factory=list)
+
+
+class CycleUsage(CamelModel):
+    """``GET /sleep/history/{commit}`` ``usage`` — derived at read from the
+    ledger; ``null`` on the wire means "not recorded" (a cycle from before
+    this shipped, no ``sleep_run``, or an inbox/decay commit)."""
+    recorded: bool = True
+    engine: Optional[str] = None
+    connection: Optional[str] = None
+    models: list[CycleUsageModel] = Field(default_factory=list)
+    total_cost_usd: Optional[float] = None
+    total_equiv_usd: Optional[float] = None
+    # charged | list | plan | free | mixed; null when no model was called.
+    basis: Optional[str] = None
+    plan: Optional[CycleUsagePlan] = None
+
+
+class CycleUsageSummaryPlan(CamelModel):
+    window: str
+    before: float
+    after: float
+
+
+class CycleUsageSummary(CamelModel):
+    """``SleepHistoryEntry.usageSummary`` — flat and small on purpose (the M1
+    lesson); the app words it, the server never sends a sentence."""
+    basis: Optional[str] = None
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
+    engine: Optional[str] = None
+    connection: Optional[str] = None
+    plan: Optional[CycleUsageSummaryPlan] = None
+
+
 class SleepHistoryEntry(CamelModel):
     """One consolidation, as the Sleep page's history lists it (G125 R4).
 
@@ -2199,6 +2265,9 @@ class SleepHistoryEntry(CamelModel):
     sessions: int = 0
     authors: list[str] = Field(default_factory=list)
     duration_ms: Optional[int] = None
+    # 2026-09-28 ruling: what the cycle cost, joined from the ledger at read
+    # (never cached with the git-derived entry). None = not recorded.
+    usage_summary: Optional[CycleUsageSummary] = None
 
 
 class SleepCycleEntity(CamelModel):
@@ -2214,6 +2283,7 @@ class SleepCycleDetail(SleepHistoryEntry):
     truncated: bool = False
     episodes_by_origin: dict[str, int] = Field(default_factory=dict)
     inbox_changes: int = 0
+    usage: Optional[CycleUsage] = None
 
 
 class EpisodeQueueItem(CamelModel):
@@ -2279,9 +2349,10 @@ class ScheduleConfig(CamelModel):
 class SleepEngineCandidate(CamelModel):
     """One row of the picker's segmented control. Deliberately NOT a reuse of
     ``ConnectionStatus`` (that schema carries login/billing/price fields no
-    candidate needs, and G124 bans price/token fields from this surface
-    entirely) — a candidate only needs enough to render a segment and, once
-    selected, a model list."""
+    candidate needs) — a candidate needs enough to render a segment and, once
+    selected, a model list. Since the 2026-09-28 ruling it may carry one
+    ``usage`` caption source (a plan window, or a model's list price) and the
+    picker's per-model list prices; the ruling covers the Sleep page only."""
     id: str
     label: str
     available: bool = False
@@ -2291,11 +2362,38 @@ class SleepEngineCandidate(CamelModel):
     # R-AG12: what a tap writes, when it is not the card's own id — the
     # OpenRouter card is `byok` under the hood, so ruling 4 never sees a new mode.
     mode: Optional[str] = None
+    usage: Optional["SleepEngineUsage"] = None
+    # model id -> list price per million tokens, for the model picker. A
+    # parallel map, so `models` keeps its element type for an older app.
+    model_prices: dict[str, "SleepEngineModelPrice"] = Field(default_factory=dict)
+
+
+class SleepEngineModelPrice(CamelModel):
+    input_per_million_usd: Optional[float] = None
+    output_per_million_usd: Optional[float] = None
+
+
+class SleepEngineUsage(CamelModel):
+    """A candidate's caption source. ``kind``: ``plan-window`` (a window's
+    used fraction 0.0-1.0, ``resets_at`` unix seconds, ``as_of`` the ISO time
+    of the reading, ``source`` = ``codex-snapshot`` | ``last-cycle``) or
+    ``list-price`` (a model's list price per million tokens and the last
+    cycle's charged cost). The app derives every relative word from these."""
+    kind: str
+    window: Optional[str] = None
+    used_fraction: Optional[float] = None
+    resets_at: Optional[int] = None
+    as_of: Optional[str] = None
+    source: Optional[str] = None
+    model: Optional[str] = None
+    input_per_million_usd: Optional[float] = None
+    output_per_million_usd: Optional[float] = None
+    last_cycle_cost_usd: Optional[float] = None
 
 
 class SleepEngineProvider(CamelModel):
     """One row of the API-key card's provider picker (R-AG11). Names and ids
-    only; ``has_key`` is presence, never a value; no price (G124)."""
+    only; ``has_key`` is presence, never a value."""
     id: str
     label: str
     connection_id: str
@@ -2329,8 +2427,9 @@ class SleepEngineResponse(CamelModel):
     ``mode`` is what it is — ``"env"`` (an explicit ``CICADA_LLM_MODE``),
     ``"prefs"`` (this endpoint's own pref, G122), or ``"default"`` (nobody
     chose, today's shipped behaviour) — mirroring ``ConnectionStatus.how``'s
-    own "explain the state next to what decided it" shape. No price, no
-    token count, anywhere on this schema (G124)."""
+    own "explain the state next to what decided it" shape. Prices and plan
+    usage ride only on a candidate's ``usage`` (2026-09-28 ruling, Sleep page
+    only)."""
     mode: str
     model: str
     disambiguation_model: str

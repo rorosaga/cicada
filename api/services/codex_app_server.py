@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
@@ -54,6 +56,11 @@ class CodexSnapshot:
     resets_at: int | None = None          # that window's reset (unix seconds)
     models: tuple[str, ...] = ()          # visible roster, the default first
     default_model: str | None = None
+    # Each window on its own — ``(name, used_percent, resets_at)`` with name
+    # ``primary`` | ``secondary`` — so a before/after pair never compares
+    # two different windows (``used_percent`` above is only the fullest).
+    windows: tuple[tuple[str, int, int | None], ...] = ()
+    as_of: str | None = None              # wall-clock ISO time of the probe
 
 
 def parse_snapshot(replies: dict) -> CodexSnapshot:
@@ -71,6 +78,13 @@ def parse_snapshot(replies: dict) -> CodexSnapshot:
     visible = [m for m in data if isinstance(m, dict) and not m.get("hidden") and m.get("model")]
     default = next((m["model"] for m in visible if m.get("isDefault")), None)
     roster = ([default] if default else []) + [m["model"] for m in visible if m["model"] != default]
+    per_window: list[tuple[str, int, int | None]] = []
+    for name in ("primary", "secondary"):
+        w = limits.get(name)
+        pct = w.get("usedPercent") if isinstance(w, dict) else None
+        if isinstance(pct, int) and not isinstance(pct, bool):
+            at = w.get("resetsAt")
+            per_window.append((name, pct, at if isinstance(at, int) and not isinstance(at, bool) else None))
     used = fullest.get("usedPercent") if fullest else None
     resets = fullest.get("resetsAt") if fullest else None
     return CodexSnapshot(
@@ -84,6 +98,7 @@ def parse_snapshot(replies: dict) -> CodexSnapshot:
         resets_at=resets if isinstance(resets, int) and not isinstance(resets, bool) else None,
         models=tuple(roster),
         default_model=default,
+        windows=tuple(per_window),
     )
 
 
@@ -151,6 +166,7 @@ async def snapshot(*, fresh: bool = False, timeout: float = PROBE_TIMEOUT_S,
         return hit[1]
     try:
         snap: CodexSnapshot | None = parse_snapshot(await (transport or _stdio_transport)(timeout=timeout))
+        snap = dataclasses.replace(snap, as_of=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     except Exception as exc:  # R-E18: ANY transport failure degrades to None
         # Broad on purpose: the adapters above this are documented never to
         # raise, and an experimental server can fail in shapes no tuple here

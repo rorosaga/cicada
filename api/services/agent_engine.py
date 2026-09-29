@@ -545,6 +545,14 @@ def current_scope() -> str:
     return _CURRENT_SCOPE.get()
 
 
+def cycle_id_from_scope(scope: str | None) -> str | None:
+    """The Sleep cycle a scope names (``sleep:<id>``), else ``None`` — the
+    shared, ``ask:``, ``links:`` and any other scope belong to no cycle."""
+    if isinstance(scope, str) and scope.startswith("sleep:") and len(scope) > len("sleep:"):
+        return scope[len("sleep:"):]
+    return None
+
+
 @contextlib.contextmanager
 def use_scope(name: str):
     """Make ``name`` the ambient scope for the duration of the ``with`` block

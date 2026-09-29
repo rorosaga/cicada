@@ -1113,6 +1113,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
         logger.error(f"Sleep cycle failed: {e}")
         logger.exception("Full traceback:")
     finally:
+        from api.services import cycle_usage
+        cycle_usage.discard(cycle_id)  # bounded: a cycle that never finalized frees its windows
         # Spec §1: this runs on EVERY exit path — idle, aborted before Stage
         # 1, aborted after Stage 1, raised, or fully completed — so capturing
         # more episodes can never make Sleep do less of the LLM-free work.
@@ -1200,6 +1202,11 @@ async def _run_stages(
     )
     _state.last_engine = _engine_label(settings)
     _state.engine_detail = engine_why
+    if _state.last_engine == "codex-cli":
+        # The ChatGPT plan reports no per-call usage: bracket the cycle with two
+        # snapshots so the ledger can say how far its window moved.
+        from api.services import cycle_usage
+        await cycle_usage.begin_codex(cycle_id)
     logger.info(
         f"Sleep cycle {cycle_id} started — engine: {_state.last_engine}, "
         f"model: {engine_select.author_model(settings)}"
@@ -2118,7 +2125,9 @@ async def _finalize(
     async with _lock:
         commit = await git_service.commit_changes(memory_path, message)
 
-    from api.services import telemetry
+    from api.services import cycle_usage, telemetry
+
+    plan_block = await cycle_usage.finish(cycle_id, engine)
 
     duration_ms = int((time.monotonic() - started) * 1000) if started is not None else None
     model = resolved_authors[0] if resolved_authors else None
@@ -2138,6 +2147,10 @@ async def _finalize(
         refs={
             "cycle_id": cycle_id,
             "commit": commit,
+            # Calls of this cycle carry `refs.cycle_id`; without this marker an
+            # empty call set reads as "not recorded" rather than "no calls".
+            cycle_usage.TAGGED_REF: True,
+            **({"plan": plan_block} if plan_block else {}),
             "episodes_processed": _state.episodes_processed,
             "episodes_requeued": _state.episodes_requeued,
             "entities_created": _state.entities_created,
