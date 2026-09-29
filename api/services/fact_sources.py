@@ -20,8 +20,8 @@ or a plain-English instruction ("ask me — I announce job changes"). Stored as:
         accepted: true         # an agent-found source the person took
         only_me: true          # the person's "Only I know" (a note, one predicate)
 
-G61 phase 2 S0 (spec ``docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md``
-§5.5; plan ``docs/superpowers/plans/2026-09-23-g61-s0-s2.md``): an entry is keyed
+G61 phase 2 S0 (spec ``docs/specs/2026-09-23-g61-agent-first-clarification-design.md``
+§5.5; plan ``docs/plans/2026-09-23-g61-s0-s2.md``): an entry is keyed
 on ``(ref, predicate)`` so one link can serve two facts, and a conflict card's
 ``hint`` is DERIVED at read (:func:`served_hint`) instead of being written into
 the item — a source added after a question opened reaches the card at once — in
