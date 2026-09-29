@@ -1,7 +1,7 @@
 """G129 slice 2: a bookmark-removal proposal is a resolvable inbox kind.
 
 Follows the exact end-to-end template G113 slice 3 used for `divergence`/
-`normalization` (docs/superpowers/plans/2026-09-02-g113-feedback-ledger.md
+`normalization` (docs/plans/2026-09-02-g113-feedback-ledger.md
 Task 3): schema enum, `_required_input_for`, a `_resolve_*` function, the
 `resolve()` dispatch, and the ledger's `_verdict`/`recommended_key` tables.
 """

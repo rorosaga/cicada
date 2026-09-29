@@ -34,7 +34,7 @@ G102 cheap slice (2026-09-02): the in-cycle pass above only ever sees the 20
 most recent pages of a cycle that had episodes. ``backfill`` (bottom of this
 module) is the whole-bank, oldest-first driver that closes that gap on the
 engine-independent Sleep tail and on demand; its rulings (R1-R9) are in
-``docs/superpowers/plans/2026-09-02-link-summaries-backfill.md``.
+``docs/plans/2026-09-02-link-summaries-backfill.md``.
 """
 
 from __future__ import annotations

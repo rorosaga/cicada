@@ -1,7 +1,7 @@
 # Bookworm and queue — concept, 2026-09-29
 
 The Opus design pass behind the study-room sprites brief
-(`docs/superpowers/specs/2026-09-29-study-room-sprites-brief.md`). Concept art, not app assets: nothing here is loaded
+(`docs/specs/2026-09-29-study-room-sprites-brief.md`). Concept art, not app assets: nothing here is loaded
 by the app.
 
 - `boards/` — the 16 design-canvas artboards (`Worm*`, `Queue*`, `.dc.html`), also published on the design canvas.

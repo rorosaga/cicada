@@ -13,7 +13,7 @@
 A change is not done when it compiles. It is done when **every one of these is true**, and the same
 list is what a reviewer checks:
 
-1. **A plan exists before code.** One markdown plan per track under `docs/superpowers/plans/`,
+1. **A plan exists before code.** One markdown plan per track under `docs/plans/`,
    committed. It carries Global Constraints, numbered **Rulings** (decisions with their reason), a
    file map, and per-task Files / Interfaces / Steps with the *exact* code and the *exact* commands.
    No placeholders — "add appropriate error handling" is a plan defect, not a shortcut.
@@ -209,7 +209,7 @@ here.
    `/ask` is still open.
 8. **G141 — project timelines** (owner 2026-09-23: track projects with clusters of knowledge and dated
    ongoing things, "see graphically me today and progress throughout the timeline"). Spec
-   `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`. *Why this order inside it:*
+   `docs/specs/2026-09-23-g141-project-timelines-design.md`. *Why this order inside it:*
    derive, write, spend. PJ-1's read model is truthful on every existing bank at $0, because the dated data
    (G17 `due`, G140 `expected_end`, supersede chains, G118 spans) already exists and is simply never drawn
    together. PJ-3's writers cost nothing either: an agent in the conversation records the owner's own
@@ -223,7 +223,7 @@ here.
    then app (PJ-5 after DS). Every slice runs the §1 bar; PJ-3's merge bar also includes the grep-gate test (every module that
    iterates closed claims calls `is_record` or `is_event`).
 9. **G61 phase 2 — check the source before asking the person** (owner 2026-09-23; spec
-   `docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). An inbox question
+   `docs/specs/2026-09-23-g61-agent-first-clarification-design.md`). An inbox question
    climbs an escalation ladder — Cicada's own public fetch, then an agent the person runs (browser
    harness, computer use, an app) reporting through `cicada_record_check`, then the person — and only
    what a source cannot settle reaches them, pre-answered. *Why this order:* S0 fixes a live rail breach

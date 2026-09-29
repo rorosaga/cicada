@@ -1,8 +1,8 @@
 """G61 phase 2 S2 — which inbox questions a source could answer, derived at read.
 
-Spec: ``docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md``
+Spec: ``docs/specs/2026-09-23-g61-agent-first-clarification-design.md``
 §4 (the ceiling by kind, the clamps, targets and rungs; R-AC8, R-AC9) and the
-owner's D-AC2 ruling; plan ``docs/superpowers/plans/2026-09-23-g61-s0-s2.md``
+owner's D-AC2 ruling; plan ``docs/plans/2026-09-23-g61-s0-s2.md``
 (R-AC34 … R-AC41 — the state machine is R-AC34's table).
 
 Pure, engine-free and zero-network, like ``recommended_key`` and ``cause``: the

@@ -30,8 +30,8 @@ benchmarks/queries.txt
 # macOS Finder
 .DS_Store
 
-# superpowers SDD scratch (ledger, briefs, review packages)
-.superpowers/
+# SDD scratch (ledger, briefs, review packages)
+.scratch/
 .worktrees/
 
 # launchd backend service logs
