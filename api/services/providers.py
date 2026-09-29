@@ -498,7 +498,8 @@ def resolve_llm_fn(
             # trips only inside a workload scope. Trip BEFORE emitting so a
             # concurrent caller cannot also trip.
             trips = isinstance(exc, engine_errors.EngineThrottled) or in_workload
-            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope) if trips else False
+            newly_tripped = agent_engine.trip_breaker(
+                str(exc), scope=resolved_scope, resets_at=getattr(exc, "resets_at", None)) if trips else False
             # Fix round 1, L1: a fail-fast call (the breaker was ALREADY
             # tripped before this call — `agent_engine.complete` tags it
             # `.spawned = False`) never touched the runner, so it is not a
@@ -521,7 +522,7 @@ def resolve_llm_fn(
         _note_plan_signals(mode, resolved_scope, seen)
         stop = seen.get("stop")
         if (stop is not None and in_workload
-                and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope)):
+                and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope, resets_at=stop.resets_at)):
             _emit_throttle(stop.sentence, seen.get("stream"))
         return resp
 

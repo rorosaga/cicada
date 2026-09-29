@@ -415,6 +415,16 @@ in correctness, not in cost, and it lives where no derived artifact can be track
 
 ### 4.4 The run plan and the drain controller
 
+> **Superseded in part (owner, 2026-09-29; TODO ruling 13).** The owner asked for the smallest correct version of "reads
+> everything": *"i dont want to cap the max episodes per sleep, why would we cap them? its just progress that cicada has to
+> go through."* Built instead of this section's controller: a person-started `POST /sleep/trigger` **is** the drain —
+> `run(drain=True)` freezes the waiting ids and reads them in batches of `sleep_max_episodes_per_cycle`, each filed and
+> committed by Stage 5 — with no hold, no `is_active()`, no `run.json`, no journal, no sheet and no `/sleep/run/continue`;
+> `status == "running"` stays true for the whole run. This overrides **V5-15 and Q7** (Consolidate is the drain, from every
+> door). Scheduled cycles still read one batch (ruling 4). What below is still design, unbuilt: the journal and accept
+> protocol, the reserve, auto-continue after a plan reset, parallel reading, the drain-tagged cost summary. The
+> once-per-drain rules for decay and the page reads, and the bank pin, are as this section says.
+
 **The plan** is one small value, `SleepRunPlan`, saved with the engine choice in
 `~/.cicada/connections.json` prefs under `sleep-run` (bank-independent, like `sleep-engine`):
 

@@ -20,6 +20,10 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
 
 **Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
+- **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
+  a person-started run reads the whole frozen queue in batches of 25, each filed and committed; scheduled runs stay one batch; decay
+  and page reads once per drain. The app's Sleep page ("Batch 3 of 12 · 62 of 287 filed.") is the next slice; **G174** narrows the
+  409 guards a drain now holds for hours.
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
   another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
@@ -565,6 +569,30 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       on `sleep_run`; never text.
 
     Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
+
+13. **Consolidate reads everything — a person-started run drains the whole queue, in batches; a scheduled
+    one still reads one batch (owner, 2026-09-29).** The owner: "i dont want to cap the max episodes per
+    sleep, why would we cap them? its just progress that cicada has to go through." This amends **G125
+    R10** ("one trigger, one cycle") and **reverses the v5 spec's V5-15 / Q7** (a no-body trigger is one
+    batch; a drain only from a sheet): Consolidate *is* the drain, no sheet, no `/sleep/run/continue`.
+    Ruling 4 is untouched.
+
+    - **Shape.** `POST /sleep/trigger` runs `run(drain=True)`: freeze the waiting ids, resolve the engine once,
+      read them in batches of `sleep_max_episodes_per_cycle` (default 25, now "how often progress is saved"), each
+      batch filed and committed by Stage 5, so a cancel or a plan stop loses at most the batch in progress.
+    - **Scheduled = one batch.** `user_triggered=False` never drains: an unattended run on an API key reading
+      everything would be real money (ruling 4's reason). The scheduler never passes `drain`.
+    - **Once per drain:** decay (both engines; ruling 1 — charged once, not once per batch) and Stage 5.57's page
+      reads, in the batch that empties the queue. **Once per run:** the engine-independent tail. Everything else per
+      batch, so each commit is self-consistent.
+    - **A plan limit is a pause, not a failure,** with the vendor's own sentence and reset time. **Not built:**
+      auto-continue after a reset (a ruling 4 amendment), a weekly "leave room" reserve, a journal of paid answers
+      (a cancel before Stage 5 still discards the batch in progress), parallel reading, per-batch rows in Past nights.
+    - **Cost accepted:** the `status == "running"` 409 guards, the MCP write probe and the bank switch now hold for
+      the whole run (hours on a first run) — bank switching is refused by name; the rest is **G174**.
+
+    Revisit only on the trigger G163's row names (the journal / reserve slices), or if a drain's plan volume
+    hurts a real owner's coding budget.
 
 ## How work is run here
 

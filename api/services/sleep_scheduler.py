@@ -179,6 +179,9 @@ async def _run_after_intake_if_settled(settings) -> None:
     if datetime.now() - newest < timedelta(minutes=AFTER_IMPORT_SETTLE_MINUTES):
         return
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    # One batch, on purpose (owner, 2026-09-29; TODO ruling 13): only a person's
+    # Consolidate drains the whole queue. Never pass `drain=` here — an unattended
+    # run on an API key would spend real money reading everything at once.
     await sleep_cycle.run(settings, cycle_id, user_triggered=False)
 
 

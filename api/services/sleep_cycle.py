@@ -8,7 +8,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.config import Settings
-from api.services import bank_index, episode_ids, git_service, markdown_parser
+from api.services import bank_index, episode_ids, git_service, markdown_parser, sleep_drain
 
 
 @dataclass
@@ -128,6 +128,20 @@ class SleepState:
     # other per-cycle counter at the top of `run()`.
     queue_by_origin: dict[str, int] = field(default_factory=dict)
     read_by_origin: dict[str, int] = field(default_factory=dict)
+    # "Consolidate reads everything" (owner, 2026-09-29) — see `sleep_drain`.
+    # A person-started run drains the queue that was waiting when it started, in
+    # batches of `episode_cap`; every field above except the origin dicts,
+    # `episodes_queued` and `episode_cap` is then BATCH-LOCAL (each batch's own
+    # `sleep_run` ledger row carries its own numbers) and the status route adds
+    # the finished batches back in (`sleep_drain.merged`). `batch_total` is the
+    # running batch's own episode count — Stage 1's denominator; `drain` is the
+    # run's state (None for a plain cycle); `drain_run` is true for the whole of
+    # a person-started run, reservation to idle, tail included, so the routes
+    # that must not move the bank mid-run can ask one question.
+    batch_total: int = 0
+    batch_started_monotonic: float | None = None
+    drain: "sleep_drain.DrainState | None" = None
+    drain_run: bool = False
 
 
 _state = SleepState()
@@ -195,9 +209,11 @@ def progress_pct(state: SleepState | None = None) -> int | None:
     text in that gap rather than a placeholder.
     """
     s = state or _state
-    if s.status != "running" or s.stage != 0 or s.episodes_total <= 0:
+    # A drain's batch is Stage 1's unit: 3 of this batch's 25, not 3 of 287.
+    denominator = s.batch_total if (s.drain is not None and s.batch_total) else s.episodes_total
+    if s.status != "running" or s.stage != 0 or denominator <= 0:
         return None
-    return round(100 * min(1.0, s.stage1_progress / s.episodes_total))
+    return round(100 * min(1.0, s.stage1_progress / denominator))
 
 
 def request_cancel() -> tuple[bool, str | None]:
@@ -225,7 +241,7 @@ def request_cancel() -> tuple[bool, str | None]:
     return True, _state.cycle_id
 
 
-def reserve_cycle(cycle_id: str) -> None:
+def reserve_cycle(cycle_id: str, *, drain: bool = False) -> None:
     """Synchronously claim `_state` for `cycle_id` — called by ``POST
     /sleep/trigger`` BEFORE it schedules ``run`` as a FastAPI background
     task (Devin PR #27 round 1, finding 2).
@@ -252,6 +268,8 @@ def reserve_cycle(cycle_id: str) -> None:
     _state.cancel_requested = False
     _state.cancelled = False
     _state.cancelled_at_monotonic = None
+    _state.drain = None
+    _state.drain_run = drain
 
 
 def _cancel_requested() -> bool:
@@ -642,6 +660,42 @@ class _StageOutcome:
     """
     committed: bool = False
     questions_refreshed: bool = False
+    # A drain's batch (`sleep_drain`): why it ended early, if it did; the
+    # exception that escaped it; the plan breaker its scope had tripped (read
+    # before the scope's exit purges it — a batch can commit AND have tripped
+    # the plan limit, which stops the drain one batch sooner than discovering it
+    # again); and whether the tail should skip the link backfill (it would meet
+    # the same limit). A plain cycle never sets any of these.
+    stop: "sleep_drain.DrainStop | None" = None
+    raised: BaseException | None = None
+    breaker: str | None = None
+    breaker_resets_at: int | None = None
+    skip_links: bool = False
+
+
+@dataclass
+class BatchPlan:
+    """What makes ``_run_stages`` one batch of a drain rather than a whole cycle.
+
+    ``only_ids``: the frozen ids this batch reads. ``resolved``: the engine
+    settings and its reason, resolved ONCE for the drain ("Auto" must not flip to
+    another, paid, engine at batch 9). ``decay`` / ``links``: the once-per-drain
+    work, true only for the batch that empties the queue. ``keep_cancel``: a
+    cancel that arrives after this batch began writing survives it, so the drain
+    loop sees it. ``label``: the ``Batch k of n · `` prefix of the progress
+    sentence. ``decay_only``: no episodes at all — the fallback pass when the
+    last planned batch's ids were all read elsewhere first.
+    """
+    only_ids: list[str]
+    resolved: tuple
+    decay: bool = False
+    links: bool = False
+    keep_cancel: bool = True
+    label: str = ""
+    index: int = 1
+    of: int = 1
+    drain_id: str = ""
+    decay_only: bool = False
 
 
 def _engine_label(settings: Settings) -> str:
@@ -894,6 +948,7 @@ async def _propose_followups_safely(memory_path: Path) -> None:
 
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
+    skip_links: bool = False,
 ) -> None:
     """The work that never needed an LLM — on EVERY exit path.
 
@@ -982,7 +1037,11 @@ async def _run_engine_independent_tail(
         else:
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
-            await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
+            if skip_links:
+                # A drain that stopped on the plan's limit: the backfill would meet the same one.
+                logger.info("link backfill skipped: the run stopped at the plan's limit")
+            else:
+                await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
             await _replay_wispr_todos_safely(memory_path)
     else:
@@ -1016,8 +1075,15 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
         logger.warning(f"Kept commits not landed: {type(e).__name__}: {e}")
 
 
-async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True) -> None:
+async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False) -> None:
     """Execute the 5-stage Sleep cycle pipeline.
+
+    ``drain`` ("Consolidate reads everything", owner 2026-09-29): ``True`` only
+    for ``POST /sleep/trigger`` — a person pressing Consolidate. The run then
+    freezes the ids waiting now and reads them all, in batches of
+    ``sleep_max_episodes_per_cycle``, each filed and committed before the next
+    (``_drain``). ``False`` (the default, and what the scheduler passes — TODO
+    ruling 4: an unattended run is one batch) is the cycle as it always was.
 
     ``user_triggered`` (fix round 1, H1/H2): ``True`` for ``POST
     /sleep/trigger`` (a human pressing Run — the default, so every existing
@@ -1052,27 +1118,12 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.index_warning = None
     # Reset structured metrics at the top of every run so the Sleep dashboard
     # doesn't show stale counts from a previous cycle.
-    _state.stage = 0
+    _reset_batch_counters()
     _state.episodes_total = 0
-    _state.entities_created = 0
-    _state.entities_updated = 0
-    _state.relationships_created = 0
-    _state.skills_detected = 0
-    _state.episodes_processed = 0
-    _state.episodes_requeued = 0
-    _state.questions_refreshed = 0
-    _state.organic_resolutions = 0
-    _state.claims_page_less = 0
-    _state.subjects_page_less = 0
-    _state.claims_held = 0
-    _state.claims_released = 0
-    _state.claims_hold_capped = 0
-    _state.claims_waiting = 0
-    _state.decay_nudges_deferred = 0
-    _state.decay_nudges_refreshed = 0
     _state.last_engine = None
     _state.engine_detail = None
-    _state.write_started = False
+    _state.drain = None
+    _state.drain_run = drain
     # Sleep control: `cancelled` (the OUTPUT flag) always starts fresh — we
     # haven't finished anything yet. `cancel_requested` (the INPUT flag)
     # restores whatever `reserve_cycle` accepted for THIS cycle_id above,
@@ -1085,7 +1136,6 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.cancelled_at_monotonic = None
     _state.episode_cap = 0
     _state.episodes_queued = 0
-    _state.stage1_progress = 0
     _state.queue_by_origin = {}
     _state.read_by_origin = {}
 
@@ -1111,13 +1161,15 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     outcome = _StageOutcome()
     try:
         await _flush_pending_commits_safely(memory_path)
-        with agent_engine.use_scope(f"sleep:{cycle_id}"):
-            outcome = await _run_stages(
-                settings, cycle_id, memory_path, user_triggered=user_triggered
-            )
+        if drain:
+            outcome = await _drain(settings, cycle_id, memory_path, user_triggered=user_triggered)
+        else:
+            outcome = await _run_batch(settings, cycle_id, memory_path, user_triggered=user_triggered)
     except Exception as e:
         _state.progress = f"Failed: {e}"
         _state.error = f"{type(e).__name__}: {e}"
+        if _state.drain is not None and _state.drain.stop is None:
+            _state.drain.stop = sleep_drain.DrainStop("error", _state.error)
         logger.error(f"Sleep cycle failed: {e}")
         logger.exception("Full traceback:")
     finally:
@@ -1137,10 +1189,287 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
         # refused with no way to recover short of restarting the process.
         try:
             await _run_engine_independent_tail(
-                memory_path, settings, outcome, user_triggered=user_triggered
+                memory_path, settings, outcome, user_triggered=user_triggered,
+                # Only a drain stopped at the plan's limit passes this; the call
+                # stays the plain one otherwise, exactly as before.
+                **({"skip_links": True} if outcome.skip_links else {}),
             )
         finally:
             _state.status = "idle"
+            # The run is over whichever way it ended (a raise outside a batch
+            # included): release the bank guard and close the drain's own flag.
+            _state.drain_run = False
+            if _state.drain is not None:
+                _state.drain.active = False
+
+
+def _reset_batch_counters() -> None:
+    """Zero the counters ONE batch (a plain cycle is one) owns — everything a
+    ``sleep_run`` ledger row carries plus the live Stage-1 tick and the
+    write-started flag. Left alone on purpose: the cancel flags, the origin
+    dicts, ``error`` and the engine fields, which belong to the whole run."""
+    _state.stage = 0
+    _state.batch_total = 0
+    _state.stage1_progress = 0
+    _state.entities_created = 0
+    _state.entities_updated = 0
+    _state.relationships_created = 0
+    _state.skills_detected = 0
+    _state.episodes_processed = 0
+    _state.episodes_requeued = 0
+    _state.questions_refreshed = 0
+    _state.organic_resolutions = 0
+    _state.claims_page_less = 0
+    _state.subjects_page_less = 0
+    _state.claims_held = 0
+    _state.claims_released = 0
+    _state.claims_hold_capped = 0
+    _state.claims_waiting = 0
+    _state.decay_nudges_deferred = 0
+    _state.decay_nudges_refreshed = 0
+    _state.write_started = False
+
+
+async def _run_batch(
+    settings: Settings, batch_cycle_id: str, memory_path: Path, *, user_triggered: bool,
+    batch: BatchPlan | None = None,
+) -> _StageOutcome:
+    """One pass of the pipeline in its own breaker scope: a whole plain cycle
+    (``batch is None``, exceptions propagate to ``run`` exactly as before) or one
+    batch of a drain.
+
+    A batch is a cycle in every way the ledger cares about: its own id (so
+    ``cycle_usage`` brackets and attributes exactly its calls), its own breaker
+    scope (a throttle in batch 2 is not a stale trip in batch 3), its own models
+    ledger (its commit's ``Cicada-Author`` names the models IT used), its own
+    clock. A drain's batch never raises: an exception is classified into a stop
+    the loop reads, with the plan breaker and its reset time captured before the
+    scope's exit purges them.
+    """
+    from api.services import agent_engine, cycle_usage
+
+    _state.batch_started_monotonic = time.monotonic()
+    if batch is not None:
+        agent_engine.reset_models_used()
+    try:
+        with agent_engine.use_scope(f"sleep:{batch_cycle_id}"):
+            try:
+                outcome = await _run_stages(
+                    settings, batch_cycle_id, memory_path, user_triggered=user_triggered,
+                    **({} if batch is None else {"batch": batch}),
+                )
+            except Exception as exc:
+                if batch is None:
+                    raise
+                stop = sleep_drain.classify(
+                    exc, agent_engine.breaker_reason(), agent_engine.breaker_resets_at())
+                if stop.reason != "plan_limit":
+                    logger.error(f"Sleep batch {batch_cycle_id} failed: {exc}")
+                    logger.exception("Full traceback:")
+                return _StageOutcome(raised=exc, stop=stop)
+            if batch is not None:
+                if outcome.stop is None and _state.cancelled and not outcome.committed:
+                    outcome.stop = sleep_drain.DrainStop("cancelled")   # `_cycle_cancelled` raised the flag
+                outcome.breaker = agent_engine.breaker_reason()
+                outcome.breaker_resets_at = agent_engine.breaker_resets_at()
+            return outcome
+    finally:
+        if batch is not None:
+            cycle_usage.discard(batch_cycle_id)  # bounded: a batch that never finalized frees its windows
+
+
+def _apply_drain_stop(ds: "sleep_drain.DrainState", stop: "sleep_drain.DrainStop") -> None:
+    """Turn a stop into what the status route shows. A plan limit and a cancel
+    are pauses, not failures (no ``error``); an unusable engine, a moved bank and
+    anything unexpected fail the run exactly like a failed cycle does."""
+    ds.stop = stop
+    ds.finished = False
+    where = (f"Stopped after batch {ds.committed_batches} of {ds.batches} — "
+             if ds.committed_batches else "")
+    if stop.reason == "plan_limit":
+        _state.error = None
+        _state.engine_detail = stop.sentence or _state.engine_detail
+        _state.progress = f"{where}{stop.sentence}".strip() or "Stopped at the plan's limit"
+        _state.cancel_requested = False
+    elif stop.reason == "cancelled":
+        _state.error = None
+        _state.cancelled = True
+        _state.cancelled_at_monotonic = time.monotonic()
+        _state.cancel_requested = False
+        _state.progress = (
+            f"Cancelled — {ds.filed} of {ds.frozen} filed; the rest stay queued for the next Consolidate"
+        )
+    else:
+        message = stop.sentence or "Sleep stopped"
+        _state.error = _state.error or message
+        _state.progress = f"Failed: {message}"
+
+
+async def _drain(
+    settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool,
+) -> _StageOutcome:
+    """A person-started run: read everything that was waiting when it began
+    (owner, 2026-09-29 — "it's just progress that cicada has to go through").
+
+    Freeze the waiting ids, resolve the engine once, then loop: pick the next
+    ``sleep_max_episodes_per_cycle`` still-waiting frozen ids, run the whole
+    pipeline on them and let Stage 5 file and commit them, so a cancel or a plan
+    stop loses at most the batch in progress and the next Consolidate continues
+    with what is left. Episodes that arrive mid-run wait for the next run; an id
+    another writer marked processed meanwhile is counted as skipped, and an id
+    that failed Stage 1 gets its one attempt and stays queued.
+
+    Once per drain, in the batch that empties the queue: temporal decay (both
+    engines — TODO ruling 1: charged once, not once per batch) and Stage 5.57's
+    page reads. Once per run, in ``run``'s tail: everything engine-independent.
+    The returned outcome is the LAST ATTEMPTED batch's, so the tail's guard
+    (``committed`` / ``write_started`` / ``questions_refreshed``) reads what the
+    tree is really like now and never an earlier batch's clean commit.
+    """
+    from api.services import engine_select
+
+    ids = [e["id"] for e in _get_unprocessed_episodes(memory_path, with_body=False)]
+    if not ids:
+        logger.info("No unprocessed episodes found — skipping")
+        _state.progress = "No unprocessed episodes"
+        return _StageOutcome()
+
+    size = max(1, int(
+        getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_EPISODE_CAP) or DEFAULT_EPISODE_CAP
+    ))
+    ds = sleep_drain.DrainState(
+        drain_id=cycle_id, frozen_ids=ids, batch_size=size,
+        batches=sleep_drain.batches_for(len(ids), size),
+    )
+    _state.drain = ds
+    _state.episodes_queued = len(ids)
+    _state.episode_cap = size
+    by_origin: dict[str, int] = {}
+    for ep in _get_unprocessed_episodes(memory_path, only_ids=set(ids), with_body=False):
+        o = str(ep.get("origin") or "unknown")
+        by_origin[o] = by_origin.get(o, 0) + 1
+    _state.queue_by_origin = by_origin
+    _state.read_by_origin = {}
+    logger.info(f"Drain {cycle_id}: {len(ids)} episodes frozen, {ds.batches} batch(es) of up to {size}")
+
+    # Resolved ONCE and pinned: "Auto" must not flip to another (paid) engine at batch 9.
+    resolved = await engine_select.resolve_settings(settings, user_triggered=user_triggered)
+    pinned = memory_path
+
+    last = _StageOutcome()
+    stop: "sleep_drain.DrainStop | None" = None
+
+    def _fold(outcome: _StageOutcome, batch_ids: list[str], *, decays: bool) -> None:
+        """Count a finished batch, or let a discarded one leave no trace."""
+        if outcome.committed:
+            ds.committed_batches += 1
+            ds.filed += _state.episodes_processed
+            ds.requeued += _state.episodes_requeued
+            for name in sleep_drain.CUMULATIVE_COUNTERS:
+                ds.totals[name] = ds.totals.get(name, 0) + int(getattr(_state, name, 0) or 0)
+            ds.settled |= set(batch_ids)
+            if decays:
+                ds.decay_ran = True
+        ds.batch_counted = True
+
+    while True:
+        if getattr(settings, "memory_path", pinned) != pinned:
+            stop = sleep_drain.DrainStop(
+                "bank_switched",
+                f"The memory bank changed — stopped after batch {ds.committed_batches} of {ds.batches}; "
+                "what was already filed stays filed.")
+            break
+        waiting = {e["id"] for e in _get_unprocessed_episodes(memory_path, with_body=False)}
+        gone = {i for i in ids if i not in ds.settled and i not in waiting}
+        ds.skipped += len(gone)
+        ds.settled |= gone
+        batch_ids, more = sleep_drain.next_batch(ids, waiting, ds.settled, size)
+        if not batch_ids:
+            ds.finished = True   # a cancel that came too late has nothing left to stop
+            break
+        if _state.cancel_requested:
+            stop = sleep_drain.DrainStop("cancelled")
+            break
+
+        ds.batch += 1
+        ds.batches = ds.batch + sleep_drain.batches_for(more, size)
+        is_last = more == 0
+        before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
+        _reset_batch_counters()
+        ds.batch_counted = False
+        _state.episodes_total = ds.filed + ds.requeued + ds.skipped + len(batch_ids)
+        plan = BatchPlan(
+            only_ids=batch_ids, resolved=resolved, decay=is_last, links=is_last,
+            keep_cancel=not is_last,
+            label=f"Batch {ds.batch} of {ds.batches} · " if ds.batches > 1 else "",
+            index=ds.batch, of=ds.batches, drain_id=cycle_id,
+        )
+        last = await _run_batch(
+            settings, f"{cycle_id}_b{ds.batch:03d}", memory_path, user_triggered=user_triggered, batch=plan)
+        if not last.committed:
+            _state.read_by_origin, _state.episodes_total = before_read, before_total
+        _fold(last, batch_ids, decays=is_last)
+
+        if last.stop is not None:
+            stop = last.stop
+            break
+        if last.committed and last.breaker:
+            # Stage 1 swallows a throttle per episode, so some of the batch was
+            # read and filed; the scope's breaker is the only signal left. Stop
+            # here rather than start a batch that spawns, trips it again and stops
+            # one batch late.
+            stop = sleep_drain.DrainStop("plan_limit", last.breaker, last.breaker_resets_at)
+            break
+        if not last.committed:
+            # Nothing filed and nothing wrong: every id was read elsewhere between the
+            # scan and the load. Settled, counted, never re-read.
+            ds.skipped += len(batch_ids)
+            ds.settled |= set(batch_ids)
+
+    if stop is None and ds.committed_batches and not ds.decay_ran:
+        # The batch planned as last read nothing (its ids were read elsewhere
+        # mid-run), so decay and the page reads have not run: one pass without
+        # episodes gives them their once.
+        before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
+        _reset_batch_counters()
+        ds.batch_counted = False
+        plan = BatchPlan(
+            only_ids=[], resolved=resolved, decay=True, links=True, keep_cancel=False,
+            label="Finishing · ", index=ds.batch, of=ds.batches, drain_id=cycle_id, decay_only=True,
+        )
+        last = await _run_batch(
+            settings, f"{cycle_id}_decay", memory_path, user_triggered=user_triggered, batch=plan)
+        if not last.committed:
+            _state.read_by_origin, _state.episodes_total = before_read, before_total
+        _fold(last, [], decays=True)
+        stop = last.stop
+
+    try:
+        ds.arrived_since = len({
+            e["id"] for e in _get_unprocessed_episodes(memory_path, with_body=False)
+        } - set(ids))
+    except Exception:  # a count for the sentence, never worth failing a run
+        ds.arrived_since = None
+
+    if stop is not None:
+        _apply_drain_stop(ds, stop)
+    elif not ds.committed_batches:
+        _state.progress = "No unprocessed episodes"
+        _state.cancel_requested = False
+    else:
+        _state.cancel_requested = False
+        requeue_note = _requeue_note(ds.requeued, None)
+        warn = f" (with warnings: {_state.index_warning})" if _state.index_warning else ""
+        _state.progress = (
+            f"Completed — {ds.filed} episode(s) filed in {ds.committed_batches} batch(es)"
+            f"{requeue_note}{warn}"
+        )
+        logger.success(f"Drain {cycle_id} completed — {ds.filed} episodes filed in {ds.committed_batches} batch(es)")
+    ds.active = False
+    return _StageOutcome(
+        committed=last.committed, questions_refreshed=last.questions_refreshed,
+        skip_links=bool(stop is not None and stop.reason == "plan_limit"),
+    )
 
 
 def _sync_vector_indexes(memory_path: Path) -> list[str]:
@@ -1175,8 +1504,24 @@ def _sync_vector_indexes(memory_path: Path) -> list[str]:
 
 async def _run_stages(
     settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool = True,
+    batch: BatchPlan | None = None,
 ) -> _StageOutcome:
-    """The LLM-dependent pipeline. Returns what it achieved; never runs the tail."""
+    """The LLM-dependent pipeline. Returns what it achieved; never runs the tail.
+
+    ``batch`` (a drain's batch, ``_drain``): reads only ``batch.only_ids`` with
+    the engine the drain resolved once, skips the cap (the drain owns the queue's
+    counters), runs the once-per-drain work (decay, Stage 5.57's page reads) only
+    when the plan says so, and prefixes its progress sentence. Everything else —
+    every stage, Stage 5's write, the commit — is the cycle as it always was.
+    """
+    label = batch.label if batch is not None else ""
+    decay_only = bool(batch is not None and batch.decay_only)
+    # Only ever a kwarg when False: tests stub these seams with fixed signatures.
+    decay_kw = {} if (batch is None or batch.decay) else {"decay": False}
+
+    def _say(text: str) -> None:
+        _state.progress = f"{label}{text}"
+
     # M5e: ensure the runtime predicate-normalization map exists (idempotent,
     # non-clobbering) so Stage 2 predicate folding + Stage 3 cardinality keying
     # have a controlled vocabulary to key on.
@@ -1187,8 +1532,13 @@ async def _run_stages(
         logger.warning(f"predicate map install skipped: {type(e).__name__}: {e}")
 
     # Collect unprocessed episodes
-    episodes = _get_unprocessed_episodes(memory_path)
-    if not episodes:
+    if batch is None:
+        episodes = _get_unprocessed_episodes(memory_path)
+    elif decay_only:
+        episodes = []
+    else:
+        episodes = _get_unprocessed_episodes(memory_path, only_ids=set(batch.only_ids))
+    if not episodes and not decay_only:
         logger.info("No unprocessed episodes found — skipping")
         _state.progress = "No unprocessed episodes"
         return _StageOutcome()
@@ -1201,30 +1551,32 @@ async def _run_stages(
     # never handed to Stage 1 — they stay `processed: false` on disk exactly
     # as they already were, so this is a slice, not a mutation, and the next
     # trigger picks up right where this one left off.
-    total_unprocessed = len(episodes)
-    cap = max(1, int(
-        getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_EPISODE_CAP)
-        or DEFAULT_EPISODE_CAP
-    ))
-    _state.episodes_queued = total_unprocessed
-    _state.episode_cap = cap
-    if total_unprocessed > cap:
-        episodes = episodes[:cap]
-        logger.warning(
-            f"Episode cap reached: processing {cap} of {total_unprocessed} "
-            f"queued episodes this cycle — the remaining "
-            f"{total_unprocessed - cap} stay queued for the next cycle"
-        )
-    else:
-        logger.info(f"Found {total_unprocessed} unprocessed episodes")
-    _state.episodes_total = len(episodes)
+    if batch is None:
+        total_unprocessed = len(episodes)
+        cap = max(1, int(
+            getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_EPISODE_CAP)
+            or DEFAULT_EPISODE_CAP
+        ))
+        _state.episodes_queued = total_unprocessed
+        _state.episode_cap = cap
+        if total_unprocessed > cap:
+            episodes = episodes[:cap]
+            logger.warning(
+                f"Episode cap reached: processing {cap} of {total_unprocessed} "
+                f"queued episodes this cycle — the remaining "
+                f"{total_unprocessed - cap} stay queued for the next cycle"
+            )
+        else:
+            logger.info(f"Found {total_unprocessed} unprocessed episodes")
+        _state.episodes_total = len(episodes)
 
-    # G125: what this cycle will read, by source — set once, from the capped
-    # slice, so the study list's denominators never move mid-cycle.
-    by_origin: dict[str, int] = {}
-    for ep in episodes:
-        by_origin[str(ep.get("origin") or "unknown")] = by_origin.get(str(ep.get("origin") or "unknown"), 0) + 1
-    _state.queue_by_origin = by_origin
+        # G125: what this cycle will read, by source — set once, from the capped
+        # slice, so the study list's denominators never move mid-cycle.
+        by_origin: dict[str, int] = {}
+        for ep in episodes:
+            by_origin[str(ep.get("origin") or "unknown")] = by_origin.get(str(ep.get("origin") or "unknown"), 0) + 1
+        _state.queue_by_origin = by_origin
+    _state.batch_total = len(episodes)
 
     # Fix round 1, M1 (part 2): resolution moved to AFTER the idle-episode
     # return above — an idle cycle must never touch the connections registry
@@ -1235,12 +1587,17 @@ async def _run_stages(
     # pipeline. The caller's Settings is never mutated: get_settings() is
     # lru_cached and shared with every request handler.
     from api.services import engine_select
-    settings, engine_why = await engine_select.resolve_settings(
-        settings, user_triggered=user_triggered,
-    )
+    if batch is None:
+        settings, engine_why = await engine_select.resolve_settings(
+            settings, user_triggered=user_triggered,
+        )
+    else:
+        # A drain resolves once and pins the pair: "Auto" must not land on
+        # another (paid) engine at batch 9.
+        settings, engine_why = batch.resolved
     _state.last_engine = _engine_label(settings)
     _state.engine_detail = engine_why
-    if _state.last_engine == "codex-cli":
+    if _state.last_engine == "codex-cli" and not decay_only:
         # The ChatGPT plan reports no per-call usage: bracket the cycle with two
         # snapshots so the ledger can say how far its window moved.
         from api.services import cycle_usage
@@ -1263,14 +1620,16 @@ async def _run_stages(
     # registry's cache first (`_probe_engine_cheaply`) — genuinely no
     # subprocess in the common case — with a short-timeout spawn only as a
     # cold-cache fallback.
-    if _state.last_engine == "claude-cli":
+    if decay_only:
+        pass   # no episode is read, so no engine is asked
+    elif _state.last_engine == "claude-cli":
         ok, detail = await _probe_engine_cheaply(settings)
         _state.engine_detail = detail
         if not ok:
             logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
             _state.error = detail
             _state.progress = f"Failed: {detail}"
-            return _StageOutcome()
+            return _StageOutcome(stop=sleep_drain.DrainStop("engine", detail))
     elif _state.last_engine == "codex-cli":
         # R-E18: one read-only `codex app-server` probe (≈0.5 s, no quota)
         # answers signed-in, plan-vs-API-key and "limit already reached"
@@ -1286,14 +1645,18 @@ async def _run_stages(
             logger.error(f"Sleep cycle {cycle_id} aborted before Stage 1 — {detail}")
             _state.error = detail
             _state.progress = f"Failed: {detail}"
-            return _StageOutcome()
+            from api.services import plan_limits
+
+            # A used-up plan is a pause the person waits out; a sign-out is not.
+            return _StageOutcome(stop=sleep_drain.DrainStop(
+                "plan_limit" if detail.startswith(plan_limits.CODEX_LIMIT_LEAD) else "engine", detail))
         if default_model and not (getattr(settings, "codex_model", "") or "").strip():
             settings = settings.model_copy(update={"codex_model": default_model})
             # The "started" line above logged before this was known.
             logger.info(f"Sleep cycle {cycle_id} — ChatGPT plan default model: {default_model}")
 
     # Stage 1: Entity & Relationship Extraction
-    _state.progress = f"Stage 1/5: Extracting entities from {len(episodes)} episodes..."
+    _say(f"Stage 1/5: Extracting entities from {len(episodes)} episodes...")
     logger.info(f"Stage 1: Extracting entities from {len(episodes)} episodes")
     from api.services.entity_extractor import extract
 
@@ -1304,10 +1667,13 @@ async def _run_stages(
         origin = str(ep.get("origin") or "unknown")
         _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
 
-    extracted = await extract(
-        episodes, settings, cancel_check=_cancel_requested,
-        progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
-    )
+    if decay_only:
+        extracted = []
+    else:
+        extracted = await extract(
+            episodes, settings, cancel_check=_cancel_requested,
+            progress_callback=_tick_stage1, on_episode_done=_on_episode_done,
+        )
     total_entities = sum(len(e.get("entities", [])) for e in extracted)
     total_rels = sum(len(e.get("relationships", [])) for e in extracted)
     logger.info(f"Stage 1 complete: {total_entities} entities, {total_rels} relationships extracted")
@@ -1343,14 +1709,22 @@ async def _run_stages(
         logger.error(msg)
         _state.error = msg
         _state.progress = f"Failed: {msg}"
-        return _StageOutcome()
+        from api.services import agent_engine as _ae
+
+        breaker = _ae.breaker_reason()
+        return _StageOutcome(stop=(
+            sleep_drain.DrainStop("plan_limit", breaker, _ae.breaker_resets_at()) if breaker
+            else sleep_drain.DrainStop("engine", msg)))
 
     # Stage 2: Entity Resolution & Deduplication
-    _state.progress = "Stage 2/5: Resolving entities..."
+    _say("Stage 2/5: Resolving entities...")
     logger.info("Stage 2: Resolving entities against existing graph")
     existing = _load_existing_entities(memory_path)
     from api.services.entity_resolver import resolve
-    resolved_result = await resolve(extracted, existing, settings, cancel_check=_cancel_requested)
+    if decay_only:
+        resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
+    else:
+        resolved_result = await resolve(extracted, existing, settings, cancel_check=_cancel_requested)
     resolved_changes = resolved_result["changes"]
     resolved_edges = resolved_result["relationships"]
     episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
@@ -1370,10 +1744,10 @@ async def _run_stages(
         return _cycle_cancelled()
 
     # Stage 3: Conflict Resolution & Pruning
-    _state.progress = "Stage 3/5: Resolving conflicts..."
+    _say("Stage 3/5: Resolving conflicts...")
     logger.info("Stage 3: Conflict resolution & temporal decay")
     from api.services.conflict_resolver import resolve_and_prune
-    changes = await resolve_and_prune(resolved_changes, existing, settings)
+    changes = await resolve_and_prune(resolved_changes, existing, settings, **decay_kw)
     logger.info(f"Stage 3 complete: {len(changes)} total changes")
     _state.stage = 3
 
@@ -1383,15 +1757,18 @@ async def _run_stages(
         return _cycle_cancelled()
 
     # Stage 4: Pattern Detection & Skill Extraction
-    _state.progress = "Stage 4/5: Extracting skills..."
+    _say("Stage 4/5: Extracting skills...")
     logger.info("Stage 4: Pattern detection & skill extraction")
     from api.services.skill_extractor import detect_patterns
-    skills = await detect_patterns(
-        changes,
-        existing,
-        settings,
-        episode_cooccurrences=episode_cooccurrences,
-    )
+    if decay_only:
+        skills = []
+    else:
+        skills = await detect_patterns(
+            changes,
+            existing,
+            settings,
+            episode_cooccurrences=episode_cooccurrences,
+        )
     logger.info(f"Stage 4 complete: {len(skills)} skills detected")
     _state.skills_detected = len(skills)
     _state.stage = 4
@@ -1406,7 +1783,7 @@ async def _run_stages(
         return _cycle_cancelled()
 
     # Stage 5: Nudge Generation & Versioning
-    _state.progress = "Stage 5/5: Writing changes..."
+    _say("Stage 5/5: Writing changes...")
     logger.info("Stage 5: Writing entities, nudges, clarifications, and relationships")
     # Fix round 1, M3: the FIRST real disk write in the pipeline — everything
     # before this point (Stages 1-4) only computed `changes` in memory. Flip
@@ -1462,6 +1839,7 @@ async def _run_stages(
             extracted, existing, memory_path, settings,
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
+            **decay_kw,
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
         _state.subjects_page_less = int(claim_result.get("subjects_skipped", 0) or 0)
@@ -1537,15 +1915,21 @@ async def _run_stages(
     # (`default_fetch`) and only behind CICADA_ALLOW_CONNECTOR_FETCH
     # (G61 phase 2 S0, `_link_summarizer`). Offline-safe, LLM-call-capped;
     # any failure logs a warning and continues — the cycle is never hard-blocked.
-    try:
-        from api.services.link_enrichment import enrich_media_links
-        n_enriched = await enrich_media_links(
-            memory_path, changes, settings, summarize_fn=_link_summarizer()
-        )
-        if n_enriched:
-            logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
-    except Exception as e:
-        logger.warning(f"Stage 5.57 link enrichment failed: {type(e).__name__}: {e}")
+    #
+    # A drain reads pages once, in its last batch: the pass picks its candidates
+    # by scanning the bank (never from `changes`), so nothing an earlier batch
+    # saved is missed — only the `recommends` person credit, which reads THIS
+    # batch's changes, covers just the last batch's episodes (disclosed).
+    if batch is None or batch.links:
+        try:
+            from api.services.link_enrichment import enrich_media_links
+            n_enriched = await enrich_media_links(
+                memory_path, changes, settings, summarize_fn=_link_summarizer()
+            )
+            if n_enriched:
+                logger.info(f"Stage 5.57: enriched {n_enriched} media link(s)")
+        except Exception as e:
+            logger.warning(f"Stage 5.57 link enrichment failed: {type(e).__name__}: {e}")
 
     # Stage 5.7: Regenerate graph_edges.yaml as a valid-only projection of the
     # claims layer (tagged with observer/context/claim_id). No-op on banks
@@ -1622,7 +2006,8 @@ async def _run_stages(
         changes,
         settings,
         organic_resolution_paths=organic_resolution_paths,
-        started=_state.started_monotonic,
+        # This batch's own clock (`_run_batch`); a plain cycle's is its run's.
+        started=_state.batch_started_monotonic or _state.started_monotonic,
         engine=engine,
         # A plan cycle belongs to its plan's card and is billed against the
         # subscription, not as money (PLAN_ENGINES, R-E22).
@@ -1634,6 +2019,11 @@ async def _run_stages(
         authors=engine_models or None,
         sessions=_collect_session_ids(processed_episodes),
         episode_sessions=_episode_session_map(processed_episodes),
+        **({} if batch is None else {
+            "drain": (batch.drain_id, batch.index, batch.of),
+            "subject_suffix": (" (finishing)" if decay_only else
+                               f" (batch {batch.index} of {batch.of})" if batch.of > 1 else ""),
+        }),
     )
 
     # Logo warm-up and the connector poll (final-review H1: the poll must
@@ -1658,7 +2048,7 @@ async def _run_stages(
         f" — episode cap reached: {_state.episodes_total} of "
         f"{_state.episodes_queued} processed, "
         f"{_state.episodes_queued - _state.episodes_total} more queued for the next cycle"
-        if _state.episodes_queued > _state.episodes_total else ""
+        if batch is None and _state.episodes_queued > _state.episodes_total else ""
     )
     # Sleep control: a cancel that arrived AFTER Stage 5 started writing is
     # too late to stop THIS cycle — by design (see the last safe-point check
@@ -1667,18 +2057,21 @@ async def _run_stages(
     # sentence rather than silently swallowing the request.
     cancel_note = ""
     if _state.cancel_requested:
-        cancel_note = " — cancel requested after writes began; this cycle finished its commit safely"
-        _state.cancel_requested = False
+        if batch is None:
+            cancel_note = " — cancel requested after writes began; this cycle finished its commit safely"
+            _state.cancel_requested = False
+        elif not batch.keep_cancel:
+            # The drain's last batch: nothing is left to stop.
+            _state.cancel_requested = False
+        # Any other batch keeps the flag: the drain loop reads it next and stops.
     if _state.index_warning:
-        _state.progress = (
-            f"Completed with warnings: {_state.index_warning}{requeue_note}{cap_note}{cancel_note}"
-        )
+        _say(f"Completed with warnings: {_state.index_warning}{requeue_note}{cap_note}{cancel_note}")
         logger.warning(
             f"Sleep cycle {cycle_id} completed with warnings — "
             f"{len(changes)} changes committed; {_state.index_warning}{requeue_note}{cap_note}{cancel_note}"
         )
     else:
-        _state.progress = f"Completed{requeue_note}{cap_note}{cancel_note}"
+        _say(f"Completed{requeue_note}{cap_note}{cancel_note}")
         logger.success(
             f"Sleep cycle {cycle_id} completed — {len(changes)} changes committed"
             f"{requeue_note}{cap_note}{cancel_note}"
@@ -1687,8 +2080,15 @@ async def _run_stages(
     return _StageOutcome(committed=True, questions_refreshed=questions_refreshed)
 
 
-def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
+def _get_unprocessed_episodes(
+    memory_path: Path, *, only_ids: set[str] | None = None, with_body: bool = True,
+) -> list[dict]:
     """Load all episodes with processed: false, sorted by frontmatter timestamp.
+
+    ``only_ids`` keeps just those ids and ``with_body=False`` skips reading each
+    body — both filter BEFORE ``f.body()``, so a drain's freeze and its per-batch
+    re-scans read frontmatter only and 48 batches never read every waiting body
+    48 times.
 
     Sorting by timestamp (not filename) keeps the queue the Sleep dashboard
     shows aligned with the chronology-aware entity writes in
@@ -1701,9 +2101,11 @@ def _get_unprocessed_episodes(memory_path: Path) -> list[dict]:
         if fm.get("processed", False):
             continue
         source = fm.get("source", "unknown")
+        if only_ids is not None and str(fm.get("id", f.stem)) not in only_ids:
+            continue
         results.append({
             "id": fm.get("id", f.stem),
-            "content": f.body(),
+            "content": f.body() if with_body else "",
             "source": source,
             # G9 origin: explicit field if present, else derived from the
             # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
@@ -1902,8 +2304,18 @@ async def _finalize(
     authors: list[str] | None = None,
     sessions: list[str] | None = None,
     episode_sessions: dict[str, str] | None = None,
+    drain: tuple[str, int, int] | None = None,
+    subject_suffix: str = "",
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
+
+    ``drain`` / ``subject_suffix`` (a drain's batch, ``sleep_drain``): ``(drain
+    id, batch, batches)`` becomes three ids-only refs on the ``sleep_run`` row so
+    the batches of one run can be told apart from separate cycles, and the suffix
+    (`` (batch 2 of 12)``) ends the main commit's subject. ``_cycle_kind`` reads a
+    trailing ``(decay)`` only, so a batch commit is still a ``sleep`` cycle. The
+    G85 ``(decay)`` commit is unchanged — and appears only in the batch that ran
+    decay.
 
     Entity-level lines from ``changes`` have source + trigger; file-level
     additions (nudges, clarifications, graph_edges, etc.) are inferred from
@@ -2151,7 +2563,7 @@ async def _finalize(
             resolved_authors.append(disambig)
 
     message = git_service.build_commit_message(
-        f"Sleep cycle {date_str}", body_lines, authors=resolved_authors,
+        f"Sleep cycle {date_str}{subject_suffix}", body_lines, authors=resolved_authors,
         sessions=sessions or [], engine=engine,
     )
     async with _lock:
@@ -2184,6 +2596,7 @@ async def _finalize(
             # empty call set reads as "not recorded" rather than "no calls".
             cycle_usage.TAGGED_REF: True,
             **({"plan": plan_block} if plan_block else {}),
+            **({"drain_id": drain[0], "batch": drain[1], "batches": drain[2]} if drain else {}),
             "episodes_processed": _state.episodes_processed,
             "episodes_requeued": _state.episodes_requeued,
             "entities_created": _state.entities_created,

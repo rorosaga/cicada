@@ -538,6 +538,11 @@ _CURRENT_SCOPE: contextvars.ContextVar[str] = contextvars.ContextVar(
     "cicada_agent_engine_scope", default=_DEFAULT_SCOPE
 )
 _BREAKER: dict[str, str] = {}
+#: The vendor's own reset time (unix seconds) for a scope's trip, when its signal
+#: carried one — kept beside the reason so a drain's stop can say when the plan
+#: is back without parsing a sentence. Measured, never estimated; purged with the
+#: trip.
+_BREAKER_RESETS: dict[str, int] = {}
 
 
 def current_scope() -> str:
@@ -571,7 +576,7 @@ def use_scope(name: str):
         reset_breaker(scope=name)
 
 
-def trip_breaker(reason: str, *, scope: str | None = None) -> bool:
+def trip_breaker(reason: str, *, scope: str | None = None, resets_at: int | None = None) -> bool:
     """Trip the throttle breaker for ``scope``. Returns ``True`` only for the
     call that tripped it.
 
@@ -586,6 +591,8 @@ def trip_breaker(reason: str, *, scope: str | None = None) -> bool:
         if _BREAKER.get(scope):
             return False
         _BREAKER[scope] = reason or "Claude plan throttled"
+        if isinstance(resets_at, int) and not isinstance(resets_at, bool):
+            _BREAKER_RESETS[scope] = resets_at
         return True
 
 
@@ -595,10 +602,17 @@ def breaker_reason(*, scope: str | None = None) -> str | None:
         return _BREAKER.get(scope)
 
 
+def breaker_resets_at(*, scope: str | None = None) -> int | None:
+    scope = scope or current_scope()
+    with _STATE_LOCK:
+        return _BREAKER_RESETS.get(scope)
+
+
 def reset_breaker(*, scope: str | None = None) -> None:
     scope = scope or current_scope()
     with _STATE_LOCK:
         _BREAKER.pop(scope, None)
+        _BREAKER_RESETS.pop(scope, None)
 
 
 def record_model_used(model: str | None) -> None:

@@ -554,6 +554,7 @@ def test_sleep_status_exposes_cap_and_cancel_fields():
         assert body["episodesQueued"] == 30
         assert body["cancelRequested"] is True
         assert body["cancelled"] is False
+        assert body["drain"] is None, "a plain cycle carries no drain block"
     finally:
         state.episode_cap = 0
         state.episodes_queued = 0

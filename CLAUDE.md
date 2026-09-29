@@ -292,6 +292,42 @@ follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connect
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
+**Consolidate reads everything (owner, 2026-09-29; TODO ruling 13).** "I don't want to cap the max episodes per sleep —
+it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:
+the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) is a **drain** — `run(..., drain=True)`, one
+`run()` that keeps `status == "running"` for its whole length. It freezes the ids waiting when it started
+(`sleep_cycle._drain`; episodes captured meanwhile wait for the next run, counted as `arrivedSince`), resolves the engine
+**once** ("Auto" must not flip to another, paid, engine at batch 9) and reads them in batches of
+`sleep_max_episodes_per_cycle` (default 25 — the setting keeps its name and now means *how often progress is saved*). Each
+batch is a whole pipeline under its own `<drain id>_b<nnn>` cycle id, breaker scope, models ledger and clock, and **Stage 5
+files and commits it** (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
+ints only), so a cancel or a plan stop loses at most the batch in progress and the next Consolidate continues with what is
+left. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
+ChatGPT pre-flight's used-up sentence) is a **pause, not a failure**: the vendor's own sentence and reset time
+(`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
+reset — the person presses Consolidate again (auto-continue would be a ruling 4 amendment, not built). A cancel is the
+existing cooperative one: a batch before Stage 5 is discarded, one already writing commits, then the loop stops. Each
+frozen id gets **one attempt per drain** (a Stage 1 failure stays queued for the next run), an id another writer marked
+processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
+`leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle is still one
+batch** (`user_triggered=False`, no `drain`): ruling 4 — it runs on an API key, and draining the whole queue unattended would
+be real money — and the scheduler never passes `drain`. **Once per drain, not per batch:** temporal decay (both engines,
+`decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
+batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
+charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose
+tree guard reads the *last attempted* batch (a batch that raised after writing keeps every poll off the dirty tree), with the
+link backfill skipped after a plan stop. G85's `(decay)` split and the one-git-writer rule are untouched — each batch's
+`_finalize` runs under the same per-bank lock. `GET /sleep/status` carries a `drain` block (frozen, batchSize, batch,
+batches, filed, requeued, skipped, active, finished, `stop{reason, sentence, resetsAt}`, arrivedSince — measured counts,
+never an estimate, G107), the entity/episode counters as the run's running sums, `episodesQueued` the frozen total,
+`episodeCap` the batch size, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`.
+**Disclosed asymmetries (not fixed here):** the ~14 `status == "running"` 409 guards (projects, entities, backlog, banks
+export/delete, local sources, memory, maintenance, remote) and MCP's `BACKLOG_SLEEPING` refusal now hold for the whole drain
+— hours on a first run — and a stdio agent's claim written meanwhile stands uncommitted (`mcp_tools._backend_sleep_running`)
+and rides the next batch's commit under the Sleep author (the G85-class smear, at drain scale); Awake capture is not gated.
+The narrower "write window" probe is filed as G174. Stage 5.57's `recommends` person credit reads only the last batch's
+changes. A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
+
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
@@ -743,6 +779,12 @@ behavior rather than aborting the cycle. **Known asymmetry, disclosed not fixed:
 path-granular, not hunk-granular, so a subject that is both decay-eligible and claim-touched in the
 same cycle lands whole in the `cicada` commit. Narrow in practice; fixing it needs hunk-level
 staging.
+
+**A drain's commits.** Each batch is one `Sleep cycle <date> (batch k of n)` commit (k counts batches actually run, n is
+recomputed from what is still waiting, so skipped ids shrink it; a lone batch keeps the plain subject — `_cycle_kind` reads
+only a trailing `(decay)`). Its manifest lists only that batch's episodes, `Cicada-Session:` only that batch's
+conversations (batch size ≤ 50 keeps every one), `Cicada-Author:` the models that batch used. The `(decay)` commit exists
+once, in the last batch, before its main commit.
 
 **One git writer per bank (F2-back R-B1 … R-B4).** Every mutating git command — `git_service`'s
 commits, a `_run_git` write, the one-shot migrations, the expiry restore — runs in a worker thread
@@ -1573,7 +1615,9 @@ read `owner_identity.resolve_observer` instead of a hardcoded literal, so a bank
 never forks across writers.
 
 ### 4. Manual Sleep trigger
-"Run Sleep cycle now" + next-scheduled indicator.
+"Run Sleep cycle now" + next-scheduled indicator. A person's trigger **drains the queue** (see Sleep — Consolidate reads
+everything, TODO ruling 13); `POST /sleep/cancel` says so ("Batches already filed stay filed"), and while a drain runs the
+bank-switching routes answer 409.
 
 **Schedule modes (G125 R6/R7).** Settings → Schedule offers four modes on `ScheduleConfig.mode`:
 `manual`, `daily` (hour/minute), `interval` (`interval_hours`, 1–168, default 6), and `after_import`
@@ -1584,7 +1628,8 @@ newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `Sl
 (`mode != "manual"`) and always written on the wire so an older client still decodes; an old
 `PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
 scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
-scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`).
+scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads one batch of
+`sleep_max_episodes_per_cycle`, never the whole queue** (only a person's Consolidate drains — ruling 13).
 
 ### 5. Conversation upload
 **One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
