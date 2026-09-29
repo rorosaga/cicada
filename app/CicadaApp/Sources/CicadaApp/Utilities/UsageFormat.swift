@@ -1,8 +1,8 @@
 import Foundation
 
-/// Number formatting for the Sources page's counts. No currency and no token
-/// formatter live here any more — the 2026-09-03 G124 ruling took prices and
-/// token usage out of the app.
+/// Number formatting for the Sources page's counts, and — since the 2026-09-28 ruling — the one
+/// currency and the one percent formatter the Sleep page's Details and engine menu use. Prices and
+/// token usage appear nowhere else in the app (TODO ruling 12 narrows the 2026-09-03 G124 ruling).
 enum UsageFormat {
     /// Plain grouped integer for counters ("1,284 sessions"). Never
     /// abbreviated — a count of "1.3k" reads as an estimate when it is exact.
@@ -30,6 +30,28 @@ enum UsageFormat {
     static func percent(_ value: Double?) -> String {
         guard let value else { return "—" }
         return "\(Int(value.rounded()))%"
+    }
+
+    /// A share held as a 0.0–1.0 fraction ("18%"); nil renders the same dash. The caller always
+    /// adds the noun (DR-59: a bare percentage never stands alone).
+    static func percent(fraction: Double?) -> String {
+        percent(fraction.map { $0 * 100 })
+    }
+
+    /// US dollars in the reader's locale, two decimals (R-S17: the locale is a parameter). The
+    /// currency code is pinned, never the symbol: litellm and OpenRouter both bill in USD. Below a
+    /// cent it reads "< $0.01" rather than a rounded zero, and only an exact zero reads "$0.00".
+    static func currency(_ value: Double, locale: Locale = .autoupdatingCurrent) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "USD"
+        f.locale = locale
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = 2
+        if value > 0, value < 0.005 {
+            return "< " + (f.string(from: NSNumber(value: 0.01)) ?? "$0.01")
+        }
+        return f.string(from: NSNumber(value: value)) ?? String(format: "$%.2f", value)
     }
 
     /// Wall-clock duration from milliseconds — the longest-sleep-run tile.

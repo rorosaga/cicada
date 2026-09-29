@@ -3,8 +3,9 @@ import SwiftUI
 /// Whether Details › Last cycle has anything to say (Track Z §4.1 F). The
 /// four inputs are exactly the four banners' own conditions, so the section
 /// can never render as an empty header.
-func lastCycleSectionIsVisible(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?) -> Bool {
-    pageError != nil || cancelled || capped || !(indexWarning ?? "").isEmpty
+func lastCycleSectionIsVisible(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?,
+                               usageLine: String? = nil) -> Bool {
+    pageError != nil || cancelled || capped || !(indexWarning ?? "").isEmpty || usageLine != nil
 }
 
 /// The page's one second surface (R-Z6, R-Z7): opened on purpose, remembered
@@ -37,14 +38,24 @@ struct SleepDetails: View {
     /// its spine answer each other's hover.
     var room: RoomModel? = nil
 
+    /// The newest cycle's one-line cost, only when one was recorded — "not recorded" belongs to Past
+    /// nights, where every row can say it, and never opens this section by itself.
+    private var lastCycleUsage: String? {
+        guard let last = page.lastCycle, last.usageSummary != nil else { return nil }
+        return CycleUsageText.summaryLine(kind: last.kind, summary: last.usageSummary)
+    }
+
     var body: some View {
         // R-HS15 — 28 pt between sections, the D-Sleep mock's gap: sections are labels over rows
         // now, so the space between them is what separates them (DR-37).
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
             if lastCycleSectionIsVisible(pageError: pageError, cancelled: page.cancelled,
-                                         capped: page.capped, indexWarning: page.indexWarning) {
+                                         capped: page.capped, indexWarning: page.indexWarning,
+                                         usageLine: lastCycleUsage) {
                 LastCycleSection(pageError: pageError, status: status, cancelled: page.cancelled,
-                                 capped: page.capped, indexWarning: page.indexWarning)
+                                 capped: page.capped, indexWarning: page.indexWarning,
+                                 usageLine: lastCycleUsage,
+                                 usageHelp: CycleUsageText.summaryHelp(page.lastCycle?.usageSummary))
                     .id(DetailsSection.lastCycle.anchorID)
             }
             StudyListCard(rows: page.rows, episodes: episodes, queueLoad: page.queueLoad,
@@ -86,7 +97,7 @@ struct SleepDetailsSection<Content: View>: View {
 /// cap in `textTertiary`. The filled banners (`danger`/`accent`/`warning` at 10–12 %) retired: DR-7
 /// keeps `danger` for destructive actions, and a row never sits on a tint.
 struct LastCycleRow: Equatable, Identifiable {
-    enum Kind: String, Equatable { case failed, cancelled, capped, warning }
+    enum Kind: String, Equatable { case failed, cancelled, capped, warning, usage }
 
     let kind: Kind
     let title: String
@@ -98,13 +109,15 @@ struct LastCycleRow: Equatable, Identifiable {
         case .failed, .warning: "exclamationmark.triangle"
         case .cancelled: "stop.circle"
         case .capped: "tray.and.arrow.down"
+        case .usage: "gauge.with.dots.needle.33percent"
         }
     }
 
     /// The four conditions `lastCycleSectionIsVisible` reads, in the page's order. The cap's numbers
     /// come from the status itself, as the banner's did (L1/L4).
     static func rows(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?,
-                     status: SleepStatusResponse?, locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
+                     status: SleepStatusResponse?, usageLine: String? = nil,
+                     locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
         var rows: [LastCycleRow] = []
         if let pageError {
             rows.append(LastCycleRow(kind: .failed, title: Copy.SleepDetailsWords.failedTitle, text: pageError))
@@ -122,6 +135,10 @@ struct LastCycleRow: Equatable, Identifiable {
         // the commit succeeded), so a "completed with warnings" cycle never looks like a clean pass.
         if let warning = indexWarning, !warning.isEmpty {
             rows.append(LastCycleRow(kind: .warning, title: Copy.SleepDetailsWords.warningTitle, text: warning))
+        }
+        // 2026-09-28 — what the newest cycle cost, last: it is information, not news that needs you.
+        if let usageLine {
+            rows.append(LastCycleRow(kind: .usage, title: Copy.SleepUsage.lastCycleTitle, text: usageLine))
         }
         return rows
     }
@@ -143,11 +160,13 @@ struct LastCycleSection: View {
     let cancelled: Bool
     let capped: Bool
     let indexWarning: String?
+    var usageLine: String? = nil
+    var usageHelp: String? = nil
 
     var body: some View {
         SleepDetailsSection(title: "Last cycle") {
             ForEach(LastCycleRow.rows(pageError: pageError, cancelled: cancelled, capped: capped,
-                                      indexWarning: indexWarning, status: status)) { row in
+                                      indexWarning: indexWarning, status: status, usageLine: usageLine)) { row in
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
                     Image(systemName: row.glyph)
                         .font(CicadaTheme.icon(.list))
@@ -162,6 +181,7 @@ struct LastCycleSection: View {
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .help(row.kind == .usage ? (usageHelp ?? "") : "")
                     }
                     Spacer(minLength: 0)
                 }

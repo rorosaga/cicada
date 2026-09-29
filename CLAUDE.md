@@ -651,6 +651,8 @@ Claude's windows come from the calls' rate-limit signals (`before` is the value 
 plan's from two fresh app-server snapshots bracketing the cycle. `api/services/cycle_usage.py` derives `usage` for
 `GET /sleep/history/{commit}` and `usageSummary` for `GET /sleep/history` at read, joined after the git cache; every
 figure carries its basis (`charged` | `list` | `plan` | `free`), and a cycle without the marker reads `null`, never zero.
+The Sleep page's Details (Last cycle, Past nights, an opened cycle's Models) and the engine menu's captions read them
+(2026-09-28 ruling); a `plan` block and a `cycle_id` are numbers and ids, never text.
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
@@ -825,9 +827,12 @@ thin projections and **never blank** — always last-known-good. Writes go throu
 optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
-**Ruling (2026-09-03): prices and token usage are not shown anywhere in the app** — no cost tiles,
-no `$`/token columns, no cost-per-day chart. The `/consumption/*` endpoints and the ledger are
-unchanged for future use.
+**Ruling (2026-09-28, TODO ruling 12): plan usage and model prices show on the Sleep page's Details and its engine
+menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
+in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and
+the `/consumption/*` endpoints are unchanged. Every figure states its basis in words ("charged", "at list price", a
+plan window's share) and a plan's before → after carries the honest limit that it covers all use of the plan
+(`CycleUsageText`, `UsageFormat.currency`).
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Feed,
 Sleep, Inbox, Sources, Projects at ⌘1–8 in `AppTab.allCases` order (`RailItem`; a page switch is instant), each cell's tooltip
@@ -949,7 +954,7 @@ start a cycle" / "Scheduled cycles", the one wording app-wide. The Claude plan's
 same `use_for_sleep` pref, same endpoint — but `engine_select.resolve_llm_mode` reads that pref only
 when the chosen mode is `byok`, so it shows only while the API key card is chosen, as *Use my Claude
 plan when I start a cycle*, and a flip reloads the chooser's preview. Plans & keys is credentials
-only: the Max-tier cost-estimate picker is gone (the no-price ruling).
+only: the Max-tier cost-estimate picker is gone (prices live on the Sleep page, ruling 12).
 **Who reads (round 4, R-AG10…R-AG14).** OpenRouter is its own card: *Sign in with OpenRouter* (PKCE, the nonce in
 the callback path) or *Paste a key instead*; under the hood it is `byok` with an `openrouter/` model, so ruling 4 is
 unchanged and `PUT {mode: "openrouter"}` is a 422 — every card becomes a mode through `EngineWrite.mode(of:)`, and

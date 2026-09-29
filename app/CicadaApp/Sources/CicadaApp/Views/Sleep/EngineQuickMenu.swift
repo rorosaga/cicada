@@ -8,7 +8,9 @@ import SwiftUI
 /// **One source of truth (R-HS7).** It is built from `SleepEngineViewModel.response` — the object
 /// `EngineChooser` (Settings → Engines) reads, over the same `GET/PUT /sleep/engine` — and a tap
 /// writes through the same rule (`EngineWrite`). No second pref, no Store domain (Track E's
-/// ruling 6), and no price or token: the wire models it reads carry none (2026-09-03).
+/// ruling 6). Since the 2026-09-28 ruling a plan row's caption is its window's state and a key
+/// row's is its model's list price (`CycleUsageText`); with no `usage` on the wire it is the
+/// card's own caption, as before.
 struct EngineQuickMenuModel: Equatable {
     /// One engine: its card's label and state caption (`EngineOption`, R-E25), its real mark
     /// (DR-52), and whether a tap can choose it — a signed-out plan stays listed and says why.
@@ -43,6 +45,17 @@ struct EngineQuickMenuModel: Equatable {
     let showsRuling: Bool
     /// Set while `CICADA_LLM_MODE` pins the engine: said above the rows, which then choose nothing.
     var pinnedNote: String? = nil
+    /// 2026-09-28 — a model's list price per million tokens ("$0.40 / $1.60"), by model id, for the
+    /// picker; and the sentence that says what the two figures are.
+    var modelPrices: [String: String] = [:]
+    var pricesNote: String? = nil
+    /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it.
+    var lastCycleLine: String? = nil
+
+    /// A picker entry: the model, then its list price when the wire gave one.
+    func pickerLabel(_ id: String) -> String {
+        modelPrices[id].map { "\(id) · \($0)" } ?? id
+    }
 
     /// What the button says (R-HS8): the engine and model a cycle you start would run — the manual
     /// preview, in the card's own name — prefixed "Auto ·" while Auto is the choice. The retired
@@ -56,19 +69,24 @@ struct EngineQuickMenuModel: Equatable {
         return response.mode == "auto" ? "\(Copy.EngineMenu.autoPrefix) · \(runs)" : runs
     }
 
-    static func from(_ response: SleepEngineResponse) -> EngineQuickMenuModel {
+    static func from(_ response: SleepEngineResponse, now: Date = Date(), locale: Locale = .autoupdatingCurrent,
+                     timeZone: TimeZone = .current) -> EngineQuickMenuModel {
         // R-AG12 — rows are cards, so the selected CARD is current (OpenRouter and the API key are
         // both `byok`); a model pick below still writes `response.mode`.
         let current = response.selected
         let rows = response.candidates.map { candidate -> Row in
-            let caption = EngineOption.caption(for: candidate)
+            // A plan's window state or a key's price replaces the card's state caption only while the
+            // card can run; a signed-out plan keeps saying so.
+            let usage = candidate.connected ? CycleUsageText.caption(for: candidate, now: now, locale: locale,
+                                                                     timeZone: timeZone) : nil
+            let caption = usage?.caption ?? EngineOption.caption(for: candidate)
             let selectable = EngineOption.isSelectable(candidate, selectedMode: current)
                 && !response.isPinnedByEnvironment
             return Row(id: candidate.id, label: candidate.label, caption: caption,
                        logo: EngineOption.logoName(for: candidate.id), symbol: EngineOption.symbol(for: candidate.id),
                        isSelected: candidate.id == current, isSelectable: selectable,
                        help: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode)
-                           : selectable ? "\(candidate.label) — \(caption)" : Copy.EngineMenu.signInFirst(candidate.label))
+                           : selectable ? "\(candidate.label) — \(usage?.help ?? caption)" : Copy.EngineMenu.signInFirst(candidate.label))
         }
         let chosen = response.candidates.first { $0.id == current }
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
@@ -84,6 +102,8 @@ struct EngineQuickMenuModel: Equatable {
                      text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model)) · \(p.scheduled.model)",
                      model: p.scheduled.model)]
         } ?? []
+        let prices = pickable ? (chosen?.modelPrices ?? [:]).compactMapValues { CycleUsageText.modelPrice($0, locale: locale) } : [:]
+        let manualCard = response.preview.flatMap { EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model) }
         return EngineQuickMenuModel(
             rows: rows,
             modelLabel: current == "auto" ? Copy.EngineMenu.howAutoPicks : Copy.EngineMenu.model,
@@ -94,7 +114,10 @@ struct EngineQuickMenuModel: Equatable {
             command: command,
             previews: previews,
             showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false,
-            pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil)
+            pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
+            modelPrices: prices,
+            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
+            lastCycleLine: CycleUsageText.lastCycleLine(response.candidates, preferring: manualCard, locale: locale))
     }
 }
 
@@ -229,7 +252,7 @@ struct EngineQuickMenu: View {
                         // R-HS10 — a native menu picker: rosters are the plan's own list, any length.
                         Picker(model.modelLabel, selection: Binding(get: { model.selectedModel },
                                                                     set: { pickModel($0) })) {
-                            ForEach(model.models, id: \.self) { Text($0).tag($0) }
+                            ForEach(model.models, id: \.self) { Text(model.pickerLabel($0)).tag($0) }
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
@@ -238,6 +261,12 @@ struct EngineQuickMenu: View {
                         .frame(maxWidth: CicadaTheme.scaled(220), alignment: .trailing)
                         .disabled(isSaving)
                     }
+                }
+                if let note = model.pricesNote {
+                    Text(note)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let note = model.note {
                     Text(note)
@@ -276,6 +305,13 @@ struct EngineQuickMenu: View {
                         }
                     }
                     .accessibilityElement(children: .combine)
+                }
+                if let last = model.lastCycleLine {
+                    Text(last)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
                 }
                 if model.showsRuling {
                     Text(Copy.scheduledNeverSpendsPlans)

@@ -3,8 +3,9 @@ import Foundation
 /// Direction D, part 3b (DS-3b): the Sleep page's quick engine menu, Details, the Settings sheets
 /// and the ⌘K Settings rows. Their own file for Track I's R-IA19 reason — sibling tracks append to
 /// `Copy.swift`, and one file per track means two tracks never edit the same lines. Plain words, no
-/// "!", no bare "%", no price or token count (DR-59, 2026-09-03); `HomeSleepCopyTests` holds every
-/// string in `homeSleepLabels` to that.
+/// "!", no bare "%" (DR-59); no price or token count except `SleepUsage`'s, which is the one place the
+/// 2026-09-28 ruling allows them. `HomeSleepCopyTests` holds every string in `homeSleepLabels` to that,
+/// and `SleepUsage`'s figures are asserted in `CycleUsageTextTests`.
 extension Copy {
     /// The owner's quick switch (2026-09-23; R-HS7…R-HS11).
     enum EngineMenu {
@@ -27,6 +28,78 @@ extension Copy {
         static let plansAndKeys = "Plans & keys ›"
         static let autoPrefix = "Auto"
         static func signInFirst(_ label: String) -> String { "Sign in on Plans & keys to use your \(label)" }
+    }
+
+    /// What a cycle cost (2026-09-28 ruling, TODO ruling 12): the Sleep page's Details and its engine
+    /// menu, nowhere else. Every figure states its basis in words — "charged", "at list price", or a
+    /// plan window's share — and a plan's share carries the honest limit that it covers all use.
+    enum SleepUsage {
+        static let notRecorded = "Usage not recorded"
+        static let noCalls = "No model calls"
+        static let ranLocally = "Ran on this Mac"
+        static let modelsTitle = "Models"
+        static let lastCycleTitle = "What it cost"
+        static let tokensNotReported = "tokens not reported"
+        static let planNote =
+            "The plan's percentage covers all your use of it, so this change can include things you did meanwhile."
+        static let firstSeenNote =
+            "Claude reports a window only after a call, so the first figure is the reading after the cycle's first call."
+        static let windowReset = "Window has reset since it was read"
+        static let perMillionNote = "Prices are per million tokens: input / output."
+
+        static func source(connection: String?, engine: String?) -> String? {
+            switch connection {
+            case "claude-plan": return "Claude plan"
+            case "chatgpt-plan": return "ChatGPT plan"
+            case "ollama-local": return "Ollama"
+            case "byok-openrouter": return "OpenRouter"
+            case .some(let c) where c.hasPrefix("byok"): return "API key"
+            default: break
+            }
+            switch engine {
+            case "claude-cli": return "Claude plan"
+            case "codex-cli": return "ChatGPT plan"
+            case "ollama": return "Ollama"
+            case "litellm": return "API key"
+            default: return nil
+            }
+        }
+
+        /// A plan window in the words the plan itself uses. `primary`/`secondary` are ChatGPT's own
+        /// two windows, whose lengths the backend does not state, so they are not given one here.
+        static func window(_ id: String) -> String {
+            switch id {
+            case "five_hour": "5-hour window"
+            case "seven_day": "weekly window"
+            case "seven_day_opus": "weekly Opus window"
+            case "seven_day_sonnet": "weekly Sonnet window"
+            case "primary": "main window"
+            case "secondary": "second window"
+            case "fullest": "busiest window"
+            default: "usage window"
+            }
+        }
+
+        static func charged(_ amount: String, on source: String?) -> String {
+            source.map { "\(amount) on \($0)" } ?? "\(amount) charged"
+        }
+        static func atListPrice(_ amount: String) -> String { "about \(amount) at list price" }
+        static func chargedTotal(_ amount: String) -> String { "\(amount) charged" }
+        static func calls(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "\(UsageFormat.count(n, locale: locale)) call\(n == 1 ? "" : "s")"
+        }
+        static func failed(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "\(UsageFormat.count(n, locale: locale)) failed"
+        }
+        static func tokensIn(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "\(UsageFormat.count(n, locale: locale)) tokens in"
+        }
+        static func tokensOut(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "\(UsageFormat.count(n, locale: locale)) tokens out"
+        }
+        static func lastCycle(_ amount: String) -> String { "Last cycle: \(amount) charged" }
+        static func asOf(_ relative: String) -> String { "as of \(relative)" }
+        static func resets(_ when: String) -> String { "resets \(when)" }
     }
 
     /// Details (R-HS15): Last cycle's rows, the readout's keys, and the untitled episode.
@@ -92,6 +165,8 @@ extension Copy {
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
         SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,
+        SleepUsage.notRecorded, SleepUsage.noCalls, SleepUsage.ranLocally, SleepUsage.modelsTitle,
+        SleepUsage.lastCycleTitle, SleepUsage.windowReset,
         // `writtenByAnAgentHelp`, `noSubfolders`, `notOnThisMac` and `manageHelp` are sentences over 60 characters,
         // so they stay off this list (Task 4).
         Folders.addTitle, Folders.name, Folders.project, Folders.projectHelp, Folders.writtenByAnAgent,

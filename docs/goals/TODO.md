@@ -508,6 +508,29 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     - The transcript keys move. The extractor then reads null, never a wrong value.
     - A claim is ever shown with a model its turn did not use. The second-precision join rule is
       then wrong; read `turn_authorship.turn_at` first.
+12. **Plan usage and model prices show on the Sleep page's Details and its engine menu — and nowhere
+    else yet (owner, 2026-09-28).** This supersedes the 2026-09-03 "prices and token usage are not
+    shown anywhere in the app" ruling for those two surfaces only; ruling 4 (a scheduled cycle never
+    spends plan quota) is untouched, and so is the no-cost-tiles, no-cost-per-day-chart half of the
+    old ruling.
+
+    What is shown, and why it is honest:
+    - **Every figure carries its basis in words.** "Charged" is the provider's own bill (API key,
+      OpenRouter). "At list price" is an estimate from the public price table or the Claude CLI's
+      metering, never a charge. A plan cycle is its window's before → after.
+    - **A plan's percentage is the whole plan's.** The change across a cycle can include anything else
+      the person used meanwhile; the UI says so. Claude reports a window only after a call, so its
+      "before" is the reading after the cycle's first call, not a pre-cycle one.
+    - **Unknown is never zero.** A ChatGPT plan call reports no tokens and no cost, so it reads
+      "tokens not reported". A cycle from before this shipped, an aborted or idle one (no `sleep_run`),
+      and an inbox or decay commit have no usage; the first three read "Usage not recorded" and the
+      commits say nothing.
+    - **Only consolidation is counted.** Calls are tagged from the cycle's own scope; the
+      engine-independent tail (link backfill and the like) runs outside it and is not in a cycle's cost.
+    - **The ledger stays ids, enums and numbers.** `refs.cycle_id` on `llm_call` and a `plan` block
+      on `sleep_run`; never text.
+
+    Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
 
 ## How work is run here
 
