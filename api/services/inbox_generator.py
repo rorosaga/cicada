@@ -111,19 +111,50 @@ def _open_decay_items(inbox_dir: Path) -> dict[str, Path]:
     return out
 
 
-def _refresh_decay_item(path: Path, new_confidence: float, today: str) -> bool:
+def decay_claim_ids(fm: dict) -> list[str]:
+    """Every claim a decay item covers: the one that opened it (``claim_id``)
+    then the ones its later refreshes named (``claim_ids``), in order, no
+    repeats. One item is one question about the page, so a ``keep`` answer is a
+    verdict on all of them, not only the first (:func:`inbox_service._resolve_decay`)."""
+    out: list[str] = []
+    for cid in [fm.get("claim_id"), *(fm.get("claim_ids") or [])]:
+        cid = str(cid or "").strip()
+        if cid and cid not in out:
+            out.append(cid)
+    return out
+
+
+def _refresh_decay_item(
+    path: Path, new_confidence: float, today: str, claim_id: str | None = None
+) -> bool:
     """Bump an open decay item instead of raising a second one: its priority
     (the decayed confidence the card shows) follows the page, and
     ``updated_date`` says it was seen again. ``created_date`` and the item id
-    stay, so the question keeps its age. Written only when something moved, so
-    an idle night does not dirty the inbox. Returns True when it wrote."""
+    stay, so the question keeps its age. A fading claim the nudge names joins
+    the item's ``claim_ids``, so the person's answer reaches every claim the
+    question covered. Written only when something moved, so an idle night does
+    not dirty the inbox. Returns True when it wrote."""
     parsed = markdown_parser.parse(path)
     fm = parsed.frontmatter
     priority = round(float(new_confidence or 0), 4)
-    if fm.get("priority") == priority and str(fm.get("updated_date", "")) == today:
+    covered = decay_claim_ids(fm)
+    joined = str(claim_id or "").strip()
+    add_claim = bool(joined) and joined not in covered
+    if (
+        fm.get("priority") == priority
+        and str(fm.get("updated_date", "")) == today
+        and not add_claim
+    ):
         return False
     fm["priority"] = priority
     fm["updated_date"] = today
+    if add_claim:
+        # `claim_id` stays the lowest-confidence claim that opened the item;
+        # an entity-path item has none, so its first claim nudge fills it.
+        if not fm.get("claim_id"):
+            fm["claim_id"] = joined
+        else:
+            fm["claim_ids"] = [c for c in covered if c != fm.get("claim_id")] + [joined]
     markdown_parser.write(path, fm, parsed.body)
     return True
 
@@ -449,7 +480,9 @@ def write_claim_nudges(
             lowest[entity_id] = confidence
             existing = open_decay.get(entity_id)
             if existing is not None:
-                if _refresh_decay_item(existing, confidence, today):
+                if _refresh_decay_item(
+                    existing, confidence, today, str(nudge.get("claim_id") or "")
+                ):
                     decay_refreshed += 1
                 continue
             if id(nudge) not in admitted:

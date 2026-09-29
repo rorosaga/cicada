@@ -992,9 +992,14 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         # was raised over, not just the entity's summary confidence — without
         # this, a `keep_active` left the claim itself faded (and, if decay had
         # already closed it, still closed) while the entity page read `active`.
-        claim_id = _opt_str(parsed.frontmatter.get("claim_id"))
+        # One item is one question about the page, however many of its claims
+        # were fading when it was raised or refreshed: the verdict reaches
+        # every claim it covered (`claim_id` plus the refreshes' `claim_ids`).
+        from api.services.inbox_generator import decay_claim_ids
+
+        claim_ids = set(decay_claim_ids(parsed.frontmatter))
         body = entity.body
-        if claim_id:
+        if claim_ids:
             from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
 
             try:
@@ -1008,7 +1013,7 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
                 claims = None
             if claims:
                 for c in claims:
-                    if c.id == claim_id:
+                    if c.id in claim_ids:
                         c.confidence = max(float(c.confidence or 0), 0.6)
                         if c.valid_to and not c.superseded_by:
                             c.valid_to = None  # faded, not replaced — reopen it

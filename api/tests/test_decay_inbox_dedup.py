@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 from types import SimpleNamespace
 
 from api.services import inbox_generator, markdown_parser, sleep_cycle
@@ -249,3 +250,70 @@ def test_the_sleep_run_row_carries_the_decay_counts(tmp_path, monkeypatch):
     ))
     (row,) = [e for e in events if e.kind == "sleep_run"]
     assert (row.refs["decay_nudges_deferred"], row.refs["decay_nudges_refreshed"]) == (4, 6)
+
+
+# --- one item, every claim it covered (review) --------------------------------
+
+
+def _claims_page(memory, eid, claim_ids):
+    from api.services.claims import Claim, write_claims
+
+    claims = [
+        Claim(id=cid, subject=eid, predicate="uses", text=f"thing {cid}", confidence=0.2,
+              valid_from="2026-01-01", valid_to="2026-06-01")
+        for cid in claim_ids
+    ]
+    markdown_parser.write(
+        memory / "entities" / f"{eid}.md",
+        {"name": eid.title(), "type": "tool", "status": "decaying", "confidence": 0.3},
+        write_claims("body", claims),
+    )
+
+
+def test_refreshes_record_every_fading_claim_on_the_item(tmp_path):
+    memory = _bank(tmp_path, ["alpha-tool"])
+    inbox_generator.write_claim_nudges(
+        [_claim_nudge("alpha-tool", "clm_1", 0.31), _claim_nudge("alpha-tool", "clm_2", 0.36)], memory
+    )
+    inbox_generator.write_claim_nudges([_claim_nudge("alpha-tool", "clm_3", 0.30)], memory)
+    ((_p, fm),) = _items(memory)
+    assert fm["claim_id"] == "clm_1"
+    assert inbox_generator.decay_claim_ids(fm) == ["clm_1", "clm_2", "clm_3"]
+
+    # A refresh naming a claim already covered changes nothing.
+    os.utime(_p, (1, 1))
+    inbox_generator.write_claim_nudges([_claim_nudge("alpha-tool", "clm_2", 0.30)], memory)
+    assert _p.stat().st_mtime == 1
+
+
+def test_an_entity_path_item_takes_its_first_claim_from_a_later_nudge(tmp_path):
+    memory = _bank(tmp_path, ["alpha-tool"])
+    _generate(memory, [_entity_nudge("alpha-tool", 0.38)])
+    inbox_generator.write_claim_nudges([_claim_nudge("alpha-tool", "clm_7", 0.30)], memory)
+    ((_p, fm),) = _items(memory)
+    assert inbox_generator.decay_claim_ids(fm) == ["clm_7"]
+
+
+def test_keep_reaches_every_claim_the_item_covered(tmp_path):
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+    from api.services.claims import parse_claims
+
+    memory = _bank(tmp_path)
+    _claims_page(memory, "alpha-tool", ["clm_1", "clm_2", "clm_3"])
+    inbox_generator.write_claim_nudges(
+        [_claim_nudge("alpha-tool", "clm_1", 0.31), _claim_nudge("alpha-tool", "clm_2", 0.36)], memory
+    )
+    ((_p, fm),) = _items(memory)
+    settings = SimpleNamespace(memory_path=memory, inbox_defer_days=30, litellm_model="test-model",
+                               inbox_stale_after_days=90)
+    for args in (("init", "-q"), ("config", "user.email", "t@example.com"), ("config", "user.name", "t"),
+                 ("add", "-A"), ("commit", "-q", "-m", "seed")):
+        subprocess.run(["git", *args], cwd=memory, check=True, capture_output=True)
+    asyncio.run(inbox_service.resolve(fm.get("id") or _p.stem, InboxResolveRequest(action="keep_active"), settings))
+
+    page = markdown_parser.parse(memory / "entities" / "alpha-tool.md")
+    by_id = {c.id: c for c in parse_claims(page.body)}
+    assert by_id["clm_1"].valid_to is None and by_id["clm_2"].valid_to is None
+    assert by_id["clm_1"].confidence >= 0.6 and by_id["clm_2"].confidence >= 0.6
+    assert by_id["clm_3"].valid_to == "2026-06-01", "a claim the item never covered is untouched"

@@ -302,7 +302,9 @@ def test_a_user_write_never_sweeps_the_projection(api_bank):
     to carry 13 lines of `_state.md`."""
     from api.models.schemas import InboxResolveRequest
     from api.services import inbox_service
-    for n, eid in (("001", "alpha-project"), ("002", "alpha-project")):
+    # Distinct entities: two open decay items on one page are copies, which the
+    # boot-time decay dedup collapses.
+    for n, eid in (("001", "alpha-project"), ("002", "beta-project")):
         markdown_parser.write(api_bank / "inbox" / f"inbox-{n}.md",
                               {"kind": "decay", "status": "pending", "entity_id": eid,
                                "entity_name": "Alpha Project", "title": "Still?", "created_date": "2026-08-01"}, "c")

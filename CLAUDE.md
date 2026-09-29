@@ -1520,7 +1520,10 @@ gate for S3–S8.
 synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
 a decay nudge is only the anchor the app answers; **it is keyed `(entity_id)` and asked once**: an
 entity with an open decay item — pending or deferred, raised by the entity path or by any of its
-fading claims — is refreshed (`priority`, `updated_date`), never duplicated, and a cycle opens at most
+fading claims — is refreshed (`priority`, `updated_date`, and each fading claim it names joins `claim_ids`, so
+a *keep* answer reaches every claim the question covered, not only the first), never duplicated; a bank's
+older pile of copies is collapsed once by `inbox_migration.dedup_decay_items` (its own `.deduped_decay`
+marker, oldest kept, claim ids folded in); and a cycle opens at most
 `decay_inbox_cap_per_cycle` new ones (10), lowest confidence first, through one `DecayBudget` shared by
 `inbox_generator.generate` and `write_claim_nudges`. What the cap turns away is counted in the cycle's
 `sleep_run` row as `decay_nudges_deferred` and raised again next cycle — never silently dropped.) Its question sets
