@@ -160,6 +160,21 @@ def chatgpt_loose_files(n: int = 2) -> dict[str, bytes | str]:
             "file-0001.png": b"\x89PNG\r\n"}
 
 
+CHATGPT_EXTRA_FILES = ("ads.json", "conversation_asset_file_names.json", "library_files.json",
+                       "user_settings.json", "export_manifest.json")
+
+
+def chatgpt_split_export(n: int = 2) -> dict[str, bytes | str]:
+    """The newer folder export: numbered conversation shards plus extra index files."""
+    files: dict[str, bytes | str] = {
+        "conversations-000.json": json.dumps(chatgpt_conversations(n)),
+        "sites/export_manifest.json": "{}",
+    }
+    for name in CHATGPT_EXTRA_FILES:
+        files[name] = "{}"
+    return files
+
+
 def chatgpt_zip(n: int = 2) -> bytes:
     return _zip(chatgpt_loose_files(n))
 
