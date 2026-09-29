@@ -54,6 +54,11 @@ SKIPPED_MEMBERS: dict[str, str] = {
     "model_comparisons.json": "model comparisons, not conversations",
     "shared_conversations.json": "links you shared; the chats are in conversations.json",
     "login_history.json": "your sign-in history, not conversations",
+    "ads.json": "ads settings, not conversations",
+    "conversation_asset_file_names.json": "names of files attached to chats, not conversations",
+    "library_files.json": "your file library's index, not conversations",
+    "user_settings.json": "account settings, not conversations",
+    "export_manifest.json": "the export's own manifest, not conversations",
 }
 CHAT_HTML = "chat.html"
 CHAT_HTML_SKIP = "a viewer page with the same chats as conversations.json"

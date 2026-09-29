@@ -10,7 +10,7 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from _intake_fixtures import (BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
+from _intake_fixtures import (CHATGPT_EXTRA_FILES, chatgpt_split_export, BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
                               claude_project_files, claude_split_export, claude_zip, gemini_activity_html, gemini_takeout_zip)
 from api import config
 from api.routers import conversations as conv
@@ -397,4 +397,31 @@ def test_the_banks_import_shim_keeps_its_shape_and_adds_vendor_and_origin(tmp_pa
     body = _post(client, "/banks/imports/import", "export.zip", claude_zip()).json()
     assert body["format"] == "claude" and body["episodesStaged"] == 5 and body["active"] is False
     assert body["vendor"] == "claude" and body["origin"] == "claude-export"
+    config.get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("name", CHATGPT_EXTRA_FILES)
+def test_a_lone_chatgpt_extra_file_is_a_named_skip(name):
+    for path in (name, f"sites/{name}"):
+        parsed = intake.parse_export(b"{}", path)
+        assert parsed.episodes == []
+        assert parsed.ignored == [{"name": name, "reason": intake.SKIPPED_MEMBERS[name]}]
+        assert "not conversations" in parsed.ignored[0]["reason"]
+
+
+def test_a_chatgpt_split_export_names_extras_and_keeps_the_shards():
+    files = chatgpt_split_export()
+    parsed = intake.parse_export(files["conversations-000.json"].encode(), "conversations-000.json")
+    assert len(parsed.episodes) == 2
+    zipped = intake.parse_export(_zip(files), "export.zip")
+    assert len(zipped.episodes) == 2
+    assert sorted(i["name"] for i in zipped.ignored) == sorted(
+        ["export_manifest.json", *[n for n in CHATGPT_EXTRA_FILES]])
+
+
+def test_a_lone_chatgpt_extra_file_sniffs_as_a_quiet_skip(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    body = _post(client, "/intake/sniff", "ads.json", "{}").json()
+    assert body["recognized"] is False and body["reason"] is None
+    assert body["ignored"] == [{"name": "ads.json", "reason": intake.SKIPPED_MEMBERS["ads.json"]}]
     config.get_settings.cache_clear()
