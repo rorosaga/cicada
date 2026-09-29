@@ -284,3 +284,92 @@ def _commit_dedup(memory_path: Path, removed: int) -> None:
         authors=["cicada"],
     )
     git_service.commit_paths_sync(memory_path, message, ["inbox"])
+
+
+_DECAY_DEDUP_MARKER = ".deduped_decay"
+
+
+def dedup_decay_items(memory_path: Path) -> int:
+    """Collapse the pile of open decay items a long drain left behind. Idempotent.
+
+    The one-shot :func:`dedup_open_items` never looked at kind ``decay`` (and
+    its marker is already set on every bank that ran it), yet before Track B
+    every Sleep cycle wrote a fresh "Still tracking X?" item for each page still
+    below the threshold. Groups every ``status: pending`` decay item by entity,
+    keeps the oldest (the question keeps its age), folds every sibling's claim
+    ids into the survivor's ``claim_ids`` and its lowest ``priority`` into it,
+    and deletes the rest. Its own marker, so a bank whose earlier dedup already
+    ran is still cleaned. Commits scoped to ``inbox/`` only.
+
+    Never raises. Returns the number of duplicate files removed.
+    """
+    from api.services.inbox_generator import decay_claim_ids, dedup_key
+
+    memory_path = Path(memory_path)
+    inbox = memory_path / "inbox"
+    if not inbox.exists():
+        return 0
+    marker = inbox / _DECAY_DEDUP_MARKER
+    if marker.exists():
+        return 0
+
+    try:
+        groups: dict[tuple[str, str], list[Path]] = {}
+        for filepath in sorted(inbox.glob("inbox-*.md")):
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter
+            except Exception:
+                continue
+            if str(fm.get("kind", "") or "") != "decay":
+                continue
+            if str(fm.get("status", "pending") or "pending") != "pending":
+                continue
+            groups.setdefault(dedup_key("decay", fm), []).append(filepath)
+
+        removed = 0
+        today = str(date.today())
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            survivor, duplicates = members[0], members[1:]
+            parsed = markdown_parser.parse(survivor)
+            fm = parsed.frontmatter
+            covered = decay_claim_ids(fm)
+            priorities = [fm.get("priority")]
+            for dup in duplicates:
+                try:
+                    dup_fm = markdown_parser.parse(dup).frontmatter
+                except Exception:
+                    dup_fm = {}
+                covered += [c for c in decay_claim_ids(dup_fm) if c not in covered]
+                priorities.append(dup_fm.get("priority"))
+            lowest = min(
+                (float(p) for p in priorities if isinstance(p, (int, float))),
+                default=None,
+            )
+            if lowest is not None:
+                fm["priority"] = lowest
+            if not fm.get("claim_id") and covered:
+                fm["claim_id"] = covered[0]
+            extra = [c for c in covered if c != fm.get("claim_id")]
+            if extra:
+                fm["claim_ids"] = extra
+            fm["updated_date"] = today
+            markdown_parser.write(survivor, fm, parsed.body)
+            for dup in duplicates:
+                dup.unlink()
+                removed += 1
+    except Exception as e:
+        logger.error(f"Decay inbox dedup FAILED — leaving inbox/ untouched: {e}")
+        return 0
+
+    if removed:
+        try:
+            _commit_dedup(memory_path, removed)
+        except Exception as e:
+            # Same contract as dedup_open_items: no marker on a failed commit.
+            logger.warning(f"Decay inbox dedup commit skipped: {e}")
+            return removed
+
+    marker.write_text("v1")
+    return removed

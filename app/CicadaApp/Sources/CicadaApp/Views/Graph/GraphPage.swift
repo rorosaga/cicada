@@ -71,7 +71,7 @@ struct GraphPage: View {
 
             // G117 — a fresh bank's graph is never a literal blank canvas; `isLoading` gates on an empty cache
             // AND a fetch in flight, so this never flashes over the instant on-disk hydrate.
-            if !graphVM.isLoading && graphVM.nodes.isEmpty {
+            if !graphVM.isLoading && graphVM.nodes.hasNoContentBeyondOwner {
                 EmptyStateView(
                     title: "Nothing here yet",
                     message: Copy.emptyGraphMessage,

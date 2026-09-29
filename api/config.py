@@ -199,6 +199,11 @@ class Settings(BaseSettings):
     # options has been silent for this many days is escalated (question
     # rewritten, a "Neither anymore" option inserted, priority dropped).
     inbox_stale_after_days: int = 90     # CICADA_INBOX_STALE_AFTER_DAYS
+    # Most NEW decay items ("Still tracking X?") one Sleep cycle may open. An
+    # entity already holding an open decay item is refreshed, never duplicated,
+    # and does not count; what a cycle cannot open waits for the next (the page
+    # is still below the threshold) and is counted in the cycle's report.
+    decay_inbox_cap_per_cycle: int = 10  # CICADA_DECAY_INBOX_CAP_PER_CYCLE
     # How far out a "Not sure — remind me later" pushes `remind_after` when the
     # request does not name a number of days.
     inbox_defer_days: int = 30           # CICADA_INBOX_DEFER_DAYS
@@ -217,6 +222,11 @@ class Settings(BaseSettings):
     # bank draining in about a month with at most 20 fetches + 20 summaries
     # + ~5 extraction calls per night.
     link_enrich_backfill_per_cycle: int = 20   # CICADA_LINK_ENRICH_BACKFILL_PER_CYCLE
+    # Track C: reuse (zero-LLM) and fetch+summarize shared that one budget with
+    # reuse spent first, so a night with 20 reuse candidates read no new page.
+    # This many of the cap are reserved for fetches while any wait (the in-cycle
+    # pass reserves the same for summaries); unset = half the cap, rounded up.
+    link_enrich_fetch_min_per_cycle: int | None = None   # CICADA_LINK_ENRICH_FETCH_MIN_PER_CYCLE
     # A failed/blocked page fetch is recorded on the page (`fetch_status`,
     # `fetch_attempted_at`) and not retried before this many days — so a
     # dead link costs one fetch a month, not one a night, and a block is

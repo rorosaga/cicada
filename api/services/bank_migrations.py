@@ -25,7 +25,7 @@ from loguru import logger
 from api.services.decay_migration import backfill_decay_classes
 from api.services.decay_watermark_migration import backfill_decay_watermarks
 from api.services.export_origin_migration import backfill_export_origins
-from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
+from api.services.inbox_migration import dedup_decay_items, dedup_open_items, migrate_to_inbox
 from api.services.paper_claim_text_migration import repair_paper_claim_text
 from api.services.paper_context_migration import repair_paper_contexts
 from api.services.placeholder_summary_migration import rewrite_placeholder_summaries
@@ -54,6 +54,14 @@ def run_bank_migrations(memory_path) -> dict:
     deduped = dedup_open_items(memory_path)
     if deduped:
         logger.info(f"Collapsed {deduped} duplicate open inbox item(s)")
+
+    # Track B: the same collapse for the "Still tracking X?" copies a long drain
+    # wrote before a decay question was asked once (its own marker — the
+    # dedup above never looked at decay).
+    deduped_decay = dedup_decay_items(memory_path)
+    if deduped_decay:
+        logger.info(f"Collapsed {deduped_decay} duplicate open decay item(s)")
+    deduped += deduped_decay
 
     # G66: one-time backfill of `decay_class` for pages written before the
     # class vocabulary existed (media -> evergreen, skills -> durable),

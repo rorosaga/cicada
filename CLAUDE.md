@@ -316,7 +316,11 @@ the bank's own decay answers in git history (`GET /memory/decay-suggestions`) an
 their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
 `decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's
 episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
-count). Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
+count). **An import is not silence:** a page or claim a cycle creates or references from months-old
+episodes keeps that date as its content date (`last_referenced`, `valid_from`) but gets
+`decayed_through` = the cycle's date, so silence counts from when Cicada learned it and a
+multi-cycle drain of a backdated export never charges or archives what it just read.
+Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
 Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen entities skip all
 decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
 by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
@@ -409,7 +413,7 @@ one of six: `user` | `assistant` | `page` | `speaker` (a meeting participant who
 G134) | `media` (what a video said — a watch record's timed `video [m:ss]:` line, G140; its position
 in the video is derived at read, never stored) | `reasoning` (the contributor's own inference:
 `start == end == -1`, never a faked span); an episode's `evidence_kind: user|assistant` (a folder's
-authorship rule, R-F2) overrides the line markers. One marker grammar, `evidence._marker`, reads
+authorship rule, R-F2; a Claude memory export is always `assistant`, its lines being `system:`) overrides the line markers. One marker grammar, `evidence._marker`, reads
 both line families, plus the chat importer's `attachment [<file name>]:` turn — the text Claude extracted from an
 upload, every line quoted (`> `) so it can open no turn — which is `page`, never the person's words. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
@@ -527,7 +531,20 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
-  field is that resolved value.
+  field is that resolved value. **Every new bank starts with it** (`bank_registry.create_bank` →
+  `owner_identity.seed_owner_page`, its own `cicada` commit; never the demo, which writes its
+  own): the machine-level name from `owner.json` when one was saved (a name and an id, never
+  another bank's knowledge), else a neutral `Owner` page (`owner_placeholder: true`, id `owner`,
+  the id `resolve_observer` already answers with) opening "The main person this memory belongs
+  to." `name` stays the plain name — Stage 2 matches a mention to a page by `name`, so a stored
+  "(you)" would stop the person's own name from resolving — and the app renders "Name (you)" from
+  the flag. `PUT /settings/owner` **adopts** a placeholder (renames it, keeps its id and claims)
+  instead of writing a second owner page. Beliefs accrue through chats and consolidation. The
+  first-boot default bank is scaffolded by the lifespan, not `create_bank`, so the lifespan seeds it
+  the same way when it is brand new (`seed_owner_if_brand_new`: no entity page, no episode). Because
+  a bank now starts with one node, **the app's empty means "no node but the owner's"**
+  (`hasNoContentBeyondOwner`: `FirstRunGate`'s graph input, the Graph's and Clusters' "Nothing here
+  yet"); the `/banks` `entityCount` of a new bank is 1.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.
@@ -610,8 +627,13 @@ argument the schema rejects is a bug** — every argument it names must exist in
 ### sqlite-vec (vector index)
 `api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
 is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
-asymmetric query/document prompts. The index is **derived and disposable** — rebuilt by Sleep from
-markdown, safe to delete at any time.
+asymmetric query/document prompts. The index is **derived and disposable** — synced by Sleep from
+markdown, safe to delete at any time. **The sync is incremental** (`SqliteVecIndexer._sync_kind`): each
+row keeps a stable `key` and the `hash` of the text that was embedded, so a cycle embeds only new and
+changed texts, removes deleted ones and refreshes a page's metadata in place without an embed; a missing
+table, a pre-`hash` schema, another model (recorded per kind as `model:<kind>`) or another width rebuilds
+that table in full, and an embed that fails leaves the previous index untouched. Sleep runs the blocking
+sync through `asyncio.to_thread`, never on the event loop.
 
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
@@ -624,7 +646,9 @@ rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_exclud
 `.git/info/exclude` before the file first exists. It follows a worktree or submodule bank's `.git` file
 to the real git dir, and a new bank's `.gitignore` lists the file too. It never edits an existing
 `.gitignore`, which would dirty the tree and smear into the next `git add -A` commit. **Freshness:**
-Sleep rebuilds it beside the vectors; every read path calls `ensure_fresh`, a `bank_index` stamp diff
+Sleep brings it up to date beside the vectors (`search_index.refresh`, off the event loop — the
+stamp diff `ensure_fresh` uses, so an idle night re-indexes nothing; a full build only when the file is
+missing, damaged or of another schema); every read path calls `ensure_fresh`, a `bank_index` stamp diff
 (at most one check a second, inline up to 64 changed files, one background worker beyond); the
 lifespan and a bank switch warm it in the background. The caller always passes the active bank's path
 — the module never resolves a bank (the split-brain rule). `search_service` ranks over it (QuickMatch
@@ -1510,7 +1534,16 @@ acts on it yet (no check, hold or settle — S3+), and the app does not read it.
 gate for S3–S8.
 
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
-synthesised at read from the page's `last_referenced`, never written. Its question sets
+synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
+a decay nudge is only the anchor the app answers; **it is keyed `(entity_id)` and asked once**: an
+entity with an open decay item — pending or deferred, raised by the entity path or by any of its
+fading claims — is refreshed (`priority`, `updated_date`, and each fading claim it names joins `claim_ids`, so
+a *keep* answer reaches every claim the question covered, not only the first), never duplicated; a bank's
+older pile of copies is collapsed once by `inbox_migration.dedup_decay_items` (its own `.deduped_decay`
+marker, oldest kept, claim ids folded in); and a cycle opens at most
+`decay_inbox_cap_per_cycle` new ones (10), lowest confidence first, through one `DecayBudget` shared by
+`inbox_generator.generate` and `write_claim_nudges`. What the cap turns away is counted in the cycle's
+`sleep_run` row as `decay_nudges_deferred` and raised again next cycle — never silently dropped.) Its question sets
 `allow_other: false` and **the whole stack now means it**: free text on resolve is a `400`.
 
 **Neither is a bookmark removal.** Served the same way as decay — two closed options

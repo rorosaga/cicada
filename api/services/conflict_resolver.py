@@ -155,6 +155,18 @@ async def resolve_and_prune(
     # the SAME function `GET /entities/{id}` serves, so the card's pace is the
     # pace charged. Evergreen entities are skipped.
     now = now or datetime.now()
+    # An import is not the person going silent: a page this cycle creates or
+    # references from months-old episodes keeps that old date as its true content
+    # date (`last_referenced`), but silence is measured from when Cicada learned
+    # it. Stamp the watermark here, with the SAME reference date the decay pass
+    # below uses; `apply_changes` writes it. Otherwise every following cycle of a
+    # multi-cycle drain charges a week against the old date and archives a
+    # once-mentioned topic (TODO ruling 1: decay charges once, never for a gap
+    # that is not the person's).
+    learned_on = now.date().isoformat()
+    for change in resolved:
+        if change.get("action") in ("create", "update"):
+            change["decayed_through"] = learned_on
     alpha, floor = decay_policy.spacing_params(settings)
     if tuning is None:
         # G147: the per-type pace the person approved in Settings → Memory. One
@@ -292,6 +304,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "confidence": entity.get("confidence", 0.5),
                 "created": created_date,
                 "last_referenced": last_referenced,
+                # Silence counts from when Cicada learned it, not from the
+                # (possibly months-old) episode date — see `resolve_and_prune`.
+                "decayed_through": change.get("decayed_through") or str(date.today()),
                 **decay_policy.frontmatter_fields(decay_class),
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
@@ -317,6 +332,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 _latest_change_date(change),
             ) or str(date.today())
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
+            # A re-mention (even of old episodes) restarts the silence clock at
+            # this cycle; never moved backwards.
+            parsed.frontmatter["decayed_through"] = _max_date(
+                _extract_date_string(parsed.frontmatter.get("decayed_through")),
+                change.get("decayed_through") or str(date.today()),
+            )
 
             # Recovery (G66 §1.6): a re-mention is the counter-signal to decay.
             # CLAUDE.md has always promised "if mentioned again: promoted back,

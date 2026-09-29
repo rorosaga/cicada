@@ -102,6 +102,14 @@ being mentioned:
 
 EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
+- ATTACHMENTS ARE NOT THE USER'S WORDS. A turn written `attachment [<file name>]:` (its lines quoted
+  with "> ") is the text of a document the user shared — a CV, contract, paper, article. Never
+  attribute a document's contents to the user (no "user works at / lives in / is ..." taken from a
+  CV or contract), and do not create a page for a person or company that appears only inside a
+  document unless the conversation itself discusses them.
+- MEMORY EPISODES ARE OLDER SUMMARIES. When the input opens with a "[Source: claude_memory ...]"
+  note, it is the assistant's own earlier summary about the user, possibly outdated. Use it as
+  dated, lower-trust background (lower confidence) and prefer a conversation's newer statement.
 - Confidence reflects how certain you are about the entity's attributes, not how important it is.
 - If an entity is mentioned but you lack context to classify it confidently (e.g., a bare name
   with no role), still extract it but set confidence below 0.5.
@@ -220,6 +228,15 @@ def _chunk_content(content: str) -> list[str]:
     return [content[s:e] for s, e in _chunk_spans(content)]
 
 
+#: Prepended to the user message of a `claude_memory` episode (the model sees only
+#: the chunk, never the frontmatter). Chunk offsets are unaffected: evidence spans
+#: are computed against the episode body, not against this message.
+MEMORY_SOURCE_NOTE = (
+    "[Source: claude_memory — the assistant's own older summary about the user; "
+    "dated, possibly outdated, lower trust.]\n\n"
+)
+
+
 async def _extract_chunk(
     ep_id: str,
     chunk: str,
@@ -227,6 +244,7 @@ async def _extract_chunk(
     total_chunks: int,
     settings: Settings,
     *,
+    source: str | None = None,
     _attempt: int = 0,
 ) -> dict:
     """Extract entities from a single chunk via LLM.
@@ -246,7 +264,7 @@ async def _extract_chunk(
         response = await llm_fn(
             messages=[
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                {"role": "user", "content": chunk},
+                {"role": "user", "content": (MEMORY_SOURCE_NOTE + chunk) if source == "claude_memory" else chunk},
             ],
             response_format={"type": "json_object"},
             extra_body=EXTRACTION_EXTRA_BODY,
@@ -266,7 +284,7 @@ async def _extract_chunk(
         )
         await asyncio.sleep(backoff)
         return await _extract_chunk(
-            ep_id, chunk, chunk_idx, total_chunks, settings, _attempt=_attempt + 1
+            ep_id, chunk, chunk_idx, total_chunks, settings, source=source, _attempt=_attempt + 1
         )
 
 
@@ -370,7 +388,11 @@ async def extract(
                 all_entities = []
                 all_relationships = []
                 for ci, chunk in enumerate(chunks):
-                    parsed = await _extract_chunk(ep_id, chunk, ci, len(chunks), settings)
+                    parsed = await _extract_chunk(
+                        ep_id, chunk, ci, len(chunks), settings,
+                        # Only a memory episode carries a note; every other call keeps its shape.
+                        **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
+                    )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
                     # G118: verify the cited passage against the body this

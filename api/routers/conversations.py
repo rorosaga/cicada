@@ -382,6 +382,11 @@ def parse_anthropic_memories(data: list) -> list[dict]:
                 "original_date": _extract_date(file_ts),
             })
 
+    # The messages are written `system:` (there is no user turn), which R4 would
+    # read as the person's side. A memory is Claude's own summary about the person,
+    # so the episode declares it once (R-LS7's episode-level override).
+    for ep in episodes:
+        ep["evidence_kind"] = "assistant"
     return episodes
 
 

@@ -142,6 +142,14 @@ async def lifespan(app: FastAPI):
     # migrated too — see api/services/bank_migrations.py.
     run_bank_migrations(settings.memory_path)
 
+    # The first-boot default bank is scaffolded here, never through ``create_bank``,
+    # so it gets the owner page every new bank starts with. The app's first-run gate
+    # and empty states read an owner-only graph as empty, so this does not hide the
+    # Welcome. Never raises.
+    from api.services import owner_identity
+
+    owner_identity.seed_owner_if_brand_new(settings.memory_path)
+
     # G136: build or catch up the derived search index in the background, so
     # the first keystroke after launch finds it warm. Never blocks startup,
     # never raises (a cold build takes a few seconds; until it lands, /search

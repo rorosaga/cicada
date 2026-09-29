@@ -513,3 +513,124 @@ def test_description_of_only_chapter_stamps_goes_to_the_fetch_tier(tmp_path):
     _media(memory, "media-stamps", "Stamps", "https://vimeo.com/9", saved_at="2026-02-01", description=stamps)
     scan = link_enrichment.scan_backfill(memory, _settings(memory), today=date(2026, 9, 2))
     assert [c.media_id for c in scan.fetch] == ["media-stamps"] and scan.reuse == []
+
+
+# --- Track C: reuse must not starve fetch --------------------------------------
+
+def _many_reuse_and_thin(memory: Path, reuse: int, thin: int) -> None:
+    for i in range(reuse):
+        _media(memory, f"media-rich-{i:02d}", f"Rich {i}", f"https://example.com/rich/{i}",
+               saved_at=f"2026-01-{i + 1:02d}", description=LONG)
+    for i in range(thin):
+        _media(memory, f"media-thin-{i:02d}", f"Thin {i}", f"https://example.com/thin/{i}",
+               saved_at=f"2026-02-{i + 1:02d}")
+
+
+def test_fetch_floor_default_is_half_the_cap_and_honours_the_setting(tmp_path):
+    memory = _bank(tmp_path)
+    assert link_enrichment.fetch_floor(_settings(memory), 20) == 10
+    assert link_enrichment.fetch_floor(_settings(memory), 7) == 4
+    assert link_enrichment.fetch_floor(_settings(memory, link_enrich_fetch_min_per_cycle=3), 20) == 3
+    assert link_enrichment.fetch_floor(_settings(memory, link_enrich_fetch_min_per_cycle=99), 20) == 20
+    assert link_enrichment.fetch_floor(_settings(memory, link_enrich_fetch_min_per_cycle=0), 20) == 0
+    assert link_enrichment.fetch_floor(SimpleNamespace(), 20) == 10   # a settings object with no such key
+
+
+def test_a_night_full_of_reuse_still_fetches_new_pages(tmp_path):
+    memory = _bank(tmp_path)
+    _many_reuse_and_thin(memory, reuse=30, thin=30)
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=_summ, fetch_fn=_fetch_ok, commit=False)
+    assert report.reused == 10 and report.fetched == 10 and report.summarized == 10
+    assert report.selected == 20                                    # the night's total is unchanged
+    assert _claims(memory, "media-thin-00") and not _claims(memory, "media-thin-10")
+
+
+def test_the_floor_is_only_reserved_for_fetch_candidates_that_exist(tmp_path):
+    memory = _bank(tmp_path)
+    _many_reuse_and_thin(memory, reuse=30, thin=3)
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=_summ, fetch_fn=_fetch_ok, commit=False)
+    assert report.fetched == 3 and report.reused == 17 and report.selected == 20
+
+
+def test_reuse_takes_the_whole_cap_while_the_fetch_tier_is_off(tmp_path):
+    """The gate (`CICADA_ALLOW_CONNECTOR_FETCH`) or a missing engine leaves no
+    fetch tier; reserving slots for it would only waste the night."""
+    memory = _bank(tmp_path)
+    _many_reuse_and_thin(memory, reuse=30, thin=30)
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=None, fetch_fn=None, commit=False)
+    assert report.reused == 20 and report.fetched == 0
+
+
+def test_a_zero_floor_restores_reuse_first(tmp_path):
+    memory = _bank(tmp_path)
+    _many_reuse_and_thin(memory, reuse=30, thin=30)
+    report = _backfill(memory, _settings(memory, link_enrich_fetch_min_per_cycle=0), limit=20,
+                       summarize_fn=_summ, fetch_fn=_fetch_ok, commit=False)
+    assert report.reused == 20 and report.fetched == 0
+
+
+def test_backoff_and_never_scraped_rails_still_hold_under_the_floor(tmp_path):
+    memory = _bank(tmp_path)
+    _many_reuse_and_thin(memory, reuse=30, thin=2)
+    _media(memory, "media-failed", "Failed", "https://example.com/failed", saved_at="2025-01-01",
+           extra_fm={"fetch_status": "failed:timeout", "fetch_attempted_at": date.today().isoformat()})
+    _media(memory, "media-yt", "A Video", "https://www.youtube.com/watch?v=abc", saved_at="2025-01-01")
+    _media(memory, "media-paper", "A Paper", "https://arxiv.org/abs/2401.00001", saved_at="2025-01-01",
+           extra_fm={"media": {"url": "https://arxiv.org/abs/2401.00001", "media_type": "bookmark", "kind": "paper"}})
+    fetched: list[str] = []
+
+    async def fetch(url, settings):
+        fetched.append(url)
+        return link_enrichment.FetchResult("ok", "Robotics workshop programme " * 20)
+
+    report = _backfill(memory, _settings(memory), limit=20, summarize_fn=_summ, fetch_fn=fetch, commit=False)
+    assert sorted(fetched) == ["https://example.com/thin/0", "https://example.com/thin/1"]
+    assert report.deferred == 1
+
+
+def test_in_cycle_candidates_honour_the_fetch_backoff(tmp_path):
+    memory = _bank(tmp_path)
+    for i in range(3):
+        _media(memory, f"media-thin-{i}", f"Thin {i}", f"https://example.com/thin/{i}", saved_at=f"2026-01-0{i + 1}")
+    _media(memory, "media-blocked", "Blocked", "https://example.com/blocked", saved_at="2025-01-01",
+           extra_fm={"fetch_status": "blocked", "fetch_attempted_at": date.today().isoformat()})
+    _media(memory, "media-old-fail", "Old fail", "https://example.com/old", saved_at="2025-01-02",
+           extra_fm={"fetch_status": "failed:timeout", "fetch_attempted_at": "2020-01-01"})
+    _media(memory, "media-blocked-rich", "Blocked rich", "https://example.com/rich", saved_at="2025-01-03",
+           description=LONG, extra_fm={"fetch_status": "blocked", "fetch_attempted_at": date.today().isoformat()})
+    for kwargs in ({"scour_floor": 10}, {}):
+        stems = {p.stem for p in link_enrichment._candidates(memory, 20, **kwargs)}
+        assert "media-blocked" not in stems                       # inside its 30-day window
+        assert {"media-old-fail", "media-blocked-rich"} <= stems  # window over; reuse needs no fetch
+
+
+def test_in_cycle_pass_summarizes_new_pages_beside_a_run_of_reuse_pages(tmp_path):
+    memory = _bank(tmp_path)
+    # Reuse pages are the MOST recent, so a plain most-recent-first cut fills the cap with them.
+    for i in range(25):
+        _media(memory, f"media-rich-{i:02d}", f"Rich {i}", f"https://example.com/rich/{i}",
+               saved_at=f"2026-06-{i + 1:02d}", description=LONG)
+    for i in range(5):
+        _media(memory, f"media-thin-{i}", f"Thin {i}", f"https://example.com/thin/{i}", saved_at=f"2026-01-0{i + 1}")
+    plain = link_enrichment._candidates(memory, 20)
+    assert not any(p.stem.startswith("media-thin") for p in plain)      # the starvation, without a floor
+    kept = link_enrichment._candidates(memory, 20, scour_floor=10)
+    assert len(kept) == 20
+    assert sum(p.stem.startswith("media-thin") for p in kept) == 5      # every thin page (fewer than the floor)
+    assert sum(p.stem.startswith("media-rich") for p in kept) == 15
+
+    summarized: list[str] = []
+
+    async def summarize(title, url, settings):
+        summarized.append(url)
+        return f"A programme page for {title}, listing sessions and speakers."
+
+    n = run(link_enrichment.enrich_media_links(memory, [], _settings(memory), summarize_fn=summarize))
+    assert len(summarized) == 5 and n == 20
+    # Without a summarizer nothing is reserved for scouring: reuse fills the cap as before.
+    memory2 = _bank(tmp_path / "again")
+    for i in range(25):
+        _media(memory2, f"media-rich-{i:02d}", f"Rich {i}", f"https://example.com/rich/{i}",
+               saved_at=f"2026-06-{i + 1:02d}", description=LONG)
+    _media(memory2, "media-thin", "Thin", "https://example.com/thin", saved_at="2026-01-01")
+    assert run(link_enrichment.enrich_media_links(memory2, [], _settings(memory2), summarize_fn=None)) == 20
