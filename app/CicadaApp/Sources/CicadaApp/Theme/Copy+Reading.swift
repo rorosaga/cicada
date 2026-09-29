@@ -37,7 +37,7 @@ extension Copy {
         static let anAgent = "an agent"
         static let cicadasReader = "Cicada’s reader"
         static let thisSite = "this site"
-        static let notRead = "Not read yet"
+        static let notRead = "Not read by an agent"
         static let waiting = "Waiting for your agent"
         static func readBy(_ who: String) -> String { "Read by \(who)" }
         static func readBy(_ who: String, _ day: String) -> String { "Read by \(who) · \(day)" }

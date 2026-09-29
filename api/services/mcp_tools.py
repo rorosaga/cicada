@@ -617,8 +617,9 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
         # A read writes a page and an episode: with Sleep running (a long drain, ruling 14) they would sit
         # uncommitted and the next `git add -A` writer would sweep them in under its own author. Refuse
         # instead, as the remote path does; an outcome other than `read` never gets here.
-        return ("Not recorded: Cicada is consolidating memory right now, and a read is written into it. "
-                "Nothing was saved. Try `cicada_record_read` again in a few minutes.")
+        return ("Not recorded: Cicada is consolidating a long queue of memory, and a read is written into it. "
+                "Nothing was saved. Keep your summary and record it with `cicada_record_read` when Cicada has "
+                "finished; that can take a while.")
     from api.config import get_settings
 
     r = page_read.record(
@@ -1329,7 +1330,8 @@ def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, statu
 # --------------------------------------------------------------------------- #
 
 BACKLOG_ROWS = 25
-BACKLOG_SLEEPING = "Sleep is consolidating memory right now — try again in a minute. Nothing was written."
+BACKLOG_SLEEPING = ("Sleep is consolidating memory right now, and it can take a while. Nothing was written; "
+                    "try again when it has finished.")
 # R-B12: R-R22's rail — a remote connection without `sources` never reads the
 # person's own words; it is told they exist.
 PERSONS_WORDS = "(the person's own words — this connection can't read them)"

@@ -63,7 +63,7 @@ final class ReadingAgentTests: XCTestCase {
                        "Needs you to sign in to LinkedIn")
         XCTAssertEqual(ReadWords.line(MediaReadState(status: "blocked", host: "example.com"), day: nil),
                        "example.com blocked the read")
-        XCTAssertEqual(ReadWords.line(MediaReadState(status: "none"), day: nil), "Not read yet")
+        XCTAssertEqual(ReadWords.line(MediaReadState(status: "none"), day: nil), "Not read by an agent")
     }
 
     func testNoLineSaysInYourBrowserOrPromisesWhatAnAgentDoes() {
@@ -186,6 +186,38 @@ final class ReadingAgentTests: XCTestCase {
         await model.setHost("linkedin", allowed: true)
         await model.setHost("x", allowed: false)
         XCTAssertEqual(lists, [["x", "linkedin"], ["linkedin"]])
+    }
+
+    @MainActor
+    func testOffThenOnKeepsTheSitesTheServerKept() async {
+        // The fake mimics the server: `agentHosts` replaces the list when sent, and a turn-on with none sent keeps it.
+        var held = ["linkedin", "x"]
+        var sentHosts: [[String]?] = []
+        let model = ReadingAgentModel(deps: .init(
+            fetch: { ReadingSettingsResponse(agentEnabled: true, agentHosts: held, ackCurrent: true) },
+            write: { on, hosts, _ in
+                sentHosts.append(hosts)
+                if let hosts { held = hosts }
+                return ReadingSettingsResponse(agentEnabled: on ?? false, agentHosts: held, ackCurrent: true)
+            },
+            prompt: { "" }))
+        await model.load()
+        XCTAssertFalse(model.needsFirstUseSheet, "an acknowledged person is not re-asked")
+        _ = await model.setEnabled(false)
+        _ = await model.setEnabled(true)
+        XCTAssertEqual(held, ["linkedin", "x"])
+        XCTAssertEqual(model.settings?.agentHosts, ["linkedin", "x"])
+        XCTAssertTrue(sentHosts.allSatisfy { $0 == nil })
+    }
+
+    @MainActor
+    func testTheSheetOpensWithTheHeldSitesTickedAndAskedOnlyWithoutACurrentAck() async {
+        let model = ReadingAgentModel(deps: .init(
+            fetch: { ReadingSettingsResponse(agentEnabled: false, agentHosts: ["x"], ackCurrent: false) },
+            write: { _, _, _ in ReadingSettingsResponse() }, prompt: { "" }))
+        await model.load()
+        XCTAssertTrue(model.needsFirstUseSheet)
+        XCTAssertEqual(model.heldHosts, ["x"])
     }
 
     func testTheSettingsRowIsIndexedAndWordedWithoutPromises() {

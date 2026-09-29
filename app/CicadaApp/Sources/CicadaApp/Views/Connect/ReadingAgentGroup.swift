@@ -31,6 +31,13 @@ final class ReadingAgentModel {
 
     var enabled: Bool { settings?.agentEnabled ?? false }
 
+    /// The first-use sheet is for a person who has not acknowledged its current wording. Turning the switch back on
+    /// after an off keeps the acknowledgement and the per-site choices (the server's rule), so it asks nothing.
+    var needsFirstUseSheet: Bool { !(settings?.ackCurrent ?? false) }
+
+    /// The sites already allowed, which the sheet opens with ticked so a re-acknowledgement never drops them.
+    var heldHosts: Set<String> { Set(settings?.agentHosts ?? []) }
+
     func load() async {
         do {
             settings = try await deps.fetch()
@@ -88,7 +95,14 @@ struct ReadingAgentGroup: View {
                 Toggle(Copy.Reading.switchLabel, isOn: Binding(
                     get: { model.enabled || showSheet },
                     set: { on in
-                        if on { showSheet = true } else { Task { _ = await model.setEnabled(false) } }
+                        if !on {
+                            Task { _ = await model.setEnabled(false) }
+                        } else if model.needsFirstUseSheet {
+                            showSheet = true
+                        } else {
+                            // Acknowledged already: the sites are kept, so none is sent.
+                            Task { _ = await model.setEnabled(true) }
+                        }
                     }))
                     .toggleStyle(.switch)
                     .labelsHidden()
@@ -185,8 +199,14 @@ private struct ReadingFirstUseSheet: View {
     let model: ReadingAgentModel
     let done: () -> Void
     @State private var understood = false
-    @State private var sites: Set<String> = []
+    @State private var sites: Set<String>
     @State private var failure: String?
+
+    init(model: ReadingAgentModel, done: @escaping () -> Void) {
+        self.model = model
+        self.done = done
+        _sites = State(initialValue: model.heldHosts)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
