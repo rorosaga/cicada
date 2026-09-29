@@ -610,8 +610,13 @@ argument the schema rejects is a bug** — every argument it names must exist in
 ### sqlite-vec (vector index)
 `api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
 is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
-asymmetric query/document prompts. The index is **derived and disposable** — rebuilt by Sleep from
-markdown, safe to delete at any time.
+asymmetric query/document prompts. The index is **derived and disposable** — synced by Sleep from
+markdown, safe to delete at any time. **The sync is incremental** (`SqliteVecIndexer._sync_kind`): each
+row keeps a stable `key` and the `hash` of the text that was embedded, so a cycle embeds only new and
+changed texts, removes deleted ones and refreshes a page's metadata in place without an embed; a missing
+table, a pre-`hash` schema, another model (recorded per kind as `model:<kind>`) or another width rebuilds
+that table in full, and an embed that fails leaves the previous index untouched. Sleep runs the blocking
+sync through `asyncio.to_thread`, never on the event loop.
 
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
@@ -624,7 +629,9 @@ rebuilt, never an error. **Never tracked:** `bank_registry.ensure_derived_exclud
 `.git/info/exclude` before the file first exists. It follows a worktree or submodule bank's `.git` file
 to the real git dir, and a new bank's `.gitignore` lists the file too. It never edits an existing
 `.gitignore`, which would dirty the tree and smear into the next `git add -A` commit. **Freshness:**
-Sleep rebuilds it beside the vectors; every read path calls `ensure_fresh`, a `bank_index` stamp diff
+Sleep brings it up to date beside the vectors (`search_index.refresh`, off the event loop — the
+stamp diff `ensure_fresh` uses, so an idle night re-indexes nothing; a full build only when the file is
+missing, damaged or of another schema); every read path calls `ensure_fresh`, a `bank_index` stamp diff
 (at most one check a second, inline up to 64 changed files, one background worker beyond); the
 lifespan and a bank switch warm it in the background. The caller always passes the active bank's path
 — the module never resolves a bank (the split-brain rule). `search_service` ranks over it (QuickMatch
@@ -1510,7 +1517,16 @@ acts on it yet (no check, hold or settle — S3+), and the app does not read it.
 gate for S3–S8.
 
 **Decay is no longer the special case.** Served as `Still tracking {name}?` with `archive` / `keep`,
-synthesised at read from the page's `last_referenced`, never written. Its question sets
+synthesised at read from the page's `last_referenced`, never written. (The item *file* Sleep writes for
+a decay nudge is only the anchor the app answers; **it is keyed `(entity_id)` and asked once**: an
+entity with an open decay item — pending or deferred, raised by the entity path or by any of its
+fading claims — is refreshed (`priority`, `updated_date`, and each fading claim it names joins `claim_ids`, so
+a *keep* answer reaches every claim the question covered, not only the first), never duplicated; a bank's
+older pile of copies is collapsed once by `inbox_migration.dedup_decay_items` (its own `.deduped_decay`
+marker, oldest kept, claim ids folded in); and a cycle opens at most
+`decay_inbox_cap_per_cycle` new ones (10), lowest confidence first, through one `DecayBudget` shared by
+`inbox_generator.generate` and `write_claim_nudges`. What the cap turns away is counted in the cycle's
+`sleep_run` row as `decay_nudges_deferred` and raised again next cycle — never silently dropped.) Its question sets
 `allow_other: false` and **the whole stack now means it**: free text on resolve is a `400`.
 
 **Neither is a bookmark removal.** Served the same way as decay — two closed options
