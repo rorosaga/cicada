@@ -42,6 +42,9 @@ extension Copy {
         static let tokensNotReported = "tokens not reported"
         static let planNote =
             "The plan's percentage covers all your use of it, so this change can include things you did meanwhile."
+        /// The visible half of `planNote` on a one-line row, where a hover alone would hide the limit.
+        static let planCoversAll = "covers all your use of the plan"
+        static let windowRolledOver = "window reset meanwhile"
         static let firstSeenNote =
             "Claude reports a window only after a call, so the first figure is the reading after the cycle's first call."
         static let windowReset = "Window has reset since it was read"
@@ -81,7 +84,7 @@ extension Copy {
         }
 
         static func charged(_ amount: String, on source: String?) -> String {
-            source.map { "\(amount) on \($0)" } ?? "\(amount) charged"
+            source.map { "\(amount) charged · \($0)" } ?? "\(amount) charged"
         }
         static func atListPrice(_ amount: String) -> String { "about \(amount) at list price" }
         static func chargedTotal(_ amount: String) -> String { "\(amount) charged" }

@@ -2128,6 +2128,7 @@ async def _finalize(
     from api.services import cycle_usage, telemetry
 
     plan_block = await cycle_usage.finish(cycle_id, engine)
+    cycle_usage.reset_cache()  # the engine menu's "last cycle" is now stale
 
     duration_ms = int((time.monotonic() - started) * 1000) if started is not None else None
     model = resolved_authors[0] if resolved_authors else None

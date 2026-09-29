@@ -33,7 +33,7 @@ from api.models.schemas import (
     SleepEngineProvider,
     SleepEngineResponse,
 )
-from api.services import agent_engine, codex_app_server, codex_engine, cycle_usage, engine_select
+from api.services import agent_engine, codex_app_server, codex_engine, cycle_usage, engine_select, telemetry
 from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
@@ -213,7 +213,8 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     ]
     key_model = (model if mode == "byok" and model and selected_card(mode, model) != "openrouter" else None) \
         or (key_models[0] if key_models else None) or settings.litellm_model
-    await _attach_usage(cards, snap, or_models=or_models, key_model=key_model)
+    await _attach_usage(cards, snap, or_models=or_models, key_model=key_model,
+                        bank=telemetry.bank_name(settings))
     return cards
 
 
@@ -226,11 +227,11 @@ def _plan_window_usage(snap) -> SleepEngineUsage | None:
                             resets_at=resets, as_of=snap.as_of, source="codex-snapshot")
 
 
-async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str) -> None:
+async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, bank: str | None = None) -> None:
     """Fill each card's caption source. The ledger read and litellm's price
     table are off the event loop (the table's import is slow and cached)."""
     by_id = {c.id: c for c in cards}
-    last = await asyncio.to_thread(cycle_usage.last_cycles)
+    last = await asyncio.to_thread(cycle_usage.last_cycles, None, bank)
     wanted = list(dict.fromkeys([*or_models, key_model]))
     prices = await asyncio.to_thread(lambda: {m: cycle_usage.list_price_per_million(m) for m in wanted})
 

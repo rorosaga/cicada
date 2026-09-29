@@ -10,7 +10,9 @@ enum CycleUsageText {
 
     /// "5-hour window 12% → 18%".
     static func windowShift(window: String, before: Double, after: Double) -> String {
-        "\(Copy.SleepUsage.window(window)) \(UsageFormat.percent(fraction: before)) → \(UsageFormat.percent(fraction: after))"
+        let shift = "\(Copy.SleepUsage.window(window)) \(UsageFormat.percent(fraction: before)) → \(UsageFormat.percent(fraction: after))"
+        // A window that rolled over mid-cycle reads lower after than before; say so rather than show a fall.
+        return after < before ? "\(shift) · \(Copy.SleepUsage.windowRolledOver)" : shift
     }
 
     // MARK: One line per cycle (Past nights, Last cycle)
@@ -21,7 +23,10 @@ enum CycleUsageText {
         guard kind == "sleep" else { return nil }
         guard let s = summary else { return Copy.SleepUsage.notRecorded }
         let source = Copy.SleepUsage.source(connection: s.connection, engine: s.engine)
-        let plan = s.plan.map { windowShift(window: $0.window, before: $0.before, after: $0.after) }
+        // The limit is said in the line itself: a plan's share covers all use of the plan.
+        let plan = s.plan.map {
+            windowShift(window: $0.window, before: $0.before, after: $0.after) + " · " + Copy.SleepUsage.planCoversAll
+        }
         let charged = s.costUsd.map { UsageFormat.currency($0, locale: locale) }
         let list = s.equivCostUsd.map { UsageFormat.currency($0, locale: locale) }
         switch s.basis {

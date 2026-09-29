@@ -296,8 +296,10 @@ lints in `SettingsEntryPointTests`, because neither failure mode is unit testabl
   reasoning is citable; the prompt that caused a write is part of the record. G118 is the spine.
 - **World facts are a cache** (G121). A page is anchored on why it matters to the person; encyclopedia
   facts are dated, low-trust context an agent re-verifies. Not yet built.
-- **No prices or tokens in the app** (G124, owner 2026-09-03). The `/consumption/*` endpoints and the
-  ledger stay for later; the UI shows counts.
+- **No prices or tokens in the app, except on the Sleep page's Details and its engine menu** (G124, owner
+  2026-09-03; narrowed by TODO ruling 12, 2026-09-28). Nowhere else: every other surface shows counts. There,
+  a figure is measured or a list price and states its basis in words. The `/consumption/*` endpoints and
+  the ledger are unchanged.
 - **Capture is deterministic, not agent-judgment** (G105). The hook fires at session end; what is kept
   is a parser decision.
 - **The inbox asks like Claude Code asks** (G115). One question object per item, the cause on the card,

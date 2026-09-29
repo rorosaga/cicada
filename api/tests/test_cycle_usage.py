@@ -79,15 +79,24 @@ def _sig(window, u, resets=1790000000, status="allowed"):
     return RateLimitSignal(status=status, limit_type=window, utilization=u, resets_at=resets)
 
 
-def test_claude_windows_keep_the_first_and_last_utilization_and_the_latest_reset():
+def test_claude_windows_keep_the_first_and_peak_utilization_and_ignore_a_rolled_window():
     cycle_usage.note_signals("c1", [_sig("five_hour", 0.12, 100), _sig("seven_day", 0.3, 900)])
     cycle_usage.note_signals("c1", [_sig("five_hour", 0.15, 100)])
-    cycle_usage.note_signals("c1", [_sig("five_hour", 0.18, 200), _sig("overage", 0.9), _sig("five_hour", None)])
+    cycle_usage.note_signals("c1", [_sig("five_hour", 0.18, 100), _sig("overage", 0.9), _sig("five_hour", None)])
     plan = asyncio.run(cycle_usage.finish("c1", "claude-cli"))
     assert plan == {"connection": "claude-plan", "windows": [
-        {"window": "five_hour", "before": 0.12, "after": 0.18, "resets_at": 200, "before_is_first_seen": True},
+        {"window": "five_hour", "before": 0.12, "after": 0.18, "resets_at": 100, "before_is_first_seen": True},
         {"window": "seven_day", "before": 0.3, "after": 0.3, "resets_at": 900, "before_is_first_seen": True}]}
     assert asyncio.run(cycle_usage.finish("c1", "claude-cli")) is None   # popped: bounded
+
+
+def test_out_of_order_readings_keep_the_peak_and_a_rollover_keeps_the_pre_reset_peak():
+    cycle_usage.note_signals("c_peak", [_sig("five_hour", 0.3, resets=100)])
+    cycle_usage.note_signals("c_peak", [_sig("five_hour", 0.5, resets=100)])
+    cycle_usage.note_signals("c_peak", [_sig("five_hour", 0.4, resets=100)])   # a slower, earlier call
+    cycle_usage.note_signals("c_peak", [_sig("five_hour", 0.02, resets=999)])  # the window rolled over
+    w = asyncio.run(cycle_usage.finish("c_peak", "claude-cli"))["windows"][0]
+    assert (w["before"], w["after"], w["resets_at"]) == (0.3, 0.5, 100)
 
 
 def test_no_signals_means_no_plan_block_never_zeros():
@@ -315,6 +324,20 @@ def test_last_cycles_reads_the_newest_window_and_charge_per_card():
     assert last["openrouter"]["cost_usd"] == 0.42 and "byok" not in last
 
 
+def test_last_cycles_is_scoped_to_one_bank_and_reset_drops_the_cache():
+    a = _run("a", connection="byok-openrouter", commit="1" * 12)
+    a.bank, a.ts = "alpha", "2026-09-01T00:00:00.000Z"
+    b = _run("b", connection="byok-openrouter", commit="2" * 12)
+    b.bank, b.ts = "beta", "2026-09-02T00:00:00.000Z"
+    evs = [a, b, _call("a", cost=0.11, connection="byok-openrouter"), _call("b", cost=0.99, connection="byok-openrouter")]
+    assert cycle_usage.last_cycles(evs, "alpha")["openrouter"]["cost_usd"] == 0.11
+    assert cycle_usage.last_cycles(evs, "beta")["openrouter"]["cost_usd"] == 0.99
+    assert cycle_usage.last_cycles(evs, "gamma") == {}
+    cycle_usage._last_cache["x"] = (0.0, {})
+    cycle_usage.reset_cache()
+    assert cycle_usage._last_cache == {}
+
+
 def test_list_price_reads_litellm_with_the_provider_prefix_fallback(monkeypatch):
     import litellm
 
@@ -451,3 +474,104 @@ def test_finalize_without_a_plan_omits_the_key(repo):
     asyncio.run(sleep_cycle._finalize(repo, "sleep_noplan", changes, settings, started=0.0))
     run = next(e for e in telemetry.read_events() if e.kind == "sleep_run")
     assert "plan" not in run.refs and run.refs[cycle_usage.TAGGED_REF] is True
+
+
+# --- the write path, end to end ---------------------------------------------- #
+
+_RL = [{"status": "allowed", "rateLimitType": "five_hour", "utilization": 0.25, "resetsAt": 1790000000}]
+
+
+def _agent_fn(runner):
+    return providers.resolve_llm_fn(Settings(llm_mode="agent", agent_model="sonnet"), stage="extraction",
+                                    sink=lambda e: None, runner=runner)
+
+
+def test_an_agent_call_in_a_cycle_scope_reaches_the_plan_block(repo, agent_runner, claude_stream):
+    from api.services import sleep_cycle
+    from api.services.connections.base import CliResult
+
+    fn = _agent_fn(agent_runner(CliResult(0, claude_stream("success", rate_limits=_RL), "")))
+    with agent_engine.use_scope("sleep:e2e1"):
+        fn(messages=[{"role": "user", "content": "x"}])
+    assert cycle_usage._CLAUDE["e2e1"]["five_hour"]["after"] == 0.25
+    (repo / "entities" / "a.md").write_text("---\ntype: concept\n---\n")
+    settings = Settings(memory_root=repo, litellm_model="gpt-5.4-mini")
+    changes = [{"id": "a", "action": "created", "source_episode": "ep1", "trigger": "sleep/extraction"}]
+    asyncio.run(sleep_cycle._finalize(repo, "e2e1", changes, settings, started=0.0, engine="claude-cli",
+                                      connection="claude-plan", billing="subscription"))
+    run = next(e for e in telemetry.read_events() if e.kind == "sleep_run")
+    assert run.refs["plan"]["windows"][0]["after"] == 0.25
+    assert "e2e1" not in cycle_usage._CLAUDE
+
+
+def test_a_call_that_ends_on_a_rate_limit_still_records_its_window(agent_runner, claude_stream):
+    from api.services import engine_errors
+    from api.services.connections.base import CliResult
+
+    limited = [{"status": "rejected", "rateLimitType": "five_hour", "utilization": 1.0, "resetsAt": 1790000000}]
+    fn = _agent_fn(agent_runner(CliResult(1, claude_stream("rate_limited", rate_limits=limited), "")))
+    with agent_engine.use_scope("sleep:e2e2"):
+        with pytest.raises(Exception) as exc:
+            fn(messages=[{"role": "user", "content": "x"}])
+    assert isinstance(exc.value, (engine_errors.EngineThrottled, engine_errors.EngineExhausted, Exception))
+    assert cycle_usage._CLAUDE["e2e2"]["five_hour"]["after"] == 1.0
+    cycle_usage.discard("e2e2")
+
+
+def test_run_stages_brackets_a_codex_cycle_and_run_discards_an_aborted_one(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from api.services import engine_select, sleep_cycle
+
+    seen = iter([_snap(("primary", 20, 100)), _snap(("primary", 30, 100))])
+
+    async def snap(*, fresh=False, **_kw):
+        return next(seen)
+
+    async def resolved(settings, *a, **k):
+        return SimpleNamespace(llm_mode="codex"), "why"
+
+    class _Stop(Exception):
+        pass
+
+    monkeypatch.setattr(codex_app_server, "snapshot", snap)
+    monkeypatch.setattr(engine_select, "resolve_settings", resolved)
+    monkeypatch.setattr(sleep_cycle, "_get_unprocessed_episodes", lambda mp: [{"id": "ep"}])
+    monkeypatch.setattr(sleep_cycle, "_engine_label", lambda s: "codex-cli")
+    monkeypatch.setattr(engine_select, "author_model", lambda s: "m")
+    real_flush = sleep_cycle._flush_pending_commits_safely
+
+    async def stop_after_start(*_a, **_k):
+        raise _Stop()
+
+    # _run_stages calls begin_codex, then the next awaited seam raises: the cycle aborts.
+    monkeypatch.setattr(sleep_cycle, "_flush_pending_commits_safely", real_flush)
+    monkeypatch.setattr(sleep_cycle, "_state", sleep_cycle._state)
+    orig_begin = cycle_usage.begin_codex
+
+    async def begin_then_abort(cycle_id):
+        await orig_begin(cycle_id)
+        assert cycle_id in cycle_usage._CODEX_START
+        raise _Stop()
+
+    monkeypatch.setattr(cycle_usage, "begin_codex", begin_then_abort)
+    with pytest.raises(_Stop):
+        asyncio.run(sleep_cycle._run_stages(SimpleNamespace(sleep_max_episodes_per_cycle=5), "cx1", tmp_path))
+    assert "cx1" in cycle_usage._CODEX_START   # started, so a finalize would write a two-snapshot block
+    plan = asyncio.run(cycle_usage.finish("cx1", "codex-cli"))
+    assert plan["windows"][0]["before"] == 0.2 and plan["windows"][0]["after"] == 0.3
+
+    # run(): an aborted cycle frees both accumulators
+    cycle_usage.note_signals("cx2", [_sig("five_hour", 0.1)])
+    cycle_usage._CODEX_START["cx2"] = _snap(("primary", 1, 1))
+
+    async def boom(*_a, **_k):
+        raise _Stop()
+
+    async def tail(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(sleep_cycle, "_run_stages", boom)
+    monkeypatch.setattr(sleep_cycle, "_run_engine_independent_tail", tail)
+    asyncio.run(sleep_cycle.run(SimpleNamespace(memory_path=tmp_path), "cx2"))
+    assert "cx2" not in cycle_usage._CLAUDE and "cx2" not in cycle_usage._CODEX_START

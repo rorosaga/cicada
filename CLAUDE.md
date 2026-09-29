@@ -1172,7 +1172,7 @@ page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro D
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
-Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, estimates, prices.
+Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12) — inside them only a measured or list-price figure that states its basis ("charged", "at list price", a plan window's share).
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

@@ -493,6 +493,7 @@ def resolve_llm_fn(
                 refs = {"warnings": len(parsed.warnings)} if parsed.warnings else {}
             agent_engine.record_model_used(used)
         except (engine_errors.EngineThrottled, engine_errors.EngineExhausted) as exc:
+            _note_plan_signals(mode, resolved_scope, seen)
             # R-E12: a throttle trips in any scope (unchanged). An exhaustion
             # trips only inside a workload scope. Trip BEFORE emitting so a
             # concurrent caller cannot also trip.
@@ -513,19 +514,24 @@ def resolve_llm_fn(
                 _emit_throttle(str(exc), seen.get("stream"))
             raise
         except Exception:
+            _note_plan_signals(mode, resolved_scope, seen)
             _emit(None, started, ok=False)
             raise
         _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
-        if mode == "agent" and seen.get("stream") is not None:
-            from api.services import cycle_usage
-
-            cycle_usage.note_signals(agent_engine.cycle_id_from_scope(resolved_scope),
-                                     seen["stream"].rate_limits)
+        _note_plan_signals(mode, resolved_scope, seen)
         stop = seen.get("stop")
         if (stop is not None and in_workload
                 and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope)):
             _emit_throttle(stop.sentence, seen.get("stream"))
         return resp
+
+    def _note_plan_signals(mode_: str, scope_: str, seen_: dict) -> None:
+        # A cycle that ends on a rate limit is the one whose final window matters most.
+        if mode_ == "agent" and seen_.get("stream") is not None:
+            from api.services import cycle_usage
+
+            cycle_usage.note_signals(agent_engine.cycle_id_from_scope(scope_),
+                                     seen_["stream"].rate_limits)
 
     def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
         with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):

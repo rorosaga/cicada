@@ -100,17 +100,19 @@ final class CycleUsageTextTests: XCTestCase {
 
     func testTheRowLineIsWordedPerBasis() {
         XCTAssertEqual(line(CycleUsageSummary(basis: "charged", costUsd: 0.42, engine: "litellm",
-                                              connection: "byok-openrouter")), "$0.42 on OpenRouter")
-        XCTAssertEqual(line(CycleUsageSummary(basis: "charged", costUsd: 0.42, engine: "litellm")), "$0.42 on API key")
+                                              connection: "byok-openrouter")), "$0.42 charged · OpenRouter")
+        XCTAssertEqual(line(CycleUsageSummary(basis: "charged", costUsd: 0.42, engine: "litellm")), "$0.42 charged · API key")
         XCTAssertEqual(line(CycleUsageSummary(basis: "list", equivCostUsd: 0.42, engine: "claude-cli")),
                        "About $0.42 at list price · Claude plan")
         XCTAssertEqual(line(CycleUsageSummary(basis: "list", equivCostUsd: 0.42, engine: "claude-cli",
                                               connection: "claude-plan",
                                               plan: CycleUsageSummaryPlan(window: "five_hour", before: 0.12, after: 0.18))),
-                       "Claude plan · 5-hour window 12% → 18% · about $0.42 at list price")
+                       "Claude plan · 5-hour window 12% → 18% · covers all your use of the plan · about $0.42 at list price")
         XCTAssertEqual(line(CycleUsageSummary(basis: "plan", engine: "codex-cli", connection: "chatgpt-plan",
                                               plan: CycleUsageSummaryPlan(window: "primary", before: 0.31, after: 0.35))),
-                       "ChatGPT plan · main window 31% → 35%")
+                       "ChatGPT plan · main window 31% → 35% · covers all your use of the plan")
+        XCTAssertEqual(CycleUsageText.windowShift(window: "five_hour", before: 0.4, after: 0.03),
+                       "5-hour window 40% → 3% · window reset meanwhile")
         XCTAssertEqual(line(CycleUsageSummary(basis: "free", engine: "ollama")), "Ran on this Mac")
         XCTAssertEqual(line(CycleUsageSummary(basis: nil)), "No model calls")
     }
@@ -167,11 +169,11 @@ final class CycleUsageTextTests: XCTestCase {
     func testLastCycleGainsAUsageRowOnlyWhenOneWasRecorded() {
         XCTAssertFalse(lastCycleSectionIsVisible(pageError: nil, cancelled: false, capped: false, indexWarning: nil))
         XCTAssertTrue(lastCycleSectionIsVisible(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
-                                                usageLine: "$0.42 on OpenRouter"))
+                                                usageLine: "$0.42 charged · OpenRouter"))
         let rows = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil, status: nil,
-                                     usageLine: "$0.42 on OpenRouter")
+                                     usageLine: "$0.42 charged · OpenRouter")
         XCTAssertEqual(rows.map(\.kind), [.usage])
-        XCTAssertEqual(rows.first?.text, "$0.42 on OpenRouter")
+        XCTAssertEqual(rows.first?.text, "$0.42 charged · OpenRouter")
         XCTAssertFalse(rows.first?.needsYou ?? true)
     }
 

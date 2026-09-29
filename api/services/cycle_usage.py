@@ -74,9 +74,16 @@ def note_signals(cycle_id: str | None, signals) -> None:
                     windows[name] = {"before": float(u), "after": float(u),
                                      "resets_at": getattr(sig, "resets_at", None)}
                 else:
-                    w["after"] = float(u)
-                    if getattr(sig, "resets_at", None) is not None:
-                        w["resets_at"] = sig.resets_at
+                    reset = getattr(sig, "resets_at", None)
+                    if reset is not None and w["resets_at"] is not None and reset != w["resets_at"]:
+                        # The window rolled over mid-cycle: keep the pre-reset peak
+                        # rather than let a post-reset low read as a fall.
+                        continue
+                    # Calls run concurrently, so arrival order is not time order:
+                    # within one window the peak is the reading that counts.
+                    w["after"] = max(w["after"], float(u))
+                    if w["resets_at"] is None:
+                        w["resets_at"] = reset
     except Exception:  # pragma: no cover - defensive
         return
 
@@ -263,18 +270,22 @@ def attach_usage(entries, events, *, detail: bool = False) -> None:
 # --------------------------------------------------------------------------- #
 
 _LAST_TTL_S = 30.0
-_last_cache: tuple[float, dict] | None = None
+_last_cache: dict[str, tuple[float, dict]] = {}
 
 
-def last_cycles(events=None) -> dict:
+def last_cycles(events=None, bank: str | None = None) -> dict:
     """Newest recorded cycle per card: ``{"claude-plan": {...window...},
-    "byok-openrouter": {"cost_usd", "as_of"}, "byok": {...}}``. Cached 30 s —
-    ``/sleep/engine`` is polled and each read re-parses the month files."""
-    global _last_cache
+    "byok-openrouter": {"cost_usd", "as_of"}, "byok": {...}}``. The ledger is
+    machine-global, so ``bank`` scopes the runs to one bank (plan windows are
+    the account's, but the cycle that last reported one is still that bank's).
+    Cached 30 s per bank and dropped when a cycle finalizes or the bank
+    switches — ``/sleep/engine`` is polled and each read re-parses the month files."""
     now = time.monotonic()
     cacheable = events is None
-    if cacheable and _last_cache is not None and now - _last_cache[0] < _LAST_TTL_S:
-        return _last_cache[1]
+    key = bank or ""
+    hit = _last_cache.get(key)
+    if cacheable and hit is not None and now - hit[0] < _LAST_TTL_S:
+        return hit[1]
     if cacheable:
         from datetime import date, timedelta
 
@@ -284,6 +295,8 @@ def last_cycles(events=None) -> dict:
     ledger = Ledger.build(events)
     out: dict = {}
     for run in sorted(ledger.runs, key=lambda r: r.ts):
+        if bank is not None and getattr(run, "bank", None) != bank:
+            continue
         usage = usage_of_run(run, ledger.calls.get(str(run.refs.get("cycle_id") or ""), []))
         if usage is None:
             continue
@@ -296,13 +309,12 @@ def last_cycles(events=None) -> dict:
             key = "openrouter" if (usage.connection or "") == "byok-openrouter" else "byok"
             out[key] = {"cost_usd": usage.total_cost_usd, "as_of": run.ts}
     if cacheable:
-        _last_cache = (now, out)
+        _last_cache[key] = (now, out)
     return out
 
 
 def reset_cache() -> None:
-    global _last_cache
-    _last_cache = None
+    _last_cache.clear()
 
 
 _PRICE_CACHE: dict[str, tuple[float | None, float | None]] = {}

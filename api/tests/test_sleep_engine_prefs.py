@@ -322,7 +322,7 @@ def test_a_signed_in_chatgpt_card_carries_its_fullest_window_and_its_reading_tim
 def test_the_claude_card_reads_its_window_from_the_last_recorded_cycle(client, monkeypatch):
     from api.services import cycle_usage
 
-    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None: {
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None, bank=None: {
         "claude-plan": {"window": "five_hour", "used_fraction": 0.18, "resets_at": 1790000000,
                         "as_of": "2026-09-29T09:00:00Z"}})
     agent = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "agent")
@@ -333,7 +333,7 @@ def test_the_claude_card_reads_its_window_from_the_last_recorded_cycle(client, m
 def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeypatch):
     from api.services import cycle_usage
 
-    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None: {
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None, bank=None: {
         "openrouter": {"cost_usd": 0.42, "as_of": "2026-09-29T09:00:00Z"}})
     monkeypatch.setattr(cycle_usage, "list_price_per_million", lambda m: (0.4, 1.6))
     cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
@@ -349,7 +349,7 @@ def test_key_cards_carry_a_list_price_and_the_last_cycles_charge(client, monkeyp
 def test_an_unpriced_model_leaves_the_caption_source_empty(client, monkeypatch):
     from api.services import cycle_usage
 
-    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None: {})
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None, bank=None: {})
     monkeypatch.setattr(cycle_usage, "list_price_per_million", lambda m: (None, None))
     cards = {c["id"]: c for c in client.get("/sleep/engine").json()["candidates"]}
     assert cards["openrouter"]["usage"] is None and cards["openrouter"]["modelPrices"] == {}
