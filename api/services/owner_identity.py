@@ -249,3 +249,16 @@ def seed_owner_page(memory_path: Path) -> str | None:
     except Exception as exc:  # noqa: BLE001 - git absent or unconfigured degrades, never blocks
         logger.warning(f"owner page written but not committed: {exc}")
     return entity_id
+
+
+def seed_owner_if_brand_new(memory_path: Path) -> str | None:
+    """The first-boot default bank never passes through ``create_bank``, so the
+    lifespan calls this: a bank with no entity page, no episode and so no owner
+    page gets the same seed a created bank does. Anything already in it (an
+    imported or restored bank, a bank whose owner page was deleted after use)
+    is left exactly as it is."""
+    memory_path = Path(memory_path)
+    for folder in ("entities", "episodes"):
+        if any((memory_path / folder).glob("*.md")):
+            return None
+    return seed_owner_page(memory_path)

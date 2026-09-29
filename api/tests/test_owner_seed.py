@@ -132,6 +132,35 @@ def test_leaving_the_demo_into_a_new_memory_seeds_the_owner_too(tmp_path, monkey
     assert [p.stem for p in _owner_pages(root / "banks" / slug)] == ["owner"]
 
 
+def test_the_first_boot_default_bank_gets_the_owner_page_once_and_only_when_brand_new(tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setenv("CICADA_MEMORY_ROOT", str(root))
+    monkeypatch.setenv("CICADA_API_AUTH", "off")
+    config.get_settings.cache_clear()
+    bank_index.invalidate()
+    with TestClient(main.app):  # runs the lifespan: the default bank never goes through create_bank
+        pass
+    assert [p.stem for p in _owner_pages(root)] == ["owner"]
+    # A second boot changes nothing (the page is there, and so is never written twice).
+    before = (root / "entities" / "owner.md").read_text()
+    with TestClient(main.app):
+        pass
+    assert (root / "entities" / "owner.md").read_text() == before
+
+
+def test_a_bank_with_anything_in_it_is_never_seeded_at_boot(tmp_path):
+    (tmp_path / "entities").mkdir()
+    (tmp_path / "entities" / "alpha-project.md").write_text("---\ntype: project\nname: Alpha\n---\nbody\n")
+    assert owner_identity.seed_owner_if_brand_new(tmp_path) is None
+    assert _owner_pages(tmp_path) == []
+    other = tmp_path / "other"
+    (other / "episodes").mkdir(parents=True)
+    (other / "episodes" / "ep_2026-01-01_001.md").write_text("---\nid: ep_2026-01-01_001\n---\nhi\n")
+    assert owner_identity.seed_owner_if_brand_new(other) is None
+    assert not (other / "entities" / "owner.md").exists()
+
+
 # --- resolution ----------------------------------------------------------------
 
 

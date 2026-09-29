@@ -539,7 +539,12 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   to." `name` stays the plain name — Stage 2 matches a mention to a page by `name`, so a stored
   "(you)" would stop the person's own name from resolving — and the app renders "Name (you)" from
   the flag. `PUT /settings/owner` **adopts** a placeholder (renames it, keeps its id and claims)
-  instead of writing a second owner page. Beliefs accrue through chats and consolidation.
+  instead of writing a second owner page. Beliefs accrue through chats and consolidation. The
+  first-boot default bank is scaffolded by the lifespan, not `create_bank`, so the lifespan seeds it
+  the same way when it is brand new (`seed_owner_if_brand_new`: no entity page, no episode). Because
+  a bank now starts with one node, **the app's empty means "no node but the owner's"**
+  (`hasNoContentBeyondOwner`: `FirstRunGate`'s graph input, the Graph's and Clusters' "Nothing here
+  yet"); the `/banks` `entityCount` of a new bank is 1.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.

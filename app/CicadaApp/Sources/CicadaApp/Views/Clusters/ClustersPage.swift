@@ -72,7 +72,7 @@ struct ClustersPage: View {
                 }
             }
         } list: { plan in
-            let state = ClustersListState.of(hasEntities: !graphVM.entities.isEmpty, isLoading: graphVM.isLoading,
+            let state = ClustersListState.of(hasEntities: !graphVM.entities.hasNoContentBeyondOwner, isLoading: graphVM.isLoading,
                                              groupsEmpty: groups.isEmpty, matches: found)
             if plan.listStyle == .wide, !findOpen, state == .list {
                 // F-11 (R-PE12) — nothing open and find closed: A's icon-led cards. ⌘F shows the list column (its
