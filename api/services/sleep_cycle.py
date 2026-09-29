@@ -68,6 +68,12 @@ class SleepState:
     claims_released: int = 0
     claims_hold_capped: int = 0
     claims_waiting: int = 0
+    # Decay inbox items (Stage 5): the cycle's cap on NEW "Still tracking X?"
+    # questions turned this many entities away (they raise again next cycle),
+    # and this many open ones were refreshed instead of duplicated. Counts
+    # only, internal, carried into the `sleep_run` ledger row.
+    decay_nudges_deferred: int = 0
+    decay_nudges_refreshed: int = 0
     # G74(a) — which engine this cycle actually ran on ("claude-cli" |
     # "codex-cli" | "ollama" | "litellm"), and one sentence about its state. The Sleep page
     # showed "check model id / API credits" on a Max plan that has no credits
@@ -1062,6 +1068,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
     _state.claims_released = 0
     _state.claims_hold_capped = 0
     _state.claims_waiting = 0
+    _state.decay_nudges_deferred = 0
+    _state.decay_nudges_refreshed = 0
     _state.last_engine = None
     _state.engine_detail = None
     _state.write_started = False
@@ -1133,6 +1141,36 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True)
             )
         finally:
             _state.status = "idle"
+
+
+def _sync_vector_indexes(memory_path: Path) -> list[str]:
+    """Sync the entity, episode and claims vector indexes; blocking, so the
+    cycle calls it through ``asyncio.to_thread``. Returns one warning per
+    failed step — never raises."""
+    warnings: list[str] = []
+    try:
+        from api.services.vector_index import SqliteVecIndexer
+        indexer = SqliteVecIndexer(memory_path)
+    except Exception as e:
+        warning = f"vector indexer init failed: {type(e).__name__}: {e}"
+        logger.warning(warning)
+        return [warning]
+
+    # M5e: the claims index is derived from the in-page ```claims blocks so
+    # claim-first /ask + get_perspective reflect the post-Sleep belief state.
+    # Only currently-valid claims are indexed.
+    for label, step in (
+        ("entity", indexer.index_entities),
+        ("episode", indexer.index_episodes),
+        ("claims", indexer.index_claims),
+    ):
+        try:
+            step()
+        except Exception as e:
+            warning = f"{label} index rebuild failed: {type(e).__name__}: {e}"
+            logger.warning(f"vector {warning}")
+            warnings.append(warning)
+    return warnings
 
 
 async def _run_stages(
@@ -1377,8 +1415,12 @@ async def _run_stages(
     # tail's connector-poll gate, even though the exception means `_run_stages`
     # never reaches a `return` to report it via `_StageOutcome`.
     _state.write_started = True
-    from api.services.inbox_generator import generate
-    await generate(changes, skills, memory_path, relationships=resolved_edges)
+    from api.services.inbox_generator import DecayBudget, generate
+    # One allowance of NEW decay questions for the whole cycle, drawn on by the
+    # entity path here and the claim path in Stage 5.56 (the cap is a setting).
+    decay_budget = DecayBudget(getattr(settings, "decay_inbox_cap_per_cycle", 10))
+    await generate(changes, skills, memory_path, relationships=resolved_edges,
+                   decay_budget=decay_budget)
 
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the
@@ -1427,7 +1469,9 @@ async def _run_stages(
         _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
         _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
         _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
-        nudge_result = write_claim_nudges(claim_result.get("nudges", []), memory_path)
+        nudge_result = write_claim_nudges(
+            claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
+        )
 
         # G60 §2.3 — re-score the OPEN questions against the freshly-written
         # claims (bump/re-order, organic resolution, stale escalation). Runs
@@ -1463,6 +1507,18 @@ async def _run_stages(
         )
     except Exception as e:
         logger.warning(f"Stage 5.56 claim pipeline failed: {type(e).__name__}: {e}")
+
+    # The decay questions this cycle opened, refreshed or turned away — the cap
+    # never drops one silently: a deferred page is still below its threshold and
+    # raises again next cycle (see `DecayBudget`).
+    _state.decay_nudges_deferred = len(decay_budget.deferred)
+    _state.decay_nudges_refreshed = decay_budget.refreshed
+    if decay_budget.deferred or decay_budget.refreshed:
+        logger.info(
+            f"Stage 5: decay questions — {decay_budget.written} opened, "
+            f"{decay_budget.refreshed} refreshed (already open), "
+            f"{len(decay_budget.deferred)} deferred by the cap of {decay_budget.cap}"
+        )
 
     # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
@@ -1522,56 +1578,32 @@ async def _run_stages(
     else:
         logger.info(f"Marked {len(processed_episodes)} episodes as processed")
 
-    # Rebuild LEANN indexes so Bookworm reflects the post-sleep state.
-    # Entity and episode rebuilds are independent and we want to surface
+    # Sync the vector indexes so Bookworm reflects the post-sleep state.
+    # Entity, episode and claims syncs are independent and we want to surface
     # partial failures: if only the episode index fails, the cycle still
     # wrote the markdown graph, committed, and should report success
     # *with a warning* — not a silent pass, not a hard failure.
-    index_warnings: list[str] = []
-    try:
-        from api.services.vector_index import SqliteVecIndexer
-        indexer = SqliteVecIndexer(memory_path)
-    except Exception as e:
-        indexer = None
-        warning = f"vector indexer init failed: {type(e).__name__}: {e}"
-        logger.warning(warning)
-        index_warnings.append(warning)
+    #
+    # Off the event loop: embedding is synchronous CPU (and, on a hosted
+    # embedder, network) work, and inline it froze every other request for its
+    # whole duration. Incremental by content hash — a night embeds what it
+    # touched, not the whole history (`SqliteVecIndexer._sync_kind`).
+    index_warnings: list[str] = await asyncio.to_thread(_sync_vector_indexes, memory_path)
 
-    if indexer is not None:
-        try:
-            indexer.index_entities()
-        except Exception as e:
-            warning = f"entity index rebuild failed: {type(e).__name__}: {e}"
-            logger.warning(f"vector {warning}")
-            index_warnings.append(warning)
-        try:
-            indexer.index_episodes()
-        except Exception as e:
-            warning = f"episode index rebuild failed: {type(e).__name__}: {e}"
-            logger.warning(f"vector {warning}")
-            index_warnings.append(warning)
-        # M5e: rebuild the derived claims index from the in-page ```claims
-        # blocks so claim-first /ask + get_perspective reflect the post-Sleep
-        # belief state. Only currently-valid claims are indexed.
-        try:
-            indexer.index_claims()
-        except Exception as e:
-            warning = f"claims index rebuild failed: {type(e).__name__}: {e}"
-            logger.warning(f"vector {warning}")
-            index_warnings.append(warning)
-
-    # G136: the lexical index, rebuilt in full beside the vectors (round-3
-    # spec decision 7) — independent of the vector indexer, so a missing
-    # embedding model never leaves search's FTS half stale. Off the event
-    # loop: 3–6 s of CPU at 2,000 entities / 1,500 episodes, while /search
-    # keeps answering from the previous snapshot (WAL). Same contract as the
-    # vector rebuilds: a failure is a warning on a cycle that still commits.
+    # G136: the lexical index, brought up to date beside the vectors —
+    # independent of the vector indexer, so a missing embedding model never
+    # leaves search's FTS half stale. Incremental: `search_index.refresh` diffs
+    # the files' (mtime, size) stamps and re-indexes only what moved (a full
+    # build only when the file is missing, damaged or of another schema — it is
+    # derived and disposable). Off the event loop; /search keeps answering from
+    # the previous snapshot (WAL). Same contract as the vector syncs: a failure
+    # is a warning on a cycle that still commits.
     try:
         from api.services import search_index
 
-        await asyncio.to_thread(search_index.rebuild, memory_path)
+        await asyncio.to_thread(search_index.refresh, memory_path)
     except Exception as e:
-        warning = f"search index rebuild failed: {type(e).__name__}: {e}"
+        warning = f"search index refresh failed: {type(e).__name__}: {e}"
         logger.warning(warning)
         index_warnings.append(warning)
 
@@ -2166,6 +2198,9 @@ async def _finalize(
             "claims_released": _state.claims_released,
             "claims_hold_capped": _state.claims_hold_capped,
             "claims_waiting": _state.claims_waiting,
+            # Decay inbox questions (Stage 5): counts only.
+            "decay_nudges_deferred": _state.decay_nudges_deferred,
+            "decay_nudges_refreshed": _state.decay_nudges_refreshed,
         },
     ))
 

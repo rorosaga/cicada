@@ -199,6 +199,11 @@ class Settings(BaseSettings):
     # options has been silent for this many days is escalated (question
     # rewritten, a "Neither anymore" option inserted, priority dropped).
     inbox_stale_after_days: int = 90     # CICADA_INBOX_STALE_AFTER_DAYS
+    # Most NEW decay items ("Still tracking X?") one Sleep cycle may open. An
+    # entity already holding an open decay item is refreshed, never duplicated,
+    # and does not count; what a cycle cannot open waits for the next (the page
+    # is still below the threshold) and is counted in the cycle's report.
+    decay_inbox_cap_per_cycle: int = 10  # CICADA_DECAY_INBOX_CAP_PER_CYCLE
     # How far out a "Not sure — remind me later" pushes `remind_after` when the
     # request does not name a number of days.
     inbox_defer_days: int = 30           # CICADA_INBOX_DEFER_DAYS

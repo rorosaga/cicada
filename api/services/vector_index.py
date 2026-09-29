@@ -17,6 +17,7 @@ the OpenAI / local sentence-transformers backend from :class:`api.config.Setting
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -95,6 +96,9 @@ class SqliteVecIndexer:
         # Recorded next to the vectors so a reindex knows what it built and can
         # detect a model swap (different model => different dim => full rebuild).
         self.model_name = model_name or ("unknown" if embed_fn else None)
+        # What the last `index_*` call of each kind did: embedded / reused /
+        # removed / rebuilt counts (Sleep's report and the tests read it).
+        self.last_sync: dict[str, dict[str, int]] = {}
 
     # ---------- embedding ----------
 
@@ -167,12 +171,19 @@ class SqliteVecIndexer:
         return conn
 
     def _rebuild_table(
-        self, conn: sqlite3.Connection, kind: str, rows: list[tuple[np.ndarray, str, dict]]
+        self,
+        conn: sqlite3.Connection,
+        kind: str,
+        rows: list[tuple[np.ndarray, str, dict]],
+        keys: list[str] | None = None,
     ) -> None:
         """(Re)create the vec + metadata tables for ``kind`` and load ``rows``.
 
         ``rows`` is a list of ``(embedding, text, metadata)``. rowid is the
-        1-based position so the vec row and meta row line up.
+        1-based position so the vec row and meta row line up. Each meta row
+        also carries the document's stable ``key`` (default: its position) and
+        the ``hash`` of the text that was embedded — what :meth:`_sync_kind`
+        diffs against so the next cycle embeds only what changed.
         """
         import sqlite_vec
 
@@ -187,7 +198,8 @@ class SqliteVecIndexer:
         )
         conn.execute(
             f"CREATE TABLE {meta_table} ("
-            f"rowid INTEGER PRIMARY KEY, text TEXT, metadata TEXT)"
+            f"rowid INTEGER PRIMARY KEY, text TEXT, metadata TEXT, "
+            f"key TEXT, hash TEXT)"
         )
         for i, (embedding, text, metadata) in enumerate(rows, start=1):
             conn.execute(
@@ -195,16 +207,159 @@ class SqliteVecIndexer:
                 (i, sqlite_vec.serialize_float32([float(x) for x in embedding])),
             )
             conn.execute(
-                f"INSERT INTO {meta_table}(rowid, text, metadata) VALUES (?, ?, ?)",
-                (i, text, json.dumps(metadata)),
+                f"INSERT INTO {meta_table}(rowid, text, metadata, key, hash) "
+                f"VALUES (?, ?, ?, ?, ?)",
+                (i, text, json.dumps(metadata),
+                 keys[i - 1] if keys is not None else str(i), _text_hash(text)),
             )
-        self._write_index_meta(conn, model=self.model_name or "unknown", dim=dim)
+        self._write_index_meta(conn, model=self.model_name or "unknown", dim=dim, kind=kind)
         conn.commit()
 
-    def _write_index_meta(self, conn: sqlite3.Connection, *, model: str, dim: int) -> None:
+    # ---------- incremental sync ----------
+
+    def _existing_rows(
+        self, conn: sqlite3.Connection, kind: str
+    ) -> tuple[dict[str, tuple[int, str, str]], int] | None:
+        """``({key: (rowid, hash, metadata_json)}, dim)`` of what ``kind`` holds,
+        or ``None`` when it cannot be diffed and must be rebuilt in full: no
+        table, an older schema without ``key``/``hash``, or vectors built with
+        a different model (a model swap changes the dim and the meaning of every
+        vector). The model is recorded per kind because the kinds are rebuilt
+        one after another — a global stamp would say "current" after the first.
+        """
+        try:
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info(meta_{kind})")}
+            if not {"key", "hash"} <= cols:
+                return None
+            kv = dict(conn.execute("SELECT key, value FROM index_meta").fetchall())
+            if kv.get(f"model:{kind}") != (self.model_name or "unknown"):
+                return None
+            dim = int(kv.get(f"dim:{kind}", 0) or 0)
+            rows = {
+                key: (rowid, hash_, metadata)
+                for rowid, key, hash_, metadata in conn.execute(
+                    f"SELECT rowid, key, hash, metadata FROM meta_{kind}"
+                )
+            }
+            return rows, dim
+        except sqlite3.OperationalError:
+            return None
+
+    def _sync_kind(self, kind: str, staged: list[tuple[str, str, dict]]) -> dict[str, int]:
+        """Bring ``kind``'s table in line with ``staged`` ``(key, text, metadata)``
+        rows, embedding only the texts whose content hash is new or changed.
+
+        Unchanged documents keep their stored vector (their metadata is
+        refreshed in place — a page's status moves without its text moving),
+        deleted documents are removed, and a schema, model or dimension change
+        rebuilds the whole table. The embed happens BEFORE anything is written,
+        so a failed embed leaves the previous index exactly as it was. The
+        index stays derived and disposable: dropping the file just costs one
+        full build. Returns ``{"embedded", "reused", "removed", "rebuilt"}``.
+        """
+        import sqlite_vec
+
+        # Resolves `model_name` for a production embedder before the diff.
+        self._ensure_or_global()
+        unique_keys: list[str] = []
+        seen: dict[str, int] = {}
+        for key, _text, _meta in staged:
+            n = seen.get(key, 0)
+            seen[key] = n + 1
+            unique_keys.append(key if n == 0 else f"{key}~{n}")
+        hashes = [_text_hash(text) for _k, text, _m in staged]
+        stats = {"embedded": 0, "reused": 0, "removed": 0, "rebuilt": 0}
+
+        conn = self._connect()
+        try:
+            existing = self._existing_rows(conn, kind)
+            if not staged:
+                if existing is not None:
+                    conn.execute(f"DROP TABLE IF EXISTS vec_{kind}")
+                    conn.execute(f"DROP TABLE IF EXISTS meta_{kind}")
+                    conn.commit()
+                    stats["removed"] = len(existing[0])
+                return stats
+
+            def full() -> dict[str, int]:
+                embeddings = self._embed([t for _k, t, _m in staged])
+                rows = [(embeddings[i], staged[i][1], staged[i][2]) for i in range(len(staged))]
+                self._rebuild_table(conn, kind, rows, keys=unique_keys)
+                stats.update(embedded=len(rows), rebuilt=1)
+                return stats
+
+            if existing is None:
+                return full()
+            rows_by_key, dim = existing
+            todo = [i for i, k in enumerate(unique_keys)
+                    if k not in rows_by_key or rows_by_key[k][1] != hashes[i]]
+            wanted = set(unique_keys)
+            gone = [k for k in rows_by_key if k not in wanted]
+            meta_json = [json.dumps(m) for _k, _t, m in staged]
+            meta_moved = [i for i, k in enumerate(unique_keys)
+                          if k in rows_by_key and rows_by_key[k][1] == hashes[i]
+                          and rows_by_key[k][2] != meta_json[i]]
+            stats["reused"] = len(staged) - len(todo)
+            if not todo and not gone and not meta_moved:
+                return stats
+            embeddings = self._embed([staged[i][1] for i in todo]) if todo else None
+            if embeddings is not None and dim and int(embeddings.shape[1]) != dim:
+                return full()  # same model name, different width: nothing is reusable
+
+            vec_table, meta_table = f"vec_{kind}", f"meta_{kind}"
+            next_rowid = max((r for r, _h, _m in rows_by_key.values()), default=0) + 1
+            try:
+                for k in gone:
+                    conn.execute(f"DELETE FROM {vec_table} WHERE rowid = ?", (rows_by_key[k][0],))
+                    conn.execute(f"DELETE FROM {meta_table} WHERE rowid = ?", (rows_by_key[k][0],))
+                for j, i in enumerate(todo):
+                    key = unique_keys[i]
+                    if key in rows_by_key:  # changed text: same slot, new vector
+                        rowid = rows_by_key[key][0]
+                        conn.execute(f"DELETE FROM {vec_table} WHERE rowid = ?", (rowid,))
+                        conn.execute(f"DELETE FROM {meta_table} WHERE rowid = ?", (rowid,))
+                    else:
+                        rowid, next_rowid = next_rowid, next_rowid + 1
+                    conn.execute(
+                        f"INSERT INTO {vec_table}(rowid, embedding) VALUES (?, ?)",
+                        (rowid, sqlite_vec.serialize_float32([float(x) for x in embeddings[j]])),
+                    )
+                    conn.execute(
+                        f"INSERT INTO {meta_table}(rowid, text, metadata, key, hash) "
+                        f"VALUES (?, ?, ?, ?, ?)",
+                        (rowid, staged[i][1], meta_json[i], key, hashes[i]),
+                    )
+                for i in meta_moved:
+                    conn.execute(f"UPDATE {meta_table} SET metadata = ? WHERE rowid = ?",
+                                 (meta_json[i], rows_by_key[unique_keys[i]][0]))
+                self._write_index_meta(
+                    conn, model=self.model_name or "unknown",
+                    dim=int(embeddings.shape[1]) if embeddings is not None else dim, kind=kind,
+                )
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+            stats.update(embedded=len(todo), removed=len(gone))
+            return stats
+        finally:
+            conn.close()
+
+    def _write_index_meta(
+        self, conn: sqlite3.Connection, *, model: str, dim: int, kind: str | None = None
+    ) -> None:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT)"
         )
+        if kind is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
+                (f"model:{kind}", model),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO index_meta(key, value) VALUES (?, ?)",
+                (f"dim:{kind}", str(dim)),
+            )
         conn.execute(
             "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('model', ?)", (model,)
         )
@@ -275,11 +430,15 @@ class SqliteVecIndexer:
     # ---------- entity index ----------
 
     def index_entities(self) -> int:
-        """Rebuild the entity index from all markdown entity pages."""
+        """Sync the entity index with the markdown entity pages.
+
+        Incremental by content hash of the embedded text (:meth:`_sync_kind`):
+        a page whose text did not change keeps its vector; only new and edited
+        pages are embedded and deleted pages are removed.
+        """
         if not self.entities_dir.exists():
             return 0
-        texts: list[str] = []
-        staged: list[tuple[str, dict]] = []
+        staged: list[tuple[str, str, dict]] = []
         for filepath in sorted(self.entities_dir.glob("*.md")):
             try:
                 parsed = markdown_parser.parse(filepath)
@@ -289,31 +448,25 @@ class SqliteVecIndexer:
             text = _entity_embed_text(fm, parsed.body, filepath.stem)
             if not text:
                 continue
-            texts.append(text)
-            staged.append(
-                (
-                    text,
-                    {
-                        "entity_id": filepath.stem,
-                        "entity_name": str(fm.get("name", filepath.stem)),
-                        "type": str(fm.get("type", "concept")),
-                        "status": str(fm.get("status", "active")),
-                        "confidence": float(fm.get("confidence", 0.0) or 0.0),
-                        "file_path": str(filepath),
-                    },
-                )
-            )
-        if not staged:
-            return 0
-        embeddings = self._embed(texts)
-        rows = [(embeddings[i], staged[i][0], staged[i][1]) for i in range(len(staged))]
-        conn = self._connect()
-        try:
-            self._rebuild_table(conn, "entities", rows)
-        finally:
-            conn.close()
-        logger.info(f"Vector entity index rebuilt with {len(rows)} entities")
-        return len(rows)
+            staged.append((
+                filepath.stem,
+                text,
+                {
+                    "entity_id": filepath.stem,
+                    "entity_name": str(fm.get("name", filepath.stem)),
+                    "type": str(fm.get("type", "concept")),
+                    "status": str(fm.get("status", "active")),
+                    "confidence": float(fm.get("confidence", 0.0) or 0.0),
+                    "file_path": str(filepath),
+                },
+            ))
+        stats = self._sync_kind("entities", staged)
+        self.last_sync["entities"] = stats
+        logger.info(
+            f"Vector entity index synced: {len(staged)} entities "
+            f"({stats['embedded']} embedded, {stats['reused']} reused, {stats['removed']} removed)"
+        )
+        return len(staged)
 
     def search_entities(
         self, query: str, top_k: int = 5, include_archived: bool = False
@@ -394,11 +547,15 @@ class SqliteVecIndexer:
     # ---------- episode index ----------
 
     def index_episodes(self) -> int:
-        """Rebuild the episode index over all episode files (chunked)."""
+        """Sync the episode index over all episode files (chunked).
+
+        Incremental: an episode whose passages hash the same keeps its vectors,
+        so a nightly cycle embeds the new and grown conversations only, not the
+        whole history (:meth:`_sync_kind`).
+        """
         if not self.episodes_dir.exists():
             return 0
-        texts: list[str] = []
-        staged: list[tuple[str, dict]] = []
+        staged: list[tuple[str, str, dict]] = []
         episodes_added = 0
         for filepath in sorted(self.episodes_dir.glob("*.md")):
             try:
@@ -421,20 +578,13 @@ class SqliteVecIndexer:
                 meta = dict(base_meta)
                 meta["chunk_index"] = chunk_idx
                 meta["chunk_count"] = len(chunks)
-                texts.append(chunk)
-                staged.append((chunk, meta))
+                staged.append((f"{filepath.stem}#{chunk_idx}", chunk, meta))
             episodes_added += 1
-        if not staged:
-            return 0
-        embeddings = self._embed(texts)
-        rows = [(embeddings[i], staged[i][0], staged[i][1]) for i in range(len(staged))]
-        conn = self._connect()
-        try:
-            self._rebuild_table(conn, "episodes", rows)
-        finally:
-            conn.close()
+        stats = self._sync_kind("episodes", staged)
+        self.last_sync["episodes"] = stats
         logger.info(
-            f"Vector episode index rebuilt: {episodes_added} episodes / {len(rows)} passages"
+            f"Vector episode index synced: {episodes_added} episodes / {len(staged)} passages "
+            f"({stats['embedded']} embedded, {stats['reused']} reused, {stats['removed']} removed)"
         )
         return episodes_added
 
@@ -523,7 +673,9 @@ class SqliteVecIndexer:
     # ---------- claims index (derived from in-page ```claims blocks) ----------
 
     def index_claims(self) -> int:
-        """Rebuild the claims index from the ` ```claims ` blocks in entity pages.
+        """Sync the claims index with the ` ```claims ` blocks in entity pages.
+
+        Incremental by content hash like the other kinds (:meth:`_sync_kind`).
 
         Source of truth is the editable markdown page; this index is derived and
         disposable (D2 ADDENDUM). Only **currently-valid** claims are indexed
@@ -537,8 +689,7 @@ class SqliteVecIndexer:
 
         if not self.entities_dir.exists():
             return 0
-        texts: list[str] = []
-        staged: list[tuple[str, dict]] = []
+        staged: list[tuple[str, str, dict]] = []
         for filepath in sorted(self.entities_dir.glob("*.md")):
             try:
                 parsed = markdown_parser.parse(filepath)
@@ -550,38 +701,32 @@ class SqliteVecIndexer:
                 text = (claim.text or "").strip()
                 if not text:
                     continue
-                texts.append(text)
-                staged.append(
-                    (
-                        text,
-                        {
-                            "claim_id": claim.id,
-                            "subject": claim.subject,
-                            "predicate": claim.predicate,
-                            "object": claim.object,
-                            "observer": claim.observer,
-                            "context": claim.context,
-                            "epistemic": claim.epistemic,
-                            "source_trust": claim.source_trust,
-                            "confidence": float(claim.confidence),
-                            "valid_from": claim.valid_from,
-                            "superseded_by": claim.superseded_by,
-                            "origin": claim.origin,
-                            "file_path": str(filepath),
-                        },
-                    )
-                )
-        if not staged:
-            return 0
-        embeddings = self._embed(texts)
-        rows = [(embeddings[i], staged[i][0], staged[i][1]) for i in range(len(staged))]
-        conn = self._connect()
-        try:
-            self._rebuild_table(conn, "claims", rows)
-        finally:
-            conn.close()
-        logger.info(f"Vector claims index rebuilt with {len(rows)} valid claims")
-        return len(rows)
+                staged.append((
+                    f"{filepath.stem}:{claim.id}",
+                    text,
+                    {
+                        "claim_id": claim.id,
+                        "subject": claim.subject,
+                        "predicate": claim.predicate,
+                        "object": claim.object,
+                        "observer": claim.observer,
+                        "context": claim.context,
+                        "epistemic": claim.epistemic,
+                        "source_trust": claim.source_trust,
+                        "confidence": float(claim.confidence),
+                        "valid_from": claim.valid_from,
+                        "superseded_by": claim.superseded_by,
+                        "origin": claim.origin,
+                        "file_path": str(filepath),
+                    },
+                ))
+        stats = self._sync_kind("claims", staged)
+        self.last_sync["claims"] = stats
+        logger.info(
+            f"Vector claims index synced: {len(staged)} valid claims "
+            f"({stats['embedded']} embedded, {stats['reused']} reused, {stats['removed']} removed)"
+        )
+        return len(staged)
 
     def search_claims(
         self,
@@ -625,6 +770,12 @@ class SqliteVecIndexer:
                 continue
             filtered.append(r)
         return filtered[:top_k]
+
+
+def _text_hash(text: str) -> str:
+    """The identity of an embedded text: what a sync compares to decide whether
+    a stored vector is still the right one."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _chunk_episode_body(body: str) -> list[str]:

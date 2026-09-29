@@ -261,13 +261,13 @@ def test_cancel_after_writes_began_still_commits_normally(tmp_path, monkeypatch,
     from api.services import inbox_generator
     real_generate = inbox_generator.generate
 
-    async def fake_generate(changes, skills, memory_path, relationships=None):
+    async def fake_generate(changes, skills, memory_path, relationships=None, **kwargs):
         # Simulate a cancel landing exactly as Stage 5 starts writing —
         # `write_started` is already True by the time `_run_stages` calls
         # this (see sleep_cycle.py's Stage 5 preamble).
         was_running, _ = sleep_cycle.request_cancel()
         assert was_running is True
-        await real_generate(changes, skills, memory_path, relationships=relationships)
+        await real_generate(changes, skills, memory_path, relationships=relationships, **kwargs)
 
     commit_calls = []
 

@@ -72,6 +72,86 @@ def find_open(
     return None
 
 
+class DecayBudget:
+    """One cycle's allowance of NEW decay items, shared by both writers.
+
+    The entity path (:func:`generate`) and the claim path
+    (:func:`write_claim_nudges`) draw on the same budget, so the cap holds
+    across them. An entity that already holds an open decay item is refreshed
+    and costs nothing. An entity the cap turns away is remembered in
+    ``deferred`` and reported, never silently dropped: it is still below the
+    threshold, so the next cycle raises it again. ``cap=None`` is unlimited.
+    """
+
+    def __init__(self, cap: int | None = None):
+        self.cap = None if cap is None else max(0, int(cap))
+        self.written = 0
+        self.refreshed = 0
+        self.deferred: set[str] = set()
+
+    def remaining(self) -> int | None:
+        return None if self.cap is None else max(0, self.cap - self.written)
+
+
+def _open_decay_items(inbox_dir: Path) -> dict[str, Path]:
+    """``{entity_id: oldest open decay item}`` — one scan, so a batch of
+    nudges is not O(nudges x inbox files). The same key ``find_open`` uses for
+    kind ``decay`` (``(entity_id, "")``); a deferred item is still open."""
+    out: dict[str, Path] = {}
+    for filepath in sorted(inbox_dir.glob("inbox-*.md")):
+        try:
+            fm = markdown_parser.parse(filepath).frontmatter
+        except Exception:
+            continue
+        if str(fm.get("kind", "")) != "decay":
+            continue
+        if str(fm.get("status", "pending") or "pending") != "pending":
+            continue
+        out.setdefault(str(fm.get("entity_id", "") or ""), filepath)
+    return out
+
+
+def _refresh_decay_item(path: Path, new_confidence: float, today: str) -> bool:
+    """Bump an open decay item instead of raising a second one: its priority
+    (the decayed confidence the card shows) follows the page, and
+    ``updated_date`` says it was seen again. ``created_date`` and the item id
+    stay, so the question keeps its age. Written only when something moved, so
+    an idle night does not dirty the inbox. Returns True when it wrote."""
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    priority = round(float(new_confidence or 0), 4)
+    if fm.get("priority") == priority and str(fm.get("updated_date", "")) == today:
+        return False
+    fm["priority"] = priority
+    fm["updated_date"] = today
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+def _admit_decay(
+    nudges: list[dict], open_items: dict[str, Path], budget: DecayBudget
+) -> set[int]:
+    """Which decay nudges may open a NEW item this cycle: the ``id()`` of one
+    nudge per entity that has no open item, lowest confidence first, at most
+    the budget's remaining allowance. The rest are counted in
+    ``budget.deferred`` by the caller when it reaches them."""
+    best: dict[str, dict] = {}
+    for n in nudges:
+        if n.get("action") != "decay_nudge":
+            continue
+        entity_id = str(n.get("id", "") or "")
+        if entity_id in open_items:
+            continue
+        cur = best.get(entity_id)
+        if cur is None or float(n.get("new_confidence", 0) or 0) < float(cur.get("new_confidence", 0) or 0):
+            best[entity_id] = n
+    ranked = sorted(best.values(), key=lambda n: (float(n.get("new_confidence", 0) or 0), str(n.get("id", ""))))
+    room = budget.remaining()
+    if room is not None:
+        ranked = ranked[:room]
+    return {id(n) for n in ranked}
+
+
 def merge_options_into(path: Path, new_options: list[dict], today: str) -> bool:
     """Merge competing values into an already-open question (§2.2).
 
@@ -136,8 +216,16 @@ async def generate(
     skills: list[dict],
     memory_path: Path,
     relationships: list[dict] | None = None,
+    decay_budget: DecayBudget | None = None,
 ) -> None:
-    """Generate inbox items, apply entity changes, persist relationships."""
+    """Generate inbox items, apply entity changes, persist relationships.
+
+    A ``decay_nudge`` is deduplicated against the OPEN decay items — an entity
+    that already has one is refreshed, not asked about again — and new ones
+    draw on ``decay_budget`` (the cycle's cap, shared with
+    :func:`write_claim_nudges`; ``None`` = unlimited).
+    """
+    budget = decay_budget if decay_budget is not None else DecayBudget()
     inbox_dir = memory_path / "inbox"
     entities_dir = memory_path / "entities"
     inbox_dir.mkdir(parents=True, exist_ok=True)
@@ -157,12 +245,27 @@ async def generate(
     # so deletions (resolved items) never cause an id collision — the old bug
     # used len(glob), which reset after files were removed.
     next_num = _next_inbox_num(inbox_dir)
+    open_decay = _open_decay_items(inbox_dir) if any(
+        c.get("action") == "decay_nudge" for c in changes
+    ) else {}
+    admitted = _admit_decay(changes, open_decay, budget)
+    turned_away: set[str] = set()
+    today = str(date.today())
 
     for change in changes:
         action = change.get("action", "")
 
         if action == "decay_nudge":
             entity_id = change["id"]
+            new_confidence = float(change.get("new_confidence", 0) or 0)
+            existing = open_decay.get(entity_id)
+            if existing is not None:
+                if _refresh_decay_item(existing, new_confidence, today):
+                    budget.refreshed += 1
+                continue
+            if id(change) not in admitted:
+                turned_away.add(entity_id)
+                continue
             entity_path = entities_dir / f"{entity_id}.md"
             entity_name = entity_id.replace("-", " ").title()
             if entity_path.exists():
@@ -171,7 +274,6 @@ async def generate(
 
             item_id = f"inbox-{next_num:03d}"
             next_num += 1
-            new_confidence = float(change.get("new_confidence", 0) or 0)
             frontmatter = {
                 "kind": "decay",
                 "required_input": "choice",
@@ -189,6 +291,8 @@ async def generate(
                 f"Should we keep tracking it or archive it?"
             )
             markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
+            open_decay[entity_id] = inbox_dir / f"{item_id}.md"
+            budget.written += 1
 
         elif action == "conflict_nudge":
             entity_id = change["id"]
@@ -222,6 +326,9 @@ async def generate(
             body = change.get("conflict_context", f"New information conflicts with existing data for {entity_name}.")
             markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
 
+    # An entity a lower-confidence sibling nudge already opened is not deferred.
+    budget.deferred |= {e for e in turned_away if e not in open_decay}
+
     # Create skill entities — sanitize_id keeps skills in lockstep with the
     # entity path so names like "AI/ML project framing" don't try to write to
     # a non-existent `ai/` subdirectory and crash Stage 5.
@@ -247,7 +354,9 @@ async def generate(
             markdown_parser.write(skill_path, frontmatter, skill.get("description", ""))
 
 
-def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
+def write_claim_nudges(
+    nudges: list[dict], memory_path: Path, decay_budget: DecayBudget | None = None
+) -> dict:
     """Fold M5f Stage-3 claim-reconciler nudges into the inbox (additive).
 
     The claim reconciler (``claim_reconciler.reconcile_stage3``) emits nudges in
@@ -265,7 +374,17 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
     key instead of spawning a duplicate, and ``skipped_multi_valued`` counts
     conflict nudges dropped by the G98 rule below. A subject without an entity
     page still gets a nudge (the page may be promoted next cycle).
+
+    **Decay is deduplicated by entity.** A ``decay_nudge`` is one question about
+    the page ("Still tracking X?"), however many of its claims are fading, and
+    the answer acts on the page — so an entity holding an open decay item is
+    refreshed, never given a second one, and a
+    batch of claim nudges on one page opens at most one item, keyed to its
+    lowest-confidence claim. New items draw on ``decay_budget`` (the cycle's
+    cap, shared with :func:`generate`); the entities it turned away are counted in
+    ``decay_budget.deferred`` — they raise again next cycle.
     """
+    budget = decay_budget if decay_budget is not None else DecayBudget()
     if not nudges:
         return {"written": 0, "merged": 0, "skipped_multi_valued": 0}
     inbox_dir = memory_path / "inbox"
@@ -275,6 +394,14 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
     written = 0
     merged = 0
     skipped_multi = 0
+    decay_refreshed = 0
+    open_decay = _open_decay_items(inbox_dir) if any(
+        n.get("action") == "decay_nudge" for n in nudges
+    ) else {}
+    admitted = _admit_decay(nudges, open_decay, budget)
+    turned_away: set[str] = set()
+    lowest: dict[str, float] = {}   # entity -> lowest confidence seen this call
+    today = str(date.today())
 
     for nudge in nudges:
         action = nudge.get("action", "")
@@ -317,9 +444,18 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
             kind, priority, required = "normalization", 0.3, "choice"
             title = f"Confirm a predicate fold for {entity_name}"
         elif action == "decay_nudge":
-            kind, priority, required = "decay", float(
-                nudge.get("new_confidence", 0) or 0
-            ), "choice"
+            confidence = float(nudge.get("new_confidence", 0) or 0)
+            confidence = min(confidence, lowest.get(entity_id, confidence))
+            lowest[entity_id] = confidence
+            existing = open_decay.get(entity_id)
+            if existing is not None:
+                if _refresh_decay_item(existing, confidence, today):
+                    decay_refreshed += 1
+                continue
+            if id(nudge) not in admitted:
+                turned_away.add(entity_id)
+                continue
+            kind, priority, required = "decay", confidence, "choice"
             title = f"No recent mentions of {entity_name}"
         else:
             continue
@@ -363,7 +499,12 @@ def write_claim_nudges(nudges: list[dict], memory_path: Path) -> dict:
         )
         markdown_parser.write(inbox_dir / f"{item_id}.md", frontmatter, body)
         written += 1
+        if kind == "decay":
+            open_decay[entity_id] = inbox_dir / f"{item_id}.md"
+            budget.written += 1
 
+    budget.refreshed += decay_refreshed
+    budget.deferred |= {e for e in turned_away if e not in open_decay}
     return {"written": written, "merged": merged, "skipped_multi_valued": skipped_multi}
 
 
