@@ -319,3 +319,42 @@ def test_claude_memory_episode_without_export_date_is_never_none(tmp_path):
     (path,) = ep_dir.glob("ep_*.md")
     ts = markdown_parser.parse(path).frontmatter["timestamp"]
     assert isinstance(ts, str) and ts.endswith("+00:00"), ts
+
+
+def test_claude_memory_episodes_declare_assistant_evidence_kind(tmp_path):
+    """A memory is Claude's summary, written `system:` — R4 alone would read that
+    as the person's side. The episode carries the R-LS7 override on disk, and
+    `evidence.kind_for` honours it (through the stored frontmatter)."""
+    from api.services import evidence
+
+    ep_dir = tmp_path / "episodes"
+    data = [{
+        "conversations_memory": "Placeholder memory text.",
+        "project_memories": {"11111111-aaaa": "Placeholder project memory."},
+        "memory_files": [{"path": "notes/a.md", "content": "Placeholder file.",
+                          "updated_at": "2026-03-01T10:00:00Z"}],
+        "updated_at": "2026-03-01T10:00:00Z",
+    }]
+    episodes = conv.parse_anthropic_memories(data)
+    assert len(episodes) == 3 and all(e["evidence_kind"] == "assistant" for e in episodes)
+    conv._stage_episodes(episodes, ep_dir)
+    paths = sorted(ep_dir.glob("ep_*.md"))
+    assert len(paths) == 3
+    for path in paths:
+        parsed = markdown_parser.parse(path)
+        assert parsed.frontmatter["evidence_kind"] == "assistant"
+        assert parsed.body.startswith("system:")
+        kind = evidence.kind_for(parsed.frontmatter["id"], parsed.body, 0,
+                                 parsed.frontmatter.get("evidence_kind"))
+        assert kind == "assistant"
+    # Without the override the very same body reads as the person's side.
+    body = markdown_parser.parse(paths[0]).body
+    assert evidence.kind_for("ep_2026-03-01_001", body, 0, None) == "user"
+
+
+def test_other_imports_declare_no_evidence_kind(tmp_path):
+    ep_dir = tmp_path / "episodes"
+    data = _claude_export("uuid-k", "2026-02-24T13:00:00.000000Z", [("human", "Q"), ("assistant", "A")])
+    conv._stage_episodes(conv.parse_anthropic_conversations(data), ep_dir)
+    (path,) = ep_dir.glob("ep_*.md")
+    assert "evidence_kind" not in markdown_parser.parse(path).frontmatter

@@ -316,7 +316,11 @@ the bank's own decay answers in git history (`GET /memory/decay-suggestions`) an
 their own. One function, `decay_policy.effective`, serves the pass and the entity wire's derived
 `decay` block. Claims fade the same way (`claim_reconciler._decay_claims`: weeks from the claim's
 episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
-count). Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
+count). **An import is not silence:** a page or claim a cycle creates or references from months-old
+episodes keeps that date as its content date (`last_referenced`, `valid_from`) but gets
+`decayed_through` = the cycle's date, so silence counts from when Cicada learned it and a
+multi-cycle drain of a backdated export never charges or archives what it just read.
+Below 0.2 → `status: archived` (the page stays in `entities/`); below 0.4 → a decay nudge.
 Mentioned again → promoted back at `confidence = max(current, 0.6)`. Evergreen entities skip all
 decay math. **Confidence does not rank recall:** search puts archived pages last and otherwise ranks
 by relevance (`search_service._page`'s sort key and the per-kind cut's archived tier); whether
@@ -409,7 +413,7 @@ one of six: `user` | `assistant` | `page` | `speaker` (a meeting participant who
 G134) | `media` (what a video said — a watch record's timed `video [m:ss]:` line, G140; its position
 in the video is derived at read, never stored) | `reasoning` (the contributor's own inference:
 `start == end == -1`, never a faked span); an episode's `evidence_kind: user|assistant` (a folder's
-authorship rule, R-F2) overrides the line markers. One marker grammar, `evidence._marker`, reads
+authorship rule, R-F2; a Claude memory export is always `assistant`, its lines being `system:`) overrides the line markers. One marker grammar, `evidence._marker`, reads
 both line families, plus the chat importer's `attachment [<file name>]:` turn — the text Claude extracted from an
 upload, every line quoted (`> `) so it can open no turn — which is `page`, never the person's words. One module, `api/services/evidence.py`, does the work for every writer: locate
 is exact → whitespace-normalised → case-insensitive and **never fuzzy**; an unlocatable quote
@@ -527,7 +531,20 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   Written by the Contacts sync only (`contacts_local.photo_path`, the same path `entity_picture.contacts_path` reads).
 - `owner: true` (G117) — marks the one `person` page as the bank's owner; `owner_identity.
   resolve_observer` is what decides which page gets it, and every user-stated claim's `observer`
-  field is that resolved value.
+  field is that resolved value. **Every new bank starts with it** (`bank_registry.create_bank` →
+  `owner_identity.seed_owner_page`, its own `cicada` commit; never the demo, which writes its
+  own): the machine-level name from `owner.json` when one was saved (a name and an id, never
+  another bank's knowledge), else a neutral `Owner` page (`owner_placeholder: true`, id `owner`,
+  the id `resolve_observer` already answers with) opening "The main person this memory belongs
+  to." `name` stays the plain name — Stage 2 matches a mention to a page by `name`, so a stored
+  "(you)" would stop the person's own name from resolving — and the app renders "Name (you)" from
+  the flag. `PUT /settings/owner` **adopts** a placeholder (renames it, keeps its id and claims)
+  instead of writing a second owner page. Beliefs accrue through chats and consolidation. The
+  first-boot default bank is scaffolded by the lifespan, not `create_bank`, so the lifespan seeds it
+  the same way when it is brand new (`seed_owner_if_brand_new`: no entity page, no episode). Because
+  a bank now starts with one node, **the app's empty means "no node but the owner's"**
+  (`hasNoContentBeyondOwner`: `FirstRunGate`'s graph input, the Graph's and Clusters' "Nothing here
+  yet"); the `/banks` `entityCount` of a new bank is 1.
 - `kept_on:` (G147) — the days the person answered *keep* to a decay question; each joins the page's
   mention weeks, so a kept page fades a little slower. Written only by the decay resolver, deduped,
   capped at 52. Not an episode id and never read as one.

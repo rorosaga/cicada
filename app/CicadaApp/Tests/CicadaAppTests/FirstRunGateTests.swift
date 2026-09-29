@@ -91,4 +91,33 @@ final class FirstRunGateTests: XCTestCase {
             graphIsEmpty: false
         ))
     }
+
+    /// Every new bank is born with its owner's page, so a graph of only that node is still an
+    /// empty bank: the Welcome and the "Nothing here yet" states key off content beyond the owner.
+    func testAnOwnerOnlyGraphCountsAsEmptyForTheGateAndEmptyStates() {
+        let owner = GraphNode(id: "owner", name: "Owner", type: .person, isOwner: true)
+        let other = GraphNode(id: "alpha-project", name: "Alpha", type: .project)
+        XCTAssertTrue([GraphNode]().hasNoContentBeyondOwner)
+        XCTAssertTrue([owner].hasNoContentBeyondOwner)
+        XCTAssertFalse([owner, other].hasNoContentBeyondOwner)
+        XCTAssertFalse([other].hasNoContentBeyondOwner)
+        XCTAssertTrue(FirstRunGate.shouldShow(
+            bankResolved: true, isOnboarded: false, graphLoaded: true,
+            graphIsEmpty: [owner].hasNoContentBeyondOwner))
+        XCTAssertFalse(FirstRunGate.shouldShow(
+            bankResolved: true, isOnboarded: false, graphLoaded: true,
+            graphIsEmpty: [owner, other].hasNoContentBeyondOwner))
+    }
+
+    func testEntitiesOfOnlyTheOwnerHaveNoContentBeyondIt() {
+        func entity(_ id: String, _ type: EntityType, owner: Bool) -> Entity {
+            Entity(id: id, name: id, type: type, status: .active, confidence: 1, created: "2026-01-01",
+                   lastReferenced: "2026-01-01", decayRate: 0, sourceEpisodes: [], tags: [], related: [],
+                   version: 1, markdownContent: "", history: [], isOwner: owner)
+        }
+        let owner = entity("owner", .person, owner: true)
+        let other = entity("alpha-project", .project, owner: false)
+        XCTAssertTrue([owner].hasNoContentBeyondOwner)
+        XCTAssertFalse([owner, other].hasNoContentBeyondOwner)
+    }
 }

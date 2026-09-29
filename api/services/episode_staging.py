@@ -172,6 +172,9 @@ def draft_from_export(episode: dict) -> EpisodeDraft:
         turns=[Turn(text=m["text"], speaker=m["role"], ts=m.get("timestamp"))
                for m in episode.get("messages", [])],
         writer="import",
+        # An importer may declare whose words the episode holds (a Claude memory is
+        # the assistant's); absent, the per-line markers decide as before.
+        extra={"evidence_kind": episode["evidence_kind"]} if episode.get("evidence_kind") else {},
     )
 
 

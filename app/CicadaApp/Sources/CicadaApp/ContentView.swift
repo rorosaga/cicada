@@ -303,7 +303,7 @@ struct ContentView: View {
             bankResolved: store.banks.value != nil,
             isOnboarded: OnboardingState.isOnboarded(bank: store.bank),
             graphLoaded: store.graph.value != nil,
-            graphIsEmpty: store.graph.value?.nodes.isEmpty ?? false
+            graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false
         ) {
             welcomeMode = .firstRun
             showFirstRun = true

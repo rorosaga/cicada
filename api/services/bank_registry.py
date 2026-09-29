@@ -421,8 +421,13 @@ def list_banks(root: Path) -> dict[str, Any]:
     return {"banks": banks, "active": active}
 
 
-def create_bank(root: Path, name: str, description: str = "") -> str:
-    """Create a NEW EMPTY bank under ``<root>/banks/<slug>``. Returns the slug.
+def create_bank(root: Path, name: str, description: str = "", *, seed_owner: bool = True) -> str:
+    """Create a NEW bank under ``<root>/banks/<slug>``. Returns the slug.
+
+    Empty but for the owner's page (``owner_identity.seed_owner_page``): every
+    memory starts with the person it belongs to, and beliefs accrue from chats
+    and consolidation. ``seed_owner=False`` is the demo's, which writes its own
+    owner page (`demo_bank`).
 
     Raises ``ValueError`` if the name slugs to an existing bank (or to the
     reserved legacy default).
@@ -445,6 +450,11 @@ def create_bank(root: Path, name: str, description: str = "") -> str:
         "description": description or "",
     }
     save_registry(root, registry)
+    if seed_owner:
+        # Deferred: `owner_identity` imports `api.config`, which imports this module.
+        from api.services import owner_identity
+
+        owner_identity.seed_owner_page(path)
     return slug
 
 

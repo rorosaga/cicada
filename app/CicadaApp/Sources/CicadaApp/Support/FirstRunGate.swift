@@ -44,3 +44,18 @@ enum FirstRunGate {
         bankResolved && !isOnboarded && graphLoaded && graphIsEmpty
     }
 }
+
+/// Every new bank starts with its owner's page (`bank_registry.create_bank` →
+/// `owner_identity.seed_owner_page`), so "the graph has no nodes" stopped being
+/// the mark of a bank nobody has put anything in. **Empty means no node but the
+/// owner's**: the first-run gate, the Graph's and Clusters' "Nothing here yet"
+/// states read it, and a bank that has only its seeded owner page still meets
+/// the Welcome and the drop-a-file target. `GraphNode.isOwner` is the
+/// `owner: true` key, the same flag the seed writes.
+extension Sequence where Element == GraphNode {
+    var hasNoContentBeyondOwner: Bool { allSatisfy(\.isOwner) }
+}
+
+extension Sequence where Element == Entity {
+    var hasNoContentBeyondOwner: Bool { allSatisfy(\.isOwner) }
+}
