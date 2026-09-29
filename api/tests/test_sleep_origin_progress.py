@@ -55,7 +55,7 @@ def test_extract_without_on_episode_done_is_unchanged():
     assert len(out) == 1
 
 
-def test_run_sets_queue_by_origin_from_the_capped_slice_and_ticks_read_by_origin(tmp_path, monkeypatch):
+def test_run_sets_queue_by_origin_from_the_whole_queue_and_ticks_read_by_origin(tmp_path, monkeypatch):
     """Full `run()` with Stage-1 boundaries stubbed — mirrors
     test_sleep_progress.test_stage1_progress_ticks_live_during_a_real_run."""
     from api.services import markdown_parser, predicates
@@ -86,12 +86,13 @@ def test_run_sets_queue_by_origin_from_the_capped_slice_and_ticks_read_by_origin
     settings = SimpleNamespace(
         memory_path=memory, litellm_model="m", litellm_disambiguation_model="m",
         archive_threshold=0.2, decay_nudge_threshold=0.4, link_enrich_enabled=False,
-        inbox_stale_after_days=90, sleep_max_episodes_per_cycle=3,
+        inbox_stale_after_days=90, sleep_batch_episodes=3,
     )
     asyncio.run(sleep_cycle.run(settings, "cycle-origins"))
     state = sleep_cycle.get_sleep_state()
 
-    assert state.queue_by_origin == {"claude-code": 2, "safari-tab": 1}   # cap 3 of 4, oldest first
+    # The whole queue is the denominator (no cap, TODO ruling 14); the first batch of 3 is read first.
+    assert state.queue_by_origin == {"claude-code": 2, "safari-tab": 1, "telegram": 1}
     assert snapshots[-1] == {"claude-code": 2, "safari-tab": 1}
     assert snapshots[0] in ({"claude-code": 1}, {"safari-tab": 1})
 

@@ -44,13 +44,13 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
      placeholder the owner PUT adopts). Do not import from another bank.
   2. Engine = a plan (Claude or ChatGPT), schedule **manual**, *Keep going on extra usage* **off** (ruling 4: a scheduled
      cycle never spends plan quota, so leave it manual until the first drain is understood).
-  3. Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE` to **100–150** (default 25) in `api/.env`, restart the backend.
+  3. ~~Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE`~~ — obsolete (ruling 14): one trigger drains the whole queue.
   4. Import the Claude export first, then the ChatGPT export (through the one intake; the memory files arrive as
      lower-trust assistant words).
-  5. Run **one capped cycle** and inspect: the owner page's beliefs and their spans, the entity count against the episodes
+  5. Run **one cycle** (it drains the queue in batches; watch the first batch's commit) and inspect: the owner page's beliefs and their spans, the entity count against the episodes
      read, no page archived that the cycle just read, the inbox's decay questions (at most 10 new).
-  6. Drain: repeat one capped cycle at a time until the queue is empty (Sleep v5's journal and *Read everything*,
-     G163, replace this by hand once built). Watch the plan window between cycles.
+  6. Drain: nothing to repeat by hand any more (ruling 14). A plan stop ends the drain; trigger again after the reset.
+     Watch the plan window.
 
 **Pending after 2026-09-28 (owner asked to record these):**
 - *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt
@@ -565,6 +565,52 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       on `sleep_run`; never text.
 
     Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
+
+13. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
+    (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
+    chatgpt app and claude app, which uses the logged in sessions and swiftly surfaces 'needs login'… I want this built
+    now"; G166, spec `2026-09-29-reading-the-web-design.md`).** Four of the spec's proposed rulings are now binding; the
+    rest (R-RW1–3 the Reader's identity and metadata tier, R-RW6–7 and R-RW12 chat links, R-RW10–11 robots and backoff)
+    stay with the Reader slices.
+    - **R-RW8 — the ruling that keeps this from eroding the rail.** The standing rail ("no scraping behind
+      authentication", 4 s / ≤ 512 KB / no cookies / a block never retried with different headers) governs *Cicada's own
+      fetcher* and is unchanged. Agent reading is person-driven and never scheduled; Cicada only *asks* — per link, for a
+      site the person switched on, after a versioned first-use acknowledgement — and promises nothing about what the
+      agent does in its own browser. The backend never holds a session, a cookie or a profile. No Cicada text says
+      "read-only" or "never posts"; contract item 9 and the hand-off prompt are *instructions*, not promises.
+    - **R-RW4 — one closed set of login-walled hosts, and the backend never requests one.** X, Facebook, LinkedIn,
+      Instagram, TikTok, Reddit and `t.co` (dot-boundary match: `lnkd.in` and `fb.watch` in, `notx.com` out). This closes
+      the X gap (X fell through to the OpenGraph fetch). TikTok keeps its provider oEmbed branch, which never loads the
+      page. Reddit and `t.co` are never offered to an agent; the other five are five per-site switches, all off.
+      `link_enrichment._excluded_media` is shared with `fact_sources.is_refused_host` and `link_recon`, so a source on
+      such a host now reads as needing the person's login there too.
+    - **R-RW5 — a link that carries a secret or a side effect is never offered** (a token-like query key, an
+      unsubscribe/verify/reset/logout/oauth path segment, a signed URL, a private-workspace host, a userinfo or non-web
+      port), nor is a local or reserved host, an AI vendor's own page, a video (the video path owns it) or a paper.
+    - **R-RW9 — `--chrome` is in no argv** (`test_reading_never_spawns_browser.py`). Measured: it overrides
+      `--safe-mode`, `--strict-mcp-config` and `--tools ""`.
+    - **The outcome is stored where it can be shown at once.** `needs_login`, `blocked`, `not_found` and `failed` live
+      only in the machine-wide ask store (no bank write, no commit, no Sleep gate) and move the `reading` sync component;
+      only a successful `read` is memory. Chosen over writing the page because a page write needs a commit, is refused
+      remotely while Sleep runs, and does not exist for a link that was never saved.
+    - **An ask's URL is visible to any connection holding `read`** (this departs from the spec's §8.4, which hid a
+      `role: user` row's URL without `sources`). Cause: the person's explicit "Ask an agent" *is* the consent to hand that
+      one URL to an agent, and the default scopes are search/read/record, so applying the old rule would leave the ChatGPT
+      and Claude apps unable to read any ask. `sources` still gates every verbatim word of the person's conversations, an
+      inbox `Cause:` quote and any chat-harvested URL (not built yet). No `why` or note text is served remotely.
+    Revisit when the owner asks for Route B (a Cicada-spawned browse call, spike-gated) or a per-category refuse list
+    (adult, financial, health hosts: not buildable as an honest closed list, so every walled host is opt-in and every
+    other page an explicit ask).
+
+14. **A Sleep trigger drains the whole queue; nothing caps the episodes per Sleep (owner, 2026-09-29: "i dont want to
+    cap the max episodes per sleep, why would we cap them? its just progress that cicada has to go through").** This
+    reverses PR #27's per-cycle cap (`sleep_max_episodes_per_cycle` = 25). What was right in it survives as a
+    *checkpoint*, not a limit: `sleep_cycle.run` runs Stages 1–5 over batches of `sleep_batch_episodes` (25) and commits
+    each, so a cancel or crash loses at most the batch in flight (Stages 1–4 are in memory until Stage 5). Ruling 1
+    (decay charges once) and ruling 4 (a scheduled cycle never spends plan quota) are untouched; a plan stop ends the
+    drain and the next trigger resumes it. `episodeCap` stays on the wire as 0 for older clients. **The first-run
+    checklist's step 3 and 6 (raise the cap, "drain by hand one capped cycle at a time") are obsolete**; G163's
+    "reading everything that is waiting" is what this delivers for the backend.
 
 ## How work is run here
 

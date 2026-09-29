@@ -16,6 +16,7 @@ from api.models.schemas import (
     NotesSyncRequest,
     NotesSyncResponse,
     PaperSummary,
+    ReadState,
     SafariTabsDevice,
     SafariTabsPreview,
     SafariTabsSyncRequest,
@@ -41,6 +42,9 @@ from api.services import (
     feed_registry,
     media_ingestor,
     notes_sync,
+    reading_asks,
+    reading_service,
+    reading_settings,
     safari_tabs,
     saved_at as saved_at_service,
     source_overview,
@@ -578,6 +582,19 @@ def _description_excerpt(body: str, limit: int = 280) -> str | None:
     return f"{cut}…"
 
 
+def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed) -> ReadState | None:
+    """G166: one link's ``read`` block — never raises (a bad row is no block)."""
+    try:
+        url = str(entry.get("url") or "")
+        if not url:
+            return None
+        state = reading_service.read_state(
+            url, fm_read, ask_rows.get(media_ingestor.url_hash(url)), enabled=enabled, allowed_hosts=allowed)
+        return ReadState.model_validate(state) if state is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -592,10 +609,19 @@ async def list_sources(
     computed from each entity's frontmatter.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", extra=sort)
+    # G166: the `reading` component (the ask store and the reading settings, both
+    # outside the bank) is an ETag input, so an agent's outcome or a per-site
+    # switch reaches the Feed's read state without a bank write.
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", extra=sort)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)
+    reading_enabled = reading_settings.agent_enabled()
+    reading_allowed = reading_settings.allowed_hosts()
+    try:
+        ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
+    except ValueError:
+        ask_rows = {}
 
     items = []
     for entry in idx.values():
@@ -620,6 +646,7 @@ async def list_sources(
         duration_s: int | None = None
         kind: str | None = None
         paper: PaperSummary | None = None
+        fm_read = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -639,6 +666,7 @@ async def list_sources(
                 folder = str(fm.get("folder") or "").strip() or None
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
+                fm_read = fm.get("read")
                 # Track P R5 — what the person removed, and what enrichment
                 # retired, must stop rendering. G129 slice 2's `remove`
                 # ARCHIVES the media entity (`inbox_service.py:962-966`) and
@@ -712,6 +740,7 @@ async def list_sources(
                 duration_s=duration_s,
                 kind=kind,
                 paper=paper,
+                read=_read_block(entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed),
             )
         )
 

@@ -1,4 +1,4 @@
-"""Sleep cycle control — cancel route + episode cap.
+"""Sleep cycle control — cancel route + the batch drain (no episode cap).
 
 The whole-branch review flagged the missing cancel route as the last
 first-run hazard once Sleep can run on the agent engine: no way to stop a
@@ -9,8 +9,9 @@ leaves a dirty bank. This file covers the two knobs that close that gap:
   points (between stages, and inside Stage 1's fan-out / Stage 2's per-name
   judging loop) — never mid-write, mid-commit, or between a write and its
   commit.
-- A settings-driven episode cap (`Settings.sleep_max_episodes_per_cycle`) so
-  one cycle can't run unbounded against a huge queue.
+- The drain (TODO ruling 14): nothing caps the episodes per Sleep. A trigger
+  reads the whole queue in batches of `Settings.sleep_batch_episodes`, each a
+  committed checkpoint, so a cancel or a crash loses at most the batch in flight.
 
 Hermetic: no network, no real model, no real `claude` spawn (the suite-wide
 `_no_real_agent_spawn` fixture in conftest.py already guards that). The core
@@ -395,31 +396,36 @@ def test_resolve_stops_the_per_name_loop_once_cancel_check_is_true(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Episode cap
+# The drain: batches, no cap
 # --------------------------------------------------------------------------- #
 
 
-def test_default_episode_cap_is_25():
+def test_default_batch_size_is_25_and_there_is_no_cap_setting():
     from api.config import Settings
 
-    assert Settings().sleep_max_episodes_per_cycle == 25
+    assert Settings().sleep_batch_episodes == 25
+    assert not hasattr(Settings(), "sleep_max_episodes_per_cycle")
 
 
-def test_episode_cap_truncates_the_batch_and_leaves_the_rest_queued(tmp_path, monkeypatch, tail_spy):
-    ids = [f"ep_2026-09-01_{i:03d}" for i in range(5)]
-    memory = _seed_git_bank(tmp_path, ids)
-
-    seen_ids: list[str] = []
-
-    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
-        seen_ids.extend(e["id"] for e in episodes)
-        return [{
-            "episode_id": ep["id"], "episode_timestamp": ep["timestamp"],
-            "origin": "mcp",
-            "entities": [{"name": ep["id"], "type": "concept", "confidence": 0.7,
-                          "source_episode": ep["id"]}],
-            "relationships": [],
-        } for ep in episodes]
+def _stub_pipeline(monkeypatch, seen_batches: list, *, fail: set | None = None):
+    async def fake_extract(episodes, settings, cancel_check=None, progress_callback=None, on_episode_done=None,
+                           **_kw):
+        seen_batches.append([e["id"] for e in episodes])
+        out = []
+        for ep in episodes:
+            if progress_callback:
+                progress_callback()
+            if on_episode_done:
+                on_episode_done(ep)
+            if fail and ep["id"] in fail:
+                continue
+            out.append({
+                "episode_id": ep["id"], "episode_timestamp": ep["timestamp"], "origin": "mcp",
+                "entities": [{"name": ep["id"], "type": "concept", "confidence": 0.7,
+                              "source_episode": ep["id"]}],
+                "relationships": [],
+            })
+        return out
 
     async def fake_resolve(extracted_arg, existing, settings, cancel_check=None):
         return {"changes": [], "relationships": [], "episode_cooccurrences": {}}
@@ -457,39 +463,112 @@ def test_episode_cap_truncates_the_batch_and_leaves_the_rest_queued(tmp_path, mo
     monkeypatch.setattr(git_service, "porcelain_status", fake_porcelain)
     monkeypatch.setattr("api.services.vector_index.SqliteVecIndexer", _FakeIndexer)
 
-    asyncio.run(sleep_cycle.run(_settings(memory, sleep_max_episodes_per_cycle=2), "cycle-cap"))
 
-    assert len(seen_ids) == 2, "only the capped batch reaches Stage 1"
+def test_one_trigger_drains_the_whole_queue_in_batches(tmp_path, monkeypatch, tail_spy):
+    ids = [f"ep_2026-09-01_{i:03d}" for i in range(5)]
+    memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches)
+
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-drain"))
+
+    assert [len(b) for b in batches] == [2, 2, 1], "batches of the checkpoint size, none skipped"
+    assert sorted(i for b in batches for i in b) == sorted(ids)
+    assert sleep_cycle._get_unprocessed_episodes(memory) == [], "nothing is left for a second trigger"
 
     state = sleep_cycle.get_sleep_state()
-    assert state.episode_cap == 2
-    assert state.episodes_queued == 5
-    assert state.episodes_total == 2
-    assert "episode cap reached" in (state.progress or "")
-    assert "2 of 5" in (state.progress or "")
-
-    # The 3 episodes never handed to Stage 1 stay queued for the next cycle.
-    remaining_ids = {e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)}
-    assert remaining_ids == set(ids) - set(seen_ids)
-    assert len(remaining_ids) == 3
+    assert state.episode_cap == 0, "nothing is capped"
+    assert state.episodes_queued == 5 and state.episodes_total == 5
+    assert state.stage1_progress == 5, "progress counts across batches"
+    assert state.episodes_processed == 5 and state.entities_created == 0
+    assert (state.progress or "").startswith("Completed — 5 episode(s) read in 3 batches")
+    assert "cap" not in (state.progress or "").lower()
 
 
-def test_episode_cap_is_a_noop_when_the_queue_fits(tmp_path, monkeypatch, tail_spy):
+def test_a_small_queue_is_one_batch_and_reads_as_before(tmp_path, monkeypatch, tail_spy):
     ids = ["ep_2026-09-01_001", "ep_2026-09-01_002"]
     memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches)
 
-    async def fake_extract(episodes, settings, cancel_check=None, **_kw):
-        return []
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=25), "cycle-one"))
 
-    monkeypatch.setattr("api.services.entity_extractor.extract", fake_extract)
-
-    asyncio.run(sleep_cycle.run(_settings(memory, sleep_max_episodes_per_cycle=25), "cycle-nocap"))
-
+    assert batches == [ids]
     state = sleep_cycle.get_sleep_state()
-    assert state.episode_cap == 25
-    assert state.episodes_queued == 2
-    assert state.episodes_total == 2
-    assert "episode cap" not in (state.progress or "")
+    assert (state.episode_cap, state.episodes_queued, state.episodes_total) == (0, 2, 2)
+    assert (state.progress or "") == "Completed"
+
+
+def test_an_episode_that_fails_extraction_is_not_retried_inside_the_drain(tmp_path, monkeypatch, tail_spy):
+    ids = [f"ep_2026-09-01_{i:03d}" for i in range(4)]
+    memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches, fail={ids[0]})
+
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-fail"))
+
+    assert sorted(i for b in batches for i in b) == sorted(ids), "each episode was tried exactly once"
+    assert [e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)] == [ids[0]], "it stays queued"
+    assert sleep_cycle.get_sleep_state().episodes_requeued == 1
+
+
+def test_a_cancel_between_batches_stops_the_drain_and_keeps_what_was_committed(tmp_path, monkeypatch, tail_spy):
+    ids = [f"ep_2026-09-01_{i:03d}" for i in range(4)]
+    memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches)
+    real = sleep_cycle._get_unprocessed_episodes
+
+    def listing(mp):
+        if len(batches) == 1:
+            sleep_cycle._state.cancel_requested = True  # the person pressed cancel after batch one committed
+        return real(mp)
+
+    monkeypatch.setattr(sleep_cycle, "_get_unprocessed_episodes", listing)
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-cancel"))
+
+    assert len(batches) == 1, "no second batch started"
+    assert [e["id"] for e in real(memory)] == ids[2:], "the first batch stays committed"
+    state = sleep_cycle.get_sleep_state()
+    assert state.cancelled is True and "2 episode(s) remain queued" in (state.progress or "")
+
+
+def test_a_plan_stop_ends_the_drain_and_the_next_trigger_resumes(tmp_path, monkeypatch, tail_spy):
+    from api.services import agent_engine
+
+    ids = [f"ep_2026-09-01_{i:03d}" for i in range(4)]
+    memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches)
+    monkeypatch.setattr(agent_engine, "breaker_reason", lambda: "plan limit reached")
+
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-plan"))
+    assert len(batches) == 1 and len(sleep_cycle._get_unprocessed_episodes(memory)) == 2
+
+    monkeypatch.setattr(agent_engine, "breaker_reason", lambda: None)
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-resume"))
+    assert sleep_cycle._get_unprocessed_episodes(memory) == []
+
+
+def test_one_drain_shares_one_decay_budget(tmp_path, monkeypatch, tail_spy):
+    """G171: a cycle opens at most `decay_inbox_cap_per_cycle` new decay questions —
+    however many batches it runs."""
+    ids = [f"ep_2026-09-01_{i:03d}" for i in range(4)]
+    memory = _seed_git_bank(tmp_path, ids)
+    batches: list[list[str]] = []
+    _stub_pipeline(monkeypatch, batches)
+    budgets = []
+    from api.services import inbox_generator
+
+    real_generate = inbox_generator.generate
+
+    async def spy(changes, skills, memory_path, **kw):
+        budgets.append(kw.get("decay_budget"))
+        return await real_generate(changes, skills, memory_path, **kw)
+
+    monkeypatch.setattr(inbox_generator, "generate", spy)
+    asyncio.run(sleep_cycle.run(_settings(memory, sleep_batch_episodes=2), "cycle-budget"))
+    assert len(budgets) == 2 and budgets[0] is budgets[1] and budgets[0] is not None
 
 
 # --------------------------------------------------------------------------- #

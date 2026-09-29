@@ -42,6 +42,8 @@ GATED = {
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",
     ("POST", "/capture/local-source/wispr-flow"): "/capture/local-source/wispr-flow",
     ("PUT", "/capture/local-source/wispr-flow/settings"): "/capture/local-source/wispr-flow/settings",
+    # G166: "Ask an agent" can save a page (without a fetch), so it is gated like a save.
+    ("POST", "/reading/asks"): "/reading/asks",
 }
 #: The rest of the prefixes, each with the reason it is not the dependency's.
 HANDLED_ELSEWHERE = {
@@ -55,8 +57,9 @@ HANDLED_ELSEWHERE = {
     ("PUT", "/sources/connectors/{connector_id}/credentials"):
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
+    ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
 }
-PREFIXES = ("/capture/", "/sources/", "/intake/")
+PREFIXES = ("/capture/", "/sources/", "/intake/", "/reading/")
 
 
 def _routes() -> dict[tuple[str, str], APIRoute]:

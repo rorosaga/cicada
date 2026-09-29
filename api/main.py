@@ -34,6 +34,7 @@ from api.routers import (
     nudges,
     origins,
     projects,
+    reading,
     remote,
     search,
     settings as settings_router,
@@ -236,5 +237,6 @@ app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
+app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])

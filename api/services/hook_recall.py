@@ -76,7 +76,7 @@ SEMANTIC_K = 30
 SEMANTIC_CHARS = 2_000
 
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
-           "timeout", "error")
+           "timeout", "error", "reading")
 
 #: Folded words that name nothing (R-H2, R-H3): English and Spanish function
 #: words plus the verbs and nouns every coding prompt uses. A name made only of
@@ -447,6 +447,82 @@ class RecentPages:
 RECENT = RecentPages()
 
 
+class _ReadingSeen:
+    """Per-session memory of how many waiting links the hook last mentioned (G166).
+
+    The waiting count is per request and never written to ``_state.md`` (it is
+    machine-wide state outside the bank); this only keeps the sentence from
+    repeating every turn. A session hears it again only when MORE links are
+    waiting than it was last told about. Process-local, bounded, thread-safe."""
+
+    def __init__(self, sessions: int = MAX_SESSIONS):
+        self._sessions = sessions
+        self._lock = threading.Lock()
+        self._data: OrderedDict[str, int] = OrderedDict()
+
+    def told(self, session_id: str) -> int:
+        with self._lock:
+            return self._data.get(session_id, 0)
+
+    def remember(self, session_id: str, waiting: int) -> None:
+        with self._lock:
+            self._data.pop(session_id, None)
+            self._data[session_id] = waiting
+            while len(self._data) > self._sessions:
+                self._data.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+READING_SEEN = _ReadingSeen()
+
+
+def waiting_links(memory_path: Path) -> int:
+    """How many links the person asked an agent to read are waiting — 0 unless
+    agent reading is on. Engine-free: two small files outside the bank."""
+    from api.services import reading_asks, reading_hosts, reading_settings
+
+    if not reading_settings.agent_enabled():
+        return 0
+    allowed = reading_settings.allowed_hosts()
+    try:
+        rows = reading_asks.waiting(memory_path)
+    except ValueError:
+        return 0
+    if not rows:
+        return 0
+    from api.services import media_ingestor
+
+    idx = media_ingestor.load_url_index(memory_path)
+    count = 0
+    for row in rows:
+        url = str((idx.get(row["url_hash"]) or {}).get("url") or "")
+        if url and reading_hosts.agent_may_read(url, enabled=True, allowed_hosts=allowed).ok:
+            count += 1
+    return count
+
+
+def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, event: str) -> Injection:
+    """G166: append one sentence — "N links the person asked an agent to read are
+    waiting" — to the note (or make it the whole note), only while agent reading is
+    on and more links wait than this session was last told. Per request, never
+    stored, never in ``_state.md``. It rides beside the page note rather than
+    inside its 400-token budget: it is one sentence, and it is what makes the
+    person's "Ask an agent" reach an agent that was never told to look."""
+    waiting = waiting_links(memory_path)
+    if waiting <= 0:
+        return inj
+    if event == "user_prompt_submit" and waiting <= READING_SEEN.told(session_id):
+        return inj
+    line = recall_text.reading_line(waiting)
+    READING_SEEN.remember(session_id, waiting)
+    if inj.text:
+        return replace(inj, text=f"{inj.text}\n\n{line}")
+    return Injection(f"{recall_text.READING_HEADER}\n{line}", inj.injected, "reading", inj.inbox_id)
+
+
 def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: str,
             deadline: float) -> tuple[Injection, str | None]:
     """The route's one worker call: the bank a capture would write into
@@ -458,8 +534,10 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
         return Injection.none("no_bank"), None
     if event == "session_start":
         RECENT.reset(session_id)
-        return session_primer(target.path, harness), target.name
-    return prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline), target.name
+        READING_SEEN.remember(session_id, 0)
+        return with_reading_note(session_primer(target.path, harness), target.path, session_id, event=event), target.name
+    note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
+    return with_reading_note(note, target.path, session_id, event=event), target.name
 
 
 LATENCY_BUCKETS = ((50, "<50"), (100, "50-100"), (200, "100-200"), (300, "200-300"))
@@ -496,5 +574,6 @@ def record(event: str, harness: str, result: Injection, *, latency_ms: int, mode
 def reset() -> None:
     """Forget every session window and cached model id (tests)."""
     RECENT.clear()
+    READING_SEEN.clear()
     with _MODELS_LOCK:
         _MODELS.clear()

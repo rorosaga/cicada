@@ -1,0 +1,317 @@
+{
+ "comment": "G166: the closed host sets, pinned. Placeholders only (bob-example, alpha-project); no real host from a bank.",
+ "cases": [
+  {
+   "url": "https://blog.bob-example.org/post/1",
+   "ok": true,
+   "cls": "",
+   "hostKey": null
+  },
+  {
+   "url": "http://blog.bob-example.org/post/1?utm_source=x&page=2",
+   "ok": true,
+   "cls": "",
+   "hostKey": null
+  },
+  {
+   "url": "https://notes.alpha-project.dev:443/a",
+   "ok": true,
+   "cls": "",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.linkedin.com/in/alpha",
+   "ok": true,
+   "cls": "",
+   "hostKey": "linkedin"
+  },
+  {
+   "url": "https://lnkd.in/abc",
+   "ok": true,
+   "cls": "",
+   "hostKey": "linkedin"
+  },
+  {
+   "url": "https://x.com/alpha/status/1",
+   "ok": true,
+   "cls": "",
+   "hostKey": "x"
+  },
+  {
+   "url": "https://mobile.twitter.com/alpha",
+   "ok": true,
+   "cls": "",
+   "hostKey": "x"
+  },
+  {
+   "url": "https://m.facebook.com/alpha",
+   "ok": true,
+   "cls": "",
+   "hostKey": "facebook"
+  },
+  {
+   "url": "https://fb.watch/xyz",
+   "ok": true,
+   "cls": "",
+   "hostKey": "facebook"
+  },
+  {
+   "url": "https://www.instagram.com/alpha/",
+   "ok": true,
+   "cls": "",
+   "hostKey": "instagram"
+  },
+  {
+   "url": "https://www.tiktok.com/@alpha",
+   "ok": true,
+   "cls": "",
+   "hostKey": "tiktok"
+  },
+  {
+   "url": "https://notx.com/a",
+   "ok": true,
+   "cls": "",
+   "hostKey": null
+  },
+  {
+   "url": "https://box.com/a",
+   "ok": true,
+   "cls": "",
+   "hostKey": null
+  },
+  {
+   "url": "https://alinkedin.com/a",
+   "ok": true,
+   "cls": "",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.reddit.com/r/alpha",
+   "ok": false,
+   "cls": "N",
+   "hostKey": null
+  },
+  {
+   "url": "https://old.reddit.com/r/alpha",
+   "ok": false,
+   "cls": "N",
+   "hostKey": null
+  },
+  {
+   "url": "https://redd.it/abc",
+   "ok": false,
+   "cls": "N",
+   "hostKey": null
+  },
+  {
+   "url": "https://t.co/abc",
+   "ok": false,
+   "cls": "N",
+   "hostKey": null
+  },
+  {
+   "url": "https://blog.bob-example.org/a?token=abc",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://blog.bob-example.org/a?api_key=abc",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://blog.bob-example.org/a?X-Amz-Signature=abc",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://blog.bob-example.org/unsubscribe/123",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://blog.bob-example.org/account/reset",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://blog.bob-example.org:8443/a",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://user:pw@blog.bob-example.org/a",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://docs.google.com/document/d/abc",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.notion.so/alpha-abc",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "https://alpha.slack.com/archives/C1",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "http://localhost:3000/a",
+   "ok": false,
+   "cls": "S",
+   "hostKey": null
+  },
+  {
+   "url": "http://localhost/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "http://192.168.1.5/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "http://[::1]/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "https://printer.local/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "https://intranet/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "https://example.com/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.example.org/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "https://site.test/a",
+   "ok": false,
+   "cls": "L",
+   "hostKey": null
+  },
+  {
+   "url": "https://chatgpt.com/share/abc",
+   "ok": false,
+   "cls": "H",
+   "hostKey": null
+  },
+  {
+   "url": "https://claude.ai/share/abc",
+   "ok": false,
+   "cls": "H",
+   "hostKey": null
+  },
+  {
+   "url": "https://gemini.google.com/share/abc",
+   "ok": false,
+   "cls": "H",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.perplexity.ai/search/abc",
+   "ok": false,
+   "cls": "H",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.youtube.com/watch?v=abcdefghijk",
+   "ok": false,
+   "cls": "V",
+   "hostKey": null
+  },
+  {
+   "url": "https://youtu.be/abcdefghijk",
+   "ok": false,
+   "cls": "V",
+   "hostKey": null
+  },
+  {
+   "url": "https://vimeo.com/123456789",
+   "ok": false,
+   "cls": "V",
+   "hostKey": null
+  },
+  {
+   "url": "https://www.tiktok.com/@alpha/video/7300000000000000000",
+   "ok": false,
+   "cls": "V",
+   "hostKey": "tiktok"
+  },
+  {
+   "url": "https://vm.tiktok.com/abc",
+   "ok": false,
+   "cls": "V",
+   "hostKey": "tiktok"
+  },
+  {
+   "url": "https://blog.bob-example.org/clip.mp4",
+   "ok": false,
+   "cls": "V",
+   "hostKey": null
+  },
+  {
+   "url": "https://arxiv.org/abs/2401.00001",
+   "ok": false,
+   "cls": "P",
+   "hostKey": null
+  },
+  {
+   "url": "https://doi.org/10.1000/xyz123",
+   "ok": false,
+   "cls": "P",
+   "hostKey": null
+  },
+  {
+   "url": "ftp://blog.bob-example.org/a",
+   "ok": false,
+   "cls": "B",
+   "hostKey": null
+  },
+  {
+   "url": "not a url",
+   "ok": false,
+   "cls": "B",
+   "hostKey": null
+  },
+  {
+   "url": "",
+   "ok": false,
+   "cls": "B",
+   "hostKey": null
+  }
+ ]
+}

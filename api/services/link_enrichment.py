@@ -262,9 +262,16 @@ def _excluded_media(url: str, mtype: str) -> bool:
     Paper links and arxiv.org pages too (``papers.never_scraped``, L final
     review finding 4): a bookmarked arXiv link that no folder made a paper page
     was still a backfill candidate."""
+    from api.services import reading_hosts
     from api.services.papers import never_scraped
 
     if never_scraped(url):
+        return True
+    # R-RW4 (G166): the one closed set of login-walled hosts (X, Facebook, TikTok
+    # and Reddit join LinkedIn and Instagram, matched on a dot boundary). It is
+    # shared with `fact_sources.is_refused_host` and `link_recon`, so a source
+    # on such a host reads as needing the person's login there too.
+    if reading_hosts.is_walled(url):
         return True
     url = (url or "").lower()
     mtype = (mtype or "").lower()

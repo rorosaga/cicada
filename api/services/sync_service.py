@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import backlog, bank_index, logo_service, markdown_parser, telemetry
+from api.services import backlog, bank_index, logo_service, markdown_parser, reading_asks, reading_settings, telemetry
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -183,6 +183,13 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
         "logos": _logos_component(mp),
+        # G166: the reading asks live at `$CICADA_HOME/reading_asks/<bank>.json`
+        # and the person's reading settings at `$CICADA_HOME/reading.json` —
+        # both OUTSIDE the bank, so nothing above notices a "needs you to sign
+        # in" outcome, an ask, or a per-site switch. The app maps this
+        # component onto `.sources` (the Feed's read state rides `/sources`),
+        # so the outcome shows over SSE within a second, with no bank write.
+        "reading": f"{reading_asks.mtime(mp):.6f}:{reading_settings.mtime():.6f}",
         # The consumption ledger lives at `$CICADA_HOME/telemetry/events-YYYY-MM.jsonl`,
         # *outside* the memory bank (it's machine-global, not per-bank), so no other
         # component notices a new usage event landing. Modelled on "logos" above for

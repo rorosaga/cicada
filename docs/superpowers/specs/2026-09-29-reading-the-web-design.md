@@ -839,6 +839,10 @@ and the per-site approval belongs to that harness's own extension. **Cicada does
   - Each row: `{url, why, role, conversation_title?}`. **A remote connection without `sources` sees no conversation title
     and, for a `role: user` row, no URL** (the URL is the person's own words); it sees the host class and is told the person's
     own words exist. Such a connection can read only rows whose URL is not the person's.
+  - **Amended 2026-09-29 (TODO ruling 13, at the owner's "build it now").** An *ask* row's URL is visible to any connection
+    holding `read`: the person's explicit "Ask an agent" is the consent to hand that URL to an agent, and the default scopes
+    would otherwise leave the ChatGPT and Claude apps unable to read any ask. The rule above still holds for a row harvested
+    from a conversation (S3, not built): its URL and the conversation title need `sources`.
 - **`cicada_record_read(url, summary, excerpts=[{quote}], kind?)`** (`record` scope). Caps as `cicada_record_watch`: one
   summary line ≤ 1,500 characters, at most 12 excerpts of 240, folded so no line can pose as a turn. What it writes, and
   how it differs from `record_watch`:

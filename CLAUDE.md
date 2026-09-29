@@ -286,6 +286,17 @@ then says the model wasn't shared.
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
+**One trigger drains the whole queue; there is no cap on episodes per Sleep** (2026-09-29, the owner's ruling:
+"its just progress that cicada has to go through"). `sleep_cycle.run` reads the queue in batches of
+`sleep_batch_episodes` (25, `CICADA_SLEEP_BATCH_EPISODES`) and runs Stages 1–5 for each, committing per batch, until no
+unattempted episode is left — a batch is a *checkpoint* (a cancel or a crash loses at most the batch in flight), never a
+limit on the work. An episode a batch failed on is not retried inside the same drain. A drain stops early only for a
+cancel, a plan stop (`agent_engine.breaker_reason`, resumed by the next trigger after the reset) or a pass that read
+nothing. One drain shares one `DecayBudget`, so a cycle still opens at most `decay_inbox_cap_per_cycle` new decay
+questions however many batches it runs. `episodesQueued == episodesTotal` is the whole drain, `stage1_progress` counts
+across batches, and `episodeCap` on `/sleep/status` is always 0 (kept so an older client decodes; nothing is capped).
+The Rested % volume reference is its own constant (`sleep_debt.VOLUME_REFERENCE`), not a limit.
+
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
@@ -665,7 +676,9 @@ its consumption domain, so a card open must not move it. The `hook_recall` kind 
 recall-hook firing: harness, event, reason enum, the page ids and their count, token and latency buckets,
 and the model id when the harness sends one. It is filed beside `read` for the same reason, and like
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
-prompt never is.
+prompt never is. The `read_agent` kind (G166) is one row per `cicada_record_read` call — entity id, an `outcome` enum, a
+`host_class` enum (`walled | public`), the harness and connector id; never a URL, the tool the agent named, a note or an
+excerpt — filed beside `read` and kept out of every Usage view like `capture`.
 
 **Cycle usage (2026-09-28 ruling, Sleep page only).** Every `llm_call` a Sleep cycle makes carries `refs.cycle_id`
 (from the ambient `sleep:<id>` scope, so it survives `to_thread`/`gather`; the engine-independent tail runs outside
@@ -790,6 +803,37 @@ repo or `access: local` is refused; it commits alone under the harness. `cicada_
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
+**Reading with the person's own agent (G166, spec `2026-09-29-reading-the-web-design.md` §8.4, Route A).** Cicada never
+spawns a browser and never signs in (`test_reading_never_spawns_browser.py`, R-RW9: `--chrome` is in no argv). The
+person's agent — Claude Code or Codex with a browser skill, or the ChatGPT and Claude apps' own browser use through the
+remote connector — reads through a queue. The person's per-link **Ask an agent** (`POST /reading/asks`) is a row in
+`$CICADA_HOME/reading_asks/<bank>.json` (`reading_asks.py`: outside every bank, no URL stored — joined at read from
+`sources/url_index.json` —, 7-day expiry applied in memory, `fcntl.flock` because the backend and every stdio process
+write it); an unsaved link is saved first *without a fetch* (`RawItem.defer_enrich`) as the person's own save.
+`cicada_reading_queue(limit)` (`read` scope, fenced remotely) lists waiting asks oldest first — empty unless
+`reading.agent` is on, never a denied class, a login-walled link **one per call and only for a site the person switched
+on**. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?)` (`record` scope) takes `read |
+needs_login | blocked | not_found | failed`. Only a **successful read is memory** (`page_read.py`): one episode
+(`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
+*reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
+claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
+the harness and never mints a page. **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
+shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
+it read with — self-reported, never proof. Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
+`agent_hosts` — five keys, empty by default —, `agent_ack` with a version that re-asks when the sheet's wording
+changes). The closed host sets are one module (`reading_hosts.py`, dot-boundary matching, no DNS): walled hosts (X,
+Facebook, LinkedIn, Instagram, TikTok — switchable — and Reddit and `t.co`, never offered) are **never requested by the
+backend** (R-RW4: `media_ingestor.enrich` and `link_enrichment._excluded_media`), and a link that carries a secret or a
+side effect, is local, an AI vendor's own page, a video (`cicada_record_watch`) or a paper is never offered at all
+(R-RW5). Contract item 9 (`CONTRACT_VERSION` 9, `REMOTE_CONTRACT_VERSION` 6) exists only while the switch is on and is an
+*instruction*, not a promise: read in the person's own session, never sign in, record `needs_login` and move on, never
+post. Because the queue is outside the bank, nothing in `_state.md` can say links are waiting, so the recall hook and the
+remote handshake add one per-request sentence (`recall_text.reading_line`) when more wait than the session was told.
+Routes (`routers/reading.py`, none a Store domain): `GET|PUT /reading/settings`, `GET|POST /reading/asks`,
+`DELETE /reading/asks/{urlHash}`, `GET /reading/prompt`; `GET /sources` carries `MediaSourceItem.read`
+(`status, by, tier, at, via, harness, host, hostKey, askable, reason`, merged from the page stamp and the ask row,
+newest wins) so the app holds no host table.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -812,6 +856,10 @@ same way.
 - **When it is skipped.** `CICADA_CAPTURE=off` spawns, `CICADA_RECALL=off`, and a Codex sub-agent's prompt.
   Codex also runs a new hook only after the person trusts it at startup.
 - **The ledger.** One `hook_recall` ledger row per firing, ids and enums only, filed beside `read`.
+- **Waiting reads (G166).** While agent reading is on, a session hears once — at SessionStart, or on its first prompt —
+  "N links the person asked an agent to read are waiting" (`hook_recall.with_reading_note`), and again only when more
+  wait than it was told. One sentence beside the page note (its 400-token budget is the page note's own), per request,
+  never stored, dropped from a captured transcript like every "From Cicada" note.
 - **Remote.** Remote connectors have no hooks.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
@@ -1348,7 +1396,7 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 
 ## API Design
 
-32 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+33 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
@@ -1678,6 +1726,15 @@ APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥
 arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run. That holds for
 a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): `papers.never_scraped`
 keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
+
+**Reading with an agent (G166) does not loosen the rail below; it sits beside it.** The rail governs *Cicada's own*
+fetcher, and the backend now never requests a login-walled host at all (R-RW4, one closed set in `reading_hosts.py`,
+which also closed the X gap). What the person's own agent does in its own signed-in browser is the person's and the
+agent's, not Cicada's: Cicada only *asks*, per link, for a site the person switched on, after a first-use
+acknowledgement, and promises nothing about what the agent does there. The backend never holds a session, a cookie or a
+browser profile. An ask's URL is the person's explicit hand-off to their agent, so a remote connection holding `read`
+sees it (TODO ruling 13); `sources` still gates every verbatim word of the person's conversations and any
+chat-harvested URL.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a

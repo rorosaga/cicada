@@ -106,6 +106,13 @@ class RawItem:
     # words about the page, not the person's — so it is never a `note` — and it
     # stands in as the description only when enrichment found none.
     preview: str | None = None
+    # G166 (a subset of the reading spec's S3 change, same name): skip the
+    # network read and build the page from the URL alone — the URL-derived
+    # fallback title and provider. The person's "Ask an agent" on a link that
+    # is not saved yet mints its page this way, so asking never fetches (a
+    # walled host is never requested by the backend, and even a public one
+    # should not be read just because the person asked an agent to).
+    defer_enrich: bool = False
 
 
 @dataclass
@@ -313,6 +320,16 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             # ``from_bookmark_file=False``, so every one of them used to fall
             # to ``_enrich_opengraph`` and land on TikTok's consent wall.
             return await _enrich_oembed(ref.provider, url, client, fallback)
+        from api.services import reading_hosts
+
+        if reading_hosts.is_walled(url):
+            # R-RW4 (G166): one closed set of login-walled hosts — X, Facebook,
+            # Reddit and `t.co` join LinkedIn and Instagram above, so the
+            # backend never requests such a page (X was the gap: it fell
+            # through to the OpenGraph fetch). A person's own agent may read
+            # one, only when asked (`cicada_reading_queue`). TikTok keeps its
+            # provider oEmbed branch above, which never loads the page.
+            return fallback
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
         logger.debug(f"Enrichment failed for {url}: {type(e).__name__}: {e}")
@@ -1909,7 +1926,15 @@ async def ingest_one(
             url=item.url,
         )
 
-    meta = await enrich(item.url, client, from_bookmark_file=from_bookmark_file)
+    if item.defer_enrich:
+        ref = video_urls.resolve(item.url)
+        meta = MediaMeta(
+            title=_fallback_title(item.url), description="", site=_site_of(item.url),
+            media_type=_classify(item.url, from_bookmark_file=from_bookmark_file),
+            provider=(ref.provider if ref else None),
+        )
+    else:
+        meta = await enrich(item.url, client, from_bookmark_file=from_bookmark_file)
     # Prefer an explicit title from the parser (Takeout/bookmark name) when
     # enrichment fell back to a URL slug.
     if item.title and meta.title == _fallback_title(item.url):

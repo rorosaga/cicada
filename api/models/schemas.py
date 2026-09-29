@@ -2129,13 +2129,10 @@ class SleepStatusResponse(CamelModel):
     # state ("Claude Code is signed out — run `claude auth login`").
     last_engine: Optional[str] = None
     engine_detail: Optional[str] = None
-    # Sleep control — episode cap (settings-driven; see
-    # ``Settings.sleep_max_episodes_per_cycle``). ``episodes_queued`` is the
-    # FULL unprocessed count found at the top of this cycle, BEFORE capping;
-    # ``episode_cap`` is the cap applied. ``episodes_total`` above is the
-    # (possibly capped) count this cycle actually attempted, so
-    # ``episodes_queued > episodes_total`` means the cap truncated this
-    # cycle and the rest stayed queued for the next one.
+    # Sleep control — `episodes_queued` is every episode the drain has seen
+    # queued (a trigger drains the whole queue in batches, TODO ruling 14) and
+    # equals `episodes_total`. `episode_cap` is ALWAYS 0: nothing caps the
+    # episodes per Sleep any more; the field stays so an older client decodes.
     episode_cap: int = 0
     episodes_queued: int = 0
     # Sleep control — cooperative cancellation. ``cancel_requested`` is true
@@ -2831,6 +2828,32 @@ class SourceRssRequest(CamelModel):
     tags: list[str] = []
 
 
+class ReadState(CamelModel):
+    """G166: how a saved link was read, and whether an agent may be asked to.
+
+    ``status`` is ``none`` (never read, and no ask), ``waiting`` (the person asked
+    an agent), ``ok`` (an agent read it), or the agent's outcome ``needs_login`` |
+    ``blocked`` | ``not_found`` | ``failed``. ``by``/``tier`` are ``agent`` only
+    when an agent read it. ``via`` is what the agent SAID it read with —
+    self-reported, never proof; ``harness`` is the connection's label.
+    ``askable``/``reason``/``hostKey`` let the app decide "Ask an agent" without a
+    host table of its own: ``askable`` false carries the plain sentence why (agent
+    reading off, a site not switched on, a video, a secret-bearing link)."""
+
+    by: Optional[str] = None
+    status: str = "none"
+    tier: Optional[str] = None
+    at: Optional[str] = None
+    asked_at: Optional[str] = None
+    via: Optional[str] = None
+    harness: Optional[str] = None
+    note: Optional[str] = None
+    host: Optional[str] = None
+    host_key: Optional[str] = None
+    askable: bool = False
+    reason: Optional[str] = None
+
+
 class MediaSourceItem(CamelModel):
     media_entity_id: str
     url: str
@@ -2882,6 +2905,10 @@ class MediaSourceItem(CamelModel):
     # shows and searches; both absent for every other media row.
     kind: Optional[str] = None
     paper: Optional[PaperSummary] = None
+    # G166 — additive and defaulted: an older client and every older ETag body
+    # decode unchanged. `None` for a video or a paper (not read here); otherwise
+    # the read state and whether "Ask an agent" is on offer.
+    read: Optional[ReadState] = None
 
 
 class SourceListResponse(CamelModel):
