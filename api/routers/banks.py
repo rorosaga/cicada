@@ -260,7 +260,8 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
             raise HTTPException(409, "Bank 'demo' already exists")
         return await _activated(root, "demo")
     try:
-        slug = bank_registry.create_bank(root, "demo", "Synthetic demo bank — try Cicada risk-free.")
+        slug = bank_registry.create_bank(
+            root, "demo", "Synthetic demo bank — try Cicada risk-free.", seed_owner=False)
     except ValueError as e:
         raise HTTPException(409, str(e))
     # Deferred: `demo_bank` pulls in `agentic_write` (fuzzy matching, claim

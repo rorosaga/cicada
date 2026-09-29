@@ -388,7 +388,11 @@ async def extract(
                 all_entities = []
                 all_relationships = []
                 for ci, chunk in enumerate(chunks):
-                    parsed = await _extract_chunk(ep_id, chunk, ci, len(chunks), settings, source=episode.get("source"))
+                    parsed = await _extract_chunk(
+                        ep_id, chunk, ci, len(chunks), settings,
+                        # Only a memory episode carries a note; every other call keeps its shape.
+                        **({"source": "claude_memory"} if episode.get("source") == "claude_memory" else {}),
+                    )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
                     # G118: verify the cited passage against the body this
