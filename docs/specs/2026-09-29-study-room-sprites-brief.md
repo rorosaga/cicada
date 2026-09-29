@@ -127,3 +127,19 @@ every PR, PRs to `dev` (never `main`), and never merge without the owner's word 
 names or content from the owner's banks anywhere; counts in mocks are placeholders. Record the prop set and the lint
 amendment as dated rulings in `docs/goals/TODO.md` once the owner decides, and add a backlog row (or edit G125/G107)
 in `docs/goals/memory-evolution.md`.
+
+## 8. Marks inside the pixel world are pixel art (owner, 2026-09-29; backlog G175)
+
+> "we should do pixel art for logos like gpt, codex, claude code mascot, claude app, telegram, etc. No default icons for
+> things that have a symbol representation."
+
+Every source, agent and app the room shows — a book's plate, the phone's notification, the CRT's screen, the TV, the
+letter tray, the worm's menu-bar badge — is drawn as a **pixel-art rendition of its own symbol** at the room's cell size:
+ChatGPT, Codex, Claude Code's own pixel mascot, the Claude app, Telegram, Chrome, Safari, YouTube, X, Reddit, LinkedIn,
+Pinterest, Apple Notes, Calendar, Wispr Flow, Gemini, OpenRouter, Ollama, Cursor and the rest of
+`OriginIconography.logoName(for:)`'s map. A generic glyph only for something with no symbol of its own ("other agents",
+an unknown origin: the concept's brown-paper parcel with a tag). This amends Track L (CLAUDE.md, *Brand marks*: marks are
+never restyled) **for the pixel world only**; every non-pixel surface keeps the real marks. Keep each rendition faithful and
+recognisable, never on the worm itself, nominative only, and recorded in a manifest beside the sheets (source mark, the
+vendor's brand-guideline link where one exists, "pixel rendition"). Flag any vendor whose guidelines forbid altered logos
+for the owner's call. Record the amendment's scope as a dated TODO ruling when the first pixel marks ship.
