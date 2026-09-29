@@ -18,6 +18,40 @@ statting its cwd; #131 has the app run git in a declared repo and the backend on
 #132 matches a `device:` by any of this Mac's names (`local_refs.is_this_device`). Dev tooling: #122–#127 keep the
 owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cicada.dev-autoupdate`).
 
+**Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
+- **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
+- *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
+  is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
+  another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
+  backdated import does not decay during a drain (`decayed_through`; ruling 1 respected). **#141**
+  `fix/sleep-inbox-and-indexes` — **G171** decay questions grouped per entity and capped at 10 a cycle, both derived
+  indexes incremental and off the event loop. **#139** `fix/saved-links-collision-and-throughput` — **G172** same-titled
+  saves no longer overwrite each other, and reading new pages keeps a floor of the nightly cap
+  (`CICADA_LINK_ENRICH_FETCH_MIN_PER_CYCLE`). Full Python suites passed on each (4595, 4609, 4588); Swift ran on #140
+  only (`app/` changed there). **None was run against a real bank, export or launchd backend.**
+- *Specs awaiting the owner's review* (docs PR "designs for video understanding, Sleep page v5 and reading the web";
+  nothing built): **G162** [`2026-09-29-video-understanding-design.md`](../superpowers/specs/2026-09-29-video-understanding-design.md)
+  (Q1–Q9); **G163** [`2026-09-29-sleep-page-v5-design.md`](../superpowers/specs/2026-09-29-sleep-page-v5-design.md)
+  (Q1, Q1b, Q2–Q8, experiments EX-1…EX-5); **G164–G168**
+  [`2026-09-29-reading-the-web-design.md`](../superpowers/specs/2026-09-29-reading-the-web-design.md) (D-RW1…D-RW7,
+  proposed rulings R-RW10…R-RW12). **G168** (a classifier navigator, "jev", a Settings option marked *Needs OpenRouter*) is
+  a FUTURE row: build nothing before its S8 benchmark. Nothing in any spec is a ruling until the owner approves it.
+- *Not fixed, recorded:* **G173** — over-promotion on a big first batch (expected, pruned by decay and keep), duplicates
+  across Claude and ChatGPT variant names (the dedup sweep has no button, R-O17), a guessed logo for a page with no URL,
+  pending-name lines that never expire, the 50-session trailer cap.
+- **First-run checklist for a new bank (what to do, in order, once #140, #141 and #139 are merged):**
+  1. Create the bank. The owner page now exists on its own (name from the machine-level `owner.json`, else an `Owner`
+     placeholder the owner PUT adopts). Do not import from another bank.
+  2. Engine = a plan (Claude or ChatGPT), schedule **manual**, *Keep going on extra usage* **off** (ruling 4: a scheduled
+     cycle never spends plan quota, so leave it manual until the first drain is understood).
+  3. Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE` to **100–150** (default 25) in `api/.env`, restart the backend.
+  4. Import the Claude export first, then the ChatGPT export (through the one intake; the memory files arrive as
+     lower-trust assistant words).
+  5. Run **one capped cycle** and inspect: the owner page's beliefs and their spans, the entity count against the episodes
+     read, no page archived that the cycle just read, the inbox's decay questions (at most 10 new).
+  6. Drain: repeat one capped cycle at a time until the queue is empty (Sleep v5's journal and *Read everything*,
+     G163, replace this by hand once built). Watch the plan window between cycles.
+
 **Pending after 2026-09-28 (owner asked to record these):**
 - *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt
   naming **Cicada** on a location or repo card; (2) the card's "not allowed" sentence after a Don't Allow; (3) a Sleep
@@ -796,6 +830,8 @@ lights + hover quick actions, per-source blurbs, and a queue strip with Consolid
 
 | What | State | Next action |
 |---|---|---|
+| **Designs 2026-09-29 (docs only): G162 video understanding, G163 Sleep page v5, G164–G168 reading the web** | Three specs written and reviewed against the code (video: 19 of 20 critiques held and are fixed; Sleep: every critique adopted; web: all 22 adopted); committed on `docs/designs-2026-09-29`, PR to `dev`. Rows filed in `memory-evolution.md`; fix rows G169–G172 mark PRs #140, #141, #139; G173 records the findings left open. | The owner reads the three specs and answers their open questions (listed in the backlog rows). Order the build after that: G163 SL-1 (journal and honest bar) and G162 V1 (states) need no ruling amendment; G164 S1 (Reader ladder) needs D-RW1 and D-RW7; G163 SL-3, G165 defaults, G166 sessions and G168 wait on their gates. |
+| **G169–G172 first-run fixes (PRs #140, #141, #139)** | Opened against `dev` from `fix/first-run-extraction-owner`, `fix/sleep-inbox-and-indexes`, `fix/saved-links-collision-and-throughput`; suites green, nothing verified live. | Merge each after the owner's read; then walk the first-run checklist under *Pending after 2026-09-29* on a fresh bank. |
 | **G119 / G154 / G160 sources (round 4, T-Sources)** | **Built — all seven tasks.** Tasks 1–3 merged (PR #109); tasks 4–7 on `feat/r4-sources-2` (plan `2026-09-24-r4-sources-2.md`). Chrome's open tab groups: the app's SNSS reader and `TabGroupWatcher` behind their own switch, `POST /sources/tab-groups/sync`, one snapshot episode per group, and G160 written with its follow-ups. Contacts enriching the people Cicada knows: `ContactsReader` and `POST /sources/contacts-local/sync` write `sources:` entries and `contacts_photo: {sha, ext}`, with the thumbnail at `contacts_local.photo_path(bank, id, ext)`. | Restart the launchd backend with the app, then run the plan's live check; merge; tell T-People that `contacts_local.photo_path` has landed, so `entity_picture.contacts_path` can become a call to it. |
 | **G149 implicit recall (round 4)** | Built on `feat/r4-implicit-recall` (plan `2026-09-24-r4-implicit-recall.md`): the recall hook (SessionStart primer + UserPromptSubmit note), `POST /capture/hook-context`, contract item 8, Settings → Agents → Remembers automatically. | Orchestrator install + live check (the plan's Verification), then merge; the owner decides whether onboarding / the C5 prompt turn it on by default. |
 | **G147 frequency-aware decay (round 4)** | Built on `feat/r4-decay` (plan `2026-09-24-r4-frequency-aware-decay.md`): pages and claims fade by distinct mention weeks (f(w) = max(0.25, 1/(1+0.6·ln w))), "keep" counts as a week (`kept_on`), per-type pace suggestions from the bank's own decay answers with Apply · Not now in Settings → Memory, and the pace in words on the entity card. | Orchestrator verification (both suites; the 12-week vs 1-week simulation; suggestions on a synthetic history; live check of Settings → Memory and a card's Details on the demo bank), then merge to `dev`. |
