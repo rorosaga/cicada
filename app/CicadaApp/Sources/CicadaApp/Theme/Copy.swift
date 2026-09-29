@@ -254,6 +254,18 @@ enum Copy {
     /// The control row's one-line caption while a cycle runs (Track Z §4.1
     /// sketch B); the long explainer stays the button's tooltip.
     static let cancelCaption = "Stops at the next safe point — nothing is lost."
+    /// The same two lines for a person-started run that reads everything waiting, in batches (G163).
+    /// Cancel does NOT stop "after this batch": a batch that has not begun filing is dropped and its
+    /// reads are paid again, so the copy says what is kept (earlier batches) and what is not (the batch
+    /// still reading), never "nothing is lost".
+    static let cancelDrainCaption = "Earlier batches stay filed; the one still reading is dropped."
+    static let cancelDrainExplainer =
+        "Stops at the next safe point — never mid-write. Batches already filed stay filed and the rest stay "
+        + "queued for the next Consolidate. A batch that has not started filing is dropped, so its reading "
+        + "is done again next time."
+    /// A bank switch is refused while Consolidate reads: the run is pinned to its bank. The server's own
+    /// sentence is shown when it sent one; this is the fallback (`BankSwitchFailure`).
+    static let bankSwitchWhileReading = "Cicada is reading — stop it first, or wait for it to finish, then switch."
     /// The whisper line's hover reason when the next run is "—" (R-A14: a dash
     /// is a value with a reason).
     static let nextRunUnknownReason = "Cicada hasn't worked out the next run yet."

@@ -56,7 +56,8 @@
     "stage": 1,
     "startedAt": "2026-09-29T10:15:00",
     "status": "idle",
-    "totalStages": 5
+    "totalStages": 5,
+    "writing": false
   },
   "finished": {
     "cancelRequested": false,
@@ -111,7 +112,8 @@
     "stage": 5,
     "startedAt": "2026-09-29T10:15:00",
     "status": "idle",
-    "totalStages": 5
+    "totalStages": 5,
+    "writing": false
   },
   "plan_limit": {
     "cancelRequested": false,
@@ -170,7 +172,8 @@
     "stage": 1,
     "startedAt": "2026-09-29T10:15:00",
     "status": "idle",
-    "totalStages": 5
+    "totalStages": 5,
+    "writing": false
   },
   "running": {
     "cancelRequested": false,
@@ -225,6 +228,7 @@
     "stage": 0,
     "startedAt": "2026-09-29T10:15:00",
     "status": "running",
-    "totalStages": 5
+    "totalStages": 5,
+    "writing": false
   }
 }

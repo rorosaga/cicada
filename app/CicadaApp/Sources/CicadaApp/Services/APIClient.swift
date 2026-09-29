@@ -751,8 +751,17 @@ struct SleepStatusResponse: Codable {
     /// backend that predates these fields.
     let queueByOrigin: [String: Int]
     let readByOrigin: [String: Int]
+    /// "Consolidate reads everything" (G163): a person-started run's measured
+    /// progress — batch k of n, filed of frozen, and why it stopped. `nil` on a
+    /// scheduled or idle cycle and on an older backend; never a fabricated 0.
+    let drain: SleepDrainInfo?
+    /// G174 — Sleep holds the bank's pages right now. A drain between batches is
+    /// `running` but not `writing`; the app's writes are refused only while it is.
+    /// `false` on an older backend, which is why it is not read as "not running".
+    let writing: Bool
 
     enum CodingKeys: String, CodingKey {
+        case drain, writing
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
@@ -786,6 +795,72 @@ struct SleepStatusResponse: Codable {
         progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
         queueByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin) ?? [:]
         readByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .readByOrigin) ?? [:]
+        drain = try? c.decodeIfPresent(SleepDrainInfo.self, forKey: .drain)
+        writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? false
+    }
+}
+
+/// The `drain` block of `GET /sleep/status` (`sleep_drain.to_wire`): counts and one
+/// stop reason, never an episode id. Every field decodes leniently so a backend that
+/// adds one cannot make the whole status fail to decode.
+struct SleepDrainInfo: Codable, Equatable {
+    struct Stop: Codable, Equatable {
+        /// `cancelled | plan_limit | engine | bank_switched | error`.
+        var reason: String
+        /// A plain sentence for the person — the vendor's own for a plan limit.
+        var sentence: String?
+        /// The vendor's unix reset time, when one was measured.
+        var resetsAt: Int?
+
+        init(reason: String, sentence: String? = nil, resetsAt: Int? = nil) {
+            self.reason = reason; self.sentence = sentence; self.resetsAt = resetsAt
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            reason = (try? c.decode(String.self, forKey: .reason)) ?? "error"
+            sentence = try? c.decodeIfPresent(String.self, forKey: .sentence)
+            resetsAt = try? c.decodeIfPresent(Int.self, forKey: .resetsAt)
+        }
+        enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt }
+    }
+
+    var id: String
+    /// Episodes waiting when the run began — what it set out to read.
+    var frozen: Int
+    var batchSize: Int
+    var batch: Int
+    var batches: Int
+    var filed: Int
+    var requeued: Int
+    var skipped: Int
+    var active: Bool
+    var finished: Bool
+    var stop: Stop?
+    /// Episodes that arrived after the run began (they wait for the next one); `nil` until it ends.
+    var arrivedSince: Int?
+
+    init(id: String = "", frozen: Int = 0, batchSize: Int = 0, batch: Int = 0, batches: Int = 0, filed: Int = 0,
+         requeued: Int = 0, skipped: Int = 0, active: Bool = false, finished: Bool = false, stop: Stop? = nil,
+         arrivedSince: Int? = nil) {
+        self.id = id; self.frozen = frozen; self.batchSize = batchSize; self.batch = batch; self.batches = batches
+        self.filed = filed; self.requeued = requeued; self.skipped = skipped; self.active = active
+        self.finished = finished; self.stop = stop; self.arrivedSince = arrivedSince
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func int(_ key: CodingKeys) -> Int { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0 }
+        func flag(_ key: CodingKeys) -> Bool { (try? c.decodeIfPresent(Bool.self, forKey: key)) ?? false }
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? ""
+        frozen = int(.frozen); batchSize = int(.batchSize); batch = int(.batch); batches = int(.batches)
+        filed = int(.filed); requeued = int(.requeued); skipped = int(.skipped)
+        active = flag(.active); finished = flag(.finished)
+        stop = try? c.decodeIfPresent(Stop.self, forKey: .stop)
+        arrivedSince = try? c.decodeIfPresent(Int.self, forKey: .arrivedSince)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, frozen, batchSize, batch, batches, filed, requeued, skipped, active, finished, stop, arrivedSince
     }
 }
 

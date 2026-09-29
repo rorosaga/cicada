@@ -2191,6 +2191,11 @@ class SleepStatusResponse(CamelModel):
     # ever implemented).
     cancel_requested: bool = False
     cancelled: bool = False
+    # G174 — Sleep is holding the bank's pages right now (`sleep_cycle.is_writing`):
+    # the whole of a plain cycle, but only a drain batch's write window. The
+    # app's writes and an agent's claim are refused / left uncommitted only while
+    # this is true; `status == "running"` alone no longer means it.
+    writing: bool = False
     # Sleep debt (G106) — always present, computed fresh from the current
     # queue + git log on every response. See `api/services/sleep_debt.py`
     # for the formula and full field contract.

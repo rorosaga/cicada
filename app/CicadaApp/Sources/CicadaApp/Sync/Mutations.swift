@@ -424,6 +424,7 @@ struct UnsubscribeCalendar: Mutation {
 struct ActivateBank: Mutation {
     let name: String
     private let memo = MutationMemo<(bank: String, roster: BanksResponse?)>()
+    private let failure = MutationMemo<any Error>()
 
     init(name: String) { self.name = name }
 
@@ -446,7 +447,8 @@ struct ActivateBank: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        try await api.activateBank(name: name)
+        do { try await api.activateBank(name: name) }
+        catch { failure.value = error; throw error }
     }
 
     func rollback(_ store: Store) async {
@@ -456,13 +458,25 @@ struct ActivateBank: Mutation {
         store.banks.value = previous.roster
     }
 
-    var failureMessage: String { "Couldn't switch project — reverted" }
+    var failureMessage: String { BankSwitchFailure.message(failure.value) }
     /// Every domain, not just `.banks`. `Store.refresh`'s own bank-switch
     /// fan-out keys off `active != previous`, and `optimistic` already moved
     /// `store.bank`, so that branch can never fire here — this mutation owns
     /// the post-switch reconcile itself. `refresh` walks `SyncDomain.allCases`
     /// with `.banks` first, exactly as `refreshAll` does.
     var refreshDomains: Set<SyncDomain> { Set(SyncDomain.allCases) }
+}
+
+/// A refused switch in words. While Consolidate reads, the run is pinned to its bank, so the server answers
+/// 409 with a sentence written for the person ("Cicada is reading — stop it first, …"); every other failure
+/// keeps the old words. A 404's or a 400's detail names ids and is never shown (DR-54).
+enum BankSwitchFailure {
+    static let generic = "Couldn't switch project — reverted"
+
+    static func message(_ error: (any Error)?) -> String {
+        guard case .httpError(let code, let body)? = error as? APIError, code == 409 else { return generic }
+        return ProjectWriteFailure.detail(body) ?? Copy.bankSwitchWhileReading
+    }
 }
 
 // MARK: - Sleep

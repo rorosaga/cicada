@@ -320,13 +320,20 @@ link backfill skipped after a plan stop. G85's `(decay)` split and the one-git-w
 `_finalize` runs under the same per-bank lock. `GET /sleep/status` carries a `drain` block (frozen, batchSize, batch,
 batches, filed, requeued, skipped, active, finished, `stop{reason, sentence, resetsAt}`, arrivedSince — measured counts,
 never an estimate, G107), the entity/episode counters as the run's running sums, `episodesQueued` the frozen total,
-`episodeCap` the batch size, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`.
-**Disclosed asymmetries (not fixed here):** the ~14 `status == "running"` 409 guards (projects, entities, backlog, banks
-export/delete, local sources, memory, maintenance, remote) and MCP's `BACKLOG_SLEEPING` refusal now hold for the whole drain
-— hours on a first run — and a stdio agent's claim written meanwhile stands uncommitted (`mcp_tools._backend_sleep_running`)
-and rides the next batch's commit under the Sleep author (the G85-class smear, at drain scale); Awake capture is not gated.
-The narrower "write window" probe is filed as G174. Stage 5.57's `recommends` person credit reads only the last batch's
-changes. A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
+`episodeCap` the batch size, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`. **The write window
+(G174):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal that guards a page
+(projects, entities, backlog, local sources, memory, maintenance, the remote connector's writes, paper details) and behind
+`GET /sleep/status`'s `writing`, which MCP's `_backend_sleep_running` and `BACKLOG_SLEEPING` read. A plain or scheduled cycle
+holds the bank for its whole run, as before; a drain holds it only from a batch's Stage 2 (which loads the pages Stage 5
+rewrites) through its commit, plus the run's start and its tail. Stage 1's engine calls and the gaps between batches touch no
+page, so the app's writes proceed and a stdio agent's claim **commits alone under its own harness** there instead of being
+swept by the next batch's `git add -A` under the Sleep author. A claim written *inside* a window still stands uncommitted
+and rides that batch's commit (minutes, the pre-drain exposure); bank switching, export and delete still answer 409 for the
+whole run (the run is pinned to its bank), and `activate`'s sentence is shown as the toast. A batch that commits with the
+plan's breaker tripped stops the drain only while frozen ids are still waiting; with none left it is a finished run (the
+note is logged, the link backfill still runs).
+**Disclosed asymmetries (not fixed here):** Stage 5.57's `recommends` person credit reads only the last batch's changes;
+Home's "Last read" shows the last batch's pages and Past nights lists one row per batch (per-batch grouping is unbuilt). A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
 
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the

@@ -21,6 +21,7 @@ from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
     cancelled_is_visible,
     get_sleep_state,
+    is_writing,
     list_all_episodes,
     progress_pct,
     request_cancel,
@@ -142,6 +143,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         episodes_queued=state.episodes_queued,
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),
+        writing=is_writing(),
         progress_pct=progress_pct(state),
         queue_by_origin=dict(state.queue_by_origin),
         read_by_origin=dict(state.read_by_origin),

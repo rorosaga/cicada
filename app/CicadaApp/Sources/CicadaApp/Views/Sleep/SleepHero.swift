@@ -375,8 +375,9 @@ struct SleepReadoutView: View {
 /// While a cycle runs, what Cancel does; otherwise nothing — the engine menu beside the control
 /// names what a click would run (R-HS9), the fact the retired "Runs on …" caption stated, so
 /// printing both would say it twice (DR-38).
-func controlCaption(isRunning: Bool) -> String? {
-    isRunning ? Copy.cancelCaption : nil
+func controlCaption(isRunning: Bool, draining: Bool = false) -> String? {
+    guard isRunning else { return nil }
+    return draining ? Copy.cancelDrainCaption : Copy.cancelCaption
 }
 
 /// The page's ONE Consolidate/Cancel control (R-A7, G125 R10). While a cycle
@@ -404,7 +405,7 @@ struct SleepControlRow: View {
             // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
             // applies to the next one (G80).
             EngineQuickMenuButton()
-            if let caption = controlCaption(isRunning: sleepVM.isRunning) {
+            if let caption = controlCaption(isRunning: sleepVM.isRunning, draining: sleepVM.status?.drain?.active == true) {
                 Text(caption)
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
@@ -459,7 +460,7 @@ struct SleepControlRow: View {
         }
         .buttonStyle(.cicadaPlain)
         .disabled(sleepVM.isCancelling)
-        .help(Copy.cancelSleepExplainer)
+        .help(sleepVM.status?.drain?.active == true ? Copy.cancelDrainExplainer : Copy.cancelSleepExplainer)
         .accessibilityLabel(Copy.cancelSleep)
     }
 }

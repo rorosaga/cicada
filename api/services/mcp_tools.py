@@ -51,7 +51,7 @@ SLEEP_PROBE_TIMEOUT_S = 2.0
 
 
 def _backend_sleep_running(backend_url: str, headers: dict[str, str]) -> bool:
-    """Is the backend mid-Sleep? Asked by a stdio ``write_claim`` before it
+    """Is the backend mid-Sleep, holding the pages? Asked by a stdio ``write_claim`` before it
     commits (G135 final review). A module function so the suite can pin it —
     no test may reach a live backend on loopback.
 
@@ -66,7 +66,11 @@ def _backend_sleep_running(backend_url: str, headers: dict[str, str]) -> bool:
     req = urllib.request.Request(f"{backend_url}/sleep/status", headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=SLEEP_PROBE_TIMEOUT_S) as resp:
-            return json.loads(resp.read().decode("utf-8")).get("status") == "running"
+            body = json.loads(resp.read().decode("utf-8"))
+            # `writing` (G174) is "Sleep holds the bank's pages": a drain between
+            # batches is running but not writing, and a claim committed then is
+            # not swept into a batch commit. An older backend sends only `status`.
+            return bool(body["writing"]) if "writing" in body else body.get("status") == "running"
     except (TimeoutError, socket.timeout):
         return True
     except urllib.error.URLError as exc:

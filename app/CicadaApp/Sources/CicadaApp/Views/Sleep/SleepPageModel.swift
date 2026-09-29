@@ -48,6 +48,8 @@ struct SleepPageModel: Equatable {
     var cycleError: String?
     var cancelled: Bool
     var capped: Bool
+    /// G163 — the person-started run's measured progress, `nil` when the last cycle was not one.
+    var drain: SleepDrainInfo?
     var indexWarning: String?
     var queueLoad: StudyListCard.LoadState
     /// Z-P3 — the newest `kind == "sleep"` commit.
@@ -117,7 +119,9 @@ struct SleepPageModel: Equatable {
             consolidateEnabled: status != nil && !isRunning && !queued.isEmpty,
             cycleError: error,
             cancelled: cancelled,
-            capped: (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            // A drain reads everything it froze; "queued > attempted" means "not yet" there, never "capped".
+            capped: status?.drain == nil && (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            drain: status?.drain,
             indexWarning: status?.indexWarning.flatMap { $0.isEmpty ? nil : $0 },
             queueLoad: queueLoad,
             lastCycle: lastCycleEntry(history),
@@ -169,7 +173,7 @@ extension SleepPageModel {
     func roomContext(recentCycleCommit: String? = nil, locale: Locale = .autoupdatingCurrent) -> RoomContext {
         var context = RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
                                   read: read, total: total, cycleError: cycleError, cancelled: cancelled,
-                                  capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
+                                  capped: capped, drain: drain, indexWarning: indexWarning, scheduleMode: schedule.mode,
                                   topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
         context.oldestWait = oldestWait
         context.lampLit = lampLit

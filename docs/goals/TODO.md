@@ -22,8 +22,9 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
 - **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
   a person-started run reads the whole frozen queue in batches of 25, each filed and committed; scheduled runs stay one batch; decay
-  and page reads once per drain. The app's Sleep page ("Batch 3 of 12 · 62 of 287 filed.") is the next slice; **G174** narrows the
-  409 guards a drain now holds for hours.
+  and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
+  cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G174** is built too:
+  the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run.
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
   another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
@@ -588,8 +589,9 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     - **A plan limit is a pause, not a failure,** with the vendor's own sentence and reset time. **Not built:**
       auto-continue after a reset (a ruling 4 amendment), a weekly "leave room" reserve, a journal of paid answers
       (a cancel before Stage 5 still discards the batch in progress), parallel reading, per-batch rows in Past nights.
-    - **Cost accepted:** the `status == "running"` 409 guards, the MCP write probe and the bank switch now hold for
-      the whole run (hours on a first run) — bank switching is refused by name; the rest is **G174**.
+    - **Cost accepted:** bank switching, export and delete are refused for the whole run (the drain is pinned to its
+      bank) — by name, and the app shows the sentence. Every other guard and the MCP write probe follow **G174**'s
+      write window (`sleep_cycle.is_writing()`), so an agent's claim between batches commits alone under its own author.
 
     Revisit only on the trigger G163's row names (the journal / reserve slices), or if a drain's plan volume
     hurts a real owner's coding budget.

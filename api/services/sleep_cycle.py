@@ -142,6 +142,11 @@ class SleepState:
     batch_started_monotonic: float | None = None
     drain: "sleep_drain.DrainState | None" = None
     drain_run: bool = False
+    # A drain's write window (`is_writing`): true from a batch's Stage 2 (which
+    # loads the pages Stage 5 rewrites) through its commit, and through the run's
+    # start and tail. False while a batch is only reading episodes and calling the
+    # engine, and between batches — the app's and an agent's writes are safe then.
+    writing: bool = False
 
 
 _state = SleepState()
@@ -270,6 +275,23 @@ def reserve_cycle(cycle_id: str, *, drain: bool = False) -> None:
     _state.cancelled_at_monotonic = None
     _state.drain = None
     _state.drain_run = drain
+    _state.writing = True   # until `_drain` is reading episodes (a plain cycle ignores it)
+
+
+def is_writing() -> bool:
+    """Is Sleep holding the bank's pages right now? The one predicate every
+    "Sleep is running" refusal shares (G174), and what ``GET /sleep/status``
+    reports as ``writing`` for the MCP probe.
+
+    A plain or scheduled cycle holds the bank for its whole run, exactly as
+    before. A person-started drain runs for hours on a first import, but only a
+    batch's Stage 2 through its commit (plus the run's start and its tail) reads
+    pages it will rewrite or commits with ``git add -A`` — Stage 1's engine calls
+    and the gaps between batches touch no page, so the app's writes and an
+    agent's claim commit alone under their own author there, never swept into a
+    batch commit under the Sleep model's."""
+    state = get_sleep_state()   # through the accessor: the route guards' tests substitute it
+    return state.status == "running" and (not getattr(state, "drain_run", False) or getattr(state, "writing", False))
 
 
 def _cancel_requested() -> bool:
@@ -1124,6 +1146,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     _state.engine_detail = None
     _state.drain = None
     _state.drain_run = drain
+    _state.writing = True   # the run's start flushes pending commits; `_drain` opens the window per batch
     # Sleep control: `cancelled` (the OUTPUT flag) always starts fresh — we
     # haven't finished anything yet. `cancel_requested` (the INPUT flag)
     # restores whatever `reserve_cycle` accepted for THIS cycle_id above,
@@ -1188,6 +1211,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         # while `status == "running"`, so every later cycle would be silently
         # refused with no way to recover short of restarting the process.
         try:
+            _state.writing = True   # the tail's commits sweep with `git add -A`: a hold, like a plain cycle
             await _run_engine_independent_tail(
                 memory_path, settings, outcome, user_triggered=user_triggered,
                 # Only a drain stopped at the plan's limit passes this; the call
@@ -1196,6 +1220,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
             )
         finally:
             _state.status = "idle"
+            _state.writing = False
             # The run is over whichever way it ended (a raise outside a batch
             # included): release the bank guard and close the drain's own flag.
             _state.drain_run = False
@@ -1373,6 +1398,9 @@ async def _drain(
         ds.batch_counted = True
 
     while True:
+        # Between batches, and while the next one only reads episodes and calls the
+        # engine, no page is held (`is_writing`); Stage 2 of the batch opens the window.
+        _state.writing = False
         if getattr(settings, "memory_path", pinned) != pinned:
             stop = sleep_drain.DrainStop(
                 "bank_switched",
@@ -1417,9 +1445,15 @@ async def _drain(
             # Stage 1 swallows a throttle per episode, so some of the batch was
             # read and filed; the scope's breaker is the only signal left. Stop
             # here rather than start a batch that spawns, trips it again and stops
-            # one batch late.
-            stop = sleep_drain.DrainStop("plan_limit", last.breaker, last.breaker_resets_at)
-            break
+            # one batch late — but only when frozen ids are still waiting. A batch
+            # that leaves nothing behind finished the run: the plan note stays
+            # information (logged), never a stop, and the tail's link
+            # backfill still runs.
+            left = {e["id"] for e in _get_unprocessed_episodes(memory_path, with_body=False)}
+            if not is_last and any(i not in ds.settled and i in left for i in ids):
+                stop = sleep_drain.DrainStop("plan_limit", last.breaker, last.breaker_resets_at)
+                break
+            logger.info(f"Drain {cycle_id}: plan note after the last batch (nothing left waiting): {last.breaker}")
         if not last.committed:
             # Nothing filed and nothing wrong: every id was read elsewhere between the
             # scan and the load. Settled, counted, never re-read.
@@ -1719,6 +1753,8 @@ async def _run_stages(
     # Stage 2: Entity Resolution & Deduplication
     _say("Stage 2/5: Resolving entities...")
     logger.info("Stage 2: Resolving entities against existing graph")
+    if batch is not None:
+        _state.writing = True   # the pages Stage 5 rewrites are read from here (see `is_writing`)
     existing = _load_existing_entities(memory_path)
     from api.services.entity_resolver import resolve
     if decay_only:

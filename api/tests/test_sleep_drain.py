@@ -170,6 +170,53 @@ def test_a_partial_throttle_in_a_committed_batch_stops_before_the_next_batch(tmp
     assert state.error is None
 
 
+def test_a_partial_throttle_in_the_last_batch_is_a_finished_run_not_a_stop(tmp_path, monkeypatch):
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+
+    async def partial_throttle_last(batch_no, episodes):
+        if batch_no == 2:   # the final batch: one read, two requeued, the breaker tripped
+            agent_engine.trip_breaker(PLAN_SENTENCE, resets_at=1790000000)
+            return [e["id"] for e in episodes[1:]]
+
+    rig.on_extract = partial_throttle_last
+    _cfg, state = run_drain(memory, cap=3)
+
+    ds = state.drain
+    assert len(rig.extract_batches) == 2
+    assert ds.stop is None and ds.finished, "nothing frozen is left waiting: the run finished"
+    assert (ds.filed, ds.requeued, ds.committed_batches) == (4, 2, 2)
+    assert state.progress.startswith("Completed — 4 episode(s) filed in 2 batch(es)")
+    assert "links" in rig.tail, "a finished run keeps its link backfill"
+    assert state.error is None
+
+
+def test_a_batch_can_stop_only_for_ids_that_are_still_waiting(tmp_path, monkeypatch):
+    """Not the last batch, but the ids after it were all read elsewhere meanwhile: the
+    tripped breaker has nothing left to protect, so it is not a stop either."""
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+
+    async def throttle_and_others_read_the_rest(batch_no, episodes):
+        if batch_no == 1:
+            agent_engine.trip_breaker(PLAN_SENTENCE, resets_at=1790000000)
+            for other in ids[3:]:   # another writer files them before the batch's commit
+                path = memory / "episodes" / f"{other}.md"
+                parsed = markdown_parser.parse(path)
+                fm = dict(parsed.frontmatter)
+                fm["processed"] = True
+                markdown_parser.write(path, fm, parsed.body)
+
+    rig.on_extract = throttle_and_others_read_the_rest
+    _cfg, state = run_drain(memory, cap=3)
+
+    ds = state.drain
+    assert ds.stop is None and ds.finished
+    assert len(rig.extract_batches) == 1 and ds.skipped == 3
+
+
 def test_a_batch_that_extracts_nothing_ends_the_drain_with_the_engine_message(tmp_path, monkeypatch):
     ids = episode_ids(9)
     memory = seed_bank(tmp_path, ids)
@@ -526,3 +573,86 @@ def test_sleep_drain_unit_helpers():
     assert sleep_drain.classify(engine_errors.EngineUnavailable("signed out")).reason == "engine"
     assert sleep_drain.classify(engine_errors.EngineModelNotFound("nope")).reason == "engine"
     assert sleep_drain.classify(ValueError("bad")).reason == "error"
+
+
+# --------------------------------------------------------------------------- #
+# The write window (G174): what is refused, and what commits alone, mid-run
+# --------------------------------------------------------------------------- #
+
+
+def test_a_drain_holds_the_bank_only_while_a_batch_can_write(tmp_path, monkeypatch):
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    seen: dict[str, list[bool]] = {"stage1": [], "stage5": []}
+
+    async def stage1(batch_no, episodes):
+        seen["stage1"].append((sleep_cycle.get_sleep_state().status == "running", sleep_cycle.is_writing()))
+
+    async def stage5(batch_no):
+        seen["stage5"].append(sleep_cycle.is_writing())
+
+    rig.on_extract, rig.on_generate = stage1, stage5
+    run_drain(memory, cap=3)
+
+    assert seen["stage1"] == [(True, False), (True, False)], "reading episodes holds no page"
+    assert seen["stage5"] == [True, True], "Stage 5 is the write window"
+    assert not sleep_cycle.is_writing(), "an idle Sleep holds nothing"
+
+
+def test_a_plain_cycle_still_holds_the_bank_for_its_whole_run(tmp_path, monkeypatch):
+    memory = seed_bank(tmp_path, episode_ids(2))
+    rig = install(monkeypatch)
+    seen = []
+
+    async def stage1(batch_no, episodes):
+        seen.append(sleep_cycle.is_writing())
+
+    rig.on_extract = stage1
+    asyncio.run(sleep_cycle.run(settings(memory), "sleep_plain_test", user_triggered=False))
+    assert seen == [True]
+
+
+def test_an_agent_claim_between_batches_lands_under_its_own_author_not_a_batch_commit(tmp_path, monkeypatch):
+    from api.services import agent_commits, agentic_write
+
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+
+    def page(mem):
+        markdown_parser.write(
+            mem / "entities" / "alpha-project.md",
+            {"name": "alpha-project", "type": "project", "status": "active", "confidence": 0.8},
+            "# alpha-project\n")
+
+    page(memory)
+    git(memory, "add", "-A")
+    git(memory, "commit", "-q", "-m", "seed page")
+
+    async def agent_writes_during_batch_two_reading(batch_no, episodes):
+        if batch_no == 2:
+            assert not sleep_cycle.is_writing(), "the probe an agent asks says the bank is free"
+            result = agentic_write.write_claim(
+                memory, "alpha-project", "uses", "sqlite-vec", observer="agent", authored_by="claude-code")
+            # A stdio agent is another process; off the loop stands in for that
+            # (`commit_write` refuses to run inside one).
+            await asyncio.to_thread(
+                agent_commits.commit_write, memory, subject="Agent write",
+                lines=[f"{result['path']}: updated"], paths=[result["path"]],
+                author="claude-code", session=None)
+
+    rig.on_extract = agent_writes_during_batch_two_reading
+    run_drain(memory, cap=3)
+
+    agent_commit = git(memory, "log", "--format=%H", "--grep=^Agent write").split()
+    assert len(agent_commit) == 1
+    assert "Cicada-Author: claude-code" in git(memory, "log", "-1", "--format=%B", agent_commit[0])
+    assert git(memory, "show", "--name-only", "--format=", agent_commit[0]).split() == ["entities/alpha-project.md"]
+    for commit in git(memory, "log", "--format=%H", "--grep=^Sleep cycle").split():
+        # Sleep's own decay may touch the page (and graph_edges.yaml derives from the
+        # claim); the claim's own line must never be ADDED by a Sleep commit.
+        diff = git(memory, "show", "--format=", "-U0", commit, "--", "entities/alpha-project.md")
+        assert not any(ln.startswith("+") and "sqlite-vec" in ln for ln in diff.splitlines()), \
+            "the agent's claim rode a Sleep commit"
+    assert git(memory, "status", "--porcelain").strip() == ""
