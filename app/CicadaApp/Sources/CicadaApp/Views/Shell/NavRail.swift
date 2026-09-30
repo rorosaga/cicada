@@ -135,7 +135,7 @@ struct NavRailCell: View {
                 .font(CicadaTheme.icon(.rail))
                 .foregroundStyle(ink)
                 .frame(width: side, height: side)
-                .iconHover(hovering: hovering)
+                .iconHover(hovering: hovering, subtle: true)
         }
     }
 }
@@ -171,7 +171,7 @@ private struct RailFootGlyph: View {
         Image(systemName: systemName)
             .font(CicadaTheme.icon(.railFoot))
             .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-            .iconHover(hovering: hovering)
+            .iconHover(hovering: hovering, subtle: true)
             .frame(width: CicadaTheme.scaled(ShellMetrics.railCell), height: CicadaTheme.scaled(ShellMetrics.railCell))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgRailHover : Color.clear))
             .contentShape(Rectangle())

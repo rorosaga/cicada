@@ -94,6 +94,8 @@ enum CicadaMotion {
     static let revealMaxRows = 8
     /// One nod of a brand mark on hover (`MarkHover`).
     static let markNodDuration: TimeInterval = 0.32
+    /// The rail glyph's subtle hover nod (`IconHover(subtle:)`).
+    static let iconNodDuration: TimeInterval = 0.28
     /// The window-wide drop veil fading in (I1).
     static let dropVeilDuration: TimeInterval = 0.18
     /// The one-shot ✓ on a finished import (I6, W9).
@@ -323,6 +325,13 @@ struct IconHover: ViewModifier {
     /// target the glyph sits in (a sidebar row).
     var hovering: Bool?
     var selected: Bool = false
+    /// The rail's gentler acknowledgement (owner, 2026-09-30: "they move too much … a bit more subtle"): a small nod
+    /// of the whole glyph — rotate −3° → +2° → 0, scale 1 → 1.04 → 1 — instead of SF Symbols' per-layer wiggle, whose
+    /// strength cannot be set.
+    var subtle: Bool = false
+
+    static let subtleRotationKeys: [Double] = [-3, 2, 0]
+    static let subtleScaleKeys: [CGFloat] = [1.04, 1]
 
     @State private var hoverBumps = 0
     @State private var selectBumps = 0
@@ -334,7 +343,7 @@ struct IconHover: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        wiggle(content.symbolEffectsRemoved(reduceMotion))
+        hoverMotion(content.symbolEffectsRemoved(reduceMotion))
             .symbolEffect(.bounce.up.byLayer, options: .nonRepeating, value: selectBumps)
             .onHover { inside in
                 guard hovering == nil else { return }
@@ -346,6 +355,29 @@ struct IconHover: ViewModifier {
             .onChange(of: selected) { _, now in
                 selectBumps = Self.nextBump(selectBumps, entering: now, reduceMotion: reduceMotion)
             }
+    }
+
+    @ViewBuilder
+    private func hoverMotion(_ view: some View) -> some View {
+        if subtle { nod(view) } else { wiggle(view) }
+    }
+
+    /// The subtle variant: one small keyframed nod of the whole glyph per entry (`hoverBumps` is already held at
+    /// its value under Reduce Motion, so nothing moves then).
+    private func nod(_ view: some View) -> some View {
+        view.keyframeAnimator(initialValue: MarkHover.Pose(), trigger: hoverBumps) { glyph, pose in
+            glyph.rotationEffect(.degrees(pose.rotation)).scaleEffect(pose.scale)
+        } keyframes: { _ in
+            KeyframeTrack(\.rotation) {
+                LinearKeyframe(Self.subtleRotationKeys[0], duration: CicadaMotion.iconNodDuration * 0.3)
+                LinearKeyframe(Self.subtleRotationKeys[1], duration: CicadaMotion.iconNodDuration * 0.35)
+                LinearKeyframe(Self.subtleRotationKeys[2], duration: CicadaMotion.iconNodDuration * 0.35)
+            }
+            KeyframeTrack(\.scale) {
+                LinearKeyframe(Self.subtleScaleKeys[0], duration: CicadaMotion.iconNodDuration * 0.5)
+                LinearKeyframe(Self.subtleScaleKeys[1], duration: CicadaMotion.iconNodDuration * 0.5)
+            }
+        }
     }
 
     /// `.wiggle` is macOS 15 API, and `#available` is only a runtime check:
@@ -446,8 +478,8 @@ extension View {
 
     /// See `IconHover`. `iconHover()` follows the glyph's own hover;
     /// `iconHover(hovering: rowIsHovered, selected: isSelected)` a larger target's.
-    func iconHover(hovering: Bool? = nil, selected: Bool = false) -> some View {
-        modifier(IconHover(hovering: hovering, selected: selected))
+    func iconHover(hovering: Bool? = nil, selected: Bool = false, subtle: Bool = false) -> some View {
+        modifier(IconHover(hovering: hovering, selected: selected, subtle: subtle))
     }
 
     /// See `MarkHover` — for brand marks (rasters); glyphs use `iconHover()`.

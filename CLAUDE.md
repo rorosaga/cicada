@@ -1281,7 +1281,7 @@ the page's find row.
   is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
   rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
   a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
-  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  tile); `ClustersGrid` decides it, pure. A click on a tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
   words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
   is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
   (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
