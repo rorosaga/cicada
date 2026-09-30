@@ -6,12 +6,15 @@
    "access": null,
    "addedAt": "2026-09-20",
    "addedBy": "user",
+   "checked": null,
+   "effectiveAccess": "unknown",
    "entity": null,
    "kind": "url",
    "onlyMe": false,
    "origin": null,
    "predicate": "works-at",
    "ref": "https://example.com/staff-directory",
+   "trusted": true,
    "verified": null
   },
   {
@@ -19,12 +22,15 @@
    "access": null,
    "addedAt": "2026-09-20",
    "addedBy": "claude-code",
+   "checked": null,
+   "effectiveAccess": "unknown",
    "entity": null,
    "kind": "url",
    "onlyMe": false,
    "origin": null,
    "predicate": "works-at",
    "ref": "https://example.com/team",
+   "trusted": false,
    "verified": null
   },
   {
@@ -32,12 +38,15 @@
    "access": null,
    "addedAt": "2026-09-20",
    "addedBy": "claude-web",
+   "checked": null,
+   "effectiveAccess": "unknown",
    "entity": "media-alpha-profile",
    "kind": "url",
    "onlyMe": false,
    "origin": "remote:ab12cd34",
    "predicate": "profile",
    "ref": "https://example.com/in/bob",
+   "trusted": false,
    "verified": null
   },
   {
@@ -45,12 +54,15 @@
    "access": "public",
    "addedAt": "2026-09-20",
    "addedBy": "claude-code",
+   "checked": null,
+   "effectiveAccess": "public",
    "entity": null,
    "kind": "url",
    "onlyMe": false,
    "origin": null,
    "predicate": "works-at",
    "ref": "https://example.com/old-team",
+   "trusted": true,
    "verified": null
   },
   {
@@ -58,12 +70,15 @@
    "access": null,
    "addedAt": "2026-09-20",
    "addedBy": "user",
+   "checked": null,
+   "effectiveAccess": "unknown",
    "entity": null,
    "kind": "note",
    "onlyMe": false,
    "origin": null,
    "predicate": "works-at",
    "ref": "Ask bob-example, he announces job changes",
+   "trusted": true,
    "verified": null
   },
   {
@@ -71,12 +86,15 @@
    "access": null,
    "addedAt": "2026-09-20",
    "addedBy": "cicada",
+   "checked": null,
+   "effectiveAccess": "unknown",
    "entity": null,
    "kind": "url",
    "onlyMe": false,
    "origin": null,
    "predicate": null,
    "ref": "https://example.com/about",
+   "trusted": false,
    "verified": null
   },
   {
@@ -84,12 +102,15 @@
    "access": null,
    "addedAt": "2026-09-20",
    "addedBy": "user",
+   "checked": null,
+   "effectiveAccess": "unknown",
    "entity": null,
    "kind": "url",
    "onlyMe": false,
    "origin": null,
    "predicate": "profile",
    "ref": "https://example.com/gone",
+   "trusted": true,
    "verified": null
   }
  ]

@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, decay_tuning, engine_errors, entity_body, json_parse, markdown_parser
+from api.services import decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -338,6 +338,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "version": 1,
                 "layout_version": 2,
             }
+            # G61 S3-b: Stage 1's optional official site is stored UNVERIFIED (`fact_sources.propose_site`: pure, no
+            # network, never over a tombstone or an existing `website`); Cicada's own read confirms it later and only
+            # a trusted site ever draws a picture. `added_by: agent` — this seam is not handed the engine's model id
+            # (the commit's `Cicada-Author` still names it).
+            if entity.get("website") and str(entity_type).lower() in ("company", "tool", "project"):
+                fact_sources.propose_site(frontmatter, str(entity["website"]), added_by="agent")
             body = entity_body.compose_body_v2(
                 summary=_entity_summary(entity),
                 key_facts=entity.get("key_facts", []) or [],

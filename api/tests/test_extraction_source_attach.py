@@ -124,7 +124,12 @@ def test_a_cited_link_never_becomes_the_pages_logo_domain(tmp_path):
     after = markdown_parser.parse(page)
     assert fact_sources.list_sources(memory, "bob-example"), "the cited link was attached"
     assert logo_service.domain_for(after.frontmatter, after.body) == domain_before
-    # The person's own url source still names the domain.
+    # G61 S3-b: a person's page never draws a logo whatever it lists; on a company the person's own `website` source
+    # names the domain and a cited link still does not.
     fact_sources.add_source(memory, "bob-example", "https://bob.example.org/", added_by="user")
     mine = markdown_parser.parse(page)
-    assert logo_service.domain_for(mine.frontmatter, mine.body) == "bob.example.org"
+    assert logo_service.domain_for(mine.frontmatter, mine.body) is None
+    fm = dict(mine.frontmatter, type="company")
+    assert logo_service.domain_for(fm, mine.body) == "bob.example.org", "the person's own site, whatever the fact"
+    fm["sources"] = [s for s in fm["sources"] if s.get("added_by") != "user"]
+    assert logo_service.domain_for(fm, mine.body) is None, "a cited link (a model's) never names the domain"

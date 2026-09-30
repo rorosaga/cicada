@@ -669,6 +669,8 @@ def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
     for s in fact_sources.list_sources(memory_path, entity_id):
         # A link to a page that is gone (deleted, merged away, dropped) reads as no link.
         s["entity"] = fact_sources.linked_entity(memory_path, s, self_id=entity_id)
+        s["effective_access"] = fact_sources.effective_access(s)
+        s["trusted"] = fact_sources.trusted(s)
         rows.append(EntitySource(**s))
     return EntitySourceList(entity_id=entity_id, sources=rows)
 
@@ -699,6 +701,34 @@ async def get_entity_sources(
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
     return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.get("/entities/{entity_id}/sources/icon/{site}")
+async def get_entity_source_icon(
+    entity_id: str,
+    site: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """G61 S3-b — the mark of a site THIS page lists as a source, for the card's row: the icon service only, the site
+    itself is never contacted. Keyed on the site (``reading_hosts.site_of``), never a URL, so no ref, token or path
+    reaches a log. Served only for a site one of this page's sources (that is not a note) belongs to — 404 otherwise, with no
+    lookup, so this is not a proxy for an arbitrary name — and never for an unverified proposal: nothing draws a
+    mark from a site nobody vouched for (`fact_sources.trusted`)."""
+    from api.routers.reading import serve_site_icon
+    from api.services import reading_hosts
+
+    if not reading_hosts.valid_site_key(site):
+        raise HTTPException(404, "no icon for this site")
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, "no icon for this site")
+    allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(settings.memory_path, entity_id)
+               if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
+    domain = reading_hosts.icon_host(site) if site in allowed else None
+    if not domain:
+        raise HTTPException(404, "no icon for this site")
+    return await serve_site_icon(request, settings.memory_path, site, domain)
 
 
 @router.get("/entities/{entity_id}/paper", response_model=PaperDetailResponse)

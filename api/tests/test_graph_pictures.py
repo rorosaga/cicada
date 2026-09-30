@@ -29,7 +29,8 @@ def bank(tmp_path, monkeypatch):
     pages = {
         "bob-example": ({"name": "Bob Example", "type": "person", "last_referenced": "2026-09-20", "picture": UPLOAD},
                         "## Summary\nRuns the lab.\n"),
-        "acme": ({"name": "Acme", "type": "company", "last_referenced": "2026-09-01"}, "## Summary\nA client.\n"),
+        "acme": ({"name": "Acme", "type": "company", "last_referenced": "2026-09-01",
+                  "sources": [{"ref": "https://acme.example", "kind": "url", "predicate": "website", "added_by": "user"}]}, "## Summary\nA client.\n"),
         "video-example": ({"name": "A robot arm video", "type": "media", "last_referenced": "2026-09-19",
                            "media": {"url": "https://video.example.com/v/1", "media_type": "youtube",
                                      "thumbnail": "https://img.example.com/1.jpg"}}, "## Summary\nA video.\n"),

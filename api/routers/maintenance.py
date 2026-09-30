@@ -163,6 +163,48 @@ async def link_sources(settings: Settings = Depends(get_settings)):
     return {"linked": report.linked, "pages": len(report.paths)}
 
 
+# --- Official sites, confirmed on Cicada's own rail (G61 S3-b) ---------------------------------------------------
+
+_sites_lock = asyncio.Lock()
+
+
+@router.post("/maintenance/verify-sites")
+async def verify_sites(
+    budget: int = Query(100, ge=1, le=500),
+    settings: Settings = Depends(get_settings),
+):
+    """Propose and confirm official sites now — the person's click, so (like `enrich-links`) it is ungated:
+    `CICADA_ALLOW_CONNECTOR_FETCH` gates only the unattended nightly step. Same rail as the tail: at most `budget`
+    fetches, one per site, never a walled or platform host, Cicada's own read (4 s, ≤ 512 KB, no cookies). 409 while
+    Sleep runs or another call runs. One `cicada` commit (`Site check <date>`, trigger `user/companion_app`). Counts
+    only in the body: never a host, a page or a reason."""
+    from datetime import date
+
+    from api.services import git_service, sleep_cycle, site_sources
+
+    if _sites_lock.locked():
+        raise HTTPException(409, "a site check is already running — retry when it finishes")
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+    async with _sites_lock:
+        memory_path = settings.memory_path
+        skip: frozenset[str] = frozenset()
+        if (memory_path / ".git").exists():
+            skip = await sleep_cycle._dirty_paths(memory_path)
+        report = await asyncio.to_thread(site_sources.propose, memory_path, skip)
+        report = await site_sources.verify(memory_path, budget=budget, skip=skip, settings=settings, report=report)
+        if report.paths and (memory_path / ".git").exists():
+            try:
+                await git_service.commit_paths(
+                    memory_path,
+                    site_sources.commit_message(report, date.today(), site_sources.ROUTE_TRIGGER), report.paths)
+            except Exception:
+                await asyncio.to_thread(site_sources.restore, memory_path, report)
+                raise HTTPException(500, "the site check could not be committed; nothing was changed")
+    return {"pages": len(report.paths), **{k: report.counts.get(k, 0) for k in (
+        "proposed", "fetched", "verified", "unconfirmed", "mismatch", "walled", "unreachable", "deferred")}}
+
+
 # --- Search index (G139, Settings → Memory) ----------------------------------
 
 # One rebuild per process, for the reason `_enrich_lock` exists: two
