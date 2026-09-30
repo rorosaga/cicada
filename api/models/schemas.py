@@ -2129,10 +2129,13 @@ class SleepStatusResponse(CamelModel):
     # state ("Claude Code is signed out — run `claude auth login`").
     last_engine: Optional[str] = None
     engine_detail: Optional[str] = None
-    # Sleep control — `episodes_queued` is every episode the drain has seen
-    # queued (a trigger drains the whole queue in batches, TODO ruling 14) and
-    # equals `episodes_total`. `episode_cap` is ALWAYS 0: nothing caps the
-    # episodes per Sleep any more; the field stays so an older client decodes.
+    # Sleep control — episode cap (settings-driven; see
+    # ``Settings.sleep_max_episodes_per_cycle``). ``episodes_queued`` is the
+    # FULL unprocessed count found at the top of this cycle, BEFORE capping;
+    # ``episode_cap`` is the cap applied. ``episodes_total`` above is the
+    # (possibly capped) count this cycle actually attempted, so
+    # ``episodes_queued > episodes_total`` means the cap truncated this
+    # cycle and the rest stayed queued for the next one.
     episode_cap: int = 0
     episodes_queued: int = 0
     # Sleep control — cooperative cancellation. ``cancel_requested`` is true

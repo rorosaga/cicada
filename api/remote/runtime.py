@@ -50,8 +50,7 @@ ASK_PER_DAY = 20
 CONVERSATION_TTL_S = 24 * 3600
 MAX_CONVERSATIONS = 2000
 
-BUSY_TEXT = ("Cicada is consolidating a long queue of memory right now. Nothing was saved — keep it and "
-             "try again when Cicada has finished.")
+BUSY_TEXT = "Cicada is consolidating memory right now. Nothing was saved — try again in a few minutes."
 DENIED_TEXT = "This connection isn't allowed to do that. The person chooses what it may do in Cicada's settings."
 CAPPED_TEXT = "This connection has used today's questions. Try again tomorrow."
 

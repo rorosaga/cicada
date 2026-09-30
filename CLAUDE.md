@@ -286,25 +286,6 @@ then says the model wasn't shared.
 4. **Pattern detection & skill extraction** — recurring patterns distilled into skill entities.
 5. **Nudge generation, clarification queue & versioning** — snapshot, git commit.
 
-**One trigger drains the whole queue; there is no cap on episodes per Sleep** (2026-09-29, the owner's ruling:
-"its just progress that cicada has to go through"). `sleep_cycle.run` reads the queue in batches of
-`sleep_batch_episodes` (25, `CICADA_SLEEP_BATCH_EPISODES`) and runs Stages 1–5 for each, committing per batch, until no
-unattempted episode is left — a batch is a *checkpoint* (a cancel or a crash loses at most the batch in flight), never a
-limit on the work. An episode a batch failed on is not retried inside the same drain. A drain stops early only for a
-cancel, a plan stop (`agent_engine.breaker_reason`, resumed by the next trigger after the reset) or a pass that read
-nothing. One drain shares one `DecayBudget`, so a cycle still opens at most `decay_inbox_cap_per_cycle` new decay
-questions however many batches it runs. `episodesQueued == episodesTotal` is the whole drain, `stage1_progress` counts
-across batches, and `episodeCap` on `/sleep/status` is always 0 (kept so an older client decodes; nothing is capped).
-The Rested % volume reference is its own constant (`sleep_debt.VOLUME_REFERENCE`), not a limit.
-**Each batch is its own ledger unit.** `_drain` runs a batch under its own scope `sleep:<id>` — the first batch keeps
-the trigger's id, batch n is `<id>.b<n>` — so its `llm_call`s, its plan window (taken and popped per batch) and its
-`sleep_run` row (`refs.cycle_id`, and a `duration_ms` measured from that batch's start) are its own; a history entry
-shows its own batch's calls, never the drain's total. The plan-stop breaker lives in the batch's scope and is purged when
-it leaves, so `_run_stages` hands it back as `_StageOutcome.breaker`. **The window is long, and it is disclosed, not
-hidden:** while a drain runs Sleep is busy, so every guarded write (the app's inbox answers, Projects and settings
-writes, every remote write) answers 409 and `cicada_record_read` with `read` is refused on stdio the way the remote path
-refuses it (a stdio write would sit uncommitted and the next `git add -A` writer would sweep it in under its own author).
-
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
@@ -825,7 +806,7 @@ needs_login | blocked | not_found | failed`. Only a **successful read is memory*
 (`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
 *reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
 claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
-the harness and never mints a page. **Only a link the person asked about can be recorded**: `cicada_record_read` refuses every outcome for a URL with no live ask row (a saved link with no ask included), and `reading_asks.record_outcome` never creates a row — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about. A `read` is also refused while Sleep runs on stdio (its reply says to keep the summary and record it when Cicada has finished, never "in a few minutes": a drain can last hours). **Known gap:** a `page` span from `page_read` still reads "From the page" in the app, not "as <agent> read it" (G166's DR-57 chip label is open). **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+the harness and never mints a page. **Only a link the person asked about can be recorded**: `cicada_record_read` refuses every outcome for a URL with no live ask row (a saved link with no ask included), and `reading_asks.record_outcome` never creates a row — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about. A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). **Known gap:** a `page` span from `page_read` still reads "From the page" in the app, not "as <agent> read it" (G166's DR-57 chip label is open). **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
 gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
 shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
 it read with — self-reported, never proof. Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
@@ -1755,7 +1736,7 @@ which also closed the X gap). What the person's own agent does in its own signed
 agent's, not Cicada's: Cicada only *asks*, per link, for a site the person switched on, after a first-use
 acknowledgement, and promises nothing about what the agent does there. The backend never holds a session, a cookie or a
 browser profile. An ask's URL is the person's explicit hand-off to their agent, so a remote connection holding `read`
-sees it (TODO ruling 13); `sources` still gates every verbatim word of the person's conversations and any
+sees it (TODO ruling 14); `sources` still gates every verbatim word of the person's conversations and any
 chat-harvested URL.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never

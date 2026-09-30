@@ -44,13 +44,13 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
      placeholder the owner PUT adopts). Do not import from another bank.
   2. Engine = a plan (Claude or ChatGPT), schedule **manual**, *Keep going on extra usage* **off** (ruling 4: a scheduled
      cycle never spends plan quota, so leave it manual until the first drain is understood).
-  3. ~~Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE`~~ — obsolete (ruling 14): one trigger drains the whole queue.
+  3. Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE` to **100–150** (default 25) in `api/.env`, restart the backend.
   4. Import the Claude export first, then the ChatGPT export (through the one intake; the memory files arrive as
      lower-trust assistant words).
-  5. Run **one cycle** (it drains the queue in batches; watch the first batch's commit) and inspect: the owner page's beliefs and their spans, the entity count against the episodes
+  5. Run **one capped cycle** and inspect: the owner page's beliefs and their spans, the entity count against the episodes
      read, no page archived that the cycle just read, the inbox's decay questions (at most 10 new).
-  6. Drain: nothing to repeat by hand any more (ruling 14). A plan stop ends the drain; trigger again after the reset.
-     Watch the plan window.
+  6. Drain: repeat one capped cycle at a time until the queue is empty (Sleep v5's journal and *Read everything*,
+     G163, replace this by hand once built). Watch the plan window between cycles.
 
 **Pending after 2026-09-28 (owner asked to record these):**
 - *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt
@@ -566,7 +566,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
     Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
 
-13. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
+14. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
     (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
     chatgpt app and claude app, which uses the logged in sessions and swiftly surfaces 'needs login'… I want this built
     now"; G166, spec `2026-09-29-reading-the-web-design.md`).** Four of the spec's proposed rulings are now binding; the
@@ -605,25 +605,6 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     Revisit when the owner asks for Route B (a Cicada-spawned browse call, spike-gated) or a per-category refuse list
     (adult, financial, health hosts: not buildable as an honest closed list, so every walled host is opt-in and every
     other page an explicit ask).
-
-14. **A Sleep trigger drains the whole queue; nothing caps the episodes per Sleep (owner, 2026-09-29: "i dont want to
-    cap the max episodes per sleep, why would we cap them? its just progress that cicada has to go through").** This
-    reverses PR #27's per-cycle cap (`sleep_max_episodes_per_cycle` = 25). What was right in it survives as a
-    *checkpoint*, not a limit: `sleep_cycle.run` runs Stages 1–5 over batches of `sleep_batch_episodes` (25) and commits
-    each, so a cancel or crash loses at most the batch in flight (Stages 1–4 are in memory until Stage 5). Ruling 1
-    (decay charges once) and ruling 4 (a scheduled cycle never spends plan quota) are untouched; a plan stop ends the
-    drain and the next trigger resumes it. `episodeCap` stays on the wire as 0 for older clients. **The first-run
-    checklist's step 3 and 6 (raise the cap, "drain by hand one capped cycle at a time") are obsolete**; G163's
-    "reading everything that is waiting" is what this delivers for the backend. **Consequences, decided with it
-    (review, 2026-09-29):** (a) each batch is its own ledger unit — its own scope id (`<id>`, `<id>.b2`, …), plan window,
-    `sleep_run` row and duration — so Past nights never shows the whole drain's calls on every commit; (b) Sleep is busy
-    for the whole drain, which on a first run is hours, so every guarded write answers 409 that long — the cost of "no
-    cap", accepted; the app already answers a 409 with "Sleep is running — try again when it finishes" and disables
-    Projects writes while it runs (`ProjectWriteGate`), so no new copy is needed; (c) `cicada_record_read` with `read` is refused while Sleep runs on stdio (the remote path already refuses),
-    because a stdio write would sit uncommitted across batches and be swept into a later batch's commit under the wrong
-    author; other stdio write tools keep their existing skip-the-commit behaviour and are the open edge (a G85-class
-    smear risk that grows with the window; fixing it means a gate or a per-path commit in each tool). Not built:
-    releasing the busy state between batches — it would let a second trigger start mid-drain.
 
 ## How work is run here
 

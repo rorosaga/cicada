@@ -3,7 +3,7 @@ import Foundation
 /// G166 — reading pages with the person's own agent: Settings → Agents → "Reading pages", the first-use sheet and the
 /// Feed's Read section. Its own file for the reason `Copy+Lists.swift` gives. These are instructions and choices, never
 /// promises: Cicada cannot enforce what an agent does in its own browser, so no line here says an agent never posts
-/// or is read-only (TODO ruling 13, R-RW8). No price, no count of tokens (DR-59).
+/// or is read-only (TODO ruling 14, R-RW8). No price, no count of tokens (DR-59).
 extension Copy {
     enum Reading {
         // MARK: Settings → Agents → Reading pages

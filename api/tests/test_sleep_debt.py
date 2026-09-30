@@ -187,7 +187,7 @@ def test_compute_counts_only_unprocessed_and_finds_the_oldest(tmp_path):
     _write_episode(memory, "ep_c", hours_ago=5.0, processed=True)  # excluded
 
     debt = asyncio.run(
-        sleep_debt.compute(memory, SimpleNamespace(sleep_batch_episodes=25))
+        sleep_debt.compute(memory, SimpleNamespace(sleep_max_episodes_per_cycle=25))
     )
     assert debt.unprocessed_count == 2
     assert debt.oldest_unprocessed_age_hours == pytest.approx(40.0, abs=0.05)
@@ -237,7 +237,7 @@ def test_compute_with_no_git_repo_at_all_degrades_to_never_run(tmp_path):
 
 
 def test_compute_falls_back_to_the_default_cap_when_settings_lacks_the_field(tmp_path):
-    """A `SimpleNamespace` settings stand-in without `sleep_batch_episodes`
+    """A `SimpleNamespace` settings stand-in without `sleep_max_episodes_per_cycle`
     (the same shape several sleep_cycle tests already use) must not raise."""
     memory = _init_bank(tmp_path)
     _write_episode(memory, "ep_a", hours_ago=1.0)

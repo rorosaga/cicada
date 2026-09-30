@@ -42,12 +42,13 @@ from api.services import bank_index, git_service, sync_service
 # it — one old episode is enough to matter.
 AGE_REFERENCE_HOURS = 72.0
 
-# The queue size that reads as "fully behind" on volume in the Rested % — its own
-# constant, NOT a limit on anything: one full batch's worth of waiting episodes.
-# It used to borrow the per-cycle episode cap (removed 2026-09-29, TODO ruling
-# 14); a Sleep trigger now drains the whole queue, and this only scales a gauge.
-VOLUME_REFERENCE: int = 25
-DEFAULT_VOLUME_REFERENCE: int = VOLUME_REFERENCE  # kept for callers that named it
+# Default episode-cap fallback, used as `volume_pct`'s reference (one full
+# cycle's worth of episodes = "fully behind" on volume) when `settings`
+# doesn't carry the field. Review fix (L5): reflected off `Settings`'s own
+# field default — the SAME expression `sleep_cycle.DEFAULT_EPISODE_CAP`
+# uses — rather than a separate hardcoded `25` that could silently drift
+# from the real cap if only `api/config.py` were ever changed.
+DEFAULT_VOLUME_REFERENCE: int = Settings.model_fields["sleep_max_episodes_per_cycle"].default
 
 
 @dataclass
@@ -283,7 +284,10 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
         if last_cycle is not None else None
     )
 
-    volume_reference = VOLUME_REFERENCE
+    volume_reference = int(
+        getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_VOLUME_REFERENCE)
+        or DEFAULT_VOLUME_REFERENCE
+    ) if settings is not None else DEFAULT_VOLUME_REFERENCE
 
     volume_pct, age_pct = rested_components(count, oldest_hours, volume_reference)
     rested = rested_pct_from_components(count, last_cycle is not None, volume_pct, age_pct)

@@ -556,7 +556,7 @@ def test_run_stages_brackets_a_codex_cycle_and_run_discards_an_aborted_one(monke
 
     monkeypatch.setattr(cycle_usage, "begin_codex", begin_then_abort)
     with pytest.raises(_Stop):
-        asyncio.run(sleep_cycle._run_stages(SimpleNamespace(sleep_batch_episodes=5), "cx1", tmp_path))
+        asyncio.run(sleep_cycle._run_stages(SimpleNamespace(sleep_max_episodes_per_cycle=5), "cx1", tmp_path))
     assert "cx1" in cycle_usage._CODEX_START   # started, so a finalize would write a two-snapshot block
     plan = asyncio.run(cycle_usage.finish("cx1", "codex-cli"))
     assert plan["windows"][0]["before"] == 0.2 and plan["windows"][0]["after"] == 0.3
