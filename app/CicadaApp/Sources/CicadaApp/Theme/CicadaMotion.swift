@@ -95,7 +95,7 @@ enum CicadaMotion {
     /// One nod of a brand mark on hover (`MarkHover`).
     static let markNodDuration: TimeInterval = 0.32
     /// The rail glyph's subtle hover nod (`IconHover(subtle:)`).
-    static let iconNodDuration: TimeInterval = 0.28
+    static let iconNodDuration: TimeInterval = 0.24
     /// The window-wide drop veil fading in (I1).
     static let dropVeilDuration: TimeInterval = 0.18
     /// The one-shot ✓ on a finished import (I6, W9).
@@ -325,13 +325,14 @@ struct IconHover: ViewModifier {
     /// target the glyph sits in (a sidebar row).
     var hovering: Bool?
     var selected: Bool = false
-    /// The rail's gentler acknowledgement (owner, 2026-09-30: "they move too much … a bit more subtle"): a small nod
-    /// of the whole glyph — rotate −3° → +2° → 0, scale 1 → 1.04 → 1 — instead of SF Symbols' per-layer wiggle, whose
-    /// strength cannot be set.
+    /// The rail's gentler acknowledgement (owner, 2026-09-30: "they move too much … a bit more subtle"): a small
+    /// grow-and-settle of the whole glyph — scale 1 → 1.05 → 1, no rotation — instead of SF Symbols' per-layer wiggle,
+    /// whose strength cannot be set.
     var subtle: Bool = false
 
-    static let subtleRotationKeys: [Double] = [-3, 2, 0]
-    static let subtleScaleKeys: [CGFloat] = [1.04, 1]
+    /// No tilt at all (owner, 2026-09-30, after the first nod: it still read as a jiggle): the glyph only grows a touch
+    /// and settles.
+    static let subtleScaleKeys: [CGFloat] = [1.05, 1]
 
     @State private var hoverBumps = 0
     @State private var selectBumps = 0
@@ -362,20 +363,15 @@ struct IconHover: ViewModifier {
         if subtle { nod(view) } else { wiggle(view) }
     }
 
-    /// The subtle variant: one small keyframed nod of the whole glyph per entry (`hoverBumps` is already held at
+    /// The subtle variant: one small keyframed grow-and-settle of the whole glyph per entry (`hoverBumps` is already held at
     /// its value under Reduce Motion, so nothing moves then).
     private func nod(_ view: some View) -> some View {
-        view.keyframeAnimator(initialValue: MarkHover.Pose(), trigger: hoverBumps) { glyph, pose in
-            glyph.rotationEffect(.degrees(pose.rotation)).scaleEffect(pose.scale)
+        view.keyframeAnimator(initialValue: CGFloat(1), trigger: hoverBumps) { glyph, scale in
+            glyph.scaleEffect(scale)
         } keyframes: { _ in
-            KeyframeTrack(\.rotation) {
-                LinearKeyframe(Self.subtleRotationKeys[0], duration: CicadaMotion.iconNodDuration * 0.3)
-                LinearKeyframe(Self.subtleRotationKeys[1], duration: CicadaMotion.iconNodDuration * 0.35)
-                LinearKeyframe(Self.subtleRotationKeys[2], duration: CicadaMotion.iconNodDuration * 0.35)
-            }
-            KeyframeTrack(\.scale) {
-                LinearKeyframe(Self.subtleScaleKeys[0], duration: CicadaMotion.iconNodDuration * 0.5)
-                LinearKeyframe(Self.subtleScaleKeys[1], duration: CicadaMotion.iconNodDuration * 0.5)
+            KeyframeTrack {
+                CubicKeyframe(Self.subtleScaleKeys[0], duration: CicadaMotion.iconNodDuration * 0.4)
+                CubicKeyframe(Self.subtleScaleKeys[1], duration: CicadaMotion.iconNodDuration * 0.6)
             }
         }
     }
