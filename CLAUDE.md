@@ -875,7 +875,8 @@ and in the backfill, in the backfill's own vocabulary and 30-day backoff, so a s
 when the capped backfill reaches it. Wall pages group by **site** (`reading_hosts.site_of`: a walled family folds to its
 name, else the registrable-ish domain, never folded under a shared host such as `github.io`); the sites surface on
 `GET /reading/sites` (hosts and measured counts only, ETag over `reading`+`entities`+`sources`, `def` in the threadpool,
-memoised in `reading_queue.sites_snapshot`) and a `PUT /reading/settings` `sites` patch grants or removes one (422 for a
+memoised in `reading_queue.sites_snapshot`; a row's `allowed` counts only while agent reading is on, `granted` is the
+stored grant, and `waitingNotAllowed` follows `allowed`) and a `PUT /reading/settings` `sites` patch grants or removes one (422 for a
 site never surfaced; turning a site on again lifts its `needs_login` pause — an agent that was not signed in pauses that
 site's derived entries until the row expires, a week). Per-page "Ask an agent" stays and needs no site permission. The
 closed host sets are one module (`reading_hosts.py`, dot-boundary matching, no DNS): walled hosts (X, Facebook, LinkedIn,
@@ -924,7 +925,9 @@ button; the footer says the choice applies to agents on this Mac that can load a
 not read — each with its favicon drawn like a browser tab's (`SiteIcon`: 20 pt, a 4 pt corner, never a circle or a ring; from
 `SiteIconStore`, in memory per bank and cleared on a bank switch, over `GET /reading/sites/{site}/icon` — the app makes no
 network call of its own, a lint holds it; until it arrives, and for a site with none, the family's bundled mark, else a
-ring monogram), its wall in words (`wallWords`), measured counts and one switch; a site switched on while the sheet is
+ring monogram), its wall in words (`wallWords`), measured counts and one switch (the stored grant, so a site allowed while agent
+reading is off still shows on, says "Allowed · agent reading is off" and can be turned off; a paused site's pages "wait
+until you sign in", never "queued"); a site switched on while the sheet is
 unacknowledged raises the sheet, whose one line says the site rides the same call, and a paused site ("your agent wasn't
 signed in") offers Try again. The **Feed's detail column**
 gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",

@@ -621,7 +621,7 @@ SITES THAT NEED YOUR BROWSER
   [icon] LinkedIn        41 saved pages are waiting              [ off ]
   [icon] paperfold.io    6 pages are queued for your agent       [ on  ]
          Your agent wasn't signed in to this site. Sign in in your browser, then try again.   [ Try again ]
-  Site icons come from an icon service, which is told the site's name. Cicada never contacts these sites itself.
+  Site icons come from an icon service, which is told the site's name. Cicada doesn't ask these sites for their icons.
 
 SMARTER NAVIGATION                                          Not available yet
   A small model that picks which link to follow. Needs an OpenRouter key.

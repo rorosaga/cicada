@@ -20,7 +20,7 @@ extension Copy {
         static let reAskHelp = "The first-use sheet changed since you last agreed to it. The switch reads off until you read it and tick “I understand” again."
         static func lastRead(_ day: String) -> String { "An agent has recorded a read · last \(day)" }
         static let copyPrompt = "Copy for an agent"
-        static let copyPromptHelp = "The sentence to give your agent so it works through the pages you asked about"
+        static let copyPromptHelp = "The sentence to give your agent so it works through the pages waiting for it: ones you asked about and pages from sites you allowed"
         static let promptCopied = "Copied. Give it to your agent."
 
         // MARK: How your agent reads
@@ -50,9 +50,13 @@ extension Copy {
         static let sitesGroup = "Sites that need your browser"
         static let sitesIntro = "A site is listed when Cicada’s own reader couldn’t open one of its saved pages. You decide which sites your agent may read. Turning one on queues its waiting pages for your agent, and pages saved later join by themselves."
         static let sitesEmpty = "No site needs your browser so far. One shows up here when Cicada’s reader can’t open a page you saved."
-        static let sitesIconNote = "Site icons come from an icon service, which is told the site’s name. Cicada never contacts these sites itself."
+        static let sitesIconNote = "Site icons come from an icon service, which is told the site’s name. Cicada doesn’t ask these sites for their icons."
         static func siteSwitchLabel(_ site: String) -> String { "Let an agent read \(site)" }
         static func waitingNotAllowed(_ n: Int) -> String { n == 1 ? "1 saved page is waiting" : "\(n) saved pages are waiting" }
+        static func waitUntilSignIn(_ n: Int) -> String {
+            n == 1 ? "1 page waits until you sign in" : "\(n) pages wait until you sign in"
+        }
+        static let grantedReadingOff = "Allowed · agent reading is off"
         static func queued(_ n: Int) -> String { n == 1 ? "1 page is queued for your agent" : "\(n) pages are queued for your agent" }
         static let nothingWaiting = "Nothing is waiting"
         static func readCount(_ n: Int) -> String { n == 1 ? "1 read by an agent" : "\(n) read by an agent" }

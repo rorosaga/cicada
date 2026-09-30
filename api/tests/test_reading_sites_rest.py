@@ -60,7 +60,7 @@ def test_sites_list_matches_the_pinned_fixture(api):
     if os.environ.get("CICADA_UPDATE_FIXTURES") == "1":
         FIXTURE.write_text(json.dumps(body, indent=1) + "\n")
     assert body == json.loads(FIXTURE.read_text())
-    assert body["shape"] == "reading-sites-2" and body["enabled"] is True
+    assert body["shape"] == "reading-sites-3" and body["enabled"] is True
     assert [r["site"] for r in body["sites"]] == ["linkedin", "paperfold.io", "tiktok"]
 
 
@@ -70,7 +70,7 @@ def test_counts_only_no_url_title_or_note(api):
     raw = client.get("/reading/sites").text
     assert "http" not in raw and "alpha" not in raw and "post/" not in raw
     for row in client.get("/reading/sites").json()["sites"]:
-        assert set(row) == {"site", "label", "wall", "allowed", "since", "waiting", "read", "needsLogin", "note", "iconHost"}
+        assert set(row) == {"site", "label", "wall", "allowed", "granted", "since", "waiting", "read", "needsLogin", "note", "iconHost"}
 
 
 def test_allowed_site_with_no_pages_is_listed(api):
@@ -89,6 +89,22 @@ def test_listed_with_master_off_and_says_so(api):
     body = client.get("/reading/sites").json()
     assert body["enabled"] is False and [r["site"] for r in body["sites"]] == ["linkedin"]
     assert body["waitingNotAllowed"] == 1 == body["waitingTotal"]
+
+
+def test_a_grant_does_not_count_while_the_master_switch_is_off(api):
+    """`allowed` is the permission that counts now; `granted` the stored one. With agent
+    reading off nothing is queued, so a granted site's pages are still waiting on the person."""
+    client, memory = api
+    put_page(memory, "li", "https://www.linkedin.com/in/alpha")
+    reading_settings.update(agent_enabled_=True, acknowledge=True)
+    reading_settings.update(sites={"linkedin": True}, surfaced={"linkedin"})
+    on = client.get("/reading/sites").json()
+    assert [(r["allowed"], r["granted"]) for r in on["sites"]] == [(True, True)] and on["waitingNotAllowed"] == 0
+    reading_settings.update(agent_enabled_=False)
+    off = client.get("/reading/sites").json()
+    assert off["enabled"] is False
+    assert [(r["allowed"], r["granted"], r["since"] is not None) for r in off["sites"]] == [(False, True, True)]
+    assert off["waitingNotAllowed"] == 1 == off["waitingTotal"]
 
 
 def test_etag_304_before_any_scan_and_moves_on_toggle_and_on_outcome(api, monkeypatch):

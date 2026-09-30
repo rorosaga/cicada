@@ -109,12 +109,15 @@ struct ReadingSettingsResponse: Decodable, Equatable {
 /// One site Cicada's own reader could not read (`GET /reading/sites`): counts only — never a URL, a title or a note of a
 /// page. `wall` is the commonest kind among its waiting pages; `needsLogin` counts pages whose last agent read said it
 /// was not signed in; `note` is the server's one sentence for a site with a caveat; `iconHost` is the name the icon
-/// service is asked about (never the site itself).
+/// service is asked about (never the site itself). `allowed` is the permission that counts now (false while agent
+/// reading is off); `granted` is the stored grant, so the switch can still show — and remove — it while reading is off.
+/// A server older than `granted` sends only `allowed`, which then stands for both.
 struct ReadingSite: Decodable, Equatable, Identifiable {
     var site: String
     var label: String
     var wall: String?
     var allowed: Bool
+    var granted: Bool
     var since: String?
     var waiting: Int
     var read: Int
@@ -123,14 +126,16 @@ struct ReadingSite: Decodable, Equatable, Identifiable {
     var iconHost: String?
     var id: String { site }
 
-    enum CodingKeys: String, CodingKey { case site, label, wall, allowed, since, waiting, read, needsLogin, note, iconHost }
+    enum CodingKeys: String, CodingKey { case site, label, wall, allowed, granted, since, waiting, read, needsLogin, note, iconHost }
 
-    init(site: String, label: String? = nil, wall: String? = nil, allowed: Bool = false, since: String? = nil,
-         waiting: Int = 0, read: Int = 0, needsLogin: Int = 0, note: String? = nil, iconHost: String? = nil) {
+    init(site: String, label: String? = nil, wall: String? = nil, allowed: Bool = false, granted: Bool? = nil,
+         since: String? = nil, waiting: Int = 0, read: Int = 0, needsLogin: Int = 0, note: String? = nil,
+         iconHost: String? = nil) {
         self.site = site
         self.label = label ?? site
         self.wall = wall
         self.allowed = allowed
+        self.granted = granted ?? allowed
         self.since = since
         self.waiting = waiting
         self.read = read
@@ -145,6 +150,7 @@ struct ReadingSite: Decodable, Equatable, Identifiable {
         label = (try? c.decode(String.self, forKey: .label)) ?? site
         wall = try? c.decodeIfPresent(String.self, forKey: .wall)
         allowed = (try? c.decode(Bool.self, forKey: .allowed)) ?? false
+        granted = (try? c.decode(Bool.self, forKey: .granted)) ?? allowed
         since = try? c.decodeIfPresent(String.self, forKey: .since)
         waiting = (try? c.decode(Int.self, forKey: .waiting)) ?? 0
         read = (try? c.decode(Int.self, forKey: .read)) ?? 0
@@ -348,12 +354,30 @@ enum MethodRowWords {
 /// The words of a site's row in Settings → Reading the web. Pure: the view and the tests read the same functions.
 /// Only measured counts and the server's own sentences; no page, title or URL ever reaches a row.
 enum ReadingSiteWords {
+    /// `allowed` already counts only while agent reading is on, so a site granted while it is off never says "queued";
+    /// a paused site's pages wait for the person to sign in, not for an agent.
     static func countLine(_ site: ReadingSite) -> String {
         if site.waiting > 0 {
+            if isPaused(site) { return Copy.Reading.waitUntilSignIn(site.waiting) }
             return site.allowed ? Copy.Reading.queued(site.waiting) : Copy.Reading.waitingNotAllowed(site.waiting)
         }
         return site.read > 0 ? Copy.Reading.readCount(site.read) : Copy.Reading.nothingWaiting
     }
+
+    /// A site the person allowed while agent reading is off: its switch stays on (so it can be turned off) and this
+    /// line says why nothing is queued.
+    static func grantNote(_ site: ReadingSite) -> String? {
+        site.granted && !site.allowed ? Copy.Reading.grantedReadingOff : nil
+    }
+
+    /// The whole line under a site's name.
+    static func line(_ site: ReadingSite) -> String {
+        [countLine(site), grantNote(site), detail(site)].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// The switch shows the stored grant: identical to `allowed` while agent reading is on, and still removable while
+    /// it is off.
+    static func switchOn(_ site: ReadingSite) -> Bool { site.granted }
 
     /// The server's caveat for the site, else the wall's plain name.
     static func detail(_ site: ReadingSite) -> String? {

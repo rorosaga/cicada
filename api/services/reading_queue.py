@@ -254,13 +254,17 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
     holding a live ``needs_login`` row, with measured counts only — no URL, title
     or note. ``waiting`` = wall pages with no words and no live row of their own
     (for an allowed site exactly the queued ones); ``read`` = pages an agent read;
-    ``needsLogin`` = live rows in that state."""
+    ``needsLogin`` = live rows in that state. ``allowed`` is whether the permission
+    counts right now (:func:`reading_settings.site_allowed`: false while the master
+    switch is off); ``granted`` is the stored grant, so a switch drawn while agent
+    reading is off can still show — and remove — what the person granted."""
     memory_path = Path(memory_path)
     pages = reading_walls.scan(memory_path) if pages is None else pages
     rows = _live_rows(memory_path, now)
     # A page with a recorded outcome is not waiting; one with a live ask still is.
     live = {r["url_hash"] for r in rows if r.get("state") != "waiting"}
     allowed = reading_settings.allowed_sites()
+    counts = reading_settings.agent_enabled()
     sites: dict[str, dict] = {}
 
     def _site(key: str) -> dict:
@@ -290,7 +294,8 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
         if s["walls"]:
             wall = sorted(s["walls"].items(), key=lambda kv: (-kv[1], reading_walls.WALL_KINDS.index(kv[0])))[0][0]
         out.append({
-            "site": key, "label": reading_hosts.site_label(key), "wall": wall, "allowed": key in allowed,
+            "site": key, "label": reading_hosts.site_label(key), "wall": wall,
+            "allowed": counts and key in allowed, "granted": key in allowed,
             "since": allowed.get(key) or None, "waiting": s["waiting"], "read": s["read"],
             "needsLogin": s["needs_login"], "note": reading_hosts.SITE_NOTES.get(key),
             "iconHost": reading_hosts.icon_host(key),
@@ -301,7 +306,7 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
 
 # --- the memoised snapshot the sites route and the icon route share ------------------------------------------
 
-SITES_SHAPE = "reading-sites-2"
+SITES_SHAPE = "reading-sites-3"
 _snapshots: dict[str, tuple[str, list[dict]]] = {}
 _snapshot_lock = threading.Lock()
 

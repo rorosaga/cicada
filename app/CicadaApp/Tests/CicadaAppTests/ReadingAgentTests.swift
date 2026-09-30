@@ -208,14 +208,43 @@ final class ReadingAgentTests: XCTestCase {
         let linkedin = try XCTUnwrap(list.sites.first { $0.site == "linkedin" })
         XCTAssertTrue(linkedin.allowed)
         XCTAssertEqual(linkedin.iconHost, "linkedin.com")
-        XCTAssertEqual(ReadingSiteWords.countLine(linkedin), "1 page is queued for your agent")
+        XCTAssertTrue(linkedin.granted)
+        XCTAssertEqual(ReadingSiteWords.countLine(linkedin), "1 page waits until you sign in",
+                       "a paused site's pages wait for the person, never 'queued'")
         XCTAssertTrue(ReadingSiteWords.isPaused(linkedin), "an allowed site whose agent was signed out is paused")
+        XCTAssertNil(ReadingSiteWords.grantNote(linkedin))
+        XCTAssertEqual(ReadingSiteWords.countLine(ReadingSite(site: "x", allowed: true, waiting: 2)),
+                       "2 pages are queued for your agent")
         let paperfold = try XCTUnwrap(list.sites.first { $0.site == "paperfold.io" })
         XCTAssertEqual(ReadingSiteWords.countLine(paperfold), "4 saved pages are waiting")
         XCTAssertEqual(ReadingSiteWords.detail(paperfold), "Refused Cicada’s reader")
         XCTAssertFalse(ReadingSiteWords.isPaused(paperfold))
         let tiktok = try XCTUnwrap(list.sites.first { $0.site == "tiktok" })
         XCTAssertEqual(ReadingSiteWords.detail(tiktok), tiktok.note, "the server's own caveat wins over the wall's name")
+    }
+
+    func testAGrantWhileAgentReadingIsOffIsNeverQueuedAndStillCountsOnHome() throws {
+        // The server's wire with the master switch off: `allowed` false (it does not count now), `granted` true.
+        let json = #"""
+        {"sites":[{"site":"linkedin","label":"LinkedIn","wall":"walled","allowed":false,"granted":true,
+        "since":"2026-09-30","waiting":2,"read":0,"needsLogin":1}],
+        "waitingTotal":2,"waitingNotAllowed":2,"enabled":false}
+        """#
+        let list = try JSONDecoder().decode(ReadingSitesResponse.self, from: Data(json.utf8))
+        let site = try XCTUnwrap(list.sites.first)
+        XCTAssertFalse(ReadingSiteWords.countLine(site).contains("queued"))
+        XCTAssertEqual(ReadingSiteWords.countLine(site), "2 saved pages are waiting")
+        XCTAssertFalse(ReadingSiteWords.isPaused(site), "no Try again while agent reading is off")
+        XCTAssertEqual(ReadingSiteWords.grantNote(site), "Allowed · agent reading is off")
+        XCTAssertTrue(ReadingSiteWords.switchOn(site), "the grant is drawn so it can be turned off")
+        XCTAssertEqual(ReadingSiteWords.line(site), "2 saved pages are waiting · Allowed · agent reading is off · "
+                       + (ReadingSiteWords.detail(site) ?? ""))
+        let figures = try XCTUnwrap(HomeReadingLine.figures(list), "Home still counts pages nobody will read")
+        XCTAssertEqual(figures.count, 2)
+        XCTAssertEqual(figures.sites.map(\.site), ["linkedin"])
+        // An older server sends only `allowed`, which then stands for the grant too.
+        let old = try JSONDecoder().decode(ReadingSite.self, from: Data(#"{"site":"x","allowed":true}"#.utf8))
+        XCTAssertTrue(old.granted)
     }
 
     func testASiteThisBuildCannotReadIsDroppedAloneAndNoCountIsAnInvention() throws {

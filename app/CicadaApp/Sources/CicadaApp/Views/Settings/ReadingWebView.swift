@@ -350,15 +350,14 @@ struct ReadingWebView: View {
                         Text(site.label)
                             .font(CicadaTheme.font(size: 13, weight: .medium))
                             .foregroundStyle(CicadaTheme.textPrimary)
-                        Text([ReadingSiteWords.countLine(site), ReadingSiteWords.detail(site)]
-                            .compactMap { $0 }.joined(separator: " · "))
+                        Text(ReadingSiteWords.line(site))
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: CicadaTheme.scaled(16))
                     Toggle(Copy.Reading.siteSwitchLabel(site.label), isOn: Binding(
-                        get: { site.allowed && model.enabled },
+                        get: { ReadingSiteWords.switchOn(site) },
                         set: { on in flip(site, on: on) }))
                         .toggleStyle(.switch)
                         .labelsHidden()

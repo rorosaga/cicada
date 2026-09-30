@@ -5,6 +5,7 @@
    "label": "LinkedIn",
    "wall": "walled",
    "allowed": true,
+   "granted": true,
    "since": "2026-09-30",
    "waiting": 1,
    "read": 0,
@@ -17,6 +18,7 @@
    "label": "paperfold.io",
    "wall": "refused",
    "allowed": false,
+   "granted": false,
    "since": null,
    "waiting": 4,
    "read": 0,
@@ -29,6 +31,7 @@
    "label": "TikTok",
    "wall": "walled",
    "allowed": false,
+   "granted": false,
    "since": null,
    "waiting": 1,
    "read": 0,
@@ -40,5 +43,5 @@
  "waitingTotal": 6,
  "waitingNotAllowed": 5,
  "enabled": true,
- "shape": "reading-sites-2"
+ "shape": "reading-sites-3"
 }
