@@ -34,6 +34,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/CicadaApp" "$APP/Contents/MacOS/CicadaApp"
+# The app icon: the book and glasses on a graphite plate, built by Art/AppIcon/make-icon.swift from the Aseprite art in
+# docs/design/cicada-icon/v4/ (rerun that script after editing the art; the .icns is committed so a build needs no tools).
+# Info.plist names it (CFBundleIconFile).
+cp Art/AppIcon/Cicada.icns "$APP/Contents/Resources/Cicada.icns"
 # Bundle.cicadaResources (Utilities/ResourceBundle.swift) resolves the SwiftPM resource bundle relative to the executable —
 # SwiftPM's own Bundle.module would probe the build dir under ~/Documents first and trip a TCC prompt —
 # so it must sit next to the binary inside Contents/MacOS.
@@ -81,6 +85,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>Cicada</string>
   <key>CFBundleDisplayName</key><string>Cicada</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>Cicada</string>
   <key>CFBundleShortVersionString</key><string>0.2</string>
   <key>CFBundleVersion</key><string>0.2</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
