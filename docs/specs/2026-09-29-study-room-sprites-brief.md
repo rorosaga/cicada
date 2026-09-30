@@ -197,3 +197,10 @@ for the owner's call. Record the amendment's scope as a dated TODO ruling when t
 - The handoff prompt that runs all of this is
   [`2026-09-29-study-room-sprites-handoff-prompt.md`](2026-09-29-study-room-sprites-handoff-prompt.md); edit the two
   together.
+- **The queue as a room (owner, 2026-09-30).** The design canvas's Queue boards A–K read the drain left to right —
+  pile → worm → cart → crate → bookcase: the pile is what waits (one book per origin, a plate with its mark and count, a
+  ribbon on the book being read), the cart what was read and waits to be filed, the crate what was set aside (parked or
+  could not be read), the bookcase what got filed (slots a pure function of the filed counts). Spines differ by kind so hue
+  is never the only signal, and the pile folds at any size without cutting a count. It is part of Step 2's room and gets
+  its own Aseprite design rounds with the owner, interactions included, before any Swift; the SwiftUI boards are a
+  reference, not the spec.

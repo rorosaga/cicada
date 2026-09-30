@@ -60,8 +60,12 @@ STEP 2 — Once the worm is approved: the full character, the room and the props
     it RINGS once in a while: a short buzz-and-light loop, never constant.
   · A globe of the earth for web pages and links waiting to be read, with a pin when any of them needs a login. It SPINS
     when clicked.
-  · A bookshelf and a reading pile for episodes waiting and what got filed. Books move from the pile to the shelf as
-    batches file.
+  · The queue as a room, read left to right — pile → worm → cart → crate → bookcase (the canvas's "Queue" boards A–K are
+    the reference, not the spec): the pile is what waits (one book per origin with a plate showing its mark and count, a
+    ribbon on the book being read), the cart holds what was read and waits to be filed, the crate what was set aside
+    (parked or could not be read), and the bookcase fills as batches file. Spines differ by kind (chats, pages, notes,
+    videos) so hue is never the only signal, and the pile folds at any size without cutting a count. Give this its own
+    design rounds with me — sprites and interactions — before anything reaches Swift.
   · A TV for videos, a letter tray for inbox questions, a calendar for events.
   · A bean bag the worm sleeps on, and a night light that glows AT NIGHT.
 - Every asset is interactive:
