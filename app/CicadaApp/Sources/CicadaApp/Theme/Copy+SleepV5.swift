@@ -105,7 +105,7 @@ extension Copy {
         static let continueFailed = "Couldn't continue the run — nothing changed."
         static let endRunFailed = "Couldn't end the run — nothing changed."
         static let retryFailed = "Couldn't retry — nothing changed."
-        static func runningFor(_ duration: String) -> String { "Running \(duration)" }
+        static func runningFor(_ elapsed: String) -> String { "Running \(elapsed)" }
         static let pausedAnnouncement = "Sleep paused."
         static let continuedAnnouncement = "Sleep continued."
 

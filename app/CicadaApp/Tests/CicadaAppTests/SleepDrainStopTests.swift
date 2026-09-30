@@ -269,8 +269,13 @@ final class SleepDrainStopTests: XCTestCase {
         XCTAssertEqual(FirstReadStep.of(inputs), .finished(pages: 40))
     }
 
-    func test_theLampSaysAScheduledRunReadsOneBatch() {
-        XCTAssertEqual(Copy.scheduledReadsOneBatch(size: 25, locale: en),
-                       "A scheduled run reads one batch of 25; Consolidate reads everything waiting.")
+    /// Ruling 16 (2026-09-30) replaced "a scheduled run reads one batch": it reads everything too, and how it spends is
+    /// said from the preview's `billing`, never a provider's name.
+    func test_theLampSaysAScheduledRunReadsEverythingToo() {
+        XCTAssertEqual(Copy.scheduledReadsAll(engine: "ollama", billing: "local"),
+                       "Scheduled runs read everything waiting too, on \(Copy.engineLabel("ollama")). "
+                       + "It reads everything waiting, on this Mac.")
+        XCTAssertTrue(Copy.scheduledReadsAll(engine: "litellm", billing: "charged").contains("Cicada sets no limit"))
+        XCTAssertFalse(Copy.scheduledReadsAll(engine: "litellm", billing: nil).contains("limit"))
     }
 }
