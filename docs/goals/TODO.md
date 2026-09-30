@@ -729,7 +729,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     on for the runs they start. It never crosses a weekly reset, never arms from a scheduled run, and never changes
     engine. The switch is snapshotted into the run when it starts, so flipping it on later never arms an old run;
     turning it off withdraws an armed one.
-    **The bounds** (proposed in the Sleep page v5 plan, Q-B — the owner confirms or changes them; each is a constant in
+    **The bounds** (proposed in the Sleep page v5 plan, Q-B; **confirmed by the owner 2026-09-30, "as built"**; each is a constant in
     `sleep_autocontinue.py` and a row of `test_sleep_autocontinue.py`'s table): at most **2** automatic continues per
     run; only within **36 hours** of the pause and only when the vendor **gave a reset time** (an absent one is never
     guessed); only for a **5-hour** window, the reserve line on a 5-hour window, or extra usage that then resets — a
@@ -756,7 +756,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     minutes; the after-import probe counts *readable* conversations (waiting minus parked), so a queue of only parked ones
     never fires an empty run every five minutes; only the person's Continue can resume a scheduled run, on the manual
     engine, which can be a plan (the button names the engine). **Not built:** a spending cap or a batch cap for scheduled
-    runs, and "keep the Mac awake" — revisit on the first real bill an unattended drain produces.
+    runs (owner, 2026-09-30: "no cap for now"), and "keep the Mac awake" — revisit on the first real bill an unattended drain produces.
     *Refined 2026-09-30 (final review):* the "starts nothing" rule protects a pause **a person chose or can act on**;
     a scheduled run's pause nobody chose — the process went away (`restart`, every app quit without the launchd agent)
     or the scheduled engine failed (`engine`, once at least 6 hours old so an absent engine costs one call every few
