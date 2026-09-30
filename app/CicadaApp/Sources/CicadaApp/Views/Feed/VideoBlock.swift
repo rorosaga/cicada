@@ -40,8 +40,9 @@ struct VideoBlock: View {
                     .task(id: state.episodeId ?? "") { await loadRecord(state.episodeId) }
             }
         }
-        // A host that never read the states (the entity card on the Graph) asks once; a 304 costs nothing after.
-        .task { if let videoCache, !videoCache.hasRead, !videoCache.isGone { await videoCache.refresh() } }
+        // A host that never read the rows (the entity card on the Graph or in Clusters) asks once — even when the
+        // Sleep page already read the counts alone.
+        .task { await videoCache?.ensureRows() }
     }
 
     /// True for a page the Feed would show as a video — the entity card's gate (the Feed's own is `FeedKind.of`).

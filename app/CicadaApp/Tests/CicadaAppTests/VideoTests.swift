@@ -155,6 +155,22 @@ final class VideoStateCacheTests: XCTestCase {
         XCTAssertEqual(api.stateETags.last ?? "x", nil, "a reset cache asks without an ETag")
     }
 
+    func testTheCardAsksForRowsEvenAfterTheSleepPageReadTheCounts() async {
+        let api = FakeVideosAPI()
+        api.summaryReplies = [.success(Conditional(value: VideoSummary(total: 1, batch: nil, nextChangeAt: nil),
+                                                   etag: "s1", notModified: false))]
+        api.stateReplies = [FakeVideosAPI.fresh(state([item]), "e1")]
+        let cache = VideoStateCache(api: api, sleeper: { _ in throw CancellationError() })
+        await cache.refreshSummary()
+        XCTAssertTrue(cache.hasRead)
+        XCTAssertNil(cache.item(mediaEntityId: "media-a", url: item.url))
+        await cache.ensureRows()
+        XCTAssertEqual(api.stateETags, [nil], "the rows are fetched though the counts were read")
+        XCTAssertEqual(cache.item(mediaEntityId: "media-a", url: item.url)?.key, "k1")
+        await cache.ensureRows()
+        XCTAssertEqual(api.stateETags.count, 1, "rows on hand are not asked for again")
+    }
+
     func testAQueueTapPaintsAtOnceAndRollsBackWithTheServersSentence() async {
         let api = FakeVideosAPI()
         api.stateReplies = [FakeVideosAPI.fresh(state([item]), "e1")]
@@ -617,6 +633,23 @@ final class VideoRowLintTests: XCTestCase {
             XCTAssertNil(text.range(of: #"\.padding\(\.vertical, [0-9]"#, options: .regularExpression),
                          "\(path): row height comes from a token (DR-34)")
         }
+    }
+
+    func testTheRunCardPinsItsFooterAndTheFeedDoesNotScrollIt() throws {
+        let card = try source("Views/Feed/VideoRunCard.swift")
+        XCTAssertTrue(card.contains("ScrollView { scrollingBody }"), "the body scrolls inside the card")
+        XCTAssertTrue(card.contains("pinnedFooter"), "the footer sits outside the scrolling body")
+        XCTAssertFalse(card.contains("footer(disabled: true)") || card.contains("footer(disabled: false)"),
+                       "no footer inside the scrolling body")
+        let page = try source("Views/Feed/FeedPage.swift")
+        XCTAssertNil(page.range(of: #"ScrollView \{\s*VideoRunCard"#, options: .regularExpression),
+                     "the Feed never wraps the run card in a second scroll view")
+    }
+
+    func testAVideosWhyAndSavedFromShareARowWhenTheyFit() throws {
+        let detail = try source("Views/Feed/FeedItemDetail.swift")
+        XCTAssertTrue(detail.contains("ViewThatFits(in: .horizontal)"), "side by side, stacked when narrow")
+        XCTAssertTrue(detail.contains("whySection.frame(minWidth: Self.sideBySideFloor"))
     }
 
     func testTheSleepRowAndTheStripUseTheSharedControls() throws {

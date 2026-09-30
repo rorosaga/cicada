@@ -119,6 +119,14 @@ final class VideoStateCache {
         if state != nil { await refresh() } else if summaryOnly != nil { await refreshSummary() }
     }
 
+    /// A host that draws one video's rows (the entity card's block) and finds none read: ask for the rows. Gated on
+    /// the rows themselves, never `hasRead` — the Sleep page's counts alone would otherwise leave the card blank until
+    /// the Feed was visited. A 304 costs nothing after the first answer.
+    func ensureRows() async {
+        guard state == nil, !isGone else { return }
+        await refresh()
+    }
+
     /// Forget everything — a bank switch (`ContentView`).
     func reset() {
         epoch &+= 1

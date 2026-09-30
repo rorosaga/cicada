@@ -53,12 +53,12 @@ struct FeedPage: View {
             }
         } detail: { plan in
             if inRun {
-                ScrollView {
-                    VideoRunCard(model: run, rows: videoRows, padding: plan.cardPadding, onLeave: { leaveRun() })
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, plan.gutter)
-                        .padding(.bottom, CicadaTheme.scaled(72))
-                }
+                // Not in a ScrollView: the card scrolls its own body and keeps its footer pinned (VideoRunLarge).
+                VideoRunCard(model: run, rows: videoRows, padding: plan.cardPadding, onLeave: { leaveRun() })
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, plan.gutter)
+                    .padding(.bottom, CicadaTheme.scaled(72))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .focusable()
                 .focusEffectDisabled()
                 .onExitCommand { escape() }

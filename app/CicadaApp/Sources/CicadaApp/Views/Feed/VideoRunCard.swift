@@ -22,14 +22,22 @@ struct VideoRunCard: View {
 
     private var summary: VideoSummary? { cache.summary }
 
+    /// The run under way, when there is one to show.
+    private var runningBatch: VideoBatch? {
+        guard model.mode == .progress, let batch = summary?.batch, batch.total > 0 else { return nil }
+        return batch
+    }
+
+    /// The body scrolls inside the card and the footer stays pinned under it (VideoRunLarge; DESIGN_RULES §9
+    /// 2026-09-30): a short card hugs its content, a long one — "Select all", a run above ten — scrolls its rows and
+    /// keeps *Copy for an agent* / *Copy the prompt again* in view.
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            switch model.mode {
-            case .progress:
-                if let batch = summary?.batch, batch.total > 0 { progress(batch) } else { choosing }
-            case .choosing, .browse:
-                choosing
+            ViewThatFits(in: .vertical) {
+                scrollingBody
+                ScrollView { scrollingBody }.scrollIndicators(.automatic)
             }
+            pinnedFooter
         }
         .padding(padding)
         .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.questionMaxWidth), alignment: .leading)
@@ -37,6 +45,23 @@ struct VideoRunCard: View {
         .ringed(in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         .onChange(of: model.selected) { _, _ in model.refreshPreview(rows: rows, cache: cache) }
         .onChange(of: model.method) { _, _ in model.refreshPreview(rows: rows, cache: cache) }
+    }
+
+    @ViewBuilder
+    private var scrollingBody: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let batch = runningBatch { progress(batch) } else { choosing }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var pinnedFooter: some View {
+        if runningBatch != nil {
+            progressFooter
+        } else {
+            footer(disabled: model.picks(rows).isEmpty)
+        }
     }
 
     // MARK: - Choosing
@@ -63,7 +88,6 @@ struct VideoRunCard: View {
                     .padding(.leading, -CicadaTheme.scaled(10))
                     .padding(.top, CicadaTheme.spacingMD)
             }
-            footer(disabled: true)
         } else {
             title(Copy.Videos.runTitle(picks.count))
             VStack(spacing: 0) {
@@ -84,7 +108,6 @@ struct VideoRunCard: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
             .padding(.top, CicadaTheme.spacingMD)
-            footer(disabled: false)
         }
     }
 
@@ -292,6 +315,9 @@ struct VideoRunCard: View {
         }
         .padding(.top, CicadaTheme.spacingMD)
         .task(id: agentGotOpen) { if agentGotOpen, agentGot == nil { agentGot = await cache.prompt(count: nil, method: nil) } }
+    }
+
+    private var progressFooter: some View {
         HStack {
             Text(Copy.Videos.sleepReadsThese).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             Spacer()

@@ -36,10 +36,25 @@ struct FeedItemDetail: View {
                 VideoBlock(feedId: item.id, url: item.url, title: title, mediaEntityId: item.mediaEntityId,
                            topPadding: CicadaTheme.scaled(20))
             }
-            SectionLabel(Copy.Lists.whySaved).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
-            why
-            SectionLabel(Copy.Lists.savedFrom).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
-            savedFrom
+            if isVideo {
+                // G162 (VideoDetailLight) — under the block, "Why it's saved" and "Saved from" sit side by side and
+                // fill the column; a column too narrow for both at their floor stacks them as every other item does.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: CicadaTheme.scaled(24)) {
+                        whySection.frame(minWidth: Self.sideBySideFloor, idealWidth: Self.sideBySideFloor,
+                                         maxWidth: .infinity, alignment: .topLeading)
+                        savedFromSection.frame(minWidth: Self.sideBySideFloor, idealWidth: Self.sideBySideFloor,
+                                               maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        whySection
+                        savedFromSection
+                    }
+                }
+            } else {
+                whySection
+                savedFromSection
+            }
             Text(meta)
                 .font(CicadaTheme.metaFont)
                 .monospacedDigit()
@@ -76,6 +91,23 @@ struct FeedItemDetail: View {
         }
         .frame(minHeight: CicadaTheme.scaled(28))
         .padding(.bottom, CicadaTheme.spacingSM)
+    }
+
+    /// The width each of a video's two sections needs before they may share a row.
+    static var sideBySideFloor: CGFloat { CicadaTheme.scaled(220) }
+
+    private var whySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionLabel(Copy.Lists.whySaved).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
+            why
+        }
+    }
+
+    private var savedFromSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionLabel(Copy.Lists.savedFrom).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
+            savedFrom
+        }
     }
 
     @ViewBuilder
