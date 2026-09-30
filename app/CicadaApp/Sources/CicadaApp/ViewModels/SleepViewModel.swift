@@ -38,8 +38,8 @@ final class SleepViewModel {
     private(set) var historyLoaded = false
     /// G125 R12 — a history row's expanded detail, cached by commit hash so
     /// a second click on an already-open row is a dictionary hit rather than
-    /// a second fetch. Never evicted within a session; a bank switch simply
-    /// starts a new `SleepViewModel`.
+    /// a second fetch. Emptied on a bank switch (`bankChanged()`): the VM is
+    /// app-level and lives across banks.
     var details: [String: SleepCycleDetail] = [:]
     /// Which history row's detail is disclosed, if any (Task 7's
     /// `ConsolidationHistoryCard`). `nil` means every row is collapsed.
@@ -147,8 +147,11 @@ final class SleepViewModel {
     /// What's waiting, one row per conversation with where it stands (`GET /sleep/queue`). Refetched when the run's
     /// counts move (`queueKey`), never per tick (M3).
     var queue: SleepQueueResponse?
-    /// A run's whole detail by run id (`GET /sleep/runs/{id}`) — in memory only; a bank switch starts a new VM.
+    /// A run's whole detail by run id (`GET /sleep/runs/{id}`) — in memory only, emptied on a bank switch
+    /// (`bankChanged()`). Each entry remembers the freshness key it was fetched under (`runDetailKeys`): a run that
+    /// was still reading or paused is refetched once its counts, its pause or its end move.
     var runDetails: [String: SleepRunDetail] = [:]
+    private var runDetailKeys: [String: String] = [:]
     /// Which Past nights run group is open, if any.
     var expandedRun: String?
     /// Every door that is not the Sleep page routes here while a run is paused (the app sets it: switch to the
@@ -433,10 +436,19 @@ final class SleepViewModel {
         return 25
     }
 
-    /// What every door but the Sleep page needs to say (the menu bar's item and header, the intake caption).
+    /// The batch size only when something measured it — the doors say no number rather than the page's fallback.
+    var knownBatchSize: Int? {
+        if let size = runOptions?.batchSize, size > 0 { return size }
+        if let size = status?.batchSize, size > 0 { return size }
+        return nil
+    }
+
+    /// What every door but the Sleep page needs to say (the menu bar's item and header, the intake caption). A pause
+    /// whose record has not loaded yet is still a pause, with no counts (never "0 of 0").
     var door: SleepDoor {
-        SleepDoor(paused: isPaused ? (pausedRun.map { ($0.filed, $0.frozen) } ?? (0, 0)) : nil,
-                  readable: readableCount, batchSize: batchSize, running: isRunning)
+        let counts = pausedRun.map { (filed: $0.filed, frozen: $0.frozen) }
+        return SleepDoor(paused: counts, readable: readableCount, batchSize: knownBatchSize, running: isRunning,
+                         pausedCountsUnknown: isPaused && counts == nil)
     }
 
     /// The Sleep page's Pause: the cooperative cancel, which the server now records as a paused run (reason `user`).
@@ -500,11 +512,47 @@ final class SleepViewModel {
         if let next = try? await fetchQueue() { queue = next }
     }
 
-    /// A run's detail, cached by id (a second open is a dictionary hit).
-    func loadRunDetail(_ id: String) async {
-        if runDetails[id] != nil { return }
+    /// A run's detail, cached by id and freshness key: a second open under the same key is a dictionary hit; a
+    /// run whose `filed`, batches, pause or end moved since (`freshness` differs) is fetched again. A finished run
+    /// never moves again, so Past nights passes no key and keeps whatever a finished fetch stored.
+    func loadRunDetail(_ id: String, freshness: String? = nil) async {
+        if let cached = runDetails[id] {
+            if let freshness {
+                if runDetailKeys[id] == freshness { return }
+            } else if cached.state == "finished" || runDetailKeys[id] == nil {
+                return
+            }
+        }
         let token = loadToken
-        if let detail = try? await fetchRun(id), token == loadToken { runDetails[id] = detail }
+        if let detail = try? await fetchRun(id), token == loadToken {
+            runDetails[id] = detail
+            runDetailKeys[id] = freshness
+        }
+    }
+
+    /// The freshness key a live or paused run's detail is fetched under (`loadRunDetail`): whatever moves when the
+    /// run's numbers do. Pure, so `SleepV5DetailsTests` holds it.
+    nonisolated static func runDetailFreshness(drain: SleepDrainInfo?, paused: SleepPausedRun?) -> String {
+        let d = drain.map { "\($0.id)|\($0.filed)|\($0.committedBatches ?? $0.batches)|\($0.active)|\($0.finished)" } ?? "-"
+        let p = paused.map { "\($0.runId)|\($0.reason)|\($0.filed)|\($0.pausedAt ?? "")" } ?? "-"
+        return d + "#" + p
+    }
+
+    /// A bank switch: every per-bank thing this app-level VM holds belongs to the old bank (a queue holds its
+    /// conversation titles, a run's detail its pages), so it is emptied, then the new bank's status and reading
+    /// options are read. Bumping `loadToken` drops any fetch still in flight for the old bank.
+    func bankChanged() async {
+        loadToken &+= 1
+        runDetails = [:]
+        runDetailKeys = [:]
+        queue = nil
+        expandedRun = nil
+        details = [:]
+        expanded = nil
+        runOptions = nil
+        status = nil
+        await refreshStatus()
+        await loadRunOptions()
     }
 
     /// Writes the schedule and says whether it landed (Track Z Z-P18): the Sleep

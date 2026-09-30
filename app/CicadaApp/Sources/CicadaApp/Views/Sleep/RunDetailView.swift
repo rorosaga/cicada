@@ -139,6 +139,12 @@ struct PastRunRow: View {
 struct RunDetailBlock: View {
     let detail: SleepRunDetail?
     var onSelectEntity: ((String) -> Void)?
+    /// The graph's names, so a touched page reads as its name and never as its id (DR-54); optional, so a preview
+    /// or a test without a Store still renders.
+    @Environment(Store.self) private var store: Store?
+
+    /// A touched page's label: the page's name when the graph holds it, else its id verbatim (never humanised).
+    static func pageLabel(_ id: String, names: EntityNames) -> String { names.display(id) }
 
     var body: some View {
         if let detail {
@@ -203,11 +209,12 @@ struct RunDetailBlock: View {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 SectionLabel(Copy.SleepV5.pagesItTouched)
                 FlowLayout(spacing: 6) {
+                    let names = store?.entityNames ?? .empty
                     ForEach(pages.first.prefix(8), id: \.self) { id in
-                        Button(id) { onSelectEntity?(id) }
+                        // The page's neutral pill (DR-44), never an accent label (DR-5); the id stays in `.help`.
+                        Button { onSelectEntity?(id) } label: { Tag(text: Self.pageLabel(id, names: names)) }
                             .buttonStyle(.cicadaPlain)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.accentText)
+                            .help(id)
                     }
                 }
                 Text(Copy.SleepV5.pagesSummary(created: pages.created, ownerTouched: pages.ownerTouched))

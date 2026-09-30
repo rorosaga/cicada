@@ -21,7 +21,9 @@ final class Store {
 
     // MARK: Snapshots
 
-    var bank: String = "default"
+    var bank: String = "default" {
+        didSet { if oldValue != bank { onBankChanged?() } }
+    }
     var graph = Snapshot<GraphResponse>()
     var inbox = Snapshot<[InboxItem]>()
     var banks = Snapshot<BanksResponse>()
@@ -114,6 +116,13 @@ final class Store {
     /// Pushed on every status change, carrying the running→idle edge timestamp
     /// so the menu-bar bookworm can show `digesting`. Wired in `CicadaApp`.
     @ObservationIgnored var onStatus: ((StatusSnapshot, Date?) -> Void)?
+    /// Sleep page v5 — fired when a live sleep event says a paused run appeared, changed or was cleared, so the
+    /// app-level `SleepViewModel` refetches the whole record even while the Sleep page is not open (the doors, the
+    /// menu bar's header). Wired in `CicadaApp`.
+    @ObservationIgnored var onSleepPausedChanged: (() -> Void)?
+    /// Fired when the active bank changes (a switch, or its rollback), so app-level holders of per-bank
+    /// in-memory caches empty them. Wired in `CicadaApp`.
+    @ObservationIgnored var onBankChanged: (() -> Void)?
     @ObservationIgnored private var wasSleepRunning = false
     @ObservationIgnored private var justFinishedAt: Date?
 
@@ -460,7 +469,11 @@ final class Store {
     /// Merge a live `event: sleep` payload into the status snapshot without
     /// waiting for the next `/status` fetch.
     func applySleepEvent(_ event: SleepEventPayload) {
+        let previous = sleepEvent
         sleepEvent = event
+        if event.pausedKnown, event.paused != previous?.paused || previous?.pausedKnown != true {
+            if event.paused != nil || previous?.paused != nil { onSleepPausedChanged?() }
+        }
         // Push on EVERY sleep event, even before the first `/status` landed —
         // otherwise a cycle that starts and ends between two status refreshes
         // never shows its running→idle edge and the worm never digests.

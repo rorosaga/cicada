@@ -43,12 +43,19 @@ struct SleepDetails: View {
     var runRows: [LastCycleRow] = []
     var queue: SleepQueueResponse? = nil
     var showsRun: Bool = false
+    /// Whether a run waits paused per the live event, even before its record has loaded (`SleepViewModel.isPaused`).
+    var runPaused: Bool = false
     var ownerReady: Bool = false
     var onRetryParked: ([String]?) -> Void = { _ in }
     var onSeeOwnerPage: (() -> Void)? = nil
     var runDetails: [String: SleepRunDetail] = [:]
     var expandedRun: String? = nil
     var onToggleRun: (String) -> Void = { _ in }
+
+    /// Retry on a parked conversation only when the server would take it: no run reading, none waiting paused.
+    private var canRetry: Bool {
+        LastCycleRow.canRetryParked(isRunning: page.isRunning, isPaused: runPaused || page.paused != nil)
+    }
 
     /// The newest cycle's one-line cost, only when one was recorded — "not recorded" belongs to Past
     /// nights, where every row can say it, and never opens this section by itself.
@@ -68,12 +75,12 @@ struct SleepDetails: View {
                                  capped: page.capped, indexWarning: page.indexWarning, drain: page.drain,
                                  planPauseLapsed: page.planPauseLapsed, usageLine: lastCycleUsage,
                                  usageHelp: CycleUsageText.summaryHelp(page.lastCycle?.usageSummary),
-                                 runRows: runRows, onRetryParked: { onRetryParked(nil) })
+                                 runRows: runRows, onRetryParked: canRetry ? { onRetryParked(nil) } : nil)
                     .id(DetailsSection.lastCycle.anchorID)
             }
             if showsRun || ownerReady {
                 RunWaitingBlock(drain: page.drain, queue: queue, showsRun: showsRun, ownerReady: ownerReady,
-                                onRetry: onRetryParked, onSeeOwnerPage: onSeeOwnerPage)
+                                onRetry: canRetry ? onRetryParked : nil, onSeeOwnerPage: onSeeOwnerPage)
                     .saturation(liveness.saturation)
             }
             StudyListCard(rows: page.rows, episodes: episodes, queueLoad: page.queueLoad,

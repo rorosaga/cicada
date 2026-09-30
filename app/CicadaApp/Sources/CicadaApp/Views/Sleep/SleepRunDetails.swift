@@ -7,8 +7,10 @@ extension LastCycleRow {
     /// stopped) with its measured counts and times, a pause and why, the owner page's beliefs, what it made, the
     /// parked conversations with Retry, and — for a scheduled run on a metered engine — that Cicada set no limit.
     /// Pure, so `SleepV5DetailsTests` holds every row. A figure that was not measured is left out, never guessed.
+    /// `runBilling` is how THIS run was billed (`runBilling(usage:summary:)`), never today's engine preview — changing
+    /// the scheduled engine afterwards does not rewrite what an old run is said to have spent.
     static func runRows(drain: SleepDrainInfo?, paused: SleepPausedRun?, run: SleepRunRef?, detail: SleepRunDetail?,
-                        parkedCount: Int, scheduledBilling: String?, reserveValue: String?,
+                        parkedCount: Int, runBilling: String?, reserveValue: String?,
                         locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
         var rows: [LastCycleRow] = []
         if let drain, drain.byOrigin != nil || drain.batchState != nil {
@@ -31,8 +33,8 @@ extension LastCycleRow {
                                                    pausedFor: pausedMs.flatMap { $0 > 0 ? SleepHistoryPresentation.durationText(ms: $0) : nil },
                                                    locale)))
             }
-            if drain.startedBy == "schedule", let note = Copy.SleepV5.scheduledRunNote(scheduledBilling) {
-                rows.append(LastCycleRow(kind: .scheduled, title: Copy.SleepV5.runLiveTitle, text: note))
+            if drain.startedBy == "schedule", let note = Copy.SleepV5.scheduledRunNote(runBilling) {
+                rows.append(LastCycleRow(kind: .scheduled, title: Copy.SleepV5.scheduledRunTitle, text: note))
             }
             if let owner = drain.ownerPage ?? detail?.owner {
                 rows.append(LastCycleRow(kind: .owner, title: Copy.SleepV5.ownerBeliefsTitle(owner.beliefs, locale),
@@ -77,12 +79,38 @@ extension LastCycleRow {
         }
         return rows
     }
+
+    /// How a run was billed, from what the run itself recorded: its usage's basis (`charged`/`list` → `charged`,
+    /// `free` → `local`, a `mixed` run by its models), else its history row's summary. `nil` when nothing was
+    /// measured or the run ran on a plan — the note is then left out, never guessed.
+    static func runBilling(usage: CycleUsage?, summary: CycleUsageSummary?) -> String? {
+        func word(_ basis: String?) -> String? {
+            switch basis {
+            case "charged", "list": "charged"
+            case "free": "local"
+            default: nil
+            }
+        }
+        if let usage {
+            if usage.basis == "mixed" {
+                let words = Set(usage.models.compactMap { word($0.basis) })
+                return words.contains("charged") ? "charged" : words.first
+            }
+            if let w = word(usage.basis) { return w }
+        }
+        return word(summary?.basis)
+    }
+
+    /// Whether Retry on a parked conversation can be offered: `POST /sleep/parked/retry` answers 409 while a run
+    /// reads or waits paused, so Retry shows only when neither is true. Pure, so `SleepV5DetailsTests` holds it.
+    static func canRetryParked(isRunning: Bool, isPaused: Bool) -> Bool { !isRunning && !isPaused }
 }
 
 /// One conversation in What's waiting while a run reads (A7): its title as the backend serves it, its day, and
 /// where it stands in words — a failure beside a glyph, a parked one with Retry.
 struct QueueItemRow: View {
     let item: SleepQueueItem
+    /// `nil` while a run reads or waits paused (the server refuses a retry then); the row says why instead.
     var onRetry: (() -> Void)? = nil
 
     private var needsYou: Bool { item.state == "parked" || item.state == "could_not_be_read" }
@@ -118,7 +146,7 @@ struct QueueItemRow: View {
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
             .fill(needsYou && item.state == "parked" ? CicadaTheme.bgHover : Color.clear))
-        .help(item.id)
+        .help(item.state == "parked" && onRetry == nil ? Copy.SleepV5.retryAfterRun : item.id)
         .accessibilityElement(children: .combine)
     }
 }
@@ -171,7 +199,8 @@ struct RunWaitingBlock: View {
     let queue: SleepQueueResponse?
     let showsRun: Bool
     var ownerReady: Bool = false
-    var onRetry: ([String]?) -> Void = { _ in }
+    /// `nil` while a run reads or waits paused (`LastCycleRow.canRetryParked`) — no Retry the server would refuse.
+    var onRetry: (([String]?) -> Void)? = nil
     var onSeeOwnerPage: (() -> Void)? = nil
 
     @State private var showAll = false
@@ -226,7 +255,7 @@ struct RunWaitingBlock: View {
                     .accessibilityElement(children: .combine)
                 }
                 ForEach(items) { item in
-                    QueueItemRow(item: item, onRetry: { onRetry([item.id]) })
+                    QueueItemRow(item: item, onRetry: onRetry.map { retry in { retry([item.id]) } })
                 }
                 let hidden = (queue?.items.filter { $0.state != "filed" }.count ?? 0) - items.count
                 if !showAll, hidden > 0, let total = queue?.items.filter({ $0.state != "filed" }).count {

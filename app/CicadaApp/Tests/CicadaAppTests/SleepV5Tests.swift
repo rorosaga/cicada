@@ -341,7 +341,7 @@ final class SleepV5DetailsTests: XCTestCase {
 
     func test_parkedConversationsGetARow() {
         let rows = LastCycleRow.runRows(drain: nil, paused: nil, run: nil, detail: nil, parkedCount: 2,
-                                        scheduledBilling: nil, reserveValue: nil, locale: V5Fixture.en)
+                                        runBilling: nil, reserveValue: nil, locale: V5Fixture.en)
         XCTAssertEqual(rows.map(\.kind), [.parked])
         XCTAssertTrue(rows[0].needsYou)
         XCTAssertEqual(rows[0].text, "2 conversations failed twice and wait for you. Retry reads them again.")
@@ -350,7 +350,7 @@ final class SleepV5DetailsTests: XCTestCase {
     func test_aReservePauseSaysWhatWasKeptAndWhereTheLineIsSet() throws {
         let status = try V5Fixture.paused("reserve")
         let rows = LastCycleRow.runRows(drain: status.drain, paused: status.paused, run: nil, detail: nil,
-                                        parkedCount: 0, scheduledBilling: nil,
+                                        parkedCount: 0, runBilling: nil,
                                         reserveValue: "10% of the 5-hour window", locale: V5Fixture.en)
         XCTAssertTrue(rows.contains { $0.kind == .paused && $0.title == "Paused to leave room in your plan" })
         XCTAssertTrue(rows.contains { $0.kind == .reserve
@@ -361,10 +361,10 @@ final class SleepV5DetailsTests: XCTestCase {
         var drain = try XCTUnwrap(V5Fixture.drain("finished").drain)
         drain.startedBy = "schedule"
         let rows = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
-                                        scheduledBilling: "charged", reserveValue: nil, locale: V5Fixture.en)
+                                        runBilling: "charged", reserveValue: nil, locale: V5Fixture.en)
         XCTAssertTrue(rows.contains { $0.kind == .scheduled && $0.text.contains("Cicada sets no limit") })
         let local = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
-                                         scheduledBilling: "local", reserveValue: nil, locale: V5Fixture.en)
+                                         runBilling: "local", reserveValue: nil, locale: V5Fixture.en)
         XCTAssertFalse(local.contains { $0.kind == .scheduled })
     }
 
@@ -373,7 +373,7 @@ final class SleepV5DetailsTests: XCTestCase {
         let legacy = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
                                        status: status, usageLine: "cost", drain: status.drain)
         let run = LastCycleRow.runRows(drain: status.drain, paused: status.paused, run: nil, detail: nil,
-                                       parkedCount: 0, scheduledBilling: nil, reserveValue: nil)
+                                       parkedCount: 0, runBilling: nil, reserveValue: nil)
         let merged = LastCycleRow.merged(legacy: legacy, run: run)
         XCTAssertEqual(Set(merged.map(\.id)).count, merged.count, "one row per fact — unique ids")
         XCTAssertEqual(merged.last?.kind, .usage, "the cost stays, last")
@@ -386,6 +386,67 @@ final class SleepV5DetailsTests: XCTestCase {
         for word in V5Fixture.providerWords { XCTAssertFalse(note.contains(word), word) }
         XCTAssertFalse(note.lowercased().contains("which sites"))
         XCTAssertFalse(note.contains(".com"))
+    }
+
+    /// Review fix — `POST /sleep/parked/retry` answers 409 while a run reads or waits paused, so Retry (the queue
+    /// rows' and Last cycle's) is offered only when neither is true.
+    func test_retryIsAbsentWhileARunReadsOrWaitsPaused() {
+        XCTAssertTrue(LastCycleRow.canRetryParked(isRunning: false, isPaused: false))
+        XCTAssertFalse(LastCycleRow.canRetryParked(isRunning: true, isPaused: false))
+        XCTAssertFalse(LastCycleRow.canRetryParked(isRunning: false, isPaused: true))
+        XCTAssertFalse(LastCycleRow.canRetryParked(isRunning: true, isPaused: true))
+        XCTAssertTrue(Copy.SleepV5.retryAfterRun.contains("Continue or end this run first"))
+    }
+
+    /// Review fix — the What's waiting block's Retry is optional, and the Details pass it only through the gate.
+    func test_detailsPassRetryOnlyThroughTheGate() throws {
+        let details = try String(contentsOf: XCTUnwrap(ThemeTokenTests.swiftSources().first {
+            $0.lastPathComponent == "SleepDetails.swift" }), encoding: .utf8)
+        XCTAssertTrue(details.contains("onRetryParked: canRetry ? { onRetryParked(nil) } : nil"))
+        XCTAssertTrue(details.contains("onRetry: canRetry ? onRetryParked : nil"))
+    }
+
+    /// Review fix — the scheduled note has its own title (never the run's state) and reads how THIS run was billed.
+    func test_theScheduledNoteHasItsOwnTitleAndTheRunsOwnBilling() throws {
+        var drain = try XCTUnwrap(V5Fixture.drain("finished").drain)
+        drain.startedBy = "schedule"
+        let rows = LastCycleRow.runRows(drain: drain, paused: nil, run: nil, detail: nil, parkedCount: 0,
+                                        runBilling: "charged", reserveValue: nil, locale: V5Fixture.en)
+        let note = try XCTUnwrap(rows.first { $0.kind == .scheduled })
+        XCTAssertEqual(note.title, "Started on its schedule")
+        XCTAssertNotEqual(note.title, Copy.SleepV5.runLiveTitle)
+        func usage(_ json: String) throws -> CycleUsage { try JSONDecoder().decode(CycleUsage.self, from: Data(json.utf8)) }
+        XCTAssertEqual(LastCycleRow.runBilling(usage: try usage(#"{"basis":"charged"}"#), summary: nil), "charged")
+        XCTAssertEqual(LastCycleRow.runBilling(usage: try usage(#"{"basis":"list"}"#), summary: nil), "charged")
+        XCTAssertEqual(LastCycleRow.runBilling(usage: try usage(#"{"basis":"free"}"#), summary: nil), "local")
+        XCTAssertNil(LastCycleRow.runBilling(usage: try usage(#"{"basis":"plan"}"#), summary: nil))
+        XCTAssertEqual(LastCycleRow.runBilling(
+            usage: try usage(#"{"basis":"mixed","models":[{"basis":"free"},{"basis":"charged"}]}"#), summary: nil),
+            "charged")
+        let summary = try JSONDecoder().decode(CycleUsageSummary.self, from: Data(#"{"basis":"free"}"#.utf8))
+        XCTAssertEqual(LastCycleRow.runBilling(usage: nil, summary: summary), "local")
+        XCTAssertNil(LastCycleRow.runBilling(usage: nil, summary: nil), "nothing measured — no note, never a guess")
+    }
+
+    /// Review fix — a touched page reads as its name; an id the graph does not hold stays verbatim.
+    func test_aTouchedPageReadsAsItsName() {
+        let names = EntityNames(byId: ["alpha-project": "Alpha Project"])
+        XCTAssertEqual(RunDetailBlock.pageLabel("alpha-project", names: names), "Alpha Project")
+        XCTAssertEqual(RunDetailBlock.pageLabel("bob-example", names: names), "bob-example")
+    }
+
+    /// Review fix — a run's detail is refetched whenever its numbers, its pause or its end move.
+    func test_theRunDetailKeyMovesWithTheRun() throws {
+        let paused = try V5Fixture.paused("user")
+        let a = SleepViewModel.runDetailFreshness(drain: paused.drain, paused: paused.paused)
+        XCTAssertEqual(a, SleepViewModel.runDetailFreshness(drain: paused.drain, paused: paused.paused))
+        XCTAssertNotEqual(a, SleepViewModel.runDetailFreshness(drain: paused.drain, paused: nil), "Continue moves it")
+        var more = try XCTUnwrap(paused.drain)
+        more.filed += 1
+        XCTAssertNotEqual(a, SleepViewModel.runDetailFreshness(drain: more, paused: paused.paused))
+        var done = try XCTUnwrap(paused.drain)
+        done.finished = true
+        XCTAssertNotEqual(a, SleepViewModel.runDetailFreshness(drain: done, paused: nil), "the end moves it")
     }
 
     func test_aQueueRowSaysWhereItStandsInWords() {
@@ -457,6 +518,19 @@ final class SleepV5DoorsTests: XCTestCase {
         let paused = SleepDoor(paused: (98, 287), readable: 189, batchSize: 25)
         XCTAssertEqual(paused.menuItemTitle, "Continue on the Sleep page…")
         XCTAssertEqual(paused.menuHeader, "Paused — 98 of 287 filed")
+    }
+
+    /// Review fix — a pause whose record has not loaded (the Sleep page never opened) says "Paused", never
+    /// "0 of 0 filed"; an unknown batch size is left out of the caption, never the fallback 25.
+    func test_aDoorNeverFormatsAnUnknownCount() {
+        let unknown = SleepDoor(paused: nil, readable: 12, batchSize: nil, pausedCountsUnknown: true)
+        XCTAssertTrue(unknown.isPaused)
+        XCTAssertEqual(unknown.menuHeader, "Paused")
+        XCTAssertEqual(unknown.menuItemTitle, "Continue on the Sleep page…")
+        XCTAssertEqual(SleepDoor(paused: nil, readable: 318, batchSize: nil).readNowCaption,
+                       "Reads all 318 waiting, oldest first. Follow along on the Sleep page.")
+        XCTAssertEqual(SleepDoor(paused: nil, readable: 318, batchSize: 10).readNowCaption,
+                       "Reads all 318 waiting, oldest first, saving every 10. Follow along on the Sleep page.")
     }
 
     func test_readNowSaysWhatItReads() {

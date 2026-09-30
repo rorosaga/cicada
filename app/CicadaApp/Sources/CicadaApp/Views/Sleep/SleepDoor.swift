@@ -9,15 +9,20 @@ struct SleepDoor: Equatable {
     var paused: (filed: Int, frozen: Int)?
     /// What a Consolidate would read now (waiting minus parked, M7); `nil` when unknown.
     var readable: Int?
-    var batchSize: Int
+    /// How often a run saves, from the reading options or the status; `nil` while neither has loaded (never a guess).
+    var batchSize: Int?
     var running: Bool = false
+    /// A run is paused but its record (`filed`/`frozen`) has not loaded yet — the header then says only "Paused",
+    /// never "0 of 0".
+    var pausedCountsUnknown: Bool = false
 
     static func == (a: SleepDoor, b: SleepDoor) -> Bool {
         a.paused?.filed == b.paused?.filed && a.paused?.frozen == b.paused?.frozen && (a.paused == nil) == (b.paused == nil)
             && a.readable == b.readable && a.batchSize == b.batchSize && a.running == b.running
+            && a.pausedCountsUnknown == b.pausedCountsUnknown
     }
 
-    var isPaused: Bool { paused != nil }
+    var isPaused: Bool { paused != nil || pausedCountsUnknown }
 
     /// The menu-bar worm's action item: never a Continue — it opens the Sleep page while paused.
     var menuItemTitle: String {
@@ -27,7 +32,8 @@ struct SleepDoor: Equatable {
 
     /// The menu's header line while paused ("Paused — 98 of 287 filed"); `nil` otherwise (the worm's own words stay).
     var menuHeader: String? {
-        paused.map { Copy.SleepV5.pausedMenuTitle(filed: $0.filed, frozen: $0.frozen) }
+        if let paused { return Copy.SleepV5.pausedMenuTitle(filed: paused.filed, frozen: paused.frozen) }
+        return pausedCountsUnknown ? Copy.SleepV5.pausedMenuPlain : nil
     }
 
     /// The caption beside an intake card's or Home's *Read now*: what the click reads, or where to continue.

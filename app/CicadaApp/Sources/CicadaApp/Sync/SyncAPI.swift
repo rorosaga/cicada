@@ -112,7 +112,8 @@ protocol SyncAPI: Sendable {
     func activateBank(name: String) async throws
     func triggerSleep() async throws -> SleepTriggerResponse
     /// Sleep page v5 — `POST /sleep/trigger {"continue": true}`: resume the paused run. Only the Sleep page's
-    /// Continue sends it (`SleepViewModel.continueRun`, pinned by `SleepV5DoorsTests`).
+    /// Continue sends it (`SleepViewModel.continueRun`, pinned by `SleepV5DoorsTests`). No default: a conformer that
+    /// forgot it must not turn Continue into a fresh trigger, which clears the pause on the server.
     func continueSleepRun() async throws -> SleepTriggerResponse
     /// G141 PJ-5 (R-PP19) — the Projects page's five writes (`routers/projects.py`), each answering the claim it wrote,
     /// the day and how that day was decided. Every day sent is `YYYY-MM-DD`: nothing relative is sent as a value
@@ -309,7 +310,3 @@ struct SleepEventPayload: Codable, Equatable {
     }
 }
 
-extension SyncAPI {
-    /// A test double that predates Sleep page v5 has no Continue; it starts a run like the trigger it has.
-    func continueSleepRun() async throws -> SleepTriggerResponse { try await triggerSleep() }
-}

@@ -97,6 +97,8 @@ extension Copy {
         static let readingOptions = "Reading options…"
         static let seeYourPage = "See your page ›"
         static let retry = "Retry"
+        /// Why a parked conversation offers no Retry while a run reads or waits paused (the server refuses it then).
+        static let retryAfterRun = "Continue or end this run first, then Retry reads it again."
         static let pauseHelp = "Stops at the next safe point. What is filed stays filed; the part it was reading is read again."
         static func continueHelp(_ engine: String) -> String { "Continues this run on \(engine)." }
         static let continueHelpGeneric = "Continues this run on the engine you chose."
@@ -169,8 +171,17 @@ extension Copy {
         static let continueAfterResetCaption =
             "For the runs you start. At most twice, within 36 hours, and never past a weekly limit."
         static func scheduledReadsAll(engine: String, billing: String?) -> String {
-            ["Scheduled runs read everything waiting too, on \(engine).", scheduledSpend(billing)]
+            ["Scheduled runs read everything waiting too, on \(engine).", scheduledSpendClause(billing)]
                 .compactMap { $0 }.joined(separator: " ")
+        }
+        /// The spend alone, for a sentence that already said "reads everything waiting" (`scheduledReadsAll`);
+        /// `scheduledSpend` stands alone in the engine menu.
+        static func scheduledSpendClause(_ billing: String?) -> String? {
+            switch billing {
+            case "charged": "Charged per use; Cicada sets no limit."
+            case "local": "It stays on this Mac."
+            default: nil
+            }
         }
         static let optionsNote =
             "Each conversation takes several calls to the engine you chose. The count is shown while it runs. You can pause any time."
@@ -205,6 +216,8 @@ extension Copy {
         // MARK: Details
 
         static let runLiveTitle = "Reading all · in progress"
+        /// The scheduled-spend note's own title — never the run's state, which the run row above already says.
+        static let scheduledRunTitle = "Started on its schedule"
         static let runDoneTitle = "Reading all · finished"
         static let runStoppedTitle = "Reading all · stopped"
         static func runLiveText(filed: Int, frozen: Int, batches: Int, calls: Int?,
@@ -370,8 +383,13 @@ extension Copy {
         static func pausedMenuTitle(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Paused — \(filedOf(filed, frozen, locale))"
         }
-        static func readNowCaption(waiting: Int, batchSize: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
-            "Reads all \(count(waiting, locale)) waiting, oldest first, saving every \(count(batchSize, locale)). Follow along on the Sleep page."
+        /// The paused header before the run's record has loaded: no count is better than a wrong one.
+        static let pausedMenuPlain = "Paused"
+        static func readNowCaption(waiting: Int, batchSize: Int?, _ locale: Locale = .autoupdatingCurrent) -> String {
+            guard let batchSize, batchSize > 0 else {
+                return "Reads all \(count(waiting, locale)) waiting, oldest first. Follow along on the Sleep page."
+            }
+            return "Reads all \(count(waiting, locale)) waiting, oldest first, saving every \(count(batchSize, locale)). Follow along on the Sleep page."
         }
         static let pausedDoorCaption = "A run is paused. Continue it on the Sleep page."
     }
@@ -387,7 +405,8 @@ extension Copy {
         SleepV5.continueOnSleepPage, SleepV5.readingCaption, SleepV5.filingLead, SleepV5.pausingLead,
         SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"),
         SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
-        SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287),
+        SleepV5.consolidateAll(287), SleepV5.pausedMenuTitle(filed: 98, frozen: 287), SleepV5.pausedMenuPlain,
+        SleepV5.scheduledRunTitle, SleepV5.retryAfterRun,
     ]
 
     /// Every sentence the ladder can speak with sample numbers — the neutrality, "read and kept" and length lints
@@ -406,6 +425,7 @@ extension Copy {
         SleepV5.pauseHelp, SleepV5.endRunHelp, SleepV5.optionsIntro(waiting: 287, batchSize: 25),
         SleepV5.continueAfterResetCaption, SleepV5.optionsNote, SleepV5.leaveRoomHelp, SleepV5.reserveHelp,
         SleepV5.scheduledSpend("charged") ?? "", SleepV5.scheduledSpend("local") ?? "",
+        SleepV5.scheduledSpendClause("charged") ?? "", SleepV5.scheduledSpendClause("local") ?? "",
         SleepV5.scheduledNeverSpendsPlans, SleepV5.readerNote, SleepV5.pausingTail,
         SleepV5.parkedText(1), SleepV5.pausedText(filed: 98, frozen: 287), SleepV5.pausedReserveText(batch: 5),
         SleepV5.scheduledRunNote("charged") ?? "", SleepV5.readNowCaption(waiting: 318, batchSize: 25),

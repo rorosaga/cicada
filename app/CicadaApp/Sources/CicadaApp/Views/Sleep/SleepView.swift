@@ -249,7 +249,8 @@ struct SleepView: View {
                                          expanded: sleepVM.expanded, onToggleHistory: toggleHistory,
                                          onSelectEntity: onSelectEntity, room: room,
                                          runRows: runRows(page), queue: sleepVM.queue,
-                                         showsRun: showsRunBlock(page), ownerReady: ownerReady(page),
+                                         showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
+                                         ownerReady: ownerReady(page),
                                          onRetryParked: { ids in
                                              Task { @MainActor in
                                                  await sleepVM.retryParked(ids: ids)
@@ -328,8 +329,9 @@ struct SleepView: View {
         }
         // Sleep page v5 — a pause appears, is armed or is cleared with no status change (H3): refetch the whole
         // record, announce a pause (A11), and keep What's waiting's rows in step with the run's counts (M3).
+        // The status refetch itself is app-wide (`Store.onSleepPausedChanged`, wired in `CicadaApp`), so the doors
+        // outside this page read the whole record too; the page only announces a pause (A11).
         .onChange(of: store.sleepEvent?.paused) { old, new in
-            Task { @MainActor in await sleepVM.refreshStatus() }
             if old == nil, new != nil { AccessibilityNotification.Announcement(Copy.SleepV5.pausedAnnouncement).post() }
         }
         .onChange(of: queueKey) { _, _ in
@@ -340,12 +342,14 @@ struct SleepView: View {
             guard open else { return }
             Task { @MainActor in
                 await sleepVM.loadQueue()
-                if let id = detailRunId { await sleepVM.loadRunDetail(id) }
+                if let id = detailRunId { await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
             }
         }
-        .onChange(of: detailRunId) { _, id in
-            guard detailsOpen, let id else { return }
-            Task { @MainActor in await sleepVM.loadRunDetail(id) }
+        // A run's detail follows the run: a new run, more filed, a pause, a Continue or the end refetches it, so a
+        // detail read while paused never outlives the pause (and the finished-only rows appear once it ends).
+        .onChange(of: detailRunId.map { $0 + "#" + detailRunFreshness }) { _, _ in
+            guard detailsOpen, let id = detailRunId else { return }
+            Task { @MainActor in await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
         }
         .onChange(of: sleepVM.history) { _, history in
             if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
@@ -744,6 +748,11 @@ struct SleepView: View {
         return sleepVM.pausedRun?.runId
     }
 
+    /// What moves when the detail run's numbers do (`SleepViewModel.runDetailFreshness`).
+    private var detailRunFreshness: String {
+        SleepViewModel.runDetailFreshness(drain: sleepVM.status?.drain, paused: sleepVM.pausedRun)
+    }
+
     /// Last cycle's run rows (`LastCycleRow.runRows`): the drain, the paused run, the run's own numbers from history
     /// and its detail, parked conversations, a scheduled run's spend words, and the reserve's figure (Details is one
     /// of ruling 12's two homes for it).
@@ -753,9 +762,14 @@ struct SleepView: View {
         let run = runId.flatMap { id in sleepVM.history.first { $0.drainId == id }?.run }
         let preview = SleepEnginePreviewSource.current(chooser: engineVM.response, page: sleepVM.enginePreview)
         let reserve = EngineQuickMenuModel.Reserve.from(engineVM.response?.reserve, billing: preview?.manual.billing)
-        return LastCycleRow.runRows(drain: drain, paused: page.paused, run: run,
-                                    detail: runId.flatMap { sleepVM.runDetails[$0] },
-                                    parkedCount: page.parkedCount, scheduledBilling: preview?.scheduled.billing,
+        let detail = runId.flatMap { sleepVM.runDetails[$0] }
+        let summary = runId.flatMap { id in sleepVM.history.first { $0.drainId == id }?.usageSummary }
+        // How THIS run was billed, from its own usage; only a run still reading, with nothing measured yet, reads
+        // the scheduled preview — the engine it is running on right now.
+        let billing = LastCycleRow.runBilling(usage: detail?.usage, summary: summary)
+            ?? (drain?.active == true ? preview?.scheduled.billing : nil)
+        return LastCycleRow.runRows(drain: drain, paused: page.paused, run: run, detail: detail,
+                                    parkedCount: page.parkedCount, runBilling: billing,
                                     reserveValue: reserve?.pct != nil ? reserve?.value : nil)
     }
 

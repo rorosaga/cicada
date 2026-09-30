@@ -274,8 +274,15 @@ final class SleepDrainStopTests: XCTestCase {
     func test_theLampSaysAScheduledRunReadsEverythingToo() {
         XCTAssertEqual(Copy.scheduledReadsAll(engine: "ollama", billing: "local"),
                        "Scheduled runs read everything waiting too, on \(Copy.engineLabel("ollama")). "
-                       + "It reads everything waiting, on this Mac.")
-        XCTAssertTrue(Copy.scheduledReadsAll(engine: "litellm", billing: "charged").contains("Cicada sets no limit"))
+                       + "It stays on this Mac.")
+        XCTAssertEqual(Copy.scheduledReadsAll(engine: "litellm", billing: "charged"),
+                       "Scheduled runs read everything waiting too, on \(Copy.engineLabel("litellm")). "
+                       + "Charged per use; Cicada sets no limit.")
+        for billing in ["local", "charged"] {
+            let text = Copy.scheduledReadsAll(engine: "litellm", billing: billing)
+            XCTAssertEqual(text.components(separatedBy: "everything waiting").count - 1, 1,
+                           "the sentence says 'everything waiting' once, never twice")
+        }
         XCTAssertFalse(Copy.scheduledReadsAll(engine: "litellm", billing: nil).contains("limit"))
     }
 }
