@@ -1,6 +1,7 @@
 # Sleep page v5: a progress you can trust, and reading faster on purpose
 
-Status: design, not built. Nothing here is committed. Code read on `dev` at `2155940` (2026-09-29).
+Status: **partly built (2026-09-30, backend half on branch `feat/sleep-v5`) — see section 11 for what was decided and what is built.**
+The design below is otherwise as written. Nothing here is committed. Code read on `dev` at `2155940` (2026-09-29).
 Revision 2 (same day) answers a verified critique round; where a finding was adopted the text says so
 in place, and section 9's R-14 to R-16 record what it changed. Nothing in the critique round was
 shown to be wrong, so nothing was skipped.
@@ -1006,7 +1007,7 @@ Each is binding on the build.
 | V5-12 | Consolidation's engines never gain a browser, a shell or a signed-in session; anything that does runs as the person's own agent. |
 | V5-13 | A run-level reserve applies to every window a plan reports (Claude's weekly window included, when reported); the run **stops starting new reads** once a window passes `100 - reserve`, and calls already running finish. It is a promise about starts, not a cap. |
 | V5-14 | `status` stays `running` across a drain's batches by a drain hold read through one helper, `sleep_cycle.is_active()`, at every gate (scheduler, trigger, the 409 writers); the hold is released on any pause; the cheer fires once. |
-| V5-15 | A no-body `POST /sleep/trigger` is one batch, from every door, always. A drain starts only from the sheet's body and continues only through `POST /sleep/run/continue` from the Sleep page. Amends G125 R10 (Q7). |
+| V5-15 | *(Reversed by TODO ruling 13, 2026-09-29: a no-body trigger is a drain. The only guard kept: a paused run is continued from the Sleep page alone, which the app's doors enforce; the server keeps a no-body trigger a fresh run.)* A no-body `POST /sleep/trigger` is one batch, from every door, always. A drain starts only from the sheet's body and continues only through `POST /sleep/run/continue` from the Sleep page. Amends G125 R10 (Q7). |
 | V5-16 | Plan and price figures stay on Details and the engine menu (ruling 12). The room sentence, the sheet, the strip and Settings show none, and a reserve is named there without its number. |
 
 ---
@@ -1202,13 +1203,14 @@ on.
 
 ## 8. Questions for the owner (only real decisions)
 
-**Q1. May a run you started continue itself after a plan reset?** This amends ruling 4 for that one
+**Q1. May a run you started continue itself after a plan reset?** *Decided 2026-09-30: yes, as an opt-in
+switch in Reading options, off by default, recorded as TODO ruling 15 with the bounds below.* This amends ruling 4 for that one
 case. *Recommendation: yes, as a per-run checkbox, off by default, with the reset time shown, at most
 two continuations, expiring after 36 hours, never available to a scheduled cycle and never crossing a
 weekly pause.* Without it, a paused drain waits for you to open the app. Note that on a weekly-only
 ChatGPT window the wait can be days, which is why 36 hours is the cap.
 
-**Q1b. Is a first-run drain on a consumer plan acceptable at all?** A drain is the largest volume of plan
+**Q1b. Is a first-run drain on a consumer plan acceptable at all?** *Decided 2026-09-30 by building it: Consolidate reads everything (ruling 13) on the plan the person chose for a run they start; no copy advises on providers.* A drain is the largest volume of plan
 calls Cicada would make (on the order of 12,000 to 21,000 judge calls for 1,187 conversations at one
 worker, arithmetic on an old figure), and the repo's own open question is whether even a nightly personal
 batch is "ordinary, individual usage". *Recommendation: allow it, person-started and reserve-guarded as
@@ -1216,14 +1218,14 @@ designed, show the calls made, and have the sheet say an API key or OpenRouter m
 better; recommend an API key by name for the first drain if the vendors' terms, once read, say scripted
 volume belongs there.* Vendor terms have not been re-read for this spec.
 
-**Q2. When may "6" and "10" workers be chosen on a plan?** *Recommendation: only after EX-2, run on
+**Q2. When may "6" and "10" workers be chosen on a plan?** *Not built (owner, 2026-09-30): "Read faster" is out of the sheet; SL-3 stays open.* *Recommendation: only after EX-2, run on
 **both** plans, shows the engine tolerates it (no `refresh_token_reused`, no rising 429s) **and** measures
 how far a reserve overshoots at that fan-out, and you sign off; until then the sheet offers 1 and 3 and
 says why.* The reserve cannot be guaranteed on either plan (a window is read after a call returns, with up
 to `workers` calls in flight), so a larger fan-out is a larger overshoot. This is the terms-of-service,
 token-race and overshoot question, and it is the gate for SL-3.
 
-**Q3. Which stages use the small model, and may the roster suggest one?** *Recommendation: Read and Sort
+**Q3. Which stages use the small model, and may the roster suggest one?** *Not built with Q2 (2026-09-30).* *Recommendation: Read and Sort
 only; Decide (the prose) and Notice stay on the main model; on ChatGPT show the vendor's descriptions
 and preselect nothing, suggesting at most one when its description says "fast" or "affordable".* Widen
 after EX-3. This also amends R-A8/P15 as recorded in V5-3.
@@ -1238,11 +1240,11 @@ per-call signal to stop precisely. Your number. The figure is set only in the en
 and off on battery unless you choose otherwise.* It is a system side effect, so it is asked once in
 Settings → Sleep rather than assumed.
 
-**Q6. Should the first drain of a bank always start with one batch and then ask?** *Recommendation: yes.*
+**Q6. Should the first drain of a bank always start with one batch and then ask?** *Replaced 2026-09-30: the first save is a moment, not a stop — the run carries on and the sentence says "Filed the first 25. Your page has N beliefs so far." (`ownerPage`, `firstRun`).* *Recommendation was: yes.*
 It makes the first result visible before the window is committed (including your own page filling, 4.8),
 and it is the cheapest check on a smaller model.
 
-**Q7. May the Sleep page gain run controls beside Consolidate?** G125 R10 keeps one trigger on this page
+**Q7. May the Sleep page gain run controls beside Consolidate?** *Superseded by ruling 13 (Consolidate is the drain; V5-15 reversed) and settled 2026-09-30: the page gains Pause / Continue / End this run and a parked row's Retry beside its one trigger — a G125 R10 amendment recorded in TODO.* G125 R10 keeps one trigger on this page
 and its record is two narrow amendments (Home and the intake card's *Read now*). This design adds *Read
 all …* (opens a sheet), the sheet's *Start*, *Continue* on a paused run and a parked row's *Retry*.
 *Recommendation: yes, narrowly. Consolidate stays the only one-batch trigger, a no-body trigger is one
@@ -1301,3 +1303,48 @@ CLAUDE.md paragraph, which this spec would then carry.
 `cycle_usage.py` (:20), `plan_limits.py` (50-88), `demo_guard.py` and `test_demo_capture_routes.py`,
 `APIClient.swift` (`triggerSleep`), `AutoRecallTests.swift` (167), `SleepNumbersLintTests.swift` (35),
 and commit `1d00d1d` on `fix/first-run-extraction-owner`.
+
+---
+
+## 11. Decided and built (2026-09-30)
+
+The owner approved the boards ("I like the sleep agent v5 designs would you be able to apply them?") with four
+binding decisions, applied on top of the merged drain (ruling 13):
+
+1. **Scheduled cycles also read everything waiting** — TODO ruling 16. Ruling 4 is untouched: they still never use a plan;
+   an unattended run on a key spends with no limit Cicada sets, and the engine menu and Details say so in words.
+2. **Continue after a plan reset** is an opt-in switch in Reading options, off by default — TODO ruling 15 (a narrow
+   amendment to ruling 4: only a run the person started, only after its window resets; bounds in the ruling).
+3. **"Read faster" is not built** — the sheet ships without it (no "At once", no "Reading model", no trade-off list).
+   SL-3 (parallel reading, the small-model map, EX-1…EX-5) stays open and needs the owner's go. The engine chip reads the
+   person's own engine and model.
+4. **"Leave room in my plan"** — off by default, a percentage of the plan window set in the engine menu, a *soft stop*
+   (the batch keeps what it read); a line, not a guarantee.
+
+**Backend built** (`api/services/`: `sleep_run_prefs`, `sleep_parked`, `sleep_paused`, `sleep_runs`, `sleep_reserve`,
+`sleep_autocontinue`, `sleep_progress`, `sleep_run_detail`, `sleep_local`; edits to `sleep_cycle`, `sleep_drain`,
+`sleep_scheduler`, `cycle_usage`, `entity_extractor`, `agent_engine`, `providers`): `GET/PUT /sleep/run-options`;
+`POST /sleep/trigger {"continue": true}`, `POST /sleep/run/end`, `POST /sleep/parked/retry`; `GET /sleep/queue`;
+`GET /sleep/runs/{id}`; `drain` and `paused` on `GET /sleep/status` and the SSE `sleep` event; `run` / `drainId` /
+`batch` / `batches` on history rows; `billing` on the engine previews and `reserve` on `GET /sleep/engine`. The wire is
+pinned for the app by `app/CicadaApp/Tests/fixtures/sleep-status-drain.json` (regenerated by
+`test_sleep_status_app_fixture.py`).
+
+**Deviations from the design, and why.**
+- The board's *Saved reading* and "read and kept" wording are **not** built: there is no journal (SL-1), so a Pause or a hard
+  plan rejection mid-batch still discards that batch. The Pause tail must say what is true — what is filed stays filed and
+  the part in progress is read again. The reserve avoids the common case because it keeps the batch.
+- "Paused. You switched memory." is unreachable (a drain refuses a bank switch) and kept as a defensive rung only.
+- Batch size tops out at **50** (a commit records at most 50 sessions; the board's 100 is not offered).
+- Past nights groups by run from a machine-local per-run summary (`$CICADA_HOME/sleep/<bank>/runs.json`), not from the
+  telemetry ledger alone, so grouping survives `CICADA_TELEMETRY=off`; cost and per-call figures still need the ledger.
+- The board's "and 405 more" link is omitted: no surface lists a run's pages.
+- Provider-neutral copy: the boards' strings that name a provider or model as the one doing a job ("Haiku · 3 at once",
+  "your Claude plan", "Reads and sorts. Deciding stays on Sonnet.") are not copied; the app words billing from
+  `preview.*.billing` and shows the engine and model the person chose.
+
+**App half — not built.** Wire decode over the pinned fixtures, the sentence ladder (paused, restart, first save, parked),
+the strip and bar, the Reading options sheet, the engine menu's *Keep plan free* row, Details, Past nights and the run
+detail, the doors (one choke point: a paused run routes every door to the Sleep page), and the lints
+(`SleepProviderNeutralLintTests`, `PriceLintTests`). Copy that the boards get wrong is listed in the plan's section 8; the
+rule is the owner's: describe the step, never name a provider outside the person's own current choice.

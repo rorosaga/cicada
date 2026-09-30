@@ -116,6 +116,14 @@ def run_bank_migrations(memory_path) -> dict:
             f"{paper_claim_text['pages']} page(s)"
         )
 
+    # Sleep page v5: a run's sidecar that says it was still reading belongs to a process that is
+    # gone (a run pins its bank, so nothing can be reading in a bank being activated or booted):
+    # it becomes a paused run, or is deleted when everything it froze is filed. Machine-local, so
+    # it leaves the bank untouched, and it is not part of the returned summary.
+    from api.services import sleep_paused
+
+    sleep_paused.recover_after_restart(memory_path)
+
     return {
         "moved": moved,
         "deduped": deduped,

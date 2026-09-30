@@ -1,14 +1,577 @@
 {
-  "cancelled": {
+  "engine": {
     "batchSize": 3,
     "cancelRequested": false,
-    "cancelled": true,
-    "cycleId": "sleep_2026-09-29_101500",
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-30_101500",
     "debt": {
       "agePct": 0,
       "hasRunBefore": true,
       "hoursSinceLastCycle": 0.5,
       "oldestUnprocessedAgeHours": null,
+      "parkedCount": 0,
+      "readableCount": 0,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": false,
+      "arrivedSince": 0,
+      "batch": 2,
+      "batchSize": 3,
+      "batchState": {
+        "failed": 0,
+        "index": 2,
+        "of": 3,
+        "read": 0,
+        "reading": 0,
+        "total": 3
+      },
+      "batches": 3,
+      "byOrigin": {
+        "claude-code": {
+          "couldNotBeRead": 0,
+          "filed": 3,
+          "frozen": 9,
+          "newSince": 0,
+          "parked": 0,
+          "read": 0,
+          "skipped": 0,
+          "waiting": 6
+        }
+      },
+      "calls": 0,
+      "committedBatches": 1,
+      "elapsedMs": 0,
+      "filed": 3,
+      "finished": false,
+      "firstRun": true,
+      "frozen": 9,
+      "id": "sleep_2026-09-30_101500",
+      "ownerPage": null,
+      "parked": 0,
+      "pausedMs": 0,
+      "requeued": 0,
+      "reserve": {
+        "pct": 10,
+        "windows": [
+          {
+            "enforced": null,
+            "reason": null,
+            "window": "five_hour"
+          },
+          {
+            "enforced": null,
+            "reason": null,
+            "window": "seven_day"
+          }
+        ]
+      },
+      "resumed": false,
+      "skipped": 0,
+      "stages": [
+        {
+          "done": 3,
+          "failed": 0,
+          "id": "read",
+          "state": "done",
+          "total": 3,
+          "unit": "conversations"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "sort",
+          "state": "pending",
+          "total": null,
+          "unit": "names"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "decide",
+          "state": "pending",
+          "total": null,
+          "unit": "pages"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "notice",
+          "state": "pending",
+          "total": null,
+          "unit": null
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "file",
+          "state": "pending",
+          "total": null,
+          "unit": null
+        }
+      ],
+      "startedBy": "user",
+      "stop": {
+        "limit": null,
+        "reason": "engine",
+        "resetsAt": null,
+        "sentence": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)"
+      }
+    },
+    "engineDetail": null,
+    "entitiesCreated": 3,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 3,
+    "episodesQueued": 9,
+    "episodesRequeued": 0,
+    "episodesTotal": 3,
+    "error": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "paused": {
+      "autoContinue": {
+        "armed": false,
+        "at": null,
+        "blocked": "reason",
+        "left": 2
+      },
+      "calls": 0,
+      "canContinue": true,
+      "committedBatches": 1,
+      "engineLabel": "claude-cli",
+      "filed": 3,
+      "frozen": 9,
+      "limit": null,
+      "pausedAt": "2026-09-30T10:20:00+00:00",
+      "reason": "engine",
+      "resetsAt": null,
+      "runId": "sleep_2026-09-30_101500",
+      "sentence": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
+      "startedBy": "user"
+    },
+    "progress": "Failed: Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 9
+    },
+    "readByOrigin": {
+      "claude-code": 3
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 1,
+    "startedAt": "2026-09-30T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "plan_window": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-30_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "parkedCount": 0,
+      "readableCount": 0,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": false,
+      "arrivedSince": 0,
+      "batch": 2,
+      "batchSize": 3,
+      "batchState": {
+        "failed": 0,
+        "index": 2,
+        "of": 3,
+        "read": 0,
+        "reading": 0,
+        "total": 3
+      },
+      "batches": 3,
+      "byOrigin": {
+        "claude-code": {
+          "couldNotBeRead": 0,
+          "filed": 3,
+          "frozen": 9,
+          "newSince": 0,
+          "parked": 0,
+          "read": 0,
+          "skipped": 0,
+          "waiting": 6
+        }
+      },
+      "calls": 0,
+      "committedBatches": 1,
+      "elapsedMs": 0,
+      "filed": 3,
+      "finished": false,
+      "firstRun": true,
+      "frozen": 9,
+      "id": "sleep_2026-09-30_101500",
+      "ownerPage": null,
+      "parked": 0,
+      "pausedMs": 0,
+      "requeued": 0,
+      "reserve": null,
+      "resumed": false,
+      "skipped": 0,
+      "stages": [
+        {
+          "done": 3,
+          "failed": 0,
+          "id": "read",
+          "state": "done",
+          "total": 3,
+          "unit": "conversations"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "sort",
+          "state": "pending",
+          "total": null,
+          "unit": "names"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "decide",
+          "state": "pending",
+          "total": null,
+          "unit": "pages"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "notice",
+          "state": "pending",
+          "total": null,
+          "unit": null
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "file",
+          "state": "pending",
+          "total": null,
+          "unit": null
+        }
+      ],
+      "startedBy": "user",
+      "stop": {
+        "limit": "five_hour",
+        "reason": "plan_limit",
+        "resetsAt": 1790003600,
+        "sentence": "Your plan's 5-hour window is full."
+      }
+    },
+    "engineDetail": null,
+    "entitiesCreated": 3,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 3,
+    "episodesQueued": 9,
+    "episodesRequeued": 0,
+    "episodesTotal": 3,
+    "error": null,
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "paused": {
+      "autoContinue": {
+        "armed": true,
+        "at": 1790003660,
+        "blocked": null,
+        "left": 2
+      },
+      "calls": 0,
+      "canContinue": true,
+      "committedBatches": 1,
+      "engineLabel": "claude-cli",
+      "filed": 3,
+      "frozen": 9,
+      "limit": "five_hour",
+      "pausedAt": "2026-09-30T10:20:00+00:00",
+      "reason": "plan_window",
+      "resetsAt": 1790003600,
+      "runId": "sleep_2026-09-30_101500",
+      "sentence": "Your plan's 5-hour window is full.",
+      "startedBy": "user"
+    },
+    "progress": "Stopped after batch 1 of 3 \u2014 Your plan's 5-hour window is full.",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 9
+    },
+    "readByOrigin": {
+      "claude-code": 3
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 1,
+    "startedAt": "2026-09-30T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "reserve": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-30_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "parkedCount": 0,
+      "readableCount": 0,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": false,
+      "arrivedSince": 0,
+      "batch": 2,
+      "batchSize": 3,
+      "batchState": {
+        "failed": 0,
+        "index": 2,
+        "of": 3,
+        "read": 1,
+        "reading": 0,
+        "total": 3
+      },
+      "batches": 3,
+      "byOrigin": {
+        "claude-code": {
+          "couldNotBeRead": 0,
+          "filed": 4,
+          "frozen": 9,
+          "newSince": 0,
+          "parked": 0,
+          "read": 0,
+          "skipped": 0,
+          "waiting": 5
+        }
+      },
+      "calls": 0,
+      "committedBatches": 2,
+      "elapsedMs": 0,
+      "filed": 4,
+      "finished": false,
+      "firstRun": true,
+      "frozen": 9,
+      "id": "sleep_2026-09-30_101500",
+      "ownerPage": null,
+      "parked": 0,
+      "pausedMs": 0,
+      "requeued": 2,
+      "reserve": {
+        "pct": 10,
+        "windows": [
+          {
+            "enforced": true,
+            "reason": null,
+            "window": "five_hour"
+          },
+          {
+            "enforced": false,
+            "reason": "not_reported",
+            "window": "seven_day"
+          }
+        ]
+      },
+      "resumed": false,
+      "skipped": 0,
+      "stages": [
+        {
+          "done": 3,
+          "failed": 0,
+          "id": "read",
+          "state": "done",
+          "total": 3,
+          "unit": "conversations"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "sort",
+          "state": "done",
+          "total": null,
+          "unit": "names"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "decide",
+          "state": "done",
+          "total": 0,
+          "unit": "pages"
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "notice",
+          "state": "done",
+          "total": null,
+          "unit": null
+        },
+        {
+          "done": 0,
+          "failed": 0,
+          "id": "file",
+          "state": "done",
+          "total": null,
+          "unit": null
+        }
+      ],
+      "startedBy": "user",
+      "stop": {
+        "limit": "five_hour",
+        "reason": "reserve",
+        "resetsAt": 1790003600,
+        "sentence": "Paused to leave room in your plan."
+      }
+    },
+    "engineDetail": null,
+    "entitiesCreated": 4,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 4,
+    "episodesQueued": 9,
+    "episodesRequeued": 2,
+    "episodesTotal": 6,
+    "error": null,
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "paused": {
+      "autoContinue": {
+        "armed": true,
+        "at": 1790003660,
+        "blocked": null,
+        "left": 2
+      },
+      "calls": 0,
+      "canContinue": true,
+      "committedBatches": 2,
+      "engineLabel": "claude-cli",
+      "filed": 4,
+      "frozen": 9,
+      "limit": "five_hour",
+      "pausedAt": "2026-09-30T10:20:00+00:00",
+      "reason": "reserve",
+      "resetsAt": 1790003600,
+      "runId": "sleep_2026-09-30_101500",
+      "sentence": "Paused to leave room in your plan.",
+      "startedBy": "user"
+    },
+    "progress": "Stopped after batch 2 of 3 \u2014 Paused to leave room in your plan.",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 9
+    },
+    "readByOrigin": {
+      "claude-code": 6
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 5,
+    "startedAt": "2026-09-30T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "restart": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-30_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "parkedCount": 0,
+      "readableCount": 0,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": null,
+    "engineDetail": null,
+    "entitiesCreated": 0,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 0,
+    "episodesQueued": 9,
+    "episodesRequeued": 0,
+    "episodesTotal": 3,
+    "error": "Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "paused": {
+      "autoContinue": null,
+      "calls": 40,
+      "canContinue": true,
+      "committedBatches": 1,
+      "engineLabel": "claude-cli",
+      "filed": 3,
+      "frozen": 9,
+      "limit": null,
+      "pausedAt": "2026-09-30T10:20:00+00:00",
+      "reason": "restart",
+      "resetsAt": null,
+      "runId": "sleep_2026-09-30_101500",
+      "sentence": null,
+      "startedBy": "user"
+    },
+    "progress": "Failed: Stage 1 extracted nothing \u2014 every episode failed on the Claude Code engine. Run `claude auth status` to check the plan is signed in. The queue is intact; trigger Sleep again once it is. (signed in)",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 9
+    },
+    "readByOrigin": {
+      "claude-code": 3
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 1,
+    "startedAt": "2026-09-30T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "user": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": true,
+    "cycleId": "sleep_2026-09-30_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "parkedCount": 0,
+      "readableCount": 0,
       "restedPct": 100,
       "unprocessedCount": 0,
       "volumePct": 0
@@ -31,12 +594,12 @@
         "claude-code": {
           "couldNotBeRead": 0,
           "filed": 3,
-          "frozen": 7,
+          "frozen": 9,
           "newSince": 0,
           "parked": 0,
           "read": 0,
           "skipped": 0,
-          "waiting": 4
+          "waiting": 6
         }
       },
       "calls": 0,
@@ -45,8 +608,8 @@
       "filed": 3,
       "finished": false,
       "firstRun": true,
-      "frozen": 7,
-      "id": "sleep_2026-09-29_101500",
+      "frozen": 9,
+      "id": "sleep_2026-09-30_101500",
       "ownerPage": null,
       "parked": 0,
       "pausedMs": 0,
@@ -109,34 +672,34 @@
     "entitiesUpdated": 0,
     "episodeCap": 3,
     "episodesProcessed": 3,
-    "episodesQueued": 7,
+    "episodesQueued": 9,
     "episodesRequeued": 0,
     "episodesTotal": 3,
     "error": null,
     "indexWarning": null,
-    "lastEngine": "claude-cli",
+    "lastEngine": "litellm",
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
       "calls": 0,
       "canContinue": true,
       "committedBatches": 1,
-      "engineLabel": "claude-cli",
+      "engineLabel": "litellm",
       "filed": 3,
-      "frozen": 7,
+      "frozen": 9,
       "limit": null,
-      "pausedAt": "2026-09-29T10:20:00+00:00",
+      "pausedAt": "2026-09-30T10:20:00+00:00",
       "reason": "user",
       "resetsAt": null,
-      "runId": "sleep_2026-09-29_101500",
+      "runId": "sleep_2026-09-30_101500",
       "sentence": null,
       "startedBy": "user"
     },
-    "progress": "Cancelled \u2014 3 of 7 filed; the rest stay queued for the next Consolidate",
+    "progress": "Cancelled \u2014 3 of 9 filed; the rest stay queued for the next Consolidate",
     "progressPct": null,
     "questionsRefreshed": 0,
     "queueByOrigin": {
-      "claude-code": 7
+      "claude-code": 9
     },
     "readByOrigin": {
       "claude-code": 3
@@ -144,418 +707,8 @@
     "relationshipsCreated": 0,
     "skillsDetected": 0,
     "stage": 1,
-    "startedAt": "2026-09-29T10:15:00",
+    "startedAt": "2026-09-30T10:15:00",
     "status": "idle",
-    "totalStages": 5,
-    "writing": false
-  },
-  "finished": {
-    "batchSize": 3,
-    "cancelRequested": false,
-    "cancelled": false,
-    "cycleId": "sleep_2026-09-29_101500",
-    "debt": {
-      "agePct": 0,
-      "hasRunBefore": true,
-      "hoursSinceLastCycle": 0.5,
-      "oldestUnprocessedAgeHours": null,
-      "restedPct": 100,
-      "unprocessedCount": 0,
-      "volumePct": 0
-    },
-    "drain": {
-      "active": false,
-      "arrivedSince": 0,
-      "batch": 3,
-      "batchSize": 3,
-      "batchState": {
-        "failed": 0,
-        "index": 3,
-        "of": 3,
-        "read": 1,
-        "reading": 0,
-        "total": 1
-      },
-      "batches": 3,
-      "byOrigin": {
-        "claude-code": {
-          "couldNotBeRead": 0,
-          "filed": 7,
-          "frozen": 7,
-          "newSince": 0,
-          "parked": 0,
-          "read": 0,
-          "skipped": 0,
-          "waiting": 0
-        }
-      },
-      "calls": 0,
-      "committedBatches": 3,
-      "elapsedMs": 0,
-      "filed": 7,
-      "finished": true,
-      "firstRun": true,
-      "frozen": 7,
-      "id": "sleep_2026-09-29_101500",
-      "ownerPage": null,
-      "parked": 0,
-      "pausedMs": 0,
-      "requeued": 0,
-      "reserve": null,
-      "resumed": false,
-      "skipped": 0,
-      "stages": [
-        {
-          "done": 1,
-          "failed": 0,
-          "id": "read",
-          "state": "done",
-          "total": 1,
-          "unit": "conversations"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "sort",
-          "state": "done",
-          "total": null,
-          "unit": "names"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "decide",
-          "state": "done",
-          "total": 0,
-          "unit": "pages"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "notice",
-          "state": "done",
-          "total": null,
-          "unit": null
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "file",
-          "state": "done",
-          "total": null,
-          "unit": null
-        }
-      ],
-      "startedBy": "user",
-      "stop": null
-    },
-    "engineDetail": null,
-    "entitiesCreated": 7,
-    "entitiesUpdated": 0,
-    "episodeCap": 3,
-    "episodesProcessed": 7,
-    "episodesQueued": 7,
-    "episodesRequeued": 0,
-    "episodesTotal": 7,
-    "error": null,
-    "indexWarning": null,
-    "lastEngine": "claude-cli",
-    "organicResolutions": 0,
-    "paused": null,
-    "progress": "Completed \u2014 7 episode(s) filed in 3 batch(es)",
-    "progressPct": null,
-    "questionsRefreshed": 0,
-    "queueByOrigin": {
-      "claude-code": 7
-    },
-    "readByOrigin": {
-      "claude-code": 7
-    },
-    "relationshipsCreated": 0,
-    "skillsDetected": 0,
-    "stage": 5,
-    "startedAt": "2026-09-29T10:15:00",
-    "status": "idle",
-    "totalStages": 5,
-    "writing": false
-  },
-  "plan_limit": {
-    "batchSize": 3,
-    "cancelRequested": false,
-    "cancelled": false,
-    "cycleId": "sleep_2026-09-29_101500",
-    "debt": {
-      "agePct": 0,
-      "hasRunBefore": true,
-      "hoursSinceLastCycle": 0.5,
-      "oldestUnprocessedAgeHours": null,
-      "restedPct": 100,
-      "unprocessedCount": 0,
-      "volumePct": 0
-    },
-    "drain": {
-      "active": false,
-      "arrivedSince": 0,
-      "batch": 3,
-      "batchSize": 3,
-      "batchState": {
-        "failed": 0,
-        "index": 3,
-        "of": 3,
-        "read": 0,
-        "reading": 0,
-        "total": 1
-      },
-      "batches": 3,
-      "byOrigin": {
-        "claude-code": {
-          "couldNotBeRead": 0,
-          "filed": 6,
-          "frozen": 7,
-          "newSince": 0,
-          "parked": 0,
-          "read": 0,
-          "skipped": 0,
-          "waiting": 1
-        }
-      },
-      "calls": 0,
-      "committedBatches": 2,
-      "elapsedMs": 0,
-      "filed": 6,
-      "finished": false,
-      "firstRun": true,
-      "frozen": 7,
-      "id": "sleep_2026-09-29_101500",
-      "ownerPage": null,
-      "parked": 0,
-      "pausedMs": 0,
-      "requeued": 0,
-      "reserve": null,
-      "resumed": false,
-      "skipped": 0,
-      "stages": [
-        {
-          "done": 1,
-          "failed": 0,
-          "id": "read",
-          "state": "done",
-          "total": 1,
-          "unit": "conversations"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "sort",
-          "state": "pending",
-          "total": null,
-          "unit": "names"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "decide",
-          "state": "pending",
-          "total": null,
-          "unit": "pages"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "notice",
-          "state": "pending",
-          "total": null,
-          "unit": null
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "file",
-          "state": "pending",
-          "total": null,
-          "unit": null
-        }
-      ],
-      "startedBy": "user",
-      "stop": {
-        "limit": "unknown",
-        "reason": "plan_limit",
-        "resetsAt": 1790000000,
-        "sentence": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00."
-      }
-    },
-    "engineDetail": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00.",
-    "entitiesCreated": 6,
-    "entitiesUpdated": 0,
-    "episodeCap": 3,
-    "episodesProcessed": 6,
-    "episodesQueued": 7,
-    "episodesRequeued": 0,
-    "episodesTotal": 6,
-    "error": null,
-    "indexWarning": null,
-    "lastEngine": "claude-cli",
-    "organicResolutions": 0,
-    "paused": {
-      "autoContinue": null,
-      "calls": 0,
-      "canContinue": true,
-      "committedBatches": 2,
-      "engineLabel": "claude-cli",
-      "filed": 6,
-      "frozen": 7,
-      "limit": "unknown",
-      "pausedAt": "2026-09-29T10:20:00+00:00",
-      "reason": "plan_window",
-      "resetsAt": 1790000000,
-      "runId": "sleep_2026-09-29_101500",
-      "sentence": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00.",
-      "startedBy": "user"
-    },
-    "progress": "Stopped after batch 2 of 3 \u2014 Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00.",
-    "progressPct": null,
-    "questionsRefreshed": 0,
-    "queueByOrigin": {
-      "claude-code": 7
-    },
-    "readByOrigin": {
-      "claude-code": 6
-    },
-    "relationshipsCreated": 0,
-    "skillsDetected": 0,
-    "stage": 1,
-    "startedAt": "2026-09-29T10:15:00",
-    "status": "idle",
-    "totalStages": 5,
-    "writing": false
-  },
-  "running": {
-    "batchSize": 3,
-    "cancelRequested": false,
-    "cancelled": false,
-    "cycleId": "sleep_2026-09-29_101500",
-    "debt": {
-      "agePct": 0,
-      "hasRunBefore": true,
-      "hoursSinceLastCycle": 0.5,
-      "oldestUnprocessedAgeHours": null,
-      "restedPct": 100,
-      "unprocessedCount": 0,
-      "volumePct": 0
-    },
-    "drain": {
-      "active": true,
-      "arrivedSince": 0,
-      "batch": 2,
-      "batchSize": 3,
-      "batchState": {
-        "failed": 0,
-        "index": 2,
-        "of": 3,
-        "read": 0,
-        "reading": 0,
-        "total": 3
-      },
-      "batches": 3,
-      "byOrigin": {
-        "claude-code": {
-          "couldNotBeRead": 0,
-          "filed": 3,
-          "frozen": 7,
-          "newSince": 0,
-          "parked": 0,
-          "read": 0,
-          "skipped": 0,
-          "waiting": 4
-        }
-      },
-      "calls": 0,
-      "committedBatches": 1,
-      "elapsedMs": 0,
-      "filed": 3,
-      "finished": false,
-      "firstRun": true,
-      "frozen": 7,
-      "id": "sleep_2026-09-29_101500",
-      "ownerPage": null,
-      "parked": 0,
-      "pausedMs": 0,
-      "requeued": 0,
-      "reserve": null,
-      "resumed": false,
-      "skipped": 0,
-      "stages": [
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "read",
-          "state": "active",
-          "total": 3,
-          "unit": "conversations"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "sort",
-          "state": "pending",
-          "total": null,
-          "unit": "names"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "decide",
-          "state": "pending",
-          "total": null,
-          "unit": "pages"
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "notice",
-          "state": "pending",
-          "total": null,
-          "unit": null
-        },
-        {
-          "done": 0,
-          "failed": 0,
-          "id": "file",
-          "state": "pending",
-          "total": null,
-          "unit": null
-        }
-      ],
-      "startedBy": "user",
-      "stop": null
-    },
-    "engineDetail": null,
-    "entitiesCreated": 3,
-    "entitiesUpdated": 0,
-    "episodeCap": 3,
-    "episodesProcessed": 3,
-    "episodesQueued": 7,
-    "episodesRequeued": 0,
-    "episodesTotal": 6,
-    "error": null,
-    "indexWarning": null,
-    "lastEngine": "claude-cli",
-    "organicResolutions": 0,
-    "paused": null,
-    "progress": "Batch 2 of 3 \u00b7 Stage 1/5: Extracting entities from 3 episodes...",
-    "progressPct": 0,
-    "questionsRefreshed": 0,
-    "queueByOrigin": {
-      "claude-code": 7
-    },
-    "readByOrigin": {
-      "claude-code": 3
-    },
-    "relationshipsCreated": 0,
-    "skillsDetected": 0,
-    "stage": 0,
-    "startedAt": "2026-09-29T10:15:00",
-    "status": "running",
     "totalStages": 5,
     "writing": false
   }

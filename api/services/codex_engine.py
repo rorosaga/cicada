@@ -318,6 +318,15 @@ def last_limit_resets_at() -> int | None:
     return _last_limit_resets_at
 
 
+# The snapshot the last pre-flight took (a read-only app-server probe, no quota). A drain's
+# reserve guard reads it at each batch boundary instead of probing a second time.
+_last_snapshot = None
+
+
+def last_snapshot():
+    return _last_snapshot
+
+
 async def preflight(*, snapshot_fn=None, probe_fn=None, now=None) -> tuple[bool, str, str | None]:
     """R-E18: before a cycle's first spawn — signed in? on the plan (not an
     API key)? limit already reached? — and the plan's current default model
@@ -326,7 +335,9 @@ async def preflight(*, snapshot_fn=None, probe_fn=None, now=None) -> tuple[bool,
     from api.services import codex_app_server, plan_limits, pricing
 
     _last_limit_resets_at = None
+    global _last_snapshot
     snap = await (snapshot_fn or codex_app_server.snapshot)(fresh=True)
+    _last_snapshot = snap
     if snap is None:
         ok, detail = await asyncio.to_thread(probe_fn or probe)
         return ok, ("Signed in to ChatGPT (plan details unavailable right now)." if ok else detail), None

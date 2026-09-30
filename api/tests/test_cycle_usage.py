@@ -298,7 +298,7 @@ def test_wire_shape_is_camel_case_with_the_documented_fields():
     assert set(body) == {"recorded", "engine", "connection", "models", "totalCostUsd", "totalEquivUsd",
                          "basis", "plan"}
     assert set(body["models"][0]) == {"model", "engine", "calls", "failedCalls", "inputTokens", "outputTokens",
-                                      "costUsd", "equivCostUsd", "basis"}
+                                      "costUsd", "equivCostUsd", "basis", "stages"}
     assert set(body["plan"]["windows"][0]) == {"window", "before", "after", "resetsAt", "beforeIsFirstSeen"}
     summary = json.loads(cycle_usage.summarize(u).model_dump_json(by_alias=True))
     assert set(summary) == {"basis", "costUsd", "equivCostUsd", "engine", "connection", "plan"}

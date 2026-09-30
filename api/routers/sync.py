@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_debt, sleep_drain, sync_service
+from api.services import sleep_debt, sleep_drain, sleep_paused, sync_service
 from api.services.sleep_cycle import get_sleep_state, progress_pct
 
 router = APIRouter(prefix="/sync")
@@ -53,6 +53,19 @@ async def events(settings: Settings = Depends(get_settings)):
             # and safe on every tick per its own docstring.
             debt = await sleep_debt.compute(settings.memory_path, settings)
             progress = progress_pct(state)
+            # Sleep page v5: the run of THIS bank only (a lingering one of another is hidden), the
+            # paused record from its stat-keyed cache, and the drain's compact block with the live
+            # arrival count from the debt this tick already computed — no directory scan per tick.
+            ds = state.drain
+            if ds is not None and getattr(ds, "memory_path", None) not in (None, settings.memory_path):
+                ds = None
+            drain_sse = sleep_drain.to_sse(ds, debt.unprocessed_count)
+            paused = None if state.status == "running" else sleep_paused.get_paused(settings.memory_path)
+            paused_sse = ({
+                "runId": paused.get("run_id"), "reason": paused.get("reason"),
+                "autoArmed": bool((paused.get("auto_continue") or {}).get("armed")),
+                "autoLeft": (paused.get("auto_continue") or {}).get("left"),
+            } if paused else None)
             # Devin PR #27 round 1, finding 4: the key used to omit
             # `volume_pct`/`age_pct`/`has_run_before` entirely, and
             # `hours_since_last_cycle` (a continuously-increasing float, so
@@ -84,7 +97,10 @@ async def events(settings: Settings = Depends(get_settings)):
                 # tick, so the change key includes the raw counter too.
                 state.stage1_progress,
                 # A person-started run's batch / filed count moves between stage ticks.
-                sleep_drain.to_sse(state.drain) and tuple(sleep_drain.to_sse(state.drain).items()),
+                drain_sse and tuple(drain_sse.items()),
+                # A pause appears, is armed or is cleared without any status change (Sleep page v5).
+                paused_sse and tuple(paused_sse.items()),
+                debt.parked_count,
             )
             if sleep_key != last_sleep:
                 last_sleep = sleep_key
@@ -100,7 +116,10 @@ async def events(settings: Settings = Depends(get_settings)):
                     "hoursSinceLastCycle": debt.hours_since_last_cycle,
                     "queueByOrigin": dict(state.queue_by_origin),
                     "readByOrigin": dict(state.read_by_origin),
-                    "drain": sleep_drain.to_sse(state.drain),
+                    "drain": drain_sse,
+                    "parkedCount": debt.parked_count,
+                    "readableCount": debt.readable_count,
+                    "paused": paused_sse,
                 })
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"

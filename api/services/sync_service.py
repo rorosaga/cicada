@@ -202,8 +202,21 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         ),
         "git_head": git_head(mp),
         "bank": mp.name,
-        "sleep": f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}",
+        # A paused run (Sleep page v5) is not a status: it lives in a machine-local sidecar, so
+        # Pause, Continue, End, a restart and an armed auto-continue move this on their own.
+        "sleep": (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
+                  f"{_paused_token(mp)}"),
     }
+
+
+def _paused_token(mp: Path) -> str:
+    try:
+        from api.services import sleep_paused
+
+        token = sleep_paused.sync_token(mp)
+    except Exception:  # noqa: BLE001 - a version read must never fail
+        token = ""
+    return f":{token}" if token else ""
 
 
 def _digest(parts: dict) -> str:

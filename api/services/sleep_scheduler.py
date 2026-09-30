@@ -19,7 +19,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.models.schemas import ScheduleConfig
-from api.services import sleep_cycle
+from api.services import sleep_cycle, sleep_paused
 
 JOB_ID = "sleep_daily"
 SCHEDULE_FILE = "sleep_schedule.yaml"
@@ -163,33 +163,48 @@ def register_job(
 
 async def _run_after_intake_if_settled(settings) -> None:
     """The ``after_import`` probe (G125 (4) R7): every few minutes, start a
-    cycle only when the queue has SETTLED — idle, something waiting, and the
+    cycle only when the queue has SETTLED — idle, something READABLE waiting, and the
     newest unprocessed episode at least ``AFTER_IMPORT_SETTLE_MINUTES`` old —
     so a multi-file import lands as one consolidation, not one per file.
     Scheduled → ``user_triggered=False`` (TODO.md ruling 4: a scheduled cycle
-    never spends plan quota)."""
+    never spends plan quota). It reads everything waiting (TODO ruling 16).
+
+    A paused run is the person's to continue or end: the probe never starts over it (it would
+    undo a Pause within minutes and clear the record). A parked conversation is waiting but not
+    readable, so a queue of only parked ones never fires an empty run every five minutes."""
     from api.services import sleep_debt
 
     if sleep_cycle.get_sleep_state().status == "running":
         return
+    if sleep_paused.exists(settings.memory_path):
+        logger.info("Skipping the after-import probe: a paused run waits for the person")
+        return
     debt = await sleep_debt.compute(settings.memory_path, settings)
     newest = getattr(debt, "newest_unprocessed_at", None)
-    if not debt.unprocessed_count or newest is None:
+    readable = getattr(debt, "readable_count", None)
+    if readable is None:
+        readable = debt.unprocessed_count
+    if not readable or newest is None:
         return
     if datetime.now() - newest < timedelta(minutes=AFTER_IMPORT_SETTLE_MINUTES):
         return
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
-    # One batch, on purpose (owner, 2026-09-29; TODO ruling 13): only a person's
-    # Consolidate drains the whole queue. Never pass `drain=` here — an unattended
-    # run on an API key would spend real money reading everything at once.
-    await sleep_cycle.run(settings, cycle_id, user_triggered=False)
+    # A scheduled run reads everything waiting too (owner, 2026-09-30; TODO ruling 16 amends
+    # ruling 13). Ruling 4 is untouched: `user_triggered=False` keeps every plan engine out, so
+    # it reads on the scheduled engine — on an API key that spends without a ceiling, which the
+    # engine menu and Details say in words. Only a person's Continue can resume it on a plan.
+    await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=True)
 
 
 async def _run_if_idle(settings: Settings) -> None:
-    """Cron callback. Skips if a cycle is already running so we never stack."""
+    """Cron callback. Skips if a cycle is already running so we never stack, and
+    while a paused run waits for the person (it would replace the pause)."""
     state = sleep_cycle.get_sleep_state()
     if state.status == "running":
         logger.info("Skipping scheduled sleep cycle: another cycle is running")
+        return
+    if sleep_paused.exists(settings.memory_path):
+        logger.info("Skipping scheduled sleep cycle: a paused run waits for the person")
         return
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
     # Fix round 1, H1: this is the unattended nightly cron, never a human
@@ -199,5 +214,5 @@ async def _run_if_idle(settings: Settings) -> None:
     # `Copy.sleepEngineExplainer` promises ("never on the nightly
     # schedule"). An explicit `CICADA_LLM_MODE=agent`/`local` in api/.env
     # still applies — that's deliberate dotfile config, unaffected by who
-    # triggered the cycle.
-    await sleep_cycle.run(settings, cycle_id, user_triggered=False)
+    # triggered the cycle. `drain=True`: it reads everything waiting (TODO ruling 16).
+    await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=True)

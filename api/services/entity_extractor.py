@@ -295,6 +295,11 @@ async def extract(
     cancel_check: Callable[[], bool] | None = None,
     progress_callback: Callable[[], None] | None = None,
     on_episode_done: Callable[[dict], None] | None = None,
+    on_episode_started: Callable[[dict], None] | None = None,
+    on_episode_read: Callable[[dict], None] | None = None,
+    on_episode_failed: Callable[[dict, BaseException], None] | None = None,
+    on_episode_skipped: Callable[[dict], None] | None = None,
+    stop_check: Callable[[], bool] | None = None,
 ) -> list[dict]:
     """Extract entities and relationships from unprocessed episodes (parallel).
 
@@ -325,6 +330,15 @@ async def extract(
     episode's ``origin`` to know WHICH source just finished, which the
     zero-arg ``progress_callback`` can't carry without breaking its
     existing callers.
+
+    Sleep page v5 — per-conversation outcomes, all optional and ``None`` by default
+    so every existing caller and test is byte-identical: ``on_episode_started`` fires
+    when an episode begins real work (it took a slot), ``on_episode_read`` when it
+    succeeded, ``on_episode_failed(episode, exc)`` where the exception is swallowed
+    below (the drain classifies it — an engine's trouble is not the conversation's),
+    and ``on_episode_skipped`` for one never started because ``stop_check`` (the
+    reserve line — a *soft* stop, unlike ``cancel_check`` which discards the batch)
+    said stop starting new reads. Reads already running finish either way.
     """
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
     results: list[dict | None] = [None] * len(episodes)
@@ -348,10 +362,29 @@ async def extract(
     tool_name = "Codex" if _engine == "codex-cli" else "Claude Code"
     entities_so_far = 0
 
+    def _note_failed(episode: dict, exc: BaseException) -> None:
+        if on_episode_failed is not None:
+            try:
+                on_episode_failed(episode, exc)
+            except Exception:  # a progress hook must never fail the read
+                pass
+
+    def _note_skipped(episode: dict) -> None:
+        if on_episode_skipped is not None:
+            try:
+                on_episode_skipped(episode)
+            except Exception:
+                pass
+
     async def _do_process(i: int, episode: dict) -> None:
         nonlocal success, failed, entities_so_far
         ep_id = episode["id"]
         content = episode["content"]
+
+        # The reserve line (soft stop): no new read starts once a plan window is past it.
+        if stop_check is not None and stop_check():
+            _note_skipped(episode)
+            return
 
         # Sleep-control checkpoint 1: before this episode even queues for a
         # semaphore slot. A cancel requested any time before this task got
@@ -383,6 +416,11 @@ async def extract(
             # its first (real) LLM call.
             if cancel_check is not None and cancel_check():
                 return
+            if stop_check is not None and stop_check():
+                _note_skipped(episode)
+                return
+            if on_episode_started is not None:
+                on_episode_started(episode)
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
@@ -422,6 +460,8 @@ async def extract(
                 }
 
                 success += 1
+                if on_episode_read is not None:
+                    on_episode_read(episode)
                 entities_so_far += len(all_entities)
                 progress.set_postfix_str(
                     f"ok={success} fail={failed} entities={entities_so_far}",
@@ -434,33 +474,41 @@ async def extract(
             # (results[i] stays None) so the Sleep cycle requeues it.
             except litellm.exceptions.AuthenticationError as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — auth error (check API key): {e}")
-            except litellm.exceptions.NotFoundError:
+            except litellm.exceptions.NotFoundError as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — model not found: {settings.litellm_model}")
             # G74(a): the agent rung's failures are subprocess-shaped. Each one
             # names its own fix so the Sleep page never says "check API credits"
             # for a plan that has no credits to check.
             except engine_errors.EngineThrottled as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {plan_name} throttled: {e}")
             except engine_errors.EngineExhausted as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {plan_name} budget exhausted: {e}")
             except engine_errors.EngineUnavailable as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {tool_name} is signed out or missing: {e}")
             except engine_errors.EngineModelNotFound as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(
                     f"  [{i+1}/{total}] {ep_id} — model not accepted by the {tool_name} CLI "
                     f"({engine_select.author_model(settings)}): {e}"
                 )
             except engine_errors.EngineError as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — engine failure: {type(e).__name__}: {e}")
             except Exception as e:
                 failed += 1
+                _note_failed(episode, e)
                 logger.error(f"  [{i+1}/{total}] {ep_id} — {type(e).__name__}: {e}")
 
     async def process_one(i: int, episode: dict) -> None:

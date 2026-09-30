@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -10,15 +10,40 @@ from api.models.schemas import (
     SleepCycleDetail,
     SleepDebtResponse,
     SleepDrain,
+    SleepEndRunResponse,
     SleepEngineChoice,
     SleepEngineResponse,
     SleepHistoryEntry,
+    SleepPaused,
+    SleepParkedRetryBody,
+    SleepQueueItem,
+    SleepQueueResponse,
+    SleepRunDetail,
+    SleepRunOptions,
+    SleepRunOptionsUpdate,
     SleepStatusResponse,
+    SleepTriggerBody,
     SleepTriggerResponse,
 )
-from api.services import git_service, sleep_debt, sleep_drain, sleep_engine_prefs, sleep_scheduler
+from api.services import (
+    bank_index,
+    git_service,
+    sleep_autocontinue,
+    sleep_debt,
+    sleep_drain,
+    sleep_engine_prefs,
+    sleep_paused,
+    sleep_parked,
+    sleep_run_detail,
+    sleep_run_prefs,
+    sleep_runs,
+    sleep_scheduler,
+    sync_service,
+)
 from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
+    _derive_origin,
+    _episode_sort_key,
     cancelled_is_visible,
     configured_batch_size,
     get_sleep_state,
@@ -33,11 +58,35 @@ from api.services.sleep_cycle import (
 router = APIRouter()
 
 
+def active_drain(state, settings):
+    """The run's state for the active bank. ``_state.drain`` lingers after a run ends, and
+    a bank switch must not show one bank's run beside another's paused record."""
+    ds = state.drain
+    if ds is not None and getattr(ds, "memory_path", None) not in (None, settings.memory_path):
+        return None
+    return ds
+
+
+def paused_block(state, settings):
+    """The paused run of the active bank from its sidecar (a ``stat``-keyed cache), or ``None``."""
+    if state.status == "running":
+        return None
+    wire = sleep_paused.to_wire(sleep_paused.get_paused(settings.memory_path))
+    return SleepPaused(**wire) if wire else None
+
+
 @router.post("/sleep/trigger", response_model=SleepTriggerResponse)
 async def trigger_sleep(
     background_tasks: BackgroundTasks,
+    body: SleepTriggerBody | None = None,
     settings: Settings = Depends(get_settings),
 ):
+    """Start a run that reads everything waiting (TODO ruling 13).
+
+    No body — the documented curl — is a fresh run, and it clears any paused one.
+    ``{"continue": true}`` resumes the paused run for the active bank (same run id, its
+    counters carried); with no paused run it is a fresh run. The app's doors all route
+    to the Sleep page while a run is paused; only the page's Continue sends this body."""
     state = get_sleep_state()
     if state.status == "running":
         return SleepTriggerResponse(
@@ -47,6 +96,7 @@ async def trigger_sleep(
         )
 
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    record = sleep_paused.get_paused(settings.memory_path) if (body and body.continue_run) else None
     # Devin PR #27 round 1, finding 2: reserve the slot SYNCHRONOUSLY,
     # before scheduling the background task — a FastAPI background task
     # only starts running once this response has been sent, so without this
@@ -55,17 +105,60 @@ async def trigger_sleep(
     # detects the reservation and preserves whatever got requested in the
     # window between this call and its own first line.
     reserve_cycle(cycle_id, drain=True)
+    sleep_autocontinue.disarm()   # a person's trigger replaces any armed automatic continue
     # Fix round 1, H1: explicit, not just the default — this IS the
     # human-pressed-Run path spec §7 scopes the toggle/auto engine
     # selection to. `drain=True` (owner, 2026-09-29): a person pressing
-    # Consolidate reads everything that is waiting, in batches. The scheduler
-    # never passes it — an unattended run is one batch (TODO ruling 4).
+    # Consolidate reads everything that is waiting, in batches.
+    if record is not None:
+        background_tasks.add_task(run, settings, cycle_id, user_triggered=True, drain=True, continue_from=record)
+        return SleepTriggerResponse(status="started", message="Sleep run resumed", cycle_id=cycle_id)
     background_tasks.add_task(run, settings, cycle_id, user_triggered=True, drain=True)
     return SleepTriggerResponse(
         status="started",
         message="Sleep cycle initiated",
         cycle_id=cycle_id,
     )
+
+
+@router.post("/sleep/run/end", response_model=SleepEndRunResponse)
+async def end_run(settings: Settings = Depends(get_settings)):
+    """End this run: forget the paused record. The queue is untouched — every conversation is
+    still waiting, and a fresh Consolidate reads them. 409 while a run is reading."""
+    if get_sleep_state().status == "running":
+        raise HTTPException(status_code=409, detail="A run is reading right now — pause it first.")
+    record = sleep_paused.load(settings.memory_path)
+    sleep_autocontinue.disarm()
+    if not record:
+        return SleepEndRunResponse(status="none", message="There is no paused run.")
+    sleep_paused.clear(settings.memory_path)
+    sleep_runs.close_open_pause(settings.memory_path, str(record.get("run_id")))
+    return SleepEndRunResponse(status="ended", message="The paused run was ended. Nothing waiting was changed.")
+
+
+@router.post("/sleep/parked/retry", response_model=SleepTriggerResponse)
+async def retry_parked(
+    background_tasks: BackgroundTasks,
+    body: SleepParkedRetryBody | None = None,
+    settings: Settings = Depends(get_settings),
+):
+    """Retry conversations that could not be read: unpark them and read exactly those in a
+    run of their own (each gets its one more try, then parks again if it fails again). No ids
+    means every parked one. 409 while a run is reading or paused — continue or end that first."""
+    state = get_sleep_state()
+    if state.status == "running":
+        raise HTTPException(status_code=409, detail="A sleep run is already in progress.")
+    if sleep_paused.exists(settings.memory_path):
+        raise HTTPException(status_code=409, detail="Continue or end the paused run first.")
+    parked = sleep_parked.valid(settings.memory_path)
+    want = [i for i in (body.ids if body and body.ids is not None else list(parked)) if i in parked]
+    if not want:
+        return SleepTriggerResponse(status="nothing_parked", message="No conversation is parked.", cycle_id=None)
+    sleep_parked.unpark(settings.memory_path, want)
+    cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    reserve_cycle(cycle_id, drain=True)
+    background_tasks.add_task(run, settings, cycle_id, user_triggered=True, drain=True, only_ids=want)
+    return SleepTriggerResponse(status="started", message="Retrying parked conversations", cycle_id=cycle_id)
 
 
 @router.post("/sleep/cancel", response_model=SleepCancelResponse)
@@ -117,7 +210,7 @@ async def cancel_sleep():
 async def sleep_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
     debt = await sleep_debt.compute(settings.memory_path, settings)
-    ds = state.drain
+    ds = active_drain(state, settings)
 
     def counter(name: str) -> int:
         # Batch-local in the state; a person-started run reports its running sum.
@@ -153,7 +246,10 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         progress_pct=progress_pct(state),
         queue_by_origin=dict(state.queue_by_origin),
         read_by_origin=dict(state.read_by_origin),
-        drain=SleepDrain(**sleep_drain.to_wire(ds)) if ds is not None else None,
+        drain=SleepDrain(**sleep_drain.to_wire(
+            ds, completed=state.stage, running=state.status == "running",
+            unprocessed=debt.unprocessed_count)) if ds is not None else None,
+        paused=paused_block(state, settings),
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,
@@ -162,6 +258,8 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
             volume_pct=debt.volume_pct,
             age_pct=debt.age_pct,
             rested_pct=debt.rested_pct,
+            parked_count=debt.parked_count,
+            readable_count=debt.readable_count,
         ),
     )
 
@@ -177,6 +275,74 @@ async def sleep_cycle_detail(commit: str, settings: Settings = Depends(get_setti
     if detail is None:
         raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
     return detail
+
+
+@router.get("/sleep/runs/{drain_id}", response_model=SleepRunDetail)
+async def sleep_run_detail_route(drain_id: str, request: Request, response: Response,
+                                 settings: Settings = Depends(get_settings)):
+    """One whole run: its batches, pauses, models and cost (summed by ``drain_id`` over every
+    call, a discarded batch's included), and the pages it touched. Engine-free; ids, counts and
+    enums only. Not a Store domain — the app keeps it in memory and revalidates with the ETag."""
+    if not drain_id.replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(status_code=404, detail="Not a run")
+    runs_stamp = ""
+    try:
+        st = (sleep_runs._path(settings.memory_path)).stat()
+        runs_stamp = f"{st.st_mtime_ns}:{st.st_size}"
+    except OSError:
+        pass
+    etag = sync_service.etag_for(settings.memory_path, "telemetry", "git_head", "sleep",
+                                 extra=f"run|{drain_id}|{runs_stamp}")
+    not_modified = sync_service.conditional(request, response, etag)
+    if not_modified is not None:
+        return not_modified
+    detail = await sleep_run_detail.build(settings.memory_path, drain_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Not a run")
+    return detail
+
+
+@router.get("/sleep/queue", response_model=SleepQueueResponse)
+async def sleep_queue(
+    origin: str | None = Query(None),
+    state: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    settings: Settings = Depends(get_settings),
+):
+    """What is waiting, one row per conversation, with where it stands in the running run —
+    ``waiting | reading | read | filed | could_not_be_read | parked`` and, for a failure, a
+    reason enum and how many tries it has had. Frontmatter only (the bank index, never a body),
+    bounded (``limit`` ≤ 200); the app refetches it when the run's counts move, not per tick."""
+    ds = active_drain(get_sleep_state(), settings)
+    parked = sleep_parked.valid(settings.memory_path)
+    frozen = set(ds.frozen_ids) if ds is not None else set()
+    in_batch = set(ds.live.ids) if ds is not None and not ds.batch_counted else set()
+    rows: list[SleepQueueItem] = []
+    for f in bank_index.files(settings.memory_path, "episodes"):
+        fm = f.frontmatter
+        ep_id = str(fm.get("id", f.stem))
+        processed = bool(fm.get("processed", False))
+        if processed and (ds is None or ep_id not in ds.filed_ids):
+            continue
+        o = str(fm.get("origin") or _derive_origin(fm.get("source")))
+        st, reason, attempts = "waiting", None, 0
+        if ds is not None and (ep_id in frozen or ep_id in ds.filed_ids):
+            st, reason, attempts = sleep_drain.episode_state(ds, ep_id)
+        elif ep_id in parked:
+            st, reason, attempts = "parked", parked[ep_id].get("reason"), int(parked[ep_id].get("attempts") or 0)
+        if origin and o != origin:
+            continue
+        if state and st != state:
+            continue
+        rows.append(SleepQueueItem(
+            id=ep_id, timestamp=str(fm.get("timestamp", "") or ""), origin=o,
+            title=(str(fm["title"]) if fm.get("title") else None), state=st, reason=reason,
+            attempts=attempts,
+            batch=ds.live.index if (ds is not None and ep_id in in_batch) else None,
+        ))
+    rows.sort(key=lambda r: _episode_sort_key({"timestamp": r.timestamp, "id": r.id}))
+    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit])
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -200,6 +366,47 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
             )
         )
     return items
+
+
+def _run_options_response(settings: Settings) -> SleepRunOptions:
+    opts = sleep_run_prefs.load(get_registry(settings))
+    return SleepRunOptions(
+        batch_size=sleep_run_prefs.effective_batch_size(opts, settings),
+        batch_size_choices=list(sleep_run_prefs.BATCH_CHOICES),
+        continue_after_reset=opts.continue_after_reset,
+        reserve_pct=opts.reserve_pct,
+        reserve_choices=list(sleep_run_prefs.RESERVE_CHOICES),
+    )
+
+
+@router.get("/sleep/run-options", response_model=SleepRunOptions)
+async def get_run_options(settings: Settings = Depends(get_settings)):
+    """Reading options: how often progress is saved, the opt-in continue-after-reset switch
+    (TODO ruling 15, off) and the reserve line (off). Not a Store domain — no ETag."""
+    return _run_options_response(settings)
+
+
+@router.put("/sleep/run-options", response_model=SleepRunOptions)
+async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depends(get_settings)):
+    """Merge the fields sent; validate against the choice lists (422 otherwise). Never 409s: a
+    run snapshots its options when it starts, so a change applies to the next start or Continue."""
+    sent = body.model_fields_set
+    changes: dict = {}
+    if "batch_size" in sent:
+        if body.batch_size not in sleep_run_prefs.BATCH_CHOICES:
+            raise HTTPException(status_code=422, detail=f"batchSize must be one of {list(sleep_run_prefs.BATCH_CHOICES)}")
+        changes["batch_size"] = body.batch_size
+    if "continue_after_reset" in sent:
+        if body.continue_after_reset is None:
+            raise HTTPException(status_code=422, detail="continueAfterReset must be true or false")
+        changes["continue_after_reset"] = body.continue_after_reset
+    if "reserve_pct" in sent:
+        if body.reserve_pct is not None and body.reserve_pct not in sleep_run_prefs.RESERVE_CHOICES:
+            raise HTTPException(status_code=422, detail=f"reservePct must be null or one of {list(sleep_run_prefs.RESERVE_CHOICES)}")
+        changes["reserve_pct"] = body.reserve_pct
+    if changes:
+        sleep_run_prefs.write(get_registry(settings), **changes)
+    return _run_options_response(settings)
 
 
 @router.get("/sleep/schedule", response_model=ScheduleConfig)

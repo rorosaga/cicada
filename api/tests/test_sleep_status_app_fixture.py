@@ -45,6 +45,10 @@ def _pin(body, detail=None):
     body["debt"] = dict(DEBT)
     body["startedAt"] = "2026-09-29T10:15:00"
     body["engineDetail"] = detail
+    if body.get("drain"):
+        body["drain"]["elapsedMs"] = 0   # a measured clock: pinned, the app never joins on it here
+    if body.get("paused"):
+        body["paused"]["pausedAt"] = "2026-09-29T10:20:00+00:00"
     return body
 
 
@@ -99,6 +103,6 @@ def test_the_scenarios_say_what_the_app_will_read(tmp_path, monkeypatch):
     assert run["progress"].startswith("Batch 2 of 3 · Stage 1/5")
     assert wire["finished"]["drain"]["finished"] is True and wire["finished"]["drain"]["filed"] == 7
     stop = wire["plan_limit"]["drain"]["stop"]
-    assert stop == {"reason": "plan_limit", "sentence": SENTENCE, "resetsAt": 1790000000}
+    assert stop == {"reason": "plan_limit", "sentence": SENTENCE, "resetsAt": 1790000000, "limit": "unknown"}
     assert wire["plan_limit"]["error"] is None and wire["plan_limit"]["drain"]["filed"] == 6
     assert wire["cancelled"]["cancelled"] is True and wire["cancelled"]["drain"]["stop"]["reason"] == "cancelled"
