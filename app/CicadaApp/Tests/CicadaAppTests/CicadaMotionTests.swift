@@ -59,10 +59,14 @@ final class CicadaMotionTests: XCTestCase {
     func testSubtleIconNodIsSmallerThanTheMarkNod() {
         // Owner 2026-09-30: the rail's hover moved too much. The subtle nod stays under the brand-mark nod in both
         // rotation and scale, and settles back to rest.
-        XCTAssertLessThan(IconHover.subtleRotationKeys.map(abs).max()!, MarkHover.rotationKeys.map(abs).max()!)
+        // Owner, later the same day: the nod still read as a jiggle, so the rail's hover has no rotation at all.
         XCTAssertLessThan(IconHover.subtleScaleKeys[0], MarkHover.scaleKeys[0])
-        XCTAssertEqual(IconHover.subtleRotationKeys.last, 0)
+        XCTAssertLessThanOrEqual(IconHover.subtleScaleKeys[0], 1.05)
         XCTAssertEqual(IconHover.subtleScaleKeys.last, 1)
+        let source = try? String(contentsOfFile: #filePath.replacingOccurrences(of: "Tests/CicadaAppTests/CicadaMotionTests.swift",
+                                                                                   with: "Sources/CicadaApp/Theme/CicadaMotion.swift"))
+        let nod = source?.components(separatedBy: "private func nod(").last?.components(separatedBy: "/// `.wiggle`").first ?? ""
+        XCTAssertFalse(nod.contains("rotation"), "the rail's hover never tilts")
         XCTAssertLessThanOrEqual(CicadaMotion.iconNodDuration, CicadaMotion.markNodDuration)
     }
 
