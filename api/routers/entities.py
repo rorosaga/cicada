@@ -191,6 +191,18 @@ PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a mom
 _PICTURE_LOCK = asyncio.Lock()
 
 
+SOURCE_BUSY = "Sleep is updating your memory — try the source change again in a moment."
+
+
+def _source_guard() -> None:
+    """G61 S3-a review — the person's source writes wait for Sleep like the picture's (same reason): a page frontmatter
+    rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, SOURCE_BUSY)
+
+
 def _picture_guard() -> None:
     """G146 plan R-PE8 — 409 while Sleep runs (`projects._guard`'s reason): Sleep rewrites the same pages, and a picture
     written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
@@ -713,6 +725,7 @@ async def add_entity_source(
     G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
     ``only_me`` ride along, and a value the record does not allow is a 400 with
     ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -750,6 +763,7 @@ async def change_entity_source(
     ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a ``sources_removed``
     tombstone so no machine writer puts it back. 404: no page, or nothing under that key; 400: a value the
     record does not allow. Commits alone as ``user`` (``user/companion_app``), like the other source writes."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -787,6 +801,7 @@ async def delete_entity_source(
     settings: Settings = Depends(get_settings),
 ):
     """Remove the source at ``index`` (0-based, file order)."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")

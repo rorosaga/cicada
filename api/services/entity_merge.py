@@ -33,20 +33,35 @@ def _merge_sources(winner_id: str, loser_id: str, wfm: dict, lfm: dict) -> None:
     def key(row):
         return (str(row.get("ref", "")).strip(), str(row.get("predicate") or "").strip().lower())
 
-    merged: list[dict] = []
+    candidates: list[dict] = []
     seen: set = set()
     for row in fs.as_sources(wfm.get("sources")) + fs.as_sources(lfm.get("sources")):
         if key(row) in seen:
             continue
         seen.add(key(row))
-        merged.append(row)
+        candidates.append(row)
+    # The caps hold on a merge too, and the person's own entries are the last to go: they are taken first, then
+    # everyone else's while the page and each fact have room. File order is kept in the result.
+    person = [r for r in candidates if (str(r.get("added_by") or fs.USER).strip() or fs.USER) == fs.USER]
+    others = [r for r in candidates if r not in person]
+    kept: list[dict] = []
+    per: dict[str, int] = {}
+    for row in person + others:
+        if len(kept) >= fs.MAX_SOURCES:
+            break
+        pred = str(row.get("predicate") or "").strip().lower()
+        if row not in person and per.get(pred, 0) >= fs.MAX_PER_PREDICATE:
+            continue
+        per[pred] = per.get(pred, 0) + 1
+        kept.append(row)
+    merged = [r for r in candidates if any(r is k for k in kept)]
     for row in merged:
         if str(row.get("entity") or "") == loser_id:
             row["entity"] = winner_id
         if str(row.get("entity") or "") == winner_id:
             row.pop("entity", None)
     if merged:
-        wfm["sources"] = merged[: fs.MAX_SOURCES]
+        wfm["sources"] = merged
     tombs: list[dict] = []
     seen = set()
     for row in fs._tombstones(lfm) + fs._tombstones(wfm):   # the winner's are the newer word

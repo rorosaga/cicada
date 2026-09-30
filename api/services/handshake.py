@@ -177,11 +177,9 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
                      "`cicada_retract_claim(subject, claim_id, reason)`; it stays in history with your reason.")
     if "cicada_add_source" in tools:
         # G61 S3-a: a page holds many sources; named only where the tools exist (R12).
-        text = ("Where a fact can be checked is a source: add one with `cicada_add_source(subject, ref, "
-                "predicate)` only when the person names it")
+        text = "Where a fact can be checked is a source: `cicada_add_source` only when the person names it"
         if "cicada_change_source" in tools:
-            text += (", and correct or remove one this connection added that stopped being relevant with "
-                     "`cicada_change_source(subject, ref, predicate, action, reason)`")
+            text += "; `cicada_change_source` to fix or drop one this connection added"
         items.append(text + ".")
     if reading and (sentence := _remote_reading_item(tools)) is not None:
         items.append(sentence)
@@ -278,8 +276,7 @@ _CONTRACT = (
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
     "`cicada_retract_claim(subject, claim_id, reason)`. Sources: "
-    "`cicada_add_source(subject, ref, predicate)` for one the person names, `cicada_change_source(subject, ref, "
-    "predicate, action, reason)` to fix or drop one you added.\n"
+    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"

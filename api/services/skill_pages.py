@@ -194,8 +194,11 @@ async def ensure(memory_path: Path, skill_id: str, *, catalog: dict | None = Non
             verb = "created"
         try:
             if entry.get("sourceUrl"):
-                fact_sources.add_source(memory_path, entity_id, entry["sourceUrl"], kind="url",
-                                        added_by="cicada", added_at=day)
+                try:
+                    fact_sources.add_source(memory_path, entity_id, entry["sourceUrl"], kind="url",
+                                            added_by="cicada", added_at=day)
+                except fact_sources.InvalidSource:
+                    pass   # a removed key, a full page or a ref the scrub refuses: the page itself still lands
             message = git_service.build_commit_message(
                 f"Skill page {entity_id} {day}",
                 [f"{rel}: {verb} (trigger: user/companion_app)"], authors=["user"])

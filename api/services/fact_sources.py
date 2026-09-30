@@ -617,6 +617,10 @@ def change_source(
             else:
                 updated.pop("predicate", None)
             updated.pop("verified", None)
+            updated.pop("entity_unlinked", None)   # another link is another question
+            # The old key is remembered too, by whoever replaced it: a corrected source must not be re-added
+            # in its old form by a machine writer (G61 S3-a review).
+            _push_tombstone(fm, entry, by=USER if person else actor, reason=None)
             if person:
                 _clear_tombstone(fm, new_key_ref, new_key_pred)
             replaced = changed = True
@@ -628,13 +632,16 @@ def change_source(
                 changed = True
         if entity is not _UNSET:
             if entity is None or not str(entity).strip():
-                if "entity" in updated:
-                    updated.pop("entity")
+                # An explicit unlink is stamped so the exact-match backfill never puts the link back.
+                if "entity" in updated or not updated.get("entity_unlinked"):
+                    updated.pop("entity", None)
+                    updated["entity_unlinked"] = True
                     changed = True
             else:
                 link = resolve_entity_link(memory_path, entity, self_id=entity_id)
-                if updated.get("entity") != link:
+                if updated.get("entity") != link or updated.get("entity_unlinked"):
                     updated["entity"] = link
+                    updated.pop("entity_unlinked", None)
                     changed = True
         if person and _apply_persons_fields(updated, None, accepted, bool(only_me)):
             changed = True

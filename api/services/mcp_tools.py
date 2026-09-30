@@ -2037,7 +2037,7 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     holds MANY sources, per fact, up to a cap. A remote
     app may not name a path or a repo on this Mac, or ``access: local``:
     refused, nothing written. A new entry commits alone under the harness
-    (``agent_commits``, G135 R-R11) — not while Sleep runs, as ``write_claim``.
+    (``agent_commits``, G135 R-R11); refused while Sleep runs (S3-a review).
     A connection's entry is stamped ``origin: remote:<id>`` (what
     ``cicada_change_source`` compares). A key the person or Cicada removed is
     refused, with the day and the reason; one an agent removed may be put back,
@@ -2057,6 +2057,11 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     ref_text = (ref or "").strip()
     if not ref_text:
         return "Nothing added — `ref` is empty."
+    if ctx.sleep_running():
+        # G61 S3-a review: a source written while Sleep runs used to sit uncommitted until the next `git add -A`
+        # writer swept it under the wrong author (the G85 smear); it waits like `cicada_change_source` now.
+        return ("Nothing added — Cicada is consolidating memory right now, and a source added now would sit "
+                "uncommitted until it finishes. Try again in a few minutes.")
     page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
     if page is None:
         return f"No page named '{subject}' — nothing added. Use the page's id as `subject`."
@@ -2092,13 +2097,12 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     if len(fact_sources.list_sources(memory_path, entity_id)) == before:
         return f"Already listed: {entry['ref']} is where to check {entity_id}{what}.{link_note}"
     _source_event(ctx, memory_path, entity_id, "source_added")
-    if not ctx.sleep_running():
-        path = f"entities/{entity_id}.md"
-        agent_commits.commit_write(
-            memory_path, subject=ctx.commit_subject,
-            lines=[f"{path}: updated (trigger: {ctx.trigger})"], paths=[path],
-            author=ctx.author, session=ctx.session_id,
-        )
+    path = f"entities/{entity_id}.md"
+    agent_commits.commit_write(
+        memory_path, subject=ctx.commit_subject,
+        lines=[f"{path}: updated (trigger: {ctx.trigger})"], paths=[path],
+        author=ctx.author, session=ctx.session_id,
+    )
     back = f" It was put back: {was_removed}." if was_removed else ""
     return (f"Added {entry['ref']} as where to check {entity_id}{what}. "
             f"The person sees it on the page, marked as yours.{back}{link_note}")

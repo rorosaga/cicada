@@ -176,3 +176,29 @@ final class EntitySourceWriteTests: XCTestCase {
         XCTAssertEqual(store.toast, Copy.Graph.sourceBackendDown)
     }
 }
+
+/// G61 S3-a review — a source's own-page link is drawn on the graph but is where to look, not a relationship: the
+/// person map and "What's happening" never count it.
+final class SourceEdgeInPersonMapTests: XCTestCase {
+    func testASourceLinkIsNotAPersonsNeighbourOrProject() throws {
+        let nodes = [GraphNode(id: "bob-example", name: "Bob Example", type: .person),
+                     GraphNode(id: "alpha-project", name: "Alpha Project", type: .project),
+                     GraphNode(id: "media-alpha-profile", name: "Alpha Profile", type: .media)]
+        let edges = [GraphEdge(source: "bob-example", target: "media-alpha-profile", label: "profile", kind: "source"),
+                     GraphEdge(source: "bob-example", target: "alpha-project", label: "source", kind: "source"),
+                     GraphEdge(source: "bob-example", target: "alpha-project", label: "works on")]
+        let map = PersonMapLayout.make(personId: "bob-example", nodes: nodes, edges: edges)
+        XCTAssertEqual(map.nodes.map(\.id), ["alpha-project"])
+        XCTAssertEqual(map.total, 1)
+        XCTAssertEqual(PersonMapLayout.projects(personId: "bob-example", nodes: nodes, edges: edges), ["alpha-project"])
+        let onlySource = [edges[0], edges[1]]
+        XCTAssertTrue(PersonMapLayout.make(personId: "bob-example", nodes: nodes, edges: onlySource).nodes.isEmpty)
+        XCTAssertTrue(PersonMapLayout.projects(personId: "bob-example", nodes: nodes, edges: onlySource).isEmpty)
+    }
+
+    func testTheKindDecodesAndIsAbsentForOtherEdges() throws {
+        let json = #"[{"source":"a","target":"b","label":"profile","kind":"source"},{"source":"a","target":"c","label":"uses"}]"#
+        let edges = try JSONDecoder().decode([GraphEdge].self, from: Data(json.utf8))
+        XCTAssertEqual(edges.map(\.isSourceLink), [true, false])
+    }
+}

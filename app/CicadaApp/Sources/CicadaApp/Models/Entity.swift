@@ -945,9 +945,14 @@ struct GraphEdge: Codable, Sendable {
     // `claimId` ties the edge back to the claim that asserts it.
     let context: String?
     let claimId: String?
+    /// G61 S3-a — `"source"` marks a read-time edge from a source's `entity:` link: where to look a fact up, not a
+    /// relationship, so the person map and "What's happening" skip it.
+    let kind: String?
+
+    var isSourceLink: Bool { kind == "source" }
 
     enum CodingKeys: String, CodingKey {
-        case source, target, label, context, claimId
+        case source, target, label, context, claimId, kind
     }
 
     init(from decoder: Decoder) throws {
@@ -957,10 +962,12 @@ struct GraphEdge: Codable, Sendable {
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
         context = try c.decodeIfPresent(String.self, forKey: .context)
         claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
     }
 
     init(source: String, target: String, label: String,
-         context: String? = nil, claimId: String? = nil) {
+         context: String? = nil, claimId: String? = nil, kind: String? = nil) {
+        self.kind = kind
         self.source = source
         self.target = target
         self.label = label

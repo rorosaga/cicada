@@ -53,6 +53,8 @@ struct LookItUpSection: View {
             line: FactSourceWords.line(source), url: source.url, linked: linked,
             node: linked.flatMap { pair in store.graph.value?.nodes.first { $0.id == pair.id } },
             canBeTaken: source.canBeTaken,
+            // A Contacts card is the Contacts sync's: it can be removed, never edited or re-linked here.
+            isManaged: !source.ref.hasPrefix("addressbook://"),
             onOpenPage: { if let linked { navigate(linked.id) } },
             onChange: { change in write(change, on: source) },
             onEdit: { mode in editing = SourceEditing(id: source.id, mode: mode) })
@@ -206,6 +208,7 @@ private struct FactSourceRow: View {
     let linked: (id: String, name: String)?
     let node: GraphNode?
     let canBeTaken: Bool
+    let isManaged: Bool
     let onOpenPage: () -> Void
     let onChange: (SourceChange) -> Void
     let onEdit: (SourceEditing.Mode) -> Void
@@ -275,19 +278,21 @@ private struct FactSourceRow: View {
     /// Change what it is for or how it is read, link it to a page, take an agent's, or remove it.
     private var menu: some View {
         Menu {
-            if canBeTaken {
-                Button(Copy.Graph.useThisSource) { onChange(.useThis) }
+            if isManaged {
+                if canBeTaken {
+                    Button(Copy.Graph.useThisSource) { onChange(.useThis) }
+                    Divider()
+                }
+                Button(Copy.Graph.changeFact) { onEdit(.fact) }
+                Button(Copy.Graph.readAsPublic) { onChange(.access("public")) }
+                Button(Copy.Graph.readAsSignedIn) { onChange(.access("signed_in")) }
+                Divider()
+                if linked != nil {
+                    Button(Copy.Graph.unlinkPage) { onChange(.unlink) }
+                }
+                Button(Copy.Graph.linkToPage) { onEdit(.link) }
                 Divider()
             }
-            Button(Copy.Graph.changeFact) { onEdit(.fact) }
-            Button(Copy.Graph.readAsPublic) { onChange(.access("public")) }
-            Button(Copy.Graph.readAsSignedIn) { onChange(.access("signed_in")) }
-            Divider()
-            if linked != nil {
-                Button(Copy.Graph.unlinkPage) { onChange(.unlink) }
-            }
-            Button(Copy.Graph.linkToPage) { onEdit(.link) }
-            Divider()
             Button(Copy.Graph.removeSource, role: .destructive) { onChange(.remove) }
         } label: {
             Image(systemName: "ellipsis")

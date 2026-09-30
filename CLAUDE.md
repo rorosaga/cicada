@@ -585,17 +585,22 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   (`fact_sources.owns_source`); never the person's, one they took (`accepted`), an `only_me`, Cicada's own or a Sleep model's,
   and the unidentified `agent` label owns nothing; a connection owns exactly its `origin`, a local agent never a remote app's
   and the reverse. **Removal is remembered:** the entry leaves `sources:` and a row joins the page's `sources_removed:` (≤ 20,
-  newest kept; `{ref, predicate?, by, at, reason?}`; git keeps the history, the row is what makes it stick). Every non-person
-  writer (Stage 1's proposal, the backfill, `attach_cited_urls`) is refused a tombstoned key (`website` also by site); an agent's
+  newest kept; `{ref, predicate?, by, at, reason?}`; git keeps the history, the row is what makes it stick; a replace
+  (`new_ref`/`new_predicate`) tombstones the old key too). Today the writers that respect it are `attach_cited_urls`, `cicada_write_claim(sources=)`,
+  `cicada_add_source` and Cicada's own DOI/skill-page adds (a refusal there never fails the page write); **PR2's Stage-1 site proposal and
+  the website backfill will consult it (`is_tombstoned`) when they land** — they do not exist yet. `website` matches by site. An agent's
   add (`cicada_add_source`, `write_claim(sources=)`) is refused what the person or Cicada removed but may put back what an
   agent removed, and the reply says who removed it and why; the person's add clears the tombstone, and the person's removal
   (`POST /entities/{id}/sources/change`, or the older index DELETE) writes one too. A ref the scrub would alter is REFUSED, not
   stored redacted. `entity_merge` carries `sources` and `sources_removed` to the winner and repoints other pages' `entity:`.
   `entity:` is filled for existing sources by exact match only (`source_links`: a URL whose `url_hash` is a saved page's, a path
-  equal to a directory page's own `path:`), never over a set link, on the Sleep tail and `POST /maintenance/link-sources`, one
+  equal to a directory page's own frontmatter `path:` exactly — not a path found in its body), never over a set link or one the person
+  or an agent explicitly cleared (`entity_unlinked: true`, stamped by an unlink, removed by a later link or replace), on the Sleep tail and `POST /maintenance/link-sources`, one
   `cicada`-authored commit (`Source links <date>`, triggers `sleep/source-links`, `maintenance/source-links`). The graph draws a
-  linked source as a read-time edge labelled by its predicate (never persisted, like `has repo`); the card's row wears the linked
-  page's picture and offers "Open page ›".
+  linked source as a read-time edge labelled by its predicate (never persisted, like `has repo`; `kind: "source"` on the link,
+  which the person map and "What's happening" skip — a source is where to look, not a relationship); the card's row wears the linked
+  page's picture and offers "Open page ›". The person's three source routes answer 409 while Sleep runs; `cicada_add_source`
+  is refused then too (it used to write uncommitted). A Contacts card row offers only Remove on the card.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a

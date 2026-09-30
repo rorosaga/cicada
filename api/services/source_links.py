@@ -10,7 +10,7 @@ exist, engine-free and with no name-based guessing, ever:
 - a ``path`` source that equals a ``directory``/``location`` page's own declared
   ``path:`` links to that page.
 
-It only ever fills an EMPTY ``entity:`` — a link the person or an agent set is
+It only ever fills an EMPTY ``entity:`` — never one the person or an agent explicitly cleared (``entity_unlinked: true``) — a link the person or an agent set is
 never overwritten — and never creates a page. The write is a page's frontmatter;
 the caller commits (``commit_message``), so the Sleep tail and the maintenance
 route share one shape and one author (``cicada``, trigger ``sleep/source-links``).
@@ -63,7 +63,7 @@ def backfill(memory_path: Path, skip: frozenset[str] = frozenset()) -> Report:
     for f in files:
         fm = f.frontmatter or {}
         raw = fm.get("sources")
-        if not isinstance(raw, list) or not any(isinstance(s, dict) and s.get("ref") and not s.get("entity") for s in raw):
+        if not isinstance(raw, list) or not any(isinstance(s, dict) and s.get("ref") and not s.get("entity") and not s.get("entity_unlinked") for s in raw):
             continue
         rel = f"entities/{f.stem}.md"
         if rel in skip:
@@ -72,7 +72,7 @@ def backfill(memory_path: Path, skip: frozenset[str] = frozenset()) -> Report:
         sources = parsed.frontmatter.get("sources")
         touched = 0
         for src in sources if isinstance(sources, list) else []:
-            if not isinstance(src, dict) or not src.get("ref") or src.get("entity"):
+            if not isinstance(src, dict) or not src.get("ref") or src.get("entity") or src.get("entity_unlinked"):
                 continue
             ref = str(src["ref"]).strip()
             kind = str(src.get("kind") or fact_sources.infer_kind(ref))

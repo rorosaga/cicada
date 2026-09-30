@@ -228,7 +228,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
             target = str(src.get("entity") or "").strip() if isinstance(src, dict) else ""
             if target and target != eid:
                 predicate = str(src.get("predicate") or "").strip() or "source"
-                source_links.append(GraphLink(source=eid, target=target, label=predicate))
+                source_links.append(GraphLink(source=eid, target=target, label=predicate, kind="source"))
         for repo_decl in fm.get("repos") or []:
             if not isinstance(repo_decl, dict):
                 continue

@@ -1656,6 +1656,9 @@ class GraphLink(CamelModel):
     # M5b: context-colored edges + click-through to a claim (additive/optional).
     context: Optional[str] = None
     claim_id: Optional[str] = None
+    # G61 S3-a: "source" marks a read-time edge from a source's `entity:` link — a source is where to look a fact up,
+    # not a relationship, so a client that lists a page's relationships skips it. Omitted (null) for every other edge.
+    kind: Optional[str] = None
 
 
 class GraphResponse(CamelModel):

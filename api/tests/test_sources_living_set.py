@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -175,9 +176,9 @@ def test_change_source_update_replace_remove(tmp_path):
                                    action="remove", reason="the profile shows a new employer")
     fm = _fm(memory)
     assert r.action == "removed" and "sources" not in fm
-    assert fm["sources_removed"] == [{"ref": PROFILE, "predicate": "profile", "by": "claude-code",
-                                      "at": fm["sources_removed"][0]["at"],
-                                      "reason": "the profile shows a new employer"}]
+    # the replace tombstoned the old key; the removal the new one, with its reason
+    assert [(r["ref"], r.get("reason")) for r in fm["sources_removed"]] == [
+        (TEAM, None), (PROFILE, "the profile shows a new employer")]
 
 
 def test_the_person_may_change_any_entry_and_takes_an_agents(tmp_path):
@@ -367,6 +368,10 @@ def test_graph_source_edges(tmp_path):
     assert sum(1 for l in before.links if l.label == "source") == 1, "no duplicate pair + label"
     node = next(n for n in before.nodes if n.id == "bob-example")
     assert node.degree == 0, "source edges are derived at read and never change a node"
+    assert {l.kind for l in before.links if l.label in ("profile", "source")} == {"source"}, "a source edge says so"
+    from api.routers.graph import NODE_SHAPE
+
+    assert NODE_SHAPE.endswith("+source-links")
 
 
 # ---------- merge ----------
@@ -575,7 +580,7 @@ def test_the_primer_names_the_source_tools_and_every_argument_is_in_the_schema()
     schemas = {t["name"]: set(t["inputSchema"].get("properties", {})) for t in stdio_server().TOOLS}
     for variant in handshake.VARIANTS:
         text = handshake.build(None, variant=variant, bank="memory")
-        assert "cicada_change_source(subject, ref, predicate, action, reason)" in text
+        assert "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own" in text
         assert {"subject", "ref", "predicate", "action", "reason"} <= schemas["cicada_change_source"]
         assert {"subject", "ref", "predicate"} <= schemas["cicada_add_source"]
         assert len(text) // 4 <= handshake.MAX_TOKENS
@@ -629,3 +634,96 @@ def test_the_tail_step_links_in_its_own_cicada_commit_and_skips_a_dirty_page(tmp
     assert _git(memory, "show", "--name-only", "--format=", "HEAD").split() == ["entities/bob-example.md"]
     assert _sources(memory, "bob-example")[0]["entity"] == "media-alpha-profile"
     assert "entity" not in _sources(memory, "alpha-project")[0], "a page dirty before the run is left alone"
+
+
+# ---------- the review's fixes ----------
+
+
+def test_an_unlink_stays_unlinked_through_the_backfill_until_a_later_link(tmp_path):
+    from api.services import media_ingestor
+
+    memory = _bank(tmp_path)
+    _entity(memory, "media-alpha-profile", type="media")
+    (memory / "sources").mkdir()
+    (memory / "sources" / "url_index.json").write_text(json.dumps({
+        media_ingestor.url_hash(PROFILE): {"media_entity_id": "media-alpha-profile", "url": PROFILE}}))
+    fact_sources.add_source(memory, "bob-example", PROFILE, predicate="profile", added_by="user")
+    assert source_links.backfill(memory).linked == 1
+    fact_sources.change_source(memory, "bob-example", PROFILE, "profile", actor="user", entity=None)
+    assert _sources(memory)[0].get("entity_unlinked") is True
+    assert source_links.backfill(memory).linked == 0 and "entity" not in _sources(memory)[0]
+    fact_sources.change_source(memory, "bob-example", PROFILE, "profile", actor="user", entity="media-alpha-profile")
+    row = _sources(memory)[0]
+    assert row["entity"] == "media-alpha-profile" and "entity_unlinked" not in row
+
+
+def test_a_replace_tombstones_the_old_key_so_a_cited_link_cannot_bring_it_back(tmp_path):
+    from test_extraction_source_attach import LINK, _bank as _cited_bank, _run, _span
+
+    line = f"bob-example moved to company-b; the team page {LINK} lists him."
+    memory, text = _cited_bank(tmp_path, line)
+    fact_sources.add_source(memory, "bob-example", LINK, predicate="works-at", added_by="claude-code")
+    fact_sources.change_source(memory, "bob-example", LINK, "works-at", actor="claude-code",
+                               new_ref="https://example.com/company-b/people")
+    assert fact_sources.is_tombstoned(_fm(memory, "bob-example"), LINK, "works-at")
+    rel = {"source": "bob-example", "target": "company-b", "label": "works at", "evidence": [_span(text, line)]}
+    _run(memory, [rel])
+    assert [s["ref"] for s in _sources(memory)] == ["https://example.com/company-b/people"]
+
+
+def test_the_persons_source_routes_wait_for_sleep(client, monkeypatch):
+    from api.services import sleep_cycle
+
+    c, memory = client
+    fact_sources.add_source(memory, "bob-example", TEAM, predicate="works-at", added_by="user")
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    for r in (c.post("/entities/bob-example/sources", json={"ref": PROFILE}),
+              c.post("/entities/bob-example/sources/change", json={"ref": TEAM, "predicate": "works-at",
+                                                                 "action": "remove"}),
+              c.delete("/entities/bob-example/sources/0")):
+        assert r.status_code == 409 and "Sleep is updating your memory" in r.json()["detail"]
+    assert len(_sources(memory)) == 1
+
+
+def test_a_merge_keeps_the_persons_entries_first_and_honours_the_caps(tmp_path):
+    memory = _bank(tmp_path)
+    winner = [{"ref": f"https://example.com/w{i}", "kind": "url", "predicate": "website", "added_by": "claude-code"}
+              for i in range(8)]
+    loser = [{"ref": f"https://example.com/l{i}", "kind": "url", "predicate": "website", "added_by": "user"}
+             for i in range(3)] + [{"ref": "https://example.com/x", "kind": "url", "predicate": "website",
+                                    "added_by": "claude-code"}]
+    _entity(memory, "bob-e", type="person", sources=loser)
+    page = memory / "entities" / "bob-example.md"
+    fm = markdown_parser.parse(page)
+    markdown_parser.write(page, {**fm.frontmatter, "sources": winner}, fm.body)
+    entity_merge.merge_entities(memory, "bob-e", "bob-example")
+    rows = _sources(memory)
+    assert all(any(r["ref"].endswith(f"/l{i}") for r in rows) for i in range(3)), "the person's entries survive"
+    assert len(rows) == fact_sources.MAX_PER_PREDICATE and sum(1 for r in rows if r["added_by"] == "user") == 3
+
+
+def test_source_writes_do_not_count_as_claim_writes(monkeypatch):
+    import asyncio
+    from datetime import date
+
+    from api.services import consumption_stats, telemetry
+
+    events = [telemetry.UsageEvent(kind="agentic_write", refs={"action": a})
+              for a in ("written", "source_added", "source_changed", "source_removed")]
+
+    async def no_days(_):
+        return {}
+
+    monkeypatch.setattr(consumption_stats, "_events_in", lambda r, t: events)
+    monkeypatch.setattr(consumption_stats, "memory_write_days", no_days)
+    out = asyncio.run(consumption_stats.summary(Path("."), range_="all", today=date(2026, 9, 30)))
+    assert out["agentic_writes"] == 1
+
+
+def test_add_source_waits_for_sleep_and_writes_nothing(server, monkeypatch):
+    srv, memory = server
+    monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda *a, **k: True)
+    head = _git(memory, "rev-parse", "HEAD")
+    out = srv.handle_add_source("bob-example", TEAM, "works-at")
+    assert out.startswith("Nothing added") and "consolidating memory" in out
+    assert _sources(memory) == [] and _git(memory, "rev-parse", "HEAD") == head

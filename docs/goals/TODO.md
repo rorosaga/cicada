@@ -43,7 +43,7 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
 **Sources as a living set (G61 S3-a) — built on `feat/sources-set`, 2026-09-30 (PR to `dev`; not merged).** The owner: "sources …
 could be multiple, not just one. An agent can store/change/delete sources depending on whether they are relevant … Sources themselves
 can be linked to their own memory node." Many sources per fact; `cicada_change_source`; ownership (an agent changes only its own entries);
-`sources_removed:` tombstones that every non-person writer respects; `entity:` links from a source to its own page (exact-match backfill on
+`sources_removed:` tombstones that the existing non-person writers respect (PR2's Stage-1 proposal and backfill will too); `entity:` links from a source to its own page (exact-match backfill on
 the Sleep tail, a read-time graph edge, the card's "Open page ›"); `entity_merge` carries sources; contract 12 / remote 9. **Not yet seen
 live:** an agent removing a source and Stage 1 leaving it out on the next night; the graph's size with source edges on the real bank (run
 `POST /maintenance/link-sources` on a copy first; it commits `Source links <date>` as `cicada`). *Pick up here:* review and merge, then PR2
