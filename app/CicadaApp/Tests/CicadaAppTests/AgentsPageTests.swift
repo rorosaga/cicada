@@ -16,7 +16,7 @@ final class AgentsPageTests: XCTestCase {
         XCTAssertEqual(SettingsSection.remote.group, .customize)
         // A prefix, not the whole list: Task 8 appends Skills, and
         // `RecommendedSkillTests.testSkillsIsACustomizeRow` pins the full group then.
-        XCTAssertEqual(Array(SettingsGroup.customize.sections.prefix(3)), [.integrations, .agents, .remote])
+        XCTAssertEqual(Array(SettingsGroup.customize.sections.prefix(4)), [.integrations, .reading, .agents, .remote])
         XCTAssertEqual(SettingsSection.remote.title, Copy.fromAnywhere)
         XCTAssertEqual(Copy.settingsFromAnywhere, "\(Copy.settings) → \(Copy.fromAnywhere)")
     }

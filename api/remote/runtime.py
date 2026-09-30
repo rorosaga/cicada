@@ -208,6 +208,10 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         basis=a.get("basis"), engine=a.get("engine"), duration=a.get("duration")),
     "cicada_video_queue": lambda c, a: mcp_tools.video_queue_list(c, a.get("limit")),
     "cicada_video_claim": lambda c, a: mcp_tools.video_claim(c, a.get("limit"), a.get("release")),
+    "cicada_reading_queue": lambda c, a: mcp_tools.reading_queue(c, a.get("limit")),
+    "cicada_record_read": lambda c, a: mcp_tools.record_read(
+        c, str(a.get("url") or ""), str(a.get("outcome") or ""), a.get("summary"), a.get("excerpts"),
+        a.get("via"), a.get("note"), a.get("title")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, str(a.get("id") or ""), a.get("option_key"), None, bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False))),
@@ -218,12 +222,21 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
 def _writes_bank(tool: str, arguments=None) -> bool:
     """Whether a write tool's call touches a bank file — what the Sleep gate guards.
 
-    Every write tool does, except ``cicada_video_claim`` (G162): it writes only the
-    person's video queue (``$CICADA_HOME``, outside every bank), so a long
-    drain (ruling 13) does not stall an agent working the queue. The demo gate and
-    the write lock still apply to it. A lapsed lease is judged only when Sleep is
-    not holding the pages (``ToolContext.pages_held``)."""
-    return tool != "cicada_video_claim"
+    Every write tool does, except two. ``cicada_video_claim`` (G162) writes only the
+    person's video queue (``$CICADA_HOME``, outside every bank), so a long drain does
+    not stall an agent working the queue (a lapsed lease is judged only when Sleep is
+    not holding the pages, ``ToolContext.pages_held``). And ``cicada_record_read`` with
+    an outcome other than ``read`` (G166): ``needs_login``, ``blocked``, ``not_found``
+    and ``failed`` land only in the machine-wide ask store, so a login wall reaches the
+    person's app at once even while a cycle runs; a ``read`` writes a page and an
+    episode and waits like any other write. The demo gate and the write lock still
+    apply to all of them."""
+    if tool == "cicada_video_claim":
+        return False
+    if tool != "cicada_record_read":
+        return True
+    outcome = str((arguments or {}).get("outcome") or "").strip().lower()
+    return outcome == "read" or outcome not in ("needs_login", "blocked", "not_found", "failed")
 
 
 class RemoteRuntime:
@@ -281,7 +294,8 @@ class RemoteRuntime:
                 memory_path, variant=handshake.REMOTE_VARIANT, tools=catalog.tool_names_for(connector.scopes))
             handshake.record("remote", meta, bank=memory_path.name, harness=connector.harness,
                              client_name=connector.last_client)
-            return primer.replace(handshake.CONVERSATION_SLOT, mint_handle(connector.id, today))
+            text = primer.replace(handshake.CONVERSATION_SLOT, mint_handle(connector.id, today))
+            return text + self._reading_note(memory_path, connector)
         handle = resolve_handle(connector.id, args.get("conversation"), today)
         ctx = self.tool_context(connector, handle)
         if tool in catalog.WRITE_TOOLS:
@@ -293,6 +307,24 @@ class RemoteRuntime:
         if tool in catalog.READ_TOOLS:
             text = fence(cap(strip_unavailable(text, ctx.available or frozenset())))
         return text
+
+    def _reading_note(self, memory_path: Path, connector: catalog.Connector) -> str:
+        """G166: one per-request sentence after the primer when links wait for an
+        agent — only for a connection that can read the queue, only while agent
+        reading is on, never cached with the primer. It names the record tool only
+        where the connection holds it (R12)."""
+        tools = catalog.tool_names_for(connector.scopes)
+        if "cicada_reading_queue" not in tools:
+            return ""
+        try:
+            from api.services import hook_recall, recall_text
+
+            waiting = hook_recall.waiting_links(memory_path, include_words_origin="cicada_sources" in tools)
+            if waiting <= 0:
+                return ""
+            return "\n\n" + recall_text.reading_line(waiting, record="cicada_record_read" in tools)
+        except Exception:  # noqa: BLE001 — a primer is never worth a failed connect
+            return ""
 
     def _take_ask(self, connector_id: str, today: str) -> bool:
         with self._lock:

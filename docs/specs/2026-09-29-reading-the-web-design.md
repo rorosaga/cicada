@@ -51,8 +51,9 @@ fetched today, and the two big exports likely hold thousands. §6 answers that w
 2. **The Reader is a ladder on the same bytes, not a headless browser.** An honest User-Agent, `Accept: text/markdown`,
    robots.txt honoured, metadata first, then readable text, then a distinct `needs_js` status (§4).
 3. **A login wall is never fetched by the backend.** X, LinkedIn, Instagram, Facebook, TikTok and Reddit are read only
-   by an agent in the person's own browser, and only after the person's explicit "Ask an agent" on that link, one row per
-   call, for a host they have allowed (§5, §8). Cicada asks; what the agent does in its browser is up to it and the person.
+   by an agent in the person's own browser, and only after the person's explicit "Ask an agent" on that link, or per site
+   the person turned on after a page from it could not be read (§5, §8). Cicada asks; what the agent does in its browser
+   is up to it and the person.
 4. **Chat links.** Read the links **the person shared** (594 unique across the two exports, measured, 536 of them readable).
    Do **not** read what an assistant cited (1,389 unique) or consulted (3,031 more), except an assistant link that came up
    in two or more conversations (at most about 23, measured). Never read a link that is a login, an unsubscribe, a
@@ -324,7 +325,7 @@ headers**; no scraping behind authentication, ever.
    backend's process: the person's own browser is a separate matter, governed by item 5.
 5. **Reading with an agent is a person-driven action, never scheduled** (ruling 4 already excludes scheduled plan use),
    and **Cicada only asks**. A walled page reaches an agent only after the person's explicit "Ask an agent" on that link,
-   one row per call, for a host the person allowed (§8.4). The read happens in a harness the person already installed and
+   or per site the person turned on after a page from it could not be read, one entry per site per call (§8.4). The read happens in a harness the person already installed and
    approved, and **what the agent does in its own browser is not something Cicada can enforce**, so no Cicada text
    promises it (no "read-only", no "never posts"). The page's words are **data, not instructions** (§8.5).
 6. **The person is told, before first use, what they accept** (§8.6): a platform's terms may forbid automated access
@@ -365,7 +366,7 @@ headers**; no scraping behind authentication, ever.
 | **X · consulted** | Search results the model saw but did not cite (3,031 URLs) | **Never** | The person never saw them as sources. |
 | **T · tool-result noise** | URLs inside web-search or fetch output (35,456 occurrences in one export) | **Never** | Same reason. Also a privacy exposure of pages the person never chose. |
 | **A · inside an upload** | A URL inside `attachment [<name>]` text | **Never** | It is a document's link, not the person's share. `attachment` is already `page`, not the person's words. |
-| **W · walled** | §5 item 2's hosts | **Never by the backend.** An agent may be asked, one link at a time, only by the person's explicit "Ask an agent" on an allowed host (§8.4). | ToS. |
+| **W · walled** | §5 item 2's hosts | **Never by the backend.** An agent may be asked, one link at a time, by the person's explicit "Ask an agent", or per site the person turned on after a page from it could not be read (§8.4). | ToS. |
 | **V · video** | YouTube, Vimeo, TikTok, Loom | **Not a page read.** Handed to the video queue. | Sibling spec; Track V. |
 | **P · paper** | arXiv, DOI | **Not a page read.** `papers.py` builds the page from the arXiv or Crossref API. | `never_scraped`, G133. |
 | **H · vendor host** | The AI vendors' own share and attachment hosts | **Never** | A share page is not the person's source; measured 7 of the 594. |
@@ -488,7 +489,8 @@ login-walled link with no title and no readable text would be a node with nothin
   saved pages; assumed similar). The rest need one summarizer call each, so **roughly 250 calls**, then G102's recon in
   batches of 8 (`link_recon_batch_size`), about 70 more. The app shows **"about 300 model calls"**, never a price or a
   token count (DR-59). A short excerpt of each summarized page goes to the chosen engine, and the intake and Settings
-  copy say so through `LeavesMacNote` (§7.1).
+  copy say so in one neutral sentence: "Some pages are then summarized by the engine you chose for Sleep; a short excerpt
+  of each goes to it. Where that engine runs is shown in Settings → Engines." (§7.1; no provider is named on this page.)
 - **Whose quota.** The catch-up is a user trigger, so it runs on `preview.manual` (the same rule as Consolidate and the
   G125 R10 amendments); a scheduled night never spends plan quota (ruling 4). The intake card says so.
 
@@ -522,7 +524,7 @@ unattended reading is pre-selected.**
 ```
 
 Copy is DR-59 (sentence case, plain verbs, no "!"). Import stays one primary, `Import`. The engine sentence is the
-`LeavesMacNote` output for the chosen engine (silent for Ollama). The choice writes `reading.chat_links` on the bank:
+neutral sentence of §7.1 (the engine you chose for Sleep summarizes; Settings → Engines shows where it runs). The choice writes `reading.chat_links` on the bank:
 `manual` (the default), `nightly`, or `off`.
 
 - **Counts are honest about what they count.** The card's number is from `POST /intake/sniff` (which stages nothing and
@@ -603,15 +605,23 @@ LINKS FROM CHATS
 
 WITH AN AGENT
   Let an agent read pages for you                            [ Off      ⏵ ]
-  Sign-in pages such as LinkedIn or X can only be read in your own
-  browser, by an agent you run. Cicada never signs in for you.
-
-BROWSERS ON THIS MAC                          (what Cicada can see, read-only)
-  [Claude mark] Claude in Chrome         Installed
-  [ChatGPT mark] ChatGPT                  Installed
-  [•]           browser-harness          Installed          [ Check ]
+  When Cicada's reader can't open a page (a sign-in, a consent page, a
+  refusal), its site is listed below. You decide which sites your own
+  agent may read with your browser. Cicada never signs in for you.
   An agent has recorded reads · last Sep 29             (only once one has)
-                                         [ Copy setup prompt ]
+                                         [ Copy for an agent ]
+
+HOW YOUR AGENT READS                                  (owner 2026-09-30)
+  (•) Let my agent choose
+  ( ) Its own browser or computer tools
+  ( ) browser-harness   [Skill]  Uses your own Chrome, including sites where you're signed in.   Install
+  ( ) macos-harness     [Skill]  Can control any app on your Mac.                                 Open in graph
+
+SITES THAT NEED YOUR BROWSER
+  [icon] LinkedIn        41 saved pages are waiting              [ off ]
+  [icon] paperfold.io    6 pages are queued for your agent       [ on  ]
+         Your agent wasn't signed in to this site. Sign in in your browser, then try again.   [ Try again ]
+  Site icons come from an icon service, which is told the site's name. Cicada doesn't ask these sites for their icons.
 
 SMARTER NAVIGATION                                          Not available yet
   A small model that picks which link to follow. Needs an OpenRouter key.
@@ -621,27 +631,31 @@ SMARTER NAVIGATION                                          Not available yet
   `Reader and a browser engine` is drawn only once S9 ships; until then the row is absent, not disabled (a dead option
   teaches nothing).
 - **Recommended** is the DR-42 word in `accentText`, on Reader only.
-- **The `<engine note>` is not a fixed sentence. It goes through `LeavesMacNote`.** The Reader asks the page's own site for
-  the page, but for roughly half the pages (the ones with no usable description, §11) a **short excerpt is then sent to the
-  engine that summarizes it**. So the note is engine-aware, exactly like every other place a read leaves the Mac: with
-  Ollama or Auto resolving to it, no line at all; with a plan engine, "A short excerpt of each page goes to your <plan>
-  to be summarized."; with a key provider or OpenRouter, the same sentence naming that provider with its mark. The first
-  draft of this spec said "nothing sent anywhere but the page's own site", which is false whenever a hosted engine
-  summarizes, and it is removed. A future navigator row gains its own OpenRouter sentence (§10).
+- **The `<engine note>` is one neutral sentence, and it names no provider.** The Reader asks the page's own site for the
+  page, but for roughly half the pages (the ones with no usable description, §11) a **short excerpt is then sent to the
+  engine that summarizes it**. The note says so without choosing or naming an engine: "Some pages are then summarized by the
+  engine you chose for Sleep; a short excerpt of each goes to it. Where that engine runs is shown in Settings → Engines."
+  (owner, 2026-09-30: providers "are literally just providers, so dont assume or make the choice for the user" — the earlier
+  draft's case analysis by engine, "silent for Ollama" and "your <plan>", is deleted, and `LeavesMacNote` stays on the
+  Engines and Who-reads pages where a provider name shows the person's own choice). The first draft of this spec said
+  "nothing sent anywhere but the page's own site", which is false whenever a hosted engine summarizes, and it is removed. A
+  future navigator row gains its own OpenRouter sentence (§10).
 - **The chat-links control writes `reading.chat_links`**: `manual` (the default and the state of any bank nobody has
   asked), `nightly`, `off` (§6.5). The count is over the **readable set** (§6.1 after the class filter), never over the
   raw 594.
-- **Browsers on this Mac is detection only, and never opens a browser profile.**
-  - *Installed* comes from the app bundle id through `NSWorkspace` (Claude, ChatGPT, Chrome) and from `browser-harness`
-    on the app's own PATH. The app does **not** scan a browser's `Extensions/` or `NativeMessagingHosts/` folders: those
-    live inside a browser profile, which the standing rail reads only after the person turned that browser on
-    (`cicada.browserWatch.enabled.<channel>`), and a profile read is a Full Disk Access flow this spec does not want.
-  - *Check* runs `browser-harness --doctor` only after the person's click, allow-listed and pinned like `AgentConnect`.
-  - It never reads `~/.claude.json` (the `agent_live` rule).
+- **The page names no agent product (2026-09-30).** The earlier "Browsers on this Mac" block (per-agent-product rows,
+  `browser-harness --doctor`, a bundle-id scan) is dropped: detecting and listing the person's tools made a choice for
+  them. Kept: one honest fact, "An agent has recorded reads · last Sep 29", from the ledger, once one has. Which tool reads
+  is the person's own selection (**How your agent reads**: "Let my agent choose", the agent's own tools, or a catalog skill,
+  each skill a `type: skill` page in the graph, tagged Skill in the row), never something Cicada detects.
+  - The app never scans a browser's `Extensions/` or `NativeMessagingHosts/` folders: those live inside a browser profile,
+    which the standing rail reads only after the person turned that browser on (`cicada.browserWatch.enabled.<channel>`),
+    and a profile read is a Full Disk Access flow this spec does not want. It never reads `~/.claude.json` (the `agent_live` rule).
   - There is **no per-browser "Connected"** state. A `cicada_record_read` call proves neither which tool nor that a browser
-    was involved, so the app shows one honest fact instead: "An agent has recorded reads · last Sep 29", from the ledger,
-    once one has.
-  - Marks are the real ones (DR-52); browser-harness gets the neutral glyph.
+    was involved.
+  - **Sites that need your browser** lists every site Cicada's own reader could not read (a sign-in, a consent page, a
+    refusal, or a host the backend never requests), with measured counts and a per-site switch (§7.2). Each site wears its
+    favicon, fetched from the icon service only.
 - **Smarter navigation is a deliberate exception to "absent, not disabled".** It is drawn as a labelled, switch-less
   "Not available yet · Needs OpenRouter" row **because the owner asked for it to exist in Settings** with that label
   (2026-09-29). It has no control until S8's benchmark says the feature is worth building; if S8 says no, the row goes.
@@ -672,9 +686,9 @@ button is pressed.
 │  If the site offers a download of your own data,         │
 │  that is safer.  X: your account archive.                │
 │                                                          │
-│  Let an agent read pages from these sites (all off):     │
-│  LinkedIn [ off ]   X [ off ]   Facebook [ off ]         │
-│  Instagram [ off ]  TikTok [ off ]                       │
+│  Cicada asks your agent not to type credentials, and     │
+│  not to post, message or change anything. It can't see   │
+│  or enforce what happens in your browser.                │
 │                                                          │
 │  [ ] I understand                                        │
 │                                                          │
@@ -682,13 +696,18 @@ button is pressed.
 └──────────────────────────────────────────────────────────┘
 ```
 
-`Turn on` is disabled until the box is ticked (DR-41: 45 % and a `.help` saying why). The five per-host switches are real
-controls: they write `reading.agent_hosts` (a list, empty by default), and the queue (§8.4) and the per-link "Ask an agent"
-(§7.3) both check it. An unallowed host's "Ask an agent" is disabled with a `.help` naming the switch. **Reddit and `t.co`
-have no switch:** Reddit has its own connector and archive path, and neither is offered to an agent. The acknowledgement is
-stored per install with its date (`reading.agent_ack: '2026-09-29'`); a change of the wording re-asks. **Adult, pirated,
-financial and health hosts are refused outright**, matching Claude in Chrome's own refusals, and are not listed. The sheet
-does **not** say the agent never posts, messages or fills a form: Cicada cannot enforce that, so it does not promise it.
+`Turn on` is disabled until the box is ticked (DR-41: 45 % and a `.help` saying why). **There is no site picker on the
+sheet** (owner, 2026-09-30: "limiting the amount of sites makes no sense to me, because we will never know which sites this
+will happen"). A site is *surfaced* on Settings → Reading the web ("Sites that need your browser") when Cicada's own reader
+could not read one of its pages, and its switch there writes `reading.agent_sites` (`{site: day}`, empty by default); the
+queue (§8.4) derives the site's waiting pages from it. Flipping a site while the master is off raises this sheet, and "Turn
+on" sends the acknowledgement, the master switch and that site in one call; with a current acknowledgement the sheet is
+skipped. Per-page "Ask an agent" (§7.3) is always available while the master is on: it is the person's own consent for that
+page. `t.co` is never offered; Reddit surfaces like any site. The acknowledgement is stored per install with its date and
+version (`reading.agent_ack: {date, v: 2}`); a change of the wording re-asks, and until they do the switch reads off.
+**Adult, pirated, financial and health hosts are refused outright**, matching the structural denials of §5.3, and are not
+listed. The sheet says Cicada *asks* the agent not to type credentials, post, message or change anything, and that it can't
+see or enforce what happens: an **instruction and an honest limit, not a promise** (R-RW8).
 
 ### 7.3 The conversation Reader: "Links in this conversation"
 
@@ -713,7 +732,8 @@ Links in this conversation (14)
   fetch into a demo whose pages are deliberately `enrichment_attempted`.
 - **Ask an agent** calls `POST /reading/asks` (§8.4) and copies a sentence for the person to give their own agent (the
   `Copy setup prompt` pattern): "Read this page in my browser and tell Cicada with cicada_record_read: example.com/…".
-  Cicada spawns nothing here. It is offered only when agent reading is on and the host is allowed (§7.2).
+  Cicada spawns nothing here. It is offered whenever agent reading is on; where Cicada's reader could not open the page it
+  also offers "Let an agent read <site>" (§7.2), the site's own switch.
 - **Data:** `GET /episodes/{id}/links` is not a Store domain and has no `VersionVector` mapping, like `/citations`. It
   ETags over `episodes` + `entities` + `sources` (the sidecar is on the episode, the page state on the entity, the saved-link
   join in `sources/url_index.json`) with the shape tag in `extra`, and a `ProvenanceCache`-style in-memory cache revalidates
@@ -823,6 +843,11 @@ agent* do the reading. §7.1's "Browsers on this Mac" block is how the app says 
 
 ### 8.4 The two ways an agent reads
 
+> **2026-09-30, owner, at review:** "limiting the amount of sites makes no sense to me, because we will never know which
+> sites this will happen" — and, of the engine copy, "ollama and the rest are literally just providers, so dont assume or
+> make the choice for the user." The pre-picked five-site allow list is replaced by sites *surfaced from the reader's own
+> failures* and switched on per site; copy is provider-neutral. Recorded in TODO ruling 14.
+
 **Route A, the queue (S4, the default and the first to ship).** The person's own agent, in its own harness, pulls work
 and pushes back what it saw. Cicada spawns nothing, so `--chrome` never arises, the harness can be anything (portability),
 and the per-site approval belongs to that harness's own extension. **Cicada does not know which tool the agent read with**
@@ -831,14 +856,26 @@ and the per-site approval belongs to that harness's own extension. **Cicada does
 - **`cicada_reading_queue(limit≤20, reason?)`** (`read` scope remotely). Empty unless the person has turned on agent
   reading. Rows are of two kinds, and a row is never a class S link:
   - **Public rows** (`needs_js`, blocked or a `robots` refusal on a non-walled host): up to 20 a call.
-  - **Ask rows**: a link the person explicitly sent with "Ask an agent" (§7.3), **at most one per call**, and for a walled
-    host **only when the person has also allowed that host** in the sheet (§7.2). An unasked walled link is never listed,
-    whatever its class in §6.1. The ask is stored machine-wide beside the video queue's precedent
+  - **Ask rows and site rows.** An *ask row* is a link the person explicitly sent with "Ask an agent" (§7.3). A *site row* is
+    a saved page Cicada's own reader could not read that belongs to a site the person turned on (§7.2), derived at read, never
+    stored. **At most one row per site per call**, so an agent works a site steadily rather than in a burst. A walled page
+    that is neither asked nor on an allowed site is never listed, whatever its class in §6.1. A site's pages are surfaced
+    from the reader's own failures wherever they happen (save time, the in-cycle pass, the backfill), and a page that
+    already holds words is never listed. Grants are machine-wide (`reading.json`); a `needs_login` pause is per bank (the
+    ask store is), and turning the site on again lifts it. The ask is stored machine-wide beside the video queue's precedent
     (`$CICADA_HOME/reading_asks/<bank>.json`, never in a bank; `{url_hash, host_class, at}`; expires after 7 days) and is
     written only by `POST /reading/asks`, which the app's button calls.
   - Each row: `{url, why, role, conversation_title?}`. **A remote connection without `sources` sees no conversation title
     and, for a `role: user` row, no URL** (the URL is the person's own words); it sees the host class and is told the person's
     own words exist. Such a connection can read only rows whose URL is not the person's.
+  - **Amended 2026-09-30 (TODO ruling 14, owner: "limiting the amount of sites makes no sense to me, because we will never
+    know which sites this will happen").** The per-host allow list is gone: sites are surfaced from the reader's failures and
+    switched on per site; an agent may also record an outcome for a wall page of an allowed site with no per-page ask, and a
+    site row from a channel that is the person's own words (Telegram, an agent's save, a chat export) needs `sources`.
+  - **Amended 2026-09-29 (TODO ruling 14, at the owner's "build it now").** An *ask* row's URL is visible to any connection
+    holding `read`: the person's explicit "Ask an agent" is the consent to hand that URL to an agent, and the default scopes
+    would otherwise leave the ChatGPT and Claude apps unable to read any ask. The rule above still holds for a row harvested
+    from a conversation (S3, not built): its URL and the conversation title need `sources`.
 - **`cicada_record_read(url, summary, excerpts=[{quote}], kind?)`** (`record` scope). Caps as `cicada_record_watch`: one
   summary line ≤ 1,500 characters, at most 12 excerpts of 240, folded so no line can pose as a turn. What it writes, and
   how it differs from `record_watch`:
@@ -924,7 +961,7 @@ back as the fallback for JS pages.
 | **R-RW5** | Side-effect and secret-bearing URLs are never fetched (§5.3). | A GET never unsubscribes or redeems anything. |
 | **R-RW6** | Chat links: class U is read, C2 (cited in two or more conversations) is read, C1 is metadata only, X, T, A, S, H, L never (§6.1). Defaults per R-RW12. | The census-backed default. |
 | **R-RW7** | Import is network-free and mints no page; reading is a queue with its own lane, excluded from the two existing lanes, and a user-triggered catch-up; progress is counted from files (§6). | Bounded and honest. |
-| **R-RW8** | Agent reading is person-driven and never scheduled. Cicada only *asks* an agent to read: a walled page is surfaced only after the person's per-link "Ask an agent", one row per call, only for a host the person allowed; a public JS page may be listed in batches while agent reading is on. Cicada does not control, and does not promise anything about, what the agent does in its own browser. The backend never holds a session. The standing rail "no scraping behind authentication" governs Cicada's own fetcher and is unchanged. | The dated ruling that keeps the person-driven mode from eroding the rail, without promising what Cicada cannot enforce. |
+| **R-RW8** | Agent reading is person-driven and never scheduled. Cicada only *asks* an agent to read: a walled page is surfaced only after the person's per-link "Ask an agent", or per site the person turned on after a page from it could not be read, one entry per site per call; a public JS page may be listed in batches while agent reading is on. Cicada does not control, and does not promise anything about, what the agent does in its own browser. The backend never holds a session. The standing rail "no scraping behind authentication" governs Cicada's own fetcher and is unchanged. | The dated ruling that keeps the person-driven mode from eroding the rail, without promising what Cicada cannot enforce. |
 | **R-RW9** | `--chrome` never appears in any argv but `BROWSE_FLAGS`; a test enforces it. | Locks stay locks. |
 | **R-RW10** | **Robots.txt is honoured by the Reader.** Fetched once per host per run under the same 4 s and 512 KB caps and `net_guard`, no cookie; 4xx allows, a disallow is `blocked` with reason `robots`, a 5xx or a timeout disallows for the run without stamping the page. Applies to a user-triggered "Read now" too. | Makes the politeness claim true. It did not exist before this revision. |
 | **R-RW11** | **Backoff by status.** `blocked` and `failed:*` retry after `link_enrich_fetch_retry_days` (30); `needs_js` is never retried by the clock; a `fetch_reader_v` bump makes `blocked` and `failed:empty_body` pages eligible once. | Lets R-RW1's fix reach pages already stamped. |
@@ -1001,7 +1038,7 @@ Each carries its evidence and cites this spec; none re-opens a settled ruling.
    signature changes, the chat lane and the two existing lanes' exclusion, the reading-job registry, the intake row and
    the consent defaults (R-RW12). APPLY.
 3. **Reading with an agent**: the queue and per-link asks, `cicada_record_read` (`attachment` grammar, `page` spans),
-   contract item 9 and its cache key, the sheet with its host allow list. APPLY (Route A), DECIDE (sessions).
+   contract item 9 and its cache key, the sheet and a per-site permission list built from failures. APPLY (Route A), DECIDE (sessions).
 4. **A spawned browse call class**: `BROWSE_FLAGS`, three spikes. RESEARCH.
 5. **A local browser engine (Obscura or Lightpanda)**: sidecar and rail amendment. DECIDE.
 6. **A classifier navigator behind `Navigator`** (Jev via OpenRouter, embedder, local classifier), benchmark first. Carries
@@ -1026,7 +1063,7 @@ Each slice is its own PR to `dev`, cites the DR ids and R-RW ids it applies, and
 | **S2b** | The same extractor on Stop-hook episodes (`reading.chat_links` stays `manual` until chosen). | yes | S2 |
 | **S3** | **Chat links become pages and get read.** The chat-link writer (§6.3: `RawItem` fields, `defer_enrich`, `ingest_batch_results`, `attach_episode`, its own commit), the chat lane and the exclusion of chat pages from the two existing lanes (§6.4), the reading-job registry, `POST /reading/read`, `POST /reading/jobs`, `GET /reading/jobs/{id}`, `GET /reading/queue`, `GET /episodes/{id}/links`, the intake row, `MediaSourceItem.read`, the Reader's "Links in this conversation". | backend + app | S1, S2, D-RW3, D-RW4 |
 | **S4** | **Agent reading, Route A.** `cicada_reading_queue`, `cicada_record_read`, `POST /reading/asks`, contract item 9 gated on the setting, cache-key fingerprint, remote contract +1, R12, ledger kind `read_agent`. | yes | S1 |
-| **S5** | **Settings → Reading the web**: the section, the two axes, the sheet with its per-host allow list, "Browsers on this Mac" detection by bundle id, the Feed's "Read" line, `GET /reading/settings`. | app + a small `GET /reading/settings` | S1, S4 |
+| **S5** | **Settings → Reading the web**: the section, the two axes, the sheet (no site picker), the surfaced-sites list with its per-site switches and favicons, "How your agent reads", the Feed's "Read" line, `GET /reading/settings`. | app + a small `GET /reading/settings` | S1, S4 |
 | **S6** | **Spikes, no data at stake** (two days): does `claude -p --chrome` finish a public-page read with no interactive prompt, and at what cost; can `~/.cicada/codex` load Playwright MCP through `-c mcp_servers…`; can the Codex Chrome plugin's native host be reached from an isolated `CODEX_HOME`. Output: a ruling. | research | none |
 | **S7** | **Spawned browse call class**, `BROWSE_FLAGS`, "Read with my browser", the R-RW9 test. Only if S6 says yes. | backend + app | S4, S6 |
 | **S8** | **Navigator benchmark**: task set, three baselines, a written result. No product code. | research | none |
@@ -1100,7 +1137,7 @@ Each slice is its own PR to `dev`, cites the DR ids and R-RW ids it applies, and
     into it is kind `page`; saves an unsaved link through the media writer only for a queued URL; `read.by: agent`; refused
     in a demo bank and while Sleep runs.
   - `test_reading_queue_tool.py`: returns nothing when agent reading is off; never returns a class S link; returns a walled
-    link only when the person's ask exists for that exact URL and the host is allowed, at most one such row per call;
+    link only when the person's ask exists for that exact URL, or its site is allowed and the page is a wall page the reader could not read, at most one such row per site per call;
     public `needs_js` and blocked rows in batches of up to 20.
   - `test_handshake_read_r12.py`: every argument the primer names exists in the schema; contract item 9 appears only when
     the setting is on and the tool exists; toggling the setting changes the cache key; every primer, remote included,
@@ -1109,10 +1146,10 @@ Each slice is its own PR to `dev`, cites the DR ids and R-RW ids it applies, and
     conversation title and no URL for a `role: user` row, only its host class.
 - **S5**
   - `SettingsReadingSectionTests` (the section is searchable through `SettingsIndex`, lands and washes its row);
-    `AgentReadingSheetTests` (Turn on disabled until acknowledged; five per-host switches, all off; nothing on the page
-    says the agent never posts or fills a form); `ReaderLeavesMacNoteTests` (the Reader row names the chosen engine and is
-    silent about a network hop for Ollama); `BrowsersOnThisMacTests` (detection is by bundle id, never reads a profile
-    folder, and shows no per-browser "Connected"); a lint that no string on the page carries a price or a token count.
+    `AgentReadingSheetTests` (Turn on disabled until acknowledged; no site picker; the sheet asks the agent not to type
+    credentials and says Cicada can't enforce it); `ReaderEngineNoteTests` (the one neutral sentence, no provider named);
+    `ProviderNeutralCopyLintTests`; `ReadingSitesTests` (the surfaced list from the pinned fixture, a switch while the master is
+    off, a rollback with the server's sentence); a lint that no string on the page carries a price or a token count.
 - **S7 (if it ships)**
   - `test_browse_argv_isolation.py`: no engine argv but `BROWSE_FLAGS` contains `--chrome`; `--no-chrome` on the rest.
   - `test_browse_manual_only.py`: refused on any scheduled path; refused for `byok`; refused in a demo bank; a deny-listed
@@ -1151,8 +1188,8 @@ minted only when read (§6.3), so the Feed grows as you read, not at import.
 
 **D-RW5. Ship "With my browser" (signed-in sessions) at all?** It is the only way LinkedIn, X and Instagram get read, and
 their terms forbid automated access even when you are signed in; your account is the one at risk. *Recommendation:* yes, last
-(S4 gives Route A, which needs no Cicada code that touches a session), behind §7.2's acknowledgement, a per-host allow list
-that starts empty, an explicit "Ask an agent" on each link, and no promise about what your agent does in its browser. If
+(S4 gives Route A, which needs no Cicada code that touches a session), behind §7.2's acknowledgement, a per-site permission
+list built from the reader's own failures that starts empty, an explicit "Ask an agent" on each link, and no promise about what your agent does in its browser. If
 you would rather Cicada never offer it, Route A still works for public pages and you point your own agent at the rest
 yourself.
 
@@ -1185,8 +1222,8 @@ for it.
 | **A model summarizer is injected by page text** | A read that produced an instruction-shaped claim | Data fence, closed output, the summarizer's output located in the in-memory excerpt before it is written (Reader path only), `processed: true` episodes (§8.5). An agent's excerpts (Route A) are unverified and labelled so. |
 | **`--chrome` overrides the locks** | Any argv test failing | R-RW9 and `test_browse_argv_isolation.py`. |
 | **Route A depends on agents doing it** | The `cicada_record_read` rate over 30 days | Measured before S7 is built. G61's threshold logic applies: low participation means Route B, or leave it. |
-| **The agent queue becomes a bulk-read surface** (an agent told to "work the queue" reads every walled link) | Queue rows per call | Walled links appear only after the person's per-link ask, one row per call, and only for hosts the person allowed; public rows are batches of 20 and never walled. |
-| **The person's account is restricted by a platform** | A report | The acknowledgement says it; the host allow list starts empty; each page is an explicit ask. Cicada does not control what the agent does in its browser and says so. Not fully mitigable, which is why it is D-RW5. |
+| **The agent queue becomes a bulk-read surface** (an agent told to "work the queue" reads every walled link) | Queue rows per call | Walled links appear only after the person's per-link ask, or on a site the person turned on, one entry per site per call; public rows are batches of 20 and never walled. |
+| **The person's account is restricted by a platform** | A report | The acknowledgement says it; the site permissions start empty and each site is switched on by the person after a page from it could not be read. Cicada does not control what the agent does in its browser and says so. Not fully mitigable, which is why it is D-RW5. |
 | **Vendor claims about Jev do not hold** | S8's benchmark | Nothing ships before it, and the heuristic and the on-device embedder are the default paths. |
 | **The Sleep-page v5 spec draws the Details rows differently** | A plan-time diff | §7.4 supplies data contracts and one progress line; the Sleep spec owns placement and wording. |
 | **The sidecar grows episodes** | Episode size | Capped at 60 entries and 200-character snippets; `cited` only. |

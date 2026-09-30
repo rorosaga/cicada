@@ -189,6 +189,12 @@ final class FakeSyncAPI: SyncAPI {
             SleepTriggerResponse.self,
             from: Data(#"{"status":"started","cycleId":"c1","message":"started"}"#.utf8))
     }
+    func continueSleepRun() async throws -> SleepTriggerResponse {
+        try await record("continueSleepRun")
+        return try JSONDecoder().decode(
+            SleepTriggerResponse.self,
+            from: Data(#"{"status":"started","cycleId":"c1","message":"continued"}"#.utf8))
+    }
 
     // MARK: Projects (G141 PJ-5)
 

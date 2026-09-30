@@ -6,7 +6,7 @@ names no provider, model or skill as the one that does the job. It names only
 tools that exist (R12), carries no video content, and makes no promise about
 what the agent does in its own tools — it is an instruction.
 
-**No browser route by default (R-VU10, amended by ruling 15).** The default text
+**No browser route by default (R-VU10, amended by ruling 17).** The default text
 never steers an agent into the person's signed-in browser. When the person
 turns on the single permission ("let an agent use your browser to read pages"),
 the routes pass :data:`BROWSER_CLAUSE`: their consent, carried as an instruction.

@@ -141,7 +141,14 @@ def _format_changes(changes: list[dict]) -> str:
 
 
 def _format_existing(existing: list[dict], changes: list[dict]) -> str:
-    """Include related existing entities with real content, not just names."""
+    """Include related existing entities with real content, not just names.
+
+    An installed agent skill's page (``tags: [agent-skill]``, ``skill_tag``) is
+    left out: it is a tool the person chose, and the extractor must never mistake
+    it for a pattern it found."""
+    from api.services.skill_tag import is_agent_skill
+
+    existing = [e for e in existing if not is_agent_skill(e.get("frontmatter"))]
     touched_ids = {c["id"] for c in changes if "id" in c}
     related: list[dict] = []
     for entity_data in existing:

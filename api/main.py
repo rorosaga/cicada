@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
 from api.routers import (
+    agent_methods,
     agents,
     ask,
     backlog,
@@ -34,6 +35,7 @@ from api.routers import (
     nudges,
     origins,
     projects,
+    reading,
     remote,
     search,
     settings as settings_router,
@@ -169,6 +171,12 @@ async def lifespan(app: FastAPI):
     cfg = sleep_scheduler.load_schedule(settings.memory_path)
     sleep_scheduler.register_job(scheduler, settings, cfg)
     app.state.scheduler = scheduler
+    # Sleep page v5: the opt-in continue-after-reset (TODO ruling 15) needs the scheduler, and a
+    # paused run that had armed it re-arms after a restart (its sidecar says when).
+    from api.services import sleep_autocontinue
+
+    sleep_autocontinue.bind(scheduler)
+    sleep_autocontinue.rearm_after_restart(settings.memory_path)
 
     # G135 — the remote connector's own listener (127.0.0.1:8765), started only
     # when the person turned "From anywhere" on. Never raises into boot (R-R21).
@@ -225,6 +233,7 @@ app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
 app.include_router(intake.router, tags=["intake"])
 app.include_router(agents.router, tags=["agents"])
+app.include_router(agent_methods.router, tags=["agent-methods"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
@@ -237,6 +246,7 @@ app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
+app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])

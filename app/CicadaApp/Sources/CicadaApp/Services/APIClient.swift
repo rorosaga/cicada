@@ -264,6 +264,10 @@ struct MediaFeedItem: Codable, Identifiable {
     /// row and from an older backend.
     let kind: String?
     let paper: PaperSummary?
+    /// G166 — how an agent read (or was asked to read) this link and whether it may be asked: the row's `read`
+    /// block. `nil` from an older backend, and for a link that is not a page to read (a video, a paper) with
+    /// nothing recorded. It moves on the `reading` sync component, so a `needs_login` shows here over SSE.
+    let read: MediaReadState?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -311,6 +315,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case origin, folder
         case provider, durationS
         case kind, paper
+        case read
     }
 
     init(from decoder: Decoder) throws {
@@ -337,6 +342,7 @@ struct MediaFeedItem: Codable, Identifiable {
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
+        read = try? c.decodeIfPresent(MediaReadState.self, forKey: .read)
     }
 
     var isPaper: Bool { kind == "paper" }
@@ -671,14 +677,26 @@ struct SleepDebtInfo: Codable, Equatable {
     /// `nil` ONLY when the queue is empty AND Sleep has never run in this
     /// bank — no baseline to call "rested" (see the backend docstring).
     let restedPct: Int?
+    /// Sleep page v5 — conversations parked after failing twice for their own reasons: still waiting (they are in
+    /// `unprocessedCount`), but a run's freeze skips them. 0 on an older backend.
+    let parkedCount: Int
+    /// What a run would read now (`unprocessed - parked`); `nil` on an older backend. Every "reads all N" string
+    /// reads `readable`, never `unprocessedCount` (M7).
+    let readableCount: Int?
+
+    /// What a Consolidate would read now: the server's own count, else the queue (an older backend parks nothing).
+    var readable: Int { readableCount ?? max(0, unprocessedCount - parkedCount) }
 
     enum CodingKeys: String, CodingKey {
         case unprocessedCount, oldestUnprocessedAgeHours, hoursSinceLastCycle
-        case hasRunBefore, volumePct, agePct, restedPct
+        case hasRunBefore, volumePct, agePct, restedPct, parkedCount, readableCount
     }
 
     init(unprocessedCount: Int, oldestUnprocessedAgeHours: Double?, hoursSinceLastCycle: Double?,
-         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?) {
+         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?, parkedCount: Int = 0,
+         readableCount: Int? = nil) {
+        self.parkedCount = parkedCount
+        self.readableCount = readableCount
         self.unprocessedCount = unprocessedCount
         self.oldestUnprocessedAgeHours = oldestUnprocessedAgeHours
         self.hoursSinceLastCycle = hoursSinceLastCycle
@@ -697,6 +715,8 @@ struct SleepDebtInfo: Codable, Equatable {
         volumePct = try c.decodeIfPresent(Int.self, forKey: .volumePct) ?? 0
         agePct = try c.decodeIfPresent(Int.self, forKey: .agePct) ?? 0
         restedPct = try c.decodeIfPresent(Int.self, forKey: .restedPct)
+        parkedCount = ((try? c.decodeIfPresent(Int.self, forKey: .parkedCount)) ?? nil) ?? 0
+        readableCount = (try? c.decodeIfPresent(Int.self, forKey: .readableCount)) ?? nil
     }
 
     /// A backend too old to send `debt` at all — the honest "we don't know"
@@ -763,9 +783,13 @@ struct SleepStatusResponse: Codable {
     /// (`ProjectWriteGate`) still key off `running`, because `/status` does not carry this field.
     /// `false` on an older backend, which is why it is not read as "not running".
     let writing: Bool
+    /// Sleep page v5 — a run that stopped with conversations still waiting, read from the active bank's sidecar;
+    /// `nil` while a run reads, when there is none, and on an older backend. Paused is not a state of Sleep:
+    /// `status` stays `idle` and nothing is held.
+    let paused: SleepPausedRun?
 
     enum CodingKeys: String, CodingKey {
-        case drain, writing
+        case drain, writing, paused
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
@@ -802,6 +826,7 @@ struct SleepStatusResponse: Codable {
         readByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .readByOrigin) ?? [:]
         drain = try? c.decodeIfPresent(SleepDrainInfo.self, forKey: .drain)
         writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? false
+        paused = (try? c.decodeIfPresent(SleepPausedRun.self, forKey: .paused)) ?? nil
     }
 }
 
@@ -816,17 +841,20 @@ struct SleepDrainInfo: Codable, Equatable {
         var sentence: String?
         /// The vendor's unix reset time, when one was measured.
         var resetsAt: Int?
+        /// Which limit a plan stop was (Sleep page v5): `five_hour | seven_day | overage | unknown`.
+        var limit: String?
 
-        init(reason: String, sentence: String? = nil, resetsAt: Int? = nil) {
-            self.reason = reason; self.sentence = sentence; self.resetsAt = resetsAt
+        init(reason: String, sentence: String? = nil, resetsAt: Int? = nil, limit: String? = nil) {
+            self.reason = reason; self.sentence = sentence; self.resetsAt = resetsAt; self.limit = limit
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             reason = (try? c.decode(String.self, forKey: .reason)) ?? "error"
             sentence = try? c.decodeIfPresent(String.self, forKey: .sentence)
             resetsAt = try? c.decodeIfPresent(Int.self, forKey: .resetsAt)
+            limit = (try? c.decodeIfPresent(String.self, forKey: .limit)) ?? nil
         }
-        enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt }
+        enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt, limit }
 
         /// A plan pause whose vendor-measured reset time has passed: the limit no longer holds, so nothing
         /// should keep saying "paused". `false` without a measured time (it is never guessed).
@@ -854,6 +882,99 @@ struct SleepDrainInfo: Codable, Equatable {
     /// Episodes that arrived after the run began (they wait for the next one); `nil` until it ends.
     var arrivedSince: Int?
 
+    // MARK: Sleep page v5 — every key optional, so an older backend reads no news.
+
+    /// One stage of the running batch (P15 / R-A8 amended): a stage carries a fill only when it counts something
+    /// that finished (Read, Sort, Decide); Notice and File carry no number.
+    struct Stage: Codable, Equatable, Identifiable {
+        var id: String
+        var unit: String?
+        var done: Int
+        var total: Int?
+        var failed: Int
+        /// `pending | active | done`.
+        var state: String
+
+        init(id: String, unit: String? = nil, done: Int = 0, total: Int? = nil, failed: Int = 0, state: String = "pending") {
+            self.id = id; self.unit = unit; self.done = done; self.total = total; self.failed = failed; self.state = state
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = ((try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil) ?? ""
+            unit = (try? c.decodeIfPresent(String.self, forKey: .unit)) ?? nil
+            done = ((try? c.decodeIfPresent(Int.self, forKey: .done)) ?? nil) ?? 0
+            total = (try? c.decodeIfPresent(Int.self, forKey: .total)) ?? nil
+            failed = ((try? c.decodeIfPresent(Int.self, forKey: .failed)) ?? nil) ?? 0
+            state = ((try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil) ?? "pending"
+        }
+        enum CodingKeys: String, CodingKey { case id, unit, done, total, failed, state }
+    }
+
+    /// The running batch: `read` finished, `reading` started and not finished, `failed` this batch.
+    struct BatchState: Codable, Equatable {
+        var index: Int
+        var of: Int
+        var total: Int
+        var read: Int
+        var reading: Int
+        var failed: Int
+
+        init(index: Int = 0, of: Int = 0, total: Int = 0, read: Int = 0, reading: Int = 0, failed: Int = 0) {
+            self.index = index; self.of = of; self.total = total; self.read = read; self.reading = reading; self.failed = failed
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func int(_ key: CodingKeys) -> Int { ((try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil) ?? 0 }
+            index = int(.index); of = int(.of); total = int(.total); read = int(.read); reading = int(.reading)
+            failed = int(.failed)
+        }
+        enum CodingKeys: String, CodingKey { case index, of, total, read, reading, failed }
+    }
+
+    /// Per source: `frozen = filed + read + waiting + couldNotBeRead + parked + skipped` at every step.
+    struct Origin: Codable, Equatable {
+        var frozen: Int
+        var filed: Int
+        var read: Int
+        var waiting: Int
+        var couldNotBeRead: Int
+        var parked: Int
+        var skipped: Int
+        var newSince: Int
+
+        init(frozen: Int = 0, filed: Int = 0, read: Int = 0, waiting: Int = 0, couldNotBeRead: Int = 0,
+             parked: Int = 0, skipped: Int = 0, newSince: Int = 0) {
+            self.frozen = frozen; self.filed = filed; self.read = read; self.waiting = waiting
+            self.couldNotBeRead = couldNotBeRead; self.parked = parked; self.skipped = skipped; self.newSince = newSince
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func int(_ key: CodingKeys) -> Int { ((try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil) ?? 0 }
+            frozen = int(.frozen); filed = int(.filed); read = int(.read); waiting = int(.waiting)
+            couldNotBeRead = int(.couldNotBeRead); parked = int(.parked); skipped = int(.skipped); newSince = int(.newSince)
+        }
+        enum CodingKeys: String, CodingKey { case frozen, filed, read, waiting, couldNotBeRead, parked, skipped, newSince }
+    }
+
+    /// `user | schedule`.
+    var startedBy: String? = nil
+    /// No earlier Sleep commit in this bank when the run started.
+    var firstRun: Bool? = nil
+    var committedBatches: Int? = nil
+    /// Engine calls made in this run; never decreases (a discarded batch's calls stay counted).
+    var calls: Int? = nil
+    /// Measured, never a prediction (G107).
+    var elapsedMs: Int? = nil
+    var pausedMs: Int? = nil
+    var batchState: BatchState? = nil
+    var stages: [Stage]? = nil
+    var byOrigin: [String: Origin]? = nil
+    /// Conversations parked in this run.
+    var parked: Int? = nil
+    var ownerPage: SleepOwnerPageCount? = nil
+    var reserve: SleepReserveInfo? = nil
+    var resumed: Bool? = nil
+
     init(id: String = "", frozen: Int = 0, batchSize: Int = 0, batch: Int = 0, batches: Int = 0, filed: Int = 0,
          requeued: Int = 0, skipped: Int = 0, active: Bool = false, finished: Bool = false, stop: Stop? = nil,
          arrivedSince: Int? = nil) {
@@ -872,10 +993,23 @@ struct SleepDrainInfo: Codable, Equatable {
         active = flag(.active); finished = flag(.finished)
         stop = try? c.decodeIfPresent(Stop.self, forKey: .stop)
         arrivedSince = try? c.decodeIfPresent(Int.self, forKey: .arrivedSince)
+        func opt(_ key: CodingKeys) -> Int? { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil }
+        startedBy = (try? c.decodeIfPresent(String.self, forKey: .startedBy)) ?? nil
+        firstRun = (try? c.decodeIfPresent(Bool.self, forKey: .firstRun)) ?? nil
+        committedBatches = opt(.committedBatches); calls = opt(.calls)
+        elapsedMs = opt(.elapsedMs); pausedMs = opt(.pausedMs); parked = opt(.parked)
+        batchState = (try? c.decodeIfPresent(BatchState.self, forKey: .batchState)) ?? nil
+        stages = (try? c.decodeIfPresent([Stage].self, forKey: .stages)) ?? nil
+        byOrigin = (try? c.decodeIfPresent([String: Origin].self, forKey: .byOrigin)) ?? nil
+        ownerPage = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .ownerPage)) ?? nil
+        reserve = (try? c.decodeIfPresent(SleepReserveInfo.self, forKey: .reserve)) ?? nil
+        resumed = (try? c.decodeIfPresent(Bool.self, forKey: .resumed)) ?? nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, frozen, batchSize, batch, batches, filed, requeued, skipped, active, finished, stop, arrivedSince
+        case startedBy, firstRun, committedBatches, calls, elapsedMs, pausedMs, batchState, stages, byOrigin
+        case parked, ownerPage, reserve, resumed
     }
 }
 
@@ -883,6 +1017,12 @@ struct SleepTriggerResponse: Codable {
     let status: String
     let message: String
     let cycleId: String?
+}
+
+/// `POST /sleep/run/end` — `ended`, or `none` when there was no paused run.
+struct SleepEndRunResponse: Codable {
+    let status: String
+    let message: String
 }
 
 /// `POST /sleep/cancel` — see `SleepCancelResponse` on the API side for the
@@ -991,12 +1131,19 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     let durationMs: Int?
     /// 2026-09-28 — what the cycle cost, one flat value; `nil` = not recorded (or an older backend).
     let usageSummary: CycleUsageSummary?
+    /// Sleep page v5 — the run this commit was a batch of, and that run's own numbers (never summed from the
+    /// visible page of history). `nil` for a plain cycle, an older commit, or an older backend.
+    var drainId: String? = nil
+    var batch: Int? = nil
+    var batches: Int? = nil
+    var run: SleepRunRef? = nil
 
     var id: String { commitHash }
 
     enum CodingKeys: String, CodingKey {
         case commitHash, date, message, filesChanged, engine, kind
         case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs, usageSummary
+        case drainId, batch, batches, run
     }
 
     init(from decoder: Decoder) throws {
@@ -1014,6 +1161,10 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
         authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
         usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
+        drainId = (try? c.decodeIfPresent(String.self, forKey: .drainId)) ?? nil
+        batch = (try? c.decodeIfPresent(Int.self, forKey: .batch)) ?? nil
+        batches = (try? c.decodeIfPresent(Int.self, forKey: .batches)) ?? nil
+        run = (try? c.decodeIfPresent(SleepRunRef.self, forKey: .run)) ?? nil
     }
 }
 
@@ -2151,6 +2302,48 @@ actor APIClient {
         return try await post("/sleep/trigger")
     }
 
+    /// Sleep page v5 — resume the paused run (same run id, its counters carried). Only the Sleep page's Continue
+    /// calls this (`SleepViewModel.continueRun`); every other door routes to the page while a run is paused.
+    func continueSleepRun() async throws -> SleepTriggerResponse {
+        return try await post("/sleep/trigger", body: ["continue": true])
+    }
+
+    /// `POST /sleep/run/end` — forget the paused run; every conversation still waits. 409 while a run reads.
+    func endSleepRun() async throws -> SleepEndRunResponse {
+        return try await post("/sleep/run/end")
+    }
+
+    /// `POST /sleep/parked/retry` — read exactly these parked conversations (all of them when `ids` is `nil`)
+    /// in a run of their own. 409 while a run reads or is paused.
+    func retryParked(ids: [String]?) async throws -> SleepTriggerResponse {
+        return try await post("/sleep/parked/retry", body: ids.map { ["ids": $0] } ?? [:])
+    }
+
+    func fetchRunOptions() async throws -> SleepRunOptions {
+        return try await get("/sleep/run-options")
+    }
+
+    func updateRunOptions(_ change: SleepRunOptionsChange) async throws -> SleepRunOptions {
+        return try await put("/sleep/run-options", body: change.body)
+    }
+
+    /// `GET /sleep/queue` — bounded (≤ 200), frontmatter only.
+    func fetchSleepQueue(origin: String? = nil, state: String? = nil, offset: Int = 0,
+                         limit: Int = 50) async throws -> SleepQueueResponse {
+        var query = ["offset=\(offset)", "limit=\(min(200, max(1, limit)))"]
+        if let origin, let o = origin.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            query.append("origin=\(o)")
+        }
+        if let state { query.append("state=\(state)") }
+        return try await get("/sleep/queue?" + query.joined(separator: "&"))
+    }
+
+    /// `GET /sleep/runs/{id}` — one whole run (not a Store domain).
+    func fetchSleepRun(_ id: String) async throws -> SleepRunDetail {
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        return try await get("/sleep/runs/\(encoded)")
+    }
+
     /// Cooperative-cancel whatever cycle is currently running. See
     /// `SleepCancelResponse` — always 200, `status` says whether there was
     /// anything to cancel.
@@ -2303,6 +2496,78 @@ actor APIClient {
     /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
     /// already chosen. Not a Store domain, no ETag.
     func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
+
+    // MARK: Reading with the person's own agent (G166)
+
+    /// `GET /reading/settings` — the switch, the sites the person let an agent read, and the first-use acknowledgement.
+    func fetchReadingSettings() async throws -> ReadingSettingsResponse { try await get("/reading/settings") }
+
+    /// `PUT /reading/settings` — only the fields passed are sent. `sites` is a patch `{site: bool}` (true lets an agent
+    /// read that site, false takes it back; a site Cicada's reader has not needed the browser for is a 422). Turning the
+    /// switch or a site on needs a current acknowledgement, given in the same call (`acknowledge`) or already stored;
+    /// a 422 carries the sentence why.
+    func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
+                            acknowledge: Bool = false) async throws -> ReadingSettingsResponse {
+        var body: [String: Any] = [:]
+        if let agentEnabled { body["agentEnabled"] = agentEnabled }
+        if let sites { body["sites"] = sites }
+        if acknowledge { body["acknowledge"] = true }
+        return try await put("/reading/settings", body: body)
+    }
+
+    /// `GET /reading/sites` — the sites Cicada's own reader could not read, with counts. Not a Store domain.
+    func fetchReadingSites() async throws -> ReadingSitesResponse { try await get("/reading/sites") }
+
+    /// The same list revalidated with its ETag (Home's `ReadingSitesCache`): a 304 keeps what is held.
+    func fetchReadingSites(etag: String?) async throws -> Conditional<ReadingSitesResponse> {
+        try await getConditional("/reading/sites", etag: etag)
+    }
+
+    /// `GET /reading/sites/{site}/icon` — a site's favicon from the icon service (the site is never contacted). nil on
+    /// a 404: "no icon" is an ordinary answer and the row draws its own mark.
+    func fetchSiteIcon(site: String) async throws -> Data? {
+        guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
+            return nil
+        }
+        var request = makeRequest("/reading/sites/\(site)/icon", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
+    /// `GET /agent-methods` — how the person's agent does each job, with the choices. Not a Store domain.
+    func fetchAgentMethods() async throws -> AgentMethodsResponse { try await get("/agent-methods") }
+
+    /// `PUT /agent-methods` — save a choice (`auto`, `own` or a catalog skill's id). The server also tries to file the
+    /// chosen skill's page in the graph; `write.page` says what happened. A 422 carries a sentence.
+    func setAgentMethod(job: String, choice: String) async throws -> AgentMethodWriteResponse {
+        try await put("/agent-methods", body: ["job": job, "choice": choice])
+    }
+
+    /// `POST /agent-methods/skills/{skill}/page` — "Add to your graph" for an installed skill that has no page. 409
+    /// while Sleep is writing (with a sentence).
+    func addSkillPage(skill: String) async throws -> AgentMethodPage {
+        try await post("/agent-methods/skills/\(skill)/page")
+    }
+
+    /// `GET /reading/prompt` — the generic, URL-free sentence to hand the person's own agent.
+    func fetchReadingPrompt() async throws -> String {
+        struct Reply: Decodable { let prompt: String }
+        let reply: Reply = try await get("/reading/prompt")
+        return reply.prompt
+    }
+
+    /// `POST /reading/asks` — "Ask an agent" on one link. 409 while the switch (or the link's site) is off, 422 for a
+    /// link an agent is never offered; both carry a sentence written for the person.
+    func askAgentToRead(url: String) async throws -> ReadingAskResponse {
+        try await post("/reading/asks", body: ["url": url])
+    }
 
     /// `PUT /memory/decay-tuning` (G147) — `nil` clears a kind back to the usual pace. 409
     /// while Sleep runs; 422 with a plain sentence for a pace outside what the server allows.

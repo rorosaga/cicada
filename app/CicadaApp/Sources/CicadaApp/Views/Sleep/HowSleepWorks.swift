@@ -41,7 +41,7 @@ struct HowSleepWorksContent: View {
             // Names the destination through `Copy.settingsSleep` rather
             // than retyping "Settings → Sleep" — `CopyConstantsTests`
             // greps the whole source tree for the literal.
-            Text("Nightly runs never spend your plan's quota — only a cycle you start yourself does. Change when it runs in \(Copy.settingsSleep).")
+            Text("Scheduled runs never use a plan you signed in to — only a cycle you start yourself does. Change when it runs in \(Copy.settingsSleep).")
                 .font(CicadaTheme.font(size: 11))
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -526,4 +526,73 @@ final class SleepViewModelTests: XCTestCase {
         XCTAssertTrue(landed)
         XCTAssertEqual(working.schedule.mode, "daily")
     }
+
+    // MARK: Sleep page v5 review fixes
+
+    private func runDetail(_ state: String) throws -> SleepRunDetail {
+        try JSONDecoder().decode(SleepRunDetail.self, from: Data(#"{"id":"r1","state":"\#(state)"}"#.utf8))
+    }
+
+    /// A run's detail read while paused is refetched once the run's freshness key moves (a Continue, the end);
+    /// the same key is a dictionary hit.
+    func test_aRunDetailIsRefetchedWhenTheRunMoves() async throws {
+        var fetches = 0
+        var next = try runDetail("paused")
+        let vm = SleepViewModel(store: idleStore(), fetchRun: { _ in fetches += 1; return next })
+        await vm.loadRunDetail("r1", freshness: "a")
+        await vm.loadRunDetail("r1", freshness: "a")
+        XCTAssertEqual(fetches, 1)
+        next = try runDetail("finished")
+        await vm.loadRunDetail("r1", freshness: "b")
+        XCTAssertEqual(fetches, 2)
+        XCTAssertEqual(vm.runDetails["r1"]?.state, "finished")
+        await vm.loadRunDetail("r1")
+        XCTAssertEqual(fetches, 2, "a finished run opened from Past nights is a dictionary hit")
+    }
+
+    /// The VM is app-level: a bank switch empties what belongs to the old bank (the queue's titles, runs' details).
+    func test_aBankSwitchEmptiesThePerBankCaches() async throws {
+        let detail = try runDetail("finished")
+        let vm = SleepViewModel(store: idleStore(), fetchSleepStatus: { try self.sleepStatus(status: "idle", stage: 0) },
+                                fetchRunOptions: { throw URLError(.notConnectedToInternet) },
+                                fetchRun: { _ in detail })
+        await vm.loadRunDetail("r1")
+        vm.expandedRun = "r1"
+        XCTAssertNotNil(vm.runDetails["r1"])
+        await vm.bankChanged()
+        XCTAssertTrue(vm.runDetails.isEmpty)
+        XCTAssertNil(vm.queue)
+        XCTAssertNil(vm.expandedRun)
+    }
+
+    /// A pause the live event reports before its record has loaded reads as "Paused", never "0 of 0 filed".
+    func test_theDoorSaysPausedWithoutCountsBeforeTheRecordLoads() {
+        let store = idleStore()
+        var event = SleepEventPayload(status: "idle")
+        event.paused = SleepPausedSSE(runId: "r1", reason: "restart")
+        event.pausedKnown = true
+        store.applySleepEvent(event)
+        let vm = SleepViewModel(store: store)
+        XCTAssertTrue(vm.door.isPaused)
+        XCTAssertEqual(vm.door.menuHeader, "Paused")
+        XCTAssertNil(vm.door.batchSize, "no options or status loaded — no batch size is guessed")
+    }
+
+    /// A pause that appears over SSE tells the app (which refetches the record app-wide); a repeat does not.
+    func test_aPauseAppearingFiresTheAppWideHook() {
+        let store = idleStore()
+        var fired = 0
+        store.onSleepPausedChanged = { fired += 1 }
+        var event = SleepEventPayload(status: "idle")
+        event.pausedKnown = true
+        store.applySleepEvent(event)
+        XCTAssertEqual(fired, 0, "no pause, none before — nothing to refetch")
+        event.paused = SleepPausedSSE(runId: "r1", reason: "user")
+        store.applySleepEvent(event)
+        store.applySleepEvent(event)
+        XCTAssertEqual(fired, 1)
+        event.paused = nil
+        store.applySleepEvent(event)
+        XCTAssertEqual(fired, 2, "a cleared pause refetches too")
+    }
 }

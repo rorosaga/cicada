@@ -292,26 +292,29 @@ follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connect
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
-**Consolidate reads everything (owner, 2026-09-29; TODO ruling 13).** "I don't want to cap the max episodes per sleep —
+**Consolidate reads everything (owner, 2026-09-29; TODO ruling 13; scheduled runs too since 2026-09-30, ruling 16).** "I don't want to cap the max episodes per sleep —
 it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:
-the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) is a **drain** — `run(..., drain=True)`, one
+the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) — and, since ruling 16, a **scheduled** one, on the scheduled engine — is a **drain** — `run(..., drain=True)`, one
 `run()` that keeps `status == "running"` for its whole length. It freezes the ids waiting when it started
 (`sleep_cycle._drain`; episodes captured meanwhile wait for the next run, counted as `arrivedSince`), resolves the engine
 **once** ("Auto" must not flip to another, paid, engine at batch 9) and reads them in batches of
-`sleep_max_episodes_per_cycle` (default 25 — the setting keeps its name and now means *how often progress is saved*). Each
+`sleep_max_episodes_per_cycle` (default 25; Reading options can make it 10, 25 or 50 — the setting keeps its name and now means *how often progress is saved*). Each
 batch is a whole pipeline under its own `<drain id>_b<nnn>` cycle id, breaker scope, models ledger and clock, and **Stage 5
 files and commits it** (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
 ints only), so a cancel or a plan stop loses at most the batch in progress and the next Consolidate continues with what is
 left. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
 ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
-reset — the person presses Consolidate again (auto-continue would be a ruling 4 amendment, not built). A cancel is the
-existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. Each
-frozen id gets **one attempt per drain** (a Stage 1 failure stays queued for the next run), an id another writer marked
-processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
-`leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle is still one
-batch** (`user_triggered=False`, no `drain`): ruling 4 — it runs on an API key, and draining the whole queue unattended would
-be real money — and the scheduler never passes `drain`. **Once per drain, not per batch:** temporal decay (both engines,
+reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the
+existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. A
+conversation that fails **for its own reasons** (an empty answer, a timeout, an unparseable reply — `sleep_drain.classify_episode`)
+goes first in the very next batch for **one more try and is then parked**; a failure that is the **engine's** (signed out,
+throttled, exhausted, model not found) stops the run after the batch commits what it read and is never counted against a
+conversation. An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
+`leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
+(ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so ruling 4 holds — it never uses
+a plan; on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+say so in words. **Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose
@@ -332,8 +335,17 @@ and rides that batch's commit (minutes, the pre-drain exposure); bank switching,
 whole run (the run is pinned to its bank), and `activate`'s sentence is shown as the toast. A batch that commits with the
 plan's breaker tripped stops the drain only while frozen ids are still waiting; with none left it is a finished run (the
 note is logged, the link backfill still runs).
+**Sleep page v5, backend (2026-09-30; TODO rulings 15 and 16; the boards are applied on top of the drain).**
+- **Reading options** — `GET/PUT /sleep/run-options` (`sleep_run_prefs`, machine-wide in `~/.cicada/connections.json` under `sleep-run`, snapshotted when a run starts, never 409s): batch size 10/25/50, *Continue after a plan reset* (off), *Leave room in my plan* (off, set in the engine menu). "Read faster" is **not** built (owner, 2026-09-30): no parallel reading and no small-model map.
+- **Machine-local state, never in a bank** (`sleep_local`: `$CICADA_HOME/sleep/<bank>-<hash>/`, 0700 dir, 0600 files, ids and counts and enums only, never a title): `run.json` (the run's sidecar), `parked.json`, `runs.json` (one summary per run, the newest 100).
+- **Paused is a fact about a run, not a state of Sleep.** A run that stops with conversations still waiting (Pause = the cancel path, a plan limit, the engine going away, the reserve line, or a restart) leaves a `paused` record in its sidecar (`sleep_paused`); `status` stays `idle`, `is_writing()` is false, nothing is held. `POST /sleep/trigger {"continue": true}` rebuilds the drain from it (same run id, the frozen list minus what is filed, the counters carried, batch numbering from what was committed); **a no-body trigger stays a fresh run and clears it** (the documented curl); `POST /sleep/run/end` forgets it (409 while reading); `POST /sleep/parked/retry` unparks and reads exactly those ids (409 while running or paused). **The scheduler reads nothing while a paused run waits** — except a *scheduled* run's pause no person chose: a `restart`, or an `engine` pause at least 6 hours old, is ended (Past nights says `ended`) and replaced by a fresh unattended drain (`sleep_paused.schedule_may_replace`) — it still runs the engine-free tail (`run(tail_only=True)`: expiry, follow-ups, the state refresh, the polls, the link backfill; the after-import probe at most once a day), and the paused record stays on the wire meanwhile — and counts *readable* conversations (`sleep_debt`'s `readableCount` = waiting minus `parkedCount`). `sync_service`'s `sleep` component and the SSE event carry the pause, so the app hears it. Only the Sleep page continues a paused run (the app's doors route to it; the server stays permissive).
+- **Honest live progress** on `drain` and the SSE event (every key optional): `startedBy`, `firstRun`, `calls` (each spawned engine call; only grows, a discarded batch's included), `elapsedMs`/`pausedMs` (measured, never a remaining time), `batchState`, `stages` (Read/Sort/Decide fill only from finished work; Notice and File carry no number), `byOrigin` (frozen = filed + read + waiting + couldNotBeRead + parked + skipped), a live `arrivedSince`, `ownerPage` beliefs, `reserve`. `GET /sleep/queue` serves the per-conversation rows from frontmatter only (≤ 200). Neither it nor `GET /sleep/run-options` / `GET /sleep/runs/{id}` is a Store domain (no `VersionVector` mapping; in-memory caches in the app, emptied on a bank switch).
+- **The reserve is a soft stop** (`sleep_reserve`): Stage 1 stops *starting* reads once a plan window is past the line, what was read is filed, the rest is not an attempt; the run pauses with "Paused to leave room in your plan." A line, not a guarantee: overshoot is unmeasured, a window the engine never reports is served `enforced: false`, and the ChatGPT plan is read from the pre-flight snapshot each batch already takes. Off leaves the Claude rung's own R-E12 90% stop; a reserve lifts it for that run.
+- **Continue after a plan reset** (`sleep_autocontinue`, ruling 15): a one-shot job per bank (`job_id`; a trigger or End in one bank never drops another's, and a bank's activation re-arms its own), for a run the person started, only after a 5-hour window (or the reserve on one, or extra usage) that gave a reset time, at most twice, within 36 hours, same engine, never weekly, never scheduled; `run(continue_from=…)` is called from the Continue route and this module only.
+- **Past nights groups by run:** history rows carry `drainId`/`batch`/`batches` and a `run` summary (from `runs.json`; a paused run dropped without a Continue — a fresh Consolidate, an empty Continue, End, the schedule's replacement — is `ended` with its pause closed, and a restart records its open `restart` pause), and `GET /sleep/runs/{id}` (ETag) sums by `refs.drain_id` over every `llm_call` — models with the ledger's own stage names, plan windows per batch (a reset between two batches is never averaged away), pages touched. `SleepEnginePreview.billing` (`plan|charged|local`) lets the app word the spend without naming a provider.
+
 **Disclosed asymmetries (not fixed here):** Stage 5.57's `recommends` person credit reads only the last batch's changes;
-Home's "Last read" shows the last batch's pages and Past nights lists one row per batch (per-batch grouping is unbuilt). Details › Last cycle's cost line and "took" row come from the newest history commit, which is one batch of a multi-batch run, so they are titled "last batch" (a whole-run sum by `drain_id` is unbuilt). The **app's own** Projects, Backlog and Fade-pace controls still key off `sleep.status == "running"` (`ProjectWriteGate`; `/status` does not carry `writing`), so they stay disabled, saying "Sleep is running", for the whole drain although the server would accept a write between batches. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
+Home's "Last read" shows the last batch's pages. Details › Last cycle's cost line and "took" row still come from the newest history commit (one batch) — the run's own totals are in Past nights' run row. **Pause and a hard plan rejection mid-batch still discard the batch in progress** (no journal of paid answers — the tail must say "the part it was reading is read again", never "read and kept"). A scheduled drain pins its bank for hours (the same 409 as any run) and, on a metered engine, has no ceiling Cicada sets. The **app's own** Projects, Backlog and Fade-pace controls still key off `sleep.status == "running"` (`ProjectWriteGate`; `/status` does not carry `writing`), so they stay disabled, saying "Sleep is running", for the whole drain although the server would accept a write between batches. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; the "leave room" reserve covers every window the engine reports (the 5-hour and the weekly one alike), is a line and not a guarantee, and a window the engine never reports is served `enforced: false`.
 
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
@@ -712,7 +724,9 @@ its consumption domain, so a card open must not move it. The `hook_recall` kind 
 recall-hook firing: harness, event, reason enum, the page ids and their count, token and latency buckets,
 and the model id when the harness sends one. It is filed beside `read` for the same reason, and like
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
-prompt never is. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
+prompt never is. The `read_agent` kind (G166) is one row per `cicada_record_read` call — entity id, an `outcome` enum, a
+`host_class` enum (`walled | public`), the harness and connector id; never a URL, the tool the agent named, a note or an
+excerpt — filed beside `read` and kept out of every Usage view like `capture`. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
 closed fail-code enum, the harness and connector ids; never a link, a title or a reason — filed beside `read` and kept
 out of every Usage view (`SIBLING_KINDS`, `NON_SPEND_KINDS`, `PER_TURN_KINDS`).
 
@@ -726,6 +740,7 @@ plan's from two fresh app-server snapshots bracketing the cycle. `api/services/c
 figure carries its basis (`charged` | `list` | `plan` | `free`), and a cycle without the marker reads `null`, never zero.
 The Sleep page's Details (Last cycle, Past nights, an opened cycle's Models) and the engine menu's captions read them
 (2026-09-28 ruling); a `plan` block and a `cycle_id` are numbers and ids, never text.
+Since Sleep page v5 a drain's calls also carry `refs.drain_id` (the run's id, ids only), so `GET /sleep/runs/{id}` sums a whole run — a paused or discarded batch's calls included — and `sleep_run` rows carry `drain_id`/`batch`/`batches`; `usage_for_drain` lists a plan window at the run level only when every batch saw the same reset time.
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
@@ -845,7 +860,7 @@ repo or `access: local` is refused; it commits alone under the harness. `cicada_
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
-**Video watch (G162, TODO ruling 15).** `cicada_record_watch` takes three more arguments the agent states about its
+**Video watch (G162, TODO ruling 17).** `cicada_record_watch` takes three more arguments the agent states about its
 own work — `basis` (`transcript | frames | both`), `engine` (`captions | video_link | local_frames | speech_to_text |
 browser | other`) and `duration` (kept only when the page has none) — none verified (R-VU2: the app says "an agent recorded
 that it watched", never "Cicada watched"); an unrecognised value is dropped and the record is still written. A repeat
@@ -870,7 +885,115 @@ video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved v
 back and surfaced). The hand-off prompt (`video_prompt.py`, ≤ 1,200 characters) is provider-neutral, names no browser
 route by default, and carries the browser permission only while the single reading permission is on; the seam for "how
 your agent watches" is `video_prompt.method_clause`. Recall and its hook are deliberately not extended for video. Contract
-item 3 names all of it (CONTRACT_VERSION 10, remote 7; remote names each tool only where held).
+item 3 names all of it (CONTRACT_VERSION 11, remote 8, past G166's 9 and 6; remote names each tool only where held).
+**Reading with the person's own agent (G166, spec `2026-09-29-reading-the-web-design.md` §8.4, Route A).** Cicada never
+spawns a browser and never signs in (`test_reading_never_spawns_browser.py`, R-RW9: `--chrome` is in no argv). The
+person's own agent — a local harness with a browser tool, or a remote connection that can drive one — reads through a
+queue. The person's per-link **Ask an agent** (`POST /reading/asks`) is a row in
+`$CICADA_HOME/reading_asks/<bank>.json` (`reading_asks.py`: outside every bank, no URL stored — joined at read from
+`sources/url_index.json` —, 7-day expiry applied in memory, `fcntl.flock` because the backend and every stdio process
+write it); an unsaved link is saved first *without a fetch* (`RawItem.defer_enrich`) as the person's own save.
+`cicada_reading_queue(limit)` (`read` scope, fenced remotely) lists what waits: the person's asks first (oldest first),
+then **saved pages of sites the person allowed** (below) — empty unless `reading.agent` is on, never a denied class,
+**one entry per site per call** (the rest are counted). It is one read model, `reading_queue.py`, behind the tool, the hook
+count, the Feed's `waiting` and the settings page: asks are rows, a site's pages are *derived at read* from
+`reading_walls.py` (never fanned out as rows, so a site switch writes one line, a new wall page joins with no write and
+turning a site or the master off dequeues at once). A site entry whose page was not saved through a saved-content channel
+(Telegram, an agent's save, a chat export: the person's own words) is served only to a caller holding `sources`. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?)` (`record` scope) takes `read |
+needs_login | blocked | not_found | failed`. Only a **successful read is memory** (`page_read.py`): one episode
+(`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
+*reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
+claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
+the harness and never mints a page. **Only a link the person asked about, or a wall page of a site they allowed, can be recorded** (`reading_queue.authorizes`: `("ask", row)`, `("site", None)` or nothing; a row this tool wrote itself, `origin: site`, authorizes only while its site is still allowed and the page still a wall page, so switching a site off revokes recording at once): `cicada_record_read` refuses every outcome for any other URL (a saved public page with no wall included), and `reading_asks.record_outcome` creates a row only for that site case (`create=True`, `origin: site`) — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about or on a site nobody allowed. **The exposure, stated:** with a site grant the person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site; the structural denials (R-RW5), the master switch, "every outcome but `read` is ask-store only" and `page`-kind spans bound it. A site-origin `read` writes no ask row (the page's own `read:` stamp keeps it out of the queue) and site rows are evicted before any explicit ask (`MAX_SITE_ROWS` 200). A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). A `page` span from `page_read` reads "From the page, as <agent> read it" everywhere the app labels it (the episode's `source: page-read` rides `/episodes/{id}/text` and the provenance conversation rows), never a bare "From the page". **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
+shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
+it read with — self-reported, never proof. The last successful read's day is kept in `~/.cicada/reading-last.json` (one small file; `GET /reading/settings` never scans the ledger). Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
+`agent_sites` — `{site: day}`, empty by default, granted only for a site Cicada's reader could not read —, `agent_ack` with
+a version (2) that re-asks when the sheet's wording changes; the old `agent_hosts` key is ignored and dropped on the next
+write). **There is no pre-picked list of sites** (owner, 2026-09-30: "limiting the amount of sites makes no sense to me,
+because we will never know which sites this will happen"): a **wall page** is a saved page Cicada's own reader could not
+read — a sign-in, a consent wall, a refusal, or a host the backend never requests — decided by `reading_walls.wall_kind`
+from stamps the fetchers already write (`fetch_status`) plus the closed host set, and only while it holds no words (no
+`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Notes`; a saved sign-in or consent URL is
+never one). The stamps are written wherever the reader fails: at save time (`MediaMeta.fetch_status`), in the in-cycle pass
+and in the backfill, in the backfill's own vocabulary and 30-day backoff, so a site surfaces when its page is walled, not
+when the capped backfill reaches it. Wall pages group by **site** (`reading_hosts.site_of`: a walled family folds to its
+name, else the registrable-ish domain, never folded under a shared host such as `github.io`); the sites surface on
+`GET /reading/sites` (hosts and measured counts only, ETag over `reading`+`entities`+`sources`, `def` in the threadpool,
+memoised in `reading_queue.sites_snapshot`; a row's `allowed` counts only while agent reading is on, `granted` is the
+stored grant, and `waitingNotAllowed` follows `allowed`) and a `PUT /reading/settings` `sites` patch grants or removes one (422 for a
+site never surfaced; turning a site on again lifts its `needs_login` pause — an agent that was not signed in pauses that
+site's derived entries until the row expires, a week). Per-page "Ask an agent" stays and needs no site permission. The
+closed host sets are one module (`reading_hosts.py`, dot-boundary matching, no DNS): walled hosts (X, Facebook, LinkedIn,
+Instagram, TikTok and Reddit, the families the backend never requests; `t.co` is never offered at all) have their **page never
+fetched by the backend's page readers** (R-RW4: `media_ingestor.enrich` and the `link_enrichment` backfill, through
+`link_enrichment._excluded_media`; the exceptions are TikTok's provider oEmbed call, which never loads the page, and the
+Reddit and X connectors' own API calls), and a link that carries a secret or a
+side effect, is local, an AI vendor's own page, a video (`cicada_record_watch`) or a paper is never offered at all
+(R-RW5). Contract item 9 (`CONTRACT_VERSION` 9, `REMOTE_CONTRACT_VERSION` 6) exists only while the switch is on and is an
+*instruction*, not a promise: read in the person's own session, never sign in, record `needs_login` and move on, never
+post. The **choice of how the agent reads** (`agent_methods.py`, `$CICADA_HOME/agent_methods.json`, `GET|PUT /agent-methods`) is an
+instruction Cicada passes to the person's own agent, never authority: `auto` (the default, no tool named), `own` ("don't
+load a separate skill") or a catalog skill whose `roles` list the job ("the person chose the `<name>` skill for this: use
+it, and if it is not installed for you, say so and stop"). It flows into "Copy for an agent" (`reading_prompt`), the stdio
+queue reply and one primer line (`handshake.build(methods=)`, `MAX_METHOD_LINES` 2, fixed part, R12-checked); a tool reply
+or primer line never names a skill to a remote connection or a client that is not one of `skill_catalog.AGENTS`, and the
+copied prompt, which can be pasted anywhere, names it conditionally ("if you run on this Mac and can load skills … else
+your own browser tools"). A skill the person picks gets a page in the graph
+(`skill_pages.py`, the one writer, only from that selection or "Add to your graph": `type: skill`, `tags: [agent-skill]`
+(`skill_tag.py`, so `state_dictionary._preferences` never lists an installed tool as a working agreement and Stage 4 never
+mistakes one for a pattern), evergreen, `human_edited`, no claims, one `user` commit; an agent-made `tool`/`concept` page of the
+same name is adopted, any page the person edited is left alone). Every string in these paths is neutral about providers
+(`test_provider_neutral_copy.py`). The remote reply for `cicada_reading_queue` is fenced as reference data, so the never-sign-in rule also sits in its unfenced tool description, and a connection that can read but not record is told to stop and tell the person. A saved page's title is folded to one line and scrubbed before it is printed. Because the queue is outside the bank, nothing in `_state.md` can say links are waiting, so the recall hook and the
+remote handshake add one per-request sentence (`recall_text.reading_line`) when more wait than the session was told; a session that has seen the queue drain hears the next ask as new.
+Routes (`routers/reading.py`, none a Store domain): `GET|PUT /reading/settings` (shape `reading-2`),
+`GET /reading/sites`, `GET /reading/sites/{site}/icon`, `GET|POST /reading/asks`, `DELETE /reading/asks/{urlHash}`,
+`GET /reading/prompt`; `GET /sources` carries `MediaSourceItem.read` (`status, by, tier, at, via, harness, host, askable,
+reason` — `askable` is the structural verdict plus the master switch, never a site —, `wall, siteKey, siteLabel, siteAllowed,
+siteIconHost` for a page the reader could not open, `queuedBy: site`, merged from the page stamp and the ask row, newest
+wins) so the app holds no host table; a retired interstitial or login-wall page (`enrichment_status: junk`) is let through
+the Feed's junk filter only when it is such a wall or an agent already read it (Track P R5, amended 2026-09-30). **Site icons**
+(`logo_service.ensure_site_icon`, `logos/<bank>/sites/`) come from the icon service only — the walled site is never
+contacted, not even for its favicon; a 404 is retried once with `www.`, only a site the surfaced list holds is served, and the
+service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
+**The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
+bank write) refreshes the Feed over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
+a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
+in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
+answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
+raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
+credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
+the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
+`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group. *How your agent reads*: the
+`agent_methods` choice as radio rows (a skill wears a Skill tag, says whether it is installed, and offers Open in graph,
+Add to your graph or **Install…**, which opens that skill's own `SkillDetailView` as this page's sub-page — the Skills
+list shows only five, so a lower-ranked skill has no card there — with an `agent-prompt` plan's sentence and a Copy
+button; the footer says the choice applies to agents on this Mac that can load a skill). *Sites that need your browser*: every site `GET /reading/sites` surfaced — only a site Cicada's own reader could
+not read — each with its favicon drawn like a browser tab's (`SiteIcon`: 20 pt, a 4 pt corner, never a circle or a ring; from
+`SiteIconStore`, in memory per bank and cleared on a bank switch, over `GET /reading/sites/{site}/icon` — the app makes no
+network call of its own, a lint holds it; until it arrives, and for a site with none, the family's bundled mark, else a
+ring monogram), its wall in words (`wallWords`), measured counts and one switch (the stored grant, so a site allowed while agent
+reading is off still shows on, says "Allowed · agent reading is off" and can be turned off; a paused site's pages "wait
+until you sign in", never "queued"); a site switched on while the sheet is
+unacknowledged raises the sheet, whose one line says the site rides the same call, and a paused site ("your agent wasn't
+signed in") offers Try again. The **Feed's detail column**
+gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",
+"Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
+app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
+hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or Cicada's reader could not open the page (`wall`:
+"Cicada's reader couldn't open this page: it needs a signed-in browser / it stopped at a consent page / the site refused
+it", with the site's icon at 16 pt, and **Let an agent read <site>** beside Ask an agent — one `PUT` when the sheet is
+already acknowledged, else the same first-use sheet; a page of an allowed site reads "Waiting for your agent · <site> is
+allowed"; a disabled Ask carries the server's own `reason`); an ordinary page with agent reading off draws nothing.
+Settings → Agents keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
+(`ReadingSitesSection` between Needs you and Last read, over `ReadingSitesCache` — in memory, ETag-revalidated when Home
+appears or the sources move, emptied on a bank switch, never a Store domain): "N saved pages need your browser to be read"
+(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to Settings → Reading the web; hidden at
+zero and once every listed site is allowed, and never counted in Needs you. The wall
+is not shown only there: the Feed row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
+toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
+nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows
+as "<agent> noted: …". No line says "in your browser" of what an agent did, or promises what it will not do.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -893,6 +1016,12 @@ same way.
 - **When it is skipped.** `CICADA_CAPTURE=off` spawns, `CICADA_RECALL=off`, and a Codex sub-agent's prompt.
   Codex also runs a new hook only after the person trusts it at startup.
 - **The ledger.** One `hook_recall` ledger row per firing, ids and enums only, filed beside `read`.
+- **Waiting reads (G166).** While agent reading is on, a session hears once — at SessionStart, or on its first prompt —
+  "N links are waiting in Cicada's reading queue for an agent to read" (`hook_recall.with_reading_note`), and again only
+  when more of the person's own asks wait than it was told, or pages of allowed sites grew by ten or more. The derived
+  part is counted only when the bank's page cache is warm (a cold cache counts the asks and warms in the background), so
+  the hook's 300 ms budget never meets a bank parse. One sentence beside the page note (its 400-token budget is the page note's own), per request,
+  never stored, dropped from a captured transcript like every "From Cicada" note.
 - **Remote.** Remote connectors have no hooks.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
@@ -956,7 +1085,7 @@ toolbar platter is hidden (`ChromeToolbarItem`). **Settings is a panel inside th
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
-Customize: Integrations · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
+Customize: Integrations · Reading the web · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
 page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
@@ -1135,6 +1264,15 @@ over a changed copy). The handshake gains a capability line only for an installe
 whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
 documents stays off until something says who wrote a document (F2-back R-B14).
+**Role skills and the `agent-prompt` method (G166).** An entry may carry `roles` (`reading` | `watching`), the
+`invoke` name the agent sees, a `pageName`, a catalog-authored `pageSummary` and a plain `reach` line, and its install
+`method` may be **`agent-prompt`**: a text (≤ 1,200 characters, pinned to the reviewed version, no global trigger, "ask me
+before any permission") for the person's own agent to run upstream's installer, so the plan is copy-only (`runnable: false`,
+no steps, `prompt`) and `PROGRAMS` gains nothing — a bare `npx skills add` would copy the SKILL.md and leave the CLI the
+skill drives missing, a half install that would read "installed". `browser-harness` and `macos-harness` (pinned, hash
+verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) are offered for reading and watching, each
+with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
+agent reads (`agent_methods`), not an install.
 
 **Sources page — v2 in Direction D (G124, DS-3c).**
 - **What stays from v2.** Every tile keeps Sources v2's five facts: mark · brand name · one status verb
@@ -1188,7 +1326,7 @@ the page's find row.
   is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
   rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
   a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
-  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  tile); `ClustersGrid` decides it, pure. A click on a tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
   words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
   is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
   (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
@@ -1316,8 +1454,34 @@ point, drop a batch that has not begun filing), so its caption and tooltip say w
 (`Copy.cancelDrainCaption`), never "after this batch" and never "nothing is lost". Details › Last cycle gains a "Read everything"
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
-after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. The lamp's popover says
-a scheduled run reads one batch of `batchSize` (the configured size, so it shows after a restart and an empty run too) and Consolidate reads everything waiting (ruling 4 shown, not applied silently).
+after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
+(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
+Mac") — never a provider's name.
+**Sleep page v5, the app half (2026-09-30; rulings 15, 16).** All copy is `Theme/Copy+SleepV5.swift`, provider-neutral
+(`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
+person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
+`GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
+leave room in your plan / Your plan window is full / The engine needs a look / Cicada restarted while reading — with what is filed and, when armed
+(ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer. **One
+primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
+reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
+through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's
+and Home's *Read now* say what the click reads — "Consolidate now — all 287", "Reads all 318 waiting, oldest first, saving every 25." (`SleepDoor`,
+readable = waiting minus parked, M7; a pause whose record has not loaded says only "Paused", and an unknown batch size is left out, never a
+fallback — `Store.onSleepPausedChanged` refetches the record app-wide, not only on the Sleep page). While a drain reads: "Reading 14 of 25." / "Sorting 31 of 86." / "Deciding 4 of 12." / "Filing…" (a stage
+fills only from finished work over a fixed total; Notice and File never), a caption under the strip in words, `RunProgressBar` (filed ·
+read, waiting to file · waiting · could not be read, and calls made; one accessibility value; elapsed "Running 27 m", never a remaining time),
+and the first save's "Your page has 31 beliefs so far" with *See your page ›*. *Reading options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
+10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
+menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
+12's two homes; Details is the other: Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
+per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
+server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
+folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
+batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
+by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, run details and history details on a bank switch
+(`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
+file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
@@ -1471,7 +1635,7 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 
 ## API Design
 
-33 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+35 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
@@ -1708,7 +1872,7 @@ never forks across writers.
 ### 4. Manual Sleep trigger
 "Run Sleep cycle now" + next-scheduled indicator. A person's trigger **drains the queue** (see Sleep — Consolidate reads
 everything, TODO ruling 13); `POST /sleep/cancel` says so ("Batches already filed stay filed"), and while a drain runs the
-bank-switching routes answer 409.
+bank-switching routes answer 409. `POST /sleep/trigger` takes an optional `{"continue": true}` (Sleep page v5).
 
 **Schedule modes (G125 R6/R7).** Settings → Schedule offers four modes on `ScheduleConfig.mode`:
 `manual`, `daily` (hour/minute), `interval` (`interval_hours`, 1–168, default 6), and `after_import`
@@ -1719,8 +1883,9 @@ newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `Sl
 (`mode != "manual"`) and always written on the wire so an older client still decodes; an old
 `PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
 scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
-scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads one batch of
-`sleep_max_episodes_per_cycle`, never the whole queue** (only a person's Consolidate drains — ruling 13).
+scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads everything
+waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend with no limit Cicada sets; a
+paused run is left for the person to continue or end; the tail still runs over it).
 
 ### 5. Conversation upload
 **One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
@@ -1780,7 +1945,9 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
-  and injects fetchers instead.
+  and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
+  come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
+  `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
 
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
@@ -1814,6 +1981,17 @@ APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥
 arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run. That holds for
 a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): `papers.never_scraped`
 keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
+
+**Reading with an agent (G166) does not loosen the rail below; it sits beside it.** The rail governs *Cicada's own*
+fetcher, and the backend's page readers (`media_ingestor.enrich`, the `link_enrichment` backfill) no longer fetch the
+page of a login-walled host (R-RW4, one closed set in `reading_hosts.py`, which also closed the X gap; TikTok's provider
+oEmbed call and the Reddit and X connectors' own API calls remain, and none loads the walled page). What the person's own agent does in its own signed-in browser is the person's and the
+agent's, not Cicada's: Cicada only *asks*, per link or per site the person turned on after a page from it could not be read, after a
+first-use acknowledgement, and promises nothing about what the agent does there. The backend never holds a session, a cookie or a
+browser profile. An ask's URL is the person's explicit hand-off to their agent, and a site entry's URL rests on the person's grant for
+the site, so a remote connection holding `read` sees them (TODO ruling 14; a site entry from a channel that is the
+person's own words needs `sources`); `sources` still gates every verbatim word of the person's conversations and any
+chat-harvested URL.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a

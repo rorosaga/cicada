@@ -340,14 +340,20 @@ struct EpisodeText: Codable, Hashable {
     let agent: EpisodeAgent?
     /// G162 — only on a video-watch record.
     let watch: EpisodeWatch?
+    /// The episode's `source`. `page-read` is what an agent reported from a page: Cicada never had the page, so its
+    /// quotes read "From the page, as <agent> read it" (G166, spec 8.5), never a bare "From the page".
+    let source: String?
 
     var isPage: Bool { kind == "page" }
+    var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
 
     init(episode: String, kind: String = "episode", text: String, length: Int? = nil, hash: String = "",
          truncated: Bool = false, title: String = "", timestamp: String? = nil, harness: String? = nil,
          origin: String? = nil, conversationId: String? = nil, captureKind: String? = nil,
          turns: [EpisodeTurn] = [], focus: EpisodeFocus? = nil, agent: EpisodeAgent? = nil,
-         watch: EpisodeWatch? = nil) {
+         watch: EpisodeWatch? = nil,
+         source: String? = nil) {
+        self.source = source
         self.episode = episode
         self.kind = kind
         self.text = text
@@ -368,11 +374,14 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent, watch
+         watch: EpisodeWatch? = nil,
+         source: String? = nil) {
+        self.source = source
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

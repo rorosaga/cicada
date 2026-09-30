@@ -479,6 +479,11 @@ def parse_envelope(result: CliResult, stream: agent_stream.StreamResult | None =
             f"`claude -p` timed out: {(result.stderr or '').strip()[:200]}"
         ))
     text = (result.stdout or "").strip()
+    if not text and result.rc == 0:
+        # The CLI ran and exited cleanly and said nothing: an empty answer, not a
+        # signed-out engine (that one exits non-zero) — so a drain counts it against
+        # the conversation, never as "the engine is gone".
+        return _raise(engine_errors.EngineProtocolError("`claude -p` finished without an answer"))
     if not text:
         return _raise(engine_errors.EngineUnavailable(
             f"`claude -p` produced no output (rc {result.rc}): "
@@ -543,6 +548,26 @@ _BREAKER: dict[str, str] = {}
 #: is back without parsing a sentence. Measured, never estimated; purged with the
 #: trip.
 _BREAKER_RESETS: dict[str, int] = {}
+#: Which limit a scope's trip was (``LIMIT_KINDS``): a drain's paused record and
+#: the opt-in continue-after-reset both need to tell a 5-hour window (back in
+#: hours) from a weekly one (back in days) and from extra usage. Enums only.
+_BREAKER_KIND: dict[str, str] = {}
+LIMIT_KINDS = ("five_hour", "seven_day", "overage", "unknown")
+
+
+def limit_kind_of(exc: BaseException | None = None, limit_type: str | None = None) -> str:
+    """The limit an error or a rate-limit window names, as a ``LIMIT_KINDS`` enum.
+    An unrecognised source is ``unknown`` and never arms anything automatic."""
+    if isinstance(exc, engine_errors.EngineOverage):
+        return "overage"
+    lt = (limit_type or getattr(exc, "limit_type", None) or "").lower()
+    if lt == "five_hour":
+        return "five_hour"
+    if lt.startswith("seven_day") or lt in ("weekly", "week"):
+        return "seven_day"
+    if lt == "overage":
+        return "overage"
+    return "unknown"
 
 
 def current_scope() -> str:
@@ -576,7 +601,8 @@ def use_scope(name: str):
         reset_breaker(scope=name)
 
 
-def trip_breaker(reason: str, *, scope: str | None = None, resets_at: int | None = None) -> bool:
+def trip_breaker(reason: str, *, scope: str | None = None, resets_at: int | None = None,
+                 kind: str | None = None) -> bool:
     """Trip the throttle breaker for ``scope``. Returns ``True`` only for the
     call that tripped it.
 
@@ -593,6 +619,7 @@ def trip_breaker(reason: str, *, scope: str | None = None, resets_at: int | None
         _BREAKER[scope] = reason or "Claude plan throttled"
         if isinstance(resets_at, int) and not isinstance(resets_at, bool):
             _BREAKER_RESETS[scope] = resets_at
+        _BREAKER_KIND[scope] = kind if kind in LIMIT_KINDS else "unknown"
         return True
 
 
@@ -608,11 +635,19 @@ def breaker_resets_at(*, scope: str | None = None) -> int | None:
         return _BREAKER_RESETS.get(scope)
 
 
+def breaker_kind(*, scope: str | None = None) -> str | None:
+    """Which limit tripped the scope's breaker, or ``None`` when it is not tripped."""
+    scope = scope or current_scope()
+    with _STATE_LOCK:
+        return _BREAKER_KIND.get(scope) if scope in _BREAKER else None
+
+
 def reset_breaker(*, scope: str | None = None) -> None:
     scope = scope or current_scope()
     with _STATE_LOCK:
         _BREAKER.pop(scope, None)
         _BREAKER_RESETS.pop(scope, None)
+        _BREAKER_KIND.pop(scope, None)
 
 
 def record_model_used(model: str | None) -> None:
@@ -649,10 +684,13 @@ def _stop_error(stop: plan_limits.PlanStop) -> engine_errors.EngineError:
     already branch on — overage and a weekly rejection need a human (or the
     reset), a 5-hour stop is a throttle the breaker handles."""
     if stop.kind == "overage":
-        return engine_errors.EngineOverage(stop.sentence, resets_at=stop.resets_at)
-    if stop.kind == "rejected" and (stop.limit_type or "").startswith("seven_day"):
-        return engine_errors.EngineExhausted(stop.sentence, resets_at=stop.resets_at)
-    return engine_errors.EngineThrottled(stop.sentence, resets_at=stop.resets_at)
+        err: engine_errors.EngineError = engine_errors.EngineOverage(stop.sentence, resets_at=stop.resets_at)
+    elif stop.kind == "rejected" and (stop.limit_type or "").startswith("seven_day"):
+        err = engine_errors.EngineExhausted(stop.sentence, resets_at=stop.resets_at)
+    else:
+        err = engine_errors.EngineThrottled(stop.sentence, resets_at=stop.resets_at)
+    err.limit_type = stop.limit_type   # the window that named it, for `limit_kind_of`
+    return err
 
 
 def complete(

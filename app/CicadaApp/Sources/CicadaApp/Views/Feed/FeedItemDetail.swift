@@ -55,6 +55,8 @@ struct FeedItemDetail: View {
                 whySection
                 savedFromSection
             }
+            // G166 — what an agent did with this link, and "Ask an agent".
+            FeedReadSection(item: item)
             Text(meta)
                 .font(CicadaTheme.metaFont)
                 .monospacedDigit()

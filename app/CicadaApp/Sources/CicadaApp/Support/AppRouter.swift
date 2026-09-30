@@ -90,6 +90,14 @@ final class AppRouter {
         activateMainWindow()
     }
 
+    /// Sleep page v5 — every door but the Sleep page lands here while a run is paused (`SleepViewModel.onPausedDoor`):
+    /// the page holds the reason for the pause and the one Continue.
+    func routeToSleep() {
+        closeSettings()
+        pendingTab = .sleep
+        activateMainWindow()
+    }
+
     /// G141 PJ-5 (R-PP24) — a project opened from elsewhere (a ⌘K entity row) lands in the Projects page's detail
     /// column; the tab and the id move together, `routeToFeedItem`'s reason.
     var pendingProject: String?

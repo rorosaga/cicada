@@ -349,6 +349,10 @@ extension Copy {
             : "\(program) isn't installed on this Mac. Copy the command to run it where it is."
     }
     static let connectInYourAgent = "Connect it in your agent — it will ask you to sign in."
+    /// G166 — a skill your agent installs itself from a sentence (`agent-prompt`): Cicada shows and copies it.
+    static let skillPromptLead = "Give this to your agent. It installs the skill itself, and Cicada runs nothing."
+    static let copySkillPrompt = "Copy for your agent"
+    static let skillPromptCopied = "Copied"
 
     // MARK: Plans & keys — OpenRouter sign-in (R-AG10)
     static let signInWithOpenRouter = "Sign in with OpenRouter"

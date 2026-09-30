@@ -75,6 +75,7 @@ from loguru import logger
 from api.services import bank_index, inbox_service, markdown_parser, session_stats, sync_service
 from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
+from api.services.skill_tag import is_agent_skill
 
 STATE_FILENAME = "_state.md"
 # 2: G140 Q-R13 — `standing`, `focus` and `owner_one_liner`; `preferences`
@@ -240,6 +241,8 @@ def _preferences(memory_path: Path, n: int) -> list[dict]:
         fm = f.frontmatter
         if str(fm.get("type") or "") != "skill" or not _live(fm) or _class_of(fm) not in STANDING_CLASSES:
             continue
+        if is_agent_skill(fm):
+            continue  # an installed tool the person chose, not a working agreement (skill_tag)
         raw_tags = fm.get("tags")
         tags = {str(t).strip().lower() for t in raw_tags} if isinstance(raw_tags, list) else set()
         rows.append((0 if tags & WORKING_TAGS else 1, -_confidence(fm), f.stem, f))

@@ -162,6 +162,8 @@ class Ledger:
     """One pass over the ledger, grouped for the joins below."""
     runs: list = field(default_factory=list)                 # sleep_run events with a commit
     calls: dict[str, list] = field(default_factory=dict)     # cycle_id -> llm_call events
+    runs_by_drain: dict[str, list] = field(default_factory=dict)    # drain_id -> its batches' sleep_run rows
+    calls_by_drain: dict[str, list] = field(default_factory=dict)   # drain_id -> every llm_call of the run
 
     @classmethod
     def build(cls, events) -> "Ledger":
@@ -171,8 +173,12 @@ class Ledger:
             refs = e.refs if isinstance(getattr(e, "refs", None), dict) else {}
             if kind == "sleep_run" and refs.get("commit"):
                 ledger.runs.append(e)
+                if refs.get("drain_id"):
+                    ledger.runs_by_drain.setdefault(str(refs["drain_id"]), []).append(e)
             elif kind == "llm_call" and refs.get("cycle_id"):
                 ledger.calls.setdefault(str(refs["cycle_id"]), []).append(e)
+                if refs.get("drain_id"):
+                    ledger.calls_by_drain.setdefault(str(refs["drain_id"]), []).append(e)
         return ledger
 
     def run_for(self, commit_hash: str):
@@ -184,11 +190,7 @@ class Ledger:
         return None
 
 
-def usage_of_run(run, calls: list) -> CycleUsage | None:
-    """The usage of one ``sleep_run`` and its cycle's ``llm_call`` rows."""
-    refs = run.refs or {}
-    if not refs.get(TAGGED_REF):
-        return None   # written before calls were tagged: not recorded
+def _models_of(calls: list) -> list[CycleUsageModel]:
     groups: dict[tuple[str | None, str | None], list] = {}
     for c in calls:
         groups.setdefault((c.engine, c.model), []).append(c)
@@ -204,26 +206,81 @@ def usage_of_run(run, calls: list) -> CycleUsage | None:
             output_tokens=sum(int(r.output_tokens) for r in rows),
             cost_usd=cost, equiv_cost_usd=equiv,
             basis=_model_basis(engine, billing, cost, equiv),
+            stages=sorted({str(r.stage) for r in rows if getattr(r, "stage", None)}),
         ))
     models.sort(key=lambda m: (-m.calls, m.model or ""))
+    return models
+
+
+def _plan_of(raw) -> CycleUsagePlan | None:
+    if not (isinstance(raw, dict) and isinstance(raw.get("windows"), list)):
+        return None
+    wins = []
+    for w in raw["windows"]:
+        try:
+            wins.append(CycleUsagePlanWindow(
+                window=str(w["window"]), before=float(w["before"]), after=float(w["after"]),
+                resets_at=w.get("resets_at") if isinstance(w.get("resets_at"), int) else None,
+                before_is_first_seen=bool(w.get("before_is_first_seen"))))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return CycleUsagePlan(connection=raw.get("connection"), windows=wins) if wins else None
+
+
+def usage_of_run(run, calls: list) -> CycleUsage | None:
+    """The usage of one ``sleep_run`` and its cycle's ``llm_call`` rows."""
+    refs = run.refs or {}
+    if not refs.get(TAGGED_REF):
+        return None   # written before calls were tagged: not recorded
+    models = _models_of(calls)
     bases = {m.basis for m in models}
     basis = None if not bases else (bases.pop() if len(bases) == 1 else "mixed")
-    plan = None
-    raw = refs.get("plan")
-    if isinstance(raw, dict) and isinstance(raw.get("windows"), list):
-        wins = []
-        for w in raw["windows"]:
-            try:
-                wins.append(CycleUsagePlanWindow(
-                    window=str(w["window"]), before=float(w["before"]), after=float(w["after"]),
-                    resets_at=w.get("resets_at") if isinstance(w.get("resets_at"), int) else None,
-                    before_is_first_seen=bool(w.get("before_is_first_seen"))))
-            except (KeyError, TypeError, ValueError):
-                continue
-        if wins:
-            plan = CycleUsagePlan(connection=raw.get("connection"), windows=wins)
+    plan = _plan_of(refs.get("plan"))
     return CycleUsage(
         recorded=True, engine=run.engine, connection=run.connection, models=models,
+        total_cost_usd=_sum([m.cost_usd for m in models]),
+        total_equiv_usd=_sum([m.equiv_cost_usd for m in models]),
+        basis=basis, plan=plan,
+    )
+
+
+def usage_for_drain(ledger: Ledger, drain_id: str) -> CycleUsage | None:
+    """A whole run's usage, summed by ``refs.drain_id`` over every ``llm_call`` — a paused
+    or discarded batch's calls included, which a per-commit join can never see. ``None``
+    (not recorded, never zero) when no batch of the run was tagged. Its plan block lists a
+    window only when every batch saw the same reset time: across a reset a first-to-last
+    figure is meaningless, and the per-batch windows on the run detail show it instead."""
+    rows = ledger.runs_by_drain.get(drain_id) or []
+    tagged = [r for r in rows if (r.refs or {}).get(TAGGED_REF)]
+    if not tagged:
+        return None
+    rows = sorted(rows, key=lambda r: int((r.refs or {}).get("batch") or 0))
+    calls = ledger.calls_by_drain.get(drain_id, [])
+    models = _models_of(calls)
+    bases = {m.basis for m in models}
+    basis = None if not bases else (bases.pop() if len(bases) == 1 else "mixed")
+    plans = [p for p in (_plan_of((r.refs or {}).get("plan")) for r in rows) if p is not None]
+    plan = None
+    if plans:
+        merged: dict[str, CycleUsagePlanWindow] = {}
+        broken: set[str] = set()
+        for p in plans:
+            for w in p.windows:
+                cur = merged.get(w.window)
+                if cur is None:
+                    merged[w.window] = w
+                elif cur.resets_at != w.resets_at:
+                    broken.add(w.window)
+                else:
+                    merged[w.window] = CycleUsagePlanWindow(
+                        window=w.window, before=cur.before, after=w.after, resets_at=w.resets_at,
+                        before_is_first_seen=cur.before_is_first_seen)
+        wins = [w for n, w in merged.items() if n not in broken]
+        if wins:
+            plan = CycleUsagePlan(connection=plans[0].connection, windows=wins)
+    first = rows[0]
+    return CycleUsage(
+        recorded=True, engine=first.engine, connection=first.connection, models=models,
         total_cost_usd=_sum([m.cost_usd for m in models]),
         total_equiv_usd=_sum([m.equiv_cost_usd for m in models]),
         basis=basis, plan=plan,
@@ -251,11 +308,23 @@ def summarize(usage: CycleUsage | None) -> CycleUsageSummary | None:
     )
 
 
-def attach_usage(entries, events, *, detail: bool = False) -> None:
+def attach_usage(entries, events, *, detail: bool = False, memory_path=None) -> None:
     """Join usage onto history entries: ``usage_summary`` on every row, and the
     full ``usage`` on a detail. Decay and inbox commits never have a
-    ``sleep_run``, so theirs stay ``None``. One ledger pass, one index."""
+    ``sleep_run``, so theirs stay ``None``. One ledger pass, one index.
+
+    Sleep page v5: a batch commit also learns its run (``drain_id``, ``batch``, ``batches``
+    from the ledger row's refs) and, from the run's machine-local summary, the run's own
+    numbers — never summed from the visible page of history."""
     ledger = Ledger.build(events)
+    summaries: dict = {}
+    if memory_path is not None:
+        try:
+            from api.services import sleep_runs
+
+            summaries = sleep_runs.all_runs(memory_path)
+        except Exception:  # noqa: BLE001 - a grouping hint must never fail a history read
+            summaries = {}
     for entry in entries:
         if getattr(entry, "kind", "sleep") != "sleep":
             continue
@@ -263,6 +332,18 @@ def attach_usage(entries, events, *, detail: bool = False) -> None:
         entry.usage_summary = summarize(usage)
         if detail:
             entry.usage = usage
+        run = ledger.run_for(entry.commit_hash)
+        refs = (run.refs or {}) if run is not None else {}
+        if refs.get("drain_id"):
+            entry.drain_id = str(refs["drain_id"])
+            entry.batch = refs.get("batch") if isinstance(refs.get("batch"), int) else None
+            entry.batches = refs.get("batches") if isinstance(refs.get("batches"), int) else None
+            summary = summaries.get(entry.drain_id)
+            if summary:
+                from api.services import sleep_runs
+                from api.models.schemas import SleepRunRef
+
+                entry.run = SleepRunRef(**sleep_runs.to_run_ref(summary))
 
 
 # --------------------------------------------------------------------------- #

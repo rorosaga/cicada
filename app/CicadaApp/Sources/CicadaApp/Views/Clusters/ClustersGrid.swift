@@ -229,13 +229,12 @@ struct ClusterShortCard: View {
     }
 }
 
-/// A tile (F-11): the picture, the name, one line in words. The words open the card; the picture and, on hover, a
-/// "Change picture…" beside the words (never inside the link) open the image picker (R-PE15). Hover is a fill (DR-63).
+/// A tile (F-11): the picture, the name, one line in words. The words open the card; a click on the picture opens the
+/// image picker (R-PE15 — the hover "Change picture…" button repeated it and is gone, owner 2026-09-30). Hover is a fill (DR-63).
 struct ClusterTile: View {
     let entity: Entity
     let open: () -> Void
 
-    @Environment(Store.self) private var store
     @State private var hovering = false
 
     var body: some View {
@@ -257,13 +256,6 @@ struct ClusterTile: View {
             }
             .buttonStyle(.cicadaPlain)
             .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.name, open: false))
-            if hovering, PictureActions.canEdit(entity.type) {
-                NeutralButton(title: Copy.People.changePicture, systemImage: "square.and.arrow.up", size: .compact) {
-                    PictureActions.change(id: entity.id, name: entity.name, type: entity.type, store: store,
-                                          inputs: store.pictureInputs(for: entity.id, held: entity.pictureInputs))
-                }
-                .fixedSize()
-            }
         }
         .padding(.horizontal, CicadaTheme.scaled(8))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.twoLine),

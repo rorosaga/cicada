@@ -54,12 +54,13 @@ def test_next_run_at_per_mode(tmp_path):
 def _probe(monkeypatch, *, status, unprocessed, newest_age_min):
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
         calls.append(user_triggered)
 
     async def fake_compute(memory_path, settings=None):
         newest = None if newest_age_min is None else datetime.now() - timedelta(minutes=newest_age_min)
-        return SimpleNamespace(unprocessed_count=unprocessed, newest_unprocessed_at=newest)
+        return SimpleNamespace(unprocessed_count=unprocessed, readable_count=unprocessed,
+                               newest_unprocessed_at=newest)
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
     monkeypatch.setattr("api.services.sleep_debt.compute", fake_compute)

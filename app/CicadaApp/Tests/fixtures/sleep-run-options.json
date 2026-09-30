@@ -1,0 +1,34 @@
+{
+  "custom": {
+    "batchSize": 10,
+    "batchSizeChoices": [
+      10,
+      25,
+      50
+    ],
+    "continueAfterReset": true,
+    "reserveChoices": [
+      5,
+      10,
+      20,
+      30
+    ],
+    "reservePct": 20
+  },
+  "defaults": {
+    "batchSize": 25,
+    "batchSizeChoices": [
+      10,
+      25,
+      50
+    ],
+    "continueAfterReset": false,
+    "reserveChoices": [
+      5,
+      10,
+      20,
+      30
+    ],
+    "reservePct": null
+  }
+}

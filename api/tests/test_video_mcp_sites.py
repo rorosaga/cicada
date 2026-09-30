@@ -398,4 +398,4 @@ def test_the_primer_stays_inside_its_budget(tmp_path, monkeypatch):
         assert len(text) // 4 <= handshake.MAX_TOKENS, (variant, len(text))
     remote = handshake.build_remote(None, tools=catalog.tool_names_for(catalog.SCOPES), bank="memory")
     assert len(remote) // 4 <= handshake.MAX_TOKENS
-    assert handshake.CONTRACT_VERSION == 10 and handshake.REMOTE_CONTRACT_VERSION == 7
+    assert handshake.CONTRACT_VERSION == 11 and handshake.REMOTE_CONTRACT_VERSION == 8

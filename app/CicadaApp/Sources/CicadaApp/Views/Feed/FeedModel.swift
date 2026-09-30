@@ -133,6 +133,8 @@ enum FeedRowText {
             parts.append(site)
         }
         if let duration = VideoRef.durationLabel(item.durationS) { parts.append(duration) }
+        // G166 — a login wall an agent hit is visible from the list, not only inside the open item.
+        if let flag = ReadWords.rowFlag(item.read) { parts.append(flag) }
         if let day = FeedDates.day(item, locale: locale, timeZone: timeZone) { parts.append(Copy.Lists.savedRow(day)) }
         return parts.joined(separator: " · ")
     }

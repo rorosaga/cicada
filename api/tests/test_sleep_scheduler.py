@@ -15,8 +15,8 @@ from api.services import sleep_cycle, sleep_scheduler
 def test_the_scheduled_cron_path_marks_the_cycle_not_user_triggered(monkeypatch):
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
-        calls.append(user_triggered)
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
+        calls.append((user_triggered, drain))
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
     state = sleep_cycle.get_sleep_state()
@@ -24,13 +24,14 @@ def test_the_scheduled_cron_path_marks_the_cycle_not_user_triggered(monkeypatch)
 
     asyncio.run(sleep_scheduler._run_if_idle(Settings()))
 
-    assert calls == [False]
+    # Not user-triggered (ruling 4: no plan engine), and it reads everything waiting (ruling 16).
+    assert calls == [(False, True)]
 
 
 def test_the_scheduled_cron_path_skips_when_a_cycle_is_already_running(monkeypatch):
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
         calls.append(user_triggered)
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)

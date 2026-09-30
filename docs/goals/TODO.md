@@ -18,6 +18,28 @@ statting its cwd; #131 has the app run git in a declared repo and the backend on
 #132 matches a `device:` by any of this Mac's names (`local_refs.is_this_device`). Dev tooling: #122–#127 keep the
 owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cicada.dev-autoupdate`).
 
+**Agent reading (G166 Route A) — built on `feat/agent-reading`, 2026-09-29/30 (PR to `dev` pending; not merged).**
+- *State (2026-09-30, second pass):* the backend half of the permissions-page rework is on the branch — surfaced sites
+  (`reading_walls`, `reading_queue`, `GET /reading/sites`, `agent_sites`), the reader recording its own walls, site icons,
+  "How your agent reads" (`agent_methods`, catalog `roles`/`agent-prompt`, `skill_pages`) — and the app half: Settings →
+  Reading the web (With an agent, How your agent reads, Sites that need your browser with icons and wall words; the
+  first-use sheet has no site picker; the old Settings → Agents → Reading pages group is gone). App half finished
+  2026-09-30 (third pass): the Feed's Read section shows a wall page ("Cicada's reader couldn't open this page: …") with
+  the site's icon and **Let an agent read <site>** (one call, or the same first-use sheet); Home's own *Needs your
+  browser* block; the first-use sheet carries Cicada's instruction and its honest limit; site icons fall back favicon →
+  bundled family mark → ring monogram; "Install…" in How your agent reads opens the skill's own detail with its
+  `agent-prompt` sentence to copy; Settings → Agents links to Reading the web. Review fixes 2026-09-30:
+  a site row an agent's own outcome wrote no longer authorizes a record once the site is off; the hook's count is
+  bounded by its deadline; an agent's `saved-link` save needs `sources` remotely; an X bookmark's post text counts as
+  words. **Not yet measured:** the real-bank count of surfaced pages per site (read-only, before merge). Earlier: backend,
+  the Feed's Read section, the row flag ("Needs sign-in"), the toast
+  and the honest chip label ("From the page, as <agent> read it") are built and reviewed; **TODO ruling 14 (R-RW4, R-RW5,
+  R-RW8, R-RW9 and the review rulings) is binding.** Ruling 13 is the Sleep drain (on `dev`); reading is ruling 14. The
+  narrowing-the-Sleep-refusals row is **G177**. **Not built:** the Reader's Links section (S2), the public Reader
+  ladder (**G164** S1), Route B (RESEARCH). **Not yet seen live:** a real agent (Claude Code with a browser skill, or the
+  ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
+- *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
+
 **Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
 - **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
@@ -25,13 +47,22 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
   cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
   the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run (the app's own Projects/Backlog controls still key off `running`, so they stay disabled for the whole run: `/status` does not carry `writing`).
-- **Video watch run — built (2026-09-30, ruling 15, branch `feat/video-watch`, G162):** the honest per-video state,
+- **Video watch run — built (2026-09-30, ruling 17, branch `feat/video-watch`, G162):** the honest per-video state,
   the queue outside the bank, `cicada_video_queue` / `cicada_video_claim`, the hand-off prompt and `/videos/*` routes, the
   provenance `watch` block, the demo's three states. **The app half is in too** (Feed rows and strip, picker, run card,
   `VideoBlock` in the Feed and the entity card, the Reader's watch header, one Sleep Details row); the room-sentence rung is
   left to Sleep v5 and the needs-login Settings button to the reading branch.
   It builds on the merged drain (#151: `is_writing()`, the narrowed write window); the reading branch (ruling 14) and this one
-  both touch the contract numbers (9/6 there, 10/7 here), `runtime._writes_bank` and `sync_service.components` — take both.
+  both touched the contract numbers (9/6 there, 10/7 here; the merge is 11/8), `runtime._writes_bank` and `sync_service.components` — take both.
+- **Sleep page v5, backend and app (2026-09-30, branch `feat/sleep-v5`, rulings 15 and 16):** the approved boards are applied on top of the drain — Reading options
+  (batch size, the opt-in *continue after a plan reset*, the *leave room in my plan* reserve), scheduled cycles that read everything waiting (never a plan),
+  per-conversation outcomes with retry-once-then-park, honest live progress (calls, stages, by source, elapsed, arrivals, the owner page's beliefs),
+  Pause / Continue / End this run as a sidecar record, run-level Past nights and `GET /sleep/runs/{id}`. **Owner declined "Read faster"** (parallel
+  reading, the small-model map) — not built, G163 stays open for it; the journal ("Saved reading") is still unbuilt, so no copy may say "read and kept".
+  The app half is built on the same branch (the sentence ladder, Pause / Continue / End this run, the bar and the strip's captions, Reading options,
+  *Keep plan free*, Details' run rows and per-conversation What's waiting with Retry, Past nights by run, every door routing to the page while paused;
+  `SleepV5Tests.swift`, `SleepProviderNeutralLintTests`, `PriceLintTests`). **Pick up here for this branch:** the owner's visual check against the 11
+  boards in light and dark, then he confirms ruling 15's bounds (Q-B) and whether a scheduled run needs a spending or batch cap (Q-E).
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
   another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
@@ -582,8 +613,8 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
     Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
 
-13. **Consolidate reads everything — a person-started run drains the whole queue, in batches; a scheduled
-    one still reads one batch (owner, 2026-09-29).** The owner: "i dont want to cap the max episodes per
+13. **Consolidate reads everything — a person-started run drains the whole queue, in batches (owner,
+    2026-09-29); a scheduled one reads one batch — amended 2026-09-30 by ruling 16: it reads everything too.** The owner: "i dont want to cap the max episodes per
     sleep, why would we cap them? its just progress that cicada has to go through." This amends **G125
     R10** ("one trigger, one cycle") and **reverses the v5 spec's V5-15 / Q7** (a no-body trigger is one
     batch; a drain only from a sheet): Consolidate *is* the drain, no sheet, no `/sleep/run/continue`.
@@ -592,22 +623,162 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     - **Shape.** `POST /sleep/trigger` runs `run(drain=True)`: freeze the waiting ids, resolve the engine once,
       read them in batches of `sleep_max_episodes_per_cycle` (default 25, now "how often progress is saved"), each
       batch filed and committed by Stage 5, so a cancel or a plan stop loses at most the batch in progress.
-    - **Scheduled = one batch.** `user_triggered=False` never drains: an unattended run on an API key reading
-      everything would be real money (ruling 4's reason). The scheduler never passes `drain`.
+    - ~~**Scheduled = one batch.**~~ *Amended 2026-09-30 (ruling 16):* a scheduled run drains the queue too, on the
+      scheduled engine (`user_triggered=False`, so never a plan — ruling 4 unchanged). The original reason — an
+      unattended run on an API key reading everything is real money — is now said in words in the engine menu and
+      Details instead of being prevented.
     - **Once per drain:** decay (both engines; ruling 1 — charged once, not once per batch) and Stage 5.57's page
       reads, in the batch that empties the queue. **Once per run:** the engine-independent tail. Everything else per
       batch, so each commit is self-consistent.
-    - **A plan limit is a pause, not a failure,** with the vendor's own sentence and reset time. **Not built:**
-      auto-continue after a reset (a ruling 4 amendment), a weekly "leave room" reserve, a journal of paid answers
-      (a cancel before Stage 5 still discards the batch in progress), parallel reading, per-batch rows in Past nights.
+    - **A plan limit is a pause, not a failure,** with the vendor's own sentence and reset time. *Since built
+      (2026-09-30, Sleep page v5):* Continue / End this run on a paused record, the opt-in continue-after-reset
+      (ruling 15), the "leave room in my plan" reserve, run-level Past nights. **Still not built:** a journal of paid
+      answers (a cancel or a hard rejection before Stage 5 still discards the batch in progress), parallel reading
+      ("Read faster" — the owner declined it for now, G163).
     - **Cost accepted:** bank switching, export and delete are refused for the whole run (the drain is pinned to its
       bank) — by name, and the app shows the sentence. Every other guard and the MCP write probe follow **G177**'s
       write window (`sleep_cycle.is_writing()`), so an agent's claim between batches commits alone under its own author.
 
-    Revisit only on the trigger G163's row names (the journal / reserve slices), or if a drain's plan volume
+    Revisit only on the trigger G163's row names (the journal slice; the reserve and Continue are built), or if a drain's plan volume
     hurts a real owner's coding budget.
 
-15. **Video: the watch run is the person's own agent's work, the queue lives outside the bank, and copy names no
+14. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
+    (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
+    chatgpt app and claude app, which uses the logged in sessions and swiftly surfaces 'needs login'… I want this built
+    now"; G166, spec `2026-09-29-reading-the-web-design.md`).** Four of the spec's proposed rulings are now binding; the
+    rest (R-RW1–3 the Reader's identity and metadata tier, R-RW6–7 and R-RW12 chat links, R-RW10–11 robots and backoff)
+    stay with the Reader slices.
+    - **Amended 2026-09-30 — no pre-picked site list; sites are surfaced from the reader's own failures (owner: "limiting the
+      amount of sites makes no sense to me, because we will never know which sites this will happen").** The five per-site
+      switches are gone. A saved page Cicada's own reader could not read — a sign-in, a consent wall, a refusal, or a host the
+      backend never requests — is a *wall page* (`reading_walls`, from stamps the fetchers already write, and only while it
+      holds no words); wall pages group by site (`reading_hosts.site_of`); Settings → Reading the web lists those sites with
+      measured counts and a per-site switch, off until the person turns it on (`reading.agent_sites`, a grant refused for a
+      site nothing has surfaced). Surfacing follows the reader's failures *wherever they happen* — save time, the in-cycle
+      pass, the backfill — so the backfill's throughput never bounds it. The master switch, the versioned acknowledgement
+      (now v2, without the site picker) and per-page "Ask an agent" stay. Copy across the branch is provider-neutral: it
+      describes the step ("summarized by the engine you chose for Sleep"), and names a provider or model only where it
+      shows the person's own current choice. **Amended clauses:** R-RW8's "per link, for a site the person switched on" is
+      "per link, or per site the person turned on after a page from it could not be read"; "Reddit and `t.co` are never
+      offered; the other five are five per-site switches" is "`t.co` is never offered; Reddit surfaces like any site"; and
+      Track P R5 (a retired interstitial or login wall stays out of the Feed) now lets a page through **only** when it is such
+      a wall an agent can be asked to read, or an agent already read it. **Review 2026-09-30:** a row an agent's own outcome wrote
+      (`origin: site`) is no consent of its own — it authorizes a record only while the site is still allowed and the
+      page is still a wall page, so switching a site off revokes recording as it dequeues; a connector whose saved item
+      *is* the post (X bookmarks: the text in `## Notes`) holds words, while a Reddit or Pinterest save is a link out
+      whose title or pin description is not the linked page, and surfaces on purpose.
+    - **A site switch is a standing permission, derived not fanned out (2026-09-30).** The queue is the person's asks plus
+      wall pages of allowed sites, computed at read (`reading_queue`): a switch writes one line, a new wall page joins with
+      no write, turning it off (or the master) dequeues at once. An agent's `needs_login` pauses that site's derived entries
+      until the row expires (7 days), the person asks again on a page, or switches the site on again ("try again"): an agent
+      that is not signed in is asked again at most weekly. Pacing is one entry per site per call. Grants are machine-wide
+      (`reading.json`); the pause is per bank (the ask store is).
+    - **The Feed shows a wall without being opened (review, 2026-09-30).** The row's second line says "Needs sign-in" and a
+      toast announces a link that just hit a wall (not on the first look after launch); the text is the text ladder plus a
+      neutral glyph, not `warning` (DR-7 is unchanged). A quote from `cicada_record_read` is labelled "From the page, as
+      <agent> read it", never bare "From the page" (spec §8.5).
+    - **R-RW8 — the ruling that keeps this from eroding the rail.** The standing rail ("no scraping behind
+      authentication", 4 s / ≤ 512 KB / no cookies / a block never retried with different headers) governs *Cicada's own
+      fetcher* and is unchanged. Agent reading is person-driven and never scheduled; Cicada only *asks* — per link, or per
+      site the person turned on after a page from it could not be read, after a versioned first-use acknowledgement — and
+      promises nothing about what the
+      agent does in its own browser. The backend never holds a session, a cookie or a profile. No Cicada text says
+      "read-only" or "never posts"; contract item 9 and the hand-off prompt are *instructions*, not promises.
+    - **R-RW4 — one closed set of login-walled hosts, and the backend's page readers never fetch one.** X, Facebook, LinkedIn,
+      Instagram, TikTok, Reddit and `t.co` (dot-boundary match: `lnkd.in` and `fb.watch` in, `notx.com` out). This closes
+      the X gap (X fell through to the OpenGraph fetch). TikTok keeps its provider oEmbed branch, which never loads the
+      page, and the Reddit and X connectors still call their own APIs; the rule covers the *page* fetch of
+      `media_ingestor.enrich` and the `link_enrichment` backfill. `t.co` is never offered to an agent. There is no pre-picked list of sites: a site is *surfaced* when Cicada's own
+      reader cannot read one of its pages (a sign-in, a consent wall, a refusal, or a host the backend never requests) and
+      the person turns it on, per site, on Settings → Reading the web. Site icons come from the icon service only, and a walled
+      site is never contacted for its favicon either.
+      `link_enrichment._excluded_media` is shared with `fact_sources.is_refused_host` and `link_recon`, so a source on
+      such a host now reads as needing the person's login there too.
+    - **R-RW5 — a link that carries a secret or a side effect is never offered** (a token-like query key, an
+      unsubscribe/verify/reset/logout/oauth path segment, a signed URL, a private-workspace host, a userinfo or non-web
+      port), nor is a local or reserved host, an AI vendor's own page, a video (the video path owns it) or a paper.
+    - **R-RW9 — `--chrome` is in no argv** (`test_reading_never_spawns_browser.py`). Measured: it overrides
+      `--safe-mode`, `--strict-mcp-config` and `--tools ""`.
+    - **Only a link the person asked about, or a wall page of a site they allowed, can be recorded (review, 2026-09-29;
+      amended 2026-09-30).** `cicada_record_read` refuses every outcome, `read` included, for any other URL, whether or not
+      the link is saved (a saved public page with no wall too), and `reading_asks.record_outcome` creates a row only for the
+      site case (`origin: site`) — otherwise it writes nothing without a live row. **Exposure, stated:** with a site grant the
+      person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site;
+      the structural denials (R-RW5), the master switch, ask-store-only outcomes and `page`-kind spans bound it. Before this a saved link with no ask took any outcome
+      (a rewritten description, a planted `needs_login`), which is what a page steering an agent would use.
+    - **The outcome is stored where it can be shown at once.** `needs_login`, `blocked`, `not_found` and `failed` live
+      only in the machine-wide ask store (no bank write, no commit, no Sleep gate) and move the `reading` sync component;
+      only a successful `read` is memory. Chosen over writing the page because a page write needs a commit, is refused
+      remotely while Sleep runs, and does not exist for a link that was never saved.
+    - **An ask's URL is visible to any connection holding `read`** (this departs from the spec's §8.4, which hid a
+      `role: user` row's URL without `sources`). Cause: the person's explicit "Ask an agent" *is* the consent to hand that
+      one URL to an agent (and, amended 2026-09-30, their grant for a site is the consent for that site's wall pages — a
+      site entry from a channel that is the person's own words, such as Telegram, an agent's save or a chat export, needs
+      `sources`; only saved-content channels are served to `read`), and the default scopes are search/read/record, so applying the old rule would leave the ChatGPT
+      and Claude apps unable to read any ask. `sources` still gates every verbatim word of the person's conversations, an
+      inbox `Cause:` quote and any chat-harvested URL (not built yet). No `why` or note text is served remotely.
+    - **How the agent reads is a selection, and an instruction (2026-09-30; owner: "i want to use the macos-harness, the
+      browser-harness and claude-video … as selections in settings, amongst the other default options models can use through
+      their harnesses").** "Let my agent choose" (default), the agent's own tools, or a catalog skill whose `roles` list the
+      job; stored on this Mac (`agent_methods.json`), passed to the person's own agent as a sentence in the hand-off prompt,
+      the stdio queue reply and one primer line — never to a remote connection, never authority. A skill the person picks
+      gets a `type: skill` page tagged `agent-skill` in the graph, written only on that selection. `macos-harness` states
+      plainly that it can control the whole Mac. Backlog: **G178** (people add or import their own skills).
+    Revisit when the owner asks for Route B (a Cicada-spawned browse call, spike-gated) or a per-category refuse list
+    (adult, financial, health hosts: not buildable as an honest closed list, so every site the reader could not read stays
+    off until the person turns it on, and every other page is an explicit ask).
+
+15. **Continue after a plan reset — an opt-in switch, a narrow amendment to ruling 4 (owner, 2026-09-30).** The
+    owner asked for it and chose the shape: a switch in *Reading options*, **off by default**, that lets **a run the
+    person started** continue itself after its own plan window resets. Ruling 4 stands for everything else: a
+    scheduled run never uses a plan, and a plan is never spent without the person's own start.
+    **The rule.** A run the person started may continue itself after its plan window resets if the person switched that
+    on for the runs they start. It never crosses a weekly reset, never arms from a scheduled run, and never changes
+    engine. The switch is snapshotted into the run when it starts, so flipping it on later never arms an old run;
+    turning it off withdraws an armed one.
+    **The bounds** (proposed in the Sleep page v5 plan, Q-B; **confirmed by the owner 2026-09-30, "as built"**; each is a constant in
+    `sleep_autocontinue.py` and a row of `test_sleep_autocontinue.py`'s table): at most **2** automatic continues per
+    run; only within **36 hours** of the pause and only when the vendor **gave a reset time** (an absent one is never
+    guessed); only for a **5-hour** window, the reserve line on a 5-hour window, or extra usage that then resets — a
+    weekly or an unrecognised limit never arms (`agent_engine.limit_kind_of`); only while the engine the run started on
+    is still what the person's own choice resolves to (label and model). The job is a one-shot `DateTrigger` at the
+    reset plus a minute, recorded in the run's sidecar so a restart re-arms it, and every guard is checked again at fire
+    time; a guard that fails leaves the run paused and `autoContinue.blocked` says why. If the Mac slept through the
+    reset it fires on wake while still inside the 36 hours; keeping the Mac awake is not built.
+    **The rail.** `run(continue_from=…)` is called from exactly two places, the Continue route and
+    `sleep_autocontinue` (`test_only_the_continue_route_and_this_module_may_pass_continue_from`); the scheduler never.
+    **The honest limits.** The plan's percentage covers all use of the plan, not only Cicada's; a reset the person
+    slept through is still one automatic continue spent. Revisit the bounds on the owner's word, or the switch's default
+    only with a ruling of its own.
+
+16. **A scheduled cycle reads everything waiting too — ruling 4 untouched (owner, 2026-09-30).** This amends
+    ruling 13's "scheduled = one batch". `sleep_scheduler` passes `drain=True` from both entry points (the daily/interval
+    cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
+    reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
+    empty, with no limit Cicada sets.** That is said in words where the person chooses it (the engine menu's Scheduled
+    row and Details' Last cycle, never a price outside them — ruling 12) rather than prevented. Consequences built with
+    it: a scheduled drain pins its bank for hours and holds the same 409 on switch/export/delete as any run (disclosed,
+    not fixed); a scheduled run that stops leaves a paused record and **the scheduler then starts nothing until the
+    person continues or ends it** (`sleep_paused.exists`, both entry points), or a Pause would be undone within five
+    minutes; the after-import probe counts *readable* conversations (waiting minus parked), so a queue of only parked ones
+    never fires an empty run every five minutes; only the person's Continue can resume a scheduled run, on the manual
+    engine, which can be a plan (the button names the engine). **Not built:** a spending cap or a batch cap for scheduled
+    runs (owner, 2026-09-30: "no cap for now"), and "keep the Mac awake" — revisit on the first real bill an unattended drain produces.
+    *Refined 2026-09-30 (final review):* the "starts nothing" rule protects a pause **a person chose or can act on**;
+    a scheduled run's pause nobody chose — the process went away (`restart`, every app quit without the launchd agent)
+    or the scheduled engine failed (`engine`, once at least 6 hours old so an absent engine costs one call every few
+    hours) — is ended and replaced by the next scheduled run (`sleep_paused.schedule_may_replace`), otherwise one quit
+    would stop scheduled reading for good. **The dotfile exception:** an explicit `CICADA_LLM_MODE=agent|codex` pin
+    still resolves a scheduled run to that plan (unchanged since before G122), so under that pin the scheduler reads
+    **one batch**, never a whole queue unattended on a plan (`engine_select.scheduled_plan_pin`).
+
+    **Two amendments recorded with rulings 15 and 16 (Sleep page v5, 2026-09-30).** *G125 R10 ("one trigger, one cycle")*:
+    the Sleep page gains **Pause / Continue / End this run** and a parked row's **Retry** beside its one Consolidate
+    trigger (Home's and the intake card's *Read now* stay narrow amendments; every door that meets a paused run routes to the
+    Sleep page instead of starting one). *P15 / R-A8*: **a stage carries a fill only when it counts something that
+    finished** — Read, Sort and Decide fill from finished work; Notice and File carry no number.
+
+17. **Video: the watch run is the person's own agent's work, the queue lives outside the bank, and copy names no
     provider (owner, 2026-09-29 and 2026-09-30, G162).** The owner approved the boards ("I also like the watch video
     designs, apply them") and, in three sentences, changed the design: no cap on a batch (ruling 13's reasoning),
     "Ollama and the rest are literally just providers. So don't assume or make the choice for the user", and "limiting

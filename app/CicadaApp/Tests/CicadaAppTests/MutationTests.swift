@@ -272,6 +272,28 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.toast, "Couldn't start the sleep cycle — reverted")
     }
 
+    /// Sleep page v5 — Continue reaches the continue call and never the fresh trigger (which clears the pause on the
+    /// server), and a plain trigger never continues.
+    func testContinueRunCallsContinueNotTrigger() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        let ok = await store.perform(TriggerSleep(continueRun: true))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.writes.filter { $0 == "continueSleepRun" }.count, 1)
+        XCTAssertFalse(api.writes.contains("triggerSleep"), "Continue must never start a fresh run")
+    }
+
+    func testPlainTriggerNeverContinues() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        let ok = await store.perform(TriggerSleep())
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.writes.filter { $0 == "triggerSleep" }.count, 1)
+        XCTAssertFalse(api.writes.contains("continueSleepRun"))
+    }
+
     // MARK: - Review fixes
 
     /// Inbox ids are only unique within a bank (`inbox-001` exists in every

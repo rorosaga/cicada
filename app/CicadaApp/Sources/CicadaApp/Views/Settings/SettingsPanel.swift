@@ -188,6 +188,7 @@ struct SettingsPanel: View {
         case .memory: MemoryView()
         case .sleep: SettingsSleepView()
         case .integrations: IntegrationsView()
+        case .reading: ReadingWebView()
         case .agents: ConnectView()
         case .remote: FromAnywhereView()
         case .skills: SkillsView()

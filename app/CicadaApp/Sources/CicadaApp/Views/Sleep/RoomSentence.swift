@@ -171,6 +171,18 @@ struct RoomContext: Equatable {
     /// Task 8 (T7) — the commit the last real completion produced, while its
     /// "See what changed ›" link lives (`RoomModel.recentCycleCommit`).
     var recentCycleCommit: String? = nil
+
+    // Sleep page v5 — the run's own facts (G163; rulings 13, 15, 16). Each nil when unknown.
+    /// The paused run; its rungs outrank every idle rung (news before state).
+    var paused: SleepPausedRun? = nil
+    /// How often a run saves — the first night's tail says it.
+    var batchSize: Int = 25
+    /// The paused run's reset time in words ("after 3:40 PM"), resolved by the page (clock-free).
+    var resetWhen: String? = nil
+    /// When an armed automatic continue fires, in words; nil unless armed.
+    var autoContinueWhen: String? = nil
+    /// Pause was asked for and the run has not stopped yet.
+    var pausing: Bool = false
 }
 
 /// The status sentence (design §5): the first matching lead row, then the
@@ -204,16 +216,31 @@ private func sentenceLead(_ ctx: RoomContext) -> SentenceLine {
     case .loaded: break
     }
     let count = { (n: Int) in UsageFormat.count(n, locale: ctx.locale) }
+    if case .sleeping = ctx.mood, ctx.pausing { return SentenceLine(lead: Copy.SleepV5.pausingLead) }   // V1
+    if let paused = ctx.paused { return pausedLead(paused) }                                       // V2
     switch ctx.mood {
     case .sleeping:
         let running = stage(ctx)
+        if let counted = countedStageLead(ctx, stage: running.number) { return counted }        // V3 (P15)
+        if running.number == SleepStages.all.count, ctx.drain?.stages != nil {                  // V4
+            return SentenceLine(lead: Copy.SleepV5.filingLead)
+        }
         guard running.number == 1 else { return SentenceLine(lead: "\(running.progressive)…") }  // L5
+        // A run that reads in batches counts the batch it is on ("Reading 14 of 25."); the tail carries the run's.
+        if let batch = ctx.drain?.batchState, ctx.drain?.active == true, batch.total > 0 {      // V7
+            let numeral = "\(count(min(batch.read, batch.total))) of \(count(batch.total))"
+            return SentenceLine(lead: "Reading \(numeral).", numeral: numeral)
+        }
         guard ctx.total > 0 else { return SentenceLine(lead: "Reading…") }                       // L4
         let numeral = "\(count(ctx.read)) of \(count(ctx.total))"
         return SentenceLine(lead: "Reading \(numeral).", numeral: numeral)                      // L3
     case .error:
         return SentenceLine(lead: "The last cycle failed.", tone: .danger)                      // L6
     case .digesting:
+        if let drain = ctx.drain, drain.finished, drain.filed > 0 {                              // V5
+            let numeral = count(drain.filed)
+            return SentenceLine(lead: Copy.SleepV5.filedLead(drain.filed, ctx.locale), numeral: numeral)
+        }
         return SentenceLine(lead: "Filed.")                                                     // L7
     case .reading, .hungry, .curious:
         if let n = heroCount(ctx.mood, debt: ctx.debt), n > 0 {                                  // L8
@@ -239,7 +266,24 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     if case .failed(let message) = ctx.queueLoad {                                               // T1
         return SentenceTail(text: sentenceClause(message) ?? "Try again.", tone: .danger, action: .retry)
     }
+    if case .sleeping = ctx.mood, ctx.pausing {                                                  // V1
+        return SentenceTail(text: Copy.SleepV5.pausingTail)
+    }
+    if let paused = ctx.paused { return pausedTail(paused, ctx) }                                 // V2
     if case .sleeping = ctx.mood {                                                               // T2 (P16)
+        if let drain = ctx.drain, drain.active, drain.firstRun == true, drain.committedBatches == 1,
+           let owner = drain.ownerPage {                                                          // V6 (first save)
+            let firstBatch = min(drain.batchSize > 0 ? drain.batchSize : ctx.batchSize, drain.filed)
+            return SentenceTail(text: Copy.SleepV5.firstSaveTail(filed: firstBatch, beliefs: owner.beliefs,
+                                                                 ctx.locale))
+        }
+        let number = stage(ctx).number
+        if number == 2, countedStageLead(ctx, stage: 2) != nil {                                  // V3 tails
+            return SentenceTail(text: Copy.SleepV5.sortingTail)
+        }
+        if number == 3, countedStageLead(ctx, stage: 3) != nil {
+            return SentenceTail(text: Copy.SleepV5.decidingTail)
+        }
         if let drain = ctx.drain, drain.active, drain.batches > 1 {                              // T2b (G163)
             return SentenceTail(text: drainProgressClause(drain, locale: ctx.locale))
         }
@@ -279,7 +323,7 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
     }
     let count = ctx.debt?.unprocessedCount ?? 0
     if ctx.debt?.hasRunBefore == false {                                                         // T8 / T9
-        return SentenceTail(text: count > 0 ? "My first night — nothing's been filed yet."
+        return SentenceTail(text: count > 0 ? Copy.SleepV5.firstNightTail(batchSize: ctx.batchSize, ctx.locale)
                                             : "Nothing's been filed in this memory yet.")
     }
     if case .hungry = ctx.mood, let hours = ctx.debt?.hoursSinceLastCycle, hours >= 48 {         // T10
@@ -300,6 +344,77 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         return SentenceTail(text: "Drop a file on me to add it to the pile.")
     }
     return nil                                                                                   // T14
+}
+
+// MARK: Sleep page v5 rungs
+
+/// "Sorting 31 of 86." / "Deciding 4 of 12." — only from a stage that counts something finished and whose total is
+/// fixed (P15 as amended): Read keeps its own rung (L3), Notice and File never carry a fraction.
+private func countedStageLead(_ ctx: RoomContext, stage number: Int) -> SentenceLine? {
+    let id: String
+    switch number {
+    case 2: id = "sort"
+    case 3: id = "decide"
+    default: return nil
+    }
+    guard let counted = ctx.drain?.stages?.first(where: { $0.id == id }), let total = counted.total, total > 0 else {
+        return nil
+    }
+    let done = min(counted.done, total)
+    let numeral = "\(UsageFormat.count(done, locale: ctx.locale)) of \(UsageFormat.count(total, locale: ctx.locale))"
+    let lead = id == "sort" ? Copy.SleepV5.sortingLead(done, total, ctx.locale)
+                            : Copy.SleepV5.decidingLead(done, total, ctx.locale)
+    return SentenceLine(lead: lead, numeral: numeral)
+}
+
+/// The paused run's lead, by why it paused. Never a failure's tone: a pause is a fact about a run, and it waits.
+private func pausedLead(_ paused: SleepPausedRun) -> SentenceLine {
+    switch paused.reason {
+    case "reserve": SentenceLine(lead: Copy.SleepV5.pausedReserveLead)
+    case "plan_window": SentenceLine(lead: Copy.SleepV5.pausedPlanWindowLead)
+    case "plan_weekly": SentenceLine(lead: Copy.SleepV5.pausedPlanWeeklyLead)
+    case "overage": SentenceLine(lead: Copy.SleepV5.pausedOverageLead)
+    case "engine": SentenceLine(lead: Copy.SleepV5.pausedEngineLead, tone: .warning)
+    case "restart": SentenceLine(lead: Copy.SleepV5.restartLead)
+    case "bank_switched": SentenceLine(lead: Copy.SleepV5.bankSwitchedLead)
+    default: SentenceLine(lead: Copy.SleepV5.pausedLead)
+    }
+}
+
+/// The paused run's tail: what is filed, and when it can go on. Never "read and kept" — there is no journal, so the
+/// part a Pause interrupted is read again (G163 SL-1).
+private func pausedTail(_ paused: SleepPausedRun, _ ctx: RoomContext) -> SentenceTail {
+    let (filed, frozen, locale) = (paused.filed, paused.frozen, ctx.locale)
+    switch paused.reason {
+    case "user":
+        return SentenceTail(text: Copy.SleepV5.pausedByYouTail(filed: filed, frozen: frozen, locale))
+    case "reserve":
+        if let when = ctx.autoContinueWhen {
+            return SentenceTail(text: Copy.SleepV5.continuesAfter(when, filed: filed, frozen: frozen, locale),
+                                action: .openDetails(.lastCycle))
+        }
+        return SentenceTail(text: Copy.SleepV5.continueWhenYouLike(filed: filed, frozen: frozen, locale),
+                            action: .openDetails(.lastCycle))
+    case "plan_window", "overage":
+        if let when = ctx.autoContinueWhen {
+            return SentenceTail(text: Copy.SleepV5.continuesAfter(when, filed: filed, frozen: frozen, locale),
+                                action: .openDetails(.lastCycle))
+        }
+        return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsContinue) ?? Copy.SleepV5.continueWhenItResets,
+                            action: .openDetails(.lastCycle))
+    case "plan_weekly":
+        return SentenceTail(text: ctx.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets,
+                            action: .openDetails(.lastCycle))
+    case "engine":
+        return SentenceTail(text: Copy.SleepV5.continueWhenFixed(filed: filed, frozen: frozen, locale),
+                            tone: .warning, action: .openDetails(.lastCycle))
+    case "restart":
+        return SentenceTail(text: Copy.SleepV5.restartTail(filed: filed, frozen: frozen, locale))
+    case "bank_switched":
+        return SentenceTail(text: Copy.SleepV5.bankSwitchedTail)
+    default:
+        return SentenceTail(text: Copy.SleepV5.continueWhenYouLike(filed: filed, frozen: frozen, locale))
+    }
 }
 
 /// The tail while a person-started run reads: which batch, and how much of what it set out to
