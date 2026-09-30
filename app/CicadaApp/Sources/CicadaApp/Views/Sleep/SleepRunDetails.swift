@@ -122,3 +122,131 @@ struct QueueItemRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+extension LastCycleRow {
+    /// The legacy rows and the run's rows, together: when the run has rows of its own (a v5 backend), the pre-v5
+    /// drain, plan-pause and cancel rows say the same thing in older words and step aside, so a fact is said once
+    /// (and `ForEach`'s ids stay unique). A failure, a warning, the cap and the cost always stay.
+    static func merged(legacy: [LastCycleRow], run: [LastCycleRow]) -> [LastCycleRow] {
+        guard !run.isEmpty else { return legacy }
+        let replaced: Set<Kind> = [.drain, .paused, .cancelled]
+        let runKinds = Set(run.map(\.kind))
+        let kept = legacy.filter { !replaced.contains($0.kind) && !runKinds.contains($0.kind) }
+        // The run's rows lead (they are the news), the kept rows follow in their own order, the cost last.
+        let usage = kept.filter { $0.kind == .usage }
+        return kept.filter { $0.kind == .failed } + run + kept.filter { $0.kind != .failed && $0.kind != .usage } + usage
+    }
+}
+
+/// What's waiting, per source, while a run reads or waits paused (A7): "50 filed · 14 read · 53 waiting · 1 could not
+/// be read", zero terms left out, in the reader's locale. Pure, so `SleepV5DetailsTests` holds it.
+struct RunSourceLine: Equatable, Identifiable {
+    let origin: String
+    let label: String
+    let text: String
+    let newSince: Int
+    var id: String { origin }
+
+    static func lines(_ byOrigin: [String: SleepDrainInfo.Origin]?,
+                      locale: Locale = .autoupdatingCurrent) -> [RunSourceLine] {
+        guard let byOrigin else { return [] }
+        return byOrigin
+            .sorted { ($0.value.frozen, $1.key) > ($1.value.frozen, $0.key) }
+            .compactMap { origin, counts in
+                let text = Copy.SleepV5.sourceLine(filed: counts.filed, read: counts.read, waiting: counts.waiting,
+                                                   couldNotBeRead: counts.couldNotBeRead, parked: counts.parked, locale)
+                guard !text.isEmpty else { return nil }
+                return RunSourceLine(origin: origin, label: OriginIconography.label(for: origin), text: text,
+                                     newSince: counts.newSince)
+            }
+    }
+}
+
+/// Details › What's waiting, the run's part (A7): each source's counts, the conversations with where each stands
+/// (a failure beside a glyph and its reason, a parked one with Retry), the arrivals since the run began, and the
+/// note that the reader opens saved pages too. It shows only what the backend measured; the pile's own rows
+/// (`StudyListCard`) stay below it.
+struct RunWaitingBlock: View {
+    let drain: SleepDrainInfo?
+    let queue: SleepQueueResponse?
+    let showsRun: Bool
+    var ownerReady: Bool = false
+    var onRetry: ([String]?) -> Void = { _ in }
+    var onSeeOwnerPage: (() -> Void)? = nil
+
+    @State private var showAll = false
+    private static let shownRows = 12
+
+    private var items: [SleepQueueItem] {
+        let all = (queue?.items ?? []).filter { $0.state != "filed" }
+        return showAll ? all : Array(all.prefix(Self.shownRows))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+            if ownerReady {
+                HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
+                    Image(systemName: "person.crop.circle")
+                        .font(CicadaTheme.icon(.list))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                        Text(Copy.SleepV5.ownerReadyTitle)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                        Text(Copy.SleepV5.ownerReadyText)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                        if let onSeeOwnerPage {
+                            InlineLink(title: Copy.SleepV5.seeYourPage, action: onSeeOwnerPage)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, CicadaTheme.scaled(10))
+                .padding(.vertical, CicadaTheme.spacingSM)
+            }
+            if showsRun {
+                ForEach(RunSourceLine.lines(drain?.byOrigin)) { line in
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        OriginMark(origin: line.origin, size: CicadaTheme.scaled(14))
+                        Text(line.label)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                        Text(line.text)
+                            .font(CicadaTheme.metaFont)
+                            .monospacedDigit()
+                            .foregroundStyle(CicadaTheme.textTertiary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+                    .accessibilityElement(children: .combine)
+                }
+                ForEach(items) { item in
+                    QueueItemRow(item: item, onRetry: { onRetry([item.id]) })
+                }
+                let hidden = (queue?.items.filter { $0.state != "filed" }.count ?? 0) - items.count
+                if !showAll, hidden > 0, let total = queue?.items.filter({ $0.state != "filed" }).count {
+                    TextButton(title: Copy.SleepV5.showAll(total), inline: true) { showAll = true }
+                        .padding(.horizontal, CicadaTheme.scaled(10))
+                }
+                if let arrived = drain?.arrivedSince, arrived > 0 {
+                    Text(Copy.SleepV5.newSinceYouStarted(arrived))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .padding(.horizontal, CicadaTheme.scaled(10))
+                }
+                Text(Copy.SleepV5.readerNote)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .padding(.top, CicadaTheme.scaled(4))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}

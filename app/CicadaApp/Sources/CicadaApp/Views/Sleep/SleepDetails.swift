@@ -38,6 +38,17 @@ struct SleepDetails: View {
     /// Track Z Z6 (I5, I7) — hands the room to What's waiting, so a row and
     /// its spine answer each other's hover.
     var room: RoomModel? = nil
+    /// Sleep page v5 (A7) — the run's own Last cycle rows (`LastCycleRow.runRows`), its per-conversation queue, and
+    /// the callbacks for Retry and the person's own page. Empty/`nil` keeps the pre-v5 Details.
+    var runRows: [LastCycleRow] = []
+    var queue: SleepQueueResponse? = nil
+    var showsRun: Bool = false
+    var ownerReady: Bool = false
+    var onRetryParked: ([String]?) -> Void = { _ in }
+    var onSeeOwnerPage: (() -> Void)? = nil
+    var runDetails: [String: SleepRunDetail] = [:]
+    var expandedRun: String? = nil
+    var onToggleRun: (String) -> Void = { _ in }
 
     /// The newest cycle's one-line cost, only when one was recorded — "not recorded" belongs to Past
     /// nights, where every row can say it, and never opens this section by itself.
@@ -52,12 +63,18 @@ struct SleepDetails: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
             if lastCycleSectionIsVisible(pageError: pageError, cancelled: page.cancelled,
                                          capped: page.capped, indexWarning: page.indexWarning,
-                                         usageLine: lastCycleUsage, drain: page.drain) {
+                                         usageLine: lastCycleUsage, drain: page.drain) || !runRows.isEmpty {
                 LastCycleSection(pageError: pageError, status: status, cancelled: page.cancelled,
                                  capped: page.capped, indexWarning: page.indexWarning, drain: page.drain,
                                  planPauseLapsed: page.planPauseLapsed, usageLine: lastCycleUsage,
-                                 usageHelp: CycleUsageText.summaryHelp(page.lastCycle?.usageSummary))
+                                 usageHelp: CycleUsageText.summaryHelp(page.lastCycle?.usageSummary),
+                                 runRows: runRows, onRetryParked: { onRetryParked(nil) })
                     .id(DetailsSection.lastCycle.anchorID)
+            }
+            if showsRun || ownerReady {
+                RunWaitingBlock(drain: page.drain, queue: queue, showsRun: showsRun, ownerReady: ownerReady,
+                                onRetry: onRetryParked, onSeeOwnerPage: onSeeOwnerPage)
+                    .saturation(liveness.saturation)
             }
             StudyListCard(rows: page.rows, episodes: episodes, queueLoad: page.queueLoad,
                           onSelectEntity: onSelectEntity, room: room)
@@ -70,7 +87,8 @@ struct SleepDetails: View {
                 .id(DetailsSection.readout.anchorID)
                 .saturation(liveness.saturation)
             ConsolidationHistoryCard(entries: history, details: details, expanded: expanded,
-                                     onToggle: onToggleHistory, onSelectEntity: onSelectEntity)
+                                     onToggle: onToggleHistory, onSelectEntity: onSelectEntity,
+                                     runDetails: runDetails, expandedRun: expandedRun, onToggleRun: onToggleRun)
                 .id(DetailsSection.pastNights.anchorID)
                 .saturation(liveness.saturation)
         }
@@ -220,12 +238,17 @@ struct LastCycleSection: View {
     var planPauseLapsed: Bool = false
     var usageLine: String? = nil
     var usageHelp: String? = nil
+    /// Sleep page v5 — the run's rows; they replace the pre-v5 drain and pause rows (`LastCycleRow.merged`).
+    var runRows: [LastCycleRow] = []
+    var onRetryParked: (() -> Void)? = nil
 
     var body: some View {
         SleepDetailsSection(title: "Last cycle") {
-            ForEach(LastCycleRow.rows(pageError: pageError, cancelled: cancelled, capped: capped,
-                                      indexWarning: indexWarning, status: status, usageLine: usageLine,
-                                      drain: drain, planPauseLapsed: planPauseLapsed)) { row in
+            ForEach(LastCycleRow.merged(legacy: LastCycleRow.rows(pageError: pageError, cancelled: cancelled,
+                                                                  capped: capped, indexWarning: indexWarning,
+                                                                  status: status, usageLine: usageLine, drain: drain,
+                                                                  planPauseLapsed: planPauseLapsed),
+                                        run: runRows)) { row in
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
                     Image(systemName: row.glyph)
                         .font(CicadaTheme.icon(.list))
@@ -243,6 +266,9 @@ struct LastCycleSection: View {
                             .help(row.kind == .usage ? (usageHelp ?? "") : "")
                     }
                     Spacer(minLength: 0)
+                    if row.kind == .parked, let onRetryParked {
+                        NeutralButton(title: Copy.SleepV5.retry, size: .compact, action: onRetryParked)
+                    }
                 }
                 .padding(.horizontal, CicadaTheme.scaled(10))
                 .padding(.vertical, CicadaTheme.spacingSM)

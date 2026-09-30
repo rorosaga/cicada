@@ -247,7 +247,21 @@ struct SleepView: View {
                                          status: sleepVM.status, episodes: sleepVM.queuedEpisodes,
                                          history: sleepVM.history, details: sleepVM.details,
                                          expanded: sleepVM.expanded, onToggleHistory: toggleHistory,
-                                         onSelectEntity: onSelectEntity, room: room)
+                                         onSelectEntity: onSelectEntity, room: room,
+                                         runRows: runRows(page), queue: sleepVM.queue,
+                                         showsRun: showsRunBlock(page), ownerReady: ownerReady(page),
+                                         onRetryParked: { ids in
+                                             Task { @MainActor in
+                                                 await sleepVM.retryParked(ids: ids)
+                                                 await store.refresh([.status])
+                                             }
+                                         },
+                                         onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } },
+                                         runDetails: sleepVM.runDetails, expandedRun: sleepVM.expandedRun,
+                                         onToggleRun: { id in
+                                             sleepVM.expandedRun = sleepVM.expandedRun == id ? nil : id
+                                             Task { @MainActor in await sleepVM.loadRunDetail(id) }
+                                         })
                         }
                     }
                     .padding(CicadaTheme.spacingXL)
@@ -324,7 +338,14 @@ struct SleepView: View {
         }
         .onChange(of: detailsOpen) { _, open in
             guard open else { return }
-            Task { @MainActor in await sleepVM.loadQueue() }
+            Task { @MainActor in
+                await sleepVM.loadQueue()
+                if let id = detailRunId { await sleepVM.loadRunDetail(id) }
+            }
+        }
+        .onChange(of: detailRunId) { _, id in
+            guard detailsOpen, let id else { return }
+            Task { @MainActor in await sleepVM.loadRunDetail(id) }
         }
         .onChange(of: sleepVM.history) { _, history in
             if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
@@ -715,6 +736,38 @@ struct SleepView: View {
             }
             .buttonStyle(.cicadaPlain)
         }
+    }
+
+    /// Sleep page v5 (A7) — the run whose detail Details reads: the running or finished drain, else the paused run.
+    private var detailRunId: String? {
+        if let drain = sleepVM.status?.drain, !drain.active, drain.byOrigin != nil { return drain.id }
+        return sleepVM.pausedRun?.runId
+    }
+
+    /// Last cycle's run rows (`LastCycleRow.runRows`): the drain, the paused run, the run's own numbers from history
+    /// and its detail, parked conversations, a scheduled run's spend words, and the reserve's figure (Details is one
+    /// of ruling 12's two homes for it).
+    private func runRows(_ page: SleepPageModel) -> [LastCycleRow] {
+        let drain = page.drain
+        let runId = drain?.id ?? page.paused?.runId
+        let run = runId.flatMap { id in sleepVM.history.first { $0.drainId == id }?.run }
+        let preview = SleepEnginePreviewSource.current(chooser: engineVM.response, page: sleepVM.enginePreview)
+        let reserve = EngineQuickMenuModel.Reserve.from(engineVM.response?.reserve, billing: preview?.manual.billing)
+        return LastCycleRow.runRows(drain: drain, paused: page.paused, run: run,
+                                    detail: runId.flatMap { sleepVM.runDetails[$0] },
+                                    parkedCount: page.parkedCount, scheduledBilling: preview?.scheduled.billing,
+                                    reserveValue: reserve?.pct != nil ? reserve?.value : nil)
+    }
+
+    /// The run's part of What's waiting shows while a run reads in batches or waits paused.
+    private func showsRunBlock(_ page: SleepPageModel) -> Bool {
+        guard page.drain?.byOrigin != nil else { return false }
+        return (page.isRunning && page.drain?.active == true) || page.paused != nil
+    }
+
+    /// "Your own page is ready" — a memory never consolidated, whose owner page the graph already holds (A10).
+    private func ownerReady(_ page: SleepPageModel) -> Bool {
+        page.debt?.hasRunBefore == false && !page.isRunning && ownerEntityId != nil
     }
 
     /// The owner's page (G117), from the graph snapshot — `nil` until it has loaded (never a guess).
