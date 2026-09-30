@@ -58,6 +58,15 @@ actor SiteIconStore {
         }
     }
 
+    /// G61 S3-b — a page's source icons asked before a site was trusted answered 404 and were remembered as misses;
+    /// when a source write lands on that page they are asked again (the row would otherwise keep the plain glyph until
+    /// relaunch).
+    func forget(entity: String) {
+        let suffix = "|\(entity)"
+        misses = misses.filter { !$0.hasSuffix(suffix) }
+        images = images.filter { !$0.key.hasSuffix(suffix) }
+    }
+
     /// A bank switch forgets what is held for that bank (the list is per bank).
     func clear(bank: String) {
         let prefix = "\(bank)|"

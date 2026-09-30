@@ -37,6 +37,7 @@ payload that sniffs as SVG regardless of the header the site sent.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fcntl
 import ipaddress
 import json
@@ -148,6 +149,30 @@ def logos_dir(bank: str) -> Path:
     return path
 
 
+@contextlib.contextmanager
+def _meta_flock(bank: str):
+    """The bank's exclusive ``fcntl`` lock on ``meta.lock`` (degrading to no lock where a filesystem has none)."""
+    try:
+        handle = open(logos_dir(bank) / LOCK_FILENAME, "a+")
+    except OSError:
+        yield
+        return
+    with handle:
+        locked = True
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError:
+            locked = False
+        try:
+            yield
+        finally:
+            if locked:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+
+
 def ensure_rule(bank: str) -> int:
     """Purge a bank's entity logos cached under an older rule, once (marker ``.rule``); a no-op afterwards and for the
     rest of the process. Returns how many cached files it removed. Deletes only the bank's own top-level logo files and
@@ -163,19 +188,22 @@ def ensure_rule(bank: str) -> int:
     purged = 0
     if current < LOGO_RULE:
         keep = {META_FILENAME, LOCK_FILENAME, RULE_FILENAME}
-        for entry in directory.iterdir():
-            if entry.is_file() and entry.name not in keep:
-                try:
-                    entry.unlink()
-                    purged += 1
-                except OSError:
-                    pass
-        try:
-            write_meta(bank, {})
-            marker.write_text(str(LOGO_RULE), encoding="utf-8")
-        except OSError as exc:
-            logger.warning(f"logo rule purge could not finish for {bank}: {type(exc).__name__}")
-            return purged
+        # Under the same cross-process lock `_record_meta_sync` takes, so a fetch finishing in another process cannot
+        # write an entry between the purge and the emptied index.
+        with _meta_flock(bank):
+            for entry in directory.iterdir():
+                if entry.is_file() and entry.name not in keep:
+                    try:
+                        entry.unlink()
+                        purged += 1
+                    except OSError:
+                        pass
+            try:
+                write_meta(bank, {})
+                marker.write_text(str(LOGO_RULE), encoding="utf-8")
+            except OSError as exc:
+                logger.warning(f"logo rule purge could not finish for {bank}: {type(exc).__name__}")
+                return purged
         logger.info(f"logo cache for {bank} moved to rule {LOGO_RULE}: {purged} cached file(s) dropped")
     _ruled.add(bank)
     return purged
@@ -272,7 +300,12 @@ def _trusted_website_host(frontmatter: dict) -> str | None:
             not str(source.get("predicate") or "").strip() and who == fact_sources.USER)
         return wanted and str(source.get("kind") or "").strip().lower() == "url"
 
-    for source in fact_sources.rank(sources, fact_sources.WEBSITE, match=serves):
+    # An explicit `website` entry outranks a bare one the person typed (a verified site must not lose to a link with no
+    # role), then `rank` orders each group: the person's, one they took, a verified one.
+    ranked = fact_sources.rank(sources, fact_sources.WEBSITE, match=serves)
+    explicit = [s for s in ranked if fact_sources.same_predicate(s.get("predicate"), fact_sources.WEBSITE)]
+    bare = [s for s in ranked if s not in explicit]
+    for source in explicit + bare:
         if not fact_sources.trusted(source):
             continue
         ref = source.get("ref")

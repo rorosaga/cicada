@@ -149,7 +149,7 @@ enum FactSourceWords {
             return EntityDates.shortDay(verified.at, locale: locale).map(Copy.Graph.siteConfirmedOn) ?? Copy.Graph.siteConfirmed
         }
         guard s.isUnconfirmedSite else { return nil }
-        return s.checked != nil ? Copy.Graph.siteReadNotConfirmed : Copy.Graph.siteProposed
+        return s.checked?.outcome == "unconfirmed" ? Copy.Graph.siteReadNotConfirmed : Copy.Graph.siteProposed
     }
 
     static func forFact(_ predicate: String?) -> String {

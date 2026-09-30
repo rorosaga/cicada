@@ -57,6 +57,7 @@ struct LookItUpSection: View {
             canBeTaken: source.canBeTaken,
             entityId: entityId, site: SourceSite.key(of: source),
             isUnconfirmedSite: source.isUnconfirmedSite,
+            drawsMark: [.company, .tool].contains(entityType),
             // A Contacts card is the Contacts sync's: it can be removed, never edited or re-linked here.
             isManaged: !source.ref.hasPrefix("addressbook://"),
             onOpenPage: { if let linked { navigate(linked.id) } },
@@ -130,10 +131,12 @@ struct LookItUpSection: View {
         guard !ref.isEmpty else { return }
         newRef = ""
         // A link typed on a brand page is its official site: the person's own word, trusted at once (G61 S3-b).
-        let predicate = addsSite && ref.lowercased().hasPrefix("http") && !sources.contains { $0.isOfficialSite } ? "website" : nil
+        let predicate = addsSite && ref.lowercased().hasPrefix("http")
+            && !sources.contains { $0.isOfficialSite && ($0.trusted ?? true) } ? "website" : nil
         Task {
             if let updated = try? await APIClient.shared.addEntitySource(entityId: entityId, ref: ref, predicate: predicate) {
                 sources = updated
+                await SiteIconStore.shared.forget(entity: entityId)   // a 404 from before this site was trusted is stale
                 await store.refresh([.graph])   // its picture is drawn from a trusted site
             }
         }
@@ -143,7 +146,9 @@ struct LookItUpSection: View {
     private func write(_ change: SourceChange, on source: EntitySource) {
         let mutation = EntitySourceWrite(entityId: entityId, source: source, change: change, sources: $sources)
         Task {
-            if await store.perform(mutation), let words = change.doneMessage { store.toast = words }
+            let landed = await store.perform(mutation)
+            if landed { await SiteIconStore.shared.forget(entity: entityId) }   // "Use this site" makes its mark available
+            if landed, let words = change.doneMessage { store.toast = words }
         }
     }
 }
@@ -232,6 +237,8 @@ private struct FactSourceRow: View {
     /// The site whose mark leads the row (a url source only).
     let site: String?
     let isUnconfirmedSite: Bool
+    /// Only a company or tool page draws a mark from its site; on any other page "Use this site" only trusts it.
+    let drawsMark: Bool
     let isManaged: Bool
     let onOpenPage: () -> Void
     let onChange: (SourceChange) -> Void
@@ -271,7 +278,8 @@ private struct FactSourceRow: View {
             Spacer(minLength: 0)
             if isUnconfirmedSite {
                 // "Not confirmed — Use this site?": one tap trusts it and its mark is drawn from it (G61 S3-b).
-                TextButton(title: Copy.Graph.useThisSite, help: Copy.Graph.useThisSiteHelp) { onChange(.useThis) }
+                TextButton(title: Copy.Graph.useThisSite,
+                           help: drawsMark ? Copy.Graph.useThisSiteHelp : Copy.Graph.useThisSiteHelpNoMark) { onChange(.useThis) }
             }
             if let linked {
                 TextButton(title: Copy.Graph.openLinkedPage, help: Copy.Graph.openLinkedPageHelp(linked.name), action: onOpenPage)

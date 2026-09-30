@@ -723,6 +723,9 @@ async def get_entity_source_icon(
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, "no icon for this site")
+    # G159: a person's page never draws a mark — a personal domain can carry the name, and no service is sent it.
+    if str(markdown_parser.parse(entity_path).frontmatter.get("type") or "").strip().lower() in ("person", "media"):
+        raise HTTPException(404, "no icon for this site")
     allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(settings.memory_path, entity_id)
                if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
     domain = reading_hosts.icon_host(site) if site in allowed else None

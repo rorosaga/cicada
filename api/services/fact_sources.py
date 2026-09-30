@@ -399,6 +399,13 @@ def propose_site(frontmatter: dict, ref: str, *, added_by: str = "agent", added_
         text = clean_text(text)
     except InvalidSource:
         return False
+    # Defence in depth: whatever a caller hands over, only an https origin of a public, non-platform host is stored
+    # (`site_sources.origin_of` — the same rail Stage 1's sanitizer applies).
+    from api.services import site_sources
+
+    text = site_sources.origin_of(text) or ""
+    if not text:
+        return False
     existing = [s for s in (frontmatter.get("sources") or []) if isinstance(s, dict)]
     if is_tombstoned(frontmatter, text, WEBSITE):
         return False

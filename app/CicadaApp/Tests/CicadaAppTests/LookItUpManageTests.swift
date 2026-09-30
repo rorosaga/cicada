@@ -224,6 +224,11 @@ final class SiteSourceWordsTests: XCTestCase {
         XCTAssertEqual(line.note, "Confirmed Oct 2")
     }
 
+    func testAnUnreachableSiteIsStillJustProposed() {
+        let down = site(by: "cicada", checked: .init(at: "2026-10-02", outcome: "unreachable"), trusted: false)
+        XCTAssertEqual(FactSourceWords.line(down, locale: us).note, "Proposed, not confirmed yet")
+    }
+
     func testAProposedSiteIsNotConfirmedYetUntilRead() {
         let proposed = site(by: "agent", trusted: false)
         XCTAssertEqual(FactSourceWords.line(proposed, locale: us).note, "Proposed, not confirmed yet")
@@ -266,6 +271,22 @@ final class SiteSourceWordsTests: XCTestCase {
 }
 
 final class SiteIconStoreEntityTests: XCTestCase {
+    func testAMissIsAskedAgainAfterASourceWriteOnThatPageOnly() async {
+        actor Log { var calls = 0; func add() { calls += 1 } }
+        let log = Log()
+        let store = SiteIconStore(fetch: { _ in nil }, fetchForEntity: { _, _ in await log.add(); return nil })
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "widget-example")
+        var calls = await log.calls
+        XCTAssertEqual(calls, 2, "a 404 is remembered per page")
+        await store.forget(entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "widget-example")
+        calls = await log.calls
+        XCTAssertEqual(calls, 3, "only that page's misses are dropped")
+    }
+
     func testAPageAsksItsOwnRouteAndTheSurfacedListAsksItsOwn() async {
         actor Log { var calls: [String] = []; func add(_ s: String) { calls.append(s) } }
         let log = Log()

@@ -142,9 +142,9 @@ def test_propose_site_never_overrides_a_tombstone_or_an_existing_site():
     fm = {"sources_removed": [{"ref": "https://acme-inference.io", "predicate": "website", "by": "user", "at": "2026-09-01"}]}
     assert fact_sources.propose_site(fm, "https://acme-inference.io") is False
     assert fact_sources.propose_site(fm, "https://www.acme-inference.io/other") is False, "the same site, by host"
-    fm = {"sources": [_proposed("https://one.example")]}
-    assert fact_sources.propose_site(fm, "https://one.example/") is False
-    assert fact_sources.propose_site(fm, "https://two.example") is True and len(fm["sources"]) == 2
+    fm = {"sources": [_proposed("https://one-labs.io")]}
+    assert fact_sources.propose_site(fm, "https://one-labs.io/") is False
+    assert fact_sources.propose_site(fm, "https://two-labs.io") is True and len(fm["sources"]) == 2
     assert fact_sources.propose_site({}, "https://acme-inference.io/x?token=abcdef0123456789abcdef0123456789abcd") is False
 
 
@@ -204,19 +204,45 @@ def test_propose_writes_unverified_cicada_entries_and_skips_dirty_pages(tmp_path
 def test_judge_needs_the_name_and_two_words_of_its_own_summary():
     fm = {"name": "Acme Example", "type": "company"}
     assert site_sources.judge(fm, SUMMARY, GOOD) == "verified"
-    assert site_sources.judge(fm, SUMMARY, SHOW) == "mismatch", "the fireworks-show namesake"
     assert site_sources.judge(fm, SUMMARY, THIN) == "unconfirmed", "a JS shell says nothing either way"
-    assert site_sources.judge(fm, SUMMARY, PageIdentity("ok", "https://other-inference.io", "Acme Example", "", "",
-                                                        GOOD.excerpt, cross_site=True)) == "mismatch"
-    stranger = PageIdentity("ok", "https://acme-inference.io/", "Welcome", "", "", "Something else entirely. " * 20)
-    assert site_sources.judge(fm, SUMMARY, stranger) == "mismatch"
-    assert site_sources.judge(fm, SUMMARY, PageIdentity("blocked")) == "walled"
-    assert site_sources.judge(fm, SUMMARY, PageIdentity("interstitial")) == "walled"
     assert site_sources.judge(fm, SUMMARY, PageIdentity("failed:http_500")) == "unreachable"
     # an alias counts as the name; whole word only ("Go" is not "Google")
     assert site_sources.judge({"name": "Acme Inc", "aliases": ["Acme Example"]}, SUMMARY, GOOD) == "verified"
     google = PageIdentity("ok", "https://go-lang.io/", "Google search", "", "", GOOD.excerpt)
     assert site_sources.judge({"name": "Go", "type": "tool"}, "## Summary\nA programming language for servers.\n", google) != "verified"
+
+
+def test_mismatch_is_only_for_positive_evidence_the_namesake():
+    """The destructive verdict (removed and remembered forever): the name IS on a substantial page but the page's own
+    summary words are not."""
+    fm = {"name": "Acme Example", "type": "company"}
+    assert site_sources.judge(fm, SUMMARY, SHOW) == "mismatch", "the fireworks-show namesake"
+
+
+def test_everything_merely_unproven_is_unconfirmed_never_a_removal():
+    fm = {"name": "Acme Example", "type": "company"}
+    stranger = PageIdentity("ok", "https://acme-inference.io/", "Welcome", "", "", "Something else entirely. " * 20)
+    assert site_sources.judge(fm, SUMMARY, stranger) == "unconfirmed", "no name found is not proof of a namesake"
+    # a bot block, a consent page: never a verdict
+    assert site_sources.judge(fm, SUMMARY, PageIdentity("blocked")) == "unconfirmed"
+    assert site_sources.judge(fm, SUMMARY, PageIdentity("interstitial")) == "unconfirmed"
+    # a redirect to another domain: the FINAL page is what is judged (a move to the canonical domain is ordinary)
+    moved = PageIdentity("ok", "https://acme-example.com/", GOOD.title, GOOD.site_name, GOOD.meta_description,
+                         GOOD.excerpt, cross_site=True)
+    assert site_sources.judge(fm, SUMMARY, moved) == "verified"
+    assert site_sources.judge(fm, SUMMARY, PageIdentity("ok", "https://other-labs.io/", "Welcome", "", "", "x " * 150,
+                                                        cross_site=True)) == "unconfirmed"
+
+
+def test_the_name_may_be_reordered_or_lose_its_company_suffix():
+    summary = "## Summary\nBuilds agent tooling for software engineers, with terminal workflows and code review.\n"
+    page = PageIdentity("ok", "https://tools-labs.io/", "Codex | Orchard", "Orchard", "Agent tooling for software engineers",
+                        "Agent tooling for software engineers: terminal workflows and code review. " * 4)
+    assert site_sources.judge({"name": "Orchard Codex", "type": "tool"}, summary, page) == "verified", "any word order"
+    plain = PageIdentity("ok", "https://acme-labs.io/", "Acme", "Acme", "Agent tooling for software engineers",
+                         "Agent tooling for software engineers: terminal workflows and code review. " * 4)
+    assert site_sources.judge({"name": "Acme Inc", "type": "company"}, summary, plain) == "verified", "suffix stripped"
+    assert site_sources.judge({"name": "Acme Labs Ltd", "type": "company"}, summary, plain) != "mismatch"
 
 
 # ---------- verification ----------
@@ -245,13 +271,13 @@ def test_verify_outcomes_follow_d1(tmp_path):
     thin = run(THIN)                                   # kept, "not confirmed", one tap trusts it
     (src,) = thin["sources"]
     assert not fact_sources.trusted(src) and src["checked"]["outcome"] == "unconfirmed"
-    walled = run(PageIdentity("blocked"), n=1)
-    assert "sources" not in walled and walled["sources_removed"][0]["reason"] == "walled"
+    blocked = run(PageIdentity("blocked"), n=1)        # a bot block is never a verdict: kept, never tombstoned
+    assert blocked["sources"][0]["checked"]["outcome"] == "unconfirmed" and "sources_removed" not in blocked
     down = run(PageIdentity("failed:timeout"), n=2)    # a network failure: tried again, up to three nights
     assert down["sources"][0]["tries"] == 1
 
 
-def test_a_network_failure_is_tried_three_nights_then_dropped_and_remembered(tmp_path):
+def test_a_site_down_three_nights_is_asked_again_in_a_month_never_lost(tmp_path):
     memory = _site_bank(tmp_path, sources=[_proposed()])
     fetch = Fetcher(default=PageIdentity("failed:timeout"))
     for night in (1, 2):
@@ -259,8 +285,14 @@ def test_a_network_failure_is_tried_three_nights_then_dropped_and_remembered(tmp
         assert _fm(memory)["sources"][0]["tries"] == night
     asyncio.run(site_sources.verify(memory, fetch_fn=fetch))
     fm = _fm(memory)
-    assert "sources" not in fm and fm["sources_removed"][0]["reason"] == "unreachable"
-    assert fetch.calls == ["https://acme-inference.io"] * 3
+    assert fm["sources"][0]["checked"]["outcome"] == "unreachable" and "tries" not in fm["sources"][0]
+    assert "sources_removed" not in fm, "no tombstone: a site that was down is not a wrong site"
+    asyncio.run(site_sources.verify(memory, fetch_fn=fetch))
+    assert len(fetch.calls) == 3, "not asked again within the month"
+    later = date.fromordinal(date.today().toordinal() + 31)
+    back = Fetcher(default=GOOD)
+    asyncio.run(site_sources.verify(memory, fetch_fn=back, today=later))
+    assert back.calls == ["https://acme-inference.io"] and fact_sources.trusted(_fm(memory)["sources"][0])
 
 
 def test_an_unconfirmed_site_is_not_re_read_for_thirty_days(tmp_path):
@@ -284,7 +316,7 @@ def test_verify_never_requests_a_walled_or_platform_host_and_never_a_trusted_one
     bank_index.invalidate()
     fetch = Fetcher(default=GOOD)
     report = asyncio.run(site_sources.verify(memory, fetch_fn=fetch))
-    assert fetch.calls == [] and report.counts == {"walled": 4}
+    assert fetch.calls == [] and report.counts == {"platform": 4}
     for i in range(4):
         assert "sources" not in _fm(memory, f"acme-{i}")
 
@@ -502,3 +534,109 @@ def test_the_source_icon_route_serves_only_a_trusted_sites_of_this_page(client, 
     assert c.get("/entities/acme-example/sources/icon/other-inference.io").status_code == 404, "not a proxy for any name"
     assert c.get("/entities/nobody/sources/icon/team-labs.io").status_code == 404
     assert c.get("/entities/acme-example/sources/icon/bad..key/").status_code == 404
+
+
+# ---------- the review round ----------
+
+
+def test_an_exception_mid_run_restores_every_page_the_tail_wrote(tmp_path, monkeypatch):
+    """The G85 smear: propose() writes before the network step; if verify raises, the page must not stay dirty for the
+    next `git add -A` writer (the poll) to sweep into its own commit."""
+    memory = _site_bank(tmp_path, claim_site="https://acme-inference.io")
+    from api.services.connectors import base
+
+    monkeypatch.setattr(base, "network_allowed", lambda allow_fetch=None: True)
+
+    async def boom(*a, **k):
+        raise RuntimeError("the network step failed")
+
+    monkeypatch.setattr(link_enrichment, "fetch_identity", boom)
+    head = _git(memory, "rev-parse", "HEAD")
+    asyncio.run(sleep_cycle._site_sources_safely(memory))
+    assert _git(memory, "status", "--porcelain").strip() == "" and _git(memory, "rev-parse", "HEAD") == head
+    assert "sources" not in _fm(memory)
+
+
+def test_an_exception_mid_run_restores_the_routes_pages_too(client, monkeypatch):
+    c, memory = client
+    page = memory / "entities" / "acme-example.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, {**parsed.frontmatter, "sources": []}, parsed.body)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qam", "clear"], check=True, capture_output=True)
+    bank_index.invalidate()
+    _entity(memory, "widget-example", name="Widget Example", type="tool", body=SUMMARY,
+            sources=[_proposed("https://widget-tools.io")])
+    from api.services import link_enrichment as le
+
+    async def boom(*a, **k):
+        raise RuntimeError("the network step failed")
+
+    monkeypatch.setattr(le, "fetch_identity", boom)
+    subprocess.run(["git", "-C", str(memory), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qm", "w"], check=True, capture_output=True)
+    _entity(memory, "acme-example", name="Acme Example", body=SUMMARY + "\n## Links\n- [Acme](https://acme-example.com)\n")
+    subprocess.run(["git", "-C", str(memory), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qm", "l"], check=True, capture_output=True)
+    bank_index.invalidate()
+    r = c.post("/maintenance/verify-sites")
+    assert r.status_code == 500 and "nothing was changed" in r.json()["detail"]
+    assert _git(memory, "status", "--porcelain").strip() == ""
+
+
+def test_the_route_refuses_the_demo_bank_and_caps_its_work(client, monkeypatch):
+    c, memory = client
+    assert c.post("/maintenance/verify-sites?budget=500").status_code == 422, "the cap is the maximum"
+    body_default = c.post("/maintenance/verify-sites")
+    monkeypatch.setattr(link_enrichment, "fetch_identity", Fetcher(default=THIN))
+    assert body_default.status_code in (200, 500)
+    (memory / "_bank.yaml").write_text("kind: demo\n")
+    r = c.post("/maintenance/verify-sites")
+    assert r.status_code == 409 and "demo" in r.json()["detail"]
+
+
+def test_the_route_answers_its_budget_and_what_it_deferred(client, monkeypatch):
+    c, memory = client
+    for i in range(3):
+        _entity(memory, f"co-{i}", name=f"Co {i}", type="company", body=SUMMARY, sources=[_proposed(f"https://site{i}-labs.io")])
+    subprocess.run(["git", "-C", str(memory), "add", "."], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qm", "more"], check=True, capture_output=True)
+    bank_index.invalidate()
+    monkeypatch.setattr(link_enrichment, "fetch_identity", Fetcher(default=THIN))
+    body = c.post("/maintenance/verify-sites?budget=2").json()
+    assert body["budget"] == 2 and body["fetched"] == 2 and body["deferred"] >= 1
+
+
+def test_a_persons_page_never_serves_a_source_icon(client, monkeypatch, tmp_path):
+    c, memory = client
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+
+    async def fake_icon(*a, **k):
+        raise AssertionError("no lookup for a person")
+
+    monkeypatch.setattr(logo_service, "ensure_site_icon", fake_icon)
+    _entity(memory, "bob-e", name="Bob E", type="person", sources=[{"ref": "https://bob-e.io", "kind": "url",
+                                                                   "predicate": "profile", "added_by": "user"}])
+    bank_index.invalidate()
+    assert c.get("/entities/bob-e/sources/icon/bob-e.io").status_code == 404
+
+
+def test_an_explicit_verified_website_outranks_a_bare_link_the_person_typed():
+    bare = {"ref": "https://bare-labs.io", "kind": "url", "added_by": "user"}
+    site = {"ref": "https://real-labs.io", "kind": "url", "predicate": "website", "added_by": "cicada",
+            "verified": {"at": "2026-10-01", "how": "name+content"}}
+    assert logo_service.domain_for({"type": "company", "name": "Real", "sources": [bare, site]}, "") == "real-labs.io"
+    assert logo_service.domain_for({"type": "company", "name": "Real", "sources": [bare]}, "") == "bare-labs.io"
+
+
+def test_propose_site_stores_only_an_origin_of_a_public_host():
+    fm = {}
+    assert fact_sources.propose_site(fm, "https://www.acme-inference.io/about?x=1#y") is True
+    assert fm["sources"][0]["ref"] == "https://acme-inference.io"
+    for bad in ("https://github.com/acme/widget", "https://acme.example", "http://192.168.0.2/", "intranet", "https://x.com/a"):
+        assert fact_sources.propose_site({}, bad) is False, bad
+
+
+def test_the_purge_takes_the_same_cross_process_lock_as_a_fetch(tmp_path, monkeypatch):
+    import inspect
+
+    assert "_meta_flock" in inspect.getsource(logo_service.ensure_rule)

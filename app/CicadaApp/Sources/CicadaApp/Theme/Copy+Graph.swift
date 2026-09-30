@@ -104,6 +104,7 @@ extension Copy.Graph {
     static let siteProposed = "Proposed, not confirmed yet"
     static let siteReadNotConfirmed = "Read, but not confirmed yet"
     static let useThisSite = "Use this site"
+    static let useThisSiteHelpNoMark = "Trust this as the page's own site"
     static let useThisSiteHelp = "Trust this as the page's own site and draw its mark from it"
     static let sourcePlaceholderSite = "The official website"
     static let sourcePlaceholderProfile = "A profile page: LinkedIn, GitHub, your site…"

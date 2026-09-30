@@ -611,24 +611,31 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   `## Links` URL whose host is the page's own name (or whose title says official/homepage/website) — never a domain
   guessed from a name. Cicada's own read confirms it (`link_enrichment.fetch_identity`, sharing `_stream_html` with
   `default_fetch`: 4 s, ≤ 512 KB, no cookies, `net_guard`, a block never retried; a walled or platform host is refused
-  before any request): `judge` needs the page's name (or an alias) whole-word in the site's title or `og:site_name` AND
-  two distinctive words of its own summary on the page. Outcomes (D1): `verified` stamps `verified: {at, how}` and
-  `access: public`; a `mismatch` or `walled` site is removed and remembered (`sources_removed`, by `cicada`, with the
-  reason); a thin page keeps it `checked: {outcome: unconfirmed}` ("not confirmed", re-read after 30 days, one tap of
-  "Use this site" = `accepted` trusts it); a network failure is `tries` up to three nights, then dropped and remembered.
-  `fact_sources.trusted` (the person's, one they took, or verified) is the only trust; nothing else draws a picture. The
+  before any request): `judge` needs the page's name (or an alias, company suffix aside, every word in any order) whole-word
+  in the site's title or `og:site_name` AND two distinctive words of its own summary on the page. **The destructive
+  outcome needs positive evidence:** `mismatch` (removed and remembered in `sources_removed`, by `cicada`) only when the
+  name IS on a substantial page but two or more of the summary's words are not (the namesake); everything merely
+  unproven — no name found, a thin JS shell, a redirect to another domain (the final page is judged), a 403/bot block or a
+  consent page — is `unconfirmed`: kept with `checked: {outcome: unconfirmed}` ("not confirmed", re-read after 30 days,
+  one tap of "Use this site" = `accepted` trusts it). `verified` stamps `verified: {at, how}` and `access: public`. A
+  network failure is `tries` up to three nights, then `checked: {outcome: unreachable}` and asked again in 30 days —
+  never tombstoned. A platform host found in a `website` entry is removed without a request (reason `platform`).
+  `fact_sources.trusted` (the person's, one they took, or verified) is the only trust; nothing else draws a picture (and
+  only a `company` or `tool` page draws one; a project's site is a source only). The
   Sleep tail step (`sleep_cycle._site_sources_safely`: propose, then verify, ≤ 25 fetches a night, one per site) runs
   behind `CICADA_ALLOW_CONNECTOR_FETCH`, in one path-scoped `cicada` commit `Site check <date>`, trigger
-  `sleep/site-check`, no engine trailer, dirty pages skipped, a failed commit restores; `POST /maintenance/verify-sites`
-  is the person's click (ungated, ≤ 100, 409 while Sleep runs, trigger `user/companion_app`), counts only.
+  `sleep/site-check`, no engine trailer, dirty pages skipped; the run's `Report` is built first and handed to both steps,
+  so ANY failure restores every page written (the G85 smear), as does a failed commit. `verify` parses and writes off the
+  event loop. `POST /maintenance/verify-sites` is the person's click (ungated, at most 40 fetches — the answer carries
+  `budget` and `deferred` —, 409 while Sleep runs or in a demo bank, trigger `user/companion_app`), counts only.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory. Since G61 S3-b a
   page's domain comes from a source and never a guess: `logo:` first, else the first TRUSTED `website` source
   (`logo_service.domain_for`); no `## Links` fallback, no saved link's site, no `website` claim, no `<name>.com` guess,
   no platform or walled host, and never a `person` or `media` page (G146/G159). `LOGO_RULE = 2`: a bank's cache written
   under the older rule is purged ONCE (`ensure_rule`, marker `logos/<bank>/.rule`; `sites/` is spared), and a page that
-  no longer resolves a domain drops its cached mark and records a miss. `GET /entities/{id}/sources/icon/{site}` serves
-  the mark of a trusted site THIS page lists (icon service only, keyed on the site, never a ref).
+  no longer resolves a domain drops its cached mark and records a miss (an explicit `website` entry outranks a bare link the person typed). `GET /entities/{id}/sources/icon/{site}` serves
+  the mark of a trusted site THIS page lists (icon service only, keyed on the site, never a ref; never for a `person` or `media` page).
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
