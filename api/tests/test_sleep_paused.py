@@ -374,12 +374,44 @@ def test_the_scheduler_skips_while_a_run_is_paused_on_both_entry_points(tmp_path
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
     monkeypatch.setattr("api.services.sleep_debt.compute", fake_debt)
     cfg = SimpleNamespace(memory_path=memory)
+    sleep_scheduler._paused_upkeep_at.clear()
     asyncio.run(sleep_scheduler._run_if_idle(cfg))
     asyncio.run(sleep_scheduler._run_after_intake_if_settled(cfg))
-    assert calls == [], "a Pause is undone by nobody but the person"
+    asyncio.run(sleep_scheduler._run_after_intake_if_settled(cfg))
+    assert calls == [{"user_triggered": False, "tail_only": True}] * 2, (
+        "a Pause is undone by nobody but the person: upkeep only, and the probe's at most once a day")
     sleep_paused.clear(memory)
     asyncio.run(sleep_scheduler._run_if_idle(cfg))
-    assert len(calls) == 1
+    assert len(calls) == 3 and calls[-1] == {"user_triggered": False, "drain": True}
+
+
+def test_claim_expiry_and_follow_ups_still_run_on_the_cron_while_a_run_is_paused(tmp_path, monkeypatch):
+    """Review (must): a pause never switches off the engine-free tail. The cron reads nothing
+    over it and leaves the record and the queue as they were."""
+    from types import SimpleNamespace
+
+    ids = episode_ids(9)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    rig.on_extract = _pause_by("user")
+    _cfg, state = _run(memory)
+    rec = sleep_paused.get_paused(memory)
+    assert rec is not None
+    paused_drain = state.drain
+    left = waiting(memory)
+    rig.tail.clear()
+    rig.extract_batches.clear()
+
+    cfg = settings(memory, sleep_max_episodes_per_cycle=3)
+    asyncio.run(sleep_scheduler._run_if_idle(cfg))
+
+    assert "expiry" in rig.tail and "followups" in rig.tail and "state" in rig.tail
+    assert rig.extract_batches == [], "nothing is read over a pause"
+    assert waiting(memory) == left
+    after = sleep_paused.get_paused(memory)
+    assert after is not None and after["run_id"] == rec["run_id"], "the pause is the person's to end"
+    s = sleep_cycle.get_sleep_state()
+    assert s.status == "idle" and s.drain is paused_drain and not s.tail_only
 
 
 def test_the_after_import_probe_ignores_a_queue_of_only_parked_conversations(tmp_path, monkeypatch):
@@ -433,7 +465,8 @@ def test_a_scheduled_engine_stop_leaves_a_pause_that_the_next_probe_does_not_res
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
     asyncio.run(sleep_scheduler._run_if_idle(SimpleNamespace(memory_path=memory)))
-    assert calls == [], "it waits for the person: Continue runs on the engine they chose for a run they start"
+    assert calls == [{"user_triggered": False, "tail_only": True}], (
+        "it waits for the person (upkeep only): Continue runs on the engine they chose for a run they start")
     assert waiting(memory) == ids
 
 

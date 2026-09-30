@@ -161,6 +161,11 @@ def register_job(
     logger.info(f"Sleep schedule registered: after imports (probing every {AFTER_IMPORT_PROBE_MINUTES}m)")
 
 
+#: While a run is paused, the after-import probe runs the engine-free upkeep this often.
+PAUSED_UPKEEP_HOURS = 24
+_paused_upkeep_at: dict[str, datetime] = {}
+
+
 async def _run_after_intake_if_settled(settings) -> None:
     """The ``after_import`` probe (G125 (4) R7): every few minutes, start a
     cycle only when the queue has SETTLED — idle, something READABLE waiting, and the
@@ -169,15 +174,25 @@ async def _run_after_intake_if_settled(settings) -> None:
     Scheduled → ``user_triggered=False`` (TODO.md ruling 4: a scheduled cycle
     never spends plan quota). It reads everything waiting (TODO ruling 16).
 
-    A paused run is the person's to continue or end: the probe never starts over it (it would
-    undo a Pause within minutes and clear the record). A parked conversation is waiting but not
+    A paused run is the person's to continue or end: the probe never reads over it (it would
+    undo a Pause within minutes and clear the record), but runs the engine-free upkeep once a
+    day meanwhile (``run(tail_only=True)``). A parked conversation is waiting but not
     readable, so a queue of only parked ones never fires an empty run every five minutes."""
     from api.services import sleep_debt
 
     if sleep_cycle.get_sleep_state().status == "running":
         return
     if sleep_paused.exists(settings.memory_path):
-        logger.info("Skipping the after-import probe: a paused run waits for the person")
+        # Nothing is read over a pause, but the engine-free upkeep still runs — at most once
+        # every PAUSED_UPKEEP_HOURS, since the probe fires every five minutes.
+        key = str(settings.memory_path)
+        last = _paused_upkeep_at.get(key)
+        if last is not None and datetime.now() - last < timedelta(hours=PAUSED_UPKEEP_HOURS):
+            return
+        _paused_upkeep_at[key] = datetime.now()
+        logger.info("After-import probe: a paused run waits for the person — upkeep only")
+        cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+        await sleep_cycle.run(settings, cycle_id, user_triggered=False, tail_only=True)
         return
     debt = await sleep_debt.compute(settings.memory_path, settings)
     newest = getattr(debt, "newest_unprocessed_at", None)
@@ -197,16 +212,21 @@ async def _run_after_intake_if_settled(settings) -> None:
 
 
 async def _run_if_idle(settings: Settings) -> None:
-    """Cron callback. Skips if a cycle is already running so we never stack, and
-    while a paused run waits for the person (it would replace the pause)."""
+    """Cron callback. Skips if a cycle is already running so we never stack. While a paused
+    run waits for the person it reads nothing (that would replace the pause) but still runs
+    the engine-free tail (``run(tail_only=True)``)."""
     state = sleep_cycle.get_sleep_state()
     if state.status == "running":
         logger.info("Skipping scheduled sleep cycle: another cycle is running")
         return
-    if sleep_paused.exists(settings.memory_path):
-        logger.info("Skipping scheduled sleep cycle: a paused run waits for the person")
-        return
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    if sleep_paused.exists(settings.memory_path):
+        # The paused run is the person's to continue or end, so nothing is read — but the
+        # engine-free upkeep (claim expiry, follow-ups, the state refresh, the polls, the link
+        # backfill) never waits on a pause: it runs on schedule as on any idle night.
+        logger.info("Scheduled sleep: a paused run waits for the person — upkeep only")
+        await sleep_cycle.run(settings, cycle_id, user_triggered=False, tail_only=True)
+        return
     # Fix round 1, H1: this is the unattended nightly cron, never a human
     # pressing Run — `user_triggered=False` keeps the agent rung (the
     # Claude card's "Use for Sleep" toggle, and "auto") out of reach here

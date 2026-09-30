@@ -148,6 +148,9 @@ class SleepState:
     # start and tail. False while a batch is only reading episodes and calling the
     # engine, and between batches — the app's and an agent's writes are safe then.
     writing: bool = False
+    # Only the engine-free tail is running (the schedule's upkeep while a run is paused):
+    # the paused record stays on the wire, and no episode is read.
+    tail_only: bool = False
 
 
 _state = SleepState()
@@ -281,6 +284,7 @@ def reserve_cycle(cycle_id: str, *, drain: bool = False) -> None:
     _state.cancelled_at_monotonic = None
     _state.drain = None
     _state.drain_run = drain
+    _state.tail_only = False
     _state.writing = True   # until `_drain` is reading episodes (a plain cycle ignores it)
 
 
@@ -1130,8 +1134,14 @@ async def _flush_pending_commits_safely(memory_path: Path) -> None:
 
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False,
-              continue_from: dict | None = None, only_ids: list[str] | None = None) -> None:
+              continue_from: dict | None = None, only_ids: list[str] | None = None,
+              tail_only: bool = False) -> None:
     """Execute the 5-stage Sleep cycle pipeline.
+
+    ``tail_only`` (the scheduler, while a run is paused): read nothing — the paused run is
+    the person's to continue or end — but still run the engine-free tail (the state refresh,
+    claim expiry, follow-ups, the polls, the link backfill), so a pause never stops them.
+    The paused run's in-memory state (``_state.drain``) is left as it was.
 
     ``continue_from`` (Sleep page v5): a paused run's record (``sleep_paused``) — the
     drain resumes it under the same run id with its counters carried. ``only_ids``:
@@ -1183,8 +1193,10 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     _state.episodes_total = 0
     _state.last_engine = None
     _state.engine_detail = None
-    _state.drain = None
-    _state.drain_run = drain
+    if not tail_only:
+        _state.drain = None
+    _state.drain_run = drain and not tail_only
+    _state.tail_only = tail_only
     _state.writing = True   # the run's start flushes pending commits; `_drain` opens the window per batch
     # Sleep control: `cancelled` (the OUTPUT flag) always starts fresh — we
     # haven't finished anything yet. `cancel_requested` (the INPUT flag)
@@ -1223,7 +1235,9 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     outcome = _StageOutcome()
     try:
         await _flush_pending_commits_safely(memory_path)
-        if drain:
+        if tail_only:
+            _state.progress = "Tidying up while your run is paused"
+        elif drain:
             outcome = await _drain(settings, cycle_id, memory_path, user_triggered=user_triggered,
                                    continue_from=continue_from, only_ids=only_ids)
         else:
@@ -1231,7 +1245,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     except Exception as e:
         _state.progress = f"Failed: {e}"
         _state.error = f"{type(e).__name__}: {e}"
-        if _state.drain is not None and _state.drain.stop is None:
+        if not tail_only and _state.drain is not None and _state.drain.stop is None:
             _state.drain.stop = sleep_drain.DrainStop("error", _state.error)
             # An unexpected raise outside a batch is a failed run, not a paused one: nothing to continue.
             try:
@@ -1269,6 +1283,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         finally:
             _state.status = "idle"
             _state.writing = False
+            _state.tail_only = False
             # The run is over whichever way it ended (a raise outside a batch
             # included): release the bank guard and close the drain's own flag.
             _state.drain_run = False
@@ -1556,19 +1571,22 @@ async def _drain(
     except Exception:  # noqa: BLE001 - a settings stand-in names no model
         ds.engine_model = None
     if continue_from:
-        ds.auto_used = int(continue_from.get("auto_used", (continue_from.get("auto_continue") or {}).get("used", 0)) or 0)
+        ds.auto_used = sleep_paused.auto_used(continue_from)
     if ds.reserve_pct and engine_lbl in engine_select.PLAN_ENGINES:
         ds.guard = sleep_reserve.ReserveGuard(ds.reserve_pct, engine=engine_lbl)
         if engine_lbl == "claude-cli" and hasattr(resolved[0], "model_copy"):
             # With a reserve set, the reserve is the line: R-E12's own 90% stop would pre-empt a 5% one.
             resolved = (resolved[0].model_copy(update={"agent_stop_utilization": 1.0}), resolved[1])
-        try:
-            from api.services import cycle_usage, telemetry
+        if engine_lbl == "claude-cli":
+            # Only the Claude plan's own last window seeds its guard: a ChatGPT-plan run must never
+            # pause (or arm an automatic continue) on another plan's usage.
+            try:
+                from api.services import cycle_usage, telemetry
 
-            last = cycle_usage.last_cycles(bank=telemetry.bank_name(settings)).get("claude-plan") or {}
-            ds.guard.seed_last_known(last.get("window"), last.get("used_fraction"), last.get("resets_at"))
-        except Exception:  # noqa: BLE001 - a seed for the first batch, never worth failing a run
-            pass
+                last = cycle_usage.last_cycles(bank=telemetry.bank_name(settings)).get("claude-plan") or {}
+                ds.guard.seed_last_known(last.get("window"), last.get("used_fraction"), last.get("resets_at"))
+            except Exception:  # noqa: BLE001 - a seed for the first batch, never worth failing a run
+                pass
     else:
         ds.reserve_pct = None
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
@@ -2134,7 +2152,11 @@ async def _run_stages(
         return _StageOutcome(stop=reserve_stop, unread={
             i: r for i, r in unread_content.items() if i in live.failed} if live is not None else {})
     if (episodes and not extracted and live is not None and not pause_class and not _ae_breaker()
-            and unread_content and all(i in live.failed for i in unread_content)):
+            and unread_content and all(i in live.failed for i in unread_content)
+            # An unrecognised failure on EVERY conversation is far likelier the engine's (an
+            # outage, a bad model parameter) than each conversation's: that falls through to the
+            # engine stop below — nothing parked, no attempt counted, the queue left as it was.
+            and "other" not in unread_content.values()):
         # Every conversation failed for ITS OWN reasons (empty answers, timeouts): not an
         # engine failure — nothing to commit, no error, each one gets its retry or is parked.
         _state.progress = f"{label}Could not read {len(unread_content)} conversation(s)"

@@ -286,6 +286,52 @@ def test_two_automatic_continues_and_then_it_stops_asking(tmp_path, monkeypatch,
     assert waiting(memory) == episode_ids(9)[3:], "the person's own Continue is still there"
 
 
+def test_the_count_survives_a_restart_and_a_manual_continue(tmp_path, monkeypatch, _state):
+    """Review: ruling 15's 'at most twice' is per run. Two automatic continues, then a restart,
+    then the person's own Continue, then a plan pause: the third automatic one is not armed."""
+    memory, rig, cfg = _armed(tmp_path, monkeypatch)
+    monkeypatch.setattr("api.config.get_settings", lambda: cfg)
+    for _ in (1, 2):
+        rig.on_extract = _pause_five_hour(batch=len(rig.extract_batches) + 1)
+        asyncio.run(ac._fire(str(memory), "sleep_ac"))
+        sleep_cycle.get_sleep_state().status = "idle"
+    rec = sleep_paused.get_paused(memory)
+    assert rec["auto_used"] == 2
+
+    # A restart mid-run: the running-phase record carries the count, and so does the restart pause.
+    running = dict(rec, phase="running", auto_continue=None)
+    sleep_paused.save(memory, running)
+    assert sleep_paused.recover_after_restart(memory) == "paused"
+    restarted = sleep_paused.get_paused(memory)
+    assert restarted["reason"] == "restart" and restarted["auto_used"] == 2
+
+    # The person's own Continue, which pauses on the plan again.
+    rig.on_extract = _pause_five_hour(batch=len(rig.extract_batches) + 1)
+    asyncio.run(sleep_cycle.run(cfg, "sleep_manual", user_triggered=True, drain=True, continue_from=restarted))
+    final = sleep_paused.get_paused(memory)
+    assert final["reason"] == "plan_window" and final["auto_used"] == 2
+    assert final["auto_continue"]["armed"] is False and final["auto_continue"]["blocked"] == "used_twice"
+
+
+def test_a_consolidate_during_the_engine_check_wins_and_the_job_starts_nothing(tmp_path, monkeypatch):
+    """Review: the fire-time engine check awaits (it may probe for seconds). A person pressing
+    Consolidate meanwhile holds the slot; the job then gives up instead of starting a second run."""
+    from api.services import engine_select
+
+    memory, rig, cfg = _armed(tmp_path, monkeypatch)
+    real = engine_select.resolve_settings
+
+    async def slow_resolve(settings_, user_triggered=True):
+        out = await real(settings_, user_triggered=user_triggered)
+        sleep_cycle.reserve_cycle("sleep_person", drain=True)   # the person's trigger lands here
+        return out
+
+    monkeypatch.setattr(engine_select, "resolve_settings", slow_resolve)
+    assert _fire(memory, cfg, monkeypatch) == []
+    s = sleep_cycle.get_sleep_state()
+    assert s.cycle_id == "sleep_person", "the person's run keeps its slot"
+
+
 # --------------------------------------------------------------------------- #
 # the rail
 # --------------------------------------------------------------------------- #

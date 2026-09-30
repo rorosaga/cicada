@@ -131,6 +131,9 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
         "totals": {k: int(v) for k, v in ds.totals.items()},
         "decay_ran": bool(ds.decay_ran),
         "auto_continue": auto_continue,
+        # Ruling 15's "at most twice" outlives a restart and a manual Continue: the count rides
+        # every write, running phase included, not only the auto-continue block.
+        "auto_used": int(getattr(ds, "auto_used", 0) or 0),
     }
     if phase == "paused":
         reason = reason_for(stop) if stop is not None else "restart"
@@ -143,6 +146,18 @@ def build(ds, *, phase: str, stop=None, engine_label: str | None = None,
             "paused_at_ts": int(paused_at or now),
         })
     return rec
+
+
+def auto_used(record: dict | None) -> int:
+    """How many automatic continues the run has used — the top-level count, never lower than
+    what an older record's auto-continue block says."""
+    if not record:
+        return 0
+    ac = record.get("auto_continue") if isinstance(record.get("auto_continue"), dict) else {}
+    try:
+        return max(int(record.get("auto_used") or 0), int((ac or {}).get("used") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def to_wire(record: dict | None, memory_path: Path | None = None) -> dict | None:

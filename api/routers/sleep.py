@@ -69,7 +69,7 @@ def active_drain(state, settings):
 
 def paused_block(state, settings):
     """The paused run of the active bank from its sidecar (a ``stat``-keyed cache), or ``None``."""
-    if state.status == "running":
+    if state.status == "running" and not getattr(state, "tail_only", False):
         return None
     wire = sleep_paused.to_wire(sleep_paused.get_paused(settings.memory_path))
     return SleepPaused(**wire) if wire else None

@@ -167,6 +167,35 @@ def test_a_reserve_only_applies_to_a_plan_engine(tmp_path, monkeypatch):
     assert rig.skipped == [] and state.drain.finished
 
 
+def test_a_chatgpt_plan_run_never_pauses_on_the_claude_plans_last_window(tmp_path, monkeypatch):
+    """Review: the guard is seeded only from the plan the run is on. A full Claude window in the
+    ledger must not stop a ChatGPT-plan run, nor show as an enforced window for it."""
+    ids = episode_ids(3)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch, engine_label="codex-cli")
+    _reserve(10)
+    from api.services import codex_engine
+
+    monkeypatch.setattr(cycle_usage, "last_cycles", lambda events=None, bank=None: {
+        "claude-plan": {"window": "five_hour", "used_fraction": 0.99, "resets_at": _future(), "as_of": "x"}})
+
+    async def preflight(**_kw):
+        codex_engine._last_snapshot = SimpleNamespace(windows=(("primary", 10, _future()),))
+        return True, "Signed in to your plan.", None
+
+    async def begin(_cycle_id):
+        return None
+
+    monkeypatch.setattr(codex_engine, "preflight", preflight)
+    monkeypatch.setattr(cycle_usage, "begin_codex", begin)
+    _cfg_, state = _run(memory)
+    ds = state.drain
+    assert rig.extract_batches == [ids], "it read"
+    assert ds.stop is None and ds.finished and ds.filed == 3
+    assert "five_hour" not in ds.guard.windows, "another plan's window is never this run's"
+    assert sleep_paused.get_paused(memory) is None
+
+
 def test_the_chatgpt_plan_is_read_from_the_preflight_snapshot_at_each_batch_boundary(tmp_path, monkeypatch):
     ids = episode_ids(6)
     memory = seed_bank(tmp_path, ids)

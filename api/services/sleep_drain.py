@@ -254,8 +254,13 @@ def classify(exc: BaseException, breaker_sentence: str | None = None,
 
 def classify_episode(exc: BaseException) -> tuple[str, str | None]:
     """One conversation's failure: ``("pause", None)`` when it is the engine's
-    (throttled, exhausted, unavailable, model not found — never counted against
-    the conversation), else ``("content", reason)`` with a ``UNREAD_REASONS`` enum."""
+    (throttled, exhausted, unavailable, model not found, an unnamed CLI failure, a
+    provider 5xx or refused request, the network — never counted against the
+    conversation), else ``("content", reason)`` with a ``UNREAD_REASONS`` enum. Only
+    classes that clearly belong to the conversation park it (an empty or unparseable
+    answer, a timeout, a context-window overflow, a content refusal); an unrecognised
+    failure is content here, but a batch where EVERY conversation failed with one is
+    the engine's (``sleep_cycle._run_stages``)."""
     from api.services import json_parse
 
     try:   # the metered rung: a key, a model or a quota is the engine's trouble, never the conversation's
@@ -264,12 +269,28 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
         lx = litellm.exceptions
         if isinstance(exc, lx.Timeout):
             return "content", "timed_out"
-        if isinstance(exc, (lx.AuthenticationError, lx.NotFoundError, lx.RateLimitError, lx.APIConnectionError)):
+        if isinstance(exc, lx.ContextWindowExceededError):
+            return "content", "other"           # this conversation is too long for the model
+        if isinstance(exc, lx.ContentPolicyViolationError):
+            return "content", "refused"
+        # Everything else the provider raises — a key, a model, a quota, a 5xx, a refused
+        # parameter (BadRequestError on every call) — is the engine's, never one conversation's.
+        try:
+            import openai   # litellm's provider errors all derive from openai's APIError
+
+            provider_base: tuple = (lx.APIError, openai.APIError)
+        except Exception:  # pragma: no cover
+            provider_base = (lx.APIError,)
+        if isinstance(exc, provider_base) or isinstance(exc, (
+                lx.AuthenticationError, lx.NotFoundError, lx.RateLimitError, lx.APIConnectionError,
+                lx.BadRequestError, lx.InternalServerError, lx.ServiceUnavailableError)):
             return "pause", None
     except Exception:  # pragma: no cover - litellm missing or renamed
         pass
     if isinstance(exc, (engine_errors.EngineThrottled, engine_errors.EngineExhausted,
-                        engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound)):
+                        engine_errors.EngineUnavailable, engine_errors.EngineModelNotFound,
+                        engine_errors.EngineFailed)):
+        # EngineFailed: the CLI reported an error it could not name — after its own retry.
         return "pause", None
     if isinstance(exc, engine_errors.EngineTimeout):
         return "content", "timed_out"
@@ -277,6 +298,15 @@ def classify_episode(exc: BaseException) -> tuple[str, str | None]:
         return "content", "empty_answer"
     if isinstance(exc, ValueError):        # includes json.JSONDecodeError
         return "content", "unparseable"
+    try:   # the network or the machine, never the conversation
+        import httpx
+
+        if isinstance(exc, httpx.HTTPError):
+            return "pause", None
+    except Exception:  # pragma: no cover - httpx missing
+        pass
+    if isinstance(exc, (OSError, ConnectionError)):
+        return "pause", None
     return "content", "other"
 
 

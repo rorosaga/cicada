@@ -129,7 +129,7 @@ def rearm_after_restart(memory_path: Path) -> bool:
             return False
         why = blocked_reason(rec, started_by=rec.get("started_by", "user"),
                              switch_on=bool((rec.get("options") or {}).get("continue_after_reset")),
-                             used=int(ac.get("used") or 0))
+                             used=sleep_paused.auto_used(rec))
         if why is not None:
             _record_block(memory_path, rec, why)
             return False
@@ -159,8 +159,7 @@ async def _fire(memory_path: str, run_id: str) -> None:
     rec = sleep_paused.get_paused(mp)
     if not rec or str(rec.get("run_id")) != str(run_id):
         return                      # ended, continued by hand, or replaced
-    ac = rec.get("auto_continue") or {}
-    used = int(ac.get("used") or 0)
+    used = sleep_paused.auto_used(rec)
     now = _now()
     why = blocked_reason(rec, started_by=rec.get("started_by", "user"),
                          switch_on=bool((rec.get("options") or {}).get("continue_after_reset")),
@@ -196,7 +195,16 @@ async def _fire(memory_path: str, run_id: str) -> None:
         logger.info(f"auto-continue not run: {why}")
         _record_block(mp, rec, why)
         return
-    rec = dict(rec)
+    # The resolve above awaited (it may probe the app-server for seconds): a person may have
+    # pressed Consolidate, Continue or End meanwhile. Check again with no await before the
+    # reservation, so two runs never go at once.
+    live = sleep_paused.get_paused(mp)
+    if sleep_cycle.get_sleep_state().status == "running" or not live or str(live.get("run_id")) != str(run_id):
+        logger.info("auto-continue not run: busy")
+        if live and str(live.get("run_id")) == str(run_id):
+            _record_block(mp, live, "busy")
+        return
+    rec = dict(live)
     rec["auto_used"] = used + 1
     from datetime import datetime as _dt
 

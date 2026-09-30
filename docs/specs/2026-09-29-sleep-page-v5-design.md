@@ -515,8 +515,9 @@ Precedence, highest first: the trigger body (one run), the saved plan, the envir
    |---|---|---|
    | `EngineUnavailable` (signed out, engine missing), `EngineThrottled`, `EngineExhausted`, `EngineOverage` | pause | the run pauses; never counted against the conversation |
    | `EngineModelNotFound` | pause (`error`) | the run pauses with the model named; the person picks another |
-   | `EngineTimeout`, `EngineProtocolError`, `EngineFailed`, `ValueError` (unparseable), an empty or schema-refused answer | content | counted; the second one parks the conversation |
-   | anything else | content | as above |
+   | `EngineTimeout`, `EngineProtocolError`, `ValueError` (unparseable), an empty or schema-refused answer, a context-window overflow, a content refusal | content | counted; the second one parks the conversation |
+   | `EngineFailed`, a provider 5xx / `BadRequestError` / any other provider `APIError`, a network or OS error | pause | (review fix, 2026-09-30) the engine's, never the conversation's |
+   | anything else | content | as above — but a batch where **every** conversation failed with one is the engine's: a stop, nothing parked |
 
    One wrinkle is fixed at its source: on a plan engine an **empty answer arrives as `EngineUnavailable`**
    (`agent_engine.py:480-490`), the class Stage 1 labels "signed out or missing", so empty output would

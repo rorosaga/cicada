@@ -57,7 +57,8 @@ def _client(cfg):
     (json_parse.EmptyResponse("empty"), ("content", "empty_answer")),
     (ValueError("no JSON object found"), ("content", "unparseable")),
     (json.JSONDecodeError("bad", "{", 1), ("content", "unparseable")),
-    (engine_errors.EngineFailed("x"), ("content", "other")),
+    (engine_errors.EngineFailed("x"), ("pause", None)),
+    (OSError("connection reset"), ("pause", None)),
     (RuntimeError("anything else"), ("content", "other")),
 ])
 def test_each_exception_class_maps_as_the_table_says(exc, expected):
@@ -72,6 +73,47 @@ def test_the_metered_rung_is_classified_too():
     assert sleep_drain.classify_episode(lx.AuthenticationError("k", "p", "m"))[0] == "pause"
     assert sleep_drain.classify_episode(lx.RateLimitError("r", "p", "m"))[0] == "pause"
     assert sleep_drain.classify_episode(lx.Timeout("t", "m", "p")) == ("content", "timed_out")
+    # A provider outage or a refused parameter is the engine's, never one conversation's.
+    for exc in (lx.ServiceUnavailableError("m", "p", "x"), lx.InternalServerError("m", "p", "x"),
+                lx.BadRequestError("m", "x", "p"), lx.APIError(500, "m", "p", "x"),
+                lx.BadGatewayError("m", "p", "x")):
+        assert sleep_drain.classify_episode(exc) == ("pause", None), type(exc).__name__
+    # Only what clearly belongs to the conversation parks it.
+    assert sleep_drain.classify_episode(lx.ContextWindowExceededError("m", "x", "p")) == ("content", "other")
+    assert sleep_drain.classify_episode(lx.ContentPolicyViolationError("m", "x", "p")) == ("content", "refused")
+
+
+def test_a_provider_outage_on_every_conversation_pauses_with_nothing_parked(tmp_path, monkeypatch):
+    """Review (must): every episode raising a 503 is the engine's trouble — the run pauses, no
+    attempt is counted and nothing is parked; the queue is as it was."""
+    import litellm
+
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    rig.fail_exc = {i: litellm.exceptions.ServiceUnavailableError("503", "p", "m") for i in ids}
+    _cfg, state = _drain(memory, cap=3)
+
+    ds = state.drain
+    assert ds.stop is not None and ds.stop.reason == "engine"
+    assert len(rig.extract_batches) == 1, "it stops at the first batch rather than burning through the queue"
+    assert ds.parked == {} and sleep_parked.ids(memory) == set()
+    assert not any(ds.attempts.values()), "never counted against a conversation"
+    assert waiting(memory) == ids
+    assert sleep_paused.get_paused(memory)["reason"] == "engine"
+
+
+def test_an_unrecognised_failure_on_every_conversation_is_the_engines_not_theirs(tmp_path, monkeypatch):
+    ids = episode_ids(3)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    rig.fail_exc = {i: RuntimeError("something nobody named") for i in ids}
+    _cfg, state = _drain(memory, cap=3)
+
+    ds = state.drain
+    assert ds.stop is not None and ds.stop.reason == "engine"
+    assert ds.parked == {} and sleep_parked.ids(memory) == set() and not any(ds.attempts.values())
+    assert waiting(memory) == ids
 
 
 def test_an_empty_plan_answer_is_content_not_signed_out():

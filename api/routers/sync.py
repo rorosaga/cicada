@@ -60,7 +60,8 @@ async def events(settings: Settings = Depends(get_settings)):
             if ds is not None and getattr(ds, "memory_path", None) not in (None, settings.memory_path):
                 ds = None
             drain_sse = sleep_drain.to_sse(ds, debt.unprocessed_count)
-            paused = None if state.status == "running" else sleep_paused.get_paused(settings.memory_path)
+            paused = (None if state.status == "running" and not getattr(state, "tail_only", False)
+                      else sleep_paused.get_paused(settings.memory_path))
             paused_sse = ({
                 "runId": paused.get("run_id"), "reason": paused.get("reason"),
                 "autoArmed": bool((paused.get("auto_continue") or {}).get("armed")),
