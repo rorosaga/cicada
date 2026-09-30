@@ -14,7 +14,7 @@ final class ReadingAgentModel {
         var prompt: @MainActor () async throws -> String
         var fetchSites: @MainActor () async throws -> ReadingSitesResponse
         var fetchMethods: @MainActor () async throws -> AgentMethodsResponse
-        var setMethod: @MainActor (String) async throws -> AgentMethodWriteResponse
+        var setMethod: @MainActor (String, String) async throws -> AgentMethodWriteResponse
         var addPage: @MainActor (String) async throws -> AgentMethodPage
 
         @MainActor static var live: Deps {
@@ -25,19 +25,23 @@ final class ReadingAgentModel {
                  prompt: { try await APIClient.shared.fetchReadingPrompt() },
                  fetchSites: { try await APIClient.shared.fetchReadingSites() },
                  fetchMethods: { try await APIClient.shared.fetchAgentMethods() },
-                 setMethod: { try await APIClient.shared.setAgentMethod(job: ReadingAgentModel.job, choice: $0) },
+                 setMethod: { try await APIClient.shared.setAgentMethod(job: $0, choice: $1) },
                  addPage: { try await APIClient.shared.addSkillPage(skill: $0) })
         }
     }
 
-    /// The one job today: how the person's agent reads pages.
+    /// How the person's agent reads pages, and (ruling 17, G178) how it watches videos. Same mechanism, same rows.
     static let job = "reading"
+    static let watchJob = "watching"
 
     private(set) var settings: ReadingSettingsResponse?
     private(set) var sites: ReadingSitesResponse?
     private(set) var methods: AgentMethodJob?
+    private(set) var watchMethods: AgentMethodJob?
     private(set) var note: String?
     private(set) var methodNote: String?
+    /// The job whose group shows `methodNote` (the choice or the page add that made it).
+    private(set) var methodNoteJob = ReadingAgentModel.job
     private(set) var busy = false
     private let deps: Deps
 
@@ -58,7 +62,14 @@ final class ReadingAgentModel {
             if settings == nil { note = Copy.Reading.loadFailed }
         }
         await refreshSites()
-        if let all = try? await deps.fetchMethods() { methods = all.job(Self.job) }
+        await refreshMethods()
+    }
+
+    private func refreshMethods() async {
+        if let all = try? await deps.fetchMethods() {
+            methods = all.job(Self.job)
+            watchMethods = all.job(Self.watchJob)
+        }
     }
 
     /// The switch and the acknowledgement only — what the Feed's "Let an agent read <site>" needs to decide whether to
@@ -87,13 +98,14 @@ final class ReadingAgentModel {
     func promptText() async -> String? { try? await deps.prompt() }
 
     /// Choosing how the agent reads. The server files a chosen skill's page in the graph and says what happened.
-    func choose(_ id: String) async {
-        guard id != methods?.chosen else { return }
+    func choose(_ id: String, job: String = ReadingAgentModel.job) async {
+        guard id != (job == Self.watchJob ? watchMethods : methods)?.chosen else { return }
         busy = true
         defer { busy = false }
+        methodNoteJob = job
         do {
-            let answer = try await deps.setMethod(id)
-            methods = answer.job
+            let answer = try await deps.setMethod(job, id)
+            if job == Self.watchJob { watchMethods = answer.job } else { methods = answer.job }
             methodNote = Copy.Reading.pageNote(answer.pageState)
         } catch APIError.httpError(let code, let body) where code == 409 || code == 422 {
             methodNote = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
@@ -103,13 +115,14 @@ final class ReadingAgentModel {
     }
 
     /// "Add to your graph" for an installed skill that has no page yet.
-    func addPage(_ skill: String) async {
+    func addPage(_ skill: String, job: String = ReadingAgentModel.job) async {
         busy = true
         defer { busy = false }
+        methodNoteJob = job
         do {
             let page = try await deps.addPage(skill)
             methodNote = Copy.Reading.pageNote(page.state ?? "created")
-            if let all = try? await deps.fetchMethods() { methods = all.job(Self.job) }
+            await refreshMethods()
         } catch APIError.httpError(let code, let body) where code == 409 || code == 404 {
             methodNote = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
         } catch {
@@ -206,6 +219,7 @@ struct ReadingWebView: View {
                 }
             }
             methodsGroup
+            watchMethodsGroup
             sitesGroup
         }
         // R-HS16 — a sheet centred on the window, never a popover at the panel's edge.
@@ -227,11 +241,11 @@ struct ReadingWebView: View {
     @ViewBuilder private var methodsGroup: some View {
         if let job = model.methods {
             SettingsGroupCard(header: Copy.Reading.methodsGroup) {
-                introRow(model.methodNote ?? Copy.Reading.methodsDetail, color: CicadaTheme.textSecondary)
+                introRow((model.methodNoteJob == ReadingAgentModel.job ? model.methodNote : nil) ?? Copy.Reading.methodsDetail, color: CicadaTheme.textSecondary)
                     .settingsRow(.readingMethods)
                 ForEach(job.options) { option in
                     SettingsDivider()
-                    methodRow(option, chosen: job.chosen == option.id)
+                    methodRow(option, chosen: job.chosen == option.id, job: ReadingAgentModel.job)
                 }
             }
             Text(Copy.Reading.methodsFooter)
@@ -241,11 +255,29 @@ struct ReadingWebView: View {
         }
     }
 
-    private func methodRow(_ option: AgentMethodOption, chosen: Bool) -> some View {
-        SettingsRowShell(.readingMethod(option.id)) {
+    /// How your agent watches (ruling 17): the same choice for the video hand-off, one per job.
+    @ViewBuilder private var watchMethodsGroup: some View {
+        if let job = model.watchMethods {
+            SettingsGroupCard(header: Copy.Reading.watchMethodsGroup) {
+                introRow((model.methodNoteJob == ReadingAgentModel.watchJob ? model.methodNote : nil) ?? Copy.Reading.watchMethodsDetail, color: CicadaTheme.textSecondary)
+                    .settingsRow(.watchingMethods)
+                ForEach(job.options) { option in
+                    SettingsDivider()
+                    methodRow(option, chosen: job.chosen == option.id, job: ReadingAgentModel.watchJob)
+                }
+            }
+            Text(Copy.Reading.methodsFooter)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func methodRow(_ option: AgentMethodOption, chosen: Bool, job: String) -> some View {
+        SettingsRowShell(job == ReadingAgentModel.watchJob ? .watchingMethod(option.id) : .readingMethod(option.id)) {
             HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
                 Button {
-                    Task { await model.choose(option.id) }
+                    Task { await model.choose(option.id, job: job) }
                 } label: {
                     HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                         Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
@@ -270,22 +302,23 @@ struct ReadingWebView: View {
                 }
                 .buttonStyle(.cicadaPlain)
                 .disabled(model.busy)
-                .accessibilityLabel(Copy.Reading.methodRadioLabel(option.title))
+                .accessibilityLabel(job == ReadingAgentModel.watchJob ? Copy.Reading.watchRadioLabel(option.title)
+                                 : Copy.Reading.methodRadioLabel(option.title))
                 .accessibilityAddTraits(chosen ? [.isSelected] : [])
                 Spacer(minLength: CicadaTheme.scaled(16))
-                if option.isSkill { skillAction(option) }
+                if option.isSkill { skillAction(option, job: job) }
             }
         }
     }
 
-    @ViewBuilder private func skillAction(_ option: AgentMethodOption) -> some View {
+    @ViewBuilder private func skillAction(_ option: AgentMethodOption, job: String) -> some View {
         switch MethodRowWords.action(option) {
         case .openInGraph(let id):
             NeutralButton(title: Copy.Reading.openInGraph, size: .compact) { openPage(id) }
         case .addToGraph:
             NeutralButton(title: Copy.Reading.addToGraph, size: .compact, isDisabled: model.busy,
                           help: Copy.Reading.addToGraphHelp) {
-                Task { await model.addPage(option.id) }
+                Task { await model.addPage(option.id, job: job) }
             }
         case .install:
             NeutralButton(title: Copy.Reading.installSkill, size: .compact, help: Copy.Reading.installSkillHelp) {

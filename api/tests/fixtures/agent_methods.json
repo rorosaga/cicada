@@ -163,6 +163,295 @@
      "page": null
     }
    ]
+  },
+  {
+   "job": "watching",
+   "question": "How your agent watches",
+   "chosen": "auto",
+   "options": [
+    {
+     "id": "auto",
+     "kind": "auto",
+     "title": "Let my agent choose",
+     "detail": "Cicada doesn't name a tool."
+    },
+    {
+     "id": "own",
+     "kind": "own",
+     "title": "Its own tools for watching",
+     "detail": "Whatever your agent already has where you use it."
+    },
+    {
+     "id": "watch",
+     "kind": "skill",
+     "rank": 1,
+     "title": "claude-video",
+     "summary": "Your agent watches a video you point it at and tells you what's in it.",
+     "why": "A saved video in Cicada is only a title. With this, your agent can look at the frames and captions when you ask, so you can talk about what a video actually says.",
+     "publisher": "bradautomates",
+     "sourceUrl": "https://github.com/bradautomates/claude-video",
+     "licence": "MIT",
+     "mark": null,
+     "symbol": "play.rectangle",
+     "needs": {
+      "binaries": [
+       "ffmpeg",
+       "yt-dlp"
+      ],
+      "keys": [
+       {
+        "name": "GROQ_API_KEY",
+        "optional": true
+       },
+       {
+        "name": "OPENAI_API_KEY",
+        "optional": true
+       }
+      ],
+      "network": [
+       "the video's own website",
+       "api.groq.com, only when a video has no captions",
+       "api.openai.com, only when a video has no captions"
+      ],
+      "writes": [
+       "~/.config/watch/.env",
+       "a temporary folder holding the video while it works"
+      ],
+      "allowedTools": "Bash, Read, AskUserQuestion",
+      "hooks": [
+       "In Claude Code, a short setup check each time a session starts"
+      ],
+      "firstRun": "On a Mac it installs ffmpeg and yt-dlp with Homebrew the first time it runs.",
+      "limits": [
+       "Reads English captions; other languages need one of the transcription keys."
+      ]
+     },
+     "terms": {
+      "summary": "It downloads videos with yt-dlp. YouTube's terms don't allow downloading or automated access without YouTube's permission.",
+      "url": "https://www.youtube.com/t/terms",
+      "safeUses": [
+       "your own recordings",
+       "videos you made, like your own Looms"
+      ]
+     },
+     "cicadaNote": "Cicada itself never downloads video. It only keeps what your agent tells it afterwards.",
+     "roles": [
+      "watching"
+     ],
+     "invoke": "watch",
+     "pageName": "claude-video",
+     "reach": "Downloads the video to a temporary folder on your Mac while it works.",
+     "agents": [
+      "claude-code",
+      "codex"
+     ],
+     "state": {
+      "claude-code": "not_installed",
+      "codex": "not_installed"
+     },
+     "install": {
+      "claude-code": {
+       "runnable": true,
+       "env": {
+        "CICADA_CAPTURE": "off"
+       },
+       "steps": [
+        {
+         "argv": [
+          "claude",
+          "plugin",
+          "marketplace",
+          "add",
+          "bradautomates/claude-video"
+         ],
+         "tolerateFailure": true
+        },
+        {
+         "argv": [
+          "claude",
+          "plugin",
+          "install",
+          "watch@claude-video",
+          "--scope",
+          "user"
+         ],
+         "tolerateFailure": false
+        }
+       ]
+      },
+      "codex": {
+       "runnable": true,
+       "env": {
+        "CICADA_CAPTURE": "off",
+        "DISABLE_TELEMETRY": "1",
+        "DO_NOT_TRACK": "1"
+       },
+       "steps": [
+        {
+         "argv": [
+          "npx",
+          "--yes",
+          "skills",
+          "add",
+          "https://github.com/bradautomates/claude-video/tree/83da59fa78c3eee9e20f515fe75c438bb5166efd/skills/watch",
+          "-g",
+          "-a",
+          "codex",
+          "-y"
+         ],
+         "tolerateFailure": false
+        }
+       ]
+      }
+     },
+     "detail": "Your agent watches a video you point it at and tells you what's in it.",
+     "page": null
+    },
+    {
+     "id": "browser-harness",
+     "kind": "skill",
+     "rank": 10,
+     "title": "browser-harness",
+     "summary": "Your agent drives your real Chrome: clicking, typing, signed-in pages, pages that need JavaScript.",
+     "why": "Some pages only open in a browser you are signed in to. With this, your agent can open them the way you would.",
+     "publisher": "browser-use",
+     "sourceUrl": "https://github.com/browser-use/browser-harness",
+     "licence": "MIT",
+     "mark": null,
+     "symbol": "safari",
+     "needs": {
+      "binaries": [
+       "uv",
+       "Python 3.12",
+       "Chrome"
+      ],
+      "network": [
+       "none for your local Chrome; a cloud browser is optional and needs its own sign-in"
+      ],
+      "writes": [
+       "a small local workspace",
+       "screenshots and action traces, only if you turn recording on"
+      ],
+      "firstRun": "Chrome needs one tick at chrome://inspect/#remote-debugging; macOS may ask for Accessibility."
+     },
+     "terms": {
+      "summary": "Some sites, video sites among them, don't allow automated access, including from your own browser. Your agent, not Cicada, is doing it.",
+      "url": "https://www.youtube.com/t/terms",
+      "safeUses": [
+       "pages and accounts you may read yourself"
+      ]
+     },
+     "cicadaNote": "Cicada only asks your agent to use it. It can't see or limit what your agent does in your browser.",
+     "roles": [
+      "reading",
+      "watching"
+     ],
+     "invoke": "browser-harness",
+     "pageName": "browser-harness",
+     "reach": "Uses your own Chrome, including sites where you're signed in.",
+     "agents": [
+      "claude-code",
+      "codex"
+     ],
+     "state": {
+      "claude-code": "not_installed",
+      "codex": "not_installed"
+     },
+     "install": {
+      "claude-code": {
+       "runnable": false,
+       "env": {
+        "CICADA_CAPTURE": "off"
+       },
+       "steps": [],
+       "prompt": "Set up the browser-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/browser-harness at tag v0.1.13, but install the reviewed version: `uv tool install --python 3.12 browser-harness==0.1.13`. Register the skill that `browser-harness skill` prints under the name browser-harness, with no trigger sentence: do not make it your default for other web tasks, I will ask for it when I want it. Ask me before you turn on screen recordings, and before anything that needs a browser setting or a macOS permission. Tell me when it is ready."
+      },
+      "codex": {
+       "runnable": false,
+       "env": {
+        "CICADA_CAPTURE": "off"
+       },
+       "steps": [],
+       "prompt": "Set up the browser-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/browser-harness at tag v0.1.13, but install the reviewed version: `uv tool install --python 3.12 browser-harness==0.1.13`. Register the skill that `browser-harness skill` prints under the name browser-harness, with no trigger sentence: do not make it your default for other web tasks, I will ask for it when I want it. Ask me before you turn on screen recordings, and before anything that needs a browser setting or a macOS permission. Tell me when it is ready."
+      }
+     },
+     "detail": "Your agent drives your real Chrome: clicking, typing, signed-in pages, pages that need JavaScript.",
+     "page": null
+    },
+    {
+     "id": "macos-harness",
+     "kind": "skill",
+     "rank": 11,
+     "title": "macos-harness",
+     "summary": "Your agent controls apps on your Mac with screenshots, keyboard and mouse, not only the browser.",
+     "why": "Some things only happen in a desktop app. With this, your agent can work in one the way you would.",
+     "publisher": "browser-use",
+     "sourceUrl": "https://github.com/browser-use/macos-harness",
+     "licence": "MIT",
+     "mark": null,
+     "symbol": "desktopcomputer",
+     "needs": {
+      "binaries": [
+       "uv",
+       "Python 3.12"
+      ],
+      "network": [
+       "none, unless your agent uses it with a website"
+      ],
+      "writes": [
+       "a small local workspace",
+       "screenshots of your screen while it works"
+      ],
+      "firstRun": "It checks its permissions with `macos-harness doctor` and asks before requesting any.",
+      "limits": [
+       "Sends anonymous usage counts unless you run `macos-harness telemetry disable`."
+      ]
+     },
+     "terms": {
+      "summary": "Some sites, video sites among them, don't allow automated access, including from your own browser. Your agent, not Cicada, is doing it.",
+      "url": "https://www.youtube.com/t/terms",
+      "safeUses": [
+       "pages and accounts you may read yourself"
+      ]
+     },
+     "cicadaNote": "Cicada only asks your agent to use it. It can't see or limit what your agent does on your Mac.",
+     "roles": [
+      "reading",
+      "watching"
+     ],
+     "invoke": "macos-harness",
+     "pageName": "macos-harness",
+     "reach": "Can control any app on your Mac. Needs Accessibility, Screen Recording and Automation access.",
+     "agents": [
+      "claude-code",
+      "codex"
+     ],
+     "state": {
+      "claude-code": "not_installed",
+      "codex": "not_installed"
+     },
+     "install": {
+      "claude-code": {
+       "runnable": false,
+       "env": {
+        "CICADA_CAPTURE": "off"
+       },
+       "steps": [],
+       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.1.2, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.1.2`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
+      },
+      "codex": {
+       "runnable": false,
+       "env": {
+        "CICADA_CAPTURE": "off"
+       },
+       "steps": [],
+       "prompt": "Set up the macos-harness skill for me, then stop. Follow the install steps in install.md of https://github.com/browser-use/macos-harness at tag v0.1.2, but install the reviewed version: `uv tool install --python 3.12 macos-harness==0.1.2`. Register the skill that `macos-harness skill` prints under the name macos-harness, with no trigger sentence: do not make it your default for other tasks, I will ask for it when I want it. It can control apps on this Mac: ask me before you request any macOS permission, and ask whether to run `macos-harness telemetry disable` (it sends anonymous usage counts otherwise). Tell me when it is ready."
+      }
+     },
+     "detail": "Your agent controls apps on your Mac with screenshots, keyboard and mouse, not only the browser.",
+     "page": null
+    }
+   ]
   }
  ]
 }

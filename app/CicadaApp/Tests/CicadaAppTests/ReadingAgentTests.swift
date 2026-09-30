@@ -77,7 +77,7 @@ final class ReadingAgentTests: XCTestCase {
             XCTAssertFalse(line.lowercased().contains("browser"), line)
         }
         let all = [Copy.Reading.switchDetail, Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetTerms,
-                   Copy.Reading.sheetSaferExport, Copy.Reading.askedNote, Copy.Reading.sitesIntro, Copy.Reading.methodsDetail,
+                   Copy.Reading.sheetSaferExport, Copy.Reading.askedNote, Copy.Reading.sitesIntro, Copy.Reading.methodsDetail, Copy.Reading.watchMethodsDetail,
                    Copy.Reading.waiting, Copy.Reading.copyPromptHelp]
         for text in all {
             for banned in ["read-only", "never posts", "never post", "cannot post", "safe to"] {
@@ -307,10 +307,13 @@ final class ReadingAgentTests: XCTestCase {
             fetchMethods: {
                 AgentMethodsResponse(jobs: [AgentMethodJob(job: "reading", question: "How your agent reads", chosen: "auto",
                     options: [AgentMethodOption(id: "auto", kind: "auto", title: "Let my agent choose"),
-                              AgentMethodOption(id: "s", kind: "skill", title: "s", state: ["claude-code": "installed"])])])
+                              AgentMethodOption(id: "s", kind: "skill", title: "s", state: ["claude-code": "installed"])]),
+                    AgentMethodJob(job: "watching", question: "How your agent watches", chosen: "auto",
+                    options: [AgentMethodOption(id: "auto", kind: "auto", title: "Let my agent choose"),
+                              AgentMethodOption(id: "w", kind: "skill", title: "w", state: ["claude-code": "installed"])])])
             },
-            setMethod: { choice in
-                AgentMethodWriteResponse(job: AgentMethodJob(job: "reading", question: "How your agent reads", chosen: choice),
+            setMethod: { job, choice in
+                AgentMethodWriteResponse(job: AgentMethodJob(job: job, question: "q", chosen: choice),
                                          pageState: choice == "s" ? "created" : "none")
             },
             addPage: { AgentMethodPage(id: "skill-\($0)", state: "created") })
@@ -376,6 +379,20 @@ final class ReadingAgentTests: XCTestCase {
     }
 
     @MainActor
+    func testChoosingHowTheAgentWatchesIsItsOwnChoiceAndNeverMovesReadings() async {
+        let model = ReadingAgentModel(deps: deps())
+        await model.load()
+        XCTAssertEqual(model.watchMethods?.job, "watching")
+        XCTAssertEqual(model.watchMethods?.chosen, "auto")
+        await model.choose("w", job: ReadingAgentModel.watchJob)
+        XCTAssertEqual(model.watchMethods?.chosen, "w")
+        XCTAssertEqual(model.methods?.chosen, "auto", "one choice per job")
+        XCTAssertEqual(model.methodNoteJob, "watching")
+        XCTAssertEqual(SettingsRowID.watchingMethod("w").rawValue, "watchingMethod:w")
+        XCTAssertNotEqual(SettingsRowID.watchingMethod("w"), SettingsRowID.readingMethod("w"))
+    }
+
+    @MainActor
     func testAddingASkillsPageToTheGraphAnswersInWords() async {
         let model = ReadingAgentModel(deps: deps())
         await model.load()
@@ -391,14 +408,14 @@ final class ReadingAgentTests: XCTestCase {
         XCTAssertEqual(SettingsSection.reading.group, .customize)
         XCTAssertEqual(SettingsSection.reading.title, "Reading the web")
         XCTAssertEqual(SettingsSection(rawValue: "reading"), .reading, "the raw value is a machine key")
-        for id in [SettingsRowID.readingAgent, .readingMethods, .readingSites] {
+        for id in [SettingsRowID.readingAgent, .readingMethods, .watchingMethods, .readingSites] {
             XCTAssertTrue(SettingsIndex.staticIDs.contains(id))
             XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == id && $0.section == .reading })
         }
     }
 
     func testNoReadingCopyNamesAProviderOrAPromise() {
-        let lines = [Copy.Reading.switchDetail, Copy.Reading.methodsDetail, Copy.Reading.sitesIntro,
+        let lines = [Copy.Reading.switchDetail, Copy.Reading.methodsDetail, Copy.Reading.watchMethodsDetail, Copy.Reading.sitesIntro,
                      Copy.Reading.sitesEmpty, Copy.Reading.sitesIconNote, Copy.Reading.needsLoginNote,
                      Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetTerms]
         let banned = ["claude", "chatgpt", "codex", "ollama", "openrouter", "gemini", "haiku", "opus", "sonnet"]

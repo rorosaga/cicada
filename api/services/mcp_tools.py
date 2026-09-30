@@ -781,15 +781,19 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
         if not rows:
             return "Nothing is waiting in the person's video queue."
         _video_ledger(ctx, memory_path, "claim", count=len(rows))
+        from api.services import handshake
+
+        clause = video_prompt.method_clause(memory_path, reply=True, variant=handshake.variant_for(ctx.client_name),
+                                            remote=ctx.is_remote)
         head = (f"Leased {len(rows)} video(s) for about {video_queue.LEASE_MINUTES} minutes. Read or watch each with "
-                "your own tools, then record it with cicada_record_watch(url, summary, excerpts, basis, engine, "
+                f"{video_prompt.tools_phrase(clause, reply=True)}, then record it with cicada_record_watch(url, summary, excerpts, basis, engine, "
                 "duration); hand one back with cicada_video_claim(release=[{url, code, reason}]). Call "
                 "cicada_video_claim again until it returns nothing.")
         _, batches = video_queue.view(memory_path)
         method = None
         if batches:
             method = video_prompt.method_line(batches[max(batches, key=lambda b: (batches[b]["created_at"], b))]["method"])
-        extra = [x for x in (method, video_prompt.method_clause(memory_path)) if x]
+        extra = [x for x in (method, clause) if x]
         return "\n".join([head, *_untrusted_block(ctx, _video_lines(rows, saved)), *extra])
     except video_queue.QueueError as exc:
         return f"Error: {exc}"

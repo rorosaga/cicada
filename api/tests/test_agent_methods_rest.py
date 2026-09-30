@@ -33,10 +33,12 @@ def test_get_matches_the_pinned_fixture(api):
     if os.environ.get("CICADA_UPDATE_FIXTURES") == "1":
         FIXTURE.write_text(json.dumps(body, indent=1) + "\n")
     assert body == json.loads(FIXTURE.read_text())
-    (job,) = body["jobs"]
-    assert (body["shape"], job["job"], job["question"], job["chosen"]) == ("agent-methods-1", "reading", "How your agent reads", "auto")
-    assert [o["id"] for o in job["options"]] == ["auto", "own", "browser-harness", "macos-harness"]
-    assert all(o.get("page") is None for o in job["options"] if o["kind"] == "skill")
+    reading, watching = body["jobs"]
+    assert (body["shape"], reading["job"], reading["question"], reading["chosen"]) == ("agent-methods-1", "reading", "How your agent reads", "auto")
+    assert [o["id"] for o in reading["options"]] == ["auto", "own", "browser-harness", "macos-harness"]
+    assert (watching["job"], watching["question"], watching["chosen"]) == ("watching", "How your agent watches", "auto")
+    assert [o["id"] for o in watching["options"]] == ["auto", "own", "watch", "browser-harness", "macos-harness"]
+    assert all(o.get("page") is None for j in body["jobs"] for o in j["options"] if o["kind"] == "skill")
 
 
 def test_no_etag_and_no_store_domain(api):

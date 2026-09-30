@@ -52,6 +52,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let readingAgent = SettingsRowID("readingAgent")
     static let readingPrompt = SettingsRowID("reading:prompt")
     static let readingMethods = SettingsRowID("readingMethods")
+    static let watchingMethods = SettingsRowID("watchingMethods")
     static let readingSites = SettingsRowID("readingSites")
     static let readingSitesEmpty = SettingsRowID("reading:sitesEmpty")
     static let remoteSwitch = SettingsRowID("remoteSwitch")
@@ -97,6 +98,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     /// a wall), and one radio per way the person's agent may read.
     static func readingSite(_ key: String) -> SettingsRowID { SettingsRowID("readingSite:\(key)") }
     static func readingMethod(_ id: String) -> SettingsRowID { SettingsRowID("readingMethod:\(id)") }
+    static func watchingMethod(_ id: String) -> SettingsRowID { SettingsRowID("watchingMethod:\(id)") }
     /// G147 — one row per kind of page under "How things fade" (a suggestion or a chosen pace).
     static func fadeType(_ type: String) -> SettingsRowID { SettingsRowID("fadeType:\(type)") }
 
