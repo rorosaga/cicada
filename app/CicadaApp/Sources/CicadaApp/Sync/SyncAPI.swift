@@ -139,6 +139,33 @@ protocol SyncAPI: Sendable {
     func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse)
 }
 
+/// The compact `drain` block on the `sleep` SSE event (`sleep_drain.to_sse`, G163): where a
+/// person-started run is, in counts, and why it stopped — the reason only, never the sentence
+/// (that is `GET /sleep/status`'s). Lenient like every field here.
+struct SleepDrainSSE: Codable, Equatable {
+    var batch: Int
+    var batches: Int
+    var filed: Int
+    var frozen: Int
+    var active: Bool
+    var stop: String?
+
+    init(batch: Int = 0, batches: Int = 0, filed: Int = 0, frozen: Int = 0, active: Bool = false, stop: String? = nil) {
+        self.batch = batch; self.batches = batches; self.filed = filed; self.frozen = frozen
+        self.active = active; self.stop = stop
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func int(_ key: CodingKeys) -> Int { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0 }
+        batch = int(.batch); batches = int(.batches); filed = int(.filed); frozen = int(.frozen)
+        active = (try? c.decodeIfPresent(Bool.self, forKey: .active)) ?? false
+        stop = try? c.decodeIfPresent(String.self, forKey: .stop)
+    }
+
+    enum CodingKeys: String, CodingKey { case batch, batches, filed, frozen, active, stop }
+}
+
 /// The `event: sleep` payload pushed over `/sync/events`. Decode-tolerant so a
 /// backend that adds or drops a field doesn't kill the stream.
 ///
@@ -177,12 +204,15 @@ struct SleepEventPayload: Codable, Equatable {
     /// page fall back to the REST-polled `SleepStatusResponse` fields.
     var queueByOrigin: [String: Int]?
     var readByOrigin: [String: Int]?
+    /// G163 — a person-started run's compact progress (`sleep_drain.to_sse`): counts, a flag and the
+    /// stop's reason only. `nil` on a scheduled cycle and on an older backend.
+    var drain: SleepDrainSSE?
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, stage, totalStages, progress, error
         case progressPct, restedPct, volumePct, agePct
         case unprocessedCount, hasRunBefore, hoursSinceLastCycle
-        case queueByOrigin, readByOrigin
+        case queueByOrigin, readByOrigin, drain
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
@@ -190,7 +220,8 @@ struct SleepEventPayload: Codable, Equatable {
          progressPct: Int? = nil, restedPct: Int? = nil, volumePct: Int? = nil,
          agePct: Int? = nil, unprocessedCount: Int? = nil, hasRunBefore: Bool? = nil,
          hoursSinceLastCycle: Double? = nil, queueByOrigin: [String: Int]? = nil,
-         readByOrigin: [String: Int]? = nil) {
+         readByOrigin: [String: Int]? = nil, drain: SleepDrainSSE? = nil) {
+        self.drain = drain
         self.status = status; self.cycleId = cycleId; self.stage = stage
         self.totalStages = totalStages; self.progress = progress; self.error = error
         self.progressPct = progressPct; self.restedPct = restedPct; self.volumePct = volumePct
@@ -216,5 +247,6 @@ struct SleepEventPayload: Codable, Equatable {
         hoursSinceLastCycle = try? c.decodeIfPresent(Double.self, forKey: .hoursSinceLastCycle)
         queueByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin)
         readByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .readByOrigin)
+        drain = try? c.decodeIfPresent(SleepDrainSSE.self, forKey: .drain)
     }
 }

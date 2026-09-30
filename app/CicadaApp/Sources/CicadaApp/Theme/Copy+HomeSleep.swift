@@ -39,6 +39,8 @@ extension Copy {
         static let ranLocally = "Ran on this Mac"
         static let modelsTitle = "Models"
         static let lastCycleTitle = "What it cost"
+        /// Under a run of several batches the newest history commit is one batch (G163): say so.
+        static let lastBatchTitle = "What the last batch cost"
         static let tokensNotReported = "tokens not reported"
         static let planNote =
             "The plan's percentage covers all your use of it, so this change can include things you did meanwhile."
@@ -110,6 +112,34 @@ extension Copy {
         static let failedTitle = "Sleep cycle error"
         static let cancelledTitle = "Cancelled"
         static let cancelledText = "Stopped cleanly before any writes — nothing was lost."
+        /// A stopped person-started run (G163): earlier batches are filed and stay so; the batch that was
+        /// still reading is dropped and read again next time, so this never says "nothing was lost".
+        static func cancelledDrainText(filed: Int, frozen: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "Stopped at a safe point — \(UsageFormat.count(filed, locale: locale)) of \(UsageFormat.count(frozen, locale: locale)) filed stay filed; the rest wait for the next Consolidate."
+        }
+        /// Nothing was filed yet: the batch that was reading is dropped, so its reads are paid again.
+        static func cancelledDrainNoneText() -> String {
+            "Stopped — nothing was filed; the batch being read is dropped and read again next time."
+        }
+        /// Last cycle's row for a run that read everything waiting, in batches — only a run that finished.
+        static let drainTitle = "Read everything"
+        /// A run that stopped before it read everything: how much stays filed, never a batch count
+        /// (the wire's `batches` is the plan, and a dropped batch is counted in `batch`).
+        static let stoppedTitle = "Where it stopped"
+        static func stoppedText(filed: Int, frozen: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            guard filed > 0 else { return "Nothing was filed; the batch being read is dropped and read again next time." }
+            let count = { (n: Int) in UsageFormat.count(n, locale: locale) }
+            return "\(count(filed)) of \(count(frozen)) filed stay filed; the rest wait for the next Consolidate."
+        }
+        static func drainText(filed: Int, frozen: Int, batches: Int, requeued: Int,
+                              locale: Locale = .autoupdatingCurrent) -> String {
+            let count = { (n: Int) in UsageFormat.count(n, locale: locale) }
+            var text = "\(count(filed)) of \(count(frozen)) filed · \(count(batches)) \(batches == 1 ? "batch" : "batches")"
+            if requeued > 0 { text += " · \(count(requeued)) will be read next time" }
+            return text
+        }
+        static let pausedTitle = "Paused at your plan's limit"
+        static let pausedFallback = "The rest wait for the next Consolidate."
         static func capTitle(_ cap: Int, locale: Locale = .autoupdatingCurrent) -> String {
             "Episode cap reached (\(UsageFormat.count(cap, locale: locale)))"
         }
@@ -120,6 +150,7 @@ extension Copy {
         static let inMemory = "In memory"
         static let feedingIt = "Feeding it"
         static let lastCycleTook = "Last cycle took"
+        static let lastBatchTook = "Last batch took"
         static let lastEngine = "Last engine"
         /// The engine row's dash reason. Not "Sleep hasn't run": `lastEngine` is also nil while the
         /// status is still loading and on an older backend, and a dash's reason is never a guess (R-A14).
@@ -165,6 +196,8 @@ extension Copy {
         // `capText` is a sentence that passes 60 characters once its counts have four digits, so it
         // stays off this list (Task 3).
         SleepDetailsWords.failedTitle, SleepDetailsWords.cancelledTitle, SleepDetailsWords.cancelledText,
+        SleepDetailsWords.drainTitle, SleepDetailsWords.stoppedTitle, SleepDetailsWords.lastBatchTook,
+        SleepDetailsWords.pausedTitle, SleepUsage.lastBatchTitle,
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
         SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,

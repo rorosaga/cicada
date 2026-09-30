@@ -282,6 +282,7 @@ def run_claim_pipeline(
     now_date: str | None = None,
     extra_claims: list[Claim] | None = None,
     name_to_id: dict[str, str] | None = None,
+    decay: bool = True,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -300,6 +301,8 @@ def run_claim_pipeline(
         name_to_id: Stage 2's ``resolve(...)["name_to_id"]`` — every endpoint is
             keyed through it (R-CS1), and a held name is released onto Stage 2's
             exact verdict for it (R-HP5). ``None`` keeps ``sanitize_id``.
+        decay: ``False`` skips claim decay (a drain charges it once, in its last
+            batch — ``sleep_drain``); everything else runs.
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -342,6 +345,7 @@ def run_claim_pipeline(
         existing_by_subject,
         settings,
         now_date=today,
+        **({} if decay else {"decay": False}),
     )
     # G113 — every supersede/reject the reconciler decided lands in the ledger.
     # One pass covers every subject, so the subject is recovered per entry from

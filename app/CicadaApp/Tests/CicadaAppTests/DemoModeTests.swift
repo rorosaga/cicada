@@ -77,6 +77,24 @@ final class DemoModeTests: XCTestCase {
         XCTAssertEqual(calls, ["flush"])
     }
 
+    func testALeaveRefusedWhileConsolidateReadsShowsTheServersSentence() async {
+        let body = #"{"detail":"Cicada is reading — stop it first, or wait for it to finish, then switch."}"#
+        var calls: [String] = []
+        let outcome = await DemoMode.leave(DemoMode.ExitEffects(
+            flushHeld: { calls.append("flush") },
+            leaveDemo: { throw APIError.httpError(409, body) },
+            refreshBanks: { calls.append("refresh") },
+            resetOnboarding: { calls.append("reset:\($0)") },
+            openOnboarding: { calls.append("open") }))
+        XCTAssertEqual(outcome, .refused("Cicada is reading — stop it first, or wait for it to finish, then switch."))
+        XCTAssertEqual(calls, ["flush"])
+        let toast = DemoMode.leaveToast(outcome)
+        XCTAssertTrue(toast?.contains("Cicada is reading") == true)
+        XCTAssertFalse(toast?.contains("bar at the top") == true, "that bar is refused too while it reads")
+        XCTAssertEqual(DemoMode.leaveToast(.failed("x")), Copy.Demo.leaveFailed)
+        XCTAssertNil(DemoMode.leaveToast(.stayed))
+    }
+
     func testAServerThatKeepsTheDemoOpenOpensNothing() async {
         var opened = false
         let still = roster(active: "demo")

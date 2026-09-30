@@ -134,7 +134,9 @@ enum ProjectWriteFailure {
 }
 
 /// R-PP20 — while Sleep runs every Projects write answers 409 (`_guard`, `routers/projects.py`), so the controls say
-/// so before a click (DR-41: disabled, with the reason in `.help`).
+/// so before a click (DR-41: disabled, with the reason in `.help`). It keys off `running`, not the server's finer
+/// `writing` (G177): `/status` does not carry that, so during a person-started drain these controls stay disabled for
+/// the whole run even though the server would accept a write between batches.
 enum ProjectWriteGate {
     static func blocked(_ status: StatusSnapshot?) -> Bool { status?.sleep.status == "running" }
 }

@@ -86,6 +86,11 @@ def claude_stop(signals: Iterable, *, allow_overage: bool, stop_utilization: flo
     return None
 
 
+#: How ``codex_stop``'s sentence begins — so a pre-flight refusal for a used-up
+#: plan is told apart from a sign-out by the drain, without a second probe.
+CODEX_LIMIT_LEAD = "Your ChatGPT plan's Codex limit is used up"
+
+
 def codex_stop(snapshot, *, now: datetime | None = None, tz: tzinfo | None = None) -> str | None:
     """The ChatGPT plan's limit is already reached (or ordinary use is off),
     per the app-server's ``account/rateLimits/read`` — stop BEFORE the first
@@ -93,6 +98,6 @@ def codex_stop(snapshot, *, now: datetime | None = None, tz: tzinfo | None = Non
     if snapshot is None:
         return None
     if snapshot.ordinary_usage_allowed is False or snapshot.limit_reached:
-        return ("Your ChatGPT plan's Codex limit is used up — Sleep didn't start."
+        return (CODEX_LIMIT_LEAD + " — Sleep didn't start."
                 + _again(snapshot.resets_at, now, tz))
     return None

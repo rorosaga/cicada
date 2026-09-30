@@ -39,6 +39,18 @@ enum DemoMode {
         case left(String)
         case stayed
         case failed(String)
+        /// The server refused while Consolidate reads (409): its own sentence, for the toast.
+        case refused(String)
+    }
+
+    /// The toast a failed leave shows, or nil. A refusal names the running Consolidate — the bar at the top is refused
+    /// too while it reads, so the generic "switch memory from the bar" advice would be a dead end.
+    static func leaveToast(_ outcome: ExitOutcome) -> String? {
+        switch outcome {
+        case .failed: return Copy.Demo.leaveFailed
+        case .refused(let why): return Copy.Demo.leaveRefused(why)
+        case .left, .stayed: return nil
+        }
     }
 
     /// *Finish setting up* (F-08). A held Inbox answer is sent first — it belongs to the demo (R-DI3, every switch
@@ -58,6 +70,7 @@ enum DemoMode {
         do {
             roster = try await fx.leaveDemo()
         } catch {
+            if case .httpError(409, _)? = error as? APIError { return .refused(BankSwitchFailure.message(error)) }
             return .failed(SetupRunner.describe(error))
         }
         guard let bank = roster.active, !isActive(roster) else { return .stayed }

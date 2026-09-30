@@ -81,7 +81,7 @@ async def _reapply_authorship(memory_path, folder: dict) -> list[str]:
         return paths
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         folder_source.set_flags(memory_path, folder["id"], papers_pending=True)
         return paths + [f"sources/{folder_source.FOLDERS_FILENAME}"]
     current = folder_source.get_folder(memory_path, folder["id"]) or folder
@@ -94,7 +94,7 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
     memory_path = settings.memory_path
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         # L final review (finding 5): `ensure_project` writes a project page —
         # `paths:` onto one Stage 5 may be rewriting, or a new page Sleep's
         # `git add -A` would sweep under the model's name. Adding a folder is a
@@ -196,7 +196,7 @@ async def sync_folder(
     paper_work = bool(staged.touched or staged.tombstoned_sources)
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         # R-LS17: Stage 5 may be rewriting the same pages; the episodes are
         # staged, the paper step waits for the next sync or the Sleep tail.
         if paper_work and not folder.get("papers_pending"):
@@ -266,7 +266,7 @@ async def capture_wispr_flow(req: WisprFlowPayload, settings: Settings = Depends
     # L final review (finding 5): a to-do claim lands on the owner's page, which
     # Stage 5 rewrites — while a cycle runs the episodes stage now and the
     # claims wait for the next sync or the Sleep tail (the R-LS17 rule).
-    sleeping = sleep_cycle.get_sleep_state().status == "running"
+    sleeping = sleep_cycle.is_writing()
     report = await run_in_threadpool(wispr_flow.ingest, memory_path, req.model_dump(by_alias=False), current,
                                      defer_todos=sleeping)
     sync_state.record_sync(memory_path, wispr_flow.CHANNEL_ID, count=report.pop("live"))
@@ -325,7 +325,7 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
     memory_path = settings.memory_path
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, contacts_local.SLEEP_REFUSAL)
     if len(req.contacts) > contacts_local.MAX_CONTACTS:
         raise HTTPException(413, f"at most {contacts_local.MAX_CONTACTS} contacts per sync")

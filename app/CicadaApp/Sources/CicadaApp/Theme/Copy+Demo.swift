@@ -15,6 +15,8 @@ extension Copy {
         static let finishSetup = "Finish setting up →"
         static let finishSetupHelp = "Leave the demo and set up your own memory"
         static let leaveFailed = "Couldn't leave the demo. Try again, or switch memory from the bar at the top."
+        /// While Consolidate reads the run is pinned to its bank, so leaving waits for it (the server's sentence).
+        static func leaveRefused(_ why: String) -> String { "Couldn't leave the demo yet. \(why)" }
 
         // Settings → General.
         static let settingsGroup = "Getting to know Cicada"

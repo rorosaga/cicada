@@ -233,6 +233,18 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.toast, "Couldn't switch project — reverted")
     }
 
+    /// While Consolidate reads, the server refuses a switch with a sentence written for the person (G163);
+    /// the toast carries it and the previous bank comes back.
+    func testActivateBankRefusedWhileReadingToastsTheServersSentence() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        let sentence = "Cicada is reading — stop it first, or wait for it to finish, then switch."
+        api.writeError = APIError.httpError(409, #"{"detail":"\#(sentence)"}"#)
+        let ok = await store.perform(ActivateBank(name: "B"))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.toast, sentence)
+    }
+
     // MARK: - Sleep
 
     func testTriggerSleepFlipsStatusRunningAndRollsBack() async throws {

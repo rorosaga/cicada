@@ -229,7 +229,7 @@ extension Copy {
         static let notRight = "Not right"
         static let notRightHelp = "Cicada misheard — take this back"
         static let sleepBusy = "Sleep is writing this project, try again in a moment"
-        static let sleepRunningHelp = "Sleep is writing your memory — this can be saved once it finishes"
+        static let sleepRunningHelp = "Sleep is running — this can be saved once it finishes"
         static let saveFailed = "Couldn't save that — nothing changed"
         static let notOnProject = "That's no longer on this project — showing what's there now"
         static let backendDown = "Cicada's backend isn't answering — nothing changed"

@@ -195,7 +195,7 @@ def _picture_guard() -> None:
     written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, PICTURE_BUSY)
 
 

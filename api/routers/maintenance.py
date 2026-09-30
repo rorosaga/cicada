@@ -100,7 +100,7 @@ async def run_enrich_links(
 
     if _enrich_lock.locked():
         raise HTTPException(409, "a link backfill is already running — retry when it finishes")
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(
             409,
             "a Sleep cycle is running and writes the same media pages — retry when it finishes",
@@ -160,7 +160,7 @@ async def rebuild_search_index(settings: Settings = Depends(get_settings)):
 
     if _index_lock.locked():
         raise HTTPException(409, "A rebuild is already running.")
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, "A Sleep cycle is running and rebuilds the index itself.")
     # Resolved once: a bank switch mid-rebuild must not make the status below
     # describe a different bank than the one just rebuilt (the split-brain rule).

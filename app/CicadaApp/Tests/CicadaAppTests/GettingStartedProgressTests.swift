@@ -146,7 +146,7 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertEqual(FirstReadStep.waiting(3).action, .readNow)
         XCTAssertEqual(FirstReadStep.running(read: 1, total: 3, stage: 1).action, .watchSleep)
         XCTAssertEqual(FirstReadStep.finished(pages: 2).action, .openGraph)
-        XCTAssertEqual(FirstReadStep.capped(read: 50, left: 9).action, .readNext(50))
+        XCTAssertEqual(FirstReadStep.capped(read: 50, left: 9).action, .keepReading)
         XCTAssertNil(FirstReadStep.nothingYet.action)
     }
 

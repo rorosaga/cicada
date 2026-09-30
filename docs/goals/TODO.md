@@ -20,6 +20,11 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
 
 **Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
+- **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
+  a person-started run reads the whole frozen queue in batches of 25, each filed and committed; scheduled runs stay one batch; decay
+  and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
+  cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
+  the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run (the app's own Projects/Backlog controls still key off `running`, so they stay disabled for the whole run: `/status` does not carry `writing`).
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
   another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
@@ -44,13 +49,17 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
      placeholder the owner PUT adopts). Do not import from another bank.
   2. Engine = a plan (Claude or ChatGPT), schedule **manual**, *Keep going on extra usage* **off** (ruling 4: a scheduled
      cycle never spends plan quota, so leave it manual until the first drain is understood).
-  3. Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE` to **100–150** (default 25) in `api/.env`, restart the backend.
+  3. Leave the batch size at its default (25 episodes; `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE`). Consolidate drains the queue by
+     itself in batches of that size (ruling 13), so a bigger batch only raises what a cancel or plan stop can lose and
+     breaks the 50-`Cicada-Session` trailer bound.
   4. Import the Claude export first, then the ChatGPT export (through the one intake; the memory files arrive as
      lower-trust assistant words).
-  5. Run **one capped cycle** and inspect: the owner page's beliefs and their spans, the entity count against the episodes
-     read, no page archived that the cycle just read, the inbox's decay questions (at most 10 new).
-  6. Drain: repeat one capped cycle at a time until the queue is empty (Sleep v5's journal and *Read everything*,
-     G163, replace this by hand once built). Watch the plan window between cycles.
+  5. Press Consolidate once and let it drain. While it runs, inspect the first committed batch (`Sleep cycle <date> (batch 1
+     of n)`): the owner page's beliefs and their spans, the entity count against the episodes read, no page archived that
+     the cycle just read, the inbox's decay questions (at most 10 new). Cancel if anything looks wrong; filed batches stay
+     filed and the batch still reading is read again next time.
+  6. If a plan stop ends the run early, wait for the window (the Sleep page says when) and press Consolidate again; it
+     resumes from what is still queued. Watch the plan window between runs.
 
 **Pending after 2026-09-28 (owner asked to record these):**
 - *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt
@@ -565,6 +574,31 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       on `sleep_run`; never text.
 
     Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
+
+13. **Consolidate reads everything — a person-started run drains the whole queue, in batches; a scheduled
+    one still reads one batch (owner, 2026-09-29).** The owner: "i dont want to cap the max episodes per
+    sleep, why would we cap them? its just progress that cicada has to go through." This amends **G125
+    R10** ("one trigger, one cycle") and **reverses the v5 spec's V5-15 / Q7** (a no-body trigger is one
+    batch; a drain only from a sheet): Consolidate *is* the drain, no sheet, no `/sleep/run/continue`.
+    Ruling 4 is untouched.
+
+    - **Shape.** `POST /sleep/trigger` runs `run(drain=True)`: freeze the waiting ids, resolve the engine once,
+      read them in batches of `sleep_max_episodes_per_cycle` (default 25, now "how often progress is saved"), each
+      batch filed and committed by Stage 5, so a cancel or a plan stop loses at most the batch in progress.
+    - **Scheduled = one batch.** `user_triggered=False` never drains: an unattended run on an API key reading
+      everything would be real money (ruling 4's reason). The scheduler never passes `drain`.
+    - **Once per drain:** decay (both engines; ruling 1 — charged once, not once per batch) and Stage 5.57's page
+      reads, in the batch that empties the queue. **Once per run:** the engine-independent tail. Everything else per
+      batch, so each commit is self-consistent.
+    - **A plan limit is a pause, not a failure,** with the vendor's own sentence and reset time. **Not built:**
+      auto-continue after a reset (a ruling 4 amendment), a weekly "leave room" reserve, a journal of paid answers
+      (a cancel before Stage 5 still discards the batch in progress), parallel reading, per-batch rows in Past nights.
+    - **Cost accepted:** bank switching, export and delete are refused for the whole run (the drain is pinned to its
+      bank) — by name, and the app shows the sentence. Every other guard and the MCP write probe follow **G177**'s
+      write window (`sleep_cycle.is_writing()`), so an agent's claim between batches commits alone under its own author.
+
+    Revisit only on the trigger G163's row names (the journal / reserve slices), or if a drain's plan volume
+    hurts a real owner's coding budget.
 
 ## How work is run here
 

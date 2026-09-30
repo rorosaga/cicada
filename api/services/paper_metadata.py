@@ -308,7 +308,7 @@ def _replay_index(memory_path: Path, ops: list[_IndexOp]) -> bool:
 def _sleep_running() -> bool:
     from api.services import sleep_cycle
 
-    return sleep_cycle.get_sleep_state().status == "running"
+    return sleep_cycle.is_writing()
 
 
 def _write_guarded(memory_path: Path, entity_id: str, report: dict, paths: set[str], ops: list[_IndexOp],
@@ -498,7 +498,7 @@ async def resolve_in_background(memory_path: Path) -> None:
     try:
         from api.services import sleep_cycle
 
-        if sleep_cycle.get_sleep_state().status == "running":
+        if sleep_cycle.is_writing():
             return
         await run_locked(memory_path, stop_if_sleeping=True)
     except Exception as e:  # noqa: BLE001 - a background run never surfaces as a 500

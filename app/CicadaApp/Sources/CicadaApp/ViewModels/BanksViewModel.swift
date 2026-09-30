@@ -68,7 +68,7 @@ final class BanksViewModel {
             await load()
             return slug
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = BankSwitchFailure.words(error)
             return nil
         }
     }

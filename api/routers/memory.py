@@ -43,7 +43,7 @@ async def put_decay_tuning(
     """
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, BUSY)
     async with _write_lock:
         try:

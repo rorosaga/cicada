@@ -85,6 +85,12 @@ struct LampPopover: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if page.lampLit, let size = sleepVM.status.map({ $0.batchSize > 0 ? $0.batchSize : $0.episodeCap }), size > 0 {
+                Text(Copy.scheduledReadsOneBatch(size: size))
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if failed {
                 Text(Copy.scheduleWriteFailed)
                     .font(CicadaTheme.captionFont)

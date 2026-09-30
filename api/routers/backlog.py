@@ -57,7 +57,7 @@ def _now() -> datetime:
 def _guard() -> None:
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, BUSY)
 
 
