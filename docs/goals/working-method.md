@@ -28,8 +28,11 @@ list is what a reviewer checks:
    fix pass and a scoped re-review.
 6. **The orchestrator verifies again** before merging: both suites, by hand, with the real numbers
    quoted in the PR.
-7. **Docs move with the code.** CLAUDE.md for architecture and rails, the `G` row marked shipped with
-   what stays open, `TODO.md` for state. A stale handoff is worse than none, because it is trusted.
+7. **Docs move with the code.** The area's doc in `docs/architecture/` for how a subsystem works (updated in the
+   same PR that makes it wrong), `CLAUDE.md` only when a *rail* changes — one or two lines pointing at the doc; it is
+   loaded into every session and `test_claude_md_size.py` fails above 60,000 characters (2026-10-01: it had grown to
+   203,000 by carrying every feature's detail) — the `G` row marked shipped with what stays open, `TODO.md` for state.
+   A stale handoff is worse than none, because it is trusted.
 
 ### Test baselines (memorise these, they are not failures)
 
@@ -124,7 +127,7 @@ afterwards — it is a half-written task the resumed agent redoes from scratch.
 ### Landing a track
 
 Verify both suites yourself → `git merge --no-edit origin/dev` in the worktree and resolve conflicts
-(they are almost always `CLAUDE.md`, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
+(they are almost always a `docs/architecture/` doc, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
 where two tracks each added a kind — take the **union**) → push → `gh pr create --base dev` →
 `gh pr merge --merge` → pull `dev` → replace `PR #88` in the docs → restart the backend
 (`launchctl kickstart -k gui/$(id -u)/com.cicada.backend`) → `make dev` if Swift changed →
