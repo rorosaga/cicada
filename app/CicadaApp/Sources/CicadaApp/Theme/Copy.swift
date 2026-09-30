@@ -75,9 +75,10 @@ enum Copy {
     /// The worm's named action while T7's "See what changed ›" link lives.
     static let whatChanged = "What changed"
 
-    /// Ruling 4 made visible (G163): a scheduled run reads one batch; the person's Consolidate reads everything.
-    static func scheduledReadsOneBatch(size: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "A scheduled run reads one batch of \(UsageFormat.count(size, locale: locale)); Consolidate reads everything waiting."
+    /// Ruling 16 (2026-09-30): a scheduled run reads everything waiting too, on the scheduled engine (never a plan,
+    /// ruling 4), and how it spends is said from `preview.scheduled.billing` — never a provider's name.
+    static func scheduledReadsAll(engine: String, billing: String?) -> String {
+        SleepV5.scheduledReadsAll(engine: engineLabel(engine), billing: billing)
     }
     /// The queue card's footer line, shown ONLY when `preview.manual` and
     /// `preview.scheduled` name different engines (R-A9). The standing ruling
@@ -231,8 +232,8 @@ enum Copy {
     static let keepGoingOnExtraUsageExplainer =
         "Off: when your Claude plan's included usage runs out, Sleep stops and waits. "
         + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
-    static let scheduledNeverSpendsPlans =
-        "Scheduled cycles never use your Claude or ChatGPT plan — only a cycle you start yourself does."
+    /// Ruling 4 in words, provider-neutral (owner, 2026-09-30): "a plan you signed in to", never a vendor's name.
+    static let scheduledNeverSpendsPlans = SleepV5.scheduledNeverSpendsPlans
 
     // MARK: Sleep control (cancel + episode cap)
 

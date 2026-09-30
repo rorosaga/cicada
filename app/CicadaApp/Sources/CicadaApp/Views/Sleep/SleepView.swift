@@ -312,6 +312,20 @@ struct SleepView: View {
                 }
             }
         }
+        // Sleep page v5 — a pause appears, is armed or is cleared with no status change (H3): refetch the whole
+        // record, announce a pause (A11), and keep What's waiting's rows in step with the run's counts (M3).
+        .onChange(of: store.sleepEvent?.paused) { old, new in
+            Task { @MainActor in await sleepVM.refreshStatus() }
+            if old == nil, new != nil { AccessibilityNotification.Announcement(Copy.SleepV5.pausedAnnouncement).post() }
+        }
+        .onChange(of: queueKey) { _, _ in
+            guard detailsOpen else { return }
+            Task { @MainActor in await sleepVM.loadQueue() }
+        }
+        .onChange(of: detailsOpen) { _, open in
+            guard open else { return }
+            Task { @MainActor in await sleepVM.loadQueue() }
+        }
         .onChange(of: sleepVM.history) { _, history in
             if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
         }
@@ -341,6 +355,14 @@ struct SleepView: View {
     /// controls cannot disagree about which reading they show (H1, now
     /// structural). `now` is the body's own clock read — `studyRows` ages and
     /// the 6 s digest window already depended on it.
+    /// What moves What's waiting's per-conversation rows: the batch, what is filed and parked, and the paused run —
+    /// never a tick (M3).
+    private var queueKey: String {
+        let drain = sleepVM.status?.drain
+        return [drain?.id ?? "", "\(drain?.batch ?? 0)", "\(drain?.filed ?? 0)", "\(drain?.parked ?? 0)",
+                "\(store.sleepEvent?.parkedCount ?? 0)", sleepVM.pausedRun?.runId ?? ""].joined(separator: "|")
+    }
+
     private func resolvePage(now: Date = .now) -> SleepPageModel {
         SleepPageModel.resolve(
             status: sleepVM.status, sse: store.sleepEvent, queued: sleepVM.queuedEpisodes,
@@ -351,7 +373,8 @@ struct SleepView: View {
             queueLoad: StudyListCard.loadState(status: store.status.value,
                                                isLoading: store.status.isEmpty && store.status.isRefreshing,
                                                error: store.domainErrors[.status]),
-            justFinishedAt: justFinishedAt, intakeInFlight: store.intakeInFlight, now: now)
+            justFinishedAt: justFinishedAt, intakeInFlight: store.intakeInFlight,
+            paused: sleepVM.pausedRun, batchSize: sleepVM.batchSize, pausing: sleepVM.isCancelling, now: now)
     }
 
     /// The one error the page has to tell, if there is one — `lastError`
@@ -629,9 +652,10 @@ struct SleepView: View {
                                  }
                              })
             SleepControlRow(consolidateEnabled: page.consolidateEnabled,
-                            queuedCount: page.queuedCount)
+                            queuedCount: page.queuedCount, page: page)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
+            runNotes(page)
             whisperRow(page)
                 .accessibilitySortPriority(RoomA11yOrder.whisper)
 
@@ -640,6 +664,16 @@ struct SleepView: View {
             if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly,
                                    failed: page.cycleError != nil) {
                 SleepStageStrip(pips: page.pips)
+                // Sleep page v5 (A3) — what the running stage is doing, in words, and a failure beside a glyph.
+                if let caption = stageCaption(drain: page.drain, activeStage: page.runningStage) {
+                    StageCaptionLine(text: caption.text, failed: caption.failed)
+                }
+            }
+            // Sleep page v5 (A3) — the run's counts: while it reads, while it waits paused, and in the moment it
+            // finished (the "See what changed" window). Never a remaining time.
+            if let progress = RunProgress.from(page.drain),
+               page.isRunning || page.paused != nil || room.recentCycleCommit != nil {
+                RunProgressBar(progress: progress)
             }
         }
         .accessibilityElement(children: .contain)
@@ -655,6 +689,39 @@ struct SleepView: View {
     /// left with that step — the popover carries both, and its engine line
     /// shows the scheduled engine ALWAYS, not only when it differs, so ruling
     /// 4 is on screen at the moment someone chooses to schedule.
+    /// Sleep page v5 — the lines under the controls: the first save's link to the person's own page, the automatic
+    /// continue's promise (ruling 15, in words), and a finished run's parked conversations.
+    @ViewBuilder
+    private func runNotes(_ page: SleepPageModel) -> some View {
+        if page.isRunning, let drain = page.drain, drain.firstRun == true, drain.committedBatches == 1,
+           drain.ownerPage != nil, let owner = ownerEntityId {
+            InlineLink(title: Copy.SleepV5.seeYourPage) { onSelectEntity?(owner) }
+        }
+        if let when = page.autoContinueWhen, page.paused != nil {
+            Text(Copy.SleepV5.willContinueBySelf(when))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        if !page.isRunning, page.paused == nil, page.parkedCount > 0 {
+            Button { openDetails(.waiting) } label: {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(CicadaTheme.warning)
+                        .accessibilityHidden(true)
+                    Text(Copy.SleepV5.parkedLine(page.parkedCount))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+                .font(CicadaTheme.captionFont)
+            }
+            .buttonStyle(.cicadaPlain)
+        }
+    }
+
+    /// The owner's page (G117), from the graph snapshot — `nil` until it has loaded (never a guess).
+    private var ownerEntityId: String? {
+        store.graph.value?.nodes.first { $0.isOwner }?.id
+    }
+
     private func whisperRow(_ page: SleepPageModel) -> some View {
         Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {

@@ -138,6 +138,30 @@ final class SleepViewModel {
     /// drives the button's "Cancelling…" state in between.
     var cancelRequested = false
 
+    // MARK: Sleep page v5 (G163; rulings 13, 15, 16)
+
+    /// Reading options (`GET /sleep/run-options`); `nil` until loaded — the page then says the status's batch size.
+    var runOptions: SleepRunOptions?
+    /// Whether the last options write failed (the sheet says so in words, and snaps back).
+    var runOptionsWriteFailed = false
+    /// What's waiting, one row per conversation with where it stands (`GET /sleep/queue`). Refetched when the run's
+    /// counts move (`queueKey`), never per tick (M3).
+    var queue: SleepQueueResponse?
+    /// A run's whole detail by run id (`GET /sleep/runs/{id}`) — in memory only; a bank switch starts a new VM.
+    var runDetails: [String: SleepRunDetail] = [:]
+    /// Which Past nights run group is open, if any.
+    var expandedRun: String?
+    /// Every door that is not the Sleep page routes here while a run is paused (the app sets it: switch to the
+    /// Sleep tab and bring the window forward). Only the Sleep page's Continue resumes a paused run.
+    var onPausedDoor: (@MainActor () -> Void)?
+
+    private let requestEnd: () async throws -> SleepEndRunResponse
+    private let requestRetry: ([String]?) async throws -> SleepTriggerResponse
+    private let fetchRunOptions: () async throws -> SleepRunOptions
+    private let putRunOptions: (SleepRunOptionsChange) async throws -> SleepRunOptions
+    private let fetchQueue: () async throws -> SleepQueueResponse
+    private let fetchRun: (String) async throws -> SleepRunDetail
+
     init(
         store: Store,
         fetchSleepStatus: @escaping () async throws -> SleepStatusResponse = {
@@ -157,8 +181,32 @@ final class SleepViewModel {
         },
         putSchedule: @escaping (ScheduleConfig) async throws -> ScheduleConfig = {
             try await APIClient.shared.updateSchedule($0)
+        },
+        requestEnd: @escaping () async throws -> SleepEndRunResponse = {
+            try await APIClient.shared.endSleepRun()
+        },
+        requestRetry: @escaping ([String]?) async throws -> SleepTriggerResponse = {
+            try await APIClient.shared.retryParked(ids: $0)
+        },
+        fetchRunOptions: @escaping () async throws -> SleepRunOptions = {
+            try await APIClient.shared.fetchRunOptions()
+        },
+        putRunOptions: @escaping (SleepRunOptionsChange) async throws -> SleepRunOptions = {
+            try await APIClient.shared.updateRunOptions($0)
+        },
+        fetchQueue: @escaping () async throws -> SleepQueueResponse = {
+            try await APIClient.shared.fetchSleepQueue(limit: 200)
+        },
+        fetchRun: @escaping (String) async throws -> SleepRunDetail = {
+            try await APIClient.shared.fetchSleepRun($0)
         }
     ) {
+        self.requestEnd = requestEnd
+        self.requestRetry = requestRetry
+        self.fetchRunOptions = fetchRunOptions
+        self.putRunOptions = putRunOptions
+        self.fetchQueue = fetchQueue
+        self.fetchRun = fetchRun
         self.store = store
         self.fetchSleepStatus = fetchSleepStatus
         self.requestCancel = requestCancel
@@ -235,6 +283,8 @@ final class SleepViewModel {
         // function, and `errorMessage` drives a visible error banner reserved
         // for failures the reader can act on.
         async let engineTask = fetchEngine()
+        // Sleep page v5 — silent like the engine: the page falls back to the status's batch size.
+        async let optionsTask = fetchRunOptions()
 
         // Each result is guarded individually rather than once at the end —
         // the fetches race independently, and a newer `load()` call can
@@ -264,6 +314,9 @@ final class SleepViewModel {
         await historyTask
         if let engine = try? await engineTask, token == loadToken {
             enginePreview = engine.preview
+        }
+        if let options = try? await optionsTask, token == loadToken {
+            runOptions = options
         }
 
         // A superseded call must not make poll-loop decisions either — the
@@ -318,6 +371,12 @@ final class SleepViewModel {
     /// the Store's toast explains why.
     func triggerManually() async {
         errorMessage = nil
+        // Sleep page v5 — the one choke point every door goes through (M8): while a run is paused, no door starts a
+        // fresh one (which would clear the pause). It routes to the Sleep page, where Continue lives.
+        if isPaused {
+            onPausedDoor?()
+            return
+        }
         if await store.perform(TriggerSleep()) {
             startPolling()
         } else {
@@ -347,6 +406,105 @@ final class SleepViewModel {
             cancelRequested = false
             errorMessage = "Cancel: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: Sleep page v5 — Pause, Continue, End this run, Retry, Reading options
+
+    /// Whether a run is paused: the live SSE block when the backend sends one (a `nil` there means none), else the
+    /// last `GET /sleep/status`. A paused run is `idle` and holds nothing.
+    var isPaused: Bool {
+        if let event = store.sleepEvent, event.pausedKnown { return event.paused != nil }
+        return status?.paused != nil
+    }
+
+    /// The paused run's whole record, from `GET /sleep/status` — `nil` whenever `isPaused` is false.
+    var pausedRun: SleepPausedRun? { isPaused ? status?.paused : nil }
+
+    /// What a Consolidate would read now (M7): the live count, else the status's, else the Store's queue.
+    var readableCount: Int? {
+        store.sleepEvent?.readableCount ?? status?.debt.readableCount
+            ?? status.map { $0.debt.readable } ?? store.status.value?.episodes.unprocessed
+    }
+
+    /// How often a run saves: the reading options, else the status's configured batch size.
+    var batchSize: Int {
+        if let size = runOptions?.batchSize, size > 0 { return size }
+        if let size = status?.batchSize, size > 0 { return size }
+        return 25
+    }
+
+    /// What every door but the Sleep page needs to say (the menu bar's item and header, the intake caption).
+    var door: SleepDoor {
+        SleepDoor(paused: isPaused ? (pausedRun.map { ($0.filed, $0.frozen) } ?? (0, 0)) : nil,
+                  readable: readableCount, batchSize: batchSize, running: isRunning)
+    }
+
+    /// The Sleep page's Pause: the cooperative cancel, which the server now records as a paused run (reason `user`).
+    func pause() async { await cancel() }
+
+    /// The Sleep page's Continue — the ONLY caller of `TriggerSleep(continueRun: true)` (`SleepV5DoorsTests`).
+    func continueRun() async {
+        errorMessage = nil
+        if await store.perform(TriggerSleep(continueRun: true)) {
+            startPolling()
+        } else {
+            errorMessage = store.toast
+        }
+    }
+
+    /// End this run: forget the pause. Nothing waiting changes; Consolidate now starts a new run.
+    func endRun() async {
+        errorMessage = nil
+        do {
+            _ = try await requestEnd()
+            await refreshStatus()
+        } catch {
+            errorMessage = Copy.SleepV5.endRunFailed
+        }
+    }
+
+    /// Retry parked conversations (all when `ids` is `nil`) in a run of their own.
+    func retryParked(ids: [String]? = nil) async {
+        errorMessage = nil
+        do {
+            let answer = try await requestRetry(ids)
+            if answer.status == "started" { startPolling() } else { await refreshStatus() }
+        } catch {
+            errorMessage = Copy.SleepV5.retryFailed
+        }
+    }
+
+    /// One `GET /sleep/status`, off the poll loop — a pause appeared, was armed or was cleared with no status change.
+    func refreshStatus() async {
+        if let next = try? await fetchSleepStatus() { status = next }
+    }
+
+    func loadRunOptions() async {
+        if let options = try? await fetchRunOptions() { runOptions = options }
+    }
+
+    /// Writes one reading option and says whether it landed; a failure keeps what the server still has.
+    @discardableResult
+    func updateRunOptions(_ change: SleepRunOptionsChange) async -> Bool {
+        runOptionsWriteFailed = false
+        do {
+            runOptions = try await putRunOptions(change)
+            return true
+        } catch {
+            runOptionsWriteFailed = true
+            return false
+        }
+    }
+
+    func loadQueue() async {
+        if let next = try? await fetchQueue() { queue = next }
+    }
+
+    /// A run's detail, cached by id (a second open is a dictionary hit).
+    func loadRunDetail(_ id: String) async {
+        if runDetails[id] != nil { return }
+        let token = loadToken
+        if let detail = try? await fetchRun(id), token == loadToken { runDetails[id] = detail }
     }
 
     /// Writes the schedule and says whether it landed (Track Z Z-P18): the Sleep

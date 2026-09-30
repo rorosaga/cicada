@@ -111,6 +111,9 @@ protocol SyncAPI: Sendable {
     func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult
     func activateBank(name: String) async throws
     func triggerSleep() async throws -> SleepTriggerResponse
+    /// Sleep page v5 — `POST /sleep/trigger {"continue": true}`: resume the paused run. Only the Sleep page's
+    /// Continue sends it (`SleepViewModel.continueRun`, pinned by `SleepV5DoorsTests`).
+    func continueSleepRun() async throws -> SleepTriggerResponse
     /// G141 PJ-5 (R-PP19) — the Projects page's five writes (`routers/projects.py`), each answering the claim it wrote,
     /// the day and how that day was decided. Every day sent is `YYYY-MM-DD`: nothing relative is sent as a value
     /// (R-PJ6). All answer 409 while a Sleep cycle runs.
@@ -149,21 +152,41 @@ struct SleepDrainSSE: Codable, Equatable {
     var frozen: Int
     var active: Bool
     var stop: String?
+    // Sleep page v5 — `nil` on an older backend (never a fabricated 0).
+    var calls: Int? = nil
+    /// Read / failed in the running batch.
+    var read: Int? = nil
+    var failed: Int? = nil
+    /// Sort's and Decide's finished counts in the running batch.
+    var sort: Int? = nil
+    var decide: Int? = nil
+    var parked: Int? = nil
+    /// Conversations that arrived since the run began — live while it reads.
+    var arrived: Int? = nil
 
-    init(batch: Int = 0, batches: Int = 0, filed: Int = 0, frozen: Int = 0, active: Bool = false, stop: String? = nil) {
+    init(batch: Int = 0, batches: Int = 0, filed: Int = 0, frozen: Int = 0, active: Bool = false, stop: String? = nil,
+         calls: Int? = nil, read: Int? = nil, failed: Int? = nil, sort: Int? = nil, decide: Int? = nil,
+         parked: Int? = nil, arrived: Int? = nil) {
         self.batch = batch; self.batches = batches; self.filed = filed; self.frozen = frozen
         self.active = active; self.stop = stop
+        self.calls = calls; self.read = read; self.failed = failed; self.sort = sort; self.decide = decide
+        self.parked = parked; self.arrived = arrived
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func int(_ key: CodingKeys) -> Int { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0 }
+        func opt(_ key: CodingKeys) -> Int? { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil }
         batch = int(.batch); batches = int(.batches); filed = int(.filed); frozen = int(.frozen)
         active = (try? c.decodeIfPresent(Bool.self, forKey: .active)) ?? false
         stop = try? c.decodeIfPresent(String.self, forKey: .stop)
+        calls = opt(.calls); read = opt(.read); failed = opt(.failed); sort = opt(.sort); decide = opt(.decide)
+        parked = opt(.parked); arrived = opt(.arrived)
     }
 
-    enum CodingKeys: String, CodingKey { case batch, batches, filed, frozen, active, stop }
+    enum CodingKeys: String, CodingKey {
+        case batch, batches, filed, frozen, active, stop, calls, read, failed, sort, decide, parked, arrived
+    }
 }
 
 /// The `event: sleep` payload pushed over `/sync/events`. Decode-tolerant so a
@@ -207,12 +230,20 @@ struct SleepEventPayload: Codable, Equatable {
     /// G163 — a person-started run's compact progress (`sleep_drain.to_sse`): counts, a flag and the
     /// stop's reason only. `nil` on a scheduled cycle and on an older backend.
     var drain: SleepDrainSSE?
+    /// Sleep page v5 — parked conversations and what a run would read now; `nil` on an older backend.
+    var parkedCount: Int? = nil
+    var readableCount: Int? = nil
+    /// The paused run in brief. `pausedKnown` says the backend sent the key at all, so a `nil` `paused` from a
+    /// current backend means "no paused run" while an older one's means "unknown" (the REST status then decides).
+    var paused: SleepPausedSSE? = nil
+    var pausedKnown: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, stage, totalStages, progress, error
         case progressPct, restedPct, volumePct, agePct
         case unprocessedCount, hasRunBefore, hoursSinceLastCycle
         case queueByOrigin, readByOrigin, drain
+        case parkedCount, readableCount, paused
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
@@ -248,5 +279,37 @@ struct SleepEventPayload: Codable, Equatable {
         queueByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin)
         readByOrigin = try? c.decodeIfPresent([String: Int].self, forKey: .readByOrigin)
         drain = try? c.decodeIfPresent(SleepDrainSSE.self, forKey: .drain)
+        parkedCount = (try? c.decodeIfPresent(Int.self, forKey: .parkedCount)) ?? nil
+        readableCount = (try? c.decodeIfPresent(Int.self, forKey: .readableCount)) ?? nil
+        pausedKnown = c.contains(.paused)
+        paused = (try? c.decodeIfPresent(SleepPausedSSE.self, forKey: .paused)) ?? nil
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(cycleId, forKey: .cycleId)
+        try c.encode(stage, forKey: .stage)
+        try c.encode(totalStages, forKey: .totalStages)
+        try c.encodeIfPresent(progress, forKey: .progress)
+        try c.encodeIfPresent(error, forKey: .error)
+        try c.encodeIfPresent(progressPct, forKey: .progressPct)
+        try c.encodeIfPresent(restedPct, forKey: .restedPct)
+        try c.encodeIfPresent(volumePct, forKey: .volumePct)
+        try c.encodeIfPresent(agePct, forKey: .agePct)
+        try c.encodeIfPresent(unprocessedCount, forKey: .unprocessedCount)
+        try c.encodeIfPresent(hasRunBefore, forKey: .hasRunBefore)
+        try c.encodeIfPresent(hoursSinceLastCycle, forKey: .hoursSinceLastCycle)
+        try c.encodeIfPresent(queueByOrigin, forKey: .queueByOrigin)
+        try c.encodeIfPresent(readByOrigin, forKey: .readByOrigin)
+        try c.encodeIfPresent(drain, forKey: .drain)
+        try c.encodeIfPresent(parkedCount, forKey: .parkedCount)
+        try c.encodeIfPresent(readableCount, forKey: .readableCount)
+        if pausedKnown { try c.encode(paused, forKey: .paused) }
+    }
+}
+
+extension SyncAPI {
+    /// A test double that predates Sleep page v5 has no Continue; it starts a run like the trigger it has.
+    func continueSleepRun() async throws -> SleepTriggerResponse { try await triggerSleep() }
 }

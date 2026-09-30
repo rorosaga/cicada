@@ -60,6 +60,10 @@ struct SleepEnginePreview: Codable, Hashable {
     let engine: String
     let model: String
     let why: String
+    /// Sleep page v5 — how a run on this engine is billed, from the engine id alone and never a provider name:
+    /// `plan` (a plan you signed in to), `charged` (per use, on a key), `local` (this Mac) or `unknown`. A
+    /// scheduled preview is never `plan` (ruling 4). `nil` on an older backend.
+    var billing: String? = nil
 }
 
 /// Both previews, always both — ruling 4 (a scheduled cycle never spends
@@ -100,10 +104,13 @@ struct SleepEngineResponse: Codable, Hashable {
     /// R-AG11 — the API-key card's provider picker; one malformed row empties the list rather
     /// than failing the whole card.
     let providers: [SleepEngineProvider]
+    /// Sleep page v5 — "Leave room in my plan": the line, its choices, whether it applies to the engine a run you
+    /// start would use, and which windows the last run could enforce. `nil` on an older backend.
+    var reserve: SleepReserveStatus? = nil
 
     enum CodingKeys: String, CodingKey {
         case mode, model, disambiguationModel, source, candidates, preview, allowOverage
-        case selected, provider, providers
+        case selected, provider, providers, reserve
     }
 
     init(
@@ -139,6 +146,7 @@ struct SleepEngineResponse: Codable, Hashable {
         selected = decodedSelected.isEmpty ? mode : decodedSelected
         provider = (try? c.decodeIfPresent(String.self, forKey: .provider)) ?? nil
         providers = ((try? c.decodeIfPresent([SleepEngineProvider].self, forKey: .providers)) ?? nil) ?? []
+        reserve = (try? c.decodeIfPresent(SleepReserveStatus.self, forKey: .reserve)) ?? nil
     }
 }
 

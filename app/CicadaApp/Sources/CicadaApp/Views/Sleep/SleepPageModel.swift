@@ -72,6 +72,27 @@ struct SleepPageModel: Equatable {
     var cycleCreated: Int
     var cycleUpdated: Int
 
+    // MARK: Sleep page v5 (G163; rulings 13, 15, 16)
+
+    /// The paused run (Pause, a plan limit, the reserve, the engine, a restart) — `nil` while reading or when
+    /// nothing is paused. A paused run is `idle`: it holds nothing, and only this page's Continue resumes it.
+    var paused: SleepPausedRun? = nil
+    /// How often a run saves (Reading options, else the configured batch size).
+    var batchSize: Int = 25
+    /// What a Consolidate would read now (waiting minus parked, M7).
+    var readable: Int? = nil
+    /// Conversations parked after failing twice for their own reasons.
+    var parkedCount: Int = 0
+    /// The paused run's reset time in words ("after 3:40 PM", "Tue 2:00 PM") — one locale-aware formatter (L2),
+    /// resolved here so the sentence stays clock-free.
+    var resetWhen: String? = nil
+    /// When an armed automatic continue fires, in the same words; `nil` unless armed (ruling 15).
+    var autoContinueWhen: String? = nil
+    /// Continue cannot help yet: a weekly plan limit whose reset is still ahead (the board's disabled Continue).
+    var continueWaitsForReset: Bool = false
+    /// The Pause was asked for and the run has not stopped yet.
+    var pausing: Bool = false
+
     static func resolve(
         status: SleepStatusResponse?,
         sse: SleepEventPayload?,
@@ -83,13 +104,17 @@ struct SleepPageModel: Equatable {
         queueLoad: StudyListCard.LoadState,
         justFinishedAt: Date?,
         intakeInFlight: Bool,
+        paused: SleepPausedRun? = nil,
+        batchSize: Int? = nil,
+        pausing: Bool = false,
         now: Date = .now,
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> SleepPageModel {
         let debt = resolveSleepDebt(sse: sse, status: status)
+        let isPaused = paused != nil && status?.status != "running"
         let mood = deriveSleepPageMood(status: status, debt: debt, justFinishedAt: justFinishedAt,
-                                       intakeInFlight: intakeInFlight, now: now)
+                                       intakeInFlight: intakeInFlight, paused: isPaused, now: now)
         let origins = resolveOriginCounts(sse: sse, status: status)
         let isRunning = status?.status == "running"
         let read = origins.readByOrigin.values.reduce(0, +)
@@ -107,7 +132,13 @@ struct SleepPageModel: Equatable {
         let stoppedEarly = cancelled || (!isRunning && drain?.stop.map {
             $0.reason != "cancelled" && !($0.reason == "plan_limit" && planPauseLapsed) } == true)
         let nextSleepAt = storeStatus?.nextSleepAt
-        return SleepPageModel(
+        let shownPause = isPaused ? paused : nil
+        let resetDate = shownPause?.resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let autoAt = shownPause?.autoContinue.flatMap { $0.armed ? $0.at : nil }
+            .map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let parked = sse?.parkedCount ?? status?.debt.parkedCount ?? 0
+        let readable = sse?.readableCount ?? status?.debt.readableCount ?? status.map { $0.debt.readable }
+        var model = SleepPageModel(
             mood: mood,
             debt: debt,
             isRunning: isRunning,
@@ -118,7 +149,10 @@ struct SleepPageModel: Equatable {
             books: bookPileLayout(originVolumes(queued: queued, queueByOrigin: origins.queueByOrigin,
                                                 readByOrigin: origins.readByOrigin, running: isRunning)),
             pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: stoppedEarly,
-                                  error: error != nil, read: read, total: total),
+                                  error: error != nil,
+                                  read: drain.flatMap { $0.active ? $0.batchState?.read : nil } ?? read,
+                                  total: drain.flatMap { $0.active ? $0.batchState?.total : nil } ?? total,
+                                  stages: drain?.stages),
             schedule: schedule,
             lampLit: schedule.enabled,
             scheduleText: scheduleSentence(schedule),
@@ -148,7 +182,34 @@ struct SleepPageModel: Equatable {
             cycleCreated: status?.entitiesCreated ?? 0,
             cycleUpdated: status?.entitiesUpdated ?? 0
         )
+        model.paused = shownPause
+        model.batchSize = batchSize ?? (status.map { $0.batchSize > 0 ? $0.batchSize : 25 } ?? 25)
+        model.readable = readable
+        model.parkedCount = parked
+        model.resetWhen = resetDate.map { sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: true) }
+        model.autoContinueWhen = autoAt.map { sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: false) }
+        model.continueWaitsForReset = shownPause?.reason == "plan_weekly" && (resetDate.map { $0 > now } ?? false)
+        model.pausing = pausing && isRunning
+        // A paused run is continued, not consolidated afresh: the one primary is Continue (A4, DR-40).
+        if shownPause != nil { model.consolidateEnabled = false }
+        return model
     }
+}
+
+/// One locale-aware way to say a reset or a continue time (L2): today reads "after 3:40 PM" (or "3:40 PM" when the
+/// sentence already says "after"), another day "Tue 2:00 PM". Pure: the page passes its own `now`, locale and zone.
+func sleepClockWords(_ date: Date, now: Date, locale: Locale, timeZone: TimeZone, afterToday: Bool) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let f = DateFormatter()
+    f.locale = locale
+    f.timeZone = timeZone
+    if calendar.isDate(date, inSameDayAs: now) {
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return afterToday ? "after \(f.string(from: date))" : f.string(from: date)
+    }
+    f.setLocalizedDateFormatFromTemplate("EEEjmm")
+    return f.string(from: date)
 }
 
 /// The newest real consolidation in `history` (Z-P3). `/sleep/history` also
@@ -203,6 +264,11 @@ extension SleepPageModel {
         context.engineDetail = engineDetail
         context.inboxTotal = inboxTotal
         context.recentCycleCommit = recentCycleCommit
+        context.paused = paused
+        context.batchSize = batchSize
+        context.resetWhen = resetWhen
+        context.autoContinueWhen = autoContinueWhen
+        context.pausing = pausing
         return context
     }
 }

@@ -99,17 +99,27 @@ struct SleepDetailsSection<Content: View>: View {
 /// cap in `textTertiary`. The filled banners (`danger`/`accent`/`warning` at 10–12 %) retired: DR-7
 /// keeps `danger` for destructive actions, and a row never sits on a tint.
 struct LastCycleRow: Equatable, Identifiable {
-    enum Kind: String, Equatable { case failed, cancelled, capped, warning, usage, drain, paused }
+    enum Kind: String, Equatable {
+        case failed, cancelled, capped, warning, usage, drain, paused
+        // Sleep page v5 (A7).
+        case run, scheduled, owner, reserve, pages, questions, parked
+    }
 
     let kind: Kind
     let title: String
     let text: String
     var id: String { kind.rawValue }
-    var needsYou: Bool { kind == .failed || kind == .warning }
+    var needsYou: Bool { kind == .failed || kind == .warning || kind == .parked }
     var glyph: String {
         switch kind {
-        case .failed, .warning: "exclamationmark.triangle"
-        case .cancelled, .paused: "stop.circle"
+        case .failed, .warning, .parked: "exclamationmark.triangle"
+        case .cancelled, .paused: "pause.circle"
+        case .run: "books.vertical"
+        case .scheduled: "clock"
+        case .owner: "person.crop.circle"
+        case .reserve: "gauge.with.dots.needle.33percent"
+        case .pages: "doc.on.doc"
+        case .questions: "tray"
         case .drain: "text.book.closed"
         case .capped: "tray.and.arrow.down"
         case .usage: "gauge.with.dots.needle.33percent"

@@ -396,24 +396,81 @@ func controlCaption(isRunning: Bool, draining: Bool = false) -> String? {
 /// otherwise (R-HS9).
 struct SleepControlRow: View {
     @Environment(SleepViewModel.self) private var sleepVM
+    @Environment(SleepEngineViewModel.self) private var engineVM
     @Environment(Store.self) private var store
 
     let consolidateEnabled: Bool
     let queuedCount: Int
+    /// Sleep page v5 — the page's own reading (`SleepPageModel`), for Pause / Continue / End this run, the elapsed
+    /// time, the Reading options link and the arrivals reason. `nil` keeps the pre-v5 row.
+    var page: SleepPageModel? = nil
+
+    @State private var optionsOpen = false
+
+    private var draining: Bool { sleepVM.status?.drain?.active == true }
+    private var paused: SleepPausedRun? { page?.paused }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            if sleepVM.isRunning { cancelButton } else { consolidateButton }
-            // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
-            // applies to the next one (G80).
-            EngineQuickMenuButton()
-            if let caption = controlCaption(isRunning: sleepVM.isRunning, draining: sleepVM.status?.drain?.active == true) {
-                Text(caption)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
+        VStack(spacing: CicadaTheme.spacingSM) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                if sleepVM.isRunning {
+                    if draining { pauseButton } else { cancelButton }
+                } else if let paused {
+                    continueButton(paused)
+                } else {
+                    consolidateButton
+                }
+                // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
+                // applies to the next one (G80). It names the person's own engine and model — never another.
+                EngineQuickMenuButton()
+                if paused != nil, !sleepVM.isRunning {
+                    TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {
+                        Task { await sleepVM.endRun() }
+                    }
+                }
+                if let caption = caption {
+                    Text(caption)
+                        .font(CicadaTheme.captionFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
+            if showsOptionsLink {
+                TextButton(title: Copy.SleepV5.readingOptions, inline: true) { optionsOpen = true }
             }
         }
         .frame(maxWidth: .infinity)
+        .sheet(isPresented: $optionsOpen) {
+            ReadingOptionsSheet(waiting: page?.readable ?? queuedCount,
+                                onClose: { optionsOpen = false },
+                                onConsolidate: {
+                                    optionsOpen = false
+                                    Task {
+                                        await sleepVM.triggerManually()
+                                        await store.refresh([.status, .channels])
+                                    }
+                                })
+        }
+    }
+
+    /// Running: the elapsed time of a run that reads in batches (measured, never a remaining time — G107), else
+    /// Cancel's caption. Idle after a run that left arrivals: the reason Consolidate is live again.
+    private var caption: String? {
+        if sleepVM.isRunning, draining, let ms = sleepVM.status?.drain?.elapsedMs, ms > 0 {
+            return Copy.SleepV5.runningFor(SleepHistoryPresentation.durationText(ms: ms))
+        }
+        if let running = controlCaption(isRunning: sleepVM.isRunning, draining: draining), !draining { return running }
+        if !sleepVM.isRunning, paused == nil, consolidateEnabled,
+           let arrived = page?.drain?.arrivedSince, arrived > 0, page?.drain?.finished == true {
+            return Copy.SleepV5.newSinceYouStarted(arrived)
+        }
+        return nil
+    }
+
+    /// Reading options sits under the row while nothing reads and nothing is paused (A5, A10).
+    private var showsOptionsLink: Bool {
+        guard let page, !sleepVM.isRunning, page.paused == nil else { return false }
+        return (page.readable ?? queuedCount) > 0
     }
 
     /// The page's one prominent action (R-M5, Z-B14): `.glassProminent`,
@@ -434,6 +491,54 @@ struct SleepControlRow: View {
         .hoverLift()
         .help(queuedCount == 0 ? "Nothing queued right now" : "Run the Sleep cycle now")
         .accessibilityLabel(Copy.consolidateNow)
+    }
+
+    /// Sleep page v5 — the paused run's one primary (DR-40): Continue, named for the engine it will run on (a
+    /// scheduled run's Continue runs on the manual engine, which can be a plan — ruling 16). Disabled only while a
+    /// weekly limit's reset is still ahead.
+    private func continueButton(_ paused: SleepPausedRun) -> some View {
+        let engine = SleepEnginePreviewSource.current(chooser: engineVM.response, page: sleepVM.enginePreview)?.manual.engine
+        let waits = page?.continueWaitsForReset ?? false
+        return PrimaryActionButton(title: Copy.SleepV5.continueRun, systemImage: "play.fill") {
+            Task {
+                await sleepVM.continueRun()
+                await store.refresh([.status, .channels])
+            }
+        }
+        .font(CicadaTheme.font(size: 12, weight: .semibold))
+        .controlSize(.large)
+        .disabled(!paused.canContinue || waits)
+        .hoverLift()
+        .help(waits ? (page?.resetWhen.map(Copy.SleepV5.resetsThenContinue) ?? Copy.SleepV5.continueWhenItResets)
+                    : engine.map { Copy.SleepV5.continueHelp(Copy.engineLabel($0)) } ?? Copy.SleepV5.continueHelpGeneric)
+        .accessibilityLabel(Copy.SleepV5.continueRun)
+    }
+
+    /// Sleep page v5 — while a run reads in batches the one control is Pause: it stops at the next safe point, keeps
+    /// what is filed and leaves a paused run to continue (the cancel path, recorded as a pause by the server).
+    private var pauseButton: some View {
+        Button {
+            Task { await sleepVM.pause() }
+        } label: {
+            HStack(spacing: 4) {
+                if sleepVM.isCancelling {
+                    ProgressView().controlSize(.small).frame(width: 10, height: 10)
+                } else {
+                    Image(systemName: "pause.fill").font(CicadaTheme.font(size: 10, weight: .semibold))
+                }
+                Text(sleepVM.isCancelling ? Copy.SleepV5.pausing : Copy.SleepV5.pause)
+                    .font(CicadaTheme.font(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(CicadaTheme.textSecondary)
+            .padding(.horizontal, CicadaTheme.spacingMD)
+            .padding(.vertical, CicadaTheme.spacingSM)
+            .background(CicadaTheme.surfaceElevated)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.cicadaPlain)
+        .disabled(sleepVM.isCancelling)
+        .help(Copy.SleepV5.pauseHelp)
+        .accessibilityLabel(sleepVM.isCancelling ? Copy.SleepV5.pausing : Copy.SleepV5.pause)
     }
 
     /// Only shown while a cycle is running, and then INSTEAD of Consolidate
