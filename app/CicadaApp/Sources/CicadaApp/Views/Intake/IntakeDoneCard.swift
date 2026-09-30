@@ -85,13 +85,23 @@ struct IntakeDoneCard: View {
         if readingNow {
             Text(Copy.intakeReadingNow).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
         } else if case .ready = readiness, let preview = engineVM.response?.preview {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                MeadowPill(title: Copy.intakeReadNow) {
-                    readingNow = true
-                    Task { await sleepVM.triggerManually() }
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    MeadowPill(title: Copy.intakeReadNow) {
+                        // Sleep page v5 — while a run is paused the click opens the Sleep page (the one Continue), so
+                        // nothing starts reading here (`SleepViewModel.triggerManually`).
+                        if !sleepVM.isPaused { readingNow = true }
+                        Task { await sleepVM.triggerManually() }
+                    }
+                    Text(Copy.engineLabel(preview.manual.engine)).font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
                 }
-                Text(Copy.engineLabel(preview.manual.engine)).font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
+                // "Reads all 318 waiting, oldest first, saving every 25. Follow along on the Sleep page." — what the
+                // click reads is everything waiting (minus parked), not just this import.
+                if let caption = sleepVM.door.readNowCaption {
+                    Text(caption).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         } else {
             SettingsSectionLink(section: .sleep, label: Copy.intakeChooseWhoReads)

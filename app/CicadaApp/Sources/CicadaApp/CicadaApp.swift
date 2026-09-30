@@ -330,6 +330,10 @@ struct CicadaApp: App {
                     menuBarManager.exportWaitLines = { [exportWaits, store] in
                         exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
+                    // Sleep page v5 — while a run is paused, every door routes to the Sleep page (only its Continue
+                    // resumes the run); the menu bar reads the same words the page's doors do.
+                    sleepVM.onPausedDoor = { [appRouter] in appRouter.routeToSleep() }
+                    menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
                     menuBarManager.setup(
                         onOpenApp: { [appRouter] in appRouter.showMainWindow() },
                         onRunSleep: {
