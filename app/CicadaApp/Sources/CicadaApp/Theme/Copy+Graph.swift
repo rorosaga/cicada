@@ -95,6 +95,26 @@ extension Copy.Graph {
     static let add = "Add"
     static func openSource(_ ref: String) -> String { "Open \(ref)" }
     static let removeSource = "Remove source"
+    // Sources as a living set (G61 S3-a)
+    static let sourcesAnything = "Anything"
+    static let sourcesOfficialSite = "Official site"
+    static let sourceMenu = "Manage this source"
+    static let useThisSource = "Use this source"
+    static let changeFact = "Change what it is for…"
+    static let readAsPublic = "Anyone can open it"
+    static let readAsSignedIn = "Needs sign-in"
+    static let linkToPage = "Link to a page…"
+    static let unlinkPage = "Unlink page"
+    static let openLinkedPage = "Open page ›"
+    static func openLinkedPageHelp(_ name: String) -> String { "Open \(name), the page that knows more about this source" }
+    static let linkSearchPrompt = "Find a page"
+    static let linkNoMatch = "No page by that name."
+    static let factPrompt = "What is it for? (works at, lives in …)"
+    static let apply = "Apply"
+    static let cancel = "Cancel"
+    static let sourceRemoved = "Removed. Cicada won't suggest it again."
+    static let sourceSaveFailed = "That change wasn't saved. Try again."
+    static let sourceBackendDown = "Cicada can't reach its backend, so that change wasn't saved."
     static let openInInbox = "Open in Inbox"
     static let openInInboxHelp = "Open this question in the Inbox (⌘6)"
 

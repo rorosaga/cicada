@@ -23,6 +23,7 @@ from api.models.schemas import (
     EntityReadResponse,
     EntityResponse,
     EntitySource,
+    EntitySourceChange,
     EntitySourceCreate,
     EntitySourceList,
     LocationListing,
@@ -188,6 +189,18 @@ PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a mom
 #: would otherwise both read the page, and the second rewrite — or its `_drop_uploads` — would land between the first's
 #: write and its commit, leaving that commit to stage a file that is already gone.
 _PICTURE_LOCK = asyncio.Lock()
+
+
+SOURCE_BUSY = "Sleep is updating your memory — try the source change again in a moment."
+
+
+def _source_guard() -> None:
+    """G61 S3-a review — the person's source writes wait for Sleep like the picture's (same reason): a page frontmatter
+    rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, SOURCE_BUSY)
 
 
 def _picture_guard() -> None:
@@ -652,10 +665,12 @@ async def update_entity_repos(
 
 
 def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
-    return EntitySourceList(
-        entity_id=entity_id,
-        sources=[EntitySource(**s) for s in fact_sources.list_sources(memory_path, entity_id)],
-    )
+    rows = []
+    for s in fact_sources.list_sources(memory_path, entity_id):
+        # A link to a page that is gone (deleted, merged away, dropped) reads as no link.
+        s["entity"] = fact_sources.linked_entity(memory_path, s, self_id=entity_id)
+        rows.append(EntitySource(**s))
+    return EntitySourceList(entity_id=entity_id, sources=rows)
 
 
 async def _commit_sources(memory_path: Path, entity_id: str, verb: str, extra: tuple[str, ...] = ()) -> None:
@@ -710,6 +725,7 @@ async def add_entity_source(
     G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
     ``only_me`` ride along, and a value the record does not allow is a 400 with
     ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -727,10 +743,54 @@ async def add_entity_source(
             access=request.access,
             accepted=request.accepted,
             only_me=request.only_me,
+            entity=request.entity,
         )
     except fact_sources.InvalidSource as exc:
         raise HTTPException(400, str(exc)) from exc
     await _commit_sources(settings.memory_path, entity_id, "Add")
+    return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.post("/entities/{entity_id}/sources/change", response_model=EntitySourceList)
+async def change_entity_source(
+    entity_id: str,
+    request: EntitySourceChange,
+    settings: Settings = Depends(get_settings),
+):
+    """G61 S3-a — change or remove ONE source by its key ``(ref, predicate)``, as the person (any entry).
+
+    ``update`` changes ``access``/``entity`` in place (an explicit ``entity: null`` clears the link) and a
+    ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a ``sources_removed``
+    tombstone so no machine writer puts it back. 404: no page, or nothing under that key; 400: a value the
+    record does not allow. Commits alone as ``user`` (``user/companion_app``), like the other source writes."""
+    _source_guard()
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    if not (request.ref or "").strip():
+        raise HTTPException(400, "ref is required")
+    removing = next((s for s in fact_sources.list_sources(settings.memory_path, entity_id)
+                     if str(s.get("ref", "")).strip() == request.ref.strip()
+                     and fact_sources.same_predicate(s.get("predicate"), request.predicate)), None)
+    result = fact_sources.change_source(
+        settings.memory_path, entity_id, request.ref, request.predicate,
+        actor=fact_sources.USER, action=request.action, reason=request.reason,
+        new_ref=request.new_ref, new_predicate=request.new_predicate, access=request.access,
+        entity=request.entity if "entity" in request.model_fields_set else fact_sources._UNSET,
+        accepted=request.accepted, only_me=request.only_me,
+    )
+    if result.action == "not_found":
+        raise HTTPException(404, result.message)
+    if result.action in ("refused", "not_yours"):
+        raise HTTPException(400, result.message)
+    extra: tuple[str, ...] = ()
+    if result.action == "removed":
+        from api.services import contacts_local
+
+        refused = contacts_local.remember_removal(settings.memory_path, entity_id, removing or {})
+        extra = (refused,) if refused else ()
+    await _commit_sources(
+        settings.memory_path, entity_id, "Remove" if result.action == "removed" else "Change", extra)
     return _sources_payload(settings.memory_path, entity_id)
 
 
@@ -741,6 +801,7 @@ async def delete_entity_source(
     settings: Settings = Depends(get_settings),
 ):
     """Remove the source at ``index`` (0-based, file order)."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -748,7 +809,10 @@ async def delete_entity_source(
     raw = markdown_parser.parse(entity_path).frontmatter.get("sources") or []
     current = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
     removing = current[index] if 0 <= index < len(current) else None
-    if not fact_sources.delete_source(settings.memory_path, entity_id, index):
+    # G61 S3-a: the person's removal is remembered like an agent's (`sources_removed`, by `user`) — an older client's
+    # index delete included — so no machine writer puts the key back. A Contacts card keeps its own memory (below).
+    remembered = None if str((removing or {}).get("ref") or "").startswith("addressbook://") else fact_sources.USER
+    if not fact_sources.delete_source(settings.memory_path, entity_id, index, remembered_by=remembered):
         raise HTTPException(404, f"No source at index {index} on {entity_id}")
     # Round-4 final review, finding 1: a Contacts entry the person removes stays removed — the next Contacts sync
     # would otherwise put it back under the person's own name. Committed with the removal, one `user` commit.

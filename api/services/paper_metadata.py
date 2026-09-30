@@ -271,7 +271,10 @@ def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today:
     alias = None
     if learned:
         alias = papers.PaperKey(arxiv_id=paper.get("arxiv_id"), doi=learned)
-        fact_sources.add_source(memory_path, entity_id, f"https://doi.org/{learned}", kind="url", added_by="cicada")
+        try:
+            fact_sources.add_source(memory_path, entity_id, f"https://doi.org/{learned}", kind="url", added_by="cicada")
+        except fact_sources.InvalidSource:
+            pass   # a removed DOI link, or a full page: the details already written stand (provenance never blocks)
     return _IndexOp(entity_id, alias=alias, title=new_title) if (alias or new_title) else None
 
 

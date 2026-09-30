@@ -154,6 +154,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
     repo_node_names: dict[str, str] = {}  # "repo:<slug>" -> display name
     repo_node_paths: dict[str, set[str]] = {}  # "repo:<slug>" -> declared paths
     repo_links: list[GraphLink] = []
+    # G61 S3-a: a source's own memory node — `sources[].entity` — read-time edges like `has repo`, never persisted.
+    source_links: list[GraphLink] = []
     # G59: which entities already have a cached logo. One read of a small JSON
     # index — never a fetch, never a per-node stat storm.
     try:
@@ -221,6 +223,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 last_referenced=entity_picture.day(fm.get("last_referenced")),
             )
         )
+        raw_sources = fm.get("sources")
+        for src in raw_sources if isinstance(raw_sources, list) else []:
+            target = str(src.get("entity") or "").strip() if isinstance(src, dict) else ""
+            if target and target != eid:
+                predicate = str(src.get("predicate") or "").strip() or "source"
+                source_links.append(GraphLink(source=eid, target=target, label=predicate, kind="source"))
         for repo_decl in fm.get("repos") or []:
             if not isinstance(repo_decl, dict):
                 continue
@@ -333,6 +341,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
     valid_ids = entity_ids | {n.id for n in nodes if n.is_hub} | set(repo_node_names)
     links = [l for l in raw_links if l.source in valid_ids and l.target in valid_ids]
     links.extend(repo_links)
+    # A source's link: only to a page that is a node, and never a second edge for a pair+label a link already draws.
+    drawn = {(l.source, l.target, l.label) for l in links}
+    for link in source_links:
+        if link.target in entity_ids and (link.source, link.target, link.label) not in drawn:
+            drawn.add((link.source, link.target, link.label))
+            links.append(link)
 
     # M5b: tag each edge with the backing claim's id + context when a valid claim
     # matches (subject, normalized-label, object). Additive — leaves context/

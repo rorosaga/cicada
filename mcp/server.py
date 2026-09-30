@@ -568,8 +568,28 @@ TOOLS = [
                 "predicate": {"type": "string", "description": "Optional: which fact it checks (e.g. 'works-at'). Leave it out when it covers the page as a whole."},
                 "access": {"type": "string", "enum": ["public", "signed_in", "local", "unknown"], "description": "Optional: 'public' when anyone can open it, 'signed_in' when it needs the person's login, 'local' for a file or repo on this Mac. Left out, Cicada infers it."},
                 "kind": {"type": "string", "enum": ["url", "path", "note", "app", "repo"], "description": "Optional: what the ref is. Left out, Cicada infers url, path or note; say 'app' or 'repo' yourself."},
+                "entity": {"type": "string", "description": "Optional: the id of an existing page that knows more about this source (a saved profile or article, a folder page). Never creates a page; a page that does not exist leaves the link out."},
             },
             "required": ["subject", "ref"],
+        },
+    },
+    {
+        "name": "cicada_change_source",
+        "description": "Correct or remove a source you added with cicada_add_source (or through cicada_write_claim's sources) because it stopped being relevant or turned out wrong. Name it by its `ref` and its current `predicate`. action 'update' changes its `access` or `entity` in place, or replaces it with `new_ref` / `new_predicate`; action 'remove' needs a `reason`, keeps the change in history, and Cicada won't suggest it again. Only a source you added: the person's, one they took and Cicada's own can't be changed here.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "The page the source is on — its id (e.g. 'bob-example') or name."},
+                "ref": {"type": "string", "maxLength": 2048, "description": "The source as listed (its exact link, words or path)."},
+                "predicate": {"type": "string", "description": "The fact it was listed for (e.g. 'works-at'); leave it out when it covers the page as a whole."},
+                "action": {"type": "string", "enum": ["update", "remove"], "description": "'update' to correct it, 'remove' when it is no longer relevant."},
+                "reason": {"type": "string", "maxLength": 160, "description": "Why — required for 'remove' (e.g. 'the profile shows a new employer')."},
+                "new_ref": {"type": "string", "maxLength": 2048, "description": "Optional: the corrected link or words."},
+                "new_predicate": {"type": "string", "description": "Optional: the fact it should be listed for; an empty string makes it cover the whole page."},
+                "access": {"type": "string", "enum": ["public", "signed_in", "local", "unknown"], "description": "Optional: what opening it needs."},
+                "entity": {"type": "string", "description": "Optional: the id of an existing page that knows more about this source; an empty string removes the link."},
+            },
+            "required": ["subject", "ref", "action"],
         },
     },
     {
@@ -976,6 +996,19 @@ def handle_tool(name: str, arguments: dict) -> str:
             arguments.get("predicate"),
             arguments.get("access"),
             arguments.get("kind"),
+            arguments.get("entity"),
+        )
+    elif name == "cicada_change_source":
+        return handle_change_source(
+            arguments.get("subject", ""),
+            arguments.get("ref", ""),
+            arguments.get("predicate"),
+            arguments.get("action", ""),
+            arguments.get("reason"),
+            arguments.get("new_ref"),
+            arguments.get("new_predicate"),
+            arguments.get("access"),
+            arguments.get("entity"),
         )
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
@@ -1101,8 +1134,14 @@ def handle_retract_claim(subject, claim_id, reason, evidence=None) -> str:
     return mcp_tools.retract_claim(_ctx(), subject, claim_id, reason, evidence)
 
 
-def handle_add_source(subject, ref, predicate=None, access=None, kind=None) -> str:
-    return mcp_tools.add_source(_ctx(), subject, ref, predicate, access, kind)
+def handle_add_source(subject, ref, predicate=None, access=None, kind=None, entity=None) -> str:
+    return mcp_tools.add_source(_ctx(), subject, ref, predicate, access, kind, entity)
+
+
+def handle_change_source(subject, ref, predicate=None, action="", reason=None, new_ref=None,
+                         new_predicate=None, access=None, entity=None) -> str:
+    return mcp_tools.change_source(_ctx(), subject, ref, predicate, action, reason, new_ref, new_predicate,
+                                   access, entity)
 
 
 def handle_get_perspective(subject, observer=None, context=None, history=False) -> str:

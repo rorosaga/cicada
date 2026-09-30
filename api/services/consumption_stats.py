@@ -129,7 +129,9 @@ async def summary(memory_path: Path, *, range_: str, today: date) -> dict:
         "tokens": sum(e.tokens for e in events),
         "memory_writes": sum(writes.values()),
         "sleep_runs": sum(1 for e in events if e.kind == "sleep_run"),
-        "agentic_writes": sum(1 for e in events if e.kind == "agentic_write"),
+        # G61 S3-a: a source write files as `agentic_write` too (ids and enums only) but is not a claim write.
+        "agentic_writes": sum(1 for e in events if e.kind == "agentic_write"
+                              and not str((e.refs or {}).get("action") or "").startswith("source_")),
         "streak_current": cur,
         "streak_best": best,
         "range": range_,

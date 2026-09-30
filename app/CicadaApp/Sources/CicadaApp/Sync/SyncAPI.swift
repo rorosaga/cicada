@@ -128,6 +128,9 @@ protocol SyncAPI: Sendable {
     func setEntityPicture(entityId: String, data: Data, ext: String) async throws -> EntityPictureAnswer
     func useEntityInitials(entityId: String) async throws -> EntityPictureAnswer
     func clearEntityPicture(entityId: String) async throws -> EntityPictureAnswer
+    /// G61 S3-a — one edit to one of a page's sources, keyed by the entry's current `(ref, predicate)`; answers the
+    /// page's sources after it (`POST /entities/{id}/sources/change`).
+    func changeEntitySource(entityId: String, source: EntitySource, change: SourceChange) async throws -> [EntitySource]
     /// G150 — the Backlog section's three writes (`routers/backlog.py`), each answering the item as it now stands. All
     /// answer 409 while a Sleep cycle runs, and an add whose idea is already open answers 409 naming the item.
     func addBacklogItem(project: String, title: String, description: String) async throws -> BacklogItem

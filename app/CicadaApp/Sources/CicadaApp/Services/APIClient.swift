@@ -1591,6 +1591,12 @@ actor APIClient {
         return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
     }
 
+    /// G61 S3-a — `POST /entities/{id}/sources/change`: one edit, keyed by the entry's current `(ref, predicate)`.
+    func changeEntitySource(entityId: String, source: EntitySource, change: SourceChange) async throws -> [EntitySource] {
+        let data = try await post("/entities/\(encodedID(entityId))/sources/change", body: change.body(for: source))
+        return try JSONDecoder().decode(EntitySourceList.self, from: data).sources
+    }
+
     func deleteEntitySource(entityId: String, index: Int) async throws -> [EntitySource] {
         let data = try await delete("/entities/\(encodedID(entityId))/sources/\(index)")
         return try JSONDecoder().decode(EntitySourceList.self, from: data).sources

@@ -182,8 +182,9 @@ def test_primer_with_three_bridges_item_9_and_both_method_lines_fits_with_room_f
                "- Watching: the person chose something for it.")
     text = handshake.build(None, variant="claude-code", bank="memory", tz="Europe/Madrid",
                            bridges=bridges, reading=True, methods=methods)
-    # 1,500 before G162 named `basis` and the video queue in item 3; 1,525 leaves the state block 275 of the 1,800.
-    assert len(text) // 4 <= 1525, "the fixed part leaves room for the state block"
+    # 1,500 before G162 named `basis` and the video queue in item 3; 1,525 left the state block 275 of the 1,800.
+    # G61 S3-a names the two source tools in item 4 (~25 tokens): 1,545 leaves it 255.
+    assert len(text) // 4 <= 1545, "the fixed part leaves room for the state block"
     for line in methods + bridges:
         assert line in text
     # methods live in the fixed part with their own cap, not sliced by the bridge cap

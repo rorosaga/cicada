@@ -354,7 +354,7 @@ struct EntityDetailCard: View {
             }
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
             // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
-            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            LookItUpSection(entityId: entity.id, sources: $sources, navigate: { navigate(to: $0) }).id(entity.id)
             detailsSection
         }
     }
@@ -381,7 +381,7 @@ struct EntityDetailCard: View {
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
             personPage
             // `.id` — the add field's draft belongs to one page (as in `standardContent`).
-            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            LookItUpSection(entityId: entity.id, sources: $sources, navigate: { navigate(to: $0) }).id(entity.id)
             detailsSection
         }
     }

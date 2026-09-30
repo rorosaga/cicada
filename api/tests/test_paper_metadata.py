@@ -344,3 +344,20 @@ def test_a_hand_edited_media_kind_never_500s_the_page(bank, client):
     bank_index.invalidate()
     r = client.get(f"/entities/{ALPHA}")
     assert r.status_code == 200 and r.json()["media"]["kind"] is None
+
+
+def test_a_removed_doi_link_never_fails_the_details(bank):
+    """G61 S3-a review: the DOI link a lookup learned is a source; a tombstone drops it, never the details."""
+    from api.services import fact_sources
+
+    page = bank / "entities" / f"{ALPHA}.md"
+    parsed = markdown_parser.parse(page)
+    fm = parsed.frontmatter
+    fm["sources_removed"] = [{"ref": "https://doi.org/10.9999/alpha.2024", "by": "user", "at": "2026-09-01"}]
+    markdown_parser.write(page, fm, parsed.body)
+    calls, clock = [], _Clock()
+    report = asyncio.run(pm.resolve(bank, fetch_fn=_fetcher(calls), clock=clock.now, sleep=clock.sleep))
+    assert report["resolved"] == 2
+    assert not [s for s in fact_sources.list_sources(bank, ALPHA) if "doi.org" in s["ref"]]
+    paper = markdown_parser.parse(page).frontmatter["paper"]
+    assert paper["doi"] == "10.9999/alpha.2024"

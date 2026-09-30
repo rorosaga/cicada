@@ -30,11 +30,21 @@ a voice that says who added it. Phase 2 S1 adds what a checker needs to know:
 at read), ``accepted`` and the person's ``only_me``; and :func:`attach_cited_urls`
 turns a link a claim's own cited words contain into a source for that fact.
 This module never FETCHES anything.
+
+G61 S3-a (sources as a living set, 2026-09-30): a page holds MANY sources — per
+predicate, capped (:data:`MAX_SOURCES`, :data:`MAX_PER_PREDICATE`) — and they
+are managed after they are added: :func:`change_source` updates, replaces or
+removes an entry (the person any entry; an agent only one it added,
+:func:`owns_source`), a removal leaves a ``sources_removed:`` tombstone that
+every non-person writer respects (:func:`is_tombstoned`), an entry may point
+at the page that knows more about it (``entity:``, :func:`resolve_entity_link`),
+and :func:`rank` is the one function every reader uses to pick among many.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -61,6 +71,15 @@ ACCESS_UNKNOWN = "unknown"
 ACCESS_VALUES = (ACCESS_PUBLIC, ACCESS_SIGNED_IN, ACCESS_LOCAL, ACCESS_UNKNOWN)
 
 MAX_REF_CHARS = 2048
+# G61 S3-a (D7): a page cannot balloon. Caps refuse an agent's add in words;
+# the person's is never refused for size.
+MAX_SOURCES = 30
+MAX_PER_PREDICATE = 8
+MAX_TOMBSTONES = 20
+MAX_REASON_CHARS = 160
+REMOVED_KEY = "sources_removed"
+REMOTE_PREFIX = "remote:"
+_UNSET = object()
 MAX_CITED_URLS = 3
 # The capture writers' URL shape (`telegram_capture._URL_RE`), trailing
 # sentence punctuation stripped after the match.
@@ -71,6 +90,15 @@ _URL_TRAIL = ".,;:!?"
 class InvalidSource(ValueError):
     """A value the source record does not allow. ``POST /entities/{id}/sources``
     answers 400 with the message; agent paths drop the field instead."""
+
+
+class SourceRemoved(InvalidSource):
+    """The key was removed earlier and a writer that is not the person's must not
+    put it back (the tombstone, :func:`is_tombstoned`)."""
+
+
+class SourceCapReached(InvalidSource):
+    """A page already holds as many sources as an agent may add."""
 
 
 def _validate(ref: str, kind: str, access: str | None) -> None:
@@ -147,6 +175,211 @@ def list_sources(memory_path: Path, entity_id: str) -> list[dict]:
     return as_sources(fm.get("sources"))
 
 
+def trusted(source: dict) -> bool:
+    """The person's own, or one they took (``accepted``), or one Cicada's own read
+    confirmed (``verified``, written only by PR2's fetch). One rule for every
+    reader that must decide how far to lean on an entry; it never means "true"."""
+    who = str(source.get("added_by") or USER).strip() or USER
+    return who == USER or bool(source.get("accepted")) or bool(source.get("verified"))
+
+
+source_trusted = trusted
+
+
+def _order(source: dict) -> int:
+    who = str(source.get("added_by") or USER).strip() or USER
+    if who == USER:
+        return 0
+    if source.get("accepted") or source.get("verified"):
+        return 1
+    return 2 if who == CICADA else 3
+
+
+def rank(entries, predicate: str | None = None, *, person_only: bool = False, match=None) -> list[dict]:
+    """The sources that serve ``predicate``, best first — the ONE function every
+    reader that must pick among many uses (a check's targets, a hint). No reader
+    takes "the" source.
+
+    ``match(source, predicate)`` says which entries serve the fact (default: the
+    same predicate); order is the person's, then a taken or verified one, then
+    Cicada's, then an agent's — file order within each. An "Only I know" note is
+    never returned, and ``person_only`` (the owner's own page, R-AC9) keeps just
+    what the person added or took.
+    """
+    usable = [s for s in as_sources(entries) if not s.get("only_me")]
+    if person_only:
+        usable = [s for s in usable if (str(s.get("added_by") or USER).strip() or USER) == USER or s.get("accepted")]
+    match = match or (lambda s, p: bool(p) and same_predicate(s.get("predicate"), p))
+    return sorted((s for s in usable if match(s, predicate)), key=_order)
+
+
+def owns_source(entry: dict, *, author: str, origin: str | None = None) -> bool:
+    """May this AGENT change or remove ``entry``? Only one it added (mirrors
+    ``agentic_write.owns``). Never the person's, one they took (``accepted``) or
+    silenced with (``only_me``), Cicada's own, or one a Sleep model added — a
+    model id is not a harness label, and the unidentified ``agent`` label owns
+    nothing (Stage 1's proposals carry it too). A connection owns exactly the
+    entries stamped ``origin: remote:<its id>``; a local agent never edits a
+    remote app's, nor the reverse."""
+    who = str(entry.get("added_by") or USER).strip() or USER
+    if who in (USER, CICADA) or entry.get("accepted") or entry.get("only_me"):
+        return False
+    entry_origin = str(entry.get("origin") or "")
+    if origin and origin.startswith(REMOTE_PREFIX):
+        return entry_origin == origin
+    if entry_origin.startswith(REMOTE_PREFIX):
+        return False
+    return bool(author) and author != "agent" and who == author
+
+
+# ---- the tombstone: a removal that sticks --------------------------------------------------------------------
+
+
+def _tombstones(fm: dict) -> list[dict]:
+    raw = fm.get(REMOVED_KEY)
+    return [dict(r) for r in raw if isinstance(r, dict) and r.get("ref")] if isinstance(raw, list) else []
+
+
+def _site(ref: str) -> str:
+    from api.services import reading_hosts
+
+    try:
+        return reading_hosts.site_of(ref) if str(ref).startswith(("http://", "https://")) else ""
+    except Exception:
+        return ""
+
+
+def _key_matches(row: dict, ref: str, predicate) -> bool:
+    if not same_predicate(row.get("predicate"), predicate):
+        return False
+    if str(row.get("ref", "")).strip() == ref:
+        return True
+    # An official site is the same site whichever page of it was named.
+    return str(predicate or "").strip().lower() == "website" and bool(_site(ref)) and _site(row.get("ref", "")) == _site(ref)
+
+
+def find_tombstone(fm: dict, ref: str, predicate=None) -> dict | None:
+    return next((r for r in _tombstones(fm) if _key_matches(r, str(ref).strip(), predicate)), None)
+
+
+def is_tombstoned(fm: dict, ref: str, predicate=None, *, via_agent: bool = False) -> bool:
+    """Would a writer that is not the person be refused this key? Every machine
+    writer (Stage 1's proposal, the backfill, ``attach_cited_urls``) is refused
+    any tombstone. A local or remote AGENT (``via_agent``) is refused what the
+    person or Cicada removed, but may put back what an agent removed — it learns
+    the source is relevant again and the reply says who removed it (D6)."""
+    tomb = find_tombstone(fm, ref, predicate)
+    if tomb is None:
+        return False
+    if not via_agent:
+        return True
+    return str(tomb.get("by") or "") in (USER, CICADA)
+
+
+def _who_words(by: str) -> str:
+    return "the person" if by == USER else "Cicada" if by == CICADA else "an agent"
+
+
+def _removed_message(tomb: dict) -> str:
+    reason = str(tomb.get("reason") or "").strip()
+    return (f"that source was removed on {tomb.get('at') or 'an earlier day'} by {_who_words(str(tomb.get('by') or ''))}"
+            + (f": {reason}" if reason else ""))
+
+
+def removed_note(fm: dict, ref: str, predicate=None) -> str | None:
+    """The sentence about an earlier removal of this key, or None."""
+    tomb = find_tombstone(fm, ref, predicate)
+    return _removed_message(tomb) if tomb is not None else None
+
+
+def _push_tombstone(fm: dict, entry: dict, *, by: str, reason: str | None, at: str | None = None) -> None:
+    row: dict = {"ref": str(entry.get("ref") or "").strip()}
+    if str(entry.get("predicate") or "").strip():
+        row["predicate"] = entry["predicate"]
+    row["by"] = by
+    row["at"] = at or str(date.today())
+    if reason:
+        row["reason"] = reason
+    keep = [r for r in _tombstones(fm)
+            if not (str(r.get("ref", "")).strip() == row["ref"] and same_predicate(r.get("predicate"), row.get("predicate")))]
+    fm[REMOVED_KEY] = (keep + [row])[-MAX_TOMBSTONES:]
+
+
+def _clear_tombstone(fm: dict, ref: str, predicate) -> bool:
+    rows = _tombstones(fm)
+    keep = [r for r in rows if not _key_matches(r, ref, predicate)]
+    if len(keep) == len(rows):
+        return False
+    if keep:
+        fm[REMOVED_KEY] = keep
+    else:
+        fm.pop(REMOVED_KEY, None)
+    return True
+
+
+# ---- scrub + entity links --------------------------------------------------------------------------------------
+
+
+def clean_text(text: str, *, what: str = "a source") -> str:
+    """The text as it may be stored: stripped, and REFUSED (never stored redacted)
+    when the scrub would alter it — a URL carrying a token or a one-time code is
+    not a source."""
+    from api.services import episode_scrub
+
+    text = (text or "").strip()
+    scrubbed, changed = episode_scrub.scrub(text)
+    if changed or scrubbed != text:
+        raise InvalidSource(f"{what} that holds a secret or a one-time code can't be kept")
+    return text
+
+
+def _clean_reason(reason: str | None) -> str | None:
+    text = " ".join(str(reason or "").split())
+    if not text:
+        return None
+    from api.services import episode_scrub
+
+    scrubbed, changed = episode_scrub.scrub(text)
+    if changed:
+        raise InvalidSource("the reason holds a secret or a one-time code")
+    return scrubbed[:MAX_REASON_CHARS]
+
+
+def resolve_entity_link(memory_path: Path, value, *, self_id: str | None = None) -> str:
+    """``entity:`` on a source — the page that knows more about it. The page must
+    exist, is not the entry's own page and is not ``dropped``; a source NEVER
+    creates a page. Returns the canonical id; raises :class:`InvalidSource`."""
+    from api.services.id_utils import resolve_entity_file, sanitize_id
+
+    raw = str(value or "").strip()
+    if not raw:
+        raise InvalidSource("entity must name a page")
+    file = resolve_entity_file(Path(memory_path), raw)
+    if file is None:
+        raise InvalidSource(f"there is no page '{sanitize_id(raw)}' to link the source to")
+    if self_id and file.stem == self_id:
+        raise InvalidSource("a source can't link to the page it is on")
+    try:
+        status = str(markdown_parser.parse(file).frontmatter.get("status") or "")
+    except Exception:
+        status = ""
+    if status == "dropped":
+        raise InvalidSource(f"'{file.stem}' was dropped, so a source can't link to it")
+    return file.stem
+
+
+def linked_entity(memory_path: Path, source: dict, *, self_id: str | None = None) -> str | None:
+    """The ``entity:`` of a source when it still resolves — a stale id (a page
+    deleted or merged away) reads as no link everywhere."""
+    value = str(source.get("entity") or "").strip()
+    if not value:
+        return None
+    try:
+        return resolve_entity_link(memory_path, value, self_id=self_id)
+    except InvalidSource:
+        return None
+
+
 def add_source(
     memory_path: Path,
     entity_id: str,
@@ -159,6 +392,9 @@ def add_source(
     access: str | None = None,
     accepted: bool | None = None,
     only_me: bool | None = None,
+    origin: str | None = None,
+    entity: str | None = None,
+    via_agent: bool = False,
 ) -> dict | None:
     """Append one source to the entity's ``sources:`` key. Idempotent on
     ``(ref, predicate)``.
@@ -175,6 +411,16 @@ def add_source(
     person repeats an existing entry, ``access``/``accepted``/``only_me`` are
     applied to it (the card's "Use this source" needs no second route); an
     agent's repeat never changes an entry.
+
+    S3-a: a page holds MANY sources. The ref must survive the scrub unchanged
+    (a secret-bearing link is refused); a writer that is not the person is
+    refused a key that was removed (:class:`SourceRemoved`) and, past the caps,
+    a new entry (:class:`SourceCapReached`); the person's add clears a
+    tombstone. ``origin`` (``remote:<id>``) marks a connection's own entry —
+    what :func:`owns_source` compares. ``entity`` links the entry to a page that
+    knows more about it (:func:`resolve_entity_link`); ``via_agent`` says the
+    caller is an MCP agent, which the tombstone treats differently from a
+    machine writer (:func:`is_tombstoned`).
 
     Raises :class:`InvalidSource` for a value the record does not allow; returns
     ``None`` when the ref is blank or the entity does not exist.
@@ -194,6 +440,10 @@ def add_source(
     kind_value = (kind or infer_kind(text)).strip().lower()
     access_value = (access or "").strip().lower() or None
     _validate(text, kind_value, access_value)
+    text = clean_text(text)
+    if not by_person and kind_value == KIND_URL:
+        text = text.split("#", 1)[0]
+    entity_id_link = resolve_entity_link(memory_path, entity, self_id=entity_id) if entity else None
 
     parsed = markdown_parser.parse(path)
     fm = parsed.frontmatter
@@ -205,6 +455,18 @@ def add_source(
                 markdown_parser.write(path, fm, parsed.body)
             return dict(source)
 
+    if by_person:
+        _clear_tombstone(fm, text, predicate)
+    else:
+        tomb = find_tombstone(fm, text, predicate)
+        if tomb is not None and is_tombstoned(fm, text, predicate, via_agent=via_agent):
+            raise SourceRemoved(_removed_message(tomb))
+        if len(existing) >= MAX_SOURCES or sum(
+                1 for s in existing if same_predicate(s.get("predicate"), predicate)) >= MAX_PER_PREDICATE:
+            raise SourceCapReached(
+                "this page already lists as many sources as it can hold for that fact; remove one that is no "
+                "longer relevant first")
+
     entry: dict = {"ref": text, "kind": kind_value}
     if predicate:
         entry["predicate"] = predicate
@@ -212,6 +474,10 @@ def add_source(
         entry["access"] = access_value
     entry["added_by"] = added_by or USER
     entry["added_at"] = added_at or str(date.today())
+    if origin and str(origin).startswith(REMOTE_PREFIX):
+        entry["origin"] = str(origin)
+    if entity_id_link:
+        entry["entity"] = entity_id_link
     if only_me:
         entry["only_me"] = True
 
@@ -220,11 +486,12 @@ def add_source(
     return entry
 
 
-def delete_source(memory_path: Path, entity_id: str, index: int) -> bool:
+def delete_source(memory_path: Path, entity_id: str, index: int, *, remembered_by: str | None = None) -> bool:
     """Remove the source at ``index``. Returns whether anything was removed.
 
     Removing the last source drops the ``sources:`` key entirely, so an entity
-    that never had one stays byte-identical.
+    that never had one stays byte-identical. ``remembered_by`` leaves a
+    tombstone for the entry (the person's removal by index, for older clients).
     """
     path = _entity_path(memory_path, entity_id)
     if not path.exists():
@@ -234,13 +501,158 @@ def delete_source(memory_path: Path, entity_id: str, index: int) -> bool:
     existing = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
     if index < 0 or index >= len(existing):
         return False
-    existing.pop(index)
+    removed = existing.pop(index)
+    if remembered_by and str(removed.get("ref") or "").strip():
+        _push_tombstone(fm, removed, by=remembered_by, reason=None)
     if existing:
         fm["sources"] = existing
     else:
         fm.pop("sources", None)
     markdown_parser.write(path, fm, parsed.body)
     return True
+
+
+@dataclass
+class ChangeResult:
+    """``action`` is one of ``updated | replaced | removed | not_found | not_yours | refused``."""
+
+    action: str
+    entry: dict | None = None
+    message: str = ""
+
+
+def change_source(
+    memory_path: Path,
+    entity_id: str,
+    ref: str,
+    predicate: str | None = None,
+    *,
+    actor: str = USER,
+    origin: str | None = None,
+    action: str = "update",
+    reason: str | None = None,
+    new_ref: str | None = None,
+    new_predicate: str | None = None,
+    access: str | None = None,
+    entity=_UNSET,
+    accepted: bool | None = None,
+    only_me: bool | None = None,
+    via_agent: bool = False,
+) -> ChangeResult:
+    """Update, replace or remove ONE source, keyed ``(ref, predicate)`` — the
+    page's frontmatter only, never its body, never a commit (the caller commits,
+    under the right author).
+
+    ``actor`` is ``user`` (any entry) or an agent's harness label (only an entry
+    it owns, :func:`owns_source`). ``update`` changes ``access`` and ``entity``
+    in place (``entity=None``/``""`` clears the link); a new ``new_ref`` or
+    ``new_predicate`` REPLACES the entry — the old key goes, the new one takes its
+    place, ``added_by``/``added_at`` kept, ``verified`` dropped (another link).
+    ``remove`` drops the entry and leaves a tombstone (``sources_removed:``) so a
+    machine writer never puts it back; an agent must say why."""
+    path = _entity_path(memory_path, entity_id)
+    if not path.exists():
+        return ChangeResult("not_found", message=f"No page '{entity_id}'.")
+    person = actor == USER
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    existing = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
+    key = (ref or "").strip()
+    at = next((i for i, s in enumerate(existing)
+               if str(s.get("ref", "")).strip() == key and same_predicate(s.get("predicate"), predicate)), None)
+    if at is None:
+        return ChangeResult("not_found", message="Nothing is listed there under that key.")
+    entry = existing[at]
+    if not person and not owns_source(entry, author=actor, origin=origin):
+        return ChangeResult("not_yours", entry=dict(entry), message=(
+            "That source was not added by this agent, so it can't be changed here. Add a corrected one, or let "
+            "the person decide in the Cicada app."))
+    try:
+        if action == "remove":
+            why = _clean_reason(reason)
+            if not why and not person:
+                return ChangeResult("refused", message="Say why it is being removed in `reason`.")
+            existing.pop(at)
+            _push_tombstone(fm, entry, by=USER if person else actor, reason=why)
+            if existing:
+                fm["sources"] = existing
+            else:
+                fm.pop("sources", None)
+            markdown_parser.write(path, fm, parsed.body)
+            return ChangeResult("removed", entry=dict(entry), message="removed")
+        if action != "update":
+            return ChangeResult("refused", message="action must be 'update' or 'remove'.")
+
+        changed = False
+        replaced = False
+        updated = dict(entry)
+        new_key_ref = (new_ref or "").strip() or key
+        new_key_pred = entry.get("predicate") if new_predicate is None else (new_predicate.strip() or None)
+        if new_key_ref != key or not same_predicate(new_key_pred, entry.get("predicate")):
+            if new_key_ref != key:
+                new_key_ref = clean_text(new_key_ref)
+                kind_new = str(entry.get("kind") or "")
+                if kind_new in (KIND_URL, KIND_PATH, KIND_NOTE, ""):
+                    kind_new = infer_kind(new_key_ref)
+                _validate(new_key_ref, kind_new, str(updated.get("access") or "") or None)
+                if not person and kind_new == KIND_URL:
+                    new_key_ref = new_key_ref.split("#", 1)[0]
+                updated["kind"] = kind_new
+            for i, other in enumerate(existing):
+                if i != at and str(other.get("ref", "")).strip() == new_key_ref \
+                        and same_predicate(other.get("predicate"), new_key_pred):
+                    return ChangeResult("refused", message="Already listed under that key.")
+            if not person and (tomb := find_tombstone(fm, new_key_ref, new_key_pred)) is not None \
+                    and is_tombstoned(fm, new_key_ref, new_key_pred, via_agent=via_agent):
+                return ChangeResult("refused", message=f"Not changed: {_removed_message(tomb)}.")
+            if not person and not same_predicate(new_key_pred, entry.get("predicate")) and sum(
+                    1 for i, s in enumerate(existing)
+                    if i != at and same_predicate(s.get("predicate"), new_key_pred)) >= MAX_PER_PREDICATE:
+                return ChangeResult("refused", message=(
+                    "That fact already lists as many sources as it can hold; remove one that is no longer "
+                    "relevant first."))
+            updated["ref"] = new_key_ref
+            if new_key_pred:
+                updated["predicate"] = new_key_pred
+            else:
+                updated.pop("predicate", None)
+            updated.pop("verified", None)
+            updated.pop("entity_unlinked", None)   # another link is another question
+            # The old key is remembered too, by whoever replaced it: a corrected source must not be re-added
+            # in its old form by a machine writer (G61 S3-a review).
+            _push_tombstone(fm, entry, by=USER if person else actor, reason=None)
+            if person:
+                _clear_tombstone(fm, new_key_ref, new_key_pred)
+            replaced = changed = True
+        if access is not None and str(access).strip():
+            value = str(access).strip().lower()
+            _validate(str(updated["ref"]), str(updated.get("kind") or infer_kind(str(updated["ref"]))), value)
+            if updated.get("access") != value:
+                updated["access"] = value
+                changed = True
+        if entity is not _UNSET:
+            if entity is None or not str(entity).strip():
+                # An explicit unlink is stamped so the exact-match backfill never puts the link back.
+                if "entity" in updated or not updated.get("entity_unlinked"):
+                    updated.pop("entity", None)
+                    updated["entity_unlinked"] = True
+                    changed = True
+            else:
+                link = resolve_entity_link(memory_path, entity, self_id=entity_id)
+                if updated.get("entity") != link or updated.get("entity_unlinked"):
+                    updated["entity"] = link
+                    updated.pop("entity_unlinked", None)
+                    changed = True
+        if person and _apply_persons_fields(updated, None, accepted, bool(only_me)):
+            changed = True
+        if not changed:
+            return ChangeResult("refused", entry=dict(entry), message="Nothing to change.")
+        existing[at] = updated
+        fm["sources"] = existing
+        markdown_parser.write(path, fm, parsed.body)
+        return ChangeResult("replaced" if replaced else "updated", entry=dict(updated), message="ok")
+    except InvalidSource as exc:
+        return ChangeResult("refused", entry=dict(entry), message=str(exc))
 
 
 def voiced_hint(source: dict) -> str:
@@ -310,7 +722,7 @@ def hint_from(sources, predicate: str | None) -> str | None:
         return None
     usable = [s for s in as_sources(sources) if not s.get("only_me")]
     want = str(predicate or "").strip().lower()
-    match = next((s for s in usable if want and same_predicate(s.get("predicate"), want)), None)
+    match = next(iter(rank(usable, want)), None)
     if match is None:
         match = next((s for s in usable if s.get("kind") == KIND_URL), None)
     return voiced_hint(match) if match is not None else None

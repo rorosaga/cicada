@@ -1,0 +1,96 @@
+{
+ "entityId": "bob-example",
+ "sources": [
+  {
+   "accepted": false,
+   "access": null,
+   "addedAt": "2026-09-20",
+   "addedBy": "user",
+   "entity": null,
+   "kind": "url",
+   "onlyMe": false,
+   "origin": null,
+   "predicate": "works-at",
+   "ref": "https://example.com/staff-directory",
+   "verified": null
+  },
+  {
+   "accepted": false,
+   "access": null,
+   "addedAt": "2026-09-20",
+   "addedBy": "claude-code",
+   "entity": null,
+   "kind": "url",
+   "onlyMe": false,
+   "origin": null,
+   "predicate": "works-at",
+   "ref": "https://example.com/team",
+   "verified": null
+  },
+  {
+   "accepted": false,
+   "access": null,
+   "addedAt": "2026-09-20",
+   "addedBy": "claude-web",
+   "entity": "media-alpha-profile",
+   "kind": "url",
+   "onlyMe": false,
+   "origin": "remote:ab12cd34",
+   "predicate": "profile",
+   "ref": "https://example.com/in/bob",
+   "verified": null
+  },
+  {
+   "accepted": true,
+   "access": "public",
+   "addedAt": "2026-09-20",
+   "addedBy": "claude-code",
+   "entity": null,
+   "kind": "url",
+   "onlyMe": false,
+   "origin": null,
+   "predicate": "works-at",
+   "ref": "https://example.com/old-team",
+   "verified": null
+  },
+  {
+   "accepted": false,
+   "access": null,
+   "addedAt": "2026-09-20",
+   "addedBy": "user",
+   "entity": null,
+   "kind": "note",
+   "onlyMe": false,
+   "origin": null,
+   "predicate": "works-at",
+   "ref": "Ask bob-example, he announces job changes",
+   "verified": null
+  },
+  {
+   "accepted": false,
+   "access": null,
+   "addedAt": "2026-09-20",
+   "addedBy": "cicada",
+   "entity": null,
+   "kind": "url",
+   "onlyMe": false,
+   "origin": null,
+   "predicate": null,
+   "ref": "https://example.com/about",
+   "verified": null
+  },
+  {
+   "accepted": false,
+   "access": null,
+   "addedAt": "2026-09-20",
+   "addedBy": "user",
+   "entity": null,
+   "kind": "url",
+   "onlyMe": false,
+   "origin": null,
+   "predicate": "profile",
+   "ref": "https://example.com/gone",
+   "verified": null
+  }
+ ]
+}

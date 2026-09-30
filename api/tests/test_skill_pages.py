@@ -251,3 +251,17 @@ def test_stage4_related_list_skips_agent_skill_pages():
 def test_a_page_that_stage_one_made_first_is_adoptable_only_when_safe(memory):
     _entity(memory, "macos-harness", type="concept", picture={"kind": "initials", "added": "2026-09-01"})
     assert run(skill_pages.ensure(memory, "macos-harness")).state == "foreign", "a picture the person chose"
+
+
+def test_a_refused_source_never_fails_the_skill_page(memory, monkeypatch):
+    """G61 S3-a review: a tombstoned or capped source link is dropped; the page and its commit still land."""
+    from api.services import fact_sources
+
+    def refuse(*a, **k):
+        raise fact_sources.SourceRemoved("that source was removed")
+
+    monkeypatch.setattr(fact_sources, "add_source", refuse)
+    r = run(skill_pages.ensure(memory, "browser-harness", today=date(2026, 9, 30)))
+    assert (r.state, r.entity_id) == ("created", "browser-harness")
+    assert "sources" not in _page(memory).frontmatter
+    assert "browser-harness" in _git(memory, "log", "-1", "--format=%s")

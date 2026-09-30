@@ -63,7 +63,8 @@ from api.services.auth import cicada_home
 # while `reading.agent` is on; the setting is part of the cache key). 10: G162's
 # first cut — item 3 names the video queue tools and `basis`. 11: the merge of both,
 # one past either, so neither branch's cached primer is ever served as the other's.
-CONTRACT_VERSION = 11
+# 12: G61 S3-a — step 4 names cicada_add_source and cicada_change_source (sources are a living set).
+CONTRACT_VERSION = 12
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -83,7 +84,8 @@ REMOTE_VARIANT = "remote"
 # 6: G166 — the reading sentences (cicada_reading_queue / cicada_record_read,
 # each only where the connection holds it), only while `reading.agent` is on.
 # 7: G162 — the video clause, tool by tool. 8: the merge of both, one past either.
-REMOTE_CONTRACT_VERSION = 8
+# 9: G61 S3-a — the source sentence, each tool only where the connection holds it.
+REMOTE_CONTRACT_VERSION = 9
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -173,6 +175,12 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
     if "cicada_retract_claim" in tools:
         items.append("Withdraw a claim this connection wrote that proved wrong with "
                      "`cicada_retract_claim(subject, claim_id, reason)`; it stays in history with your reason.")
+    if "cicada_add_source" in tools:
+        # G61 S3-a: a page holds many sources; named only where the tools exist (R12).
+        text = "Where a fact can be checked is a source: `cicada_add_source` only when the person names it"
+        if "cicada_change_source" in tools:
+            text += "; `cicada_change_source` to fix or drop one this connection added"
+        items.append(text + ".")
     if reading and (sentence := _remote_reading_item(tools)) is not None:
         items.append(sentence)
     items.append(state_dictionary.WORLD_FACTS_NOTE)
@@ -267,7 +275,8 @@ _CONTRACT = (
     "4. Write facts as claims: `cicada_write_claim(subject, predicate, object, evidence=[{episode, quote}], "
     "sources=[url])` — quote the exact words you relied on, give `sources` for anything you looked up, and "
     "`expected_end` when the fact states an end; withdraw a claim you wrote that proved wrong with "
-    "`cicada_retract_claim(subject, claim_id, reason)`.\n"
+    "`cicada_retract_claim(subject, claim_id, reason)`. Sources: "
+    "`cicada_add_source` for one the person names; `cicada_change_source` to fix or drop your own.\n"
     f"5. {state_dictionary.WORLD_FACTS_NOTE}\n"
     "6. Ask before assuming: a pending clarification on an entity you are about to use means the person has "
     "not settled it — ask in flow, do not guess.\n"
