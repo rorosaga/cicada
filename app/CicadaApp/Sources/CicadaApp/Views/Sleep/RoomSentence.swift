@@ -143,6 +143,9 @@ struct RoomContext: Equatable {
     /// "Consolidate reads everything" (G163): a person-started run's measured progress
     /// and stop, `nil` when the last cycle was not one. Counts and one reason only.
     var drain: SleepDrainInfo? = nil
+    /// The plan pause's reset time has passed (resolved by the page against its `now`, so the sentence stays
+    /// clock-free): the pause is over, and the tail stops saying it.
+    var planPauseLapsed: Bool = false
     var indexWarning: String? = nil
     var scheduleMode: String = "manual"
     var topOriginLabel: String? = nil
@@ -246,16 +249,23 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         return SentenceTail(text: clause, tone: .danger, action: .openDetails(.lastCycle))
     }
     if ctx.cancelled {                                                                           // T4
-        if let drain = ctx.drain, drain.filed > 0 {                                              // T4b (G163)
-            return SentenceTail(text: drainCancelledClause(drain, locale: ctx.locale),
-                                action: .openDetails(.lastCycle))
+        if let drain = ctx.drain {                                                               // T4b (G163)
+            // A cancel in batch 1 filed nothing, and the batch that was reading is dropped: not "nothing was lost".
+            let text = drain.filed > 0 ? drainCancelledClause(drain, locale: ctx.locale)
+                : "Stopped — nothing filed; the batch being read is read again."
+            return SentenceTail(text: text, action: .openDetails(.lastCycle))
         }
         return SentenceTail(text: "Stopped early — nothing was lost.", action: .openDetails(.lastCycle))
     }
-    if let drain = ctx.drain, !drain.active, drain.stop?.reason == "plan_limit" {                // T4c (G163)
-        // The vendor's own sentence carries the reset time; the rest wait for the next Consolidate.
-        return SentenceTail(text: sentenceClause(drain.stop?.sentence) ?? "Stopped at your plan's limit — the rest wait.",
-                            tone: .warning, action: .openDetails(.lastCycle))
+    if let drain = ctx.drain, !drain.active, drain.stop?.reason == "plan_limit", !ctx.planPauseLapsed {  // T4c (G163)
+        // The vendor's own sentence carries the reset time, so it is never clipped: one too long for the tail
+        // points at Details, where the paused row shows it whole.
+        let vendor = drain.stop?.sentence.flatMap { $0.split(whereSeparator: \.isNewline).first }
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+        let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
+            ?? (vendor == nil ? "Stopped at your plan's limit — the rest wait."
+                              : "Stopped at your plan's limit — the reset time is in Details.")
+        return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
     }
     if ctx.capped {                                                                              // T5
         return SentenceTail(text: "The rest wait for the next cycle.", action: .openDetails(.lastCycle))

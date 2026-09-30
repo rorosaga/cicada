@@ -326,14 +326,14 @@ never an estimate, G107), the entity/episode counters as the run's running sums,
 `GET /sleep/status`'s `writing`, which MCP's `_backend_sleep_running` and `BACKLOG_SLEEPING` read. A plain or scheduled cycle
 holds the bank for its whole run, as before; a drain holds it only from a batch's Stage 2 (which loads the pages Stage 5
 rewrites) through its commit, plus the run's start and its tail. Stage 1's engine calls and the gaps between batches touch no
-page, so the app's writes proceed and a stdio agent's claim **commits alone under its own harness** there instead of being
+page, so the *server* accepts page writes there and a stdio agent's claim **commits alone under its own harness** there instead of being
 swept by the next batch's `git add -A` under the Sleep author. A claim written *inside* a window still stands uncommitted
 and rides that batch's commit (minutes, the pre-drain exposure); bank switching, export and delete still answer 409 for the
 whole run (the run is pinned to its bank), and `activate`'s sentence is shown as the toast. A batch that commits with the
 plan's breaker tripped stops the drain only while frozen ids are still waiting; with none left it is a finished run (the
 note is logged, the link backfill still runs).
 **Disclosed asymmetries (not fixed here):** Stage 5.57's `recommends` person credit reads only the last batch's changes;
-Home's "Last read" shows the last batch's pages and Past nights lists one row per batch (per-batch grouping is unbuilt). A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
+Home's "Last read" shows the last batch's pages and Past nights lists one row per batch (per-batch grouping is unbuilt). Details › Last cycle's cost line and "took" row come from the newest history commit, which is one batch of a multi-batch run, so they are titled "last batch" (a whole-run sum by `drain_id` is unbuilt). The **app's own** Projects, Backlog and Fade-pace controls still key off `sleep.status == "running"` (`ProjectWriteGate`; `/status` does not carry `writing`), so they stay disabled, saying "Sleep is running", for the whole drain although the server would accept a write between batches. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
 
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the

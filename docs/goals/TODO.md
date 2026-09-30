@@ -24,7 +24,7 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   a person-started run reads the whole frozen queue in batches of 25, each filed and committed; scheduled runs stay one batch; decay
   and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
   cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
-  the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run.
+  the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run (the app's own Projects/Backlog controls still key off `running`, so they stay disabled for the whole run: `/status` does not carry `writing`).
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
   another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a

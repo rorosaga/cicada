@@ -756,7 +756,8 @@ struct SleepStatusResponse: Codable {
     /// scheduled or idle cycle and on an older backend; never a fabricated 0.
     let drain: SleepDrainInfo?
     /// G177 — Sleep holds the bank's pages right now. A drain between batches is
-    /// `running` but not `writing`; the app's writes are refused only while it is.
+    /// `running` but not `writing`; the server refuses page writes only while it is. The app's own write controls
+    /// (`ProjectWriteGate`) still key off `running`, because `/status` does not carry this field.
     /// `false` on an older backend, which is why it is not read as "not running".
     let writing: Bool
 
@@ -822,13 +823,23 @@ struct SleepDrainInfo: Codable, Equatable {
             resetsAt = try? c.decodeIfPresent(Int.self, forKey: .resetsAt)
         }
         enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt }
+
+        /// A plan pause whose vendor-measured reset time has passed: the limit no longer holds, so nothing
+        /// should keep saying "paused". `false` without a measured time (it is never guessed).
+        func planPauseLapsed(now: Date) -> Bool {
+            guard reason == "plan_limit", let resetsAt else { return false }
+            return Date(timeIntervalSince1970: TimeInterval(resetsAt)) <= now
+        }
     }
 
     var id: String
     /// Episodes waiting when the run began — what it set out to read.
     var frozen: Int
     var batchSize: Int
+    /// The batch the run is on or stopped in, a batch started and then dropped included — not "batches committed".
     var batch: Int
+    /// The PLAN (`batch` plus the batches still to do), not a count of batches committed: never print it as
+    /// "n batches" for a run that stopped. `filed` is the measured figure.
     var batches: Int
     var filed: Int
     var requeued: Int

@@ -212,7 +212,7 @@ struct ReadoutRow: Equatable, Identifiable {
 }
 
 func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, lastEngine: String?,
-                 engineDetail: String?, locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
+                 engineDetail: String?, lastIsOneBatch: Bool = false, locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
     let entities = entityCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "entity" : "entities")" }
     let sources = sourceCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "source" : "sources")" }
     let engine = lastEngine.map { id in
@@ -223,7 +223,7 @@ func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, las
                    reason: entityCount == nil ? Copy.bankListNotLoaded : nil, engine: nil),
         ReadoutRow(id: "sources", key: Copy.SleepDetailsWords.feedingIt, value: sources ?? "—",
                    reason: sourceCount == nil ? Copy.sourceOverviewNotLoaded : nil, engine: nil),
-        ReadoutRow(id: "lastCycle", key: Copy.SleepDetailsWords.lastCycleTook,
+        ReadoutRow(id: "lastCycle", key: lastIsOneBatch ? Copy.SleepDetailsWords.lastBatchTook : Copy.SleepDetailsWords.lastCycleTook,
                    value: SleepHistoryPresentation.durationText(ms: lastDurationMs),
                    reason: lastDurationMs == nil ? Copy.noTimingRecorded : nil, engine: nil),
         ReadoutRow(id: "engine", key: Copy.SleepDetailsWords.lastEngine, value: engine ?? "—",
@@ -263,6 +263,8 @@ struct SleepReadoutView: View {
     /// `history.first { $0.kind != "decay" }`, which also matched an inbox
     /// resolution commit — the person's own answer timed as "the last cycle".
     let lastDurationMs: Int?
+    /// The newest history commit is one batch of a multi-batch run (G163): the duration row says so.
+    var lastIsOneBatch: Bool = false
     let lastEngine: String?
     let engineDetail: String?
 
@@ -294,7 +296,7 @@ struct SleepReadoutView: View {
             }
             ForEach(readoutRows(entityCount: activeBankEntityCount, sourceCount: feedingSourceCount,
                                 lastDurationMs: lastDurationMs, lastEngine: lastEngine,
-                                engineDetail: engineDetail)) { readoutRow($0) }
+                                engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch)) { readoutRow($0) }
         }
     }
 

@@ -18,11 +18,13 @@ final class SleepDrainStopTests: XCTestCase {
                                         from: JSONSerialization.data(withJSONObject: object))
     }
 
-    private func page(_ status: SleepStatusResponse, sse: SleepEventPayload? = nil) -> SleepPageModel {
+    /// `now` sits just before the fixture's plan reset, so a pause is still a pause unless a test moves the clock.
+    private func page(_ status: SleepStatusResponse, sse: SleepEventPayload? = nil,
+                      now: Date = Date(timeIntervalSince1970: 1_789_999_000)) -> SleepPageModel {
         SleepPageModel.resolve(
             status: status, sse: sse, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
             enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 0),
-            justFinishedAt: nil, intakeInFlight: false, locale: en)
+            justFinishedAt: nil, intakeInFlight: false, now: now, locale: en)
     }
 
     // MARK: SSE overlay
@@ -108,6 +110,10 @@ final class SleepDrainStopTests: XCTestCase {
                                      status: status, drain: drain, locale: en)
         XCTAssertEqual(rows.map(\.kind), [.paused, .drain])
         XCTAssertEqual(rows[0].text, drain.stop?.sentence)
+        // The wire's `batches` is the plan (3) and one was dropped: the stopped row never counts batches.
+        XCTAssertEqual(rows[1].title, "Where it stopped")
+        XCTAssertEqual(rows[1].text, "6 of 7 filed stay filed; the rest wait for the next Consolidate.")
+        XCTAssertFalse(rows[1].text.contains("batch"))
         XCTAssertTrue(lastCycleSectionIsVisible(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
                                                 drain: drain))
     }
@@ -124,7 +130,121 @@ final class SleepDrainStopTests: XCTestCase {
         let none = LastCycleRow.rows(pageError: nil, cancelled: true, capped: false, indexWarning: nil,
                                      status: status, drain: SleepDrainInfo(frozen: 5, batch: 1, batches: 1),
                                      locale: en)
-        XCTAssertEqual(none.first?.text, Copy.SleepDetailsWords.cancelledText)
+        // A drain that filed nothing still drops the batch that was reading: never "nothing was lost".
+        XCTAssertEqual(none.first?.text, Copy.SleepDetailsWords.cancelledDrainNoneText())
+        XCTAssertFalse(none.first?.text.contains("nothing was lost") ?? true)
+        // No drain at all: the standing one-batch copy.
+        let plain = LastCycleRow.rows(pageError: nil, cancelled: true, capped: false, indexWarning: nil,
+                                      status: status, locale: en)
+        XCTAssertEqual(plain.first?.text, Copy.SleepDetailsWords.cancelledText)
+    }
+
+    private func scenarioWithoutCancelFlag(_ name: String) throws -> SleepStatusResponse {
+        let all = try JSONSerialization.jsonObject(with: Data(contentsOf: Self.url)) as? [String: Any]
+        var object = try XCTUnwrap(all?[name] as? [String: Any])
+        object["cancelled"] = false
+        return try JSONDecoder().decode(SleepStatusResponse.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+
+    func test_aStoppedRunKeepsSayingSoAfterTheCancelWindowWithoutAFalseTitle() throws {
+        let status = try scenarioWithoutCancelFlag("cancelled")
+        let drain = try XCTUnwrap(status.drain)
+        let rows = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
+                                     status: status, drain: drain, locale: en)
+        XCTAssertEqual(rows.map(\.kind), [.drain])
+        XCTAssertEqual(rows[0].title, "Cancelled")
+        XCTAssertFalse(rows[0].title.contains("Read everything"))
+        XCTAssertFalse(rows[0].text.contains("batch"))
+        XCTAssertTrue(lastCycleSectionIsVisible(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
+                                                drain: drain))
+        // Inside the window the cancel row already says it: no second row.
+        let inside = LastCycleRow.rows(pageError: nil, cancelled: true, capped: false, indexWarning: nil,
+                                       status: status, drain: drain, locale: en)
+        XCTAssertEqual(inside.map(\.kind), [.cancelled])
+        // An engine stop says how much stays filed too.
+        var engine = drain
+        engine.stop = SleepDrainInfo.Stop(reason: "engine")
+        let stopped = LastCycleRow.rows(pageError: "boom", cancelled: false, capped: false, indexWarning: nil,
+                                        status: status, drain: engine, locale: en)
+        XCTAssertEqual(stopped.map(\.kind), [.failed, .drain])
+        XCTAssertEqual(stopped[1].title, "Where it stopped")
+    }
+
+    func test_aCancelledStripDoesNotStayFrozenPastTheBackendsWindow() throws {
+        let status = try scenarioWithoutCancelFlag("cancelled")
+        let model = page(status)
+        XCTAssertFalse(model.cancelled)
+        XCTAssertFalse(model.stoppedEarly)
+        XCTAssertFalse(stageStripIsVisible(isRunning: model.isRunning, cancelled: model.stoppedEarly,
+                                           failed: model.cycleError != nil))
+    }
+
+    func test_aPlanPauseRetiresWhenItsResetTimePasses() throws {
+        let status = try scenario("plan_limit")
+        let reset = try XCTUnwrap(status.drain?.stop?.resetsAt)
+        func model(at seconds: Int) -> SleepPageModel {
+            SleepPageModel.resolve(
+                status: status, sse: nil, queued: [], schedule: ScheduleConfig(mode: "manual", hour: 3, minute: 0),
+                enginePreview: nil, history: [], storeStatus: nil, queueLoad: .loaded(count: 0),
+                justFinishedAt: nil, intakeInFlight: false,
+                now: Date(timeIntervalSince1970: TimeInterval(seconds)), locale: en)
+        }
+        let before = model(at: reset - 60), after = model(at: reset + 60)
+        XCTAssertTrue(before.stoppedEarly)
+        XCTAssertFalse(before.planPauseLapsed)
+        XCTAssertFalse(after.stoppedEarly)
+        XCTAssertTrue(after.planPauseLapsed)
+        let lead = roomSentence(after.roomContext(locale: en))
+        XCTAssertNotEqual(lead.tail, status.drain?.stop?.sentence)
+        XCTAssertNotEqual(lead.tailTone, .warning)
+        XCTAssertEqual(roomSentence(before.roomContext(locale: en)).tailTone, .warning)
+        let rows = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
+                                     status: status, drain: status.drain, planPauseLapsed: true, locale: en)
+        XCTAssertEqual(rows.map(\.kind), [.drain], "the paused row goes with the pause; the fact that it stopped stays")
+    }
+
+    func test_aLongVendorSentenceIsNeverClippedInTheTail() throws {
+        let status = try scenario("plan_limit")
+        var c = RoomContext(mood: .hungry, locale: en)
+        var drain = try XCTUnwrap(status.drain)
+        drain.stop?.sentence = "Your Claude plan hit its weekly limit after a very long run of reading, so Sleep paused itself. Try again after Friday 14:00."
+        c.drain = drain
+        let line = roomSentence(c)
+        XCTAssertFalse(try XCTUnwrap(line.tail).contains("…"))
+        XCTAssertTrue(try XCTUnwrap(line.tail).contains("Details"))
+        XCTAssertEqual(line.action, .openDetails(.lastCycle))
+    }
+
+    func test_aCancelInBatchOneNeverSaysNothingWasLost() throws {
+        var c = RoomContext(mood: .hungry, locale: en)
+        c.cancelled = true
+        c.drain = SleepDrainInfo(frozen: 7, batchSize: 3, batch: 1, batches: 3, filed: 0,
+                                 stop: SleepDrainInfo.Stop(reason: "cancelled"))
+        let tail = roomSentence(c).tail
+        XCTAssertFalse(try XCTUnwrap(tail).contains("nothing was lost"))
+        XCTAssertLessThanOrEqual(try XCTUnwrap(tail).count, SentenceLine.maxTail)
+        c.drain = nil
+        XCTAssertEqual(roomSentence(c).tail, "Stopped early — nothing was lost.")
+    }
+
+    func test_aMultiBatchRunTitlesTheCostAndDurationAsTheLastBatch() throws {
+        let status = try scenario("finished")
+        let drain = try XCTUnwrap(status.drain)
+        XCTAssertGreaterThan(drain.batches, 1)
+        let rows = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
+                                     status: status, usageLine: "12 calls", drain: drain, locale: en)
+        XCTAssertEqual(rows.last?.title, Copy.SleepUsage.lastBatchTitle)
+        let one = LastCycleRow.rows(pageError: nil, cancelled: false, capped: false, indexWarning: nil,
+                                    status: status, usageLine: "12 calls", locale: en)
+        XCTAssertEqual(one.last?.title, Copy.SleepUsage.lastCycleTitle)
+        let took = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: 1000, lastEngine: nil, engineDetail: nil,
+                               lastIsOneBatch: true, locale: en).first { $0.id == "lastCycle" }
+        XCTAssertEqual(took?.key, "Last batch took")
+    }
+
+    func test_theProjectWritesGateStillKeysOffRunningAndSaysSo() {
+        XCTAssertTrue(Copy.Projects.sleepRunningHelp.contains("Sleep is running"))
+        XCTAssertFalse(Copy.Projects.sleepRunningHelp.contains("writing"))
     }
 
     func test_theRequeuedCountIsSaidPlainly() {

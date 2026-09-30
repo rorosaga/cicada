@@ -52,6 +52,8 @@ struct SleepPageModel: Equatable {
     var drain: SleepDrainInfo?
     /// `cancelled`, or a finished run that stopped at a plan limit: the strip freezes and nothing cheers.
     var stoppedEarly: Bool
+    /// The plan pause's reset time has passed (`SleepDrainInfo.Stop.planPauseLapsed`): its tail and row retire.
+    var planPauseLapsed: Bool
     var indexWarning: String?
     var queueLoad: StudyListCard.LoadState
     /// Z-P3 — the newest `kind == "sleep"` commit.
@@ -99,7 +101,11 @@ struct SleepPageModel: Equatable {
         let drain = resolveDrain(sse: sse, status: status)
         // A run that ended early on purpose or by a limit: the strip freezes where it stopped and nothing
         // cheers. A cancel already says so; a plan limit is the same in every way but the flag (G163).
-        let stoppedEarly = cancelled || (!isRunning && drain?.stop != nil)
+        // The backend keeps `drain.stop` until the next run, so a stop cannot hold the strip forever: a cancel
+        // follows `cancelled` (the backend's own five-minute window), and a plan pause ends at its reset time.
+        let planPauseLapsed = drain?.stop?.planPauseLapsed(now: now) ?? false
+        let stoppedEarly = cancelled || (!isRunning && drain?.stop.map {
+            $0.reason != "cancelled" && !($0.reason == "plan_limit" && planPauseLapsed) } == true)
         let nextSleepAt = storeStatus?.nextSleepAt
         return SleepPageModel(
             mood: mood,
@@ -129,6 +135,7 @@ struct SleepPageModel: Equatable {
             capped: drain == nil && (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
             drain: drain,
             stoppedEarly: stoppedEarly,
+            planPauseLapsed: planPauseLapsed,
             indexWarning: status?.indexWarning.flatMap { $0.isEmpty ? nil : $0 },
             queueLoad: queueLoad,
             lastCycle: lastCycleEntry(history),
@@ -181,7 +188,7 @@ extension SleepPageModel {
     func roomContext(recentCycleCommit: String? = nil, locale: Locale = .autoupdatingCurrent) -> RoomContext {
         var context = RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
                                   read: read, total: total, cycleError: cycleError, cancelled: cancelled,
-                                  capped: capped, drain: drain, indexWarning: indexWarning, scheduleMode: schedule.mode,
+                                  capped: capped, drain: drain, planPauseLapsed: planPauseLapsed, indexWarning: indexWarning, scheduleMode: schedule.mode,
                                   topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
         context.oldestWait = oldestWait
         context.lampLit = lampLit
