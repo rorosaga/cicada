@@ -2103,6 +2103,41 @@ class SleepDebtResponse(CamelModel):
     rested_pct: Optional[int] = None
 
 
+class SleepDrainStop(CamelModel):
+    """Why a person-started run stopped before it read everything it froze.
+    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error``.
+    ``sentence`` is a plain sentence (the vendor's own for a plan limit) and
+    ``resets_at`` the vendor's unix reset time when one was measured — never
+    estimated (G107)."""
+    reason: str
+    sentence: Optional[str] = None
+    resets_at: Optional[int] = None
+
+
+class SleepDrain(CamelModel):
+    """A person-started run ("Consolidate reads everything", 2026-09-29): the
+    queue that was waiting when it began, read in batches of ``batch_size`` (the
+    ``sleep_max_episodes_per_cycle`` setting, now "how often progress is saved"),
+    each filed and committed before the next. Measured counts only, never an
+    estimate. ``batches`` is what the run has done plus what is still to do, so
+    an episode read elsewhere shrinks it. ``skipped`` are frozen episodes
+    something else marked processed first; ``requeued`` failed extraction and
+    wait for the next run; ``arrived_since`` (set when the run ends) counts
+    episodes captured after it began, which also wait."""
+    id: str
+    frozen: int
+    batch_size: int
+    batch: int
+    batches: int
+    filed: int
+    requeued: int = 0
+    skipped: int = 0
+    active: bool = True
+    finished: bool = False
+    stop: Optional[SleepDrainStop] = None
+    arrived_since: Optional[int] = None
+
+
 class SleepStatusResponse(CamelModel):
     status: str
     cycle_id: Optional[str] = None
@@ -2142,6 +2177,10 @@ class SleepStatusResponse(CamelModel):
     # cycle and the rest stayed queued for the next one.
     episode_cap: int = 0
     episodes_queued: int = 0
+    # The configured batch size (``Settings.sleep_max_episodes_per_cycle``), served whether
+    # or not a run has set ``episode_cap`` — a fresh process and an empty-queue run reset the
+    # latter to 0, and the lamp's "a scheduled run reads one batch of N" line needs N always.
+    batch_size: int = 0
     # Sleep control — cooperative cancellation. ``cancel_requested`` is true
     # from the moment ``POST /sleep/cancel`` is accepted for the currently
     # running cycle until it reaches its next safe point (as opposed to a
@@ -2160,6 +2199,11 @@ class SleepStatusResponse(CamelModel):
     # ever implemented).
     cancel_requested: bool = False
     cancelled: bool = False
+    # G177 — Sleep is holding the bank's pages right now (`sleep_cycle.is_writing`):
+    # the whole of a plain cycle, but only a drain batch's write window. The
+    # app's writes and an agent's claim are refused / left uncommitted only while
+    # this is true; `status == "running"` alone no longer means it.
+    writing: bool = False
     # Sleep debt (G106) — always present, computed fresh from the current
     # queue + git log on every response. See `api/services/sleep_debt.py`
     # for the formula and full field contract.
@@ -2174,6 +2218,14 @@ class SleepStatusResponse(CamelModel):
     # Stage 1 has finished (R3). Empty when idle.
     queue_by_origin: dict[str, int] = Field(default_factory=dict)
     read_by_origin: dict[str, int] = Field(default_factory=dict)
+    # A person-started run's progress (``None`` for a plain or scheduled cycle).
+    # During one, the fields above mean: ``episodes_queued`` the frozen total,
+    # ``episode_cap`` the batch size, ``episodes_total`` what the run has
+    # attempted so far (so ``queued > total`` only after an early stop),
+    # ``queue_by_origin`` the frozen list by source, ``read_by_origin`` the
+    # cumulative read, ``stage`` / ``progress`` the current batch's, and the
+    # counters (entities_created … organic_resolutions) the run's running sums.
+    drain: Optional[SleepDrain] = None
 
 
 class CycleUsageModel(CamelModel):

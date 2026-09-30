@@ -304,7 +304,8 @@ struct SleepView: View {
             if oldValue == "running" && newValue != "running" {
                 let real = isRealCompletion(old: oldValue, new: newValue,
                                             cancelled: sleepVM.status?.cancelled == true,
-                                            error: sleepVM.status?.error)
+                                            error: sleepVM.status?.error,
+                                            drainStop: sleepVM.status?.drain?.stop?.reason)
                 if room.cycleEnded(real: real, edgeBaseline: lastCycleEntry(sleepVM.history)?.commitHash,
                                    history: sleepVM.history) != nil {
                     celebrateCompletion()
@@ -636,7 +637,7 @@ struct SleepView: View {
 
             // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
             // after one was cancelled or failed (its frozen record, P15).
-            if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.cancelled,
+            if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly,
                                    failed: page.cycleError != nil) {
                 SleepStageStrip(pips: page.pips)
             }

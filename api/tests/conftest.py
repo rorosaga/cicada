@@ -501,3 +501,15 @@ def _reset_agent_engine_state():
     yield
     agent_engine._BREAKER.clear()
     agent_engine.reset_models_used()
+
+
+@pytest.fixture(autouse=True)
+def _sleep_drain_state_never_leaks():
+    """A test that reserves a person-started run (or fakes one) must not leave
+    ``drain_run`` set — the bank routes answer 409 while it is, which would fail
+    every later bank test with no trace of why."""
+    from api.services import sleep_cycle
+
+    yield
+    sleep_cycle._state.drain = None
+    sleep_cycle._state.drain_run = False

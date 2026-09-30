@@ -9,17 +9,20 @@ from api.models.schemas import (
     SleepCancelResponse,
     SleepCycleDetail,
     SleepDebtResponse,
+    SleepDrain,
     SleepEngineChoice,
     SleepEngineResponse,
     SleepHistoryEntry,
     SleepStatusResponse,
     SleepTriggerResponse,
 )
-from api.services import git_service, sleep_debt, sleep_engine_prefs, sleep_scheduler
+from api.services import git_service, sleep_debt, sleep_drain, sleep_engine_prefs, sleep_scheduler
 from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
     cancelled_is_visible,
+    configured_batch_size,
     get_sleep_state,
+    is_writing,
     list_all_episodes,
     progress_pct,
     request_cancel,
@@ -51,11 +54,13 @@ async def trigger_sleep(
     # report "not_running", silently losing the cancel. `run()` (below)
     # detects the reservation and preserves whatever got requested in the
     # window between this call and its own first line.
-    reserve_cycle(cycle_id)
+    reserve_cycle(cycle_id, drain=True)
     # Fix round 1, H1: explicit, not just the default — this IS the
     # human-pressed-Run path spec §7 scopes the toggle/auto engine
-    # selection to.
-    background_tasks.add_task(run, settings, cycle_id, user_triggered=True)
+    # selection to. `drain=True` (owner, 2026-09-29): a person pressing
+    # Consolidate reads everything that is waiting, in batches. The scheduler
+    # never passes it — an unattended run is one batch (TODO ruling 4).
+    background_tasks.add_task(run, settings, cycle_id, user_triggered=True, drain=True)
     return SleepTriggerResponse(
         status="started",
         message="Sleep cycle initiated",
@@ -73,8 +78,11 @@ async def cancel_sleep():
     when nothing is running, is always safe), else ``"cancelling"``. The
     cancel itself is cooperative: it takes effect at the pipeline's next safe
     point (see ``sleep_cycle.request_cancel``), never mid-write or mid-commit,
-    so nothing already captured is ever lost — episodes not yet consolidated
-    simply stay queued for the next cycle.
+    so nothing already filed is ever lost. Episodes not yet consolidated
+    stay queued for the next cycle. In a Consolidate drain, the batch that is
+    still reading when the cancel lands is dropped before it is filed and is
+    read again next time (its reads were paid for and are lost); batches
+    already filed stay filed.
     """
     was_running, cycle_id = request_cancel()
     if not was_running:
@@ -82,6 +90,17 @@ async def cancel_sleep():
             status="not_running",
             message="No sleep cycle is currently running",
             cycle_id=None,
+        )
+    if get_sleep_state().drain_run:
+        return SleepCancelResponse(
+            status="cancelling",
+            message=(
+                "Cancellation requested — the batch in progress stops at its next "
+                "safe point, never mid-write. Batches already filed stay filed; "
+                "the batch still reading is dropped and read again next time, "
+                "and everything not yet read stays queued for the next Consolidate."
+            ),
+            cycle_id=cycle_id,
         )
     return SleepCancelResponse(
         status="cancelling",
@@ -98,6 +117,13 @@ async def cancel_sleep():
 async def sleep_status(settings: Settings = Depends(get_settings)):
     state = get_sleep_state()
     debt = await sleep_debt.compute(settings.memory_path, settings)
+    ds = state.drain
+
+    def counter(name: str) -> int:
+        # Batch-local in the state; a person-started run reports its running sum.
+        live = getattr(state, name)
+        return sleep_drain.merged(ds, name, live) if ds is not None else live
+
     return SleepStatusResponse(
         status=state.status,
         cycle_id=state.cycle_id,
@@ -108,23 +134,26 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         stage=state.stage,
         total_stages=state.total_stages,
         episodes_total=state.episodes_total,
-        entities_created=state.entities_created,
-        entities_updated=state.entities_updated,
-        relationships_created=state.relationships_created,
-        skills_detected=state.skills_detected,
-        episodes_processed=state.episodes_processed,
-        episodes_requeued=state.episodes_requeued,
-        questions_refreshed=state.questions_refreshed,
-        organic_resolutions=state.organic_resolutions,
+        entities_created=counter("entities_created"),
+        entities_updated=counter("entities_updated"),
+        relationships_created=counter("relationships_created"),
+        skills_detected=counter("skills_detected"),
+        episodes_processed=counter("episodes_processed"),
+        episodes_requeued=counter("episodes_requeued"),
+        questions_refreshed=counter("questions_refreshed"),
+        organic_resolutions=counter("organic_resolutions"),
         last_engine=state.last_engine,
         engine_detail=state.engine_detail,
         episode_cap=state.episode_cap,
+        batch_size=configured_batch_size(settings),
         episodes_queued=state.episodes_queued,
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),
+        writing=is_writing(),
         progress_pct=progress_pct(state),
         queue_by_origin=dict(state.queue_by_origin),
         read_by_origin=dict(state.read_by_origin),
+        drain=SleepDrain(**sleep_drain.to_wire(ds)) if ds is not None else None,
         debt=SleepDebtResponse(
             unprocessed_count=debt.unprocessed_count,
             oldest_unprocessed_age_hours=debt.oldest_unprocessed_age_hours,

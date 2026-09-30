@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_debt, sync_service
+from api.services import sleep_debt, sleep_drain, sync_service
 from api.services.sleep_cycle import get_sleep_state, progress_pct
 
 router = APIRouter(prefix="/sync")
@@ -83,6 +83,8 @@ async def events(settings: Settings = Depends(get_settings)):
                 # 0% same as 0/300) — the study list needs a per-episode
                 # tick, so the change key includes the raw counter too.
                 state.stage1_progress,
+                # A person-started run's batch / filed count moves between stage ticks.
+                sleep_drain.to_sse(state.drain) and tuple(sleep_drain.to_sse(state.drain).items()),
             )
             if sleep_key != last_sleep:
                 last_sleep = sleep_key
@@ -98,6 +100,7 @@ async def events(settings: Settings = Depends(get_settings)):
                     "hoursSinceLastCycle": debt.hours_since_last_cycle,
                     "queueByOrigin": dict(state.queue_by_origin),
                     "readByOrigin": dict(state.read_by_origin),
+                    "drain": sleep_drain.to_sse(state.drain),
                 })
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"

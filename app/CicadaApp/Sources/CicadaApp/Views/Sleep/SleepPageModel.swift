@@ -48,6 +48,12 @@ struct SleepPageModel: Equatable {
     var cycleError: String?
     var cancelled: Bool
     var capped: Bool
+    /// G163 — the person-started run's measured progress, `nil` when the last cycle was not one.
+    var drain: SleepDrainInfo?
+    /// `cancelled`, or a finished run that stopped at a plan limit: the strip freezes and nothing cheers.
+    var stoppedEarly: Bool
+    /// The plan pause's reset time has passed (`SleepDrainInfo.Stop.planPauseLapsed`): its tail and row retire.
+    var planPauseLapsed: Bool
     var indexWarning: String?
     var queueLoad: StudyListCard.LoadState
     /// Z-P3 — the newest `kind == "sleep"` commit.
@@ -92,6 +98,14 @@ struct SleepPageModel: Equatable {
                              readByOrigin: origins.readByOrigin, running: isRunning, now: now)
         let error = status?.error.flatMap { $0.isEmpty ? nil : $0 }
         let cancelled = status?.cancelled == true
+        let drain = resolveDrain(sse: sse, status: status)
+        // A run that ended early on purpose or by a limit: the strip freezes where it stopped and nothing
+        // cheers. A cancel already says so; a plan limit is the same in every way but the flag (G163).
+        // The backend keeps `drain.stop` until the next run, so a stop cannot hold the strip forever: a cancel
+        // follows `cancelled` (the backend's own five-minute window), and a plan pause ends at its reset time.
+        let planPauseLapsed = drain?.stop?.planPauseLapsed(now: now) ?? false
+        let stoppedEarly = cancelled || (!isRunning && drain?.stop.map {
+            $0.reason != "cancelled" && !($0.reason == "plan_limit" && planPauseLapsed) } == true)
         let nextSleepAt = storeStatus?.nextSleepAt
         return SleepPageModel(
             mood: mood,
@@ -103,7 +117,7 @@ struct SleepPageModel: Equatable {
             rows: rows,
             books: bookPileLayout(originVolumes(queued: queued, queueByOrigin: origins.queueByOrigin,
                                                 readByOrigin: origins.readByOrigin, running: isRunning)),
-            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: cancelled,
+            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: stoppedEarly,
                                   error: error != nil, read: read, total: total),
             schedule: schedule,
             lampLit: schedule.enabled,
@@ -117,7 +131,11 @@ struct SleepPageModel: Equatable {
             consolidateEnabled: status != nil && !isRunning && !queued.isEmpty,
             cycleError: error,
             cancelled: cancelled,
-            capped: (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            // A drain reads everything it froze; "queued > attempted" means "not yet" there, never "capped".
+            capped: drain == nil && (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            drain: drain,
+            stoppedEarly: stoppedEarly,
+            planPauseLapsed: planPauseLapsed,
             indexWarning: status?.indexWarning.flatMap { $0.isEmpty ? nil : $0 },
             queueLoad: queueLoad,
             lastCycle: lastCycleEntry(history),
@@ -144,8 +162,9 @@ func lastCycleEntry(_ history: [SleepHistoryEntry]) -> SleepHistoryEntry? {
 /// I17 vs I18 — the one running → idle edge that earns a cheer: not a cancel
 /// (it filed nothing) and not a failure (that is news, told in danger). A
 /// first observation (`old == nil`) is a page load, not an edge.
-func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?) -> Bool {
-    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty
+func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?,
+                      drainStop: String? = nil) -> Bool {
+    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty && drainStop == nil
 }
 
 /// The commit a completion produced, once history has it: the newest sleep
@@ -169,7 +188,7 @@ extension SleepPageModel {
     func roomContext(recentCycleCommit: String? = nil, locale: Locale = .autoupdatingCurrent) -> RoomContext {
         var context = RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
                                   read: read, total: total, cycleError: cycleError, cancelled: cancelled,
-                                  capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
+                                  capped: capped, drain: drain, planPauseLapsed: planPauseLapsed, indexWarning: indexWarning, scheduleMode: schedule.mode,
                                   topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
         context.oldestWait = oldestWait
         context.lampLit = lampLit

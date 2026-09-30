@@ -541,8 +541,12 @@ def reconcile_stage3(
     now_date: str | None = None,
     decay_class_fn: DecayClassFn | None = None,
     subject_fn: SubjectFn | None = None,
+    decay: bool = True,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
+
+    ``decay=False`` skips ``_decay_claims`` only (a drain's batches before the
+    last; see ``sleep_drain``).
 
     Args:
         incoming_claims: Stage 1+2 output — fully routed (subject-id, normalized
@@ -661,7 +665,8 @@ def reconcile_stage3(
         elif action == "KEEP_BOTH":
             slot.append(_stamp_new(new, settings, today=today))
 
-    _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
+    if decay:
+        _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
     return reconciled, nudges, audit
 
 

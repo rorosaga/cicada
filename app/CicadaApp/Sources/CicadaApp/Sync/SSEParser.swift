@@ -12,7 +12,7 @@ struct SSEEvent: Equatable { let name: String; let data: String }
 /// so over `.lines` the parser accumulates fields forever and never returns an
 /// event. Symptom: the app connects, receives bytes promptly (verified with a
 /// `URLSessionDataDelegate` probe), and never reacts to a single `version`
-/// event. See `.superpowers/sdd/2026-08-30-sync-engine/task-sse-fix-report.md`.
+/// event. See `.scratch/sdd/2026-08-30-sync-engine/task-sse-fix-report.md`.
 enum SSELineSplitter {
     /// `\n`-delimited lines, `\r` trimmed, empty lines preserved. The trailing
     /// partial line (no terminator before EOF) is yielded on clean close.

@@ -284,6 +284,9 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
         if last_cycle is not None else None
     )
 
+    # The setting now means "how often progress is saved" (a person-started run
+    # reads everything in batches of this size); here it stays what it always was
+    # for the meter: one batch's worth of waiting episodes reads as fully behind.
     volume_reference = int(
         getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_VOLUME_REFERENCE)
         or DEFAULT_VOLUME_REFERENCE

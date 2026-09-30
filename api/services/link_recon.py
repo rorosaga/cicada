@@ -17,7 +17,7 @@ Unmatched mentions become pending candidates, never pages.
 Reached only from ``link_enrichment.backfill`` (the maintenance endpoint or
 the Sleep tail) — never at capture time and never from a read path (G80).
 The rulings (R1-R9) are in
-``docs/superpowers/plans/2026-09-02-link-summaries-backfill.md``.
+``docs/plans/2026-09-02-link-summaries-backfill.md``.
 """
 
 from __future__ import annotations

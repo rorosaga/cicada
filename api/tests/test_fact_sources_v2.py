@@ -1,6 +1,6 @@
 """G61 phase 2 S0 — truthful hints and three small truths.
 
-Spec: docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md
+Spec: docs/specs/2026-09-23-g61-agent-first-clarification-design.md
 §2 (the pre-existing defects), §5.5 (the derived, voiced hint), §12
 (`test_fact_sources_v2.py`); plan R-AC20…R-AC26. Synthetic names only
 (bob-example, company-a, company-b, example.com); nothing reads a real bank or

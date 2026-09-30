@@ -308,12 +308,24 @@ def probe(*, runner=None, timeout: float = 5.0) -> tuple[bool, str]:
     return True, "Signed in to ChatGPT."
 
 
+# The reset time (unix seconds) the last pre-flight measured for a used-up plan, else None.
+# Kept beside the 3-tuple ``preflight`` returns so its callers and tests keep their shape;
+# a drain reads it right after a refusal so its pause can lift when the plan does.
+_last_limit_resets_at: int | None = None
+
+
+def last_limit_resets_at() -> int | None:
+    return _last_limit_resets_at
+
+
 async def preflight(*, snapshot_fn=None, probe_fn=None, now=None) -> tuple[bool, str, str | None]:
     """R-E18: before a cycle's first spawn — signed in? on the plan (not an
     API key)? limit already reached? — and the plan's current default model
     (R-E17). Returns ``(ok, sentence, default_model)``."""
+    global _last_limit_resets_at
     from api.services import codex_app_server, plan_limits, pricing
 
+    _last_limit_resets_at = None
     snap = await (snapshot_fn or codex_app_server.snapshot)(fresh=True)
     if snap is None:
         ok, detail = await asyncio.to_thread(probe_fn or probe)
@@ -328,6 +340,7 @@ async def preflight(*, snapshot_fn=None, probe_fn=None, now=None) -> tuple[bool,
         return False, API_KEY_ACCOUNT, None
     stop = plan_limits.codex_stop(snap, now=now)
     if stop:
+        _last_limit_resets_at = snap.resets_at
         return False, stop, None
     label = pricing.plan_label("chatgpt-plan", snap.plan, None) or "your ChatGPT plan"
     return True, f"Signed in to {label}.", snap.default_model

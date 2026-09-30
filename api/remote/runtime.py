@@ -128,7 +128,7 @@ class ConversationState:
 def _sleep_running() -> bool:
     from api.services import sleep_cycle
 
-    return sleep_cycle.get_sleep_state().status == "running"
+    return sleep_cycle.is_writing()
 
 
 def _memory_path() -> Path:

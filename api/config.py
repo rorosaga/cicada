@@ -178,6 +178,17 @@ class Settings(BaseSettings):
     decay_spacing_alpha: float = 0.6     # CICADA_DECAY_SPACING_ALPHA
     decay_spacing_floor: float = 0.25    # CICADA_DECAY_SPACING_FLOOR
 
+    # HOW OFTEN PROGRESS IS SAVED (owner, 2026-09-29: "i dont want to cap the max
+    # episodes per sleep ... its just progress that cicada has to go through").
+    # A person-started run (Consolidate) reads EVERYTHING that was waiting when it
+    # began, in batches of this many conversations; each batch is a whole pipeline
+    # that Stage 5 files and commits, so a cancel or a plan stop loses at most the
+    # batch in progress. A scheduled cycle (TODO ruling 4: it runs on an API key)
+    # still reads exactly one batch — draining unattended would be real money. Keep
+    # it <= 50: a commit records at most `MAX_SESSION_TRAILERS` conversations. It
+    # still doubles as the Sleep-debt volume reference (`sleep_debt.py`), i.e. a
+    # saved batch's worth of waiting episodes reads as "fully behind".
+    #
     # Sleep-control episode cap — one cycle spawns roughly one LLM call chain
     # per episode across Stages 1-4 (the agent rung's own measurement is
     # ~200-350 subprocess calls for a 20-episode cycle, ~90% serialized on

@@ -35,6 +35,18 @@ from api.services.graph_builder import file_mtime
 
 router = APIRouter()
 
+def _refuse_switch_during_drain() -> None:
+    """409 while a person-started Sleep run is reading (owner, 2026-09-29): it can
+    last hours, pins the bank it started on, and a switch (or the active bank's
+    rename) mid-run would send the next batch's writes to the wrong directory —
+    the split-brain class. A plain or scheduled cycle keeps today's behaviour."""
+    from api.services import sleep_cycle
+
+    state = sleep_cycle.get_sleep_state()
+    if state.status == "running" and state.drain_run:
+        raise HTTPException(409, "Cicada is reading — stop it first, or wait for it to finish, then switch.")
+
+
 #: Bumped when a `/banks` row gains a field (G139: `legacy`). The ETag's inputs
 #: (registry mtime + per-bank stamps) are unchanged, so no `VersionVector`
 #: mapping moves; the tag only makes an ETag minted before the field existed
@@ -99,6 +111,7 @@ async def activate_bank(
     name: str,
     settings: Settings = Depends(get_settings),
 ) -> BankListResponse:
+    _refuse_switch_during_drain()
     try:
         bank_registry.activate_bank(settings.memory_root, name)
     except ValueError as e:
@@ -153,6 +166,8 @@ async def rename_bank(
 ) -> BankListResponse:
     if not (req.new_name or "").strip():
         raise HTTPException(400, "newName is required")
+    if name == bank_registry.load_registry(settings.memory_root).get("active", bank_registry.DEFAULT_BANK):
+        _refuse_switch_during_drain()   # renaming the bank a run is reading moves its directory
     try:
         slug = bank_registry.rename_bank(settings.memory_root, name, req.new_name)
     except ValueError as e:
@@ -249,6 +264,7 @@ async def create_demo_bank(settings: Settings = Depends(get_settings)) -> BankLi
     Round 4: an existing generated demo is re-opened (200), never
     re-populated; a real bank called `demo` is still 409.
     """
+    _refuse_switch_during_drain()
     root = settings.memory_root
     # G117 round 4 (T-Demo): a demo that already exists is OPENED, never re-populated — the reason for the 409
     # below was "someone's edited copy", and switching to it keeps that copy. Settings → General's *Explore the
@@ -286,6 +302,7 @@ async def leave_demo_bank(settings: Settings = Depends(get_settings)) -> BankLis
     bank left most recently, else the default one, else a new one (``bank_registry.leave_demo_target``). The app then
     opens onboarding for the bank this answers with (seam 1). Outside the demo nothing moves and the roster is echoed,
     so a second click is harmless. Not a capture route: nothing is written into any bank but the registry."""
+    _refuse_switch_during_drain()
     root = settings.memory_root
     target = await run_in_threadpool(bank_registry.leave_demo_target, root)
     if target is None:

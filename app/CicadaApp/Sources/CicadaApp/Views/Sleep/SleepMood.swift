@@ -69,6 +69,23 @@ func resolveOriginCounts(
     return (queue, read)
 }
 
+/// SSE-first, REST-fallback for the person-started run's progress (G163, the H1 rule again). The status
+/// carries the whole block (the stop's sentence, requeued, skipped); the SSE event carries the moving
+/// counts, so it overlays them when both describe the same run (same frozen total) and stands in for
+/// the status before that has landed. Never a hybrid of two different runs.
+func resolveDrain(sse: SleepEventPayload?, status: SleepStatusResponse?) -> SleepDrainInfo? {
+    let live = sse?.drain
+    guard var base = status?.drain else {
+        return live.map { SleepDrainInfo(frozen: $0.frozen, batch: $0.batch, batches: $0.batches, filed: $0.filed,
+                                         active: $0.active, finished: !$0.active && $0.stop == nil,
+                                         stop: $0.stop.map { SleepDrainInfo.Stop(reason: $0) }) }
+    }
+    guard let live, live.frozen == base.frozen else { return base }
+    base.batch = live.batch; base.batches = live.batches; base.filed = live.filed; base.active = live.active
+    if base.stop == nil, let reason = live.stop { base.stop = SleepDrainInfo.Stop(reason: reason) }
+    return base
+}
+
 // MARK: - Mood derivation (reuses BookwormState — see MenuBar/BookwormState.swift)
 
 /// The Sleep page's OWN mood derivation. Reuses the same `BookwormState`
@@ -84,7 +101,8 @@ func resolveOriginCounts(
 /// - `justFinishedAt`: set by the caller the moment its own poll observes a
 ///   running -> idle transition (mirrors `MenuBarManager`'s own tracking);
 ///   `.digesting` shows for 6s after, matching the menu bar's window.
-/// - a cancelled cycle never reads as `.digesting` (Track Z §6.5)
+/// - a cancelled cycle never reads as `.digesting` (Track Z §6.5), nor does a person-started run that
+///   stopped at the plan's limit (G163): it filed batches, but it did not finish
 /// - `intakeInFlight`: `Store.intakeInFlight` (G125 R2) — the upload overlay
 ///   sets this while an import/upload is landing. It forces `.reading` ahead
 ///   of happy/hungry (the worm is visibly busy consuming what just arrived,
@@ -109,7 +127,7 @@ func deriveSleepPageMood(
     // Track Z §6.5: a CANCELLED cycle filed nothing, so it never chews. The
     // caller stamps `justFinishedAt` on any running→idle edge (SleepView), and
     // this is the one place that edge becomes a mood.
-    if !status.cancelled, let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
+    if !status.cancelled, status.drain?.stop == nil, let f = justFinishedAt, now.timeIntervalSince(f) < 6 {
         return .digesting
     }
     if intakeInFlight {

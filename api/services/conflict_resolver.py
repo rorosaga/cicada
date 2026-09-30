@@ -40,8 +40,14 @@ async def resolve_and_prune(
     *,
     now: datetime | None = None,
     tuning: dict[str, float] | None = None,
+    decay: bool = True,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``decay``: ``False`` skips the unreferenced-entity decay loop only — a drain
+    (``sleep_drain``) charges decay once, in the batch that empties its queue,
+    where a plain cycle charges it every time (TODO ruling 1). The
+    ``decayed_through`` stamp on created and referenced pages stays either way.
 
     ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
     ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
@@ -174,7 +180,7 @@ async def resolve_and_prune(
         # bank path has none.
         memory_path = getattr(settings, "memory_path", None)
         tuning = decay_tuning.load(memory_path) if memory_path else {}
-    decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
+    decay_candidates = [e for e in existing if e["id"] not in referenced_ids] if decay else []
     decay_progress = tqdm(
         total=len(decay_candidates),
         desc="Stage 3: decay",
@@ -184,7 +190,7 @@ async def resolve_and_prune(
         leave=True,
         disable=len(decay_candidates) == 0,
     )
-    for entity_data in existing:
+    for entity_data in (existing if decay else ()):
         entity_id = entity_data["id"]
         if entity_id in referenced_ids:
             continue

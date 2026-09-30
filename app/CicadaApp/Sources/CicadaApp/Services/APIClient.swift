@@ -737,6 +737,9 @@ struct SleepStatusResponse: Codable {
     /// `episodesQueued > episodesTotal` means this cycle was truncated.
     /// Both absent (0) on an older backend.
     let episodeCap: Int
+    /// The configured batch size, served with no run behind it (`episodeCap` is 0 after a restart and after an
+    /// empty-queue run). 0 on an older backend, which is when the lamp falls back to `episodeCap`.
+    let batchSize: Int
     let episodesQueued: Int
     /// Sleep control — cooperative cancellation. `cancelRequested` is true
     /// while a `/sleep/cancel` is pending on the running cycle;
@@ -757,13 +760,23 @@ struct SleepStatusResponse: Codable {
     /// backend that predates these fields.
     let queueByOrigin: [String: Int]
     let readByOrigin: [String: Int]
+    /// "Consolidate reads everything" (G163): a person-started run's measured
+    /// progress — batch k of n, filed of frozen, and why it stopped. `nil` on a
+    /// scheduled or idle cycle and on an older backend; never a fabricated 0.
+    let drain: SleepDrainInfo?
+    /// G177 — Sleep holds the bank's pages right now. A drain between batches is
+    /// `running` but not `writing`; the server refuses page writes only while it is. The app's own write controls
+    /// (`ProjectWriteGate`) still key off `running`, because `/status` does not carry this field.
+    /// `false` on an older backend, which is why it is not read as "not running".
+    let writing: Bool
 
     enum CodingKeys: String, CodingKey {
+        case drain, writing
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
-        case episodeCap, episodesQueued, cancelRequested, cancelled
+        case episodeCap, batchSize, episodesQueued, cancelRequested, cancelled
         case debt, progressPct, queueByOrigin, readByOrigin
     }
 
@@ -785,6 +798,7 @@ struct SleepStatusResponse: Codable {
         lastEngine = try c.decodeIfPresent(String.self, forKey: .lastEngine)
         engineDetail = try c.decodeIfPresent(String.self, forKey: .engineDetail)
         episodeCap = try c.decodeIfPresent(Int.self, forKey: .episodeCap) ?? 0
+        batchSize = try c.decodeIfPresent(Int.self, forKey: .batchSize) ?? 0
         episodesQueued = try c.decodeIfPresent(Int.self, forKey: .episodesQueued) ?? 0
         cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
         cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false
@@ -792,6 +806,82 @@ struct SleepStatusResponse: Codable {
         progressPct = try c.decodeIfPresent(Int.self, forKey: .progressPct)
         queueByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .queueByOrigin) ?? [:]
         readByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .readByOrigin) ?? [:]
+        drain = try? c.decodeIfPresent(SleepDrainInfo.self, forKey: .drain)
+        writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? false
+    }
+}
+
+/// The `drain` block of `GET /sleep/status` (`sleep_drain.to_wire`): counts and one
+/// stop reason, never an episode id. Every field decodes leniently so a backend that
+/// adds one cannot make the whole status fail to decode.
+struct SleepDrainInfo: Codable, Equatable {
+    struct Stop: Codable, Equatable {
+        /// `cancelled | plan_limit | engine | bank_switched | error`.
+        var reason: String
+        /// A plain sentence for the person — the vendor's own for a plan limit.
+        var sentence: String?
+        /// The vendor's unix reset time, when one was measured.
+        var resetsAt: Int?
+
+        init(reason: String, sentence: String? = nil, resetsAt: Int? = nil) {
+            self.reason = reason; self.sentence = sentence; self.resetsAt = resetsAt
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            reason = (try? c.decode(String.self, forKey: .reason)) ?? "error"
+            sentence = try? c.decodeIfPresent(String.self, forKey: .sentence)
+            resetsAt = try? c.decodeIfPresent(Int.self, forKey: .resetsAt)
+        }
+        enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt }
+
+        /// A plan pause whose vendor-measured reset time has passed: the limit no longer holds, so nothing
+        /// should keep saying "paused". `false` without a measured time (it is never guessed).
+        func planPauseLapsed(now: Date) -> Bool {
+            guard reason == "plan_limit", let resetsAt else { return false }
+            return Date(timeIntervalSince1970: TimeInterval(resetsAt)) <= now
+        }
+    }
+
+    var id: String
+    /// Episodes waiting when the run began — what it set out to read.
+    var frozen: Int
+    var batchSize: Int
+    /// The batch the run is on or stopped in, a batch started and then dropped included — not "batches committed".
+    var batch: Int
+    /// The PLAN (`batch` plus the batches still to do), not a count of batches committed: never print it as
+    /// "n batches" for a run that stopped. `filed` is the measured figure.
+    var batches: Int
+    var filed: Int
+    var requeued: Int
+    var skipped: Int
+    var active: Bool
+    var finished: Bool
+    var stop: Stop?
+    /// Episodes that arrived after the run began (they wait for the next one); `nil` until it ends.
+    var arrivedSince: Int?
+
+    init(id: String = "", frozen: Int = 0, batchSize: Int = 0, batch: Int = 0, batches: Int = 0, filed: Int = 0,
+         requeued: Int = 0, skipped: Int = 0, active: Bool = false, finished: Bool = false, stop: Stop? = nil,
+         arrivedSince: Int? = nil) {
+        self.id = id; self.frozen = frozen; self.batchSize = batchSize; self.batch = batch; self.batches = batches
+        self.filed = filed; self.requeued = requeued; self.skipped = skipped; self.active = active
+        self.finished = finished; self.stop = stop; self.arrivedSince = arrivedSince
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func int(_ key: CodingKeys) -> Int { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0 }
+        func flag(_ key: CodingKeys) -> Bool { (try? c.decodeIfPresent(Bool.self, forKey: key)) ?? false }
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? ""
+        frozen = int(.frozen); batchSize = int(.batchSize); batch = int(.batch); batches = int(.batches)
+        filed = int(.filed); requeued = int(.requeued); skipped = int(.skipped)
+        active = flag(.active); finished = flag(.finished)
+        stop = try? c.decodeIfPresent(Stop.self, forKey: .stop)
+        arrivedSince = try? c.decodeIfPresent(Int.self, forKey: .arrivedSince)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, frozen, batchSize, batch, batches, filed, requeued, skipped, active, finished, stop, arrivedSince
     }
 }
 

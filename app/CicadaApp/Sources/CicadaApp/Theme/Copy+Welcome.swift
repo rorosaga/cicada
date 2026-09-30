@@ -97,9 +97,8 @@ extension Copy {
     static func gsCapped(read: Int, left: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "Read \(UsageFormat.count(read, locale: locale)) this round. \(UsageFormat.count(left, locale: locale)) still waiting."
     }
-    static func gsReadNext(_ n: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "Read the next \(UsageFormat.count(n, locale: locale))"
-    }
+    /// Consolidate reads everything waiting (G163), so the button after an early stop is not "the next N".
+    static let gsKeepReading = "Keep reading"
 
     // MARK: The Welcome (Task 4, design §4.1)
     static let welcomeHelloNoName = "Hello."
@@ -147,7 +146,7 @@ extension Copy {
         gsReading, gsFinishedNoCount, gsWatchOnSleep, gsOpenGraph, gsTryAgain, gsScheduleQuestion, gsWhenIAsk,
         gsAfterImports, gsNightly, gsNotNow, gsAlsoFound, gsDismiss, gsShowChecklist, gsWhoReads,
         gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061),
-        gsCapped(read: 1_061, left: 1_061), gsReadNext(1_061),
+        gsCapped(read: 1_061, left: 1_061), gsKeepReading,
         welcomeHelloNoName, welcomeYourName, welcomeWhoReads, welcomeStarting, welcomeSetUpLater, welcomeClose,
         welcomeRemoveDrop, welcomeHello("Ada"), welcomeNotYou("Ada"),
         reminderRemindMe, reminderInThreeHours, reminderTomorrowMorning, reminderInTwoDays, reminderBody,

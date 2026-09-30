@@ -51,8 +51,9 @@ def test_the_manual_trigger_endpoint_marks_the_cycle_user_triggered(monkeypatch)
 
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
-        calls.append(user_triggered)
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
+        # A person pressing Consolidate is a drain (owner, 2026-09-29).
+        calls.append((user_triggered, drain))
 
     # `api/routers/sleep.py` did `from ... import run` — that binds a
     # SEPARATE name in the router module's own namespace, so patching
@@ -65,4 +66,6 @@ def test_the_manual_trigger_endpoint_marks_the_cycle_user_triggered(monkeypatch)
     resp = client.post("/sleep/trigger")
 
     assert resp.status_code == 200
-    assert calls == [True]
+    assert calls == [(True, True)]
+    sleep_cycle.get_sleep_state().status = "idle"
+    sleep_cycle.get_sleep_state().drain_run = False

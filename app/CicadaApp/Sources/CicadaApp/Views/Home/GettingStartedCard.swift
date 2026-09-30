@@ -321,8 +321,8 @@ struct GettingStartedCard: View {
             switch step.action {
             case .readNow?:
                 trigger(Copy.intakeReadNow, readiness: readiness)
-            case .readNext(let n)?:
-                trigger(Copy.gsReadNext(n), readiness: readiness)
+            case .keepReading?:
+                trigger(Copy.gsKeepReading, readiness: readiness)
             case .tryAgain?:
                 trigger(Copy.gsTryAgain, readiness: readiness)
                 // The needs-choice case already shows the chooser above.

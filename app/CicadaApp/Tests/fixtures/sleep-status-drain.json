@@ -1,0 +1,238 @@
+{
+  "cancelled": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": true,
+    "cycleId": "sleep_2026-09-29_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": false,
+      "arrivedSince": 0,
+      "batch": 2,
+      "batchSize": 3,
+      "batches": 3,
+      "filed": 3,
+      "finished": false,
+      "frozen": 7,
+      "id": "sleep_2026-09-29_101500",
+      "requeued": 0,
+      "skipped": 0,
+      "stop": {
+        "reason": "cancelled",
+        "resetsAt": null,
+        "sentence": null
+      }
+    },
+    "engineDetail": null,
+    "entitiesCreated": 3,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 3,
+    "episodesQueued": 7,
+    "episodesRequeued": 0,
+    "episodesTotal": 3,
+    "error": null,
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "progress": "Cancelled \u2014 3 of 7 filed; the rest stay queued for the next Consolidate",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 7
+    },
+    "readByOrigin": {
+      "claude-code": 3
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 1,
+    "startedAt": "2026-09-29T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "finished": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-29_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": false,
+      "arrivedSince": 0,
+      "batch": 3,
+      "batchSize": 3,
+      "batches": 3,
+      "filed": 7,
+      "finished": true,
+      "frozen": 7,
+      "id": "sleep_2026-09-29_101500",
+      "requeued": 0,
+      "skipped": 0,
+      "stop": null
+    },
+    "engineDetail": null,
+    "entitiesCreated": 7,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 7,
+    "episodesQueued": 7,
+    "episodesRequeued": 0,
+    "episodesTotal": 7,
+    "error": null,
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "progress": "Completed \u2014 7 episode(s) filed in 3 batch(es)",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 7
+    },
+    "readByOrigin": {
+      "claude-code": 7
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 5,
+    "startedAt": "2026-09-29T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "plan_limit": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-29_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": false,
+      "arrivedSince": 0,
+      "batch": 3,
+      "batchSize": 3,
+      "batches": 3,
+      "filed": 6,
+      "finished": false,
+      "frozen": 7,
+      "id": "sleep_2026-09-29_101500",
+      "requeued": 0,
+      "skipped": 0,
+      "stop": {
+        "reason": "plan_limit",
+        "resetsAt": 1790000000,
+        "sentence": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00."
+      }
+    },
+    "engineDetail": "Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00.",
+    "entitiesCreated": 6,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 6,
+    "episodesQueued": 7,
+    "episodesRequeued": 0,
+    "episodesTotal": 6,
+    "error": null,
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "progress": "Stopped after batch 2 of 3 \u2014 Your Claude plan hit its 5-hour limit \u2014 Sleep paused. Try again after 14:00.",
+    "progressPct": null,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 7
+    },
+    "readByOrigin": {
+      "claude-code": 6
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 1,
+    "startedAt": "2026-09-29T10:15:00",
+    "status": "idle",
+    "totalStages": 5,
+    "writing": false
+  },
+  "running": {
+    "batchSize": 3,
+    "cancelRequested": false,
+    "cancelled": false,
+    "cycleId": "sleep_2026-09-29_101500",
+    "debt": {
+      "agePct": 0,
+      "hasRunBefore": true,
+      "hoursSinceLastCycle": 0.5,
+      "oldestUnprocessedAgeHours": null,
+      "restedPct": 100,
+      "unprocessedCount": 0,
+      "volumePct": 0
+    },
+    "drain": {
+      "active": true,
+      "arrivedSince": null,
+      "batch": 2,
+      "batchSize": 3,
+      "batches": 3,
+      "filed": 3,
+      "finished": false,
+      "frozen": 7,
+      "id": "sleep_2026-09-29_101500",
+      "requeued": 0,
+      "skipped": 0,
+      "stop": null
+    },
+    "engineDetail": null,
+    "entitiesCreated": 3,
+    "entitiesUpdated": 0,
+    "episodeCap": 3,
+    "episodesProcessed": 3,
+    "episodesQueued": 7,
+    "episodesRequeued": 0,
+    "episodesTotal": 6,
+    "error": null,
+    "indexWarning": null,
+    "lastEngine": "claude-cli",
+    "organicResolutions": 0,
+    "progress": "Batch 2 of 3 \u00b7 Stage 1/5: Extracting entities from 3 episodes...",
+    "progressPct": 0,
+    "questionsRefreshed": 0,
+    "queueByOrigin": {
+      "claude-code": 7
+    },
+    "readByOrigin": {
+      "claude-code": 3
+    },
+    "relationshipsCreated": 0,
+    "skillsDetected": 0,
+    "stage": 0,
+    "startedAt": "2026-09-29T10:15:00",
+    "status": "running",
+    "totalStages": 5,
+    "writing": false
+  }
+}
