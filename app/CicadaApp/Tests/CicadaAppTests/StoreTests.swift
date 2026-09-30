@@ -246,6 +246,18 @@ final class FakeSyncAPI: SyncAPI {
         try await pictureWrite("clearEntityPicture:\(entityId)")
     }
 
+    // MARK: Entity sources (G61 S3-a)
+
+    /// What a source change answers; set `sourceError` to drive a rollback.
+    var sourceReply: [EntitySource] = []
+    var sourceError: (any Error)?
+
+    func changeEntitySource(entityId: String, source: EntitySource, change: SourceChange) async throws -> [EntitySource] {
+        try await record("changeEntitySource:\(entityId):\(source.ref):\(change)")
+        if let sourceError { throw sourceError }
+        return sourceReply
+    }
+
     // MARK: Backlog (G150)
 
     /// What every backlog write answers; set `backlogError` to drive a rollback.
