@@ -229,3 +229,27 @@ def test_a_lapse_shows_over_the_wire_with_no_write(rig, monkeypatch):
     item = next(i for i in later.json()["items"] if i["key"] == keys[0])
     assert item["queueState"] == "queued" and item["attempts"] == 1
     assert "nextChangeAt" not in later.json() and video_queue.path_for(memory).stat().st_mtime_ns == before
+
+
+def test_the_etag_follows_whether_sleep_holds_the_pages(rig, monkeypatch):
+    """A lapsed lease is settled only when Sleep does not hold the pages, so the body depends on that bit
+    and the tag must too: when the drain's write window closes with no file change, the app must not 304
+    on a body that still says 'claimed'."""
+    c, memory, keys = rig
+    clock = {"t": NOW}
+    real_stamp = video_queue.stamp
+    monkeypatch.setattr(videos_router, "_now", lambda: clock["t"])
+    monkeypatch.setattr(video_queue, "stamp", lambda mp, now=None: real_stamp(mp, clock["t"]))
+    c.put(f"/videos/queue/{keys[0]}", json={"want": "watch"})
+    video_queue.claim(memory, session="s", harness="claude-code", now=NOW)
+    clock["t"] = NOW + timedelta(minutes=50)
+    held = {"v": True}
+    monkeypatch.setattr(videos_router, "_holding", lambda: held["v"])
+    during = c.get("/videos/state")
+    item = next(i for i in during.json()["items"] if i["key"] == keys[0])
+    assert item["queueState"] == "claimed"
+    held["v"] = False
+    after = c.get("/videos/state", headers={"If-None-Match": during.headers["ETag"]})
+    assert after.status_code == 200 and after.headers["ETag"] != during.headers["ETag"]
+    item = next(i for i in after.json()["items"] if i["key"] == keys[0])
+    assert item["queueState"] == "queued"

@@ -603,7 +603,7 @@ def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=
     with _locked(memory_path) as target:
         rows, batches, _ = _open(memory_path, moment, saved, holding)
         _refresh(rows, session, moment)
-        queued = sorted((r for r in rows if r["state"] == "queued"), key=lambda r: (r.get("requested_at") or "", r["key"]))
+        queued = sorted((r for r in rows if r["state"] == "queued" and r["key"] in saved), key=lambda r: (r.get("requested_at") or "", r["key"]))
         leased = []
         for row in queued[:wanted]:
             row["state"] = "claimed"

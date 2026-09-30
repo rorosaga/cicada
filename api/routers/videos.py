@@ -92,7 +92,7 @@ def _summary(memory_path) -> dict:
 
 
 def _etag(memory_path, name: str) -> str:
-    return sync_service.etag_for(memory_path, *_COMPONENTS, extra=f"{name}|{video_state.VIDEO_SHAPE}")
+    return sync_service.etag_for(memory_path, *_COMPONENTS, extra=f"{name}|{video_state.VIDEO_SHAPE}|{int(bool(_holding()))}")
 
 
 @router.get("/videos/state")

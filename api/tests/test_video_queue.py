@@ -397,10 +397,12 @@ def test_an_unreadable_url_index_never_wipes_the_queue(bank):
     good = index.read_text()
     for broken in (good[: len(good) // 2], "", "{}"):
         index.write_text(broken)
-        video_queue.claim(memory, session="s", harness="claude-code", limit=2, now=_at(1))
+        leased = video_queue.claim(memory, session="s", harness="claude-code", limit=2, now=_at(1))
+        assert leased == [], broken[:10]
         video_queue.remove(memory, "0" * 12, now=_at(1))
         rows = json.loads(video_queue.path_for(memory).read_text())["items"]
         assert {r["key"] for r in rows} == set(keys), broken[:10]
+        assert {r["state"] for r in rows} == {"queued"}, broken[:10]
     index.write_text(good)
     assert len(video_queue.view(memory, _at(2))[0]) == len(keys)
 
@@ -410,7 +412,21 @@ def test_the_url_index_is_written_atomically(tmp_path):
     idx = media_ingestor.load_url_index(memory)
     media_ingestor.save_url_index(memory, idx)
     assert media_ingestor.load_url_index(memory) == idx
-    assert not list((memory / "sources").glob(".url_index.json.*.tmp"))
+    assert not list((memory / "sources").glob(".url_index.*.tmp"))
+
+
+def test_a_failed_url_index_write_leaves_no_temp_file(tmp_path, monkeypatch):
+    memory, _ = bank_with_videos(tmp_path, 1)
+    before = media_ingestor.load_url_index(memory)
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(media_ingestor.os, "replace", boom)
+    with pytest.raises(OSError):
+        media_ingestor.save_url_index(memory, {"x": 1})
+    assert not list((memory / "sources").glob(".url_index.*.tmp"))
+    assert media_ingestor.load_url_index(memory) == before
 
 
 # --- the stamp: H2 --------------------------------------------------------------------------------------------
