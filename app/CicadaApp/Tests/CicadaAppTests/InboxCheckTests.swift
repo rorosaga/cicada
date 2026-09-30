@@ -64,6 +64,14 @@ final class InboxCheckTests: XCTestCase {
         XCTAssertEqual(InboxCheckWords.lines(with, locale: us).count, 1)
     }
 
+    func testTheCaptionNamesWhoReportedLikeTheHeadingDoes() throws {
+        XCTAssertEqual(InboxCheckWords.caption(try item(checks: "[\(supports)]")),
+                       "What your agent reported, not checked by Cicada. Nothing changed; you decide.")
+        let remote = #"{"at":"2026-10-02T09:00:00+00:00","checker":"x","checkerKind":"remote","host":"h","outcome":"unclear"}"#
+        XCTAssertEqual(InboxCheckWords.caption(try item(checks: "[\(remote)]")),
+                       "What an app you connected reported, not checked by Cicada. Nothing changed; you decide.")
+    }
+
     func testAtMostTwoAreShownNewestFirst() throws {
         func f(_ day: String, _ quote: String) -> String {
             #"{"at":"2026-10-0\#(day)T09:00:00+00:00","checker":"x","host":"team-labs.io","outcome":"unclear","quote":"\#(quote)"}"#

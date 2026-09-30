@@ -328,7 +328,7 @@ struct InboxFocusCard: View {
                     }
                     .accessibilityElement(children: .combine)
                 }
-                Text(Copy.Inbox.checkCaption)
+                Text(InboxCheckWords.caption(item))
             }
             .font(CicadaTheme.metaFont)
             .foregroundStyle(CicadaTheme.textTertiary)

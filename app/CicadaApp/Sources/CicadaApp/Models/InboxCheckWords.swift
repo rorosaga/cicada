@@ -17,6 +17,11 @@ enum InboxCheckWords {
         item.checks.sorted { $0.at > $1.at }.prefix(2).map { line($0, options: item.options, locale: locale) }
     }
 
+    /// The caption under the reports: who reported, by the newest finding's kind (the same word as its heading).
+    static func caption(_ item: InboxItem) -> String {
+        item.checks.max { $0.at < $1.at }?.checkerKind == "remote" ? Copy.Inbox.checkCaptionApp : Copy.Inbox.checkCaption
+    }
+
     static func line(_ finding: InboxCheckFinding, options: [InboxOption], locale: Locale = .autoupdatingCurrent) -> Line {
         let who = finding.checkerKind == "remote" ? Copy.Inbox.checkedByApp : Copy.Inbox.checkedByAgent
         let day = EntityDates.shortDay(finding.at, locale: locale)

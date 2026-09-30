@@ -59,6 +59,7 @@ extension Copy {
         static let checkContradicts = "It doesn’t match any of these answers."
         static let checkUnclear = "It wasn’t clear."
         static let checkCaption = "What your agent reported, not checked by Cicada. Nothing changed; you decide."
+        static let checkCaptionApp = "What an app you connected reported, not checked by Cicada. Nothing changed; you decide."
         static let openSource = "Open source"
         /// Round-4 final review, finding 3: a Contacts card opens in Contacts, and the button says where it goes.
         static let openInContacts = "Open in Contacts"

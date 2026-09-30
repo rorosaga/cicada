@@ -530,3 +530,99 @@ def test_the_new_tool_copy_names_no_provider():
     for t in (tool, remote_tools.REMOTE_TOOLS["cicada_record_check"]):
         texts += [p.get("description", "") for p in t["inputSchema"]["properties"].values()]
     assert not [t for t in texts if banned.search(t)]
+
+
+# ---------- the review round ----------
+
+
+def test_the_same_source_cannot_be_recorded_again_inside_the_week(setup):
+    """`append_check` keeps one row per source, so the per-day cap alone never bit: an agent could re-record one page
+    without limit (a new episode and commit each time)."""
+    server, memory = setup
+    assert "Recorded your check" in _record(server)
+    head = _git(memory, "rev-parse", "HEAD")
+    episodes = sorted(p.name for p in (memory / "episodes").glob("ep_*.md"))
+    for _ in range(2):
+        out = _record(server)
+        assert out.startswith("Not recorded") and "already looked at that source" in out
+    assert _git(memory, "rev-parse", "HEAD") == head, "no new commit"
+    assert sorted(p.name for p in (memory / "episodes").glob("ep_*.md")) == episodes, "no new episode"
+    # a check older than the window may be recorded again
+    path = memory / "inbox" / f"{ITEM}.md"
+    fm = markdown_parser.parse(path)
+    fm.frontmatter["checks"][0]["at"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    markdown_parser.write(path, fm.frontmatter, fm.body)
+    bank_index.invalidate()
+    assert "Recorded your check" in _record(server, quotes=[{"quote": "a different sentence on the page"}])
+
+
+def test_the_hook_count_never_derives_a_cold_inbox_on_its_own_time(setup, monkeypatch):
+    server, memory = setup
+    reading_queue._candidate_memo.clear()
+    calls = []
+    real = inbox_service.load_inbox
+
+    def slow(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(inbox_service, "load_inbox", slow)
+    started = []
+    monkeypatch.setattr(reading_queue, "_warm_candidates", lambda mp: started.append(mp))
+    import time
+
+    bank_index.files(memory, "entities")   # the page cache is warm; only the check candidates are cold
+    asks, derived = reading_queue.counts(memory, warm_only=True, deadline=time.monotonic() + 5)
+    assert derived is None and calls == [] and started, "cold: unknown, nothing derived, a background warm started"
+    reading_queue._check_candidates(memory)        # warmed (by the background thread in real life)
+    calls.clear()
+    asks, derived = reading_queue.counts(memory, warm_only=True, deadline=time.monotonic() + 5)
+    assert derived == 1 and calls == [], "warm: counted from the memo, no inbox load"
+    # past the deadline: unknown again, never blocked
+    asks, derived = reading_queue.counts(memory, warm_only=True, deadline=time.monotonic() - 1)
+    assert derived is None
+
+
+def test_the_candidate_memo_follows_the_inbox_and_the_sources(setup):
+    server, memory = setup
+    reading_queue._candidate_memo.clear()
+    assert len(reading_queue._check_candidates(memory)) == 1
+    fact_sources.add_source(memory, "bob-example", "https://team-labs.io/people", predicate="works-at", added_by="user",
+                            kind="url")
+    bank_index.invalidate()
+    assert len(reading_queue._check_candidates(memory)) == 2, "a new source moves the stamp"
+
+
+def test_a_bank_with_no_question_items_never_loads_the_inbox(reading, monkeypatch):
+    server, memory = reading
+    (memory / "inbox").mkdir(exist_ok=True)
+    for f in (memory / "inbox").glob("*.md"):
+        f.unlink()
+    markdown_parser.write(memory / "inbox" / "inbox-001.md", {"kind": "decay", "status": "pending",
+                                                              "entity_id": "beta-project"}, "x")
+    reading_queue._candidate_memo.clear()
+    monkeypatch.setattr(inbox_service, "load_inbox", lambda *a, **k: (_ for _ in ()).throw(AssertionError("loaded")))
+    bank_index.invalidate()
+    assert reading_queue._check_candidates(memory) == []
+
+
+def test_the_week_is_counted_in_utc_days(setup):
+    server, memory = setup
+    now = datetime(2026, 10, 10, 23, 30, tzinfo=timezone.utc)
+    check_record.append_check(memory / "inbox" / f"{ITEM}.md", {
+        "at": "2026-10-02T00:10:00+00:00", "checker": "x", "checker_kind": "agent", "ref": TEAM, "host": SITE,
+        "outcome": "unclear", "episode": "ep_x"})
+    bank_index.invalidate()
+    assert len(_entries(memory, now=now)) == 1, "Oct 2 is 8 UTC days before Oct 10: due again"
+    assert _entries(memory, now=datetime(2026, 10, 9, 23, 30, tzinfo=timezone.utc)) == [], "7 days: still held"
+
+
+def test_the_five_row_cap_evicts_the_oldest_by_time(setup):
+    server, memory = setup
+    path = memory / "inbox" / f"{ITEM}.md"
+    for i, day in enumerate(("05", "01", "03", "02", "04", "06")):
+        check_record.append_check(path, {"at": f"2026-09-{day}T00:00:00+00:00", "checker": "x", "checker_kind": "agent",
+                                         "ref": f"https://team-labs.io/p{i}", "host": SITE, "outcome": "unclear",
+                                         "episode": "ep_x"})
+    days = [r["at"][8:10] for r in markdown_parser.parse(path).frontmatter["checks"]]
+    assert days == ["02", "03", "04", "05", "06"], "the oldest by time (the 1st) went, whatever the order written"

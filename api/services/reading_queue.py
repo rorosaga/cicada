@@ -35,7 +35,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -146,30 +146,94 @@ def site_entries(memory_path: Path, rows: list[dict], *, include_words_origin: b
     return out
 
 
-def _check_candidates(memory_path: Path) -> list:
+class _ColdCandidates(Exception):
+    """The candidates are not memoised yet and the caller has no time to derive them."""
+
+
+_candidate_memo: dict[str, tuple[str, list]] = {}
+_candidate_lock = threading.Lock()
+_candidate_warming: set[str] = set()
+
+
+def _candidate_stamp(memory_path: Path) -> str:
+    from api.services import sync_service
+
+    return sync_service.etag_for(Path(memory_path), "inbox", "entities", "sources", extra="check-candidates-1")
+
+
+def _has_question_items(memory_path: Path) -> bool:
+    """A cheap pre-filter on cached frontmatter: is there any pending question a source could answer? Most banks' inbox
+    is decay and follow-up items, which never are."""
+    from api.services import source_check
+
+    for f in bank_index.files(Path(memory_path), "inbox"):
+        fm = f.frontmatter or {}
+        if str(fm.get("kind") or "") in source_check._QUESTION_KINDS and str(fm.get("status") or "pending") == "pending":
+            return True
+    return False
+
+
+def _check_candidates(memory_path: Path, *, cached_only: bool = False) -> list:
     """``[(item, target)]`` — every source that could answer a pending, checkable question, before any permission is
     asked about. An item is agent-checkable when its checkability is ``checkable``, or ``inform_only`` for a host only
     the person's own session may open (``refused_host_only``, D-AC2); a target is a ``url`` the agent rung reaches. The
     targets are the item's own, already ranked and capped by ``source_check.targets_for`` — the owner's page counts only
-    what the person added or took (R-AC9, D2). Read-only."""
+    what the person added or took (R-AC9, D2). Read-only.
+
+    Memoised per bank on the inbox, entities and sources stamp (an inbox load parses every item and its subject). With
+    ``cached_only`` (the recall hook's 300 ms budget) a cold memo is never derived on the caller's time: it raises
+    :class:`_ColdCandidates` and starts the derivation in the background."""
     from api.services import fact_sources, inbox_service, source_check
 
+    memory_path = Path(memory_path)
+    key = str(memory_path)
+    stamp = _candidate_stamp(memory_path)
+    with _candidate_lock:
+        held = _candidate_memo.get(key)
+    if held is not None and held[0] == stamp:
+        return held[1]
+    if cached_only:
+        _warm_candidates(memory_path)
+        raise _ColdCandidates()
     out = []
-    for item in inbox_service.load_inbox(Path(memory_path)):
-        check = item.check
-        if item.status != "pending" or check is None:
-            continue
-        if not (check.state == source_check.CHECKABLE
-                or (check.state == source_check.INFORM_ONLY and check.reason == "refused_host_only")):
-            continue
-        for t in check.targets:
-            if t.kind == fact_sources.KIND_URL and source_check.RUNG_AGENT in t.rungs:
-                out.append((item, t))
+    if _has_question_items(memory_path):
+        for item in inbox_service.load_inbox(memory_path):
+            check = item.check
+            if item.status != "pending" or check is None:
+                continue
+            if not (check.state == source_check.CHECKABLE
+                    or (check.state == source_check.INFORM_ONLY and check.reason == "refused_host_only")):
+                continue
+            for t in check.targets:
+                if t.kind == fact_sources.KIND_URL and source_check.RUNG_AGENT in t.rungs:
+                    out.append((item, t))
+    with _candidate_lock:
+        _candidate_memo[key] = (stamp, out)
     return out
 
 
+def _warm_candidates(memory_path: Path) -> None:
+    key = str(memory_path)
+    with _candidate_lock:
+        if key in _candidate_warming:
+            return
+        _candidate_warming.add(key)
+
+    def _run() -> None:
+        try:
+            _check_candidates(memory_path)
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            with _candidate_lock:
+                _candidate_warming.discard(key)
+
+    threading.Thread(target=_run, name="check-warm", daemon=True).start()
+
+
 def check_entries(memory_path: Path, *, now: datetime | None = None, ignore_site: bool = False,
-                  ignore_recent: bool = False, candidates: list | None = None) -> list[Entry]:
+                  ignore_recent: bool = False, candidates: list | None = None, cached_only: bool = False,
+                  deadline: float | None = None) -> list[Entry]:
     """The check entries of the queue. An entry exists only when ALL hold: the master switch is on; the source is a URL
     an agent may be handed at all (``reading_hosts.agent_may_read``: never a secret-bearing, local, vendor, video or
     paper link); the person allowed its SITE (``reading_settings.site_allowed`` — the one consent, D5) and that site is
@@ -184,10 +248,13 @@ def check_entries(memory_path: Path, *, now: datetime | None = None, ignore_site
     rows = _live_rows(memory_path, now)
     held = {r["url_hash"] for r in rows if r.get("state") != "waiting"}
     paused = paused_sites(rows)
-    today = (now or datetime.now()).date()
+    # One clock: every `at` is stamped in UTC (`episode_ids.utc_now_iso`), so the week is counted in UTC days.
+    today = (now or datetime.now(timezone.utc)).date()
     cutoff = (today - timedelta(days=CHECK_RECHECK_DAYS)).isoformat()
     out: list[Entry] = []
-    for item, t in candidates if candidates is not None else _check_candidates(memory_path):
+    for item, t in candidates if candidates is not None else _check_candidates(memory_path, cached_only=cached_only):
+        if deadline is not None and time.monotonic() > deadline:
+            raise reading_walls.DeadlineExceeded()
         verdict = reading_hosts.agent_may_read(t.ref, enabled=True)
         if not verdict.ok or not verdict.site:
             continue
@@ -242,10 +309,15 @@ def entries(memory_path: Path, *, include_words_origin: bool = True, now: dateti
         memory_path, rows, include_words_origin=include_words_origin) + _safe_checks(memory_path, now)
 
 
-def _safe_checks(memory_path: Path, now: datetime | None) -> list[Entry]:
-    """A broken inbox must never take the reading queue down with it."""
+def _safe_checks(memory_path: Path, now: datetime | None, *, cached_only: bool = False,
+                 deadline: float | None = None) -> list[Entry]:
+    """A broken inbox must never take the reading queue down with it. The hook's bounds (``cached_only``, ``deadline``)
+    are not swallowed: they raise, so the caller can answer "unknown"."""
     try:
-        return sorted(check_entries(memory_path, now=now), key=lambda e: (e.since, e.item_id, e.url))
+        return sorted(check_entries(memory_path, now=now, cached_only=cached_only, deadline=deadline),
+                      key=lambda e: (e.since, e.item_id, e.url))
+    except (_ColdCandidates, reading_walls.DeadlineExceeded):
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"check entries skipped: {type(exc).__name__}")
         return []
@@ -294,6 +366,8 @@ def _warm_in_background(memory_path: Path) -> None:
             bank_index.files(memory_path, "entities")
             if reading_settings.allowed_sites():
                 reading_walls.scan(memory_path)
+            if reading_settings.agent_enabled():
+                _check_candidates(memory_path)
         except Exception:  # noqa: BLE001
             pass
         finally:
@@ -339,8 +413,9 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
         # having to decide to call a tool). Past the hook's deadline they are unknown, never zero.
         if deadline is not None and time.monotonic() > deadline:
             raise reading_walls.DeadlineExceeded()
-        return asks, derived + len(_safe_checks(memory_path, None))
-    except reading_walls.DeadlineExceeded:
+        bounded = warm_only or deadline is not None
+        return asks, derived + len(_safe_checks(memory_path, None, cached_only=bounded, deadline=deadline))
+    except (reading_walls.DeadlineExceeded, _ColdCandidates):
         _warm_in_background(memory_path)
         return asks, None
 

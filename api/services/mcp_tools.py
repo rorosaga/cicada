@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -720,7 +720,15 @@ def record_check(ctx: ToolContext, item_id: str, source: str, outcome: str, opti
     if ctx.sleep_running():
         return ("Not recorded: Cicada is consolidating memory right now, and a finding is written into it. Nothing "
                 "was saved. Keep what you found and record it when Cicada has finished.")
-    today = str(date.today())
+    now_utc = datetime.now(timezone.utc)
+    today = now_utc.date().isoformat()
+    # A source already looked at inside the recheck window is not recorded again: `append_check` keeps one row per
+    # source, so without this an agent could re-record the same page without limit (a new episode and commit each time).
+    cutoff = (now_utc.date() - timedelta(days=queue.CHECK_RECHECK_DAYS)).isoformat()
+    last = queue._checked_map(item).get(source)
+    if last and last >= cutoff:
+        return ("Not recorded: an agent already looked at that source for this question in the last week. Leave it "
+                "for the person, or check another listed source.")
     if sum(1 for f in item.checks if f.at[:10] == today) >= MAX_CHECKS_PER_ITEM_DAY:
         return "Not recorded: that question was already checked three times today. Leave it for the person."
     session_key = f"{ctx.connector_id or ''}:{ctx.session_id}"

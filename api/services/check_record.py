@@ -132,5 +132,7 @@ def append_check(path: Path, row: dict) -> None:
     parsed = markdown_parser.parse(path)
     fm = parsed.frontmatter
     rows = [r for r in (fm.get("checks") or []) if isinstance(r, dict) and r.get("ref") != row.get("ref")]
-    fm["checks"] = (rows + [row])[-MAX_CHECKS:]
+    # Newest row per source; past the cap the OLDEST BY TIME goes. (A source evicted this way has no row, so it can be
+    # listed again sooner than a week — the cap trades that for a bounded item file.)
+    fm["checks"] = sorted(rows + [row], key=lambda r: str(r.get("at") or ""))[-MAX_CHECKS:]
     markdown_parser.write(path, fm, parsed.body)
