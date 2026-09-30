@@ -5,6 +5,11 @@ as rows:
 
 * **asks** — links the person asked about with "Ask an agent" (rows in the
   machine-wide ask store, ``reading_asks``);
+* **check entries** (G61 S3) — a source on a page that could answer a pending inbox question, to be looked at
+  by an agent BEFORE the question reaches the person. Derived at read from the inbox and the pages' ``sources:``
+  (:func:`check_entries`); the consent is the per-site permission below and nothing else (D5: no one-off ask), so a
+  planted source can only steer a read to a site the person already allowed, read-only, in their own session. A check
+  reports a finding (``cicada_record_check``); it settles, holds and reorders nothing (S4–S8 wait);
 * **site entries** — saved pages Cicada's own reader could not read
   (``reading_walls``) that belong to a site the person allowed
   (``reading_settings.allowed_sites``). Turning a site on writes one line in
@@ -28,9 +33,12 @@ own words, and the queue must not hand it to a ``read``-scope connection. An age
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from loguru import logger
 
 from api.services import bank_index, media_ingestor, reading_asks, reading_hosts, reading_settings, reading_walls
 
@@ -68,11 +76,20 @@ class Entry:
     url_hash: str
     host: str
     site: str
-    origin: str          # "ask" | "site"
-    since: str           # ISO day: when asked, or when saved
+    origin: str          # "ask" | "site" | "check"
+    since: str           # ISO day: when asked, or when saved (a check: when the question was raised)
     title: str
     wall: str | None
     walled: bool         # a closed-set walled host (pacing: one per call)
+    # G61 S3 — a check entry's own fields (empty for an ask or a site entry).
+    item_id: str = ""        # the inbox question this source could answer
+    entity_id: str = ""      # its subject page
+    predicate: str = ""
+    linked_entity: str = ""  # the source's own memory node (`entity:`), when it still resolves
+    access: str = ""         # the source's effective access, in the enum's words
+
+#: A source an agent looked at is not listed again for this long (the ask store's own expiry).
+CHECK_RECHECK_DAYS = 7
 
 
 def _live_rows(memory_path: Path, now: datetime | None) -> list[dict]:
@@ -129,16 +146,109 @@ def site_entries(memory_path: Path, rows: list[dict], *, include_words_origin: b
     return out
 
 
+def _check_candidates(memory_path: Path) -> list:
+    """``[(item, target)]`` — every source that could answer a pending, checkable question, before any permission is
+    asked about. An item is agent-checkable when its checkability is ``checkable``, or ``inform_only`` for a host only
+    the person's own session may open (``refused_host_only``, D-AC2); a target is a ``url`` the agent rung reaches. The
+    targets are the item's own, already ranked and capped by ``source_check.targets_for`` — the owner's page counts only
+    what the person added or took (R-AC9, D2). Read-only."""
+    from api.services import fact_sources, inbox_service, source_check
+
+    out = []
+    for item in inbox_service.load_inbox(Path(memory_path)):
+        check = item.check
+        if item.status != "pending" or check is None:
+            continue
+        if not (check.state == source_check.CHECKABLE
+                or (check.state == source_check.INFORM_ONLY and check.reason == "refused_host_only")):
+            continue
+        for t in check.targets:
+            if t.kind == fact_sources.KIND_URL and source_check.RUNG_AGENT in t.rungs:
+                out.append((item, t))
+    return out
+
+
+def check_entries(memory_path: Path, *, now: datetime | None = None, ignore_site: bool = False,
+                  ignore_recent: bool = False, candidates: list | None = None) -> list[Entry]:
+    """The check entries of the queue. An entry exists only when ALL hold: the master switch is on; the source is a URL
+    an agent may be handed at all (``reading_hosts.agent_may_read``: never a secret-bearing, local, vendor, video or
+    paper link); the person allowed its SITE (``reading_settings.site_allowed`` — the one consent, D5) and that site is
+    not paused by a ``needs_login``; no non-waiting ask row holds the link; and no agent looked at it in the last
+    :data:`CHECK_RECHECK_DAYS`. ``ignore_site`` lists what WOULD be checkable if a site were allowed (the permissions
+    page); ``ignore_recent`` is for the authorization at record time. Empty while the master switch is off."""
+    from api.services import fact_sources, source_check
+
+    if not reading_settings.agent_enabled():
+        return []
+    memory_path = Path(memory_path)
+    rows = _live_rows(memory_path, now)
+    held = {r["url_hash"] for r in rows if r.get("state") != "waiting"}
+    paused = paused_sites(rows)
+    today = (now or datetime.now()).date()
+    cutoff = (today - timedelta(days=CHECK_RECHECK_DAYS)).isoformat()
+    out: list[Entry] = []
+    for item, t in candidates if candidates is not None else _check_candidates(memory_path):
+        verdict = reading_hosts.agent_may_read(t.ref, enabled=True)
+        if not verdict.ok or not verdict.site:
+            continue
+        if not ignore_site and (not reading_settings.site_allowed(verdict.site) or verdict.site in paused):
+            continue
+        h = media_ingestor.url_hash(t.ref)
+        if h in held:
+            continue
+        last = _checked_map(item).get(t.ref)
+        if not ignore_recent and last and last >= cutoff:
+            continue
+        linked = fact_sources.linked_entity(memory_path, {"entity": t.entity}, self_id=item.entity_id) if t.entity else None
+        out.append(Entry(url=t.ref, url_hash=h, host=reading_hosts.display_host(verdict.host), site=verdict.site,
+                         origin="check", since=item.created_date or "", title=item.question or item.title, wall=None,
+                         walled=verdict.walled, item_id=item.id, entity_id=item.entity_id,
+                         predicate=item.predicate or "", linked_entity=linked or "", access=t.access))
+    return out
+
+
+def _checked_map(item) -> dict[str, str]:
+    """``{ref: day}`` from the item's served ``checks`` — the days an agent last looked."""
+    out: dict[str, str] = {}
+    for f in item.checks:
+        ref = getattr(f, "ref", None)
+        if ref:
+            out[ref] = max(out.get(ref, ""), f.at[:10])
+    return out
+
+
+def authorizes_check(memory_path: Path, item_id: str, ref: str, *, now: datetime | None = None) -> Entry | None:
+    """May an agent record a check of ``ref`` for inbox item ``item_id``? Only a source that is one of that item's own
+    targets, on a site the person allowed, not paused, with the item still pending and checkable — recomputed now, so
+    resolving the item, removing the source or switching the site off revokes it at once. Nothing stored grants it. The
+    anti-plant rule: a URL that is not one of the item's listed sources gets nothing."""
+    ref = (ref or "").strip()
+    for e in check_entries(memory_path, now=now, ignore_recent=True):
+        if e.item_id == item_id and e.url == ref:
+            return e
+    return None
+
+
 def entries(memory_path: Path, *, include_words_origin: bool = True, now: datetime | None = None) -> list[Entry]:
     """The queue: the person's asks first (oldest ask first), then pages of allowed
-    sites (oldest saved first). Empty while the master switch is off."""
+    sites (oldest saved first), then the sources an agent could check an inbox question against (oldest question
+    first). Empty while the master switch is off."""
     if not reading_settings.agent_enabled():
         return []
     memory_path = Path(memory_path)
     rows = _live_rows(memory_path, now)
     idx = media_ingestor.load_url_index(memory_path)
     return ask_entries(memory_path, rows, idx) + site_entries(
-        memory_path, rows, include_words_origin=include_words_origin)
+        memory_path, rows, include_words_origin=include_words_origin) + _safe_checks(memory_path, now)
+
+
+def _safe_checks(memory_path: Path, now: datetime | None) -> list[Entry]:
+    """A broken inbox must never take the reading queue down with it."""
+    try:
+        return sorted(check_entries(memory_path, now=now), key=lambda e: (e.since, e.item_id, e.url))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"check entries skipped: {type(exc).__name__}")
+        return []
 
 
 def authorizes(memory_path: Path, url: str, *, now: datetime | None = None) -> tuple[str, dict | None] | None:
@@ -222,8 +332,14 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
         _warm_in_background(memory_path)
         return asks, None
     try:
-        return asks, len(site_entries(memory_path, rows, include_words_origin=include_words_origin,
-                                      deadline=deadline if warm_only else None))
+        derived = len(site_entries(memory_path, rows, include_words_origin=include_words_origin,
+                                   deadline=deadline if warm_only else None))
+        # G61 S3: the sources an agent could check a pending question against count too, so the recall hook's
+        # "links are waiting" note covers them with no new surface (G105's lesson: the agent is nudged without
+        # having to decide to call a tool). Past the hook's deadline they are unknown, never zero.
+        if deadline is not None and time.monotonic() > deadline:
+            raise reading_walls.DeadlineExceeded()
+        return asks, derived + len(_safe_checks(memory_path, None))
     except reading_walls.DeadlineExceeded:
         _warm_in_background(memory_path)
         return asks, None
@@ -268,7 +384,7 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
     sites: dict[str, dict] = {}
 
     def _site(key: str) -> dict:
-        return sites.setdefault(key, {"walls": {}, "waiting": 0, "read": 0, "needs_login": 0})
+        return sites.setdefault(key, {"walls": {}, "waiting": 0, "read": 0, "needs_login": 0, "checks": 0})
 
     for p in pages:
         s = _site(p.site)
@@ -284,11 +400,21 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
             key = reading_hosts.site_of(r.get("host") or "")
             if key:
                 _site(key)["needs_login"] += 1
+    # G61 S3: a site only sources reach — a profile page that could answer a pending question — is listed too, with how
+    # many questions it could answer, so the person can allow it (the one consent). Counts only.
+    try:
+        by_site: dict[str, set[str]] = {}
+        for e in check_entries(memory_path, now=now, ignore_site=True):
+            by_site.setdefault(e.site, set()).add(e.item_id)
+        for key, ids in by_site.items():
+            _site(key)["checks"] = len(ids)
+    except Exception as exc:  # noqa: BLE001 — the permissions page never fails on the inbox
+        logger.warning(f"check counts skipped: {type(exc).__name__}")
     for key in allowed:
         _site(key)
     out = []
     for key, s in sites.items():
-        if not s["walls"] and key not in allowed and not s["needs_login"] and not s["read"]:
+        if not s["walls"] and key not in allowed and not s["needs_login"] and not s["read"] and not s["checks"]:
             continue
         wall = None
         if s["walls"]:
@@ -297,7 +423,7 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
             "site": key, "label": reading_hosts.site_label(key), "wall": wall,
             "allowed": counts and key in allowed, "granted": key in allowed,
             "since": allowed.get(key) or None, "waiting": s["waiting"], "read": s["read"],
-            "needsLogin": s["needs_login"], "note": reading_hosts.SITE_NOTES.get(key),
+            "needsLogin": s["needs_login"], "checks": s["checks"], "note": reading_hosts.SITE_NOTES.get(key),
             "iconHost": reading_hosts.icon_host(key),
         })
     out.sort(key=lambda r: (not (r["allowed"] and r["needsLogin"]), -r["waiting"], r["label"].lower()))
@@ -306,17 +432,18 @@ def site_rows(memory_path: Path, *, pages: list[reading_walls.WallPage] | None =
 
 # --- the memoised snapshot the sites route and the icon route share ------------------------------------------
 
-SITES_SHAPE = "reading-sites-3"
+SITES_SHAPE = "reading-sites-4"
 _snapshots: dict[str, tuple[str, list[dict]]] = {}
 _snapshot_lock = threading.Lock()
 
 
 def sites_stamp(memory_path: Path) -> str:
     """The ETag the sites list carries — over the ``reading``, ``entities`` and ``sources``
-    components, so it moves exactly when a permission, an outcome or a page does."""
+    components (and, since G61 S3, ``inbox``: a question raised or answered changes what a source could check), so it
+    moves exactly when a permission, an outcome, a page or a question does."""
     from api.services import sync_service
 
-    return sync_service.etag_for(Path(memory_path), "reading", "entities", "sources", extra=SITES_SHAPE)
+    return sync_service.etag_for(Path(memory_path), "reading", "entities", "sources", "inbox", extra=SITES_SHAPE)
 
 
 def sites_snapshot(memory_path: Path) -> list[dict]:

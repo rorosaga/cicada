@@ -22,7 +22,7 @@ from api.services.auth import cicada_home
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
     "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
-    "remote_call", "connector_auth", "hook_recall", "read_agent", "video_queue",
+    "remote_call", "connector_auth", "hook_recall", "read_agent", "video_queue", "check_agent",
 )
 # G149: one row per recall-hook firing — harness, event, reason enum, the page
 # ids shown and their count, token and latency buckets, the model id when the
@@ -39,6 +39,10 @@ VIDEO_QUEUE_KIND = "video_queue"
 # used, a note or an excerpt. A per-call receipt like `capture` and
 # `hook_recall`: filed beside `read` and kept out of every Usage view.
 READ_AGENT_KIND = "read_agent"
+# G61 S3: one row per `cicada_record_check` call — the inbox item id, the entity id, an `outcome` enum, a `host_class`
+# enum, an `effect` enum (`noted` | `recommended`), the harness label and the connector id. Never the source, its host, a
+# quote or a proposed value. A per-call receipt filed beside `read_agent`, out of every Usage view.
+CHECK_AGENT_KIND = "check_agent"
 # G113: grounded-feedback rows — a user's verdict on an inbox item, a reconcile
 # supersede/reject, a dedup judgement. Ids/enums/numbers only, never claim text
 # or an answer string (the ledger is machine-global and outside the bank).
@@ -57,7 +61,7 @@ FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # connection, the same class. G149: a ``hook_recall`` row is a per-prompt
 # receipt with no spend and no connection.
 NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth",
-                                    HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND)
+                                    HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND, CHECK_AGENT_KIND)
 
 
 def now_iso() -> str:
@@ -167,7 +171,8 @@ READS_KIND = "read"
 # in the events file ticks the app's consumption domain and refetches every
 # `/consumption/*` endpoint. G149 R-H9: a hook row fires on every prompt, so
 # it is filed here for the same reason.
-SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND})
+SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND,
+                           CHECK_AGENT_KIND})
 _PREFIX_EVENTS = "events"
 _PREFIX_READS = "reads"
 

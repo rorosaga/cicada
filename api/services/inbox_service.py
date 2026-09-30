@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxCause, InboxCheck, InboxItem, InboxOption, InboxResolveRequest
+from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
     decay_policy,
     fact_sources,
@@ -162,7 +162,9 @@ def _item_from_file(
             )
         )
 
+    findings = _check_findings(fm)
     return InboxItem(
+        checks=findings, last_checked_at=findings[0].at if findings else None,
         id=filepath.stem,
         kind=kind,
         required_input=required_input,
@@ -191,6 +193,21 @@ def _item_from_file(
         claim_id=_opt_str(fm.get("claim_id")),
         **extra,
     )
+
+
+def _check_findings(fm: dict) -> list[InboxCheckFinding]:
+    """The item's ``checks:`` list as served (G61 S3): newest first, a malformed row skipped, never a hidden card."""
+    out: list[InboxCheckFinding] = []
+    for row in fm.get("checks") or []:
+        if not isinstance(row, dict) or not row.get("at") or not row.get("outcome"):
+            continue
+        out.append(InboxCheckFinding(
+            at=str(row["at"]), checker=str(row.get("checker") or "agent"),
+            checker_kind=str(row.get("checker_kind") or "agent"), host=str(row.get("host") or ""),
+            ref=_opt_str(row.get("ref")),
+            outcome=str(row["outcome"]), option_key=_opt_str(row.get("option_key")),
+            proposed_value=_opt_str(row.get("proposed_value")), quote=_opt_str(row.get("quote"))))
+    return sorted(out, key=lambda f: f.at, reverse=True)
 
 
 def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") -> dict:

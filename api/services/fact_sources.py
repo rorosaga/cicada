@@ -195,7 +195,7 @@ def _order(source: dict) -> int:
     return 2 if who == CICADA else 3
 
 
-def rank(entries, predicate: str | None = None, *, person_only: bool = False, match=None) -> list[dict]:
+def rank(entries, predicate: str | None = None, *, person_only: bool = False, match=None, then=None) -> list[dict]:
     """The sources that serve ``predicate``, best first — the ONE function every
     reader that must pick among many uses (a check's targets, a hint). No reader
     takes "the" source.
@@ -204,13 +204,17 @@ def rank(entries, predicate: str | None = None, *, person_only: bool = False, ma
     same predicate); order is the person's, then a taken or verified one, then
     Cicada's, then an agent's — file order within each. An "Only I know" note is
     never returned, and ``person_only`` (the owner's own page, R-AC9) keeps just
-    what the person added or took.
+    what the person added or took. ``then(source)`` orders within one class.
     """
     usable = [s for s in as_sources(entries) if not s.get("only_me")]
     if person_only:
         usable = [s for s in usable if (str(s.get("added_by") or USER).strip() or USER) == USER or s.get("accepted")]
     match = match or (lambda s, p: bool(p) and same_predicate(s.get("predicate"), p))
-    return sorted((s for s in usable if match(s, predicate)), key=_order)
+    if then is None:
+        return sorted((s for s in usable if match(s, predicate)), key=_order)
+    # `then` breaks a tie within one trust class (the agent check: the least recently looked at first, so a stale or
+    # dead source does not starve the others); file order after that, as always.
+    return sorted((s for s in usable if match(s, predicate)), key=lambda s: (_order(s), then(s)))
 
 
 def owns_source(entry: dict, *, author: str, origin: str | None = None) -> bool:

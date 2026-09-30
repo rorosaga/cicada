@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (12, 9)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (13, 10)
 
 
 def test_the_parser_reads_the_reading_calls():

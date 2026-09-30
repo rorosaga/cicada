@@ -254,7 +254,7 @@ def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
 #: cadence, not Cicada's work (G105 final review F1), and `read_events` reads
 #: the sibling file `hook_recall` is filed in, so filing it apart is not enough.
 PER_TURN_KINDS = frozenset({"capture", telemetry.HOOK_RECALL_KIND, telemetry.READ_AGENT_KIND,
-                            telemetry.VIDEO_QUEUE_KIND})
+                            telemetry.VIDEO_QUEUE_KIND, telemetry.CHECK_AGENT_KIND})
 
 
 def _activity(events: list[UsageEvent]) -> list[UsageEvent]:

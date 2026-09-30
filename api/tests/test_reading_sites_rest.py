@@ -60,7 +60,7 @@ def test_sites_list_matches_the_pinned_fixture(api):
     if os.environ.get("CICADA_UPDATE_FIXTURES") == "1":
         FIXTURE.write_text(json.dumps(body, indent=1) + "\n")
     assert body == json.loads(FIXTURE.read_text())
-    assert body["shape"] == "reading-sites-3" and body["enabled"] is True
+    assert body["shape"] == "reading-sites-4" and body["enabled"] is True
     assert [r["site"] for r in body["sites"]] == ["linkedin", "paperfold.io", "tiktok"]
 
 
@@ -70,7 +70,7 @@ def test_counts_only_no_url_title_or_note(api):
     raw = client.get("/reading/sites").text
     assert "http" not in raw and "alpha" not in raw and "post/" not in raw
     for row in client.get("/reading/sites").json()["sites"]:
-        assert set(row) == {"site", "label", "wall", "allowed", "granted", "since", "waiting", "read", "needsLogin", "note", "iconHost"}
+        assert set(row) == {"site", "label", "wall", "allowed", "granted", "since", "waiting", "read", "needsLogin", "checks", "note", "iconHost"}
 
 
 def test_allowed_site_with_no_pages_is_listed(api):

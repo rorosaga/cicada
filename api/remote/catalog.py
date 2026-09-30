@@ -46,6 +46,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_save_url": "record",
     "cicada_record_watch": "record",
     "cicada_video_claim": "record",   # G162: leases queued videos; touches only the queue file
+    "cicada_record_check": "record",   # G61 S3: a report on a listed source; settles nothing
     "cicada_record_read": "record",   # G166: what an agent's browser read; never the person's words
     "cicada_note_progress": "record",   # G141 R-PJ23: a write, never the person's own words
     "cicada_add_backlog_item": "record",
@@ -56,7 +57,7 @@ TOOL_SCOPE: dict[str, str | None] = {
 }
 NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
-                         "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_add_source",
+                         "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_record_check", "cicada_add_source",
                          "cicada_change_source",
                          "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
                          "cicada_video_claim"})
