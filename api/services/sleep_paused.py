@@ -30,6 +30,16 @@ FILE = "run.json"
 #: Why a run is paused (a closed set; the wire carries it).
 REASONS = ("user", "plan_window", "plan_weekly", "reserve", "overage", "engine", "restart", "bank_switched")
 
+#: A scheduled run's pause that no person chose — the process went away (``restart``) or the
+#: scheduled engine failed (``engine``) — is the schedule's own to replace with a fresh
+#: unattended run (TODO ruling 16, final review): otherwise one quit of the app, or one night
+#: the scheduled engine was away, would stop scheduled reading until someone pressed Continue.
+#: A person's Pause, a plan or reserve stop, and every run a person started stay theirs.
+SCHEDULE_REPLACEABLE = ("restart", "engine")
+#: An engine pause is replaced only once it is this old, so a scheduled engine that stays
+#: away costs one failed call every few hours, never one every five minutes.
+ENGINE_RETRY_S = 6 * 3600
+
 _cache: dict[str, tuple[tuple[int, int], dict | None]] = {}
 
 
@@ -81,6 +91,23 @@ def get_paused(memory_path: Path) -> dict | None:
 
 def exists(memory_path: Path) -> bool:
     return get_paused(memory_path) is not None
+
+
+def schedule_may_replace(record: dict | None, now: float | None = None) -> bool:
+    """Whether the next scheduled run may drop this paused record and read afresh."""
+    if not record or record.get("phase") != "paused" or record.get("started_by") != "schedule":
+        return False
+    reason = record.get("reason")
+    if reason not in SCHEDULE_REPLACEABLE:
+        return False
+    if reason == "engine":
+        now = time.time() if now is None else now
+        try:
+            at = float(record.get("paused_at_ts") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        return now - at >= ENGINE_RETRY_S
+    return True
 
 
 def save(memory_path: Path, record: dict) -> None:
@@ -197,6 +224,12 @@ def recover_after_restart(memory_path: Path) -> str | None:
             return None
         if not remaining_ids(memory_path, rec):
             clear(memory_path)
+            try:   # everything it froze is filed: the run is over, not still 'running'
+                from api.services import sleep_runs
+
+                sleep_runs.close_open_pause(memory_path, str(rec.get("run_id")))
+            except Exception:  # noqa: BLE001
+                pass
             return "deleted"
         now = time.time()
         rec = dict(rec)
@@ -206,6 +239,12 @@ def recover_after_restart(memory_path: Path) -> str | None:
             "paused_at_ts": int(now), "can_continue": True, "auto_continue": None,
         })
         save(memory_path, rec)
+        try:   # Past nights: the run's summary is paused too, with its restart pause open
+            from api.services import sleep_runs
+
+            sleep_runs.mark_restart_pause(memory_path, str(rec.get("run_id")), paused_at_ts=now)
+        except Exception:  # noqa: BLE001
+            pass
         return "paused"
     except Exception:
         return None

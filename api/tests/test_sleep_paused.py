@@ -510,3 +510,97 @@ def test_a_drain_stop_carries_the_limit_kind(tmp_path, monkeypatch):
     err.limit_type = "seven_day"
     assert sleep_drain.classify(err).limit == "seven_day"
     assert sleep_drain.classify(engine_errors.EngineThrottled("x")).limit == "unknown"
+
+
+# --------------------------------------------------------------------------- #
+# Final review: a scheduled run's pause nobody chose is the schedule's to replace;
+# Past nights never keeps a stale 'paused' or 'running' run.
+# --------------------------------------------------------------------------- #
+
+
+def _schedule_calls(monkeypatch):
+    calls = []
+
+    async def fake_run(settings_, cycle_id, **kw):
+        calls.append(kw)
+
+    monkeypatch.setattr(sleep_cycle, "run", fake_run)
+    return calls
+
+
+@pytest.mark.parametrize("reason,started_by,age_h,replaced", [
+    ("restart", "schedule", 0, True),
+    ("engine", "schedule", 7, True),
+    ("engine", "schedule", 1, False),     # a scheduled engine that is still away: not every five minutes
+    ("user", "schedule", 48, False),      # a person's Pause is theirs
+    ("plan_window", "schedule", 48, False),
+    ("restart", "user", 48, False),       # a run a person started is theirs
+])
+def test_the_schedule_replaces_only_a_scheduled_pause_nobody_chose(tmp_path, monkeypatch, reason, started_by,
+                                                                   age_h, replaced):
+    import time
+    from types import SimpleNamespace
+
+    from api.services import sleep_runs
+
+    ids = episode_ids(4)
+    memory = seed_bank(tmp_path, ids)
+    ds = sleep_drain.DrainState(drain_id="sleep_old", frozen_ids=ids, batch_size=3, started_by=started_by)
+    sleep_runs.record_leg(memory, ds, state="paused", reason=reason)
+    rec = sleep_paused.build(ds, phase="paused", stop=None)
+    rec.update({"reason": reason, "paused_at_ts": int(time.time() - age_h * 3600)})
+    sleep_paused.save(memory, rec)
+    calls = _schedule_calls(monkeypatch)
+    asyncio.run(sleep_scheduler._run_if_idle(SimpleNamespace(memory_path=memory)))
+    if replaced:
+        assert calls == [{"user_triggered": False, "drain": True}] and sleep_paused.load(memory) is None
+        assert sleep_runs.get(memory, "sleep_old")["state"] == "ended", "the replaced run is ended in Past nights"
+    else:
+        assert calls == [{"user_triggered": False, "tail_only": True}]
+        assert sleep_paused.get_paused(memory)["run_id"] == "sleep_old"
+
+
+def test_a_scheduled_run_on_an_env_pinned_plan_reads_one_batch(tmp_path, monkeypatch):
+    """Ruling 16's one exception: `CICADA_LLM_MODE=agent|codex` hands a scheduled run a plan, so
+    that run reads one batch, never a whole queue unattended on the plan."""
+    from api.config import Settings
+    from api.services import engine_select
+
+    pinned = Settings(memory_path=tmp_path, llm_mode="agent")
+    assert engine_select.scheduled_plan_pin(pinned) is True
+    assert engine_select.scheduled_plan_pin(Settings(memory_path=tmp_path, llm_mode="byok")) is False
+    assert engine_select.scheduled_plan_pin(Settings(memory_path=tmp_path)) is False, "a prefs choice is not a pin"
+    memory = seed_bank(tmp_path / "b", episode_ids(2))
+    calls = _schedule_calls(monkeypatch)
+    asyncio.run(sleep_scheduler._run_if_idle(Settings(memory_path=memory, llm_mode="codex")))
+    assert calls[-1] == {"user_triggered": False, "drain": False}
+
+
+def test_a_fresh_consolidate_ends_the_replaced_run_in_past_nights(tmp_path, monkeypatch):
+    from api.services import sleep_runs
+
+    ids = episode_ids(9)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    rig.on_extract = _pause_by("user")
+    _run(memory)
+    assert sleep_runs.get(memory, "sleep_pz")["state"] == "paused"
+    rig.on_extract = None
+    _run(memory, cid="sleep_fresh")
+    old = sleep_runs.get(memory, "sleep_pz")
+    assert old["state"] == "ended" and old["pauses"][-1]["to"] is not None, "never 'paused' forever"
+    assert sleep_runs.get(memory, "sleep_fresh")["state"] == "finished"
+
+
+def test_a_restart_pause_is_recorded_in_past_nights_too(tmp_path):
+    from api.services import sleep_runs
+
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    ds = sleep_drain.DrainState(drain_id="sleep_dead", frozen_ids=ids, batch_size=3, filed=3)
+    sleep_runs.record_leg(memory, ds, state="running")
+    sleep_paused.save(memory, sleep_paused.build(ds, phase="running"))
+    assert sleep_paused.recover_after_restart(memory) == "paused"
+    run = sleep_runs.get(memory, "sleep_dead")
+    assert run["state"] == "paused" and len(run["pauses"]) == 1
+    assert run["pauses"][0]["reason"] == "restart" and run["pauses"][0]["to"] is None

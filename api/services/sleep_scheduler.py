@@ -166,6 +166,30 @@ PAUSED_UPKEEP_HOURS = 24
 _paused_upkeep_at: dict[str, datetime] = {}
 
 
+def _paused_for_the_person(memory_path: Path) -> bool:
+    """A paused run the schedule must not read over. A scheduled run's pause that no person
+    chose (a restart, or the scheduled engine away for a while — ``sleep_paused.
+    schedule_may_replace``) is dropped here and ended in Past nights, so the schedule reads
+    afresh instead of stopping until someone presses Continue (TODO ruling 16)."""
+    rec = sleep_paused.get_paused(memory_path)
+    if rec is None:
+        return False
+    if sleep_paused.schedule_may_replace(rec):
+        logger.info(f"Scheduled sleep: replacing a scheduled run paused by {rec.get('reason')} with a fresh one")
+        sleep_cycle._drop_paused_record(memory_path)
+        return False
+    return True
+
+
+def _scheduled_drain(settings) -> bool:
+    """Every scheduled run reads everything waiting (TODO ruling 16) — except when an explicit
+    ``CICADA_LLM_MODE=agent|codex`` dotfile pin makes the scheduled engine a plan: then it
+    reads one batch, as before ruling 16, so no unattended run drains a plan's quota."""
+    from api.services import engine_select
+
+    return not engine_select.scheduled_plan_pin(settings)
+
+
 async def _run_after_intake_if_settled(settings) -> None:
     """The ``after_import`` probe (G125 (4) R7): every few minutes, start a
     cycle only when the queue has SETTLED — idle, something READABLE waiting, and the
@@ -182,7 +206,7 @@ async def _run_after_intake_if_settled(settings) -> None:
 
     if sleep_cycle.get_sleep_state().status == "running":
         return
-    if sleep_paused.exists(settings.memory_path):
+    if _paused_for_the_person(settings.memory_path):
         # Nothing is read over a pause, but the engine-free upkeep still runs — at most once
         # every PAUSED_UPKEEP_HOURS, since the probe fires every five minutes.
         key = str(settings.memory_path)
@@ -208,7 +232,7 @@ async def _run_after_intake_if_settled(settings) -> None:
     # ruling 13). Ruling 4 is untouched: `user_triggered=False` keeps every plan engine out, so
     # it reads on the scheduled engine — on an API key that spends without a ceiling, which the
     # engine menu and Details say in words. Only a person's Continue can resume it on a plan.
-    await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=True)
+    await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=_scheduled_drain(settings))
 
 
 async def _run_if_idle(settings: Settings) -> None:
@@ -220,7 +244,7 @@ async def _run_if_idle(settings: Settings) -> None:
         logger.info("Skipping scheduled sleep cycle: another cycle is running")
         return
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
-    if sleep_paused.exists(settings.memory_path):
+    if _paused_for_the_person(settings.memory_path):
         # The paused run is the person's to continue or end, so nothing is read — but the
         # engine-free upkeep (claim expiry, follow-ups, the state refresh, the polls, the link
         # backfill) never waits on a pause: it runs on schedule as on any idle night.
@@ -234,5 +258,6 @@ async def _run_if_idle(settings: Settings) -> None:
     # `Copy.sleepEngineExplainer` promises ("never on the nightly
     # schedule"). An explicit `CICADA_LLM_MODE=agent`/`local` in api/.env
     # still applies — that's deliberate dotfile config, unaffected by who
-    # triggered the cycle. `drain=True`: it reads everything waiting (TODO ruling 16).
-    await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=True)
+    # triggered the cycle — so under that pin the run reads one batch (`_scheduled_drain`);
+    # otherwise it reads everything waiting (TODO ruling 16).
+    await sleep_cycle.run(settings, cycle_id, user_triggered=False, drain=_scheduled_drain(settings))

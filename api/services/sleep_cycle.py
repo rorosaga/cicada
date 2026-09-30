@@ -1149,12 +1149,16 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     Only ``routers/sleep.py`` (a person's Continue) and ``sleep_autocontinue`` (the
     opt-in switch, TODO ruling 15) may pass ``continue_from``.
 
-    ``drain`` ("Consolidate reads everything", owner 2026-09-29): ``True`` only
-    for ``POST /sleep/trigger`` — a person pressing Consolidate. The run then
+    ``drain`` ("Consolidate reads everything", owner 2026-09-29): the run
     freezes the ids waiting now and reads them all, in batches of
     ``sleep_max_episodes_per_cycle``, each filed and committed before the next
-    (``_drain``). ``False`` (the default, and what the scheduler passes — TODO
-    ruling 4: an unattended run is one batch) is the cycle as it always was.
+    (``_drain``). ``True`` for every person-started path (``POST /sleep/trigger``,
+    Continue, Retry), for the opt-in auto-continue (TODO ruling 15) and for both
+    scheduler entry points (TODO ruling 16) — scheduled runs are kept off plans by
+    ``user_triggered=False``, not by one batch; the one exception, an explicit
+    ``CICADA_LLM_MODE=agent|codex`` pin, makes the scheduler pass ``False``
+    (``engine_select.scheduled_plan_pin``). ``False`` (the default) is the
+    one-batch cycle as it always was.
 
     ``user_triggered`` (fix round 1, H1/H2): ``True`` for ``POST
     /sleep/trigger`` (a human pressing Run — the default, so every existing
@@ -1491,10 +1495,12 @@ async def _drain(
         ids = [i for i in queue if i not in parked_now]
         remaining = ids
     if user_triggered and not continue_from:
-        sleep_paused.clear(memory_path)   # a fresh run replaces any paused one (no-body trigger)
+        # A fresh run replaces any paused one (no-body trigger); the replaced run is ended in
+        # Past nights too, its open pause closed, never left 'paused' forever.
+        _drop_paused_record(memory_path)
     if not remaining:
         if continue_from:
-            sleep_paused.clear(memory_path)
+            _drop_paused_record(memory_path)   # a Continue with nothing left ends the run
         logger.info("No unprocessed episodes found — skipping")
         _state.progress = "No unprocessed episodes"
         return _StageOutcome()
@@ -1785,6 +1791,20 @@ async def _drain(
         committed=last.committed, questions_refreshed=last.questions_refreshed,
         skip_links=bool(stop is not None and stop.reason in ("plan_limit", "reserve")),
     )
+
+
+def _drop_paused_record(memory_path: Path) -> None:
+    """Forget the paused record without continuing it, and end that run's summary
+    (``sleep_runs.close_open_pause``). Never raises past its own guard."""
+    from api.services import sleep_paused, sleep_runs
+
+    old = sleep_paused.load(memory_path)
+    sleep_paused.clear(memory_path)
+    if old and old.get("run_id"):
+        try:
+            sleep_runs.close_open_pause(memory_path, str(old["run_id"]))
+        except Exception as e:  # noqa: BLE001 - a summary for Past nights, never worth failing a run
+            logger.warning(f"run summary not closed: {type(e).__name__}: {e}")
 
 
 def _run_state(ds: "sleep_drain.DrainState", stop: "sleep_drain.DrainStop | None") -> str:

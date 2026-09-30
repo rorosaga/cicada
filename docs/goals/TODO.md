@@ -649,6 +649,13 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     never fires an empty run every five minutes; only the person's Continue can resume a scheduled run, on the manual
     engine, which can be a plan (the button names the engine). **Not built:** a spending cap or a batch cap for scheduled
     runs, and "keep the Mac awake" — revisit on the first real bill an unattended drain produces.
+    *Refined 2026-09-30 (final review):* the "starts nothing" rule protects a pause **a person chose or can act on**;
+    a scheduled run's pause nobody chose — the process went away (`restart`, every app quit without the launchd agent)
+    or the scheduled engine failed (`engine`, once at least 6 hours old so an absent engine costs one call every few
+    hours) — is ended and replaced by the next scheduled run (`sleep_paused.schedule_may_replace`), otherwise one quit
+    would stop scheduled reading for good. **The dotfile exception:** an explicit `CICADA_LLM_MODE=agent|codex` pin
+    still resolves a scheduled run to that plan (unchanged since before G122), so under that pin the scheduler reads
+    **one batch**, never a whole queue unattended on a plan (`engine_select.scheduled_plan_pin`).
 
     **Two amendments recorded with rulings 15 and 16 (Sleep page v5, 2026-09-30).** *G125 R10 ("one trigger, one cycle")*:
     the Sleep page gains **Pause / Continue / End this run** and a parked row's **Retry** beside its one Consolidate

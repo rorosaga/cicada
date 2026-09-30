@@ -57,7 +57,10 @@ extension LastCycleRow {
             default:
                 text = Copy.SleepV5.pausedText(filed: paused.filed, frozen: paused.frozen, locale)
             }
-            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepV5.pausedTitle(paused.reason), text: text))
+            // A switch that was on but did not fire says why (`autoContinue.blocked`), never silence.
+            let why = paused.autoContinue.flatMap { $0.armed ? nil : Copy.SleepV5.autoContinueBlocked($0.blocked) }
+            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepV5.pausedTitle(paused.reason),
+                                     text: [text, why].compactMap { $0 }.joined(separator: " ")))
             if paused.reason == "reserve", let reserveValue {
                 rows.append(LastCycleRow(kind: .reserve, title: Copy.SleepV5.keepPlanFree,
                                          text: Copy.SleepV5.keepPlanFreeIs(reserveValue)))
@@ -268,12 +271,6 @@ struct RunWaitingBlock: View {
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .padding(.horizontal, CicadaTheme.scaled(10))
                 }
-                Text(Copy.SleepV5.readerNote)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-                    .padding(.top, CicadaTheme.scaled(4))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

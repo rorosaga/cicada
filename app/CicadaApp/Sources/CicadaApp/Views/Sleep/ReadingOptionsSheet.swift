@@ -70,14 +70,16 @@ struct ReadingOptionsSheet: View {
                         InlineLink(title: Copy.SleepV5.setInEngineMenu, action: onClose)
                     }
                 }
+                if let caption = ContinueAfterResetRow.caption(for: preview?.manual) {
                 Divider()
-                row(title: Copy.SleepV5.continueAfterReset, caption: Copy.SleepV5.continueAfterResetCaption) {
+                row(title: Copy.SleepV5.continueAfterReset, caption: caption) {
                     Toggle(Copy.SleepV5.continueAfterReset, isOn: Binding(
                         get: { options.continueAfterReset },
                         set: { on in Task { await sleepVM.updateRunOptions(.continueAfterReset(on)) } }))
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .controlSize(.small)
+                }
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingMD)
@@ -141,5 +143,20 @@ struct ReadingOptionsSheet: View {
         }
         .padding(.vertical, CicadaTheme.spacingSM)
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+    }
+}
+
+/// Whether Reading options shows "Continue by itself when my plan resets", and with which caption (TODO ruling 15).
+/// Only a run on a plan pauses at a plan's window, so the row shows only for a plan engine; a plan whose windows the
+/// backend cannot classify (`sleep_autocontinue.blocked_reason` → `unknown_limit`) gets a caption that says so.
+/// Pure, so `SleepV5Tests` holds it.
+enum ContinueAfterResetRow {
+    /// The engines whose limit windows `agent_engine.limit_kind_of` recognises.
+    static let armableEngines: Set<String> = ["claude-cli"]
+
+    static func caption(for manual: SleepEnginePreview?) -> String? {
+        guard let manual, manual.billing == "plan" else { return nil }
+        return armableEngines.contains(manual.engine)
+            ? Copy.SleepV5.continueAfterResetCaption : Copy.SleepV5.continueAfterResetUnavailableCaption
     }
 }

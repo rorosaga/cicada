@@ -105,7 +105,7 @@ async def trigger_sleep(
     # detects the reservation and preserves whatever got requested in the
     # window between this call and its own first line.
     reserve_cycle(cycle_id, drain=True)
-    sleep_autocontinue.disarm()   # a person's trigger replaces any armed automatic continue
+    sleep_autocontinue.disarm(settings.memory_path)   # a person's trigger replaces any armed automatic continue
     # Fix round 1, H1: explicit, not just the default — this IS the
     # human-pressed-Run path spec §7 scopes the toggle/auto engine
     # selection to. `drain=True` (owner, 2026-09-29): a person pressing
@@ -128,9 +128,9 @@ async def end_run(settings: Settings = Depends(get_settings)):
     if get_sleep_state().status == "running":
         raise HTTPException(status_code=409, detail="A run is reading right now — pause it first.")
     record = sleep_paused.load(settings.memory_path)
-    sleep_autocontinue.disarm()
     if not record:
         return SleepEndRunResponse(status="none", message="There is no paused run.")
+    sleep_autocontinue.disarm(settings.memory_path)
     sleep_paused.clear(settings.memory_path)
     sleep_runs.close_open_pause(settings.memory_path, str(record.get("run_id")))
     return SleepEndRunResponse(status="ended", message="The paused run was ended. Nothing waiting was changed.")

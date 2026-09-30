@@ -113,6 +113,23 @@ def close_open_pause(memory_path: Path, run_id: str) -> None:
     _save(memory_path, data)
 
 
+def mark_restart_pause(memory_path: Path, run_id: str, *, paused_at_ts: float | None = None) -> None:
+    """A run that was reading when its process went away (``sleep_paused.recover_after_restart``):
+    its summary becomes a paused run with one open ``restart`` pause from the moment it was
+    recovered — the same moment Continue measures ``paused_ms`` from — so the run's detail never
+    shows 'running' for a run nothing is reading, or a pause time with no pause."""
+    data = load(memory_path)
+    run = data["runs"].get(run_id)
+    if not run:
+        return
+    pauses = [dict(p) for p in run.get("pauses") or []]
+    if not (pauses and pauses[-1].get("to") is None):
+        pauses.append({"from": _iso(paused_at_ts), "to": None, "reason": "restart", "resets_at": None})
+    run["pauses"] = pauses
+    run["state"] = "paused"
+    _save(memory_path, data)
+
+
 def to_run_ref(summary: dict) -> dict:
     """The small ``run`` block a history entry carries."""
     return {

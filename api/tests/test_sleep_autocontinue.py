@@ -94,7 +94,7 @@ def test_a_person_started_five_hour_pause_arms_one_job_after_the_reset(tmp_path,
     _leg(memory, rig, _pause_five_hour())
     rec = sleep_paused.get_paused(memory)
     assert rec["auto_continue"] == {"armed": True, "at": RESET + 60, "left": 2, "used": 0, "blocked": None}
-    job = _state.jobs[ac.JOB_ID]
+    job = _state.jobs[ac.job_id(memory)]
     assert job.func is ac._fire and job.args == [str(memory), "sleep_ac"]
     assert int(job.trigger.run_date.timestamp()) == RESET + 60, "the vendor's own reset time plus a minute"
     assert job.misfire >= 60, "asleep at the reset: it fires on wake while still inside the window"
@@ -246,11 +246,35 @@ def test_turning_the_switch_off_after_the_pause_withdraws_it(tmp_path, monkeypat
 
 def test_ending_the_run_or_continuing_by_hand_disarms_the_job(tmp_path, monkeypatch, _state):
     memory, rig, cfg = _armed(tmp_path, monkeypatch)
-    assert ac.JOB_ID in _state.jobs
+    assert ac.job_id(memory) in _state.jobs
     main.app.dependency_overrides[get_settings] = lambda: cfg
     assert TestClient(main.app).post("/sleep/run/end").json()["status"] == "ended"
-    assert ac.JOB_ID not in _state.jobs
+    assert ac.job_id(memory) not in _state.jobs
     assert _fire(memory, cfg, monkeypatch) == [], "nothing left to continue"
+
+
+def test_the_job_is_per_bank_and_end_elsewhere_leaves_it(tmp_path, monkeypatch, _state):
+    """Final review: the promise lives in one bank's sidecar, so the job is that bank's. A
+    trigger or an End in another bank — even an End with no paused run — never drops it."""
+    memory, rig, cfg = _armed(tmp_path, monkeypatch)
+    other = seed_bank(tmp_path / "other", episode_ids(2))
+    assert ac.job_id(memory) != ac.job_id(other)
+    main.app.dependency_overrides[get_settings] = lambda: settings(other)
+    assert TestClient(main.app).post("/sleep/run/end").json()["status"] == "none"
+    ac.disarm(other)
+    assert ac.job_id(memory) in _state.jobs, "bank A's armed continue is untouched"
+
+
+def test_activating_a_bank_re_arms_its_paused_run(tmp_path, monkeypatch, _state):
+    """Final review: boot re-arms only the bank active then; activating another bank later runs
+    its migrations, which re-arm its own armed pause."""
+    from api.services import bank_migrations
+
+    memory, rig, cfg = _armed(tmp_path, monkeypatch)
+    fresh = FakeScheduler()
+    ac.bind(fresh)   # a new process that booted into some other bank
+    bank_migrations.run_bank_migrations(memory)
+    assert ac.job_id(memory) in fresh.jobs
 
 
 def test_an_armed_pause_survives_a_restart(tmp_path, monkeypatch, _state):
@@ -258,7 +282,7 @@ def test_an_armed_pause_survives_a_restart(tmp_path, monkeypatch, _state):
     fresh = FakeScheduler()
     ac.bind(fresh)   # a new process: no jobs
     assert ac.rearm_after_restart(memory) is True
-    assert int(fresh.jobs[ac.JOB_ID].trigger.run_date.timestamp()) == RESET + 60, "from the sidecar, not memory"
+    assert int(fresh.jobs[ac.job_id(memory)].trigger.run_date.timestamp()) == RESET + 60, "from the sidecar, not memory"
     # and if the pause has aged past the window meanwhile, it re-arms nothing and says why
     rec = dict(sleep_paused.get_paused(memory))
     rec["paused_at_ts"] = int(time.time()) - 40 * 3600

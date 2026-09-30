@@ -170,6 +170,27 @@ extension Copy {
         static let continueAfterReset = "Continue by itself when my plan resets"
         static let continueAfterResetCaption =
             "For the runs you start. At most twice, within 36 hours, and never past a weekly limit."
+        /// A plan whose windows Cicada can't tell apart (ruling 15 arms only a 5-hour window): the switch is shown
+        /// with this caption instead, so "on" never promises a continue that can't happen.
+        static let continueAfterResetUnavailableCaption =
+            "The engine you chose for the runs you start doesn't say which limit it reached, so a run on it waits for you."
+        /// Why an automatic continue did not happen (`autoContinue.blocked`), in words — `nil` for a reason that
+        /// never arms at all (a person's pause, a restart, an engine failure, a scheduled run).
+        static func autoContinueBlocked(_ reason: String?) -> String? {
+            switch reason {
+            case "weekly": "It won't continue by itself past a weekly limit, so it waits for you."
+            case "unknown_limit": "The engine didn't say which limit it reached, so it waits for you."
+            case "no_reset_time": "No reset time was given, so it waits for you."
+            case "used_twice": "It has continued by itself twice, so the rest waits for you."
+            case "too_far": "The reset is more than 36 hours after the pause, so it waits for you."
+            case "no_scheduler": "It couldn't set itself to continue, so it waits for you."
+            case "off": "Continuing by itself is off, so it waits for you."
+            case "bank_changed": "Another memory was open at the reset, so it waits for you."
+            case "busy": "Another run was reading at the reset, so it waits for you."
+            case "engine_changed": "The engine changed since it paused, so it waits for you."
+            default: nil
+            }
+        }
         static func scheduledReadsAll(engine: String, billing: String?) -> String {
             ["Scheduled runs read everything waiting too, on \(engine).", scheduledSpendClause(billing)]
                 .compactMap { $0 }.joined(separator: " ")
@@ -311,10 +332,6 @@ extension Copy {
             }
         }
         static func showAll(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String { "Show all \(count(n, locale))" }
-        /// Critic M2: the reader opens saved pages during a run, and Cicada picks no sites — a page that needs the
-        /// person's browser waits for them. It names neither a provider nor a site list.
-        static let readerNote =
-            "While it runs, the reader also opens saved pages it can. Pages that need your browser wait for your say-so."
 
         // MARK: Past nights and the run
 
@@ -426,7 +443,7 @@ extension Copy {
         SleepV5.continueAfterResetCaption, SleepV5.optionsNote, SleepV5.leaveRoomHelp, SleepV5.reserveHelp,
         SleepV5.scheduledSpend("charged") ?? "", SleepV5.scheduledSpend("local") ?? "",
         SleepV5.scheduledSpendClause("charged") ?? "", SleepV5.scheduledSpendClause("local") ?? "",
-        SleepV5.scheduledNeverSpendsPlans, SleepV5.readerNote, SleepV5.pausingTail,
+        SleepV5.scheduledNeverSpendsPlans, SleepV5.continueAfterResetUnavailableCaption, SleepV5.pausingTail,
         SleepV5.parkedText(1), SleepV5.pausedText(filed: 98, frozen: 287), SleepV5.pausedReserveText(batch: 5),
         SleepV5.scheduledRunNote("charged") ?? "", SleepV5.readNowCaption(waiting: 318, batchSize: 25),
         SleepV5.pausedDoorCaption, SleepV5.continueOnSleepPage, SleepV5.reserveNotReported("weekly window"),

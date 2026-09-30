@@ -16,14 +16,17 @@ The bounds (Sleep page v5 plan, Q-B — the owner confirms or changes them):
 * only while the engine the run started on is still the engine the person's own choice
   resolves to (a changed engine cancels the automatic continue).
 
-The job is a one-shot APScheduler ``DateTrigger`` at ``resets_at + GRACE_S``, recorded in
-the run's sidecar so a backend restart re-arms it. If the Mac was asleep at the reset it
+The job is a one-shot APScheduler ``DateTrigger`` at ``resets_at + GRACE_S``, one per bank
+(``job_id``: the promise is stored per bank, so a trigger or End in one bank never drops
+another bank's job), recorded in the run's sidecar so a backend restart — or the bank's
+activation (``bank_migrations.run_bank_migrations``) — re-arms it. If the Mac was asleep at the reset it
 fires on wake while still inside the 36 hours (``misfire_grace_time``). "Keep the Mac
 awake" is not built. **This is the only module besides the Continue route that may call
 ``run(continue_from=...)``** (``test_only_two_modules_pass_continue_from``).
 """
 from __future__ import annotations
 
+import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +47,15 @@ def bind(scheduler) -> None:
     """The lifespan hands over the app's scheduler (tests bind a stand-in)."""
     global _scheduler
     _scheduler = scheduler
+
+
+def job_id(memory_path) -> str:
+    """The bank's own job id — one armed continue per bank, never one per process."""
+    try:
+        key = str(Path(memory_path).resolve())
+    except OSError:
+        key = str(memory_path)
+    return f"{JOB_ID}:{hashlib.sha256(key.encode()).hexdigest()[:12]}"
 
 
 def _now() -> float:
@@ -101,25 +113,27 @@ def _add_job(sched, memory_path: str, at: int, rec: dict) -> None:
     remaining = max(60, int(float(rec.get("paused_at_ts") or _now()) + MAX_PAUSE_S - _now()))
     sched.add_job(
         _fire, DateTrigger(run_date=datetime.fromtimestamp(at, tz=timezone.utc)),
-        id=JOB_ID, args=[memory_path, str(rec.get("run_id"))], replace_existing=True,
+        id=job_id(memory_path), args=[memory_path, str(rec.get("run_id"))], replace_existing=True,
         misfire_grace_time=remaining,
     )
 
 
-def disarm(memory_path: Path | None = None) -> None:
-    """Drop the job (a run ended, continued or replaced)."""
+def disarm(memory_path: Path) -> None:
+    """Drop this bank's job (its run ended, continued or was replaced). Another bank's
+    armed continue is left alone."""
     sched = _scheduler
     if sched is None:
         return
     try:
-        sched.remove_job(JOB_ID)
+        sched.remove_job(job_id(memory_path))
     except Exception:  # noqa: BLE001 - no such job
         pass
 
 
 def rearm_after_restart(memory_path: Path) -> bool:
-    """At backend start: a paused record that was armed re-arms its job, if every guard
-    still holds. Never raises."""
+    """At backend start and whenever the bank is activated: a paused record that was armed
+    re-arms its job, if every guard still holds (nothing before the lifespan binds the
+    scheduler — boot's own migrations run first, and the lifespan calls this again). Never raises."""
     from api.services import sleep_paused
 
     try:

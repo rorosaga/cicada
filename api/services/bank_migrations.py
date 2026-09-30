@@ -123,6 +123,12 @@ def run_bank_migrations(memory_path) -> dict:
     from api.services import sleep_paused
 
     sleep_paused.recover_after_restart(memory_path)
+    # Its armed continue-after-reset (TODO ruling 15) is per bank: re-arm it here too, so a bank
+    # activated after boot keeps the promise its sidecar makes (a no-op without a scheduler bound
+    # beyond marking the record not armed, and never raises).
+    from api.services import sleep_autocontinue
+
+    sleep_autocontinue.rearm_after_restart(memory_path)
 
     return {
         "moved": moved,

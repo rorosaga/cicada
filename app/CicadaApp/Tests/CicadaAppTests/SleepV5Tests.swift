@@ -380,12 +380,31 @@ final class SleepV5DetailsTests: XCTestCase {
         XCTAssertEqual(LastCycleRow.merged(legacy: legacy, run: []), legacy, "an older backend keeps its rows")
     }
 
-    /// Critic M2: the note names neither a provider nor a list of sites — Cicada picks no sites.
-    func test_theReaderNoteNamesNoProviderAndNoSites() {
-        let note = Copy.SleepV5.readerNote
-        for word in V5Fixture.providerWords { XCTAssertFalse(note.contains(word), word) }
-        XCTAssertFalse(note.lowercased().contains("which sites"))
-        XCTAssertFalse(note.contains(".com"))
+    /// Final review: the continue-after-reset switch shows only for a plan, and a plan whose windows the backend
+    /// can't classify says so instead of promising a continue that never arms.
+    func test_theContinueSwitchShowsOnlyWhereItCanArmOrSaysWhyNot() {
+        func p(_ engine: String, _ billing: String?) -> SleepEnginePreview {
+            SleepEnginePreview(engine: engine, model: "m", why: "", billing: billing)
+        }
+        XCTAssertEqual(ContinueAfterResetRow.caption(for: p("claude-cli", "plan")), Copy.SleepV5.continueAfterResetCaption)
+        XCTAssertEqual(ContinueAfterResetRow.caption(for: p("codex-cli", "plan")),
+                       Copy.SleepV5.continueAfterResetUnavailableCaption)
+        XCTAssertNil(ContinueAfterResetRow.caption(for: p("litellm", "charged")))
+        XCTAssertNil(ContinueAfterResetRow.caption(for: p("ollama", "local")))
+        XCTAssertNil(ContinueAfterResetRow.caption(for: nil))
+    }
+
+    /// Final review: a switch that was on but did not fire says why in the paused row — every blocked reason the
+    /// backend can arm-and-fail on has words, none names a provider, and the never-arming ones stay silent.
+    func test_aBlockedAutoContinueIsSaidInWords() {
+        for reason in ["weekly", "unknown_limit", "no_reset_time", "used_twice", "too_far", "no_scheduler", "off",
+                       "bank_changed", "busy", "engine_changed"] {
+            let words = Copy.SleepV5.autoContinueBlocked(reason)
+            XCTAssertNotNil(words, reason)
+            for word in V5Fixture.providerWords { XCTAssertFalse(words?.contains(word) ?? false, word) }
+        }
+        for reason in ["scheduled", "reason", nil] as [String?] { XCTAssertNil(Copy.SleepV5.autoContinueBlocked(reason)) }
+        XCTAssertFalse(Copy.SleepV5.continueAfterResetUnavailableCaption.contains("ChatGPT"))
     }
 
     /// Review fix — `POST /sleep/parked/retry` answers 409 while a run reads or waits paused, so Retry (the queue
