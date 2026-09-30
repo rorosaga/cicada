@@ -22,6 +22,42 @@ def _union(a, b):
     return out
 
 
+def _merge_sources(winner_id: str, loser_id: str, wfm: dict, lfm: dict) -> None:
+    """G61 S3-a: the loser's ``sources:`` and ``sources_removed:`` travel to the
+    winner — before this a page merge silently dropped them. Deduped on the
+    ``(ref, predicate)`` key (the winner's entry wins), capped as a page is, and
+    an ``entity:`` link that pointed at the loser now points at the winner (one
+    that would point at its own page is dropped)."""
+    from api.services import fact_sources as fs
+
+    def key(row):
+        return (str(row.get("ref", "")).strip(), str(row.get("predicate") or "").strip().lower())
+
+    merged: list[dict] = []
+    seen: set = set()
+    for row in fs.as_sources(wfm.get("sources")) + fs.as_sources(lfm.get("sources")):
+        if key(row) in seen:
+            continue
+        seen.add(key(row))
+        merged.append(row)
+    for row in merged:
+        if str(row.get("entity") or "") == loser_id:
+            row["entity"] = winner_id
+        if str(row.get("entity") or "") == winner_id:
+            row.pop("entity", None)
+    if merged:
+        wfm["sources"] = merged[: fs.MAX_SOURCES]
+    tombs: list[dict] = []
+    seen = set()
+    for row in fs._tombstones(lfm) + fs._tombstones(wfm):   # the winner's are the newer word
+        if key(row) in seen:
+            tombs = [t for t in tombs if key(t) != key(row)]
+        seen.add(key(row))
+        tombs.append(row)
+    if tombs:
+        wfm[fs.REMOVED_KEY] = tombs[-fs.MAX_TOMBSTONES:]
+
+
 def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
                    *, author: str = "user") -> dict:
     if loser_id == winner_id:
@@ -38,6 +74,7 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
         merged = _union(wfm.get(f), lfm.get(f))
         if merged:
             wfm[f] = merged
+    _merge_sources(winner_id, loser_id, wfm, lfm)
     wfm["confidence"] = max(float(wfm.get("confidence", 0) or 0),
                             float(lfm.get("confidence", 0) or 0))
 
@@ -137,6 +174,13 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
             if new_related != related:
                 efm["related"] = new_related
                 changed = True
+
+        srcs = efm.get("sources")
+        if isinstance(srcs, list):
+            for src in srcs:
+                if isinstance(src, dict) and str(src.get("entity") or "") == loser_id:
+                    src["entity"] = winner_id   # G61 S3-a: a source's link follows the merge
+                    changed = True
 
         new_body, n_subs = wikilink_re.subn(f"[[{winner_name}]]", epar.body)
         if n_subs:

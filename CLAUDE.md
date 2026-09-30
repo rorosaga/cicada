@@ -288,7 +288,8 @@ then says the model wasn't shared.
 
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
-follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,
+its own `cicada` commit, dirty pages skipped), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
@@ -574,6 +575,27 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   `person` > `artifact` > `world`; unseen is `unknown`). Nothing is fetched. An `addressbook://` ref reads
   'Their card in your Contacts (…)' (R-SR16), and the entity card names it "Their card in Contacts", the id only in
   the tooltip (DR-54).
+  **A living set (G61 S3-a, 2026-09-30).** A page holds MANY sources, per fact, capped (`MAX_SOURCES` 30, `MAX_PER_PREDICATE`
+  8; past a cap an agent's add is refused in words, the person's never is). `fact_sources.rank` is the one function every
+  reader that must pick uses (the person's, then one they took or Cicada's read confirmed, then Cicada's, then an agent's;
+  the owner's own page counts only what the person added or took); `source_trusted` is the trust rule. Three more optional
+  keys on an entry: `origin: remote:<id>` (a connection's own entry — what ownership compares), `entity: <page id>` (the page
+  that knows more about this source — its own memory node; validated, never creates a page, a stale id reads as none) and
+  PR2's `verified`. **Ownership:** an agent (`cicada_change_source`) changes or removes ONLY an entry it added
+  (`fact_sources.owns_source`); never the person's, one they took (`accepted`), an `only_me`, Cicada's own or a Sleep model's,
+  and the unidentified `agent` label owns nothing; a connection owns exactly its `origin`, a local agent never a remote app's
+  and the reverse. **Removal is remembered:** the entry leaves `sources:` and a row joins the page's `sources_removed:` (≤ 20,
+  newest kept; `{ref, predicate?, by, at, reason?}`; git keeps the history, the row is what makes it stick). Every non-person
+  writer (Stage 1's proposal, the backfill, `attach_cited_urls`) is refused a tombstoned key (`website` also by site); an agent's
+  add (`cicada_add_source`, `write_claim(sources=)`) is refused what the person or Cicada removed but may put back what an
+  agent removed, and the reply says who removed it and why; the person's add clears the tombstone, and the person's removal
+  (`POST /entities/{id}/sources/change`, or the older index DELETE) writes one too. A ref the scrub would alter is REFUSED, not
+  stored redacted. `entity_merge` carries `sources` and `sources_removed` to the winner and repoints other pages' `entity:`.
+  `entity:` is filled for existing sources by exact match only (`source_links`: a URL whose `url_hash` is a saved page's, a path
+  equal to a directory page's own `path:`), never over a set link, on the Sleep tail and `POST /maintenance/link-sources`, one
+  `cicada`-authored commit (`Source links <date>`, triggers `sleep/source-links`, `maintenance/source-links`). The graph draws a
+  linked source as a read-time edge labelled by its predicate (never persisted, like `has repo`); the card's row wears the linked
+  page's picture and offers "Open page ›".
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
   **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
@@ -768,7 +790,7 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `sleep/expiry`, `sleep/followup`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`sleep/state`, `sleep/expiry`, `sleep/followup`, `sleep/source-links`, `maintenance/source-links`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
 `Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
 importer),
@@ -857,7 +879,13 @@ was decided; `cicada_retract_claim` withdraws an event the same way.
 fact can be checked when there is no claim to write — only a source the person named, never one the
 agent guessed; it is not `cicada_sources` (conversations). `record` scope remotely, where a path, a
 repo or `access: local` is refused; it commits alone under the harness. `cicada_write_claim(sources=)`
-takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
+takes a string or `{ref, access}`. Since G61 S3-a (contract 12, remote 9) the primer names it, and takes an optional
+`entity` (an existing page that knows more about the source). **`cicada_change_source(subject, ref, predicate, action,
+reason, new_ref?, new_predicate?, access?, entity?)`** corrects (`update`) or removes (`remove`, `reason` required) a source
+the caller added — keyed `(ref, predicate)`; `record` scope remotely, a remote caller never names a path, a repo or `access:
+local`; refused with nothing written in a demo bank, while Sleep runs, for no such page or key, for an entry that is not the
+caller's, for a ref that holds a secret; one commit under the harness whose manifest line names neither the ref nor the reason
+(both are in the diff and the tombstone). Its ledger row is ids and enums only (`source_added|source_changed|source_removed`).
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
 **Video watch (G162, TODO ruling 17).** `cicada_record_watch` takes three more arguments the agent states about its

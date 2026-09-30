@@ -19,6 +19,8 @@ the reason, as history (G140 Q-R5): its validity changes, its words never do.
 saved yet is saved first, through `cicada_save_url`'s own path (G140 Q-R8).
 Cicada never fetches the video itself.
 `cicada_add_source` is not open-world: it only records a reference (G61 phase 2 S1).
+`cicada_change_source` (G61 S3-a) corrects or removes only an entry this connection added; a removal is a mark
+in the page and a commit, so it stays history and is not `destructive`.
 `cicada_reading_queue` (read) and `cicada_record_read` (record) are G166's: the person's own agent reads a
 page in their signed-in session, and Cicada records what it reported. Neither description names the other
 (different scopes), so a connection holding only one is never told about an absent tool.
@@ -155,8 +157,31 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                       "description": "Optional: 'public' when anyone can open it, 'signed_in' when it needs the "
                                      "person's login."},
            "kind": {"type": "string", "enum": ["url", "note", "app"],
-                    "description": "Optional: what the ref is; inferred when left out."}},
+                    "description": "Optional: what the ref is; inferred when left out."},
+           "entity": {"type": "string",
+                      "description": "Optional: the id of an existing page that knows more about this source."}},
           ("subject", "ref"), read_only=False, idempotent=True),
+    _tool("cicada_change_source",
+          "Correct or remove a source this connection added because it stopped being relevant or turned out "
+          "wrong. Name it by its ref and current predicate. 'update' changes its access or linked page in "
+          "place, or replaces it with new_ref / new_predicate; 'remove' needs a reason, stays in history, and "
+          "Cicada won't suggest it again. The person's own sources, ones they took, and other apps' can't be "
+          "changed here.",
+          {"subject": {"type": "string", "description": "The page the source is on, for example 'bob-example'."},
+           "ref": {"type": "string", "maxLength": 2048, "description": "The source as listed."},
+           "predicate": {"type": "string",
+                         "description": "The fact it was listed for; leave out when it covers the whole page."},
+           "action": {"type": "string", "enum": ["update", "remove"]},
+           "reason": {"type": "string", "maxLength": 160, "description": "Required for 'remove'."},
+           "new_ref": {"type": "string", "maxLength": 2048, "description": "Optional: the corrected link or words."},
+           "new_predicate": {"type": "string",
+                             "description": "Optional: the fact it should be listed for; empty for the whole page."},
+           "access": {"type": "string", "enum": ["public", "signed_in", "unknown"],
+                      "description": "Optional: what opening it needs."},
+           "entity": {"type": "string",
+                      "description": "Optional: the id of an existing page that knows more about this source; "
+                                     "empty removes the link."}},
+          ("subject", "ref", "action"), read_only=False, idempotent=False),
     _tool("cicada_save_url",
           "Save a link — an article, a video, a paper — to the person's memory, with an optional note on why. "
           "Cicada reads the page's title only when the page is on the public internet.",

@@ -127,6 +127,42 @@ async def run_enrich_links(
     return MaintenanceEnrichLinksResponse(**report.as_dict(), engine=engine, engine_detail=why)
 
 
+# --- Sources linked to their own page (G61 S3-a, D8) ---------------------------------------------------------
+
+_links_lock = asyncio.Lock()
+
+
+@router.post("/maintenance/link-sources")
+async def link_sources(settings: Settings = Depends(get_settings)):
+    """Link every source that is EXACTLY a saved page (its URL) or a directory page (its path) to that page —
+    engine-free, exact matches only, an empty ``entity:`` only, never a page created. The on-demand twin of the
+    Sleep tail's step; one `cicada` commit (``Source links <date>``, trigger ``maintenance/source-links``). 409
+    while Sleep runs or another call runs. Counts only in the body."""
+    from datetime import date
+
+    from api.services import git_service, sleep_cycle, source_links
+
+    if _links_lock.locked():
+        raise HTTPException(409, "a source-link pass is already running — retry when it finishes")
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+    async with _links_lock:
+        memory_path = settings.memory_path
+        skip: frozenset[str] = frozenset()
+        if (memory_path / ".git").exists():
+            skip = await sleep_cycle._dirty_paths(memory_path)
+        report = await asyncio.to_thread(source_links.backfill, memory_path, skip)
+        if report.paths and (memory_path / ".git").exists():
+            try:
+                await git_service.commit_paths(
+                    memory_path,
+                    source_links.commit_message(report, date.today(), "maintenance/source-links"), report.paths)
+            except Exception:
+                await asyncio.to_thread(source_links.restore, memory_path, report)
+                raise HTTPException(500, "the links could not be committed; nothing was changed")
+    return {"linked": report.linked, "pages": len(report.paths)}
+
+
 # --- Search index (G139, Settings → Memory) ----------------------------------
 
 # One rebuild per process, for the reason `_enrich_lock` exists: two

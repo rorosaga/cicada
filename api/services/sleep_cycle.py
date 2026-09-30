@@ -1004,6 +1004,36 @@ async def _propose_followups_safely(memory_path: Path) -> None:
         await asyncio.to_thread(followups.restore, memory_path, report)
 
 
+async def _link_sources_safely(memory_path: Path) -> None:
+    """G61 S3-a (D8) — link a source to its own memory node when it is EXACTLY that node (a saved page's URL, a
+    directory page's path). Engine-free, in its own `cicada` commit; same rules as follow-ups: pages dirty before
+    it ran are skipped, an unreadable tree means nothing tonight, a failed commit undoes what it wrote. Never raises."""
+    from api.services import source_links
+
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Source links skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(source_links.backfill, memory_path, skip)
+    except Exception as exc:
+        logger.warning(f"Source links failed: {type(exc).__name__}: {exc}")
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, source_links.commit_message(report, date.today()), report.paths)
+        logger.info(f"Source links: {report.linked} source(s) linked to their own page")
+    except Exception as exc:
+        logger.warning(f"Source links commit failed — undoing: {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(source_links.restore, memory_path, report)
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1084,6 +1114,8 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
+        # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
+        await _link_sources_safely(memory_path)
         from api.services import demo_guard
 
         if demo_guard.is_demo(memory_path):

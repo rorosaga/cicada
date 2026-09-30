@@ -1990,22 +1990,59 @@ def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, ev
 
 
 
+def _source_event(ctx: ToolContext, memory_path: Path, entity_id: str, action: str) -> None:
+    """One ids-and-enums ledger row per source write (G61 S3-a): which page, which verb, which harness — never the
+    ref, its host or the reason. Filed as `agentic_write` like a claim, so the write counts feed the same views."""
+    from api.services import telemetry
+
+    refs = {"entity_id": entity_id, "claim_id": None, "episode_id": None, "action": action,
+            "session_id": ctx.session_id, "harness": ctx.harness, "client_name": ctx.client_name,
+            "client_version": ctx.client_version}
+    if ctx.is_remote:
+        refs["connector_id"] = ctx.connector_id
+    telemetry.record(telemetry.UsageEvent(
+        kind="agentic_write", stage="driver", connection="session",
+        engine="mcp-remote" if ctx.is_remote else "mcp-client",
+        model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
+    ))
+
+
+def _remote_local_ref(ctx: ToolContext, *refs: str | None) -> bool:
+    """A remote app may not name a path or a repo on this Mac, or ``access: local`` (R-AC31)."""
+    from api.services import fact_sources
+
+    if not ctx.is_remote:
+        return False
+    for value in refs:
+        text = (value or "").strip().lower()
+        if text and (text == fact_sources.ACCESS_LOCAL or text in fact_sources.LOCAL_KINDS
+                     or fact_sources.infer_kind(text) in fact_sources.LOCAL_KINDS):
+            return True
+    return False
+
+
 def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
-               access: str | None = None, kind: str | None = None) -> str:
+               access: str | None = None, kind: str | None = None, entity: str | None = None) -> str:
     """Record WHERE a fact can be checked when there is no claim to write — "the
     person told me the team page lists this" (G61 phase 2 S1, spec §5.3, plan R-AC31).
 
     Only a source the person named, never one the agent guessed — the tool's
     description says so, because nothing here can tell. The subject must be an
     existing page (a source never mints one); the predicate is slugged exactly as
-    ``cicada_write_claim`` slugs its own, so a claim and its source agree. A
-    remote app may not name a path or a repo on this Mac, or ``access: local``:
+    ``cicada_write_claim`` slugs its own, so a claim and its source agree. A page
+    holds MANY sources, per fact, up to a cap. A remote
+    app may not name a path or a repo on this Mac, or ``access: local``:
     refused, nothing written. A new entry commits alone under the harness
     (``agent_commits``, G135 R-R11) — not while Sleep runs, as ``write_claim``.
+    A connection's entry is stamped ``origin: remote:<id>`` (what
+    ``cicada_change_source`` compares). A key the person or Cicada removed is
+    refused, with the day and the reason; one an agent removed may be put back,
+    and the reply says so. ``entity`` links the source to a page that knows more
+    about it — a page that does not exist drops the link, never the source.
     Cicada fetches nothing. Replies name no other tool: a remote caller may not
     hold it.
     """
-    from api.services import fact_sources
+    from api.services import fact_sources, markdown_parser
     from api.services.id_utils import resolve_entity_file, sanitize_id
 
     memory_path = ctx.memory_path()
@@ -2025,23 +2062,32 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     # The ref's own shape is checked too, whatever kind the caller stated: a
     # path sent as kind "note" or "app" still names a file on this Mac (R-AC31;
     # G61 final review, findings 2 and 4).
-    if ctx.is_remote and (kind_value in fact_sources.LOCAL_KINDS
-                          or fact_sources.infer_kind(ref_text) in fact_sources.LOCAL_KINDS
-                          or access_value == fact_sources.ACCESS_LOCAL):
+    if _remote_local_ref(ctx, kind_value, ref_text, access_value):
         return ("Nothing added — a remote app can't name a file or folder on this Mac as a source. "
                 "The person can add it in the Cicada app.")
     predicate_slug = sanitize_id(predicate) if (predicate or "").strip() else None
-    before = len(fact_sources.list_sources(memory_path, entity_id))
+    link, link_note = None, ""
+    if (entity or "").strip():
+        try:
+            link = fact_sources.resolve_entity_link(memory_path, entity, self_id=entity_id)
+        except fact_sources.InvalidSource as exc:
+            link_note = f" The link to a page was left out: {exc}."
+    origin = ctx.claim_origin if ctx.is_remote else None
+    before_fm = markdown_parser.parse(page).frontmatter
+    before = len(fact_sources.as_sources(before_fm.get("sources")))
+    was_removed = fact_sources.removed_note(before_fm, ref_text, predicate_slug)
     try:
         entry = fact_sources.add_source(memory_path, entity_id, ref_text, kind=kind_value,
-                                        predicate=predicate_slug, added_by=ctx.author, access=access_value)
+                                        predicate=predicate_slug, added_by=ctx.author, access=access_value,
+                                        origin=origin, entity=link, via_agent=True)
     except fact_sources.InvalidSource as exc:
         return f"Nothing added — {exc}."
     if entry is None:
         return "Nothing added."
     what = f"'s {predicate_slug}" if predicate_slug else ""
     if len(fact_sources.list_sources(memory_path, entity_id)) == before:
-        return f"Already listed: {entry['ref']} is where to check {entity_id}{what}."
+        return f"Already listed: {entry['ref']} is where to check {entity_id}{what}.{link_note}"
+    _source_event(ctx, memory_path, entity_id, "source_added")
     if not ctx.sleep_running():
         path = f"entities/{entity_id}.md"
         agent_commits.commit_write(
@@ -2049,8 +2095,81 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
             lines=[f"{path}: updated (trigger: {ctx.trigger})"], paths=[path],
             author=ctx.author, session=ctx.session_id,
         )
+    back = f" It was put back: {was_removed}." if was_removed else ""
     return (f"Added {entry['ref']} as where to check {entity_id}{what}. "
-            "The person sees it on the page, marked as yours.")
+            f"The person sees it on the page, marked as yours.{back}{link_note}")
+
+
+def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
+                  action: str = "update", reason: str | None = None, new_ref: str | None = None,
+                  new_predicate: str | None = None, access: str | None = None,
+                  entity: str | None = None) -> str:
+    """Correct or remove a source THIS agent added, because it stopped being
+    relevant or turned out wrong (G61 S3-a; the owner: "an agent can store,
+    change or delete sources depending on whether they are relevant").
+
+    The entry is named by its key, ``ref`` and its CURRENT ``predicate``.
+    ``update`` changes ``access`` or ``entity`` in place; ``new_ref`` or
+    ``new_predicate`` replaces it (credit and date kept). ``remove`` needs a
+    ``reason`` and leaves a mark, so no writer of Cicada's puts it back; it stays
+    in history. Only an entry this agent (or, remotely, this connection) added:
+    the person's, one they took, Cicada's own and a Sleep model's are not
+    changeable here. Refusals write nothing: the demo bank, Sleep running, no
+    such page or key, not yours, a secret in the link, a remote path or repo. One
+    commit under the harness. Replies name no other tool.
+    """
+    from api.services import fact_sources
+    from api.services.id_utils import resolve_entity_file, sanitize_id
+
+    memory_path = ctx.memory_path()
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    verb = (action or "").strip().lower()
+    if verb not in ("update", "remove"):
+        return "Nothing changed — `action` is `update` or `remove`."
+    ref_text = (ref or "").strip()
+    if not ref_text:
+        return "Nothing changed — `ref` is empty."
+    if verb == "remove" and not (reason or "").strip():
+        return "Nothing changed — say why it is being removed in `reason`."
+    if ctx.sleep_running():
+        return ("Nothing changed — Cicada is consolidating memory right now, and a source change would sit "
+                "uncommitted until it finishes. Try again in a few minutes.")
+    page = resolve_entity_file(memory_path, (subject or "").strip()) if (subject or "").strip() else None
+    if page is None:
+        return f"No page named '{subject}' — nothing changed. Use the page's id as `subject`."
+    entity_id = page.stem
+    if _remote_local_ref(ctx, new_ref, access):
+        return ("Nothing changed — a remote app can't name a file or folder on this Mac as a source. "
+                "The person can change it in the Cicada app.")
+    predicate_slug = sanitize_id(predicate) if (predicate or "").strip() else None
+    new_predicate_slug = (None if new_predicate is None
+                          else sanitize_id(new_predicate) if new_predicate.strip() else "")
+    result = fact_sources.change_source(
+        memory_path, entity_id, ref_text, predicate_slug, actor=ctx.author,
+        origin=ctx.claim_origin if ctx.is_remote else None, action=verb, reason=reason,
+        new_ref=new_ref, new_predicate=new_predicate_slug, access=access,
+        entity=fact_sources._UNSET if entity is None else entity, via_agent=True,
+    )
+    if result.action == "not_found":
+        return f"Nothing changed — {result.message[0].lower()}{result.message[1:]}"
+    if result.action == "not_yours":
+        return result.message
+    if result.action == "refused":
+        return f"Nothing changed — {result.message[0].lower()}{result.message[1:]}"
+    path = f"entities/{entity_id}.md"
+    _source_event(ctx, memory_path, entity_id,
+                  "source_removed" if result.action == "removed" else "source_changed")
+    agent_commits.commit_write(
+        memory_path, subject=ctx.commit_subject,
+        lines=[f"{path}: updated (trigger: {ctx.trigger})"], paths=[path],
+        author=ctx.author, session=ctx.session_id,
+    )
+    what = f" for {entity_id}'s {predicate_slug}" if predicate_slug else f" for {entity_id}"
+    if result.action == "removed":
+        return (f"Removed {ref_text} as a source{what}. It stays in history with your reason, and Cicada "
+                "won't suggest it again.")
+    return f"Changed the source {ref_text}{what}; the person sees it on the page."
 
 
 def get_perspective(

@@ -40,6 +40,16 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
 - *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
 
+**Sources as a living set (G61 S3-a) — built on `feat/sources-set`, 2026-09-30 (PR to `dev`; not merged).** The owner: "sources …
+could be multiple, not just one. An agent can store/change/delete sources depending on whether they are relevant … Sources themselves
+can be linked to their own memory node." Many sources per fact; `cicada_change_source`; ownership (an agent changes only its own entries);
+`sources_removed:` tombstones that every non-person writer respects; `entity:` links from a source to its own page (exact-match backfill on
+the Sleep tail, a read-time graph edge, the card's "Open page ›"); `entity_merge` carries sources; contract 12 / remote 9. **Not yet seen
+live:** an agent removing a source and Stage 1 leaving it out on the next night; the graph's size with source edges on the real bank (run
+`POST /maintenance/link-sources` on a copy first; it commits `Source links <date>` as `cicada`). *Pick up here:* review and merge, then PR2
+(websites verified on Cicada's rail, `domain_for` reading only a trusted website source, the logo cache purge) and PR3 (the agent check on
+G166's queue) from `~/.local/share/cicada-lead-scratch/wf4/plan-sources.md` (the plan's D1–D8 are binding).
+
 **Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
 - **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —

@@ -663,6 +663,12 @@ class EntitySource(CamelModel):
     added_at: str = ""
     accepted: bool = False
     only_me: bool = False
+    # G61 S3-a: a connection's own entry (`remote:<id>`), and the page that knows more about this source. The link is
+    # served as stored; a stale id reads as no link app-side (the card resolves it against the graph's pages).
+    origin: Optional[str] = None
+    entity: Optional[str] = None
+    # PR2's stamp (Cicada's own read confirmed the entry); carried now so the wire does not move twice.
+    verified: Optional[dict] = None
 
 
 class EntitySourceCreate(CamelModel):
@@ -675,6 +681,24 @@ class EntitySourceCreate(CamelModel):
     kind: Optional[str] = None
     predicate: Optional[str] = None
     access: Optional[str] = None
+    accepted: Optional[bool] = None
+    only_me: Optional[bool] = None
+    entity: Optional[str] = None   # G61 S3-a: link the source to a page that knows more about it
+
+
+class EntitySourceChange(CamelModel):
+    """``POST /entities/{id}/sources/change`` (G61 S3-a): one source, keyed ``(ref, predicate)`` — not by index.
+    ``update`` changes ``access``/``entity`` in place (an explicit ``entity: null`` clears the link) and a
+    ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a tombstone."""
+
+    ref: str
+    predicate: Optional[str] = None
+    action: str = "update"        # update | remove
+    reason: Optional[str] = None
+    new_ref: Optional[str] = None
+    new_predicate: Optional[str] = None
+    access: Optional[str] = None
+    entity: Optional[str] = None
     accepted: Optional[bool] = None
     only_me: Optional[bool] = None
 

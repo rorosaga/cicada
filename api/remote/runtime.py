@@ -191,7 +191,10 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
         a.get("evidence")),
     "cicada_add_source": lambda c, a: mcp_tools.add_source(
         c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), a.get("access"),
-        a.get("kind")),
+        a.get("kind"), a.get("entity")),
+    "cicada_change_source": lambda c, a: mcp_tools.change_source(
+        c, str(a.get("subject") or ""), str(a.get("ref") or ""), a.get("predicate"), str(a.get("action") or ""),
+        a.get("reason"), a.get("new_ref"), a.get("new_predicate"), a.get("access"), a.get("entity")),
     "cicada_save_url": lambda c, a: mcp_tools.save_url(c, str(a.get("url") or ""), a.get("note")),
     "cicada_note_progress": lambda c, a: mcp_tools.note_progress(
         c, str(a.get("project") or ""), str(a.get("kind") or ""), str(a.get("summary") or ""),

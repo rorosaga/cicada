@@ -30,7 +30,7 @@ def _home(tmp_path, monkeypatch):
 
 
 def test_the_contract_versions_moved():
-    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (11, 8)
+    assert (handshake.CONTRACT_VERSION, handshake.REMOTE_CONTRACT_VERSION) == (12, 9)
 
 
 def test_the_parser_reads_the_reading_calls():
@@ -110,7 +110,7 @@ def test_a_full_bank_primer_with_item_9_stays_inside_the_budget(tmp_path, varian
 
 def test_an_empty_state_primer_is_far_inside_the_budget_with_item_9():
     for variant in handshake.VARIANTS:
-        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1300
+        assert len(handshake.build(None, variant=variant, bank="memory", reading=True)) // 4 < 1350  # G61 S3-a: the source sentence took ~20 tokens; MAX_TOKENS (1,800) is the hard budget
 
 
 @pytest.mark.parametrize("scopes", SUBSETS, ids=lambda s: "+".join(sorted(s)))

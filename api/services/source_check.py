@@ -166,12 +166,15 @@ def targets_for(sources, predicate: str | None, *, person_only: bool) -> tuple[T
     :data:`MAX_TARGETS`; with no match, the first ``url`` (the hint's own
     fallback). An "Only I know" note is never a target. On the owner's page only
     the person's sources count (R-AC9)."""
-    usable = [s for s in fact_sources.as_sources(sources) if not s.get("only_me")]
-    if person_only:
-        usable = [s for s in usable if _added_by(s) == fact_sources.USER]
-    matched = sorted((s for s in usable if _matches(s, predicate)), key=_rank)
+    # G61 S3-a: a page holds many sources — `fact_sources.rank` is the one function that picks among them
+    # (the person's, then a taken or verified one, Cicada's, an agent's; file order within each). On the owner's page
+    # only what the person added or took ("Use this source", `accepted`) counts (R-AC9, D2).
+    matched = fact_sources.rank(sources, predicate, person_only=person_only, match=lambda s, p: _matches(s, p))
     if matched:
         return tuple(_target(s, True) for s in matched[:MAX_TARGETS])
+    usable = [s for s in fact_sources.as_sources(sources) if not s.get("only_me")]
+    if person_only:
+        usable = [s for s in usable if _added_by(s) == fact_sources.USER or s.get("accepted")]
     first_url = next((s for s in usable if str(s.get("kind") or "") == fact_sources.KIND_URL), None)
     return (_target(first_url, False),) if first_url is not None else ()
 

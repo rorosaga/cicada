@@ -251,6 +251,8 @@ WRITES = {
                                                             None, None, None, None),
     "cicada_retract_claim": lambda ctx: mcp_tools.retract_claim(ctx, "alpha-project", "clm_x", "wrong"),
     "cicada_add_source": lambda ctx: mcp_tools.add_source(ctx, "alpha-project", "https://example.com/team"),
+    "cicada_change_source": lambda ctx: mcp_tools.change_source(ctx, "alpha-project", "https://example.com/team",
+                                                                "works-at", "remove", "no longer relevant"),
     "cicada_note_progress": lambda ctx: mcp_tools.note_progress(ctx, "alpha-project", "happened",
                                                                 "Shipped the first build.", "done"),
     "cicada_add_backlog_item": lambda ctx: mcp_tools.add_backlog_item(ctx, "alpha-project", "Cache it", "Slow."),

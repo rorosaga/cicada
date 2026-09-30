@@ -536,14 +536,21 @@ def write_claim(
             from api.services import fact_sources
 
             for ref, access in fact_sources.agent_items(sources, remote=claim_origin.startswith("remote:")):
-                fact_sources.add_source(
-                    memory_path,
-                    entity_id,
-                    ref,
-                    predicate=predicate_slug,
-                    added_by=(new_claim.authored_by or "agent"),
-                    access=access,
-                )
+                try:
+                    fact_sources.add_source(
+                        memory_path,
+                        entity_id,
+                        ref,
+                        predicate=predicate_slug,
+                        added_by=(new_claim.authored_by or "agent"),
+                        access=access,
+                        origin=claim_origin if (claim_origin or "").startswith("remote:") else None,
+                        via_agent=True,
+                    )
+                except fact_sources.InvalidSource:
+                    # A removed key, a full page or a ref with a secret: the claim above is already written and
+                    # provenance never blocks memory, so the source alone is dropped (G61 S3-a).
+                    continue
 
         return {
             "subject": subject_raw,
