@@ -723,7 +723,10 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       job; stored on this Mac (`agent_methods.json`), passed to the person's own agent as a sentence in the hand-off prompt,
       the stdio queue reply and one primer line — never to a remote connection, never authority. A skill the person picks
       gets a `type: skill` page tagged `agent-skill` in the graph, written only on that selection. `macos-harness` states
-      plainly that it can control the whole Mac. Backlog: **G178** (people add or import their own skills).
+      plainly that it can control the whole Mac. **Extended to watching (2026-09-30, ruling 17):** the same mechanism has
+      a second job, `watching` ("How your agent watches", Settings → Reading the web, under "How your agent reads"), with
+      its own choice — one per job. It offers "Let my agent choose", the agent's own tools, and `watch` (claude-video),
+      `browser-harness` and `macos-harness`. Backlog: **G178** (people add or import their own skills).
     Revisit when the owner asks for Route B (a Cicada-spawned browse call, spike-gated) or a per-category refuse list
     (adult, financial, health hosts: not buildable as an honest closed list, so every site the reader could not read stays
     off until the person turns it on, and every other page is an explicit ask).
@@ -804,6 +807,19 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       Names appear only as data (a harness label an agent sent).
     - **R-VU12 — no batch cap.** The queue file's ceiling is 2,000 rows, a file-safety limit with a sentence.
     - **R-VU13 — no site list for video.** An agent hands back what it cannot get with a code; the app surfaces it.
+
+    - **How the agent watches is the same selection (2026-09-30; owner: "for now i want to use the macos-harness, the
+      browser-harness and claude-video to watch videos, as selections in settings, amongst the other default options
+      models can use through their harnesses").** `agent_methods` gained the `watching` job (ruling 14's skill
+      paragraph). The choice — Let my agent choose (default), the agent's own tools, or one of `watch`,
+      `browser-harness`, `macos-harness` — rides in the video hand-off prompt (`video_prompt.method_clause`, capped at
+      130 characters so the prompt's 1,200 holds), in the stdio `cicada_video_claim` reply for a local catalog agent (a
+      skill) or any local client (the agent's own tools), and in one primer line (`Watching videos`); never to a remote
+      connection, never authority, and the skill is named only as catalog data (the neutral-copy lint scans templates).
+      The primer budget stayed at 1,525: both method lines defer to items 3 and 9 for the tool names instead of
+      restating them. Naming a browser skill here does not reopen R-VU10: the default text still names no browser
+      route, and a chosen skill is the person's own instruction, carried the way the browser permission is.
+      `macos-harness` says it can control the whole Mac in the picker.
 
     Revisit R-VU10 only if a real run shows the clause steering an agent somewhere the person did not allow; revisit
     R-VU12 only if a bank's queue file ever nears its ceiling.

@@ -640,10 +640,11 @@ def load_or_build(
         bridges = tuple(skill_catalog.bridge_lines(variant))
         # G166: how the person chose their agent reads (agent_methods) — local variants only, and part of the
         # key for the same reason the bridges are.
-        methods = tuple(agent_methods.method_lines(variant)) if reading else ()
+        methods = tuple(agent_methods.method_lines(variant))  # reading's own line is gated on reading being on
         # Item 9 says what pages are opened with; once the person chose something, and a method line
         # follows, it must say the same thing (the queue tool's reply swaps the phrase the same way).
-        reading_tools = agent_methods.tool_phrase("reading", voice="reply") if methods else None
+        reading_tools = (agent_methods.tool_phrase("reading", voice="reply")
+                         if any(m.startswith("- Reading pages:") for m in methods) else None)
         cache_name = variant
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.

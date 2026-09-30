@@ -54,6 +54,12 @@ class Job:
     own_detail: str
     #: What the default text says the agent opens pages with, before any choice.
     default_tools: str
+    #: The argument the agent records which tool it used in (``cicada_record_read``'s ``via``;
+    #: ``cicada_record_watch``'s ``engine``) — named in a clause only where the tool has it (R12).
+    via_arg: str = "via"
+    #: A shorter first-person skill sentence for a prompt with a hard character cap (the video
+    #: hand-off's 1,200); ``None`` uses the shared template.
+    person_skill: str | None = None
 
 
 JOBS: dict[str, Job] = {
@@ -62,6 +68,13 @@ JOBS: dict[str, Job] = {
         own_title="Its own browser or computer tools",
         own_detail="Whatever your agent already has where you use it.",
         default_tools="your browser tools"),
+    "watching": Job(
+        job="watching", question="How your agent watches",
+        own_title="Its own tools for watching",
+        own_detail="Whatever your agent already has where you use it.",
+        default_tools="your own tools", via_arg="engine",
+        person_skill="I chose the {name} skill: if you can load skills, use it (`engine` \"{invoke}\"), "
+                     "else say so and stop."),
 }
 
 AUTO_TITLE = "Let my agent choose"
@@ -192,12 +205,12 @@ _PERSON = {
     # The person pastes this into whichever agent they use, possibly an app connected from
     # anywhere that cannot load a local skill — so the skill is conditional here.
     "skill": "I chose the {name} skill for this. If you run on this Mac and can load skills, use it, and set "
-             "`via` to \"{name}\"; if it is not installed for you, say so and stop. If you cannot load skills "
+             "`{via_arg}` to \"{invoke}\"; if it is not installed for you, say so and stop. If you cannot load skills "
              "where you run (an app connected from anywhere, say), use your own browser tools instead.",
 }
 _REPLY = {
     OWN: "The person chose your own built-in tools for this; don't load a separate skill for it.",
-    "skill": "The person chose the {name} skill for this: use it, and set `via` to \"{name}\". "
+    "skill": "The person chose the {name} skill for this: use it, and set `{via_arg}` to \"{invoke}\". "
              "If it is not installed for you, say so and stop.",
 }
 
@@ -215,7 +228,11 @@ def _clause(job: str, table: dict, *, variant: str | None, gate_variant: bool) -
     if gate_variant and variant not in skill_catalog.AGENTS:
         return None  # a skill is named only where it can be installed
     entry = skill_entry(job, chosen)
-    return table["skill"].format(name=_name(entry)) if entry else None
+    if not entry:
+        return None
+    spec = JOBS[job]
+    template = (spec.person_skill if table is _PERSON and spec.person_skill else table["skill"])
+    return template.format(name=_name(entry), invoke=entry["invoke"], via_arg=spec.via_arg)
 
 
 def tool_phrase(job: str, *, voice: str = "person") -> str:
@@ -241,34 +258,53 @@ def reply_clause(job: str, *, variant: str | None = None, remote: bool = False) 
 
 
 def capability_line(job: str, variant: str) -> str | None:
-    """One primer line for a local variant, only while the person's agent reading is
-    on and the choice is not ``auto``. Names only real tools with their real
-    arguments (R12)."""
+    """One primer line for a local variant when the choice for ``job`` is not ``auto``
+    (reading also needs the person's agent reading on). Names only real tools with their
+    real arguments (R12)."""
     from api.services import reading_settings
 
-    if job != "reading" or not reading_settings.agent_enabled():
+    if job == "reading" and not reading_settings.agent_enabled():
+        return None
+    if job not in _LINES:
         return None
     chosen = choice(job)
     if chosen == AUTO:
         return None
+    lead, own, skill = _LINES[job]
     if chosen == OWN:
-        return ("- Reading pages: the person chose your own built-in browser or computer tools for it; don't "
-                "load a separate skill.")
+        return f"- {lead}: {own}"
     if variant not in skill_catalog.AGENTS:
         return None
     entry = skill_entry(job, chosen)
     if entry is None:
         return None
-    return (f"- Reading pages: the person chose the {_name(entry)} skill for it. When links are waiting "
-            "(`cicada_reading_queue(limit)`), read them with it, then record each with "
-            "`cicada_record_read(url, outcome, summary, excerpts=[{quote}], via)`. If it is not installed for "
-            "you, say so and stop.")
+    return f"- {lead}: " + skill.format(name=_name(entry), invoke=entry["invoke"])
+
+
+#: The primer line per job: (lead, own-tools sentence, skill sentence). Kept short — the primer's
+#: fixed part has a budget test that is not raised for a new line.
+_LINES = {  # item 9 and item 3 already name the tools; a line only says which skill
+    "reading": (
+        "Reading pages",
+        "the person chose your own built-in browser or computer tools for it; don't load a separate skill.",
+        "the person chose the {name} skill for it. Use it for item 9; set `via` to \"{invoke}\". "
+        "If it is not installed for you, say so and stop."),
+    "watching": (
+        "Watching videos",
+        "the person chose your own built-in tools for it; don't load a separate skill.",
+        "the person chose the {name} skill for it. Use it for their video queue; set `engine` to "
+        "\"{invoke}\". If it is not installed for you, say so and stop."),
+}
 
 
 def method_lines(variant: str) -> tuple[str, ...]:
     """The primer's method lines for a local variant, at most ``MAX_METHOD_LINES``."""
-    try:
-        line = capability_line("reading", variant)
-    except Exception:  # noqa: BLE001 — a primer is never worth a failed connect
-        line = None
-    return tuple(l for l in (line,) if l)[: skill_catalog.MAX_METHOD_LINES]
+    lines = []
+    for job in JOBS:
+        try:
+            line = capability_line(job, variant)
+        except Exception:  # noqa: BLE001 — a primer is never worth a failed connect
+            line = None
+        if line:
+            lines.append(line)
+    return tuple(lines)[: skill_catalog.MAX_METHOD_LINES]

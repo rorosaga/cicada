@@ -35,6 +35,10 @@ extension Copy {
         static let skillInstalled = "Installed"
         static let skillNotInstalled = "Not installed yet"
         static let methodsFooter = "This applies to agents on this Mac that can load a skill. Apps you connect from anywhere use their own tools."
+        // How your agent watches (ruling 17): the video hand-off's own choice, one per job.
+        static let watchMethodsGroup = "How your agent watches"
+        static let watchMethodsDetail = "Cicada tells your agent which you chose when it works your video queue. It can’t see or limit what your agent does, in your browser or on your Mac."
+        static func watchRadioLabel(_ title: String) -> String { "Watch with \(title)" }
         static func methodRadioLabel(_ title: String) -> String { "Read with \(title)" }
         static func pageNote(_ state: String) -> String? {
             switch state {
