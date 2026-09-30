@@ -861,7 +861,10 @@ expiry applied in memory and persisted inside a write) — so nothing in its lif
 the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, code, reason}]`, hands one back
 (`needs_login` tells the agent not to sign in and tells the person). It is in `WRITE_TOOLS` (the demo gate, the write
 lock; only its per-video title/channel lines are fenced, Cicada's own instructions in the reply stay outside) but `runtime._writes_bank` is false for it, and **a lapsed lease is judged only when Sleep is not
-holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain cannot burn a video's three attempts.
+holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain cannot burn a video's three attempts; while a
+lapsed lease is due, the `videoQueue` stamp also carries that hold bit (`<mtime>:<due>:<held>`), so the hold ending moves
+the component the app follows with nothing written. `VideoStateCache.reset()` on a bank switch keeps what a page asked
+for (`asked`), and the switch reads the new bank at once.
 `record_watch` credits the queue whether or not its bank commit ran. **No batch cap** (a hand-off takes every selected
 video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved video can be queued; a login wall is handed
 back and surfaced). The hand-off prompt (`video_prompt.py`, ≤ 1,200 characters) is provider-neutral, names no browser
@@ -1215,8 +1218,11 @@ the page's find row.
   progress card counts `batch.done` only. `VideoBlock` ("What Cicada has from this video") sits in a saved video's
   detail column and the entity card's media block: the state, who recorded it (the harness and, where the turn join
   found one, the model — data only), whether Sleep read it, the first quote, the honesty line, and Queue transcript /
-  Queue watch / Remove / Try again; a `needs_login` hand-back adds *Open in browser* and a sentence about the reading
-  permission (its Settings button waits for the reading branch: `VideoActions.for(_:permission:)` takes `nil` today).
+  Queue watch / Remove / Try again; a `needs_login` hand-back adds *Open in browser*, and the sentence about the
+  reading permission and its Settings button wait for the reading branch (`VideoActions.for(_:permission:)` takes `nil`
+  today, and `nil` shows no sentence — none points at a setting this build lacks). The honesty lines promise only what
+  the record says: "a model's reading, not captions" only when its engine is `video_link`, else "may be approximate";
+  a record with no basis reads "The agent didn't say how it read this", never a claim about when it was made.
   The Reader's header for a watch record and each `media` turn's fidelity are built from the episode's `watch` block.
   Every string is in `Copy+Videos.swift`, and `VideoCopyNeutralityTests` fails on a provider or model name.
 

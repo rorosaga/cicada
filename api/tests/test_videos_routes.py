@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from _video_fixtures import add_video, add_watch_episode, bank_with_videos, url_of
 from api import config, main
 from api.routers import videos as videos_router
-from api.services import bank_index, demo_guard, video_prompt, video_queue, video_state
+from api.services import bank_index, demo_guard, sync_service, video_prompt, video_queue, video_state
 
 NOW = datetime(2026, 9, 29, 14, 0, 0, tzinfo=timezone.utc)
 
@@ -245,10 +245,14 @@ def test_the_etag_follows_whether_sleep_holds_the_pages(rig, monkeypatch):
     clock["t"] = NOW + timedelta(minutes=50)
     held = {"v": True}
     monkeypatch.setattr(videos_router, "_holding", lambda: held["v"])
+    monkeypatch.setattr(video_queue, "_sleep_holds", lambda: held["v"])
     during = c.get("/videos/state")
+    component_during = sync_service.components(memory)["videoQueue"]
     item = next(i for i in during.json()["items"] if i["key"] == keys[0])
     assert item["queueState"] == "claimed"
     held["v"] = False
+    assert sync_service.components(memory)["videoQueue"] != component_during, \
+        "the hold ending moves the component the app follows, so it revalidates with nothing written"
     after = c.get("/videos/state", headers={"If-None-Match": during.headers["ETag"]})
     assert after.status_code == 200 and after.headers["ETag"] != during.headers["ETag"]
     item = next(i for i in after.json()["items"] if i["key"] == keys[0])

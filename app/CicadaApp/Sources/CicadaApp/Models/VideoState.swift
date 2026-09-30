@@ -13,8 +13,8 @@ private func lenient<E: RawRepresentable>(_ c: KeyedDecodingContainer<VideoState
     return E(rawValue: raw)
 }
 
-/// What Cicada holds for one video: nothing but its metadata, a transcript, frames (a watch), both, or a record made
-/// before Cicada asked how it was read.
+/// What Cicada holds for one video: nothing but its metadata, a transcript, frames (a watch), both, or a record that
+/// does not say how it was read (every legacy record, and any made without a `basis`).
 enum VideoWatchState: String, Equatable, Sendable, CaseIterable {
     case none, transcript, watched
     case watchedAndTranscript = "watched_and_transcript"

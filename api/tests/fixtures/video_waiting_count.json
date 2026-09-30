@@ -1,0 +1,11 @@
+{
+  "_doc": "G162 — how many videos the copied prompt says are waiting after a hand-off: every pick the queue leaves queued (a new, queued or failed row) plus every queued row not picked; a pick an agent already claimed stays claimed and is not waiting. `rows` maps a video's index to its queue state before the hand-off; `picks` are indices. Read by test_video_queue.py (video_queue.handoff) and VideoTests.swift (VideoRunModel.waitingCount).",
+  "cases": [
+    {"name": "fresh picks", "rows": {}, "picks": [0, 1], "waiting": 2},
+    {"name": "every pick already claimed", "rows": {"0": "claimed"}, "picks": [0], "waiting": 0},
+    {"name": "a claimed pick, a queued bystander, a new pick", "rows": {"0": "claimed", "1": "queued"}, "picks": [0, 2], "waiting": 2},
+    {"name": "a failed pick is queued again", "rows": {"0": "failed"}, "picks": [0], "waiting": 1},
+    {"name": "queued and claimed picks", "rows": {"0": "queued", "1": "claimed"}, "picks": [0, 1, 2], "waiting": 2},
+    {"name": "a failed bystander is not waiting", "rows": {"0": "failed", "1": "queued"}, "picks": [2], "waiting": 2}
+  ]
+}

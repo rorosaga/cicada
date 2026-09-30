@@ -201,7 +201,7 @@ value, an agent that omits `basis` — are all rows of this table and are pinned
 `api/tests/fixtures/video_state.json` (A1, A6).
 
 - **Legacy.** A watch episode written before this change has no basis. It reads `recorded`, and the
-  row's help says "Recorded before Cicada asked how it was read." No backfill, no rewrite (the house
+  row's help says "The agent didn't say how it read this." (final review 2026-09-30: a basis-less record can still be made today) No backfill, no rewrite (the house
   rule). This is a change from the first draft, which read it as `watched`: most records today were
   made by an agent that was never asked for a method, and could as well be a caption read.
 - **Same content, new basis.** `_write_episode` dedups on the content hash and returns the existing
@@ -543,7 +543,7 @@ Feed · Videos · Choose · 3 selected      [Not yet read 14][Queued 4][Read 9] 
   *Use Gemini on the link*. It only changes the hint line in the prompt (§4.8). It never runs
   anything. **There is no logged-in-browser row** (R-VU10, §5, Q8).
 - **The leaves-your-Mac note** is a pure function, `WatchLeavesMacNote`, in the style of
-  `LeavesMacNote`: with the hand-off, "Cicada sends nothing. Your agent decides where a video goes.";
+  `LeavesMacNote`: with the hand-off, "Cicada gives your agent each video's link, title, channel and length, nothing more. Your agent decides where a video goes." (final review 2026-09-30: the tools do hand those over);
   with the slice-6 Gemini run, "Google reads the video with your Gemini key."
 - **The one primary** [DR-40] is **Copy for an agent**. It calls `POST /videos/run/handoff`, copies the
   prompt and moves the run card to its progress state:
@@ -619,12 +619,12 @@ WHAT'S WAITING
 | Where | Text |
 |---|---|
 | States | Metadata only · Transcript read · Watched by an agent · Watched, with transcript · Recorded, method not given |
-| Legacy help | Recorded before Cicada asked how it was read. |
+| Legacy help | The agent didn't say how it read this. |
 | Queue buttons | Queue transcript · Queue watch · Remove from the queue · Try again |
 | Queued line | In the queue to be read · In the queue to be watched · Picked up by Claude Code |
 | Empty (none) | Only the title and thumbnail so far. |
 | Record | Sleep hasn't read this yet. · Read by Sleep. (nothing when an agent flipped `processed`) |
-| Fidelity | Wording is approximate (a model's reading, not captions). |
+| Fidelity | Wording is approximate (a model's reading, not captions). — engine `video_link` only; `other` or none: "Wording may be approximate: the agent didn't say it came from captions." |
 | Size | Light · Medium · Heavy · length unknown |
 | Run card | Choose videos… · Copy for an agent · Sleep reads these the next time it runs. |
 | Queue line (one wording: the Feed strip, the Sleep row, and the sum the picker's Queued tab counts) | 4 queued · 1 picked up by an agent · 1 couldn't be done (a clause is omitted at zero) |

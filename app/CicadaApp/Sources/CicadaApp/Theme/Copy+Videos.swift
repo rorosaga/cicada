@@ -79,16 +79,20 @@ extension Copy {
         static let reasonNotFound = "the video wasn't found"
         static let reasonBlocked = "the site blocked it"
         static let reasonFailed = "it didn't work"
+        /// Shown only once the reading branch supplies the browser permission and it is off (`VideoActions`).
         static let browserPermissionOff = "Your agent can use your browser to read pages when you allow it."
         static let allowBrowser = "Allow your agent to use your browser"
         static let browserPermissionOn = "Your agent may use your browser. Try again."
 
         // The honesty line: what the record is and is not.
         static let sawNoFrames = "An agent recorded that it watched this. Cicada saw no frames itself."
-        static let legacyRecord = "Recorded before Cicada asked how it was read."
+        static let basisNotGiven = "The agent didn't say how it read this."
         static let readBySleep = "Read by Sleep."
         static let notReadBySleep = "Sleep hasn't read this yet."
+        /// Only when the agent said a model read the link (`video_link`).
         static let approximateWording = "Wording is approximate (a model's reading, not captions)."
+        /// `other` or no engine: the server reads it approximate because it was not told — say only that.
+        static let approximateUnsaid = "Wording may be approximate: the agent didn't say it came from captions."
         static func fromTheVideo(_ time: String?) -> String { time.map { t in "From the video · \(t)" } ?? "From the video" }
         static func recordedOn(_ day: String) -> String { day }
 
@@ -99,7 +103,7 @@ extension Copy {
             case .transcript?: how = "from the video's transcript"
             case .frames?: how = "from the video's frames"
             case .both?: how = "from the video's frames and its transcript"
-            case nil: how = "before Cicada asked how it was read"
+            case nil: how = "without saying how it was read"
             }
             let tail = engineTail(engine)
             return "A watch record: an agent recorded it \(how)\(tail). Cicada saw no frames itself."
@@ -158,7 +162,7 @@ extension Copy {
         static let howAuto = "Let the agent choose"
         static let howCaptions = "Captions or transcript only"
         static let howLink = "Read the link directly"
-        static let howLinkHelp = "Your agent may hand the link to a model that takes video. Nothing is downloaded."
+        static let howLinkHelp = "Your agent may hand the link to a model that takes video. Cicada downloads nothing."
         static let promptLabel = "What your agent gets"
         static let showAll = "Show all"
         static let showLess = "Show less"
@@ -226,7 +230,7 @@ extension Copy {
         static func meterHelp(done: Int, total: Int) -> String { "\(UsageFormat.count(done)) of \(UsageFormat.count(total)) videos recorded" }
 
         // MARK: The hand-off's note
-        static let leavesMacNote = "Cicada sends nothing. Your agent decides where a video goes."
+        static let leavesMacNote = "Cicada gives your agent each video's link, title, channel and length, nothing more. Your agent decides where a video goes."
 
         // MARK: Sleep's Details row
         static let sleepRowTitle = "Videos"

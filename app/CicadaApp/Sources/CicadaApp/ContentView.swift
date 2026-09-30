@@ -100,12 +100,14 @@ struct ContentView: View {
             backlogCache.reset()
             channelItemsCache.reset()
             videoStateCache.reset()
+            // G162 — a page on screen keeps its video rows: the reset forgot the answers, never what was asked.
+            if videoStateCache.wantsReads { Task { await videoStateCache.revalidate() } }
             inboxVM.resetColumns()
         }
-        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache nothing has read yet
-        // stays unread until a page that shows it appears.
+        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache no page has asked of
+        // stays unread until a page that shows it appears. A bank switch keeps what was asked (`wantsReads`).
         .onChange(of: store.version) { old, new in
-            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.hasRead else { return }
+            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
             Task { await videoStateCache.revalidate() }
         }
         // A cached hover preview has no validator, so any change to the

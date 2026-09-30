@@ -187,12 +187,14 @@ final class VideoRunModel {
 
     // MARK: - The prompt preview and the one write
 
-    /// How many videos the prompt says are waiting: what the person picked, plus anything already in the queue that
-    /// stays there.
+    /// How many videos the prompt says are waiting — the server's `handoff` count: every pick the queue leaves queued
+    /// (a new, queued or failed row; a pick an agent already claimed stays claimed), plus anything already queued that
+    /// was not picked. One case table with the server: `api/tests/fixtures/video_waiting_count.json`.
     func waitingCount(_ rows: [VideoRow]) -> Int {
         let chosen = Set(selected)
+        let waitingPicks = rows.filter { chosen.contains($0.id) && $0.state.queueState != .claimed }.count
         let stayingQueued = rows.filter { $0.state.queueState == .queued && !chosen.contains($0.id) }.count
-        return selected.count + stayingQueued
+        return waitingPicks + stayingQueued
     }
 
     /// The text the person is about to copy, asked for and shown BEFORE the write (writes nothing).

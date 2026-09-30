@@ -374,25 +374,46 @@ def view(memory_path: Path, now: datetime | None = None, *, records=None,
     return rows, batches
 
 
-def stamp(memory_path: Path, now: datetime | None = None) -> str:
-    """The ``videoQueue`` sync component: ``<mtime>:<due>``.
+def _sleep_holds() -> bool:
+    """Is Sleep holding the pages (``sleep_cycle.is_writing``)? Imported lazily —
+    the service sits under ``sleep_cycle`` — and False when it cannot be read."""
+    try:
+        from api.services import sleep_cycle
+
+        return bool(sleep_cycle.is_writing())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def stamp(memory_path: Path, now: datetime | None = None, *,
+          holding: Callable[[], bool] | None = None) -> str:
+    """The ``videoQueue`` sync component: ``<mtime>:<due>``, and ``:<held>`` while
+    a lapsed lease is due.
 
     The mtime alone is blind to the two things that happen with nothing written —
     a lease lapsing and a row or batch aging out — yet both change what
     ``/videos/state`` says. ``due`` counts them, so the component (and both
-    ETags) move at the instant they happen (H2). A parse happens only when the
-    file changed; otherwise this is a ``stat`` and a walk over a small list."""
+    ETags) move at the instant they happen (H2). A lapsed lease is settled only
+    while Sleep does not hold the pages (P5), so while one is due the component
+    also carries that bit: when the hold ends with nothing written, the
+    component moves and the app reads the lease's lapse. ``holding`` is called
+    only then. A parse happens only when the file changed; otherwise this is a
+    ``stat`` and a walk over a small list."""
     st = _stat(memory_path)
     if st is None:
         return f"{0.0:.6f}:0"
     rows, batches = _cached(memory_path)
     moment = _now(now)
     live = _live_batch_keys(rows)
-    due = sum(1 for r in rows if _lapsed(r, moment))
+    lapsed = sum(1 for r in rows if _lapsed(r, moment))
+    due = lapsed
     due += sum(1 for r in rows if r["state"] == "failed" and (_failed_expiry(r) or moment + timedelta(days=1)) <= moment)
     for batch in batches.values():
         if not (live & set(batch["keys"])) and (_batch_expiry(batch) or moment + timedelta(days=1)) <= moment:
             due += 1
+    if lapsed:
+        held = (holding or _sleep_holds)()
+        return f"{st.st_mtime:.6f}:{due}:{int(bool(held))}"
     return f"{st.st_mtime:.6f}:{due}"
 
 

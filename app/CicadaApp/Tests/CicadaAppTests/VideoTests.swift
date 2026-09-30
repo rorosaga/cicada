@@ -155,6 +155,38 @@ final class VideoStateCacheTests: XCTestCase {
         XCTAssertEqual(api.stateETags.last ?? "x", nil, "a reset cache asks without an ETag")
     }
 
+    func testABankSwitchReadsTheNewBankForAPageStillOnScreen() async {
+        // A reset forgets the answers, never what a page asked for: the switch's own version event (the `bank`
+        // component) reads again with no ETag, so the Feed and the Sleep row are not left blank.
+        let api = FakeVideosAPI()
+        api.stateReplies = [FakeVideosAPI.fresh(state([item]), "e1"), FakeVideosAPI.fresh(state([]), "e2")]
+        let cache = VideoStateCache(api: api, sleeper: { _ in throw CancellationError() })
+        XCTAssertFalse(cache.wantsReads, "nothing asked yet")
+        await cache.refresh()
+        cache.reset()
+        XCTAssertFalse(cache.hasRead)
+        XCTAssertTrue(cache.wantsReads, "the page on screen still wants its rows")
+        let old = VersionVector(version: "a", components: ["bank": "alpha", "videoQueue": "1:0"])
+        let new = VersionVector(version: "b", components: ["bank": "beta", "videoQueue": "1:0"])
+        XCTAssertTrue(VideoRefresh.shouldRevalidate(old: old, new: new))
+        await cache.revalidate()
+        XCTAssertEqual(api.stateETags, [nil, nil], "the new bank is read, without the old bank's ETag")
+        XCTAssertTrue(cache.hasRead)
+    }
+
+    func testABankSwitchKeepsTheSleepRowsCountsRead() async {
+        let api = FakeVideosAPI()
+        let counts = VideoSummary(total: 1, batch: nil, nextChangeAt: nil)
+        api.summaryReplies = [.success(Conditional(value: counts, etag: "s1", notModified: false)),
+                              .success(Conditional(value: counts, etag: "s2", notModified: false))]
+        let cache = VideoStateCache(api: api, sleeper: { _ in throw CancellationError() })
+        await cache.refreshSummary()
+        cache.reset()
+        await cache.revalidate()
+        XCTAssertEqual(cache.summary?.total, 1)
+        XCTAssertTrue(api.stateETags.isEmpty, "the counts alone, never the rows")
+    }
+
     func testTheCardAsksForRowsEvenAfterTheSleepPageReadTheCounts() async {
         let api = FakeVideosAPI()
         api.summaryReplies = [.success(Conditional(value: VideoSummary(total: 1, batch: nil, nextChangeAt: nil),
@@ -234,6 +266,13 @@ final class VideoRefreshTests: XCTestCase {
         XCTAssertFalse(VideoRefresh.shouldRevalidate(old: old, new: v(["videoQueue": "1:0", "episodes": "a", "sleep": "s2"])))
     }
 
+    func testTheHoldEndingOverALapsedLeaseRevalidates() {
+        // The server folds Sleep's hold into `videoQueue` while a lapsed lease is due (`video_queue.stamp`), so the
+        // hold ending moves a component this list follows with nothing written.
+        let old = v(["videoQueue": "1:1:1", "sleep": "running:x"])
+        XCTAssertTrue(VideoRefresh.shouldRevalidate(old: old, new: v(["videoQueue": "1:1:0", "sleep": "running:x"])))
+    }
+
     func testAnUnmappedComponentStillDecodes() throws {
         let json = #"{"version": "abc", "components": {"videoQueue": "12.5:1", "entities": "e"}}"#
         let vector = try JSONDecoder().decode(VersionVector.self, from: Data(json.utf8))
@@ -285,7 +324,12 @@ final class VideoWordsTests: XCTestCase {
 
     func testHonestyLines() {
         var s = VideoStateItem(key: "k", mediaEntityId: "m", url: "u", state: .watched, fidelity: .approximate, readBySleep: false)
+        XCTAssertEqual(VideoWords.sleepLine(s), "Sleep hasn't read this yet. Wording may be approximate: the agent didn't say it came from captions.",
+                       "no engine: nothing is claimed about how the words were made")
+        s.engine = .videoLink
         XCTAssertEqual(VideoWords.sleepLine(s), "Sleep hasn't read this yet. Wording is approximate (a model's reading, not captions).")
+        s.engine = .other
+        XCTAssertEqual(VideoWords.sleepLine(s), "Sleep hasn't read this yet. Wording may be approximate: the agent didn't say it came from captions.")
         XCTAssertEqual(VideoWords.caveatLine(s), "An agent recorded that it watched this. Cicada saw no frames itself.")
         s.state = .transcript
         s.readBySleep = nil
@@ -293,7 +337,7 @@ final class VideoWordsTests: XCTestCase {
         XCTAssertNil(VideoWords.sleepLine(s), "an agent flipped the flag: the line says nothing")
         XCTAssertNil(VideoWords.caveatLine(s))
         s.state = .recorded
-        XCTAssertEqual(VideoWords.caveatLine(s), "Recorded before Cicada asked how it was read.")
+        XCTAssertEqual(VideoWords.caveatLine(s), "The agent didn't say how it read this.", "no claim about when it was recorded")
         for line in VideoWords.honestyLines(s) { XCTAssertFalse(line.lowercased().contains("in your graph")) }
     }
 
@@ -361,7 +405,9 @@ final class VideoActionsTests: XCTestCase {
 
     func testNeedsLoginByPermission() {
         let unknown = VideoActions.for(s(.none, .failed, code: .needsLogin))
-        XCTAssertTrue(unknown.showsOpenInBrowser && unknown.showsBrowserLine)
+        XCTAssertTrue(unknown.showsOpenInBrowser)
+        XCTAssertFalse(unknown.showsBrowserLine, "no sentence points at a setting this build does not have")
+        XCTAssertTrue(VideoActions.for(s(.none, .failed, code: .needsLogin), permission: .off).showsBrowserLine)
         XCTAssertFalse(unknown.showsAllowBrowser, "no button until this build can read the one permission")
         XCTAssertTrue(VideoActions.for(s(.none, .failed, code: .needsLogin), permission: .off).showsAllowBrowser)
         let on = VideoActions.for(s(.none, .failed, code: .needsLogin), permission: .on)
@@ -402,6 +448,28 @@ final class VideoRunModelTests: XCTestCase {
         model.selectAllUnread(rows)
         XCTAssertEqual(model.selected.count, 13)
         XCTAssertEqual(Copy.Videos.selectAllUnread(13), "Select all 13 not read yet")
+    }
+
+    func testThePreviewCountsWhatTheServerCountsAsWaiting() throws {
+        // One case table with `video_queue.handoff`: a pick an agent already claimed stays claimed and is not waiting.
+        struct Case: Decodable { let name: String; let rows: [String: String]; let picks: [Int]; let waiting: Int }
+        struct File: Decodable { let cases: [Case] }
+        let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: VideoFixtures.apiFixtures
+            .appendingPathComponent("video_waiting_count.json")))
+        XCTAssertGreaterThanOrEqual(file.cases.count, 5, "a test over no cases passes vacuously")
+        for c in file.cases {
+            let rows: [VideoRow] = (0..<4).map { i in
+                let url = "https://www.youtube.com/watch?v=abcdefghij\(i)"
+                let feed = VideoFixtures.feedItem(id: "media-\(i)", url: url)
+                let state = VideoStateItem(key: "k\(i)", mediaEntityId: "media-\(i)", url: url,
+                                           queueState: c.rows[String(i)].flatMap(VideoQueueState.init(rawValue:)))
+                return VideoRow(item: feed, state: state)
+            }
+            let model = VideoRunModel()
+            model.begin(summary: nil)
+            for i in c.picks { model.toggle(rows[i]) }
+            XCTAssertEqual(model.waitingCount(rows), c.waiting, c.name)
+        }
     }
 
     func testSizeWordsAndKnownMinutesOnly() {
@@ -516,7 +584,8 @@ final class VideoCopyNeutralityTests: XCTestCase {
     }
 
     func testTheLeavesMacNoteIsExact() {
-        XCTAssertEqual(WatchLeavesMacNote.text(), "Cicada sends nothing. Your agent decides where a video goes.")
+        XCTAssertEqual(WatchLeavesMacNote.text(),
+                       "Cicada gives your agent each video's link, title, channel and length, nothing more. Your agent decides where a video goes.")
     }
 
     static func stringLiterals(_ source: String) -> [String] {
@@ -558,7 +627,7 @@ final class ProvenanceFidelityTests: XCTestCase {
         XCTAssertEqual(ReaderHeader.captureLine(doc(EpisodeWatch(basis: .transcript, engine: .captions))),
                        "A watch record: an agent recorded it from the video's transcript, from captions. Cicada saw no frames itself.")
         XCTAssertEqual(ReaderHeader.captureLine(doc(EpisodeWatch(basis: nil, engine: nil))),
-                       "A watch record: an agent recorded it before Cicada asked how it was read. Cicada saw no frames itself.")
+                       "A watch record: an agent recorded it without saying how it was read. Cicada saw no frames itself.")
         for engine in [VideoEngine.captions, .videoLink, .localFrames, .speechToText, .browser, .other] {
             let line = ReaderHeader.captureLine(doc(EpisodeWatch(basis: .frames, engine: engine))) ?? ""
             for name in VideoCopyNeutralityTests.names { XCTAssertFalse(line.lowercased().contains(name), line) }

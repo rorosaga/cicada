@@ -126,9 +126,11 @@ enum VideoWords {
         case false?: first.append(Copy.Videos.notReadBySleep)
         case nil: break
         }
-        if state.fidelity == .approximate { first.append(Copy.Videos.approximateWording) }
+        if state.fidelity == .approximate {
+            first.append(state.engine == .videoLink ? Copy.Videos.approximateWording : Copy.Videos.approximateUnsaid)
+        }
         if !first.isEmpty { lines.append(first.joined(separator: " ")) }
-        if state.state == .recorded { lines.append(Copy.Videos.legacyRecord) }
+        if state.state == .recorded { lines.append(Copy.Videos.basisNotGiven) }
         else if hasFrames(state.state) { lines.append(Copy.Videos.sawNoFrames) }
         return lines
     }
@@ -140,7 +142,7 @@ enum VideoWords {
     static func caveatLine(_ state: VideoStateItem) -> String? { honestyLines(state).first(where: isCaveat) }
 
     private static func isCaveat(_ line: String) -> Bool {
-        line == Copy.Videos.sawNoFrames || line == Copy.Videos.legacyRecord
+        line == Copy.Videos.sawNoFrames || line == Copy.Videos.basisNotGiven
     }
 
     /// <app> · <model> · Sep 28 — built from DATA only: the harness the record carries (its app name through
@@ -227,7 +229,8 @@ struct VideoActionSet: Equatable {
     var showsRemove = false
     var showsTryAgain = false
     var showsOpenInBrowser = false
-    /// `off` or `nil` shows the sentence; `on` shows "may use your browser. Try again." Only a needs-login video has one.
+    /// `off` shows the sentence; `on` shows "may use your browser. Try again."; `nil` (this build cannot read the
+    /// permission yet) shows none — no sentence points at a setting that is not there. Only a needs-login video has one.
     var browserLine: VideoBrowserPermission?
     var showsBrowserLine = false
     /// The link to Settings → Agents; only while the permission is known to be off.
@@ -259,7 +262,7 @@ enum VideoActions {
             set.showsRemove = true
             if item.failedCode == .needsLogin {
                 set.showsOpenInBrowser = true
-                set.showsBrowserLine = true
+                set.showsBrowserLine = permission != nil
                 set.browserLine = permission
                 set.showsAllowBrowser = permission == .off
             }

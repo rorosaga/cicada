@@ -66,13 +66,15 @@ struct VideoBlock: View {
                         .lineLimit(1)
                 }
             }
-            if state.state == .recorded { tertiary(Copy.Videos.legacyRecord) }
+            if state.state == .recorded { tertiary(Copy.Videos.basisNotGiven) }
             statusLine(actions.status)
             if state.state == .none { tertiary(Copy.Videos.onlyMetadata) }
             if let sleep = VideoWords.sleepLine(state) { bodyLine(sleep) }
             if let quote = record.flatMap(VideoQuote.first) { quoteView(quote) }
             if state.state != .recorded, let caveat = VideoWords.caveatLine(state) { tertiary(caveat) }
-            if actions.showsBrowserLine { tertiary(Copy.Videos.browserPermissionOff) }
+            if actions.showsBrowserLine {
+                tertiary(actions.browserLine == .on ? Copy.Videos.browserPermissionOn : Copy.Videos.browserPermissionOff)
+            }
             buttons(state, actions)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

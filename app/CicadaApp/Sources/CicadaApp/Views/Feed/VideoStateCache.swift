@@ -21,6 +21,14 @@ final class VideoStateCache {
     private(set) var summaryOnly: VideoSummary?
     /// Queue changes painted over the server's answer until an answer holds them (`Paint`).
     private(set) var paints: [String: Paint] = [:]
+    /// What a page on screen has asked for: the rows, the counts, or nothing yet. Kept across `reset()` — a bank
+    /// switch forgets the answers, never that a page wants them — so the switch's own version event reads again.
+    private(set) var asked: Asked = .nothing
+
+    enum Asked: Int, Comparable {
+        case nothing, summary, rows
+        static func < (a: Asked, b: Asked) -> Bool { a.rawValue < b.rawValue }
+    }
 
     /// One optimistic change: the person just queued a video (with what they asked for) or took it out.
     enum Paint: Equatable {
@@ -111,12 +119,20 @@ final class VideoStateCache {
 
     // MARK: - Reads
 
-    /// True once anything was read — the sync-driven revalidation asks only then.
+    /// True while an answer is on hand.
     var hasRead: Bool { state != nil || summaryOnly != nil }
 
-    /// Ask again for whatever was read before: the rows when a page read them, else the counts.
+    /// True once a page asked for anything — the sync-driven revalidation asks only then. Survives a bank switch.
+    var wantsReads: Bool { asked != .nothing }
+
+    /// Ask again for whatever a page asked for: the rows when a page read them, else the counts. After a bank switch
+    /// (`reset()`) this reads the new bank's answer with no ETag.
     func revalidate() async {
-        if state != nil { await refresh() } else if summaryOnly != nil { await refreshSummary() }
+        switch asked {
+        case .rows: await refresh()
+        case .summary: await refreshSummary()
+        case .nothing: return
+        }
     }
 
     /// A host that draws one video's rows (the entity card's block) and finds none read: ask for the rows. Gated on
@@ -127,7 +143,8 @@ final class VideoStateCache {
         await refresh()
     }
 
-    /// Forget everything — a bank switch (`ContentView`).
+    /// Forget every answer — a bank switch (`ContentView`). What a page asked for stays (`asked`), so the caller's
+    /// `revalidate()` reads the new bank at once.
     func reset() {
         epoch &+= 1
         timer?.cancel()
@@ -141,6 +158,7 @@ final class VideoStateCache {
     }
 
     func refresh() async {
+        asked = .rows
         let started = epoch
         if state == nil { phase = .loading }
         do {
@@ -170,6 +188,7 @@ final class VideoStateCache {
     /// The counts alone, for the Sleep page (no per-video rows).
     func refreshSummary() async {
         guard state == nil else { return await refresh() }
+        asked = max(asked, .summary)
         let started = epoch
         do {
             let answer = try await api.fetchVideoSummary(etag: summaryOnly == nil ? nil : summaryETag)
@@ -309,7 +328,8 @@ struct VideoWriteFailure: Error, Equatable { let sentence: String }
 /// When the video reads are asked for again: a sync version event that moved a component both ETags fold
 /// (`entities`, `episodes`, `sources`, `videoQueue`) or the bank itself. The queue's own component is `videoQueue` — it
 /// has no `VersionVector` mapping (it is not a Store domain), and an unmapped component still reaches `store.version`.
-/// A Sleep tick alone does not: nothing the video views show moved.
+/// A Sleep tick alone does not: nothing the video views show moved. Sleep's hold matters only over a lapsed lease, and the
+/// server folds it into `videoQueue` exactly then (`video_queue.stamp`).
 enum VideoRefresh {
     static let components = ["videoQueue", "episodes", "entities", "sources", "bank"]
 

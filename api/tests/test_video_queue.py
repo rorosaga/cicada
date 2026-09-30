@@ -452,7 +452,20 @@ def test_lapse_moves_stamp_and_etag(bank):
     before, after = video_queue.stamp(memory, _at(30)), video_queue.stamp(memory, _at(50))
     assert before != after and before.split(":")[0] == after.split(":")[0], "same mtime, a different due count"
     assert path.stat().st_mtime_ns == mtime_before
-    assert before.endswith(":0") and after.endswith(":1")
+    assert before.split(":")[1] == "0" and after.split(":")[1] == "1"
+
+
+def test_the_stamp_moves_when_sleep_lets_go_of_a_lapsed_lease(bank):
+    """A lease that lapses while Sleep holds the pages is left claimed (P5), so nothing else moves when the
+    hold ends; the stamp carries the hold bit while a lapse is due, so the app learns of it then."""
+    memory, keys = bank
+    video_queue.put(memory, keys[0], "watch", now=_at())
+    video_queue.claim(memory, session="s", harness="h", now=_at(1))
+    assert video_queue.stamp(memory, _at(30), holding=lambda: True) == video_queue.stamp(memory, _at(30), holding=lambda: False), \
+        "no lapse due: the hold is not part of the stamp"
+    during = video_queue.stamp(memory, _at(50), holding=lambda: True)
+    after = video_queue.stamp(memory, _at(50), holding=lambda: False)
+    assert during != after and during.rsplit(":", 1)[0] == after.rsplit(":", 1)[0]
 
 
 def test_next_change_at_names_the_earliest_future_instant(bank):
@@ -492,3 +505,34 @@ def test_the_probe_is_asked_only_when_a_lease_lapsed(bank):
     assert calls == [], "a normal claim never pays the probe"
     video_queue.claim(memory, session="s", harness="h", now=_at(100), holding=lambda: calls.append(1) or True)
     assert calls == [1]
+
+
+_WAITING = json.loads((__import__("pathlib").Path(__file__).parent / "fixtures" / "video_waiting_count.json").read_text())
+
+
+def test_the_waiting_count_table_is_not_empty():
+    assert len(_WAITING["cases"]) >= 5, "a test over no cases passes vacuously"
+
+
+@pytest.mark.parametrize("case", _WAITING["cases"], ids=lambda c: c["name"])
+def test_handoff_waiting_count_matches_the_shared_cases(bank, case):
+    """The copied prompt's count (handoff's `queued`) and the app's preview (`VideoRunModel.waitingCount`) read one
+    case table: a pick an agent already claimed stays claimed and is not waiting."""
+    memory, keys = bank
+    states = {int(i): s for i, s in case["rows"].items()}
+    busy = [i for i, s in states.items() if s in ("claimed", "failed")]
+    for i in busy:
+        video_queue.put(memory, keys[i], "watch", now=_at())
+    if busy:
+        video_queue.claim(memory, session="s", harness="h", limit=len(busy), now=_at(1))
+    failed = [i for i in busy if states[i] == "failed"]
+    if failed:
+        video_queue.release(memory, [{"url": url_of(f"{i:02d}"), "code": "failed"} for i in failed],
+                            session="s", now=_at(2))
+    for i, s in states.items():
+        if s == "queued":
+            video_queue.put(memory, keys[i], "watch", now=_at(3))
+    assert {k: r["state"] for k, r in _rows(memory, _at(4)).items()} == {keys[i]: s for i, s in states.items()}
+    _, queued = video_queue.handoff(memory, [{"key": keys[i], "want": "watch"} for i in case["picks"]], "auto",
+                                    now=_at(5))
+    assert queued == case["waiting"]
