@@ -57,8 +57,11 @@ enum ColumnLayout {
         available * minReader / (minQuestion + minReader)
     }
 
+    /// `wideTriage` (units) asks for a wider triage column where the question's floor still fits beside it — the Feed's
+    /// video picker (G162, §9 2026-09-30: 400, so a channel and "length unknown" fit); never narrower than the table's.
     static func plan(contentWidth: CGFloat, navWidth: CGFloat, scale: CGFloat,
-                     hasList: Bool = true, hasDetail: Bool, hasTrailing: Bool) -> ColumnPlan {
+                     hasList: Bool = true, hasDetail: Bool, hasTrailing: Bool,
+                     wideTriage: CGFloat? = nil) -> ColumnPlan {
         let s = max(scale, 0.1)
         let content = max(contentWidth, 0)
         let window = (content + max(navWidth, 0)) / s
@@ -79,7 +82,8 @@ enum ColumnLayout {
                 readerUnits = available
             }
         case (true, true) where !hasTrailing:
-            let triage = triageListWidth(window: window)
+            let table = triageListWidth(window: window)
+            let triage = wideTriage.map { max(table, min($0, available - minQuestion)) } ?? table
             if available - triage >= minQuestion {
                 listUnits = triage
                 style = .triage
@@ -130,6 +134,8 @@ struct ProgressiveColumns<Header: View, List: View, Detail: View, Trailing: View
     /// The shell's navigation width, scaled (`ShellMetrics.navWidth(labelled:)`) — the table's widths
     /// are keyed on the window, which is this container plus the rail or the sidebar.
     let navWidth: CGFloat
+    /// See `ColumnLayout.plan(wideTriage:)`.
+    var wideTriage: CGFloat? = nil
     @ViewBuilder var header: (ColumnPlan) -> Header
     @ViewBuilder var list: (ColumnPlan) -> List
     @ViewBuilder var detail: (ColumnPlan) -> Detail
@@ -141,7 +147,7 @@ struct ProgressiveColumns<Header: View, List: View, Detail: View, Trailing: View
         GeometryReader { geo in
             let plan = ColumnLayout.plan(contentWidth: geo.size.width, navWidth: navWidth,
                                          scale: CGFloat(CicadaTheme.uiScale),
-                                         hasDetail: hasDetail, hasTrailing: hasTrailing)
+                                         hasDetail: hasDetail, hasTrailing: hasTrailing, wideTriage: wideTriage)
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     header(plan)
@@ -186,4 +192,5 @@ enum RowMetrics {
     static let optionGap: CGFloat = 4
     static let menuItem: CGFloat = 30   // a menu's item: the D-Sleep mock's engine rows (DR-34)
     static let keyValue: CGFloat = 32   // a key–value row: the D-Sleep mock's readout (DR-34)
+    static let videoPick: CGFloat = 64  // a video in the picker: an 88 × 50 frame and three lines (G162, §9 2026-09-30)
 }

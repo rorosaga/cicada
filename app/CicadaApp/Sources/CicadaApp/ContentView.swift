@@ -51,6 +51,7 @@ struct ContentView: View {
     @Environment(ProjectsCache.self) private var projectsCache
     @Environment(BacklogCache.self) private var backlogCache
     @Environment(ChannelItemsCache.self) private var channelItemsCache
+    @Environment(VideoStateCache.self) private var videoStateCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
@@ -98,7 +99,14 @@ struct ContentView: View {
             projectsCache.reset()
             backlogCache.reset()
             channelItemsCache.reset()
+            videoStateCache.reset()
             inboxVM.resetColumns()
+        }
+        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache nothing has read yet
+        // stays unread until a page that shows it appears.
+        .onChange(of: store.version) { old, new in
+            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.hasRead else { return }
+            Task { await videoStateCache.revalidate() }
         }
         // A cached hover preview has no validator, so any change to the
         // bank's episodes or entities forgets them (final review): `/inbox`

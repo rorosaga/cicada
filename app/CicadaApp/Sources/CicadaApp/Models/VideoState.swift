@@ -40,13 +40,13 @@ enum VideoFailCode: String, Equatable, Sendable {
 
 /// How faithful a record's words are: `verbatim` (captions) or `approximate` (a model's reading of the link, or a
 /// record that never said).
-enum VideoFidelity: String, Equatable, Sendable { case verbatim, approximate }
+enum VideoFidelity: String, Codable, Hashable, Sendable { case verbatim, approximate }
 
 /// What an agent said it used — self-reported, never verified (R-VU2).
-enum VideoBasis: String, Equatable, Sendable { case transcript, frames, both }
+enum VideoBasis: String, Codable, Hashable, Sendable { case transcript, frames, both }
 
 /// How an agent said it read the video; a closed set on the server (`video_state.ENGINES`).
-enum VideoEngine: String, Equatable, Sendable {
+enum VideoEngine: String, Codable, Hashable, Sendable {
     case captions
     case videoLink = "video_link"
     case localFrames = "local_frames"

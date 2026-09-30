@@ -62,6 +62,17 @@ final class VideoStateCache {
         state?.items.first { $0.id == feedId }.map(painted)
     }
 
+    /// One video by its page and link — the entity card's join (M6). `mediaEntityId` alone is not unique (same-titled
+    /// pages share one), so the url decides; a page with no url on hand matches only when exactly one video is its.
+    func item(mediaEntityId: String, url: String?) -> VideoStateItem? {
+        guard let items = state?.items else { return nil }
+        if let url, !url.isEmpty, let hit = items.first(where: { $0.mediaEntityId == mediaEntityId && $0.url == url }) {
+            return painted(hit)
+        }
+        let mine = items.filter { $0.mediaEntityId == mediaEntityId }
+        return mine.count == 1 ? painted(mine[0]) : nil
+    }
+
     /// One video by its url-index key (the queue's identity).
     func item(key: String) -> VideoStateItem? {
         state?.items.first { $0.key == key }.map(painted)
@@ -99,6 +110,14 @@ final class VideoStateCache {
     }
 
     // MARK: - Reads
+
+    /// True once anything was read — the sync-driven revalidation asks only then.
+    var hasRead: Bool { state != nil || summaryOnly != nil }
+
+    /// Ask again for whatever was read before: the rows when a page read them, else the counts.
+    func revalidate() async {
+        if state != nil { await refresh() } else if summaryOnly != nil { await refreshSummary() }
+    }
 
     /// Forget everything — a bank switch (`ContentView`).
     func reset() {

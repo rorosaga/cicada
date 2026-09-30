@@ -73,6 +73,7 @@ extension Copy {
         static func pickedUp(_ want: VideoWant) -> String { want == .watch ? "to watch" : "to read" }
         static func pickedUpBy(_ agent: String, want: VideoWant) -> String { "Picked up by \(agent) \(pickedUp(want))" }
         static func couldntDo(_ reason: String) -> String { "An agent couldn't do this one: \(reason)" }
+        static let anAgent = "an agent"
         static let reasonNeedsLogin = "it needs you to sign in"
         static let reasonNoCaptions = "no captions on this video"
         static let reasonNotFound = "the video wasn't found"
@@ -209,7 +210,8 @@ extension Copy {
         static func couldntDoLine(want: VideoWant, reason: String) -> String {
             "\(want == .watch ? watchWord : transcriptWord) · couldn't do: \(reason)"
         }
-        static func pickedUpByAgent(_ agent: String) -> String { "Picked up by \(agent)" }
+        static func pickedUpByAgent(_ agent: String) -> String { "\(pickedUpByLead) \(agent)" }
+        static let pickedUpByLead = "Picked up by"
         static let groupCouldntDo = "Couldn't do"
         static let groupPickedUp = "Picked up"
         static let groupWaiting = "Waiting"

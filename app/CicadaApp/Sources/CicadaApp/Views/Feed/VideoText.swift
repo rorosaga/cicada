@@ -60,6 +60,11 @@ enum VideoWords {
         return parts.joined(separator: " · ")
     }
 
+    /// A wide row's trailing group: the row word and the age, "Transcript · 3h"; the age alone for a video with no word.
+    static func trailing(state: VideoStateItem?, age: String?) -> String {
+        [rowWord(state), age].compactMap { $0 }.joined(separator: " · ")
+    }
+
     /// The triage column's second line: "channel · state word".
     static func triageLine(_ item: MediaFeedItem, state: VideoStateItem?) -> String {
         [clean(item.channel), rowWord(state)].compactMap { $0 }.joined(separator: " · ")
@@ -67,7 +72,7 @@ enum VideoWords {
 
     /// The picker's second line: "channel · length" (the provider's own mark, or its name when it has none, sits between).
     static func pickerLine(_ item: MediaFeedItem) -> String {
-        [clean(item.channel), VideoRef.durationLabel(item.durationS) ?? Copy.Videos.lengthUnknown]
+        [clean(item.channel), providerName(item), VideoRef.durationLabel(item.durationS) ?? Copy.Videos.lengthUnknown]
             .compactMap { $0 }.joined(separator: " · ")
     }
 
@@ -126,6 +131,53 @@ enum VideoWords {
         if state.state == .recorded { lines.append(Copy.Videos.legacyRecord) }
         else if hasFrames(state.state) { lines.append(Copy.Videos.sawNoFrames) }
         return lines
+    }
+
+    /// The first honesty line alone: whether Sleep has read the record, and whether its wording is approximate.
+    static func sleepLine(_ state: VideoStateItem) -> String? { honestyLines(state).first { !isCaveat($0) } }
+
+    /// The second: the frames caveat, or the legacy record's help.
+    static func caveatLine(_ state: VideoStateItem) -> String? { honestyLines(state).first(where: isCaveat) }
+
+    private static func isCaveat(_ line: String) -> Bool {
+        line == Copy.Videos.sawNoFrames || line == Copy.Videos.legacyRecord
+    }
+
+    /// "Claude Code · Sonnet 5.5 · Sep 28" — built from DATA only: the harness the record carries (its app name through
+    /// `OriginIconography`), the model the turn join found, the day it was recorded. An app with no capture says its
+    /// model was not shared (`ModelNames.agentLine`'s existing words); nothing is guessed.
+    static func attribution(recordedBy: String?, recordedAt: String?, model: String?, effort: String?,
+                            locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .autoupdatingCurrent) -> String? {
+        let agent = EvidenceSpeaker.agentName(harness: recordedBy, origin: nil)
+        let line = ModelNames.agentLine(agent: agent, harness: recordedBy, model: model, effort: effort)
+        let day = recordedDay(recordedAt, locale: locale, timeZone: timeZone)
+        let parts = [line, day].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "Sep 28" from the record's ISO instant.
+    static func recordedDay(_ iso: String?, locale: Locale = .autoupdatingCurrent,
+                            timeZone: TimeZone = .autoupdatingCurrent) -> String? {
+        guard let iso, let date = VideoStateCache.parse(iso) else { return nil }
+        var style = Date.FormatStyle().day().month(.abbreviated)
+        style.locale = locale
+        style.timeZone = timeZone
+        return date.formatted(style)
+    }
+
+    /// "2:40 PM" from the record's ISO instant — the run card's done rows.
+    static func recordedTime(_ iso: String?, locale: Locale = .autoupdatingCurrent,
+                             timeZone: TimeZone = .autoupdatingCurrent) -> String? {
+        guard let iso, let date = VideoStateCache.parse(iso) else { return nil }
+        var style = Date.FormatStyle(date: .omitted, time: .shortened)
+        style.locale = locale
+        style.timeZone = timeZone
+        return date.formatted(style)
+    }
+
+    /// The app's name for an agent a queue row or a record names, or a neutral "an agent" — DATA, never a literal.
+    static func agentName(_ harness: String?) -> String {
+        EvidenceSpeaker.agentName(harness: harness, origin: nil) ?? Copy.Videos.anAgent
     }
 
     static func hasFrames(_ state: VideoWatchState) -> Bool { state == .watched || state == .watchedAndTranscript }
@@ -310,4 +362,23 @@ struct VideoSizeSummary: Equatable {
     var watchMinutes: Int { (watchSeconds + 59) / 60 }
 
     var minutesLine: String? { Copy.Videos.minutesLine(minutes: watchMinutes, unknown: watchUnknown) }
+}
+
+// MARK: - The record's first quote
+
+enum VideoQuote {
+    /// The first `media` turn of a watch record — what the video said at a time — as the block shows it: the words
+    /// without markup, in curly quotes, and its place in the video. Nil when the record holds no quote.
+    static func first(_ doc: EpisodeText) -> (text: String, time: String?)? {
+        let scalars = ScalarText(doc.text)
+        for turn in doc.turns where turn.role == "media" {
+            let raw = scalars.slice(turn.contentStart, turn.end)
+            var words = ExcerptText.quoteParts(before: "", span: raw, after: "").span
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !words.isEmpty else { continue }
+            if !(words.hasPrefix("\u{201C}") || words.hasPrefix("\"")) { words = "\u{201C}" + words + "\u{201D}" }
+            return (words, EvidenceSpeaker.mediaTime(turn.t))
+        }
+        return nil
+    }
 }

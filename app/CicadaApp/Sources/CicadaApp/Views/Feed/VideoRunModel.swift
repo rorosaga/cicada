@@ -311,6 +311,17 @@ enum VideoRunProgress {
         }
     }
 
+    /// The run's list column, third line: the member's live word ("Transcript read", "Couldn't do", "Picked up",
+    /// "Recorded, method not given", "Waiting"). A lapsed lease is back in the queue, so it reads Waiting.
+    static func listWord(_ member: VideoRunMember) -> String {
+        switch member.status {
+        case .recorded: return VideoWords.stateTag(member.row.state.state) ?? Copy.Videos.recordedNoMethod
+        case .failed: return Copy.Videos.rowCouldntDo
+        case .pickedUp: return Copy.Videos.rowPickedUp
+        case .waiting: return Copy.Videos.rowWaiting
+        }
+    }
+
     /// "1 picked up by an agent · 1 waiting · 1 couldn't be done" from the server's own counts.
     static func meterLine(_ batch: VideoBatch) -> String {
         Copy.Videos.meterLine(claimed: batch.claimed, waiting: batch.waiting, failed: batch.failed)
