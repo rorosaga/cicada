@@ -21,6 +21,7 @@ struct HomeSections: View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
             TodaySection(today: today, gettingStartedVisible: gettingStartedVisible, selectedTab: $selectedTab)
             NeedsYouSection(selectedTab: $selectedTab)
+            ReadingSitesSection()
             LastReadSection(selectedTab: $selectedTab)
         }
     }
@@ -217,6 +218,46 @@ struct NeedsYouSection: View {
             }
         }
     }
+}
+
+// MARK: - Needs your browser (G166)
+
+/// Its own block, not a line inside Needs you (whose count is the Inbox's): the saved pages whose sites Cicada's reader
+/// could not read and the person has not allowed yet, with up to three of those sites' icons. It links to Settings →
+/// Reading the web, the page that owns the number; nothing here asks or reads anything. Hidden at zero and once every
+/// listed site is allowed.
+struct ReadingSitesSection: View {
+    @Environment(Store.self) private var store
+    @Environment(AppRouter.self) private var router
+    @Environment(ReadingSitesCache.self) private var cache
+
+    var body: some View {
+        Group {
+            if let figures = HomeReadingLine.figures(cache.value) {
+                HomeBlock(title: Copy.Reading.homeBlockTitle, linkTitle: Copy.Reading.homeOpenReading,
+                          linkAction: open) {
+                    Button(action: open) {
+                        HomeLine {
+                            HStack(spacing: -CicadaTheme.scaled(4)) {
+                                ForEach(figures.sites) { site in
+                                    SiteIcon(site: site.site, label: site.label, size: .inline)
+                                }
+                            }
+                            Text(Copy.Reading.homePagesNeedBrowser(figures.count))
+                                .font(CicadaTheme.bodyFont)
+                                .foregroundStyle(CicadaTheme.textPrimary)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.cicadaPlain)
+                }
+            }
+        }
+        .task(id: store.sources.loadedAt) { await cache.refresh() }
+    }
+
+    private func open() { _ = router.openSettings(.reading, row: .readingSites) }
 }
 
 // MARK: - Last read

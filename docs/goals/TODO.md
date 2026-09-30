@@ -18,6 +18,28 @@ statting its cwd; #131 has the app run git in a declared repo and the backend on
 #132 matches a `device:` by any of this Mac's names (`local_refs.is_this_device`). Dev tooling: #122–#127 keep the
 owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cicada.dev-autoupdate`).
 
+**Agent reading (G166 Route A) — built on `feat/agent-reading`, 2026-09-29/30 (PR to `dev` pending; not merged).**
+- *State (2026-09-30, second pass):* the backend half of the permissions-page rework is on the branch — surfaced sites
+  (`reading_walls`, `reading_queue`, `GET /reading/sites`, `agent_sites`), the reader recording its own walls, site icons,
+  "How your agent reads" (`agent_methods`, catalog `roles`/`agent-prompt`, `skill_pages`) — and the app half: Settings →
+  Reading the web (With an agent, How your agent reads, Sites that need your browser with icons and wall words; the
+  first-use sheet has no site picker; the old Settings → Agents → Reading pages group is gone). App half finished
+  2026-09-30 (third pass): the Feed's Read section shows a wall page ("Cicada's reader couldn't open this page: …") with
+  the site's icon and **Let an agent read <site>** (one call, or the same first-use sheet); Home's own *Needs your
+  browser* block; the first-use sheet carries Cicada's instruction and its honest limit; site icons fall back favicon →
+  bundled family mark → ring monogram; "Install…" in How your agent reads opens the skill's own detail with its
+  `agent-prompt` sentence to copy; Settings → Agents links to Reading the web. Review fixes 2026-09-30:
+  a site row an agent's own outcome wrote no longer authorizes a record once the site is off; the hook's count is
+  bounded by its deadline; an agent's `saved-link` save needs `sources` remotely; an X bookmark's post text counts as
+  words. **Not yet measured:** the real-bank count of surfaced pages per site (read-only, before merge). Earlier: backend,
+  the Feed's Read section, the row flag ("Needs sign-in"), the toast
+  and the honest chip label ("From the page, as <agent> read it") are built and reviewed; **TODO ruling 14 (R-RW4, R-RW5,
+  R-RW8, R-RW9 and the review rulings) is binding.** Ruling 13 is the Sleep drain (on `dev`); reading is ruling 14. The
+  narrowing-the-Sleep-refusals row is **G177**. **Not built:** the Reader's Links section (S2), the public Reader
+  ladder (**G164** S1), Route B (RESEARCH). **Not yet seen live:** a real agent (Claude Code with a browser skill, or the
+  ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
+- *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
+
 **Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
 - **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
@@ -612,6 +634,92 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
     Revisit only on the trigger G163's row names (the journal slice; the reserve and Continue are built), or if a drain's plan volume
     hurts a real owner's coding budget.
+
+14. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
+    (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
+    chatgpt app and claude app, which uses the logged in sessions and swiftly surfaces 'needs login'… I want this built
+    now"; G166, spec `2026-09-29-reading-the-web-design.md`).** Four of the spec's proposed rulings are now binding; the
+    rest (R-RW1–3 the Reader's identity and metadata tier, R-RW6–7 and R-RW12 chat links, R-RW10–11 robots and backoff)
+    stay with the Reader slices.
+    - **Amended 2026-09-30 — no pre-picked site list; sites are surfaced from the reader's own failures (owner: "limiting the
+      amount of sites makes no sense to me, because we will never know which sites this will happen").** The five per-site
+      switches are gone. A saved page Cicada's own reader could not read — a sign-in, a consent wall, a refusal, or a host the
+      backend never requests — is a *wall page* (`reading_walls`, from stamps the fetchers already write, and only while it
+      holds no words); wall pages group by site (`reading_hosts.site_of`); Settings → Reading the web lists those sites with
+      measured counts and a per-site switch, off until the person turns it on (`reading.agent_sites`, a grant refused for a
+      site nothing has surfaced). Surfacing follows the reader's failures *wherever they happen* — save time, the in-cycle
+      pass, the backfill — so the backfill's throughput never bounds it. The master switch, the versioned acknowledgement
+      (now v2, without the site picker) and per-page "Ask an agent" stay. Copy across the branch is provider-neutral: it
+      describes the step ("summarized by the engine you chose for Sleep"), and names a provider or model only where it
+      shows the person's own current choice. **Amended clauses:** R-RW8's "per link, for a site the person switched on" is
+      "per link, or per site the person turned on after a page from it could not be read"; "Reddit and `t.co` are never
+      offered; the other five are five per-site switches" is "`t.co` is never offered; Reddit surfaces like any site"; and
+      Track P R5 (a retired interstitial or login wall stays out of the Feed) now lets a page through **only** when it is such
+      a wall an agent can be asked to read, or an agent already read it. **Review 2026-09-30:** a row an agent's own outcome wrote
+      (`origin: site`) is no consent of its own — it authorizes a record only while the site is still allowed and the
+      page is still a wall page, so switching a site off revokes recording as it dequeues; a connector whose saved item
+      *is* the post (X bookmarks: the text in `## Notes`) holds words, while a Reddit or Pinterest save is a link out
+      whose title or pin description is not the linked page, and surfaces on purpose.
+    - **A site switch is a standing permission, derived not fanned out (2026-09-30).** The queue is the person's asks plus
+      wall pages of allowed sites, computed at read (`reading_queue`): a switch writes one line, a new wall page joins with
+      no write, turning it off (or the master) dequeues at once. An agent's `needs_login` pauses that site's derived entries
+      until the row expires (7 days), the person asks again on a page, or switches the site on again ("try again"): an agent
+      that is not signed in is asked again at most weekly. Pacing is one entry per site per call. Grants are machine-wide
+      (`reading.json`); the pause is per bank (the ask store is).
+    - **The Feed shows a wall without being opened (review, 2026-09-30).** The row's second line says "Needs sign-in" and a
+      toast announces a link that just hit a wall (not on the first look after launch); the text is the text ladder plus a
+      neutral glyph, not `warning` (DR-7 is unchanged). A quote from `cicada_record_read` is labelled "From the page, as
+      <agent> read it", never bare "From the page" (spec §8.5).
+    - **R-RW8 — the ruling that keeps this from eroding the rail.** The standing rail ("no scraping behind
+      authentication", 4 s / ≤ 512 KB / no cookies / a block never retried with different headers) governs *Cicada's own
+      fetcher* and is unchanged. Agent reading is person-driven and never scheduled; Cicada only *asks* — per link, or per
+      site the person turned on after a page from it could not be read, after a versioned first-use acknowledgement — and
+      promises nothing about what the
+      agent does in its own browser. The backend never holds a session, a cookie or a profile. No Cicada text says
+      "read-only" or "never posts"; contract item 9 and the hand-off prompt are *instructions*, not promises.
+    - **R-RW4 — one closed set of login-walled hosts, and the backend's page readers never fetch one.** X, Facebook, LinkedIn,
+      Instagram, TikTok, Reddit and `t.co` (dot-boundary match: `lnkd.in` and `fb.watch` in, `notx.com` out). This closes
+      the X gap (X fell through to the OpenGraph fetch). TikTok keeps its provider oEmbed branch, which never loads the
+      page, and the Reddit and X connectors still call their own APIs; the rule covers the *page* fetch of
+      `media_ingestor.enrich` and the `link_enrichment` backfill. `t.co` is never offered to an agent. There is no pre-picked list of sites: a site is *surfaced* when Cicada's own
+      reader cannot read one of its pages (a sign-in, a consent wall, a refusal, or a host the backend never requests) and
+      the person turns it on, per site, on Settings → Reading the web. Site icons come from the icon service only, and a walled
+      site is never contacted for its favicon either.
+      `link_enrichment._excluded_media` is shared with `fact_sources.is_refused_host` and `link_recon`, so a source on
+      such a host now reads as needing the person's login there too.
+    - **R-RW5 — a link that carries a secret or a side effect is never offered** (a token-like query key, an
+      unsubscribe/verify/reset/logout/oauth path segment, a signed URL, a private-workspace host, a userinfo or non-web
+      port), nor is a local or reserved host, an AI vendor's own page, a video (the video path owns it) or a paper.
+    - **R-RW9 — `--chrome` is in no argv** (`test_reading_never_spawns_browser.py`). Measured: it overrides
+      `--safe-mode`, `--strict-mcp-config` and `--tools ""`.
+    - **Only a link the person asked about, or a wall page of a site they allowed, can be recorded (review, 2026-09-29;
+      amended 2026-09-30).** `cicada_record_read` refuses every outcome, `read` included, for any other URL, whether or not
+      the link is saved (a saved public page with no wall too), and `reading_asks.record_outcome` creates a row only for the
+      site case (`origin: site`) — otherwise it writes nothing without a live row. **Exposure, stated:** with a site grant the
+      person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site;
+      the structural denials (R-RW5), the master switch, ask-store-only outcomes and `page`-kind spans bound it. Before this a saved link with no ask took any outcome
+      (a rewritten description, a planted `needs_login`), which is what a page steering an agent would use.
+    - **The outcome is stored where it can be shown at once.** `needs_login`, `blocked`, `not_found` and `failed` live
+      only in the machine-wide ask store (no bank write, no commit, no Sleep gate) and move the `reading` sync component;
+      only a successful `read` is memory. Chosen over writing the page because a page write needs a commit, is refused
+      remotely while Sleep runs, and does not exist for a link that was never saved.
+    - **An ask's URL is visible to any connection holding `read`** (this departs from the spec's §8.4, which hid a
+      `role: user` row's URL without `sources`). Cause: the person's explicit "Ask an agent" *is* the consent to hand that
+      one URL to an agent (and, amended 2026-09-30, their grant for a site is the consent for that site's wall pages — a
+      site entry from a channel that is the person's own words, such as Telegram, an agent's save or a chat export, needs
+      `sources`; only saved-content channels are served to `read`), and the default scopes are search/read/record, so applying the old rule would leave the ChatGPT
+      and Claude apps unable to read any ask. `sources` still gates every verbatim word of the person's conversations, an
+      inbox `Cause:` quote and any chat-harvested URL (not built yet). No `why` or note text is served remotely.
+    - **How the agent reads is a selection, and an instruction (2026-09-30; owner: "i want to use the macos-harness, the
+      browser-harness and claude-video … as selections in settings, amongst the other default options models can use through
+      their harnesses").** "Let my agent choose" (default), the agent's own tools, or a catalog skill whose `roles` list the
+      job; stored on this Mac (`agent_methods.json`), passed to the person's own agent as a sentence in the hand-off prompt,
+      the stdio queue reply and one primer line — never to a remote connection, never authority. A skill the person picks
+      gets a `type: skill` page tagged `agent-skill` in the graph, written only on that selection. `macos-harness` states
+      plainly that it can control the whole Mac. Backlog: **G178** (people add or import their own skills).
+    Revisit when the owner asks for Route B (a Cicada-spawned browse call, spike-gated) or a per-category refuse list
+    (adult, financial, health hosts: not buildable as an honest closed list, so every site the reader could not read stays
+    off until the person turns it on, and every other page is an explicit ask).
 
 15. **Continue after a plan reset — an opt-in switch, a narrow amendment to ruling 4 (owner, 2026-09-30).** The
     owner asked for it and chose the shape: a switch in *Reading options*, **off by default**, that lets **a run the

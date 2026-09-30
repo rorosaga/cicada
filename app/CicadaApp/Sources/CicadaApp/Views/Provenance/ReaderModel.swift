@@ -13,6 +13,9 @@ enum EvidenceSpeaker {
     /// these is a role, not a name, and must never print as "user said".
     static let markerWords: Set<String> = ["user", "human", "assistant", "ai", "system", "unknown"]
 
+    /// The episode `source` of an agent's report from a page (`page_read.SOURCE`).
+    static let pageReadSource = "page-read"
+
     /// A product name for the agent in a conversation, or nil when nothing
     /// says which agent it was. The harness wins (a Stop-hook or MCP episode
     /// stamps it); an imported export names its vendor; `mcp`/`unknown` name
@@ -68,7 +71,7 @@ enum EvidenceSpeaker {
         return name.isEmpty ? nil : name
     }
 
-    static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?) -> String {
+    static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?, source: String? = nil) -> String {
         switch turn.role {
         case "assistant":
             // R-FA14 — the turn's own model when capture recorded one (C4).
@@ -78,6 +81,8 @@ enum EvidenceSpeaker {
                                         harness: nil, model: turn.model, effort: turn.effort)
                 ?? Copy.Provenance.theAgent
         case "page":
+            // What an agent reported from a page is that agent's reading, not a file the person attached.
+            if source == pageReadSource { return Copy.Provenance.fromThePageAsRead(by: agentName(harness: harness, origin: origin)) }
             return attachmentName(turn.marker).map(Copy.Provenance.attached) ?? ""
         case "speaker":
             return named(turn.speaker) ?? Copy.Provenance.someoneElse
@@ -263,7 +268,7 @@ enum ReaderLayout {
         doc.turns.flatMap { turn -> [ReaderBlock] in
             let content = scalars.clamped(turn.contentStart, turn.end)
             guard content.upperBound > content.lowerBound || turn.role == "page" else { return [] }
-            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin)
+            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source)
             let mark = turn.role == "assistant"
                 ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin) : nil
             let time = ReaderTime.label(turn.ts, locale: locale, timeZone: timeZone)

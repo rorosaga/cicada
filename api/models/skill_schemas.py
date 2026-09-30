@@ -41,6 +41,9 @@ class SkillInstallPlan(CamelModel):
     runnable: bool = True
     steps: list[SkillInstallStep] = []
     env: dict[str, str] = {}
+    # A text to hand the person's own agent instead of a command to run (method
+    # ``agent-prompt``): copy-only, the app runs nothing.
+    prompt: Optional[str] = None
 
 
 class RecommendedSkill(CamelModel):
@@ -59,6 +62,12 @@ class RecommendedSkill(CamelModel):
     needs: SkillNeeds = Field(default_factory=SkillNeeds)
     terms: Optional[SkillTerms] = None
     cicada_note: Optional[str] = None
+    # The jobs this skill can be chosen for, the name the agent sees, the graph page's name and one line
+    # saying what it can touch (agent_methods).
+    roles: list[str] = []
+    invoke: Optional[str] = None
+    page_name: Optional[str] = None
+    reach: Optional[str] = None
     agents: list[str] = []
     state: dict[str, str] = {}
     install: dict[str, SkillInstallPlan] = {}

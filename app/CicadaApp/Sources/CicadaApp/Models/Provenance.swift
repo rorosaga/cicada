@@ -140,6 +140,8 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
     let title: String
     let harness: String?
     let origin: String?
+    /// The episode's `source` (`page-read` = what an agent reported from a page, G166).
+    let source: String?
     let timestamp: String?
     let claimCount: Int
     let available: Bool
@@ -149,7 +151,8 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
 
     init(conversationId: String? = nil, episodeId: String, episodeIds: [String]? = nil, title: String = "",
          harness: String? = nil, origin: String? = nil, timestamp: String? = nil, claimCount: Int = 0,
-         available: Bool = true, best: ProvenanceSpan? = nil) {
+         available: Bool = true, best: ProvenanceSpan? = nil, source: String? = nil) {
+        self.source = source
         self.conversationId = conversationId
         self.episodeId = episodeId
         self.episodeIds = episodeIds ?? [episodeId]
@@ -163,7 +166,7 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversationId, episodeId, episodeIds, title, harness, origin, timestamp, claimCount, available, best
+        case conversationId, episodeId, episodeIds, title, harness, origin, source, timestamp, claimCount, available, best
     }
 
     init(from decoder: Decoder) throws {
@@ -174,6 +177,7 @@ struct ProvenanceConversation: Codable, Hashable, Identifiable {
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
         origin = try c.decodeIfPresent(String.self, forKey: .origin)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
         timestamp = try c.decodeIfPresent(String.self, forKey: .timestamp)
         claimCount = try c.decodeIfPresent(Int.self, forKey: .claimCount) ?? 0
         available = try c.decodeIfPresent(Bool.self, forKey: .available) ?? true

@@ -56,6 +56,16 @@ final class CicadaMotionTests: XCTestCase {
     /// R-M13: a glyph acknowledges the pointer ONCE, on entry, and never
     /// under Reduce Motion — enforced by not firing, not by hoping
     /// `symbolEffectsRemoved` reaches the effect.
+    func testSubtleIconNodIsSmallerThanTheMarkNod() {
+        // Owner 2026-09-30: the rail's hover moved too much. The subtle nod stays under the brand-mark nod in both
+        // rotation and scale, and settles back to rest.
+        XCTAssertLessThan(IconHover.subtleRotationKeys.map(abs).max()!, MarkHover.rotationKeys.map(abs).max()!)
+        XCTAssertLessThan(IconHover.subtleScaleKeys[0], MarkHover.scaleKeys[0])
+        XCTAssertEqual(IconHover.subtleRotationKeys.last, 0)
+        XCTAssertEqual(IconHover.subtleScaleKeys.last, 1)
+        XCTAssertLessThanOrEqual(CicadaMotion.iconNodDuration, CicadaMotion.markNodDuration)
+    }
+
     func testIconHoverBumpsOnEntryOnlyAndNeverUnderReduceMotion() {
         XCTAssertEqual(IconHover.nextBump(3, entering: true, reduceMotion: false), 4)
         XCTAssertEqual(IconHover.nextBump(3, entering: false, reduceMotion: false), 3)

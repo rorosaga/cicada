@@ -720,7 +720,9 @@ its consumption domain, so a card open must not move it. The `hook_recall` kind 
 recall-hook firing: harness, event, reason enum, the page ids and their count, token and latency buckets,
 and the model id when the harness sends one. It is filed beside `read` for the same reason, and like
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
-prompt never is.
+prompt never is. The `read_agent` kind (G166) is one row per `cicada_record_read` call — entity id, an `outcome` enum, a
+`host_class` enum (`walled | public`), the harness and connector id; never a URL, the tool the agent named, a note or an
+excerpt — filed beside `read` and kept out of every Usage view like `capture`.
 
 **Cycle usage (2026-09-28 ruling, Sleep page only).** Every `llm_call` a Sleep cycle makes carries `refs.cycle_id`
 (from the ambient `sleep:<id>` scope, so it survives `to_thread`/`gather`; the engine-independent tail runs outside
@@ -852,6 +854,114 @@ repo or `access: local` is refused; it commits alone under the harness. `cicada_
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
+**Reading with the person's own agent (G166, spec `2026-09-29-reading-the-web-design.md` §8.4, Route A).** Cicada never
+spawns a browser and never signs in (`test_reading_never_spawns_browser.py`, R-RW9: `--chrome` is in no argv). The
+person's own agent — a local harness with a browser tool, or a remote connection that can drive one — reads through a
+queue. The person's per-link **Ask an agent** (`POST /reading/asks`) is a row in
+`$CICADA_HOME/reading_asks/<bank>.json` (`reading_asks.py`: outside every bank, no URL stored — joined at read from
+`sources/url_index.json` —, 7-day expiry applied in memory, `fcntl.flock` because the backend and every stdio process
+write it); an unsaved link is saved first *without a fetch* (`RawItem.defer_enrich`) as the person's own save.
+`cicada_reading_queue(limit)` (`read` scope, fenced remotely) lists what waits: the person's asks first (oldest first),
+then **saved pages of sites the person allowed** (below) — empty unless `reading.agent` is on, never a denied class,
+**one entry per site per call** (the rest are counted). It is one read model, `reading_queue.py`, behind the tool, the hook
+count, the Feed's `waiting` and the settings page: asks are rows, a site's pages are *derived at read* from
+`reading_walls.py` (never fanned out as rows, so a site switch writes one line, a new wall page joins with no write and
+turning a site or the master off dequeues at once). A site entry whose page was not saved through a saved-content channel
+(Telegram, an agent's save, a chat export: the person's own words) is served only to a caller holding `sources`. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?)` (`record` scope) takes `read |
+needs_login | blocked | not_found | failed`. Only a **successful read is memory** (`page_read.py`): one episode
+(`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
+*reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
+claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
+the harness and never mints a page. **Only a link the person asked about, or a wall page of a site they allowed, can be recorded** (`reading_queue.authorizes`: `("ask", row)`, `("site", None)` or nothing; a row this tool wrote itself, `origin: site`, authorizes only while its site is still allowed and the page still a wall page, so switching a site off revokes recording at once): `cicada_record_read` refuses every outcome for any other URL (a saved public page with no wall included), and `reading_asks.record_outcome` creates a row only for that site case (`create=True`, `origin: site`) — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about or on a site nobody allowed. **The exposure, stated:** with a site grant the person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site; the structural denials (R-RW5), the master switch, "every outcome but `read` is ask-store only" and `page`-kind spans bound it. A site-origin `read` writes no ask row (the page's own `read:` stamp keeps it out of the queue) and site rows are evicted before any explicit ask (`MAX_SITE_ROWS` 200). A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). A `page` span from `page_read` reads "From the page, as <agent> read it" everywhere the app labels it (the episode's `source: page-read` rides `/episodes/{id}/text` and the provenance conversation rows), never a bare "From the page". **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
+shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
+it read with — self-reported, never proof. The last successful read's day is kept in `~/.cicada/reading-last.json` (one small file; `GET /reading/settings` never scans the ledger). Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
+`agent_sites` — `{site: day}`, empty by default, granted only for a site Cicada's reader could not read —, `agent_ack` with
+a version (2) that re-asks when the sheet's wording changes; the old `agent_hosts` key is ignored and dropped on the next
+write). **There is no pre-picked list of sites** (owner, 2026-09-30: "limiting the amount of sites makes no sense to me,
+because we will never know which sites this will happen"): a **wall page** is a saved page Cicada's own reader could not
+read — a sign-in, a consent wall, a refusal, or a host the backend never requests — decided by `reading_walls.wall_kind`
+from stamps the fetchers already write (`fetch_status`) plus the closed host set, and only while it holds no words (no
+`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Notes`; a saved sign-in or consent URL is
+never one). The stamps are written wherever the reader fails: at save time (`MediaMeta.fetch_status`), in the in-cycle pass
+and in the backfill, in the backfill's own vocabulary and 30-day backoff, so a site surfaces when its page is walled, not
+when the capped backfill reaches it. Wall pages group by **site** (`reading_hosts.site_of`: a walled family folds to its
+name, else the registrable-ish domain, never folded under a shared host such as `github.io`); the sites surface on
+`GET /reading/sites` (hosts and measured counts only, ETag over `reading`+`entities`+`sources`, `def` in the threadpool,
+memoised in `reading_queue.sites_snapshot`; a row's `allowed` counts only while agent reading is on, `granted` is the
+stored grant, and `waitingNotAllowed` follows `allowed`) and a `PUT /reading/settings` `sites` patch grants or removes one (422 for a
+site never surfaced; turning a site on again lifts its `needs_login` pause — an agent that was not signed in pauses that
+site's derived entries until the row expires, a week). Per-page "Ask an agent" stays and needs no site permission. The
+closed host sets are one module (`reading_hosts.py`, dot-boundary matching, no DNS): walled hosts (X, Facebook, LinkedIn,
+Instagram, TikTok and Reddit, the families the backend never requests; `t.co` is never offered at all) have their **page never
+fetched by the backend's page readers** (R-RW4: `media_ingestor.enrich` and the `link_enrichment` backfill, through
+`link_enrichment._excluded_media`; the exceptions are TikTok's provider oEmbed call, which never loads the page, and the
+Reddit and X connectors' own API calls), and a link that carries a secret or a
+side effect, is local, an AI vendor's own page, a video (`cicada_record_watch`) or a paper is never offered at all
+(R-RW5). Contract item 9 (`CONTRACT_VERSION` 9, `REMOTE_CONTRACT_VERSION` 6) exists only while the switch is on and is an
+*instruction*, not a promise: read in the person's own session, never sign in, record `needs_login` and move on, never
+post. The **choice of how the agent reads** (`agent_methods.py`, `$CICADA_HOME/agent_methods.json`, `GET|PUT /agent-methods`) is an
+instruction Cicada passes to the person's own agent, never authority: `auto` (the default, no tool named), `own` ("don't
+load a separate skill") or a catalog skill whose `roles` list the job ("the person chose the `<name>` skill for this: use
+it, and if it is not installed for you, say so and stop"). It flows into "Copy for an agent" (`reading_prompt`), the stdio
+queue reply and one primer line (`handshake.build(methods=)`, `MAX_METHOD_LINES` 2, fixed part, R12-checked); a tool reply
+or primer line never names a skill to a remote connection or a client that is not one of `skill_catalog.AGENTS`, and the
+copied prompt, which can be pasted anywhere, names it conditionally ("if you run on this Mac and can load skills … else
+your own browser tools"). A skill the person picks gets a page in the graph
+(`skill_pages.py`, the one writer, only from that selection or "Add to your graph": `type: skill`, `tags: [agent-skill]`
+(`skill_tag.py`, so `state_dictionary._preferences` never lists an installed tool as a working agreement and Stage 4 never
+mistakes one for a pattern), evergreen, `human_edited`, no claims, one `user` commit; an agent-made `tool`/`concept` page of the
+same name is adopted, any page the person edited is left alone). Every string in these paths is neutral about providers
+(`test_provider_neutral_copy.py`). The remote reply for `cicada_reading_queue` is fenced as reference data, so the never-sign-in rule also sits in its unfenced tool description, and a connection that can read but not record is told to stop and tell the person. A saved page's title is folded to one line and scrubbed before it is printed. Because the queue is outside the bank, nothing in `_state.md` can say links are waiting, so the recall hook and the
+remote handshake add one per-request sentence (`recall_text.reading_line`) when more wait than the session was told; a session that has seen the queue drain hears the next ask as new.
+Routes (`routers/reading.py`, none a Store domain): `GET|PUT /reading/settings` (shape `reading-2`),
+`GET /reading/sites`, `GET /reading/sites/{site}/icon`, `GET|POST /reading/asks`, `DELETE /reading/asks/{urlHash}`,
+`GET /reading/prompt`; `GET /sources` carries `MediaSourceItem.read` (`status, by, tier, at, via, harness, host, askable,
+reason` — `askable` is the structural verdict plus the master switch, never a site —, `wall, siteKey, siteLabel, siteAllowed,
+siteIconHost` for a page the reader could not open, `queuedBy: site`, merged from the page stamp and the ask row, newest
+wins) so the app holds no host table; a retired interstitial or login-wall page (`enrichment_status: junk`) is let through
+the Feed's junk filter only when it is such a wall or an agent already read it (Track P R5, amended 2026-09-30). **Site icons**
+(`logo_service.ensure_site_icon`, `logos/<bank>/sites/`) come from the icon service only — the walled site is never
+contacted, not even for its favicon; a 404 is retried once with `www.`, only a site the surfaced list holds is served, and the
+service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
+**The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
+bank write) refreshes the Feed over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
+a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
+in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
+answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
+raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
+credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
+the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
+`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group. *How your agent reads*: the
+`agent_methods` choice as radio rows (a skill wears a Skill tag, says whether it is installed, and offers Open in graph,
+Add to your graph or **Install…**, which opens that skill's own `SkillDetailView` as this page's sub-page — the Skills
+list shows only five, so a lower-ranked skill has no card there — with an `agent-prompt` plan's sentence and a Copy
+button; the footer says the choice applies to agents on this Mac that can load a skill). *Sites that need your browser*: every site `GET /reading/sites` surfaced — only a site Cicada's own reader could
+not read — each with its favicon drawn like a browser tab's (`SiteIcon`: 20 pt, a 4 pt corner, never a circle or a ring; from
+`SiteIconStore`, in memory per bank and cleared on a bank switch, over `GET /reading/sites/{site}/icon` — the app makes no
+network call of its own, a lint holds it; until it arrives, and for a site with none, the family's bundled mark, else a
+ring monogram), its wall in words (`wallWords`), measured counts and one switch (the stored grant, so a site allowed while agent
+reading is off still shows on, says "Allowed · agent reading is off" and can be turned off; a paused site's pages "wait
+until you sign in", never "queued"); a site switched on while the sheet is
+unacknowledged raises the sheet, whose one line says the site rides the same call, and a paused site ("your agent wasn't
+signed in") offers Try again. The **Feed's detail column**
+gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",
+"Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
+app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
+hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or Cicada's reader could not open the page (`wall`:
+"Cicada's reader couldn't open this page: it needs a signed-in browser / it stopped at a consent page / the site refused
+it", with the site's icon at 16 pt, and **Let an agent read <site>** beside Ask an agent — one `PUT` when the sheet is
+already acknowledged, else the same first-use sheet; a page of an allowed site reads "Waiting for your agent · <site> is
+allowed"; a disabled Ask carries the server's own `reason`); an ordinary page with agent reading off draws nothing.
+Settings → Agents keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
+(`ReadingSitesSection` between Needs you and Last read, over `ReadingSitesCache` — in memory, ETag-revalidated when Home
+appears or the sources move, emptied on a bank switch, never a Store domain): "N saved pages need your browser to be read"
+(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to Settings → Reading the web; hidden at
+zero and once every listed site is allowed, and never counted in Needs you. The wall
+is not shown only there: the Feed row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
+toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
+nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows
+as "<agent> noted: …". No line says "in your browser" of what an agent did, or promises what it will not do.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -874,6 +984,12 @@ same way.
 - **When it is skipped.** `CICADA_CAPTURE=off` spawns, `CICADA_RECALL=off`, and a Codex sub-agent's prompt.
   Codex also runs a new hook only after the person trusts it at startup.
 - **The ledger.** One `hook_recall` ledger row per firing, ids and enums only, filed beside `read`.
+- **Waiting reads (G166).** While agent reading is on, a session hears once — at SessionStart, or on its first prompt —
+  "N links are waiting in Cicada's reading queue for an agent to read" (`hook_recall.with_reading_note`), and again only
+  when more of the person's own asks wait than it was told, or pages of allowed sites grew by ten or more. The derived
+  part is counted only when the bank's page cache is warm (a cold cache counts the asks and warms in the background), so
+  the hook's 300 ms budget never meets a bank parse. One sentence beside the page note (its 400-token budget is the page note's own), per request,
+  never stored, dropped from a captured transcript like every "From Cicada" note.
 - **Remote.** Remote connectors have no hooks.
 
 **Proactive behaviors:** surface only *topic-relevant* nudges (never all of them), raise a pending
@@ -937,7 +1053,7 @@ toolbar platter is hidden (`ChromeToolbarItem`). **Settings is a panel inside th
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
-Customize: Integrations · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
+Customize: Integrations · Reading the web · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
 page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
@@ -1116,6 +1232,15 @@ over a changed copy). The handshake gains a capability line only for an installe
 whose tool exists: papers (`cicada_save_url`), video (`cicada_record_watch`) and meetings
 (`cicada_save_episode`, one `speaker:<name>:` line per utterance, never `user:`) are active;
 documents stays off until something says who wrote a document (F2-back R-B14).
+**Role skills and the `agent-prompt` method (G166).** An entry may carry `roles` (`reading` | `watching`), the
+`invoke` name the agent sees, a `pageName`, a catalog-authored `pageSummary` and a plain `reach` line, and its install
+`method` may be **`agent-prompt`**: a text (≤ 1,200 characters, pinned to the reviewed version, no global trigger, "ask me
+before any permission") for the person's own agent to run upstream's installer, so the plan is copy-only (`runnable: false`,
+no steps, `prompt`) and `PROGRAMS` gains nothing — a bare `npx skills add` would copy the SKILL.md and leave the CLI the
+skill drives missing, a half install that would read "installed". `browser-harness` and `macos-harness` (pinned, hash
+verified by `scripts/verify-skills.sh`, whose `--print-urls` is pinned offline) are offered for reading and watching, each
+with a `terms` line; `macos-harness` states plainly that it can control the whole Mac. Choosing one is Settings, How your
+agent reads (`agent_methods`), not an install.
 
 **Sources page — v2 in Direction D (G124, DS-3c).**
 - **What stays from v2.** Every tile keeps Sources v2's five facts: mark · brand name · one status verb
@@ -1169,7 +1294,7 @@ the page's find row.
   is mock A's icon-led cards (F-11, G146): People · Projects · Companies · Tools · Concepts · Media two to a row, the
   rest three to a short row, each a card of 56 pt tiles — `EntityPicture`, the name, one line in words (never tags or
   a percentage) — six in the first row of cards and four after, "Show all ›" opening the type's tab (one card, every
-  tile); `ClustersGrid` decides it, pure. A tile's picture and its hover "Change picture…" open the image picker; its
+  tile); `ClustersGrid` decides it, pure. A click on a tile's picture opens the image picker (no separate hover button, owner 2026-09-30); its
   words open the card. ⌘F shows the list column (its find row, then find's ranked rows) in place of the cards while it
   is open. Beside a card the list keeps rows with pictures and an age, recently mentioned first
   (`lastReferenced` on `/graph` nodes). The detail column hosts DS-3a's `EntityDetailCard`, in its `.card` style, with
@@ -1453,7 +1578,7 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 
 ## API Design
 
-32 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+34 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
@@ -1753,7 +1878,9 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   LaunchAgent plist sets it; `install.sh` never rewrites a plist behind a running backend, so an
   older plist needs the key added by hand.
 - **`CICADA_ALLOW_LOGO_FETCH=off`** disables logo fetching entirely. The test suite runs that way
-  and injects fetchers instead.
+  and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
+  come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
+  `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
 
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
@@ -1787,6 +1914,17 @@ APIs are ever called — `export.arxiv.org/api/query` (≤ 50 ids a request, ≥
 arxiv.org pages and PDFs are never fetched, and a 403/429 stops that API for the run. That holds for
 a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): `papers.never_scraped`
 keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
+
+**Reading with an agent (G166) does not loosen the rail below; it sits beside it.** The rail governs *Cicada's own*
+fetcher, and the backend's page readers (`media_ingestor.enrich`, the `link_enrichment` backfill) no longer fetch the
+page of a login-walled host (R-RW4, one closed set in `reading_hosts.py`, which also closed the X gap; TikTok's provider
+oEmbed call and the Reddit and X connectors' own API calls remain, and none loads the walled page). What the person's own agent does in its own signed-in browser is the person's and the
+agent's, not Cicada's: Cicada only *asks*, per link or per site the person turned on after a page from it could not be read, after a
+first-use acknowledgement, and promises nothing about what the agent does there. The backend never holds a session, a cookie or a
+browser profile. An ask's URL is the person's explicit hand-off to their agent, and a site entry's URL rests on the person's grant for
+the site, so a remote connection holding `read` sees them (TODO ruling 14; a site entry from a channel that is the
+person's own words needs `sources`); `sources` still gates every verbatim word of the person's conversations and any
+chat-harvested URL.
 
 **The ToS rail — this one is not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never
 behind auth. Consent interstitials and login walls are classified and retired as `junk` **without a

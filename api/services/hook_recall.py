@@ -76,7 +76,7 @@ SEMANTIC_K = 30
 SEMANTIC_CHARS = 2_000
 
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
-           "timeout", "error")
+           "timeout", "error", "reading")
 
 #: Folded words that name nothing (R-H2, R-H3): English and Spanish function
 #: words plus the verbs and nouns every coding prompt uses. A name made only of
@@ -447,6 +447,101 @@ class RecentPages:
 RECENT = RecentPages()
 
 
+class _ReadingSeen:
+    """Per-session memory of how many waiting links the hook last mentioned (G166).
+
+    The waiting count is per request and never written to ``_state.md`` (it is
+    machine-wide state outside the bank); this only keeps the sentence from
+    repeating every turn. A session hears it again when MORE of the person's own
+    asks are waiting than it was last told about, or when pages of allowed sites
+    grew by ``REPEAT_STEP`` or more (a long-lived session is not re-told for every
+    save). Process-local, bounded, thread-safe."""
+
+    #: How much the derived (allowed-site) count must grow before a running session hears it again.
+    REPEAT_STEP = 10
+
+    def __init__(self, sessions: int = MAX_SESSIONS):
+        self._sessions = sessions
+        self._lock = threading.Lock()
+        self._data: OrderedDict[str, tuple[int, int]] = OrderedDict()
+
+    def told(self, session_id: str) -> int:
+        with self._lock:
+            return self._data.get(session_id, (0, 0))[0]
+
+    def told_asks(self, session_id: str) -> int:
+        with self._lock:
+            return self._data.get(session_id, (0, 0))[1]
+
+    def remember(self, session_id: str, waiting: int, asks: int | None = None) -> None:
+        with self._lock:
+            held = self._data.pop(session_id, (0, 0))
+            self._data[session_id] = (waiting, held[1] if asks is None else asks)
+            while len(self._data) > self._sessions:
+                self._data.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._data.clear()
+
+
+READING_SEEN = _ReadingSeen()
+#: The slice of the route's budget the reading count leaves free, so a count that runs late
+#: gives up (unknown) rather than costing the page note its answer.
+READING_RESERVE_S = 0.04
+
+
+def waiting_links(memory_path: Path, *, include_words_origin: bool = True) -> int:
+    """How many links are waiting for an agent to read — 0 unless agent reading is
+    on. The person's asks, plus saved pages of sites they allowed that Cicada's own
+    reader could not read (``reading_queue``). Engine-free, and inside the hook's
+    budget: the derived part is counted only when the bank's page cache is warm (a
+    cold cache counts the asks and warms in the background, so the next prompt
+    counts the rest)."""
+    from api.services import reading_queue
+
+    return reading_queue.count_waiting(memory_path, warm_only=True, include_words_origin=include_words_origin)
+
+
+def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, event: str,
+                      deadline: float | None = None) -> Injection:
+    """G166: append one sentence — "N links are waiting in Cicada's reading queue for
+    an agent to read" — to the note (or make it the whole note), only while agent
+    reading is on and more links wait than this session was last told (see
+    ``_ReadingSeen``). Per request, never stored, never in ``_state.md``. It rides
+    beside the page note rather than inside its 400-token budget: it is one
+    sentence, and it is what makes the person's "Ask an agent" reach an agent that
+    was never told to look."""
+    from api.services import reading_queue
+
+    asks, derived = reading_queue.counts(memory_path, warm_only=True,
+                                         deadline=None if deadline is None else deadline - READING_RESERVE_S)
+    known = derived is not None  # a cold cache leaves the derived part unknown, never zero
+    waiting = asks + (derived or 0)
+    told = READING_SEEN.told(session_id)
+    told_asks = READING_SEEN.told_asks(session_id)
+    if known and waiting < told:
+        # The queue drained since this session was told: forget the higher count,
+        # so the next ask counts as new instead of hiding behind it.
+        READING_SEEN.remember(session_id, waiting, asks)
+        told, told_asks = waiting, asks
+    elif not known and asks < told_asks:
+        READING_SEEN.remember(session_id, told, asks)
+        told_asks = asks
+    if waiting <= 0:
+        return inj
+    if event == "user_prompt_submit" and told > 0:
+        new_ask = asks > told_asks
+        grew = known and waiting - told >= READING_SEEN.REPEAT_STEP
+        if not (new_ask or grew):
+            return inj
+    line = recall_text.reading_line(waiting)
+    READING_SEEN.remember(session_id, waiting, asks)
+    if inj.text:
+        return replace(inj, text=f"{inj.text}\n\n{line}")
+    return Injection(f"{recall_text.READING_HEADER}\n{line}", inj.injected, "reading", inj.inbox_id)
+
+
 def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: str,
             deadline: float) -> tuple[Injection, str | None]:
     """The route's one worker call: the bank a capture would write into
@@ -458,8 +553,11 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
         return Injection.none("no_bank"), None
     if event == "session_start":
         RECENT.reset(session_id)
-        return session_primer(target.path, harness), target.name
-    return prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline), target.name
+        READING_SEEN.remember(session_id, 0, 0)
+        return with_reading_note(session_primer(target.path, harness), target.path, session_id, event=event,
+                                 deadline=deadline), target.name
+    note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
+    return with_reading_note(note, target.path, session_id, event=event, deadline=deadline), target.name
 
 
 LATENCY_BUCKETS = ((50, "<50"), (100, "50-100"), (200, "100-200"), (300, "200-300"))
@@ -496,5 +594,6 @@ def record(event: str, harness: str, result: Injection, *, latency_ms: int, mode
 def reset() -> None:
     """Forget every session window and cached model id (tests)."""
     RECENT.clear()
+    READING_SEEN.clear()
     with _MODELS_LOCK:
         _MODELS.clear()

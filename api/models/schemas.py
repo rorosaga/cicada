@@ -1048,6 +1048,9 @@ class EpisodeText(CamelModel):
     timestamp: Optional[str] = None
     harness: Optional[str] = None
     origin: Optional[str] = None
+    #: The episode's ``source`` (G166: ``page-read`` is what an agent reported from a page — the
+    #: app labels its quotes "From the page, as <agent> read it").
+    source: Optional[str] = None
     conversation_id: Optional[str] = None
     capture_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
@@ -1114,6 +1117,7 @@ class ProvenanceConversation(CamelModel):
     title: str = ""
     harness: Optional[str] = None
     origin: Optional[str] = None
+    source: Optional[str] = None
     timestamp: Optional[str] = None
     claim_count: int = 0
     available: bool = True
@@ -3131,6 +3135,42 @@ class SourceRssRequest(CamelModel):
     tags: list[str] = []
 
 
+class ReadState(CamelModel):
+    """G166: how a saved link was read, and whether an agent may be asked to.
+
+    ``status`` is ``none`` (never read, and no ask), ``waiting`` (the person asked
+    an agent), ``ok`` (an agent read it), or the agent's outcome ``needs_login`` |
+    ``blocked`` | ``not_found`` | ``failed``. ``by``/``tier`` are ``agent`` only
+    when an agent read it. ``via`` is what the agent SAID it read with —
+    self-reported, never proof; ``harness`` is the connection's label.
+    ``askable``/``reason`` let the app decide "Ask an agent" without a host table
+    of its own: ``askable`` false carries the plain sentence why (agent reading
+    off, a video, a secret-bearing link) — never a site, because "Ask an agent" on
+    one page is the person's own consent for it. ``wall`` (``walled`` | ``login`` |
+    ``consent`` | ``refused``) is present when Cicada's own reader could not read
+    the page and it holds no words; ``siteKey``/``siteLabel``/``siteAllowed`` name
+    the site the person can let an agent read, and ``queuedBy: site`` marks a
+    ``waiting`` that comes from that permission rather than from an ask."""
+
+    by: Optional[str] = None
+    status: str = "none"
+    tier: Optional[str] = None
+    at: Optional[str] = None
+    asked_at: Optional[str] = None
+    via: Optional[str] = None
+    harness: Optional[str] = None
+    note: Optional[str] = None
+    host: Optional[str] = None
+    wall: Optional[str] = None
+    site_key: Optional[str] = None
+    site_label: Optional[str] = None
+    site_allowed: Optional[bool] = None
+    site_icon_host: Optional[str] = None
+    queued_by: Optional[str] = None
+    askable: bool = False
+    reason: Optional[str] = None
+
+
 class MediaSourceItem(CamelModel):
     media_entity_id: str
     url: str
@@ -3182,6 +3222,10 @@ class MediaSourceItem(CamelModel):
     # shows and searches; both absent for every other media row.
     kind: Optional[str] = None
     paper: Optional[PaperSummary] = None
+    # G166 — additive and defaulted: an older client and every older ETag body
+    # decode unchanged. `None` for a video or a paper (not read here); otherwise
+    # the read state and whether "Ask an agent" is on offer.
+    read: Optional[ReadState] = None
 
 
 class SourceListResponse(CamelModel):

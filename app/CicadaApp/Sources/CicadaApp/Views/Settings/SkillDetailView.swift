@@ -7,13 +7,17 @@ import SwiftUI
 /// `SettingsFocus.escapeBack`, which `SkillsView` sets while this is open).
 struct SkillDetailView: View {
     let skill: RecommendedSkill
+    /// The section whose header this sub-page wears: Skills, or Reading the web when a reading skill's "Install…"
+    /// opened it there (the Skills list shows only five, so a lower-ranked skill has no card to open there).
+    var section: SettingsSection = .skills
     let back: () -> Void
     @State private var consentAgent: String?
+    @State private var copiedPrompt = false
     @Environment(SkillsViewModel.self) private var vm
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsDetailHeader(section: .skills, subpage: .init(title: skill.title, back: back))
+            SettingsDetailHeader(section: section, subpage: .init(title: skill.title, back: back))
                 .padding(.horizontal, CicadaTheme.spacingXL)
             ScrollView {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
@@ -25,6 +29,7 @@ struct SkillDetailView: View {
                         Label(note, systemImage: "sparkles").font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                     }
                     SettingsGroupCard(header: "Install") {
+                        if let prompt = SkillPromptText.shared(skill) { promptBlock(prompt) }
                         ForEach(skill.agents, id: \.self) { agent in agentRow(agent) }
                     }
                 }
@@ -103,6 +108,27 @@ struct SkillDetailView: View {
         .settingsCardSurface()
     }
 
+    /// An agent-prompt install (G166): the sentence the person hands their agent, which installs the skill itself.
+    /// Copied on a click; Cicada runs nothing for it.
+    private func promptBlock(_ prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            Text(Copy.skillPromptLead).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(prompt).font(CicadaTheme.quoteFont).foregroundStyle(CicadaTheme.textPrimary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                NeutralButton(title: copiedPrompt ? Copy.skillPromptCopied : Copy.copySkillPrompt, size: .compact) {
+                    AppPasteboard.copy(prompt)
+                    copiedPrompt = true
+                }
+            }
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .padding(.vertical, CicadaTheme.spacingSM)
+    }
+
     private func agentRow(_ agent: String) -> some View {
         let plan = skill.install[agent] ?? SkillInstallPlan()
         return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -117,7 +143,9 @@ struct SkillDetailView: View {
                     Button(Copy.installIn(SkillAgent.label(agent))) { consentAgent = agent }
                 }
             }
-            if !plan.runnable {
+            if !plan.runnable, let prompt = plan.prompt {
+                if SkillPromptText.shared(skill) == nil { promptBlock(prompt) }
+            } else if !plan.runnable {
                 Text(Copy.connectInYourAgent).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
                 ForEach(plan.steps, id: \.argv) { step in
                     CommandBox(command: step.argv.map(SnippetEscape.shell).joined(separator: " "))
@@ -126,5 +154,16 @@ struct SkillDetailView: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
+    }
+}
+
+/// Which agent-prompt sentence a skill's detail shows once: the one every agent's plan carries, or nil when the plans
+/// differ (each row then shows its own) or none has one. Pure.
+enum SkillPromptText {
+    static func shared(_ skill: RecommendedSkill) -> String? {
+        let prompts = skill.agents.map { skill.install[$0]?.prompt }
+        guard !prompts.isEmpty, prompts.allSatisfy({ $0 != nil }) else { return nil }
+        let unique = Set(prompts.compactMap { $0 })
+        return unique.count == 1 ? unique.first : nil
     }
 }

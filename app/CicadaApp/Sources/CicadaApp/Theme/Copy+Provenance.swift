@@ -39,6 +39,11 @@ extension Copy {
         static let unlabelledMessage = "Unlabelled message"
         static let someoneElse = "Someone else"
         static let fromThePage = "From the page"
+        /// A quote an agent reported from a page (G166): Cicada never had the page and cannot check it, so the label
+        /// says whose reading it is.
+        static func fromThePageAsRead(by agent: String?) -> String {
+            "From the page, as \(agent ?? "an agent") read it"
+        }
         /// The Reader's line over a file's text that Claude extracted from an upload (`attachment [<name>]:`).
         static func attached(_ fileName: String) -> String { "Attached · \(fileName)" }
 

@@ -211,7 +211,7 @@ struct EvidencePreview: View {
            line != agent {
             return line
         }
-        return EvidenceLabel.speaker(kind: model.kind, agent: agent)
+        return EvidenceLabel.speaker(kind: model.kind, agent: agent, source: meta?.source)
     }
 
     private func caption(_ style: QuoteBlock.Style) -> String? {

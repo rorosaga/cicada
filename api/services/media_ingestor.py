@@ -19,7 +19,7 @@ import asyncio
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -106,6 +106,13 @@ class RawItem:
     # words about the page, not the person's — so it is never a `note` — and it
     # stands in as the description only when enrichment found none.
     preview: str | None = None
+    # G166 (a subset of the reading spec's S3 change, same name): skip the
+    # network read and build the page from the URL alone — the URL-derived
+    # fallback title and provider. The person's "Ask an agent" on a link that
+    # is not saved yet mints its page this way, so asking never fetches (a
+    # walled host is never requested by the backend, and even a public one
+    # should not be read just because the person asked an agent to).
+    defer_enrich: bool = False
 
 
 @dataclass
@@ -129,6 +136,14 @@ class MediaMeta:
     # G140 Q-R12 — chapters parsed from the provider's own description
     # (`video_chapters.parse`), never inferred; `None` when there is no list.
     chapters: list[dict] | None = None
+    # G166 (ruling 14 amended): what the one save-time page request returned when
+    # it was a WALL — ``blocked`` (401/403/407/451, or a redirect onto a login or
+    # consent host) or ``interstitial`` (a consent page). Recorded in the page's
+    # own ``fetch_status`` beside ``fetch_attempted_at``, the backfill's
+    # vocabulary, so the site surfaces at once and the backfill's 30-day backoff
+    # does not re-request it. A failure (a 500, a timeout) is deliberately NOT
+    # stamped here: the backfill retries those sooner than a wall.
+    fetch_status: str | None = None
 
 
 @dataclass
@@ -313,6 +328,16 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             # ``from_bookmark_file=False``, so every one of them used to fall
             # to ``_enrich_opengraph`` and land on TikTok's consent wall.
             return await _enrich_oembed(ref.provider, url, client, fallback)
+        from api.services import reading_hosts
+
+        if reading_hosts.is_walled(url):
+            # R-RW4 (G166): one closed set of login-walled hosts — X, Facebook,
+            # Reddit and `t.co` join LinkedIn and Instagram above, so the
+            # backend never requests such a page (X was the gap: it fell
+            # through to the OpenGraph fetch). A person's own agent may read
+            # one, only when asked (`cicada_reading_queue`). TikTok keeps its
+            # provider oEmbed branch above, which never loads the page.
+            return fallback
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
         logger.debug(f"Enrichment failed for {url}: {type(e).__name__}: {e}")
@@ -422,6 +447,13 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
         break
     else:
         return fallback
+    from api.services import link_enrichment  # lazy: it imports this module's neighbours
+
+    if getattr(resp, "status_code", 200) in (401, 403, 407, 451) or (
+            current != url and link_enrichment._redirected_to_wall(url, current)):
+        # A wall, recorded rather than swallowed: the one request already made is
+        # all that is read (no header change, no retry — the ToS rail).
+        return replace(fallback, fetch_status="blocked")
     resp.raise_for_status()
 
     # R13 / R-V7: mirror ``link_enrichment.default_fetch``'s guard
@@ -440,6 +472,8 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
+    if link_enrichment.classify_page(link_enrichment._html_title(html), "") == "interstitial":
+        return replace(fallback, fetch_status="interstitial")
 
     def meta(*selectors: tuple[str, str]) -> str | None:
         for attr, value in selectors:
@@ -1768,6 +1802,10 @@ def write_media_entity(
     # real chapter list, so every other page stays byte-identical.
     if meta.chapters:
         frontmatter["media"]["chapters"] = [dict(c) for c in meta.chapters]
+    if meta.fetch_status:
+        # G166: the wall the save-time request hit, in the backfill's own keys.
+        frontmatter["fetch_status"] = meta.fetch_status
+        frontmatter["fetch_attempted_at"] = today.strftime("%Y-%m-%d")
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 
@@ -1909,7 +1947,15 @@ async def ingest_one(
             url=item.url,
         )
 
-    meta = await enrich(item.url, client, from_bookmark_file=from_bookmark_file)
+    if item.defer_enrich:
+        ref = video_urls.resolve(item.url)
+        meta = MediaMeta(
+            title=_fallback_title(item.url), description="", site=_site_of(item.url),
+            media_type=_classify(item.url, from_bookmark_file=from_bookmark_file),
+            provider=(ref.provider if ref else None),
+        )
+    else:
+        meta = await enrich(item.url, client, from_bookmark_file=from_bookmark_file)
     # Prefer an explicit title from the parser (Takeout/bookmark name) when
     # enrichment fell back to a URL slug.
     if item.title and meta.title == _fallback_title(item.url):
