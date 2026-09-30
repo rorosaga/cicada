@@ -20,7 +20,11 @@ see or limit what the agent does). It lives in ``$CICADA_HOME/agent_methods.json
 cached: the backend and each stdio MCP process both read it (the split-brain
 rule). An unknown or removed id reads as ``auto``.
 
-Remote connections get no clause at all — a cloud app has no local skill folder,
+The person's own hand-off prompt ("Copy for an agent", "Ask an agent") goes to whichever
+agent they paste it into, so its skill clause is conditional: use the skill if you run on
+this Mac and can load skills, else your own browser tools.
+
+A tool's reply to a remote connection gets no clause at all — a cloud app has no local skill folder,
 so "use <skill>" would end its run — and neither does a client that is not one of
 ``skill_catalog.AGENTS`` (a skill is named only where it can be installed; the
 agent's own tools may still be named). Every string here is neutral: skill names
@@ -185,8 +189,11 @@ def options(job: str, *, home: Path | None = None, catalog: dict | None = None) 
 
 _PERSON = {
     OWN: "I chose your own built-in tools for this; don't load a separate skill for it.",
-    "skill": "I chose the {name} skill for this: use it, and set `via` to \"{name}\". "
-             "If it is not installed for you, say so and stop.",
+    # The person pastes this into whichever agent they use, possibly an app connected from
+    # anywhere that cannot load a local skill — so the skill is conditional here.
+    "skill": "I chose the {name} skill for this. If you run on this Mac and can load skills, use it, and set "
+             "`via` to \"{name}\"; if it is not installed for you, say so and stop. If you cannot load skills "
+             "where you run (an app connected from anywhere, say), use your own browser tools instead.",
 }
 _REPLY = {
     OWN: "The person chose your own built-in tools for this; don't load a separate skill for it.",
@@ -221,7 +228,7 @@ def tool_phrase(job: str, *, voice: str = "person") -> str:
 
 def prompt_clause(job: str) -> str | None:
     """First person, for the person's own hand-off prompt (they pass it to whichever
-    agent they use, so a skill is named without checking the harness)."""
+    agent they use, so the skill clause is conditional on the agent being able to load one)."""
     return _clause(job, _PERSON, variant=None, gate_variant=False)
 
 

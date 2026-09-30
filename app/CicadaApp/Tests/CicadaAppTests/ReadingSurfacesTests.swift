@@ -196,6 +196,9 @@ final class ReadingSurfacesTests: XCTestCase {
         XCTAssertEqual(SiteIconLayout.Size.row.points, 20)
         XCTAssertEqual(SiteIconLayout.Size.inline.points, 16)
         XCTAssertEqual(SiteIconLayout.cornerRadius, 4, "a tab's corner, never a circle")
+        XCTAssertTrue(SiteIconLayout.clips(.favicon), "a fetched favicon gets the tab's corner")
+        XCTAssertFalse(SiteIconLayout.clips(.bundled("linkedin")), "a bundled brand mark stands bare (DR-52)")
+        XCTAssertFalse(SiteIconLayout.clips(.monogram))
     }
 
     func testFamilyFallsBackToBundledMarkThenMonogram() {

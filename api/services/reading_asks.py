@@ -152,6 +152,31 @@ def all_rows(memory_path: Path, *, now: datetime | None = None) -> list[dict]:
     return sorted((r for r in rows if _alive(r, moment)), key=lambda r: r["asked_at"])
 
 
+def expiry_state(memory_path: Path, *, now: datetime | None = None) -> tuple[int, float | None]:
+    """``(expired rows still on disk, epoch of the next expiry)`` — the clock the
+    ``reading`` sync component folds in. Expiry writes nothing, so the file's mtime
+    alone never moves when a ``needs_login`` pause ages out; the expired count moves
+    on exactly those transitions (the logo cache's ``expiry_state`` precedent)."""
+    moment = _now(now)
+    try:
+        rows = _read_file(memory_path)
+    except ValueError:
+        return 0, None
+    expired = 0
+    next_at: float | None = None
+    for row in rows:
+        stamp = _parse(row.get("outcome_at")) or _parse(row.get("asked_at"))
+        if stamp is None:
+            continue
+        deadline = stamp + timedelta(days=EXPIRES_AFTER_DAYS)
+        if moment >= deadline:
+            expired += 1
+        else:
+            ts = deadline.timestamp()
+            next_at = ts if next_at is None else min(next_at, ts)
+    return expired, next_at
+
+
 def get(memory_path: Path, url_hash: str, *, now: datetime | None = None) -> dict | None:
     return next((r for r in all_rows(memory_path, now=now) if r["url_hash"] == url_hash), None)
 

@@ -127,6 +127,32 @@ def test_etag_304_before_any_scan_and_moves_on_toggle_and_on_outcome(api, monkey
     assert client.get("/reading/sites", headers={"If-None-Match": etag2}).status_code == 200
 
 
+def test_a_needs_login_pause_that_ages_out_moves_the_etag_with_no_write(api, monkeypatch):
+    """Expiry writes nothing, so the `reading` component folds in the expired count: a week
+    later the site list, `/reading/asks` and `/sources` all move without any file changing."""
+    import time as real_time
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    client, memory = api
+    _seed(memory)
+    first = client.get("/reading/sites")
+    assert [r["needsLogin"] for r in first.json()["sites"] if r["site"] == "linkedin"] == [1]
+    etags = {path: client.get(path).headers["ETag"] for path in ("/reading/sites", "/reading/asks", "/sources")}
+    mtime_before = reading_asks.path_for(memory).stat().st_mtime_ns
+
+    later = datetime.now(timezone.utc) + timedelta(days=8)
+    monkeypatch.setattr(reading_asks, "_now", lambda now=None: (now or later).astimezone(timezone.utc))
+    monkeypatch.setattr(sync_service, "time", SimpleNamespace(time=lambda: later.timestamp(),
+                                                              **{k: getattr(real_time, k) for k in ("monotonic", "sleep")}))
+    for path, etag in etags.items():
+        moved = client.get(path, headers={"If-None-Match": etag})
+        assert moved.status_code == 200, f"{path} must notice the row aging out"
+    body = client.get("/reading/sites").json()
+    assert [r["needsLogin"] for r in body["sites"] if r["site"] == "linkedin"] == [0]
+    assert reading_asks.path_for(memory).stat().st_mtime_ns == mtime_before, "a read never writes"
+
+
 def test_the_list_and_the_feed_agree_on_what_is_waiting(api):
     """Every page the site row counts as waiting has a Feed row the person can open (the junk filter
     lets a wall page through), so the count never names pages nobody can find."""

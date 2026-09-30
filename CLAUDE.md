@@ -891,8 +891,10 @@ post. The **choice of how the agent reads** (`agent_methods.py`, `$CICADA_HOME/a
 instruction Cicada passes to the person's own agent, never authority: `auto` (the default, no tool named), `own` ("don't
 load a separate skill") or a catalog skill whose `roles` list the job ("the person chose the `<name>` skill for this: use
 it, and if it is not installed for you, say so and stop"). It flows into "Copy for an agent" (`reading_prompt`), the stdio
-queue reply and one primer line (`handshake.build(methods=)`, `MAX_METHOD_LINES` 2, fixed part, R12-checked), never to a
-remote connection or a client that is not one of `skill_catalog.AGENTS`. A skill the person picks gets a page in the graph
+queue reply and one primer line (`handshake.build(methods=)`, `MAX_METHOD_LINES` 2, fixed part, R12-checked); a tool reply
+or primer line never names a skill to a remote connection or a client that is not one of `skill_catalog.AGENTS`, and the
+copied prompt, which can be pasted anywhere, names it conditionally ("if you run on this Mac and can load skills … else
+your own browser tools"). A skill the person picks gets a page in the graph
 (`skill_pages.py`, the one writer, only from that selection or "Add to your graph": `type: skill`, `tags: [agent-skill]`
 (`skill_tag.py`, so `state_dictionary._preferences` never lists an installed tool as a working agreement and Stage 4 never
 mistakes one for a pattern), evergreen, `human_edited`, no claims, one `user` commit; an agent-made `tool`/`concept` page of the
@@ -1038,7 +1040,7 @@ toolbar platter is hidden (`ChromeToolbarItem`). **Settings is a panel inside th
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
-Customize: Integrations · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
+Customize: Integrations · Reading the web · Agents · From anywhere · Skills; Engines & keys: Engines · Plans & keys · Advanced — and each
 page's own header with an `esc` keycap and a close ×. It is modal: the shell under it is inert, ⌘K waits, Esc and a
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
