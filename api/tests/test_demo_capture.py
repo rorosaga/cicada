@@ -247,6 +247,7 @@ WRITES = {
     "cicada_save_url": lambda ctx: mcp_tools.save_url(ctx, "https://example.com/a", None),
     "cicada_record_watch": lambda ctx: mcp_tools.record_watch(ctx, "https://example.com/v", "A summary."),
     "cicada_record_read": lambda ctx: mcp_tools.record_read(ctx, "https://example.com/p", "read", "A summary."),
+    "cicada_record_check": lambda ctx: mcp_tools.record_check(ctx, "inbox-001", "https://example.com/p", "unclear"),
     "cicada_write_claim": lambda ctx: mcp_tools.write_claim(ctx, "alpha-project", "uses", "tool-example-a",
                                                             None, None, None, None),
     "cicada_retract_claim": lambda ctx: mcp_tools.retract_claim(ctx, "alpha-project", "clm_x", "wrong"),

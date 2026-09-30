@@ -85,11 +85,20 @@ class Target:
     accepted: bool
     rungs: tuple[str, ...]
     own_session_only: bool = False
+    # G61 S3: Cicada's own read confirmed it (a verified official site), and the page the source points at — "its own
+    # memory node" (raw `entity:`; a reader resolves it, a stale id is no link).
+    verified: bool = False
+    entity: str | None = None
 
     def to_wire(self) -> dict:
-        return {"ref": self.ref, "kind": self.kind, "access": self.access, "added_by": self.added_by,
+        wire = {"ref": self.ref, "kind": self.kind, "access": self.access, "added_by": self.added_by,
                 "predicate_matched": self.predicate_matched, "accepted": self.accepted,
                 "rungs": list(self.rungs), "own_session_only": self.own_session_only}
+        if self.verified:
+            wire["verified"] = True
+        if self.entity:
+            wire["entity"] = self.entity
+        return wire
 
 
 @dataclass(frozen=True)
@@ -132,7 +141,11 @@ def _matches(source: dict, predicate: str | None) -> bool:
         return False
     if fact_sources.same_predicate(source.get("predicate"), predicate):
         return True
-    return predicate == ENTITY_PATH_KEY and not str(source.get("predicate") or "").strip()
+    # A page-level question ("what is this?") is answered by a page-level source: one with no predicate, or the
+    # page's official site (G61 S3).
+    return predicate == ENTITY_PATH_KEY and (
+        not str(source.get("predicate") or "").strip()
+        or fact_sources.same_predicate(source.get("predicate"), fact_sources.WEBSITE))
 
 
 def _rank(source: dict) -> int:
@@ -157,10 +170,12 @@ def _target(source: dict, matched: bool) -> Target:
     else:
         rungs = (RUNG_AGENT_LOCAL,)
     return Target(ref=ref, kind=kind, access=access, added_by=_added_by(source), predicate_matched=matched,
-                  accepted=bool(source.get("accepted")), rungs=rungs, own_session_only=refused)
+                  accepted=bool(source.get("accepted")), rungs=rungs, own_session_only=refused,
+                  verified=bool(source.get("verified")), entity=str(source.get("entity") or "").strip() or None)
 
 
-def targets_for(sources, predicate: str | None, *, person_only: bool) -> tuple[Target, ...]:
+def targets_for(sources, predicate: str | None, *, person_only: bool,
+                checked: dict[str, str] | None = None) -> tuple[Target, ...]:
     """Ranked targets (spec §4.3): predicate-matched first — the person's, then
     Cicada's, then an agent's, file order within each — capped at
     :data:`MAX_TARGETS`; with no match, the first ``url`` (the hint's own
@@ -169,7 +184,11 @@ def targets_for(sources, predicate: str | None, *, person_only: bool) -> tuple[T
     # G61 S3-a: a page holds many sources — `fact_sources.rank` is the one function that picks among them
     # (the person's, then a taken or verified one, Cicada's, an agent's; file order within each). On the owner's page
     # only what the person added or took ("Use this source", `accepted`) counts (R-AC9, D2).
-    matched = fact_sources.rank(sources, predicate, person_only=person_only, match=lambda s, p: _matches(s, p))
+    # `checked` maps a ref to the day an agent last looked at it: within one trust class the least recently checked
+    # comes first (G61 S3), so a dead or stale source never starves the others.
+    then = (lambda s: (checked or {}).get(str(s.get("ref") or "").strip(), "")) if checked else None
+    matched = fact_sources.rank(sources, predicate, person_only=person_only, match=lambda s, p: _matches(s, p),
+                                then=then)
     if matched:
         return tuple(_target(s, True) for s in matched[:MAX_TARGETS])
     usable = [s for s in fact_sources.as_sources(sources) if not s.get("only_me")]
@@ -177,6 +196,17 @@ def targets_for(sources, predicate: str | None, *, person_only: bool) -> tuple[T
         usable = [s for s in usable if _added_by(s) == fact_sources.USER or s.get("accepted")]
     first_url = next((s for s in usable if str(s.get("kind") or "") == fact_sources.KIND_URL), None)
     return (_target(first_url, False),) if first_url is not None else ()
+
+
+def checked_days(item_fm: dict) -> dict[str, str]:
+    """``{ref: day}`` of the last time an agent looked at each source for this item, from its ``checks:`` list."""
+    out: dict[str, str] = {}
+    for row in item_fm.get("checks") or []:
+        if isinstance(row, dict) and row.get("ref") and row.get("at"):
+            day = str(row["at"])[:10]
+            if day > out.get(str(row["ref"]), ""):
+                out[str(row["ref"])] = day
+    return out
 
 
 def _only_me(sources, predicate: str | None) -> bool:
@@ -237,13 +267,13 @@ def checkability(item_fm: dict, *, options: list[dict], option_claims: dict, sub
     if predicate and _only_me(sources, predicate):
         return Checkability(INFORM_ONLY, "only_me", locus)
     owner = subject_fm.get("owner") is True
-    targets = targets_for(sources, predicate, person_only=owner)
+    targets = targets_for(sources, predicate, person_only=owner, checked=checked_days(item_fm))
     rungs = _rungs(targets)
     if not targets:
         reason = "owner_subject" if owner and fact_sources.as_sources(sources) else "no_source"
         return Checkability(NEEDS_SOURCE, reason, locus)
     if kind == "conflict" and locus == "unknown" and not any(
-            t.predicate_matched and t.added_by == fact_sources.USER for t in targets):
+            t.predicate_matched and (t.added_by == fact_sources.USER or t.verified) for t in targets):
         return Checkability(NEEDS_SOURCE, "unknown_locus", locus, targets, rungs)
     if kind in ("divergence", "clarification"):
         return Checkability(INFORM_ONLY, kind, locus, targets, rungs)

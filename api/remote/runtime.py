@@ -215,6 +215,9 @@ _DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_record_read": lambda c, a: mcp_tools.record_read(
         c, str(a.get("url") or ""), str(a.get("outcome") or ""), a.get("summary"), a.get("excerpts"),
         a.get("via"), a.get("note"), a.get("title")),
+    "cicada_record_check": lambda c, a: mcp_tools.record_check(
+        c, str(a.get("item_id") or ""), str(a.get("source") or ""), str(a.get("outcome") or ""),
+        a.get("option_key"), a.get("proposed_value"), a.get("quotes"), a.get("summary"), a.get("via")),
     "cicada_resolve_inbox": lambda c, a: mcp_tools.resolve_inbox(
         c, str(a.get("id") or ""), a.get("option_key"), None, bool(a.get("defer", False)), a.get("remind_days"),
         skip=bool(a.get("skip", False)), reject=bool(a.get("reject", False))),
@@ -236,7 +239,7 @@ def _writes_bank(tool: str, arguments=None) -> bool:
     apply to all of them."""
     if tool == "cicada_video_claim":
         return False
-    if tool != "cicada_record_read":
+    if tool not in ("cicada_record_read", "cicada_record_check"):
         return True
     outcome = str((arguments or {}).get("outcome") or "").strip().lower()
     return outcome == "read" or outcome not in ("needs_login", "blocked", "not_found", "failed")

@@ -1949,6 +1949,24 @@ class InboxCheckTarget(CamelModel):
     accepted: bool = False
     rungs: list[str] = []
     own_session_only: bool = False
+    verified: bool = False
+    entity: Optional[str] = None   # G61 S3: the page that knows more about this source (raw `entity:`)
+
+
+class InboxCheckFinding(CamelModel):
+    """What an agent reported after looking at a source for this item (G61 S3, shadow: a finding settles nothing, holds
+    nothing and reorders nothing). ``quote`` is the page's words as the agent reported them — served where the item's
+    Cause is, never to a remote connection without ``sources``. ``checker`` is the harness label, never a model."""
+
+    at: str
+    checker: str
+    checker_kind: str = "agent"     # agent | remote
+    host: str = ""
+    ref: Optional[str] = None       # the source that was looked at, as listed
+    outcome: str                    # supports | proposes | unclear | contradicts_all
+    option_key: Optional[str] = None
+    proposed_value: Optional[str] = None
+    quote: Optional[str] = None
 
 
 class InboxCheck(CamelModel):
@@ -1964,6 +1982,9 @@ class InboxCheck(CamelModel):
 
 
 class InboxItem(CamelModel):
+    # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
+    checks: list[InboxCheckFinding] = []
+    last_checked_at: Optional[str] = None
     id: str
     kind: InboxKind
     required_input: RequiredInput

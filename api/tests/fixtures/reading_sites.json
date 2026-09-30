@@ -10,6 +10,7 @@
    "waiting": 1,
    "read": 0,
    "needsLogin": 1,
+   "checks": 0,
    "note": null,
    "iconHost": "linkedin.com"
   },
@@ -23,6 +24,7 @@
    "waiting": 4,
    "read": 0,
    "needsLogin": 0,
+   "checks": 0,
    "note": null,
    "iconHost": "paperfold.io"
   },
@@ -36,6 +38,7 @@
    "waiting": 1,
    "read": 0,
    "needsLogin": 0,
+   "checks": 0,
    "note": "Profiles and pages only. A video goes through your agent's video tools.",
    "iconHost": "tiktok.com"
   }
@@ -43,5 +46,5 @@
  "waitingTotal": 6,
  "waitingNotAllowed": 5,
  "enabled": true,
- "shape": "reading-sites-3"
+ "shape": "reading-sites-4"
 }

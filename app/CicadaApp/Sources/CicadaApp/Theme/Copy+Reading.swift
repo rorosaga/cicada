@@ -52,7 +52,7 @@ extension Copy {
 
         // MARK: Sites that need your browser
         static let sitesGroup = "Sites that need your browser"
-        static let sitesIntro = "A site is listed when Cicada’s own reader couldn’t open one of its saved pages. You decide which sites your agent may read. Turning one on queues its waiting pages for your agent, and pages saved later join by themselves."
+        static let sitesIntro = "A site is listed when Cicada’s own reader couldn’t open one of its saved pages, or when a page you keep lists it as a place a question could be checked. You decide which sites your agent may read. Turning one on queues its waiting pages for your agent, and pages saved later join by themselves."
         static let sitesEmpty = "No site needs your browser so far. One shows up here when Cicada’s reader can’t open a page you saved."
         static let sitesIconNote = "Site icons come from an icon service, which is told the site’s name. Cicada doesn’t ask these sites for their icons."
         static func siteSwitchLabel(_ site: String) -> String { "Let an agent read \(site)" }
@@ -63,6 +63,13 @@ extension Copy {
         static let grantedReadingOff = "Allowed · agent reading is off"
         static func queued(_ n: Int) -> String { n == 1 ? "1 page is queued for your agent" : "\(n) pages are queued for your agent" }
         static let nothingWaiting = "Nothing is waiting"
+        // G61 S3 — the questions a source on this site could answer (counts only)
+        static func checksAllowed(_ n: Int) -> String {
+            n == 1 ? "1 question your agent can check here" : "\(n) questions your agent can check here"
+        }
+        static func checksIfAllowed(_ n: Int) -> String {
+            n == 1 ? "1 question could be checked here" : "\(n) questions could be checked here"
+        }
         static func readCount(_ n: Int) -> String { n == 1 ? "1 read by an agent" : "\(n) read by an agent" }
         static let needsLoginNote = "Your agent wasn’t signed in to this site. Sign in in your browser, then try again."
         static let tryAgain = "Try again"
