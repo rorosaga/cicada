@@ -35,18 +35,26 @@ server's `instructions`); this skill covers only the consolidation loop.
   Use for anything worth remembering: decisions, facts, plans.
 - `cicada_save_url(url, note?)` — save a link (article, repo, bookmark).
   Cicada fetches and indexes it.
-- **Video**: when the person asks you to watch a video they saved, use a video
-  skill of your own (for example the `claude-video` skill's `/watch`). Cicada
-  never downloads or watches a video itself. Then call
-  `cicada_record_watch(url, summary, excerpts=[{t, quote}])`:
+- **Video**: when the person asks you to read or watch a video they saved (or
+  hands you a Cicada prompt for their video queue), use a video skill or tools
+  of your own. Cicada never downloads or watches a video itself; a skill whose
+  local engine downloads the video does so on the person's machine, which is
+  the person's call and yours, never Cicada's. `cicada_video_claim` takes what
+  the person queued (repeat it until it returns nothing) and hands back what you
+  cannot do (`release=[{url, code, reason}]`, code `needs_login` when a sign-in
+  stops you: never sign in yourself). Then call
+  `cicada_record_watch(url, summary, excerpts=[{t, quote}], basis, engine?,
+  duration?)`:
   1. `summary` — your faithful account of what the video covers, one paragraph.
   2. `excerpts` — up to 12 short quotes (at most 240 characters) with the time
      each is said (`"12:34"`): the words the video actually says. **Never paste
      the transcript** — Cicada keeps these quotes as cited evidence, marked as
      the video's words, not the person's.
-  3. A local recording saved as `file://…` is a path on disk for your skill,
+  3. `basis` — what you actually used: `transcript`, `frames` or `both`.
+     Cicada cannot check it and shows it as your word, so answer truthfully.
+  4. A local recording saved as `file://…` is a path on disk for your skill,
      not a URL — convert it before you run the skill.
-  4. Then `cicada_write_claim(...)` for relational facts the video establishes
+  5. Then `cicada_write_claim(...)` for relational facts the video establishes
      (subject = the video's entity id, e.g. predicate `is-about`), citing the
      watch episode the reply names.
 

@@ -1002,6 +1002,10 @@ class EpisodeTurn(CamelModel):
     # `turns` sidecar entry at exactly this turn's start; null otherwise.
     model: Optional[str] = None
     effort: Optional[str] = None
+    # G162: how faithful a video turn's words are — `verbatim` (captions) or
+    # `approximate` (a model's reading of the link, or a record that never said);
+    # only on a `media` turn.
+    fidelity: Optional[str] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -1026,6 +1030,20 @@ class EpisodeAgent(CamelModel):
 
     model: Optional[str] = None
     effort: Optional[str] = None
+
+
+class EpisodeWatch(CamelModel):
+    """G162: how a video-watch episode says it was read. ``basis`` and ``engine`` are
+    the agent's own word (R-VU2), absent for a record made before Cicada asked;
+    ``fidelity`` is derived (``approximate`` unless the engine is a verbatim one);
+    ``author_model`` / ``author_effort`` are the turn join for the ``describes``
+    claim this episode backs (round 4 D1) — null when no captured turn maps."""
+
+    basis: Optional[str] = None
+    engine: Optional[str] = None
+    fidelity: str = "approximate"
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
 
 
 class EpisodeText(CamelModel):
@@ -1053,6 +1071,7 @@ class EpisodeText(CamelModel):
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
+    watch: Optional[EpisodeWatch] = None
 
 
 class ProvenanceSpan(CamelModel):
@@ -1181,6 +1200,8 @@ class EpisodeCitation(CamelModel):
     # false only when something replaced it, never for a born-closed done one.
     event_status: Optional[str] = None
     event_day: Optional[str] = None
+    # G162: on a `media` row only — how faithful the video's words are.
+    fidelity: Optional[str] = None
 
 
 class EpisodeCitationEntity(CamelModel):

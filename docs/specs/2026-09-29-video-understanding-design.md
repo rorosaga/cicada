@@ -129,7 +129,10 @@ person cannot see which of their 40 saved videos an agent has actually read.
 | R-VU7 | **Vocabulary.** *Watch* and *Read* are what an agent does; *Sleep* is consolidation. A video run never says "consolidate". | The owner's word "consolidate" already means Sleep. A watch record becomes an ordinary episode that Sleep reads later, so two steps are real (§4.1). |
 | R-VU8 | **A video's identity is its url-index key (`videoKey`), never its media entity id.** The queue, the state map and every route key on it; the wire also carries `mediaEntityId` and `url` for joining to `MediaFeedItem`. | Entity ids collide across same-titled videos (§1). Queueing one video must not queue its namesake. |
 | R-VU9 | **Every sentence states what Cicada knows.** A claim on a queue entry is "picked up by <agent>", not progress. "Read by Sleep" derives from `processed_by == sleep`. Nothing promises a cycle will run. | The lease is only a lease; `processed` can be flipped by an agent; the manual schedule mode has no next cycle. |
-| R-VU10 | **Cicada's own prompt never steers an agent into the person's logged-in browser for a video.** | Same act as "scraping behind authentication" by another route (§5). |
+| R-VU10 | **Cicada's default prompt never steers an agent into the person's logged-in browser for a video; when the person turns on the single reading permission, the prompt carries that permission as an instruction (their consent, R-RW8), never as a promise. *Amended 2026-09-30 (§13, H1).*** | The first form, "never", made the permission page inert for video: a `needs_login` video was a dead end. The person's explicit switch is the consent; the default stays as reviewed. |
+| R-VU11 | **Provider-neutral copy.** Every string a video surface, the prompt, a tool description, the contract clause or the bridge line writes describes the step ("a model that takes the link", "the reader reads"), and never names a provider or model as the one that does the job. Names appear only as data: a harness label an agent sent, a skill the person picked. A test enforces it. | Owner 2026-09-30: "Ollama and the rest are literally just providers. So don't assume or make the choice for the user." |
+| R-VU12 | **No batch cap, anywhere.** A hand-off accepts every selected video; a claim leases at most 10 per call and the prompt loops. The queue file keeps a safety ceiling of 2,000 rows with a sentence. | Owner 2026-09-29 (the drain's reasoning); "Select all 13 not read yet" must not break at 200 on a bank with a few hundred saved videos. |
+| R-VU13 | **No site list for video.** Any saved item the Feed shows as a video can be queued, whatever its host. When an agent cannot get a video (a login wall, private, blocked) it hands it back with a `code`, and the app **surfaces** it (a `needs_login` row); nothing pre-filters by host. Whether an agent may use the person's browser at all is the reading plan's single permission. | Owner 2026-09-30: "limiting the amount of sites makes no sense … we will never know which sites this will happen." |
 
 R-VU3 is reversible: the file's contents would move into a bank folder unchanged if the owner prefers
 it (Q2).
@@ -163,7 +166,7 @@ record lands, so the app never says the record is or is not "in your graph".
 | Key | Values | Set by |
 |---|---|---|
 | `watch_basis` | `transcript` \| `frames` \| `both` | `cicada_record_watch(basis=)`, the agent's word |
-| `watch_engine` | `gemini_url` \| `captions` \| `local_frames` \| `speech_to_text` \| `browser` \| `other` | `cicada_record_watch(engine=)` |
+| `watch_engine` | `captions` \| `video_link` \| `local_frames` \| `speech_to_text` \| `browser` \| `other` | `cicada_record_watch(engine=)` |
 
 A closed set for `engine`, not free text: an open label invites junk, and `other` is the escape.
 Both go through the existing scrub and length rules; an unknown value is dropped and the record is
@@ -211,9 +214,10 @@ value, an agent that omits `basis` — are all rows of this table and are pinned
   `harness` frontmatter), and `readBySleep` (`processed_by == sleep`). The card says "Sleep hasn't
   read this yet" when `processed` is false, "Read by Sleep" when `processed_by == sleep`, and **says
   nothing** when an agent flipped `processed` (Cicada cannot tell what that meant).
-- **Quote fidelity, derived.** `approximate` when the engine is `gemini_url`, `other` or **absent**,
-  else `verbatim`. Gemini's transcripts are model output, not captions, so its timestamps and wording
-  can drift (research; **assumed** for `other`). **Every legacy record therefore shows the caveat**
+- **Quote fidelity, derived.** `approximate` when the engine is `video_link` (a model reading the link
+  directly; the first draft named a provider here, P7), `other` or **absent**, else `verbatim`. A model's
+  transcript is output, not captions, so its timestamps and wording can drift (research; **assumed** for
+  `other`). **Every legacy record therefore shows the caveat**
   (an absent engine reads approximate); that is the honest reading of "we were not told".
   The Reader's chip for a `media` span says "From the video · approximate wording" when so.
   Provenance wire additions (this slice, V1): `/episodes/{id}/text` gains a `watch` object
@@ -256,7 +260,8 @@ $CICADA_HOME/video_queue/<bank>.json      atomic write (tmp + rename), one file 
   the same "one writer, several processes" care `backlog.py` takes with its exclusive create.
 - **A video is keyed by its `videoKey`.** It must resolve through the url index to an existing
   `media` page (`watch_record.resolve`). The item stores `mediaEntityId` and `url` so the app joins to
-  `MediaFeedItem` by `mediaEntityId|url` and a namesake is never touched. At most 200 entries.
+  `MediaFeedItem` by `mediaEntityId|url` and a namesake is never touched. At most 2,000 entries: a
+  file-safety ceiling with a sentence, never a batch cap (§13, D-2).
 - **`want: watch` implies a transcript.** The queue never holds both for one video; asking for a
   watch replaces a transcript request.
 - **Every free-text field is scrubbed and capped.** `failed.reason` and a release reason (agents,
@@ -325,7 +330,8 @@ the research and the reason is the rail's own spirit.
 
 **Consequence, honestly stated.** Before the first run a YouTube video's length is unknown. The size
 estimate for a watch is therefore *Heavy or unknown* until a key or a previous record supplies it (§6).
-The batch cap can only count items until then.
+There is no batch cap (§4.8): the Size line says "Heavy (length unknown)" until then, so the person
+sees it before copying.
 
 ### 4.5 The MCP surface
 
@@ -354,7 +360,7 @@ and write sets are disjoint; a tool cannot be both):
 | Tool | Scope | Does |
 |---|---|---|
 | `cicada_video_queue(limit?)` | `read` | Lists the queue: per item the link, title, channel, what is wanted, and its state. Never a person's own words, so it needs no `sources` scope. In `catalog.READ_TOOLS`, so it carries `readOnlyHint: true`. |
-| `cicada_video_claim(limit?, release?: [{url, reason}])` | `record` | With no `release`: leases up to `limit` (default 5, max 10) `queued` items to this session and returns them. With `release`: hands items back with a reason (scrubbed, ≤ 200 characters). In `catalog.WRITE_TOOLS`, so the remote runtime refuses it with the busy text during a cycle and the demo text in a demo bank, and it is fenced and capped like every write tool. |
+| `cicada_video_claim(limit?, release?: [{url, code?, reason?}])` | `record` | With no `release`: leases up to `limit` (default 5, max 10) `queued` items to this session and returns them. With `release`: hands items back with a reason (scrubbed, ≤ 200 characters). In `catalog.WRITE_TOOLS`, so the remote runtime refuses it with the busy text during a cycle and the demo text in a demo bank, and it is fenced and capped like every write tool. |
 
 **Every place these two tools touch** (slice V2 lists the same set):
 
@@ -402,7 +408,7 @@ and write sets are disjoint; a tool cannot be both):
 | `PUT /videos/queue/{key}` | `{want}` add or change one entry |
 | `DELETE /videos/queue/{key}` | remove |
 | `POST /videos/queue/{key}/retry` | failed → queued |
-| `POST /videos/run/handoff` | `{items: [{key, want}], method}` → upserts each into the queue, stamps one batch (replacing the active one), leases nothing, enforces the caps (422 with the reason), returns the prompt (§4.8) |
+| `POST /videos/run/handoff` | `{items: [{key, want}], method}` → upserts each into the queue, stamps one batch (replacing the active one), leases nothing, applies no batch cap (§4.8), returns the prompt (§4.8) |
 
 - **The picker's wants are client state until Copy for an agent.** A menu change in the picker writes
   nothing. The handoff carries `[{key, want}]` and is the one place a selection reaches the queue file.
@@ -525,8 +531,10 @@ Feed · Videos · Choose · 3 selected      [Not yet read 14][Queued 4][Read 9] 
   is needed (the Feed's sort tabs needed one, R-DL13, only because a sort has no "none").
 - **Nothing is pre-selected**, including on the Queued tab; selecting queued videos includes them in
   the batch.
-- **Bulk affordance.** With nothing selected the run card's empty state offers "Select the first 20"
-  as a `TextButton`. Not "select all": a cap keeps a run small (§4.8).
+- **Bulk affordance.** With nothing selected the run card's empty state offers "Select all <n> not
+  read yet" (the *Not yet read* tab's own count) as a `TextButton`. There is no cap (owner,
+  2026-09-29, §4.8): the Size line and the total watch minutes are what the person sees before
+  copying (G-f).
 - **Per item `Transcript ▾` / `Watch ▾`** is a small menu (Transcript, Watch, Remove from the queue).
   The default for a picked video is **Transcript**, the cheap one. Changing it is client state (§4.6).
 - **Size.** Words per §6, never a price [R-VU6]. The line reads "2 light · 1 heavy (length unknown)"
@@ -575,7 +583,7 @@ Under **Details → What's waiting**, one list row in D's grammar, no card, no b
 ```
 WHAT'S WAITING
   Conversations   12 waiting · oldest 2 days
-  Videos          4 to read or watch · 1 picked up by an agent      Choose videos ›
+  Videos          4 queued · 1 picked up by an agent · 1 couldn't be done      Choose videos ›
 ```
 
 - `Choose videos ›` is a `TextButton` that lands on the Feed's Videos view. It starts nothing.
@@ -619,7 +627,8 @@ WHAT'S WAITING
 | Fidelity | Wording is approximate (a model's reading, not captions). |
 | Size | Light · Medium · Heavy · length unknown |
 | Run card | Choose videos… · Copy for an agent · Sleep reads these the next time it runs. |
-| Sleep row | 4 to read or watch · 1 picked up by an agent |
+| Queue line (one wording: the Feed strip, the Sleep row, and the sum the picker's Queued tab counts) | 4 queued · 1 picked up by an agent · 1 couldn't be done (a clause is omitted at zero) |
+| Feed strip | Saved videos · 8 not read yet · <queue line> · Choose videos… (a plain row on `bgBase`, no card) |
 | Honesty | An agent recorded that it watched this. Cicada saw no frames itself. |
 
 ### 4.8 The run: what the hand-off prompt says
@@ -629,29 +638,36 @@ shown before it is copied. Sketch:
 
 ```
 Cicada has 5 videos waiting for you to read or watch.
-1. Call cicada_video_claim(limit=5). It returns each link and what is wanted
-   (a transcript, or a watch).
+1. Call cicada_video_claim until it returns nothing. Each call returns up to 10 links and
+   what is wanted (a transcript, or a watch).
 2. Read or watch each one with your own tools. For a transcript job, captions or a transcript are
-   enough. For a watch job, use a video-capable model (Gemini can take a YouTube link directly)
-   or frames plus captions. Cicada does not download or watch videos for you.
+   enough. For a watch job, use frames or a model that takes the link. Cicada does not
+   download or watch videos for you.
 3. Record each with cicada_record_watch(url, summary, excerpts=[{t, quote}], basis, engine,
    duration). basis is what you actually used: transcript, frames or both. A paragraph and at most
    12 short quotes, never the transcript.
-4. If you can't do one, cicada_video_claim(release=[{url, reason}]).
+4. If you can't do one, cicada_video_claim(release=[{url, code, reason}]); code needs_login if it
+   needs the person to sign in, and never sign in yourself.
 Preferred method: <the run card's How line, omitted for "Let the agent choose">.
-If you can run sub-agents, one per video on a small model is fine.
+If you can run sub-agents, one per video is fine.
 ```
 
 - **Parallelism** needs nothing new: each video is independent and a claim is a lease, so several
   sub-agents can each `claim` a few. That matches the owner's parallel-sub-agents idea for Sleep, and
   it is why claiming is a tool call and not a fixed list in the prompt.
-- **Caps** (**assumptions**, tunable): at most 20 videos per batch, and for watch items at most 180
-  known minutes; unknown lengths count toward the 20 only. The handoff enforces them server-side and
-  the run card says why a cap stopped a selection.
+- **No batch cap** (owner, 2026-09-29: “i dont want to cap the max episodes per sleep, why would we cap them? its just progress that cicada has to go through”; the same reasoning holds for a watch run). A run holds
+  whatever the person selected. `cicada_video_claim` still leases at most 10 per call, so the prompt
+  loops until it returns nothing. The honest signal before copying is the Size line and the total
+  known watch minutes (G-f), never a refusal. The only limit left is the queue file's 2,000-row
+  ceiling (§13).
+- **A long run stays readable.** The run card draws one meter segment per video up to 10 and one
+  continuous bar above that, always with its noun ("5 of 13 recorded"). Above 10 its rows are grouped
+  under Couldn't do · Picked up · Waiting · Recorded, each label with its count, the one that needs
+  the person first.
 - **One batch at a time** shown as the active run; a new handoff replaces it; earlier finished batches
   drop off after a day.
 - **Methods.** The `How` hint is text. "Captions or transcript only" says a transcript is enough.
-  "Use Gemini on the link" says Gemini's YouTube-URL analysis is the no-download route. **There is no
+  "Read the link directly" says a model that takes a video link may be handed it: nothing is downloaded. **There is no
   "Use my browser" method.** The first draft offered one, telling an agent to read YouTube transcripts
   through the person's logged-in browser (Browser Harness, Claude in Chrome). That is a Cicada-authored
   prompt steering automation of a logged-in session at a site whose terms bar automated access, the
@@ -727,7 +743,7 @@ the YouTube URL as the video part and asking for a summary and ≤ 12 quotes wit
 ## 6. Cost
 
 **How to read this.** The dollar figures come from vendor pages and one search snippet, all read on
-2026-09-29, and are **not measured on a real run**. They exist to set relative sizes and the caps.
+2026-09-29, and are **not measured on a real run**. They exist to set relative sizes.
 Prices differ between sources, so they must be re-verified before any dollar figure appears in the
 product, and this design shows none [R-VU6].
 
@@ -754,8 +770,8 @@ product, and this design shows none [R-VU6].
   - **Medium:** a watch of 30 known minutes or less.
   - **Heavy:** a watch over 30 minutes, or with unknown length, or a transcript over 3 hours.
   - plus the total known minutes of the watch items. Never a price.
-- **A batch is capped** at 20 videos and 180 known watch minutes so nobody discovers the size after
-  the fact.
+- **No batch cap** (§4.8). The Size words and the total known watch minutes are on the run card
+  before Copy for an agent, so nobody discovers the size after the fact.
 
 ---
 
@@ -809,7 +825,8 @@ Queue watch in the detail block, "Queued" on the row.
 
 Acceptance:
 - **B1.** Add, replace (`watch` replaces `transcript`) and remove are idempotent; a `videoKey` that is
-  not a saved media page is a 404; the 201st entry is refused with a sentence.
+  not a saved media page is a 404; the 201st entry is refused with a sentence (the Q10 ceiling; this
+  test goes if Q10 removes it).
 - **B2.** Two processes writing at once never lose an entry (a lock test with two threads).
 - **B3.** Nothing in the queue's lifecycle dirties the bank: `git status` is clean after every queue
   call.
@@ -836,7 +853,7 @@ Acceptance:
 ### V3: selection, thumbnails and the hand-off
 
 *App:* the Feed's Videos mode, `videoPickRow`, the run card and its progress state, `WatchLeavesMacNote`,
-the Sleep page's read-only row. *Backend:* `POST /videos/run/handoff`, batches, caps. *Demo:* two more
+the Sleep page's read-only row. *Backend:* `POST /videos/run/handoff`, batches. *Demo:* two more
 saved videos, the three states, the app-side fixture (§4.7E).
 
 Acceptance:
@@ -844,8 +861,9 @@ Acceptance:
   and no request is made for a derived URL.
 - **C2.** Nothing is pre-selected; the default per-item choice is Transcript; a per-item menu change
   writes nothing until the handoff.
-- **C3.** Caps: a handoff over 20, or over 180 known watch minutes, is refused (422) with the reason on
-  the run card.
+- **C3.** No cap: a handoff of every unread video (14 or more) is accepted in one call, with no 422;
+  the prompt tells the agent to call `cicada_video_claim` until it returns nothing, and a 14-item batch
+  is claimed in two calls of at most 10. A run over 10 draws a continuous bar and grouped rows.
 - **C4.** The bar's numerator equals the size of the batch's `done` list, and never moves on "picked
   up". A test drives a record and asserts the bar moves once.
 - **C5.** The prompt is ≤ 1,200 characters, names only tools that exist (R12), contains no video
@@ -934,6 +952,10 @@ Only real decisions. Each has a recommendation.
 - **Q9: Five states, not four.** The owner named four (neither, transcript, agent, both). A fifth,
   "Recorded, method not given", exists so a legacy or basis-less record is never labelled as a watch.
   **Recommend:** keep it; it is the honest answer for every record made before this change.
+- **Q10: The 200-entry queue ceiling.** With no batch cap (owner, 2026-09-29), the only limit left is
+  the queue file's 200 entries (§4.3, B1). Remove it, or keep it only as a file-safety ceiling no one
+  should reach? **Recommend:** keep it as a safety ceiling well above any bank's saved videos, its
+  refusal naming it in a sentence; revisit if a real bank comes near it. DECIDE.
 
 ---
 
@@ -949,8 +971,8 @@ Only real decisions. Each has a recommendation.
   the only verbatim one.
 - **Preview status and prices move.** Gemini's YouTube-URL analysis is preview with a free-tier daily
   cap; its price figures differ between sources. Nothing shipped in slices 1–5 depends on it.
-- **Unknown lengths make the estimate blind** until a key or a record supplies one. The cap counts
-  items until then, and "Heavy" is the honest default.
+- **Unknown lengths make the estimate blind** until a key or a record supplies one. "Heavy" is
+  the honest default until then, and the Size line says so before copying.
 - **A run depends on an agent being present.** If nobody claims, items sit `queued`. The run card
   says "Waiting for an agent" and offers the prompt again; it never pretends to be working.
 - **Sleep collision, as it really is.** Locally a record made during a cycle is written and left
@@ -997,7 +1019,7 @@ Only real decisions. Each has a recommendation.
 | All dollar figures and the agentic-mode savings | vendor pages or one snippet; **not measured, re-verify** |
 | Groq Whisper about $0.04 an hour | one search snippet, unverified |
 | `litellm` forwards a YouTube URL as a Gemini video part | **unknown**, slice 6's spike |
-| 45-minute lease, 20-video and 180-minute caps, Light/Medium/Heavy thresholds | **assumptions** to tune from real runs |
+| 45-minute lease, the 200-entry queue ceiling (Q10), Light/Medium/Heavy thresholds | **assumptions** to tune from real runs |
 | Fidelity `approximate` for `other` and for an absent engine | **assumed** |
 | Nothing here was run against a live bank or a real video | true |
 
@@ -1056,3 +1078,40 @@ Two critiques overlapped and pulled in opposite directions on a basis-less recor
 satisfy the claimed request, the other wanted it never to satisfy a watch or transcript). Resolved by
 separating the two: it may **close the queue entry** for its leaseholder, and it **never changes the
 state**, which stays `recorded` (§4.3, §9).
+
+**Owner, 2026-09-29, after the review:** “i dont want to cap the max episodes per sleep, why would we cap them? its just progress that cicada has to go through” The watch run's caps went with it: §4.4, §4.6's 422,
+§4.7C's "Select the first 20", §4.8, §6 and C3 now say there is no batch cap; the Size line and the
+total known watch minutes are the signal before copying; the queue file's safety ceiling (now 2,000 rows, §13 D-2) is Q10.
+
+---
+
+## 13. Amendments, 2026-09-30 (the boards were approved; the plan was criticised; this section wins)
+
+The owner, 2026-09-30: "I also like the watch video designs, apply them." The twelve `Video*` boards were read against the
+code and a plan was written and reviewed (16 findings, all applied). Where this section and an earlier one differ, **this
+one wins**. The backend half shipped first (branch `feat/video-watch`); the app half follows.
+
+| # | Amendment | Why |
+|---|---|---|
+| P1 | No batch cap anywhere (R-VU12). The hand-off accepts every selected video; a claim leases at most 10 a call. The queue file's safety ceiling is **2,000 rows** (D-2), refused with a sentence naming the limit. | "Select all 13 not read yet" must not break at 200. |
+| P2 | Provider-neutral copy (R-VU11), enforced by `test_video_copy_provider_neutral.py`. | Owner 2026-09-30. |
+| P3 | No site list for video (R-VU13). The item set is the Feed's set (P10); an agent hands back what it cannot get with a `code`, and the app surfaces it. | Owner 2026-09-30. |
+| P4 | The queue mirrors `reading_asks.py`: `$CICADA_HOME/video_queue/<bank>.json`, `fcntl.flock` on a sidecar, temp file plus `os.replace`, **no URL and no title stored**, expiry applied in memory and persisted only inside a write. Rows are keys, joined at read to the url index. | Privacy of a machine-wide file; no read-caused SSE loops. |
+| P5 | `cicada_video_claim` writes only the queue file, so it is **not** refused while Sleep runs (this replaces B6b). `catalog.WRITE_TOOLS` still lists it (the demo gate, the write lock); `runtime._writes_bank` answers `False` for it. `cicada_record_watch` keeps today's behaviour (remote: `BUSY_TEXT`; stdio: written, commit skipped). **A lapsed lease is judged only when Sleep is not holding the pages** (`ToolContext.pages_held()`, asked lazily, only when a lease has lapsed, H3). | Ruling 13 makes a person-started Consolidate hours long; a drain must not burn a video's three attempts. |
+| P6 | Wire additions: `GET /videos/summary` (counts and the active batch, no items), `GET /videos/run/prompt` (pure; `?count=&method=` previews and writes nothing), `recordedAt` (an ISO instant) in place of `recordedDay`, `failedCode` and `failedReason` on an item, `nextChangeAt` on both reads. | The boards show a recorder's time, a re-copyable prompt and a needs-login row; Sleep must not download every item to print three counts. |
+| P7 | The engine value `gemini_url` is `video_link`; the closed set is `captions`, `video_link`, `local_frames`, `speech_to_text`, `browser`, `other`. Fidelity is `approximate` for `video_link`, `other` and absent. | A stored enum that names a provider would leak into words. |
+| P9 | Contract wording: "when the person asks you to work their video queue (or hands you a Cicada prompt for it)". Not "take what is waiting". No recall-hook nudge for video. | An agent must not spend the person's plan on videos nobody asked it to work. |
+| P10 | The set of videos is the Feed's set by one rule: `video_state.is_video_page(media_type, url, kind)`, the twin of `FeedKind.of == .video`, pinned by `api/tests/fixtures/video_kind.json`, over the same `url_index` entries and skip rules as `GET /sources`. | The strip must never disagree with the Videos tab. |
+| P13 | The app does not re-derive state: the server is the only deriver (the episode facts are not on the wire), so a Swift twin of the union rule would be dead code. The app decodes and labels from the shared fixture. | Spec A6 asked for a twin; it cannot be fed. |
+| H1 | **The permission page works for video.** `video_prompt.build(..., browser_clause=None)` keeps the default text; the routes pass `BROWSER_CLAUSE` iff the single reading permission is on (read per request, import guarded so this can merge before the reading branch). The clause names no site, no browser product and no provider, and is an instruction, not a promise. R-VU10 is amended accordingly. The app's needs-login row reads the same permission: off, a sentence and a button to Settings → Agents; on, "Try again". No site list, no `agent_hosts`. | A needs-login video was a dead end. |
+| H2 | **A lapsed lease is visible.** The `videoQueue` sync component is `<mtime>:<due>`, where `due` counts leases lapsed, failed rows expired and finished batches expired with nothing written; the parse is cached by file stamp, so the ~1 Hz poll stays a `stat`. Both reads carry `nextChangeAt` and the app schedules one revalidation there. | Nothing changes on disk when a lease lapses, so the ETag would 304 "Picked up" forever. |
+| M2 | The claim reply carries a provider's title and channel: fenced and capped like a read on remote (`FENCED_WRITE_REPLIES`), the same one-line header on stdio, each title and channel one line of at most 120 characters. | Untrusted text reached the agent unfenced. |
+| M3 | The model on the record block is the turn join: `/episodes/{id}/text`'s `watch` object carries `authorModel` and `authorEffort` from the `describes` claim that cites the episode, or null. | `/videos/state` stays light; nothing on a watch episode records a model. |
+| M4 | The ledger kind is `video_queue` at all five sites (`KINDS`, `NON_SPEND_KINDS`, `SIBLING_KINDS`, `PER_TURN_KINDS`, and the scrub writer `video_queue`). | Kept out of every Usage view. |
+| M5 | A queue row whose key stops resolving (archived, junk, index entry gone) is skipped by a claim, ignored by every count and dropped by the next write; its batch shrinks the way Remove does. | Rows are keys only. |
+| D-1 | Decided: the browser clause is gated on the single permission (H1). | |
+| D-3 | The picker's check is the boards' neutral `NeutralCheckToggleStyle`; the accent is not spent on selection (DR-5). | |
+| D-4 | `speech_to_text` and `browser` stay `verbatim` until a real record disproves it. | |
+| Seam | "How your agent watches" (skills the person picked: a browser, a macOS harness, a video skill) lands with the reading branch's `agent_methods`. **`video_prompt.method_clause(memory_path)` is the one place it plugs in**: the hand-off prompt and the claim reply both read it, and it returns `None` until then. | Keeps this branch free of the reading branch. |
+| Open | L4: a video on a host `video_urls` does not know is a `link` and cannot be queued for a watch. Recommend a follow-up "Have an agent watch this" on any saved non-paper link, reusing `PUT /videos/queue/{key}` (drop the 404). Not needed for V1 to V4a. | Consistent with the Feed's rule; the "we never know which sites" case. |
+| Open | G-1: the boards do not show how to return to an unfinished run after leaving it. Ask the designer before adding a control. | |

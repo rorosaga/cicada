@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import backlog, bank_index, logo_service, markdown_parser, telemetry
+from api.services import backlog, bank_index, logo_service, markdown_parser, telemetry, video_queue
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -183,6 +183,13 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
         "logos": _logos_component(mp),
+        # G162: the person's video queue lives at `$CICADA_HOME/video_queue/<bank>.json`,
+        # OUTSIDE the bank, so a queued video, an agent's lease or a hand-back moves nothing
+        # above. `stamp` is the file's mtime plus how many leases, failed rows and finished
+        # batches have come DUE with nothing written (a lease lapsing writes nothing, yet it
+        # changes what /videos/state says). The app revalidates its VideoStateCache on this
+        # component (VideoRefresh); it is NOT a Store domain and NOT in `_state.md`'s digest.
+        "videoQueue": video_queue.stamp(mp),
         # The consumption ledger lives at `$CICADA_HOME/telemetry/events-YYYY-MM.jsonl`,
         # *outside* the memory bank (it's machine-global, not per-bank), so no other
         # component notices a new usage event landing. Modelled on "logos" above for

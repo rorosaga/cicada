@@ -1,0 +1,1026 @@
+{
+ "moments": {
+  "A": {
+   "asOf": "2026-09-29T14:13:00Z",
+   "feed": [
+    {
+     "channel": "alpha-project",
+     "mediaEntityId": "media-calm",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-29T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Designing calm software",
+     "url": "https://www.youtube.com/watch?v=Board000001"
+    },
+    {
+     "channel": "Helios Labs",
+     "durationS": 494,
+     "mediaEntityId": "media-lantern",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-28T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Lantern on a Pi: sqlite-vec in five minutes",
+     "url": "https://www.youtube.com/watch?v=Board000002"
+    },
+    {
+     "channel": "Northwind Robotics",
+     "mediaEntityId": "media-rover",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-27T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Northwind rover demo",
+     "url": "https://www.youtube.com/watch?v=Board000003"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 1330,
+     "mediaEntityId": "media-meter",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-26T09:00:00Z",
+     "site": "vimeo.com",
+     "thumbnail": null,
+     "title": "Meter Sim overview",
+     "url": "https://vimeo.com/100000004"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 842,
+     "mediaEntityId": "media-bench",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-25T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "Bench notes, part 2",
+     "url": "https://www.loom.com/share/00000000000000000000000000000005"
+    },
+    {
+     "channel": "Helios Labs",
+     "mediaEntityId": "media-keynote",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-24T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Helios Labs keynote 2026",
+     "url": "https://www.youtube.com/watch?v=Board000006"
+    },
+    {
+     "channel": "bob-example",
+     "durationS": 1905,
+     "mediaEntityId": "media-graph",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-22T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Graph layouts that don't jitter",
+     "url": "https://www.youtube.com/watch?v=Board000007"
+    },
+    {
+     "channel": "Kite School",
+     "durationS": 1100,
+     "mediaEntityId": "media-embed",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-20T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Embeddings, explained slowly",
+     "url": "https://www.youtube.com/watch?v=Board000008"
+    },
+    {
+     "channel": "Northwind Robotics",
+     "mediaEntityId": "media-wheel",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-18T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Rover wheel design, part 1",
+     "url": "https://www.youtube.com/watch?v=Board000009"
+    },
+    {
+     "channel": "Quiet Minds",
+     "mediaEntityId": "media-spaced",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-15T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Why spaced repetition works",
+     "url": "https://www.youtube.com/watch?v=Board000010"
+    },
+    {
+     "channel": "sprite-lab",
+     "mediaEntityId": "media-pixel",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-12T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Pixel art for tiny sprites",
+     "url": "https://www.youtube.com/watch?v=Board000011"
+    },
+    {
+     "channel": "alpha-project",
+     "durationS": 697,
+     "mediaEntityId": "media-standup",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-12T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "Standup recording, Sep 12",
+     "url": "https://www.loom.com/share/0000000000000000000000000000000c"
+    },
+    {
+     "channel": "bob-example",
+     "mediaEntityId": "media-solder",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-10T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Soldering a Pi hat without tears",
+     "url": "https://www.youtube.com/watch?v=Board000013"
+    },
+    {
+     "channel": "bob-example",
+     "mediaEntityId": "media-server",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-08T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Sharing a local server safely",
+     "url": "https://www.youtube.com/watch?v=Board000014"
+    },
+    {
+     "channel": "Helios Labs",
+     "mediaEntityId": "media-deeper",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-06T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "sqlite-vec, a deeper look",
+     "url": "https://www.youtube.com/watch?v=Board000015"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 588,
+     "mediaEntityId": "media-eink",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-03T09:00:00Z",
+     "site": "vimeo.com",
+     "thumbnail": null,
+     "title": "Weekend build: an e-ink dashboard",
+     "url": "https://vimeo.com/100000016"
+    },
+    {
+     "channel": "alpha-project",
+     "durationS": 365,
+     "mediaEntityId": "media-dry",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-02T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "Lantern demo, dry run",
+     "url": "https://www.loom.com/share/00000000000000000000000000000011"
+    },
+    {
+     "channel": "Kite School",
+     "mediaEntityId": "media-forces",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-30T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "How force layouts cool",
+     "url": "https://www.youtube.com/watch?v=Board000018"
+    },
+    {
+     "channel": "Northwind Robotics",
+     "mediaEntityId": "media-field",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-28T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Northwind field day, highlights",
+     "url": "https://www.youtube.com/watch?v=Board000019"
+    },
+    {
+     "channel": "Quiet Minds",
+     "mediaEntityId": "media-oneperson",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-24T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Designing for one person",
+     "url": "https://www.youtube.com/watch?v=Board000020"
+    },
+    {
+     "channel": "Helios Labs",
+     "durationS": 270,
+     "mediaEntityId": "media-tour",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-08-20T09:00:00Z",
+     "site": "vimeo.com",
+     "thumbnail": null,
+     "title": "Helios Labs: product tour",
+     "url": "https://vimeo.com/100000021"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 1635,
+     "mediaEntityId": "media-codebase",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-08-16T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "A tour of the Meter Sim codebase",
+     "url": "https://www.loom.com/share/00000000000000000000000000000016"
+    },
+    {
+     "channel": "sprite-lab",
+     "mediaEntityId": "media-keyboards",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-10T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Quiet keyboards, compared",
+     "url": "https://www.youtube.com/watch?v=Board000023"
+    }
+   ],
+   "moment": "A",
+   "state": {
+    "items": [
+     {
+      "key": "6b6f034c77a1",
+      "mediaEntityId": "media-calm",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000001"
+     },
+     {
+      "basis": "transcript",
+      "engine": "video_link",
+      "episodeId": "ep_2026-09-28_002",
+      "fidelity": "approximate",
+      "key": "dca5f3063f6b",
+      "mediaEntityId": "media-lantern",
+      "readBySleep": false,
+      "recordedAt": "2026-09-28T10:12:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.youtube.com/watch?v=Board000002"
+     },
+     {
+      "key": "246d378b191d",
+      "mediaEntityId": "media-rover",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000003",
+      "want": "watch"
+     },
+     {
+      "key": "6366780d6b7d",
+      "mediaEntityId": "media-meter",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://vimeo.com/100000004",
+      "want": "watch"
+     },
+     {
+      "episodeId": "ep_2026-09-25_005",
+      "fidelity": "approximate",
+      "key": "17a5e545fc1c",
+      "mediaEntityId": "media-bench",
+      "readBySleep": true,
+      "recordedAt": "2026-09-25T16:40:00Z",
+      "recordedBy": "claude-code",
+      "state": "recorded",
+      "url": "https://www.loom.com/share/00000000000000000000000000000005"
+     },
+     {
+      "key": "dc1c1c5a4e25",
+      "mediaEntityId": "media-keynote",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000006"
+     },
+     {
+      "basis": "both",
+      "engine": "video_link",
+      "episodeId": "ep_2026-09-22_007",
+      "fidelity": "approximate",
+      "key": "12f9593085fd",
+      "mediaEntityId": "media-graph",
+      "readBySleep": true,
+      "recordedAt": "2026-09-22T09:05:00Z",
+      "recordedBy": "claude-code",
+      "state": "watched_and_transcript",
+      "url": "https://www.youtube.com/watch?v=Board000007"
+     },
+     {
+      "basis": "frames",
+      "engine": "video_link",
+      "episodeId": "ep_2026-09-21_008",
+      "fidelity": "approximate",
+      "key": "5c758a69a487",
+      "mediaEntityId": "media-embed",
+      "readBySleep": false,
+      "recordedAt": "2026-09-21T18:30:00Z",
+      "recordedBy": "claude-web",
+      "state": "watched",
+      "url": "https://www.youtube.com/watch?v=Board000008"
+     },
+     {
+      "key": "16deef3cf212",
+      "mediaEntityId": "media-wheel",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000009"
+     },
+     {
+      "key": "330c312dea06",
+      "mediaEntityId": "media-spaced",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000010"
+     },
+     {
+      "key": "c450faf67bdf",
+      "mediaEntityId": "media-pixel",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000011"
+     },
+     {
+      "basis": "transcript",
+      "engine": "captions",
+      "episodeId": "ep_2026-09-13_012",
+      "fidelity": "verbatim",
+      "key": "c0e1f8d5d78a",
+      "mediaEntityId": "media-standup",
+      "readBySleep": true,
+      "recordedAt": "2026-09-13T08:20:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.loom.com/share/0000000000000000000000000000000c"
+     },
+     {
+      "key": "a856fc987589",
+      "mediaEntityId": "media-solder",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000013",
+      "want": "transcript"
+     },
+     {
+      "key": "514687237151",
+      "mediaEntityId": "media-server",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000014"
+     },
+     {
+      "key": "18c3ab6a96ff",
+      "mediaEntityId": "media-deeper",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000015"
+     },
+     {
+      "key": "ac68112af8cd",
+      "mediaEntityId": "media-eink",
+      "state": "none",
+      "url": "https://vimeo.com/100000016"
+     },
+     {
+      "basis": "transcript",
+      "engine": "captions",
+      "episodeId": "ep_2026-09-02_017",
+      "fidelity": "verbatim",
+      "key": "63eb54746fb6",
+      "mediaEntityId": "media-dry",
+      "readBySleep": true,
+      "recordedAt": "2026-09-02T11:00:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.loom.com/share/00000000000000000000000000000011"
+     },
+     {
+      "key": "d6bd851148b0",
+      "mediaEntityId": "media-forces",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000018"
+     },
+     {
+      "key": "cb79d0fedaa3",
+      "mediaEntityId": "media-field",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000019"
+     },
+     {
+      "key": "41467006fa68",
+      "mediaEntityId": "media-oneperson",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000020"
+     },
+     {
+      "episodeId": "ep_2026-08-21_021",
+      "fidelity": "approximate",
+      "key": "cb42dd2824e1",
+      "mediaEntityId": "media-tour",
+      "readBySleep": true,
+      "recordedAt": "2026-08-21T13:00:00Z",
+      "recordedBy": "claude-code",
+      "state": "recorded",
+      "url": "https://vimeo.com/100000021"
+     },
+     {
+      "key": "6f1b608f22c7",
+      "mediaEntityId": "media-codebase",
+      "state": "none",
+      "url": "https://www.loom.com/share/00000000000000000000000000000016"
+     },
+     {
+      "key": "0e0b45a43fb6",
+      "mediaEntityId": "media-keyboards",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000023"
+     }
+    ],
+    "queue": {
+     "claimed": 0,
+     "failed": 0,
+     "queued": 3,
+     "read": 7,
+     "total": 23,
+     "unread": 13
+    },
+    "shape": "video-1"
+   },
+   "summary": {
+    "claimed": 0,
+    "failed": 0,
+    "queued": 3,
+    "read": 7,
+    "shape": "video-1",
+    "total": 23,
+    "unread": 13
+   }
+  },
+  "B": {
+   "asOf": "2026-09-29T14:44:00Z",
+   "feed": [
+    {
+     "channel": "alpha-project",
+     "durationS": 768,
+     "mediaEntityId": "media-calm",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-29T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Designing calm software",
+     "url": "https://www.youtube.com/watch?v=Board000001"
+    },
+    {
+     "channel": "Helios Labs",
+     "durationS": 494,
+     "mediaEntityId": "media-lantern",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-28T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Lantern on a Pi: sqlite-vec in five minutes",
+     "url": "https://www.youtube.com/watch?v=Board000002"
+    },
+    {
+     "channel": "Northwind Robotics",
+     "mediaEntityId": "media-rover",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-27T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Northwind rover demo",
+     "url": "https://www.youtube.com/watch?v=Board000003"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 1330,
+     "mediaEntityId": "media-meter",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-26T09:00:00Z",
+     "site": "vimeo.com",
+     "thumbnail": null,
+     "title": "Meter Sim overview",
+     "url": "https://vimeo.com/100000004"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 842,
+     "mediaEntityId": "media-bench",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-25T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "Bench notes, part 2",
+     "url": "https://www.loom.com/share/00000000000000000000000000000005"
+    },
+    {
+     "channel": "Helios Labs",
+     "mediaEntityId": "media-keynote",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-24T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Helios Labs keynote 2026",
+     "url": "https://www.youtube.com/watch?v=Board000006"
+    },
+    {
+     "channel": "bob-example",
+     "durationS": 1905,
+     "mediaEntityId": "media-graph",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-22T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Graph layouts that don't jitter",
+     "url": "https://www.youtube.com/watch?v=Board000007"
+    },
+    {
+     "channel": "Kite School",
+     "durationS": 1100,
+     "mediaEntityId": "media-embed",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-20T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Embeddings, explained slowly",
+     "url": "https://www.youtube.com/watch?v=Board000008"
+    },
+    {
+     "channel": "Northwind Robotics",
+     "mediaEntityId": "media-wheel",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-18T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Rover wheel design, part 1",
+     "url": "https://www.youtube.com/watch?v=Board000009"
+    },
+    {
+     "channel": "Quiet Minds",
+     "mediaEntityId": "media-spaced",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-15T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Why spaced repetition works",
+     "url": "https://www.youtube.com/watch?v=Board000010"
+    },
+    {
+     "channel": "sprite-lab",
+     "mediaEntityId": "media-pixel",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-12T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Pixel art for tiny sprites",
+     "url": "https://www.youtube.com/watch?v=Board000011"
+    },
+    {
+     "channel": "alpha-project",
+     "durationS": 697,
+     "mediaEntityId": "media-standup",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-12T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "Standup recording, Sep 12",
+     "url": "https://www.loom.com/share/0000000000000000000000000000000c"
+    },
+    {
+     "channel": "bob-example",
+     "mediaEntityId": "media-solder",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-10T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Soldering a Pi hat without tears",
+     "url": "https://www.youtube.com/watch?v=Board000013"
+    },
+    {
+     "channel": "bob-example",
+     "mediaEntityId": "media-server",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-08T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Sharing a local server safely",
+     "url": "https://www.youtube.com/watch?v=Board000014"
+    },
+    {
+     "channel": "Helios Labs",
+     "mediaEntityId": "media-deeper",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-09-06T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "sqlite-vec, a deeper look",
+     "url": "https://www.youtube.com/watch?v=Board000015"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 588,
+     "mediaEntityId": "media-eink",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-03T09:00:00Z",
+     "site": "vimeo.com",
+     "thumbnail": null,
+     "title": "Weekend build: an e-ink dashboard",
+     "url": "https://vimeo.com/100000016"
+    },
+    {
+     "channel": "alpha-project",
+     "durationS": 365,
+     "mediaEntityId": "media-dry",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-09-02T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "Lantern demo, dry run",
+     "url": "https://www.loom.com/share/00000000000000000000000000000011"
+    },
+    {
+     "channel": "Kite School",
+     "mediaEntityId": "media-forces",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-30T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "How force layouts cool",
+     "url": "https://www.youtube.com/watch?v=Board000018"
+    },
+    {
+     "channel": "Northwind Robotics",
+     "mediaEntityId": "media-field",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-28T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Northwind field day, highlights",
+     "url": "https://www.youtube.com/watch?v=Board000019"
+    },
+    {
+     "channel": "Quiet Minds",
+     "mediaEntityId": "media-oneperson",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-24T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Designing for one person",
+     "url": "https://www.youtube.com/watch?v=Board000020"
+    },
+    {
+     "channel": "Helios Labs",
+     "durationS": 270,
+     "mediaEntityId": "media-tour",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-08-20T09:00:00Z",
+     "site": "vimeo.com",
+     "thumbnail": null,
+     "title": "Helios Labs: product tour",
+     "url": "https://vimeo.com/100000021"
+    },
+    {
+     "channel": "Leo Example",
+     "durationS": 1635,
+     "mediaEntityId": "media-codebase",
+     "mediaType": "url",
+     "provider": null,
+     "savedAt": "2026-08-16T09:00:00Z",
+     "site": "loom.com",
+     "thumbnail": null,
+     "title": "A tour of the Meter Sim codebase",
+     "url": "https://www.loom.com/share/00000000000000000000000000000016"
+    },
+    {
+     "channel": "sprite-lab",
+     "mediaEntityId": "media-keyboards",
+     "mediaType": "youtube",
+     "provider": "youtube",
+     "savedAt": "2026-08-10T09:00:00Z",
+     "site": "youtube.com",
+     "thumbnail": null,
+     "title": "Quiet keyboards, compared",
+     "url": "https://www.youtube.com/watch?v=Board000023"
+    }
+   ],
+   "moment": "B",
+   "state": {
+    "items": [
+     {
+      "basis": "transcript",
+      "engine": "captions",
+      "episodeId": "ep_2026-09-29_001",
+      "fidelity": "verbatim",
+      "key": "6b6f034c77a1",
+      "mediaEntityId": "media-calm",
+      "readBySleep": false,
+      "recordedAt": "2026-09-29T14:31:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.youtube.com/watch?v=Board000001"
+     },
+     {
+      "basis": "transcript",
+      "engine": "video_link",
+      "episodeId": "ep_2026-09-28_002",
+      "fidelity": "approximate",
+      "key": "dca5f3063f6b",
+      "mediaEntityId": "media-lantern",
+      "readBySleep": false,
+      "recordedAt": "2026-09-28T10:12:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.youtube.com/watch?v=Board000002"
+     },
+     {
+      "key": "246d378b191d",
+      "mediaEntityId": "media-rover",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000003",
+      "want": "watch"
+     },
+     {
+      "key": "6366780d6b7d",
+      "mediaEntityId": "media-meter",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://vimeo.com/100000004",
+      "want": "watch"
+     },
+     {
+      "episodeId": "ep_2026-09-25_005",
+      "fidelity": "approximate",
+      "key": "17a5e545fc1c",
+      "mediaEntityId": "media-bench",
+      "readBySleep": true,
+      "recordedAt": "2026-09-25T16:40:00Z",
+      "recordedBy": "claude-code",
+      "state": "recorded",
+      "url": "https://www.loom.com/share/00000000000000000000000000000005"
+     },
+     {
+      "attempts": 3,
+      "batch": "b_7f3",
+      "failedCode": "no_captions",
+      "failedReason": "no captions on this video",
+      "key": "dc1c1c5a4e25",
+      "mediaEntityId": "media-keynote",
+      "queueState": "failed",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000006",
+      "want": "transcript"
+     },
+     {
+      "basis": "both",
+      "engine": "video_link",
+      "episodeId": "ep_2026-09-22_007",
+      "fidelity": "approximate",
+      "key": "12f9593085fd",
+      "mediaEntityId": "media-graph",
+      "readBySleep": true,
+      "recordedAt": "2026-09-22T09:05:00Z",
+      "recordedBy": "claude-code",
+      "state": "watched_and_transcript",
+      "url": "https://www.youtube.com/watch?v=Board000007"
+     },
+     {
+      "basis": "frames",
+      "engine": "video_link",
+      "episodeId": "ep_2026-09-21_008",
+      "fidelity": "approximate",
+      "key": "5c758a69a487",
+      "mediaEntityId": "media-embed",
+      "readBySleep": false,
+      "recordedAt": "2026-09-21T18:30:00Z",
+      "recordedBy": "claude-web",
+      "state": "watched",
+      "url": "https://www.youtube.com/watch?v=Board000008"
+     },
+     {
+      "attempts": 1,
+      "batch": "b_7f3",
+      "claimedBy": "claude-code",
+      "key": "16deef3cf212",
+      "mediaEntityId": "media-wheel",
+      "queueState": "claimed",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000009",
+      "want": "watch"
+     },
+     {
+      "episodeId": "ep_2026-09-29_010",
+      "fidelity": "approximate",
+      "key": "330c312dea06",
+      "mediaEntityId": "media-spaced",
+      "readBySleep": false,
+      "recordedAt": "2026-09-29T14:40:00Z",
+      "recordedBy": "codex",
+      "state": "recorded",
+      "url": "https://www.youtube.com/watch?v=Board000010"
+     },
+     {
+      "key": "c450faf67bdf",
+      "mediaEntityId": "media-pixel",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000011"
+     },
+     {
+      "basis": "transcript",
+      "engine": "captions",
+      "episodeId": "ep_2026-09-13_012",
+      "fidelity": "verbatim",
+      "key": "c0e1f8d5d78a",
+      "mediaEntityId": "media-standup",
+      "readBySleep": true,
+      "recordedAt": "2026-09-13T08:20:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.loom.com/share/0000000000000000000000000000000c"
+     },
+     {
+      "key": "a856fc987589",
+      "mediaEntityId": "media-solder",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000013",
+      "want": "transcript"
+     },
+     {
+      "key": "514687237151",
+      "mediaEntityId": "media-server",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000014"
+     },
+     {
+      "key": "18c3ab6a96ff",
+      "mediaEntityId": "media-deeper",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000015"
+     },
+     {
+      "batch": "b_7f3",
+      "key": "ac68112af8cd",
+      "mediaEntityId": "media-eink",
+      "queueState": "queued",
+      "state": "none",
+      "url": "https://vimeo.com/100000016",
+      "want": "watch"
+     },
+     {
+      "basis": "transcript",
+      "engine": "captions",
+      "episodeId": "ep_2026-09-02_017",
+      "fidelity": "verbatim",
+      "key": "63eb54746fb6",
+      "mediaEntityId": "media-dry",
+      "readBySleep": true,
+      "recordedAt": "2026-09-02T11:00:00Z",
+      "recordedBy": "claude-code",
+      "state": "transcript",
+      "url": "https://www.loom.com/share/00000000000000000000000000000011"
+     },
+     {
+      "key": "d6bd851148b0",
+      "mediaEntityId": "media-forces",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000018"
+     },
+     {
+      "key": "cb79d0fedaa3",
+      "mediaEntityId": "media-field",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000019"
+     },
+     {
+      "key": "41467006fa68",
+      "mediaEntityId": "media-oneperson",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000020"
+     },
+     {
+      "episodeId": "ep_2026-08-21_021",
+      "fidelity": "approximate",
+      "key": "cb42dd2824e1",
+      "mediaEntityId": "media-tour",
+      "readBySleep": true,
+      "recordedAt": "2026-08-21T13:00:00Z",
+      "recordedBy": "claude-code",
+      "state": "recorded",
+      "url": "https://vimeo.com/100000021"
+     },
+     {
+      "key": "6f1b608f22c7",
+      "mediaEntityId": "media-codebase",
+      "state": "none",
+      "url": "https://www.loom.com/share/00000000000000000000000000000016"
+     },
+     {
+      "key": "0e0b45a43fb6",
+      "mediaEntityId": "media-keyboards",
+      "state": "none",
+      "url": "https://www.youtube.com/watch?v=Board000023"
+     }
+    ],
+    "queue": {
+     "batch": {
+      "claimed": 1,
+      "createdAt": "2026-09-29T14:14:00Z",
+      "done": 2,
+      "failed": 1,
+      "id": "b_7f3",
+      "keys": [
+       "6b6f034c77a1",
+       "dc1c1c5a4e25",
+       "16deef3cf212",
+       "330c312dea06",
+       "ac68112af8cd"
+      ],
+      "method": "auto",
+      "total": 5,
+      "waiting": 1
+     },
+     "claimed": 1,
+     "failed": 1,
+     "queued": 4,
+     "read": 9,
+     "total": 23,
+     "unread": 8
+    },
+    "shape": "video-1"
+   },
+   "summary": {
+    "batch": {
+     "claimed": 1,
+     "createdAt": "2026-09-29T14:14:00Z",
+     "done": 2,
+     "failed": 1,
+     "id": "b_7f3",
+     "keys": [
+      "6b6f034c77a1",
+      "dc1c1c5a4e25",
+      "16deef3cf212",
+      "330c312dea06",
+      "ac68112af8cd"
+     ],
+     "method": "auto",
+     "total": 5,
+     "waiting": 1
+    },
+    "claimed": 1,
+    "failed": 1,
+    "queued": 4,
+    "read": 9,
+    "shape": "video-1",
+    "total": 23,
+    "unread": 8
+   }
+  }
+ },
+ "note": "The approved Video boards' one 23-video fixture in the server's wire shape. Moment A is 2:13 PM (the picker, before the hand-off); moment B is 2:44 PM (thirty minutes after it). `feed` is the MediaFeedItem rows the app joins by mediaEntityId|url; titles, channels and people are placeholders."
+}

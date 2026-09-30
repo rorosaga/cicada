@@ -38,6 +38,7 @@ WRITERS = frozenset({
     "calendar", "mcp", "demo",
     "backlog",  # G150 R-B10: a backlog item's title, description and notes
     "tab-groups",  # G160 (round 4): a Chrome tab group's name and its tabs' titles and links
+    "video_queue",  # G162: a release reason an agent wrote for a video it could not do
 })
 
 # Secret shapes (G105 R6), moved verbatim from transcript_extract. Ordered

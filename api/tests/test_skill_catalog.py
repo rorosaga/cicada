@@ -192,7 +192,7 @@ def test_a_watch_skill_gets_the_watch_record_line(tmp_path):
     home = tmp_path / "h"
     _skill(home, ".claude/skills", "watch")
     (line,) = skill_catalog.bridge_lines("claude-code", home=home)
-    assert "`watch` is installed" in line and "`cicada_record_watch(url, summary, excerpts)`" in line
+    assert "`watch` is installed" in line and "`cicada_record_watch(url, summary, excerpts, basis)`" in line
 
 
 def test_a_transcription_skill_gets_the_speaker_line(tmp_path):

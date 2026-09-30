@@ -25,6 +25,11 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
   cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
   the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run (the app's own Projects/Backlog controls still key off `running`, so they stay disabled for the whole run: `/status` does not carry `writing`).
+- **Video watch run — backend built (2026-09-30, ruling 15, branch `feat/video-watch`, G162):** the honest per-video state,
+  the queue outside the bank, `cicada_video_queue` / `cicada_video_claim`, the hand-off prompt and `/videos/*` routes, the
+  provenance `watch` block, the demo's three states. **No app half yet** (Feed rows, picker, run card, Sleep Details row).
+  It builds on the merged drain (#151: `is_writing()`, the narrowed write window); the reading branch (ruling 14) and this one
+  both touch the contract numbers (9/6 there, 10/7 here), `runtime._writes_bank` and `sync_service.components` — take both.
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
   another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
@@ -599,6 +604,36 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
     Revisit only on the trigger G163's row names (the journal / reserve slices), or if a drain's plan volume
     hurts a real owner's coding budget.
+
+15. **Video: the watch run is the person's own agent's work, the queue lives outside the bank, and copy names no
+    provider (owner, 2026-09-29 and 2026-09-30, G162).** The owner approved the boards ("I also like the watch video
+    designs, apply them") and, in three sentences, changed the design: no cap on a batch (ruling 13's reasoning),
+    "Ollama and the rest are literally just providers. So don't assume or make the choice for the user", and "limiting
+    the amount of sites makes no sense … we will never know which sites this will happen". Rulings R-VU1…R-VU10 of the
+    spec stand as written except R-VU10; the three new ones are R-VU11…R-VU13
+    ([`2026-09-29-video-understanding-design.md`](../specs/2026-09-29-video-understanding-design.md) §3 and §13).
+
+    - **State is about the event, not the belief (R-VU1/2).** A video is *read* when a `video-watch` episode with a stated
+      `basis` exists; the union of its episodes' facts gives `none | transcript | watched | watched_and_transcript |
+      recorded`. `basis` is the agent's word and Cicada says "an agent recorded that it watched", never "Cicada
+      watched"; a record with no basis is `recorded` ("method not given"), never `watched`. Nothing is stored.
+    - **The queue is outside the bank (R-VU3, P4).** `$CICADA_HOME/video_queue/<bank>.json`, keys only (no URL, no
+      title), flock and atomic replace, expiry in memory. Nothing in its lifecycle dirties a bank, so no route or claim
+      answers 409 while Sleep runs; `cicada_video_claim` is in `WRITE_TOOLS` (the demo gate, the write lock) but
+      `_writes_bank` is false for it. A lapsed lease is judged only when Sleep is not holding the pages, so a long
+      drain cannot burn a video's three attempts. The `videoQueue` component carries how many leases and expiries have
+      come due, because a lapse writes nothing.
+    - **R-VU10, amended.** Cicada's *default* prompt never steers an agent into the person's logged-in browser for a
+      video. When the person turns on the single reading permission, the prompt carries it as an instruction (their
+      consent, R-RW8), never a promise, for every host: no site list, no `agent_hosts`. Owner line: 2026-09-30, above.
+    - **R-VU11 — provider-neutral copy.** Nothing a video surface, the prompt, a tool description, the contract clause or
+      the bridge line writes names a provider or model as the one doing the job (`test_video_copy_provider_neutral.py`).
+      Names appear only as data (a harness label an agent sent).
+    - **R-VU12 — no batch cap.** The queue file's ceiling is 2,000 rows, a file-safety limit with a sentence.
+    - **R-VU13 — no site list for video.** An agent hands back what it cannot get with a code; the app surfaces it.
+
+    Revisit R-VU10 only if a real run shows the clause steering an agent somewhere the person did not allow; revisit
+    R-VU12 only if a bank's queue file ever nears its ceiling.
 
 ## How work is run here
 
