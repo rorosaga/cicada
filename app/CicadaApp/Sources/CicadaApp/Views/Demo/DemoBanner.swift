@@ -57,7 +57,7 @@ struct DemoBanner: View {
         Task {
             let outcome = await DemoMode.leave(DemoMode.liveExit(store: store, router: router, graph: graphVM))
             leaving = false
-            if case .failed = outcome { store.toast = Copy.Demo.leaveFailed }
+            if let why = DemoMode.leaveToast(outcome) { store.toast = why }
         }
     }
 }

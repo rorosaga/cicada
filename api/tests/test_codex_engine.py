@@ -223,6 +223,13 @@ def test_preflight_refuses_signed_out_an_api_key_and_a_reached_limit():
     assert not ok and detail.startswith("Your ChatGPT plan's Codex limit is used up")
 
 
+def test_preflight_keeps_the_measured_reset_of_a_used_up_plan_and_clears_it_after():
+    ok, _detail, _ = _preflight(_snap(limit_reached="rate_limit_reached", resets_at=1_900_000_000))
+    assert not ok and codex_engine.last_limit_resets_at() == 1_900_000_000
+    _preflight(_snap())
+    assert codex_engine.last_limit_resets_at() is None
+
+
 def test_preflight_trusts_a_signed_in_reply_with_no_account_type():
     """Final review M3: the card (``codex_cli.status``) reads a type-less
     signed-in reply as Connected; the cycle must agree, not call it a key."""

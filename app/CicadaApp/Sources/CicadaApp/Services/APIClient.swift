@@ -731,6 +731,9 @@ struct SleepStatusResponse: Codable {
     /// `episodesQueued > episodesTotal` means this cycle was truncated.
     /// Both absent (0) on an older backend.
     let episodeCap: Int
+    /// The configured batch size, served with no run behind it (`episodeCap` is 0 after a restart and after an
+    /// empty-queue run). 0 on an older backend, which is when the lamp falls back to `episodeCap`.
+    let batchSize: Int
     let episodesQueued: Int
     /// Sleep control — cooperative cancellation. `cancelRequested` is true
     /// while a `/sleep/cancel` is pending on the running cycle;
@@ -767,7 +770,7 @@ struct SleepStatusResponse: Codable {
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
-        case episodeCap, episodesQueued, cancelRequested, cancelled
+        case episodeCap, batchSize, episodesQueued, cancelRequested, cancelled
         case debt, progressPct, queueByOrigin, readByOrigin
     }
 
@@ -789,6 +792,7 @@ struct SleepStatusResponse: Codable {
         lastEngine = try c.decodeIfPresent(String.self, forKey: .lastEngine)
         engineDetail = try c.decodeIfPresent(String.self, forKey: .engineDetail)
         episodeCap = try c.decodeIfPresent(Int.self, forKey: .episodeCap) ?? 0
+        batchSize = try c.decodeIfPresent(Int.self, forKey: .batchSize) ?? 0
         episodesQueued = try c.decodeIfPresent(Int.self, forKey: .episodesQueued) ?? 0
         cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
         cancelled = try c.decodeIfPresent(Bool.self, forKey: .cancelled) ?? false

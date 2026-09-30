@@ -1,5 +1,6 @@
 {
   "cancelled": {
+    "batchSize": 3,
     "cancelRequested": false,
     "cancelled": true,
     "cycleId": "sleep_2026-09-29_101500",
@@ -60,6 +61,7 @@
     "writing": false
   },
   "finished": {
+    "batchSize": 3,
     "cancelRequested": false,
     "cancelled": false,
     "cycleId": "sleep_2026-09-29_101500",
@@ -116,6 +118,7 @@
     "writing": false
   },
   "plan_limit": {
+    "batchSize": 3,
     "cancelRequested": false,
     "cancelled": false,
     "cycleId": "sleep_2026-09-29_101500",
@@ -176,6 +179,7 @@
     "writing": false
   },
   "running": {
+    "batchSize": 3,
     "cancelRequested": false,
     "cancelled": false,
     "cycleId": "sleep_2026-09-29_101500",

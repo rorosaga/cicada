@@ -303,10 +303,10 @@ batch is a whole pipeline under its own `<drain id>_b<nnn>` cycle id, breaker sc
 files and commits it** (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
 ints only), so a cancel or a plan stop loses at most the batch in progress and the next Consolidate continues with what is
 left. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
-ChatGPT pre-flight's used-up sentence) is a **pause, not a failure**: the vendor's own sentence and reset time
+ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
 reset — the person presses Consolidate again (auto-continue would be a ruling 4 amendment, not built). A cancel is the
-existing cooperative one: a batch before Stage 5 is discarded, one already writing commits, then the loop stops. Each
+existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. Each
 frozen id gets **one attempt per drain** (a Stage 1 failure stays queued for the next run), an id another writer marked
 processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
 `leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle is still one
@@ -320,7 +320,7 @@ link backfill skipped after a plan stop. G85's `(decay)` split and the one-git-w
 `_finalize` runs under the same per-bank lock. `GET /sleep/status` carries a `drain` block (frozen, batchSize, batch,
 batches, filed, requeued, skipped, active, finished, `stop{reason, sentence, resetsAt}`, arrivedSince — measured counts,
 never an estimate, G107), the entity/episode counters as the run's running sums, `episodesQueued` the frozen total,
-`episodeCap` the batch size, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`. **The write window
+`episodeCap` the batch size of the run in progress (0 with none), `batchSize` the configured one, always served, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`. **The write window
 (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal that guards a page
 (projects, entities, backlog, local sources, memory, maintenance, the remote connector's writes, paper details) and behind
 `GET /sleep/status`'s `writing`, which MCP's `_backend_sleep_running` and `BACKLOG_SLEEPING` read. A plain or scheduled cycle
@@ -1261,8 +1261,8 @@ point, drop a batch that has not begun filing), so its caption and tooltip say w
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. The lamp's popover says
-a scheduled run reads one batch of `episodeCap` and Consolidate reads everything waiting (ruling 4 shown, not applied silently).
-A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`).
+a scheduled run reads one batch of `batchSize` (the configured size, so it shows after a restart and an empty run too) and Consolidate reads everything waiting (ruling 4 shown, not applied silently).
+A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

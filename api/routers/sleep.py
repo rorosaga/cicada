@@ -20,6 +20,7 @@ from api.services import git_service, sleep_debt, sleep_drain, sleep_engine_pref
 from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
     cancelled_is_visible,
+    configured_batch_size,
     get_sleep_state,
     is_writing,
     list_all_episodes,
@@ -77,8 +78,11 @@ async def cancel_sleep():
     when nothing is running, is always safe), else ``"cancelling"``. The
     cancel itself is cooperative: it takes effect at the pipeline's next safe
     point (see ``sleep_cycle.request_cancel``), never mid-write or mid-commit,
-    so nothing already captured is ever lost — episodes not yet consolidated
-    simply stay queued for the next cycle.
+    so nothing already filed is ever lost. Episodes not yet consolidated
+    stay queued for the next cycle. In a Consolidate drain, the batch that is
+    still reading when the cancel lands is dropped before it is filed and is
+    read again next time (its reads were paid for and are lost); batches
+    already filed stay filed.
     """
     was_running, cycle_id = request_cancel()
     if not was_running:
@@ -92,8 +96,9 @@ async def cancel_sleep():
             status="cancelling",
             message=(
                 "Cancellation requested — the batch in progress stops at its next "
-                "safe point, never mid-write. Batches already filed stay filed, and "
-                "everything not yet read stays queued for the next Consolidate."
+                "safe point, never mid-write. Batches already filed stay filed; "
+                "the batch still reading is dropped and read again next time, "
+                "and everything not yet read stays queued for the next Consolidate."
             ),
             cycle_id=cycle_id,
         )
@@ -140,6 +145,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         last_engine=state.last_engine,
         engine_detail=state.engine_detail,
         episode_cap=state.episode_cap,
+        batch_size=configured_batch_size(settings),
         episodes_queued=state.episodes_queued,
         cancel_requested=state.cancel_requested,
         cancelled=cancelled_is_visible(state),

@@ -31,6 +31,12 @@ final class SleepDrainTests: XCTestCase {
 
     // MARK: The decode
 
+    func test_theWireServesTheConfiguredBatchSizeBesideTheRunsCap() throws {
+        XCTAssertEqual(try scenario("running").batchSize, 3)
+        let idle = try JSONDecoder().decode(SleepStatusResponse.self, from: Data(#"{"status":"idle"}"#.utf8))
+        XCTAssertEqual(idle.batchSize, 0, "an older backend sends none; the lamp then falls back to the run's cap")
+    }
+
     func test_theRunningScenarioDecodesTheDrainBlock() throws {
         let status = try scenario("running")
         let drain = try XCTUnwrap(status.drain)
@@ -136,5 +142,9 @@ final class SleepDrainTests: XCTestCase {
         XCTAssertEqual(BankSwitchFailure.message(APIError.httpError(404, #"{"detail":"no bank ids"}"#)),
                        BankSwitchFailure.generic, "a 404's detail names ids and is never shown")
         XCTAssertEqual(BankSwitchFailure.message(nil), BankSwitchFailure.generic)
+        // The other doors (the demo's enter, an active bank's rename) show the sentence, never the raw HTTP text.
+        XCTAssertEqual(BankSwitchFailure.words(APIError.httpError(409, body)),
+                       ProjectWriteFailure.detail(body))
+        XCTAssertFalse(BankSwitchFailure.words(APIError.httpError(409, body)).contains("HTTP 409"))
     }
 }

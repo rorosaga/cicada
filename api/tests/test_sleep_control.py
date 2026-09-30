@@ -538,6 +538,18 @@ def test_cancel_endpoint_requests_cancellation_when_running_and_is_idempotent():
         state.cancel_requested = False
 
 
+def test_sleep_status_serves_the_configured_batch_size_with_no_run_behind_it():
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    state = sleep_cycle.get_sleep_state()
+    state.episode_cap = 0     # a fresh process, or an empty-queue run, leaves this at 0
+    body = TestClient(main.app).get("/sleep/status").json()
+    assert body["episodeCap"] == 0
+    assert body["batchSize"] == 25
+
+
 def test_sleep_status_exposes_cap_and_cancel_fields():
     from fastapi.testclient import TestClient
 

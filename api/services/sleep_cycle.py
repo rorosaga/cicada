@@ -162,6 +162,11 @@ _lock = asyncio.Lock()
 # a fallback used elsewhere from it. See api/config.py for the rationale.
 DEFAULT_EPISODE_CAP: int = Settings.model_fields["sleep_max_episodes_per_cycle"].default
 
+
+def configured_batch_size(settings) -> int:
+    """The batch size a cycle would use — what a scheduled run reads and a drain's batch holds."""
+    return max(1, int(getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_EPISODE_CAP) or DEFAULT_EPISODE_CAP))
+
 # Devin PR #27 round 1, finding 3: how long `cancelled` reads `True` after a
 # cycle stops because of one, before `cancelled_is_visible()` starts
 # reporting it as cleared. Generous — long enough that walking away from the
@@ -1359,9 +1364,7 @@ async def _drain(
         _state.progress = "No unprocessed episodes"
         return _StageOutcome()
 
-    size = max(1, int(
-        getattr(settings, "sleep_max_episodes_per_cycle", DEFAULT_EPISODE_CAP) or DEFAULT_EPISODE_CAP
-    ))
+    size = configured_batch_size(settings)
     ds = sleep_drain.DrainState(
         drain_id=cycle_id, frozen_ids=ids, batch_size=size,
         batches=sleep_drain.batches_for(len(ids), size),
@@ -1681,9 +1684,12 @@ async def _run_stages(
             _state.progress = f"Failed: {detail}"
             from api.services import plan_limits
 
-            # A used-up plan is a pause the person waits out; a sign-out is not.
-            return _StageOutcome(stop=sleep_drain.DrainStop(
-                "plan_limit" if detail.startswith(plan_limits.CODEX_LIMIT_LEAD) else "engine", detail))
+            # A used-up plan is a pause the person waits out; a sign-out is not. The
+            # snapshot's own reset time rides along so the app can lift the pause when it passes.
+            if detail.startswith(plan_limits.CODEX_LIMIT_LEAD):
+                return _StageOutcome(stop=sleep_drain.DrainStop(
+                    "plan_limit", detail, codex_engine.last_limit_resets_at()))
+            return _StageOutcome(stop=sleep_drain.DrainStop("engine", detail))
         if default_model and not (getattr(settings, "codex_model", "") or "").strip():
             settings = settings.model_copy(update={"codex_model": default_model})
             # The "started" line above logged before this was known.

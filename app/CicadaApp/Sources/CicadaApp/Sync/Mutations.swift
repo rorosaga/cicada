@@ -477,6 +477,14 @@ enum BankSwitchFailure {
         guard case .httpError(let code, let body)? = error as? APIError, code == 409 else { return generic }
         return ProjectWriteFailure.detail(body) ?? Copy.bankSwitchWhileReading
     }
+
+    /// Any other door that hits a bank refusal (the demo's enter, a rename of the active bank): a 409 that carries the
+    /// server's sentence shows it; everything else keeps the error's own words. The raw `HTTP 409: {"detail": …}` is
+    /// never shown.
+    static func words(_ error: Error) -> String {
+        if case .httpError(409, let body)? = error as? APIError, let why = ProjectWriteFailure.detail(body) { return why }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
 }
 
 // MARK: - Sleep

@@ -49,13 +49,17 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
      placeholder the owner PUT adopts). Do not import from another bank.
   2. Engine = a plan (Claude or ChatGPT), schedule **manual**, *Keep going on extra usage* **off** (ruling 4: a scheduled
      cycle never spends plan quota, so leave it manual until the first drain is understood).
-  3. Set `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE` to **100–150** (default 25) in `api/.env`, restart the backend.
+  3. Leave the batch size at its default (25 episodes; `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE`). Consolidate drains the queue by
+     itself in batches of that size (ruling 13), so a bigger batch only raises what a cancel or plan stop can lose and
+     breaks the 50-`Cicada-Session` trailer bound.
   4. Import the Claude export first, then the ChatGPT export (through the one intake; the memory files arrive as
      lower-trust assistant words).
-  5. Run **one capped cycle** and inspect: the owner page's beliefs and their spans, the entity count against the episodes
-     read, no page archived that the cycle just read, the inbox's decay questions (at most 10 new).
-  6. Drain: repeat one capped cycle at a time until the queue is empty (Sleep v5's journal and *Read everything*,
-     G163, replace this by hand once built). Watch the plan window between cycles.
+  5. Press Consolidate once and let it drain. While it runs, inspect the first committed batch (`Sleep cycle <date> (batch 1
+     of n)`): the owner page's beliefs and their spans, the entity count against the episodes read, no page archived that
+     the cycle just read, the inbox's decay questions (at most 10 new). Cancel if anything looks wrong; filed batches stay
+     filed and the batch still reading is read again next time.
+  6. If a plan stop ends the run early, wait for the window (the Sleep page says when) and press Consolidate again; it
+     resumes from what is still queued. Watch the plan window between runs.
 
 **Pending after 2026-09-28 (owner asked to record these):**
 - *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt

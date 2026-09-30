@@ -2173,6 +2173,10 @@ class SleepStatusResponse(CamelModel):
     # cycle and the rest stayed queued for the next one.
     episode_cap: int = 0
     episodes_queued: int = 0
+    # The configured batch size (``Settings.sleep_max_episodes_per_cycle``), served whether
+    # or not a run has set ``episode_cap`` — a fresh process and an empty-queue run reset the
+    # latter to 0, and the lamp's "a scheduled run reads one batch of N" line needs N always.
+    batch_size: int = 0
     # Sleep control — cooperative cancellation. ``cancel_requested`` is true
     # from the moment ``POST /sleep/cancel`` is accepted for the currently
     # running cycle until it reaches its next safe point (as opposed to a

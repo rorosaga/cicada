@@ -207,7 +207,7 @@ def test_reconcile_stage3_decay_false_skips_only_claim_decay(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-def _codex_preflight(monkeypatch, tmp_path, sentence):
+def _codex_preflight(monkeypatch, tmp_path, sentence, resets_at=None):
     from api.services import codex_engine, cycle_usage
 
     memory = seed_bank(tmp_path, episode_ids(4))
@@ -220,6 +220,7 @@ def _codex_preflight(monkeypatch, tmp_path, sentence):
         return None
 
     monkeypatch.setattr(codex_engine, "preflight", preflight)
+    monkeypatch.setattr(codex_engine, "_last_limit_resets_at", resets_at)
     monkeypatch.setattr(cycle_usage, "begin_codex", begin)
     asyncio.run(sleep_cycle.run(settings(memory, sleep_max_episodes_per_cycle=2), "sleep_codex",
                                 user_triggered=True, drain=True))
@@ -231,6 +232,12 @@ def test_a_used_up_chatgpt_plan_at_preflight_is_a_pause(monkeypatch, tmp_path):
     state, rig = _codex_preflight(monkeypatch, tmp_path, sentence)
     assert state.drain.stop.reason == "plan_limit" and state.drain.stop.sentence == sentence
     assert state.error is None and rig.extract_batches == []
+
+
+def test_a_used_up_chatgpt_plan_pause_carries_the_measured_reset(monkeypatch, tmp_path):
+    sentence = plan_limits.CODEX_LIMIT_LEAD + " — Sleep didn't start."
+    state, _rig = _codex_preflight(monkeypatch, tmp_path, sentence, resets_at=1_900_000_000)
+    assert state.drain.stop.reason == "plan_limit" and state.drain.stop.resets_at == 1_900_000_000
 
 
 def test_a_signed_out_chatgpt_plan_at_preflight_is_a_failure(monkeypatch, tmp_path):
