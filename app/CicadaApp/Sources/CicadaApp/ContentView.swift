@@ -59,7 +59,9 @@ struct ContentView: View {
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
 
-    var body: some View {
+    /// The first half of the window's lifecycle modifiers — split from `body` so the type checker never faces
+    /// one chain of every `onChange` (G162 and G166 both add to it).
+    private var lifecycleStage: some View {
         overlayLayers
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
@@ -110,6 +112,10 @@ struct ContentView: View {
             Task { await SiteIconStore.shared.clear(bank: old) }
             inboxVM.resetColumns()
         }
+    }
+
+    var body: some View {
+        lifecycleStage
         // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache no page has asked of
         // stays unread until a page that shows it appears. A bank switch keeps what was asked (`wantsReads`).
         .onChange(of: store.version) { old, new in

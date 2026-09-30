@@ -374,9 +374,7 @@ struct EpisodeText: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-         watch: EpisodeWatch? = nil,
-         source: String? = nil) {
-        self.source = source
+        case conversationId, captureKind, turns, focus, agent, watch, source
     }
 
     init(from decoder: Decoder) throws {
