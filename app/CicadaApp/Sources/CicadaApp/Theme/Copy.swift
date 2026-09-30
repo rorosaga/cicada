@@ -75,6 +75,10 @@ enum Copy {
     /// The worm's named action while T7's "See what changed ›" link lives.
     static let whatChanged = "What changed"
 
+    /// Ruling 4 made visible (G163): a scheduled run reads one batch; the person's Consolidate reads everything.
+    static func scheduledReadsOneBatch(size: Int, locale: Locale = .autoupdatingCurrent) -> String {
+        "A scheduled run reads one batch of \(UsageFormat.count(size, locale: locale)); Consolidate reads everything waiting."
+    }
     /// The queue card's footer line, shown ONLY when `preview.manual` and
     /// `preview.scheduled` name different engines (R-A9). The standing ruling
     /// — a scheduled cycle never spends plan quota — makes that difference

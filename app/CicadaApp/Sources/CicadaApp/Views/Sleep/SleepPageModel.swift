@@ -50,6 +50,8 @@ struct SleepPageModel: Equatable {
     var capped: Bool
     /// G163 — the person-started run's measured progress, `nil` when the last cycle was not one.
     var drain: SleepDrainInfo?
+    /// `cancelled`, or a finished run that stopped at a plan limit: the strip freezes and nothing cheers.
+    var stoppedEarly: Bool
     var indexWarning: String?
     var queueLoad: StudyListCard.LoadState
     /// Z-P3 — the newest `kind == "sleep"` commit.
@@ -94,6 +96,10 @@ struct SleepPageModel: Equatable {
                              readByOrigin: origins.readByOrigin, running: isRunning, now: now)
         let error = status?.error.flatMap { $0.isEmpty ? nil : $0 }
         let cancelled = status?.cancelled == true
+        let drain = resolveDrain(sse: sse, status: status)
+        // A run that ended early on purpose or by a limit: the strip freezes where it stopped and nothing
+        // cheers. A cancel already says so; a plan limit is the same in every way but the flag (G163).
+        let stoppedEarly = cancelled || (!isRunning && drain?.stop != nil)
         let nextSleepAt = storeStatus?.nextSleepAt
         return SleepPageModel(
             mood: mood,
@@ -105,7 +111,7 @@ struct SleepPageModel: Equatable {
             rows: rows,
             books: bookPileLayout(originVolumes(queued: queued, queueByOrigin: origins.queueByOrigin,
                                                 readByOrigin: origins.readByOrigin, running: isRunning)),
-            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: cancelled,
+            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: stoppedEarly,
                                   error: error != nil, read: read, total: total),
             schedule: schedule,
             lampLit: schedule.enabled,
@@ -120,8 +126,9 @@ struct SleepPageModel: Equatable {
             cycleError: error,
             cancelled: cancelled,
             // A drain reads everything it froze; "queued > attempted" means "not yet" there, never "capped".
-            capped: status?.drain == nil && (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
-            drain: status?.drain,
+            capped: drain == nil && (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            drain: drain,
+            stoppedEarly: stoppedEarly,
             indexWarning: status?.indexWarning.flatMap { $0.isEmpty ? nil : $0 },
             queueLoad: queueLoad,
             lastCycle: lastCycleEntry(history),
@@ -148,8 +155,9 @@ func lastCycleEntry(_ history: [SleepHistoryEntry]) -> SleepHistoryEntry? {
 /// I17 vs I18 — the one running → idle edge that earns a cheer: not a cancel
 /// (it filed nothing) and not a failure (that is news, told in danger). A
 /// first observation (`old == nil`) is a page load, not an edge.
-func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?) -> Bool {
-    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty
+func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?,
+                      drainStop: String? = nil) -> Bool {
+    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty && drainStop == nil
 }
 
 /// The commit a completion produced, once history has it: the newest sleep

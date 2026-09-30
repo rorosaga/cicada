@@ -280,7 +280,7 @@ def reserve_cycle(cycle_id: str, *, drain: bool = False) -> None:
 
 def is_writing() -> bool:
     """Is Sleep holding the bank's pages right now? The one predicate every
-    "Sleep is running" refusal shares (G174), and what ``GET /sleep/status``
+    "Sleep is running" refusal shares (G177), and what ``GET /sleep/status``
     reports as ``writing`` for the MCP probe.
 
     A plain or scheduled cycle holds the bank for its whole run, exactly as

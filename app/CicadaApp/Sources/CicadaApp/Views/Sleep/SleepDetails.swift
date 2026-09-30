@@ -4,8 +4,9 @@ import SwiftUI
 /// four inputs are exactly the four banners' own conditions, so the section
 /// can never render as an empty header.
 func lastCycleSectionIsVisible(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?,
-                               usageLine: String? = nil) -> Bool {
+                               usageLine: String? = nil, drain: SleepDrainInfo? = nil) -> Bool {
     pageError != nil || cancelled || capped || !(indexWarning ?? "").isEmpty || usageLine != nil
+        || LastCycleRow.drainHasNews(drain)
 }
 
 /// The page's one second surface (R-Z6, R-Z7): opened on purpose, remembered
@@ -51,9 +52,9 @@ struct SleepDetails: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
             if lastCycleSectionIsVisible(pageError: pageError, cancelled: page.cancelled,
                                          capped: page.capped, indexWarning: page.indexWarning,
-                                         usageLine: lastCycleUsage) {
+                                         usageLine: lastCycleUsage, drain: page.drain) {
                 LastCycleSection(pageError: pageError, status: status, cancelled: page.cancelled,
-                                 capped: page.capped, indexWarning: page.indexWarning,
+                                 capped: page.capped, indexWarning: page.indexWarning, drain: page.drain,
                                  usageLine: lastCycleUsage,
                                  usageHelp: CycleUsageText.summaryHelp(page.lastCycle?.usageSummary))
                     .id(DetailsSection.lastCycle.anchorID)
@@ -97,7 +98,7 @@ struct SleepDetailsSection<Content: View>: View {
 /// cap in `textTertiary`. The filled banners (`danger`/`accent`/`warning` at 10–12 %) retired: DR-7
 /// keeps `danger` for destructive actions, and a row never sits on a tint.
 struct LastCycleRow: Equatable, Identifiable {
-    enum Kind: String, Equatable { case failed, cancelled, capped, warning, usage }
+    enum Kind: String, Equatable { case failed, cancelled, capped, warning, usage, drain, paused }
 
     let kind: Kind
     let title: String
@@ -107,7 +108,8 @@ struct LastCycleRow: Equatable, Identifiable {
     var glyph: String {
         switch kind {
         case .failed, .warning: "exclamationmark.triangle"
-        case .cancelled: "stop.circle"
+        case .cancelled, .paused: "stop.circle"
+        case .drain: "text.book.closed"
         case .capped: "tray.and.arrow.down"
         case .usage: "gauge.with.dots.needle.33percent"
         }
@@ -115,18 +117,42 @@ struct LastCycleRow: Equatable, Identifiable {
 
     /// The four conditions `lastCycleSectionIsVisible` reads, in the page's order. The cap's numbers
     /// come from the status itself, as the banner's did (L1/L4).
+    /// A finished person-started run is news only when it took more than one batch or something is still
+    /// waiting — a plain one-batch read needs no row of its own (G163).
+    static func drainHasNews(_ drain: SleepDrainInfo?) -> Bool {
+        guard let drain, !drain.active else { return false }
+        return drain.batches > 1 || drain.requeued > 0 || drain.stop?.reason == "plan_limit"
+    }
+
     static func rows(pageError: String?, cancelled: Bool, capped: Bool, indexWarning: String?,
                      status: SleepStatusResponse?, usageLine: String? = nil,
+                     drain: SleepDrainInfo? = nil,
                      locale: Locale = .autoupdatingCurrent) -> [LastCycleRow] {
         var rows: [LastCycleRow] = []
         if let pageError {
             rows.append(LastCycleRow(kind: .failed, title: Copy.SleepDetailsWords.failedTitle, text: pageError))
         }
         if cancelled {
-            rows.append(LastCycleRow(kind: .cancelled, title: Copy.SleepDetailsWords.cancelledTitle,
-                                     text: Copy.SleepDetailsWords.cancelledText))
+            // After a person-started run filed batches, "before any writes" would be false.
+            let text = drain.flatMap { $0.filed > 0
+                ? Copy.SleepDetailsWords.cancelledDrainText(filed: $0.filed, frozen: $0.frozen, locale: locale) : nil }
+                ?? Copy.SleepDetailsWords.cancelledText
+            rows.append(LastCycleRow(kind: .cancelled, title: Copy.SleepDetailsWords.cancelledTitle, text: text))
         }
-        if capped, let s = status {
+        if let drain, drain.stop?.reason == "plan_limit" {
+            // The vendor's own sentence, whole: it carries the reset time.
+            rows.append(LastCycleRow(kind: .paused, title: Copy.SleepDetailsWords.pausedTitle,
+                                     text: drain.stop?.sentence ?? Copy.SleepDetailsWords.pausedFallback))
+        }
+        if drainHasNews(drain), let drain {
+            rows.append(LastCycleRow(kind: .drain, title: Copy.SleepDetailsWords.drainTitle,
+                                     text: Copy.SleepDetailsWords.drainText(filed: drain.filed, frozen: drain.frozen,
+                                                                             batches: drain.batches, requeued: drain.requeued,
+                                                                             locale: locale)))
+        }
+        // A drain has no episode cap to report: it reads everything it froze, so "queued > attempted"
+        // means it stopped, which the rows above say.
+        if capped, drain == nil, let s = status {
             rows.append(LastCycleRow(kind: .capped, title: Copy.SleepDetailsWords.capTitle(s.episodeCap, locale: locale),
                                      text: Copy.SleepDetailsWords.capText(processed: s.episodesTotal,
                                                                           queued: s.episodesQueued, locale: locale)))
@@ -160,13 +186,15 @@ struct LastCycleSection: View {
     let cancelled: Bool
     let capped: Bool
     let indexWarning: String?
+    var drain: SleepDrainInfo? = nil
     var usageLine: String? = nil
     var usageHelp: String? = nil
 
     var body: some View {
         SleepDetailsSection(title: "Last cycle") {
             ForEach(LastCycleRow.rows(pageError: pageError, cancelled: cancelled, capped: capped,
-                                      indexWarning: indexWarning, status: status, usageLine: usageLine)) { row in
+                                      indexWarning: indexWarning, status: status, usageLine: usageLine,
+                                      drain: drain)) { row in
                 HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
                     Image(systemName: row.glyph)
                         .font(CicadaTheme.icon(.list))

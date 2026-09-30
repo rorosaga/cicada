@@ -161,7 +161,7 @@ struct FirstReadInputs: Equatable {
     var pages: Int? = nil
 }
 
-enum FirstReadAction: Equatable { case readNow, watchSleep, openGraph, readNext(Int), tryAgain }
+enum FirstReadAction: Equatable { case readNow, watchSleep, openGraph, keepReading, tryAgain }
 
 /// Track I part b (design §4.2 "the first read: the payoff", R-IB19) — one total
 /// function over the status: each state has one line (the text twin), one worm
@@ -178,7 +178,7 @@ enum FirstReadStep: Equatable {
         if i.running { return .running(read: i.read, total: i.total, stage: activeStage(completed: i.stage)) }
         if let e = i.error?.trimmingCharacters(in: .whitespacesAndNewlines), !e.isEmpty { return .failed(firstSentence(e)) }
         if i.hasRunBefore {
-            // The cycle hit its episode cap: more was queued than it took.
+            // The run stopped early (a plan limit, a cancel): more was queued than it took.
             if i.episodesQueued > i.episodesTotal, let left = i.unprocessed, left > 0 {
                 return .capped(read: i.episodesTotal, left: left)
             }
@@ -212,7 +212,7 @@ enum FirstReadStep: Equatable {
         case .waiting: .readNow
         case .running: .watchSleep
         case .finished: .openGraph
-        case .capped(let read, _): .readNext(read)
+        case .capped: .keepReading
         case .failed: .tryAgain
         }
     }

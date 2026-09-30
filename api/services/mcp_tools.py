@@ -67,7 +67,7 @@ def _backend_sleep_running(backend_url: str, headers: dict[str, str]) -> bool:
     try:
         with urllib.request.urlopen(req, timeout=SLEEP_PROBE_TIMEOUT_S) as resp:
             body = json.loads(resp.read().decode("utf-8"))
-            # `writing` (G174) is "Sleep holds the bank's pages": a drain between
+            # `writing` (G177) is "Sleep holds the bank's pages": a drain between
             # batches is running but not writing, and a claim committed then is
             # not swept into a batch commit. An older backend sends only `status`.
             return bool(body["writing"]) if "writing" in body else body.get("status") == "running"

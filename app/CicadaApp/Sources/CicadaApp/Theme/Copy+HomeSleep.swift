@@ -110,6 +110,22 @@ extension Copy {
         static let failedTitle = "Sleep cycle error"
         static let cancelledTitle = "Cancelled"
         static let cancelledText = "Stopped cleanly before any writes — nothing was lost."
+        /// A stopped person-started run (G163): earlier batches are filed and stay so; the batch that was
+        /// still reading is dropped and read again next time, so this never says "nothing was lost".
+        static func cancelledDrainText(filed: Int, frozen: Int, locale: Locale = .autoupdatingCurrent) -> String {
+            "Stopped at a safe point — \(UsageFormat.count(filed, locale: locale)) of \(UsageFormat.count(frozen, locale: locale)) filed stay filed; the rest wait for the next Consolidate."
+        }
+        /// Last cycle's row for a run that read everything waiting, in batches.
+        static let drainTitle = "Read everything"
+        static func drainText(filed: Int, frozen: Int, batches: Int, requeued: Int,
+                              locale: Locale = .autoupdatingCurrent) -> String {
+            let count = { (n: Int) in UsageFormat.count(n, locale: locale) }
+            var text = "\(count(filed)) of \(count(frozen)) filed · \(count(batches)) \(batches == 1 ? "batch" : "batches")"
+            if requeued > 0 { text += " · \(count(requeued)) will be read next time" }
+            return text
+        }
+        static let pausedTitle = "Paused at your plan's limit"
+        static let pausedFallback = "The rest wait for the next Consolidate."
         static func capTitle(_ cap: Int, locale: Locale = .autoupdatingCurrent) -> String {
             "Episode cap reached (\(UsageFormat.count(cap, locale: locale)))"
         }
@@ -165,6 +181,7 @@ extension Copy {
         // `capText` is a sentence that passes 60 characters once its counts have four digits, so it
         // stays off this list (Task 3).
         SleepDetailsWords.failedTitle, SleepDetailsWords.cancelledTitle, SleepDetailsWords.cancelledText,
+        SleepDetailsWords.drainTitle, SleepDetailsWords.pausedTitle,
         SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
         SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
         SleepDetailsWords.noEngineYet, SleepDetailsWords.untitled,

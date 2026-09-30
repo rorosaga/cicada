@@ -23,7 +23,7 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
 - **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
   a person-started run reads the whole frozen queue in batches of 25, each filed and committed; scheduled runs stay one batch; decay
   and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
-  cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G174** is built too:
+  cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
   the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run.
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
   is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
@@ -590,7 +590,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       auto-continue after a reset (a ruling 4 amendment), a weekly "leave room" reserve, a journal of paid answers
       (a cancel before Stage 5 still discards the batch in progress), parallel reading, per-batch rows in Past nights.
     - **Cost accepted:** bank switching, export and delete are refused for the whole run (the drain is pinned to its
-      bank) — by name, and the app shows the sentence. Every other guard and the MCP write probe follow **G174**'s
+      bank) — by name, and the app shows the sentence. Every other guard and the MCP write probe follow **G177**'s
       write window (`sleep_cycle.is_writing()`), so an agent's claim between batches commits alone under its own author.
 
     Revisit only on the trigger G163's row names (the journal / reserve slices), or if a drain's plan volume

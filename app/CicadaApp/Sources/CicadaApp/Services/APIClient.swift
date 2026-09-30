@@ -755,7 +755,7 @@ struct SleepStatusResponse: Codable {
     /// progress — batch k of n, filed of frozen, and why it stopped. `nil` on a
     /// scheduled or idle cycle and on an older backend; never a fabricated 0.
     let drain: SleepDrainInfo?
-    /// G174 — Sleep holds the bank's pages right now. A drain between batches is
+    /// G177 — Sleep holds the bank's pages right now. A drain between batches is
     /// `running` but not `writing`; the app's writes are refused only while it is.
     /// `false` on an older backend, which is why it is not read as "not running".
     let writing: Bool

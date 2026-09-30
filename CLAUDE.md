@@ -321,7 +321,7 @@ link backfill skipped after a plan stop. G85's `(decay)` split and the one-git-w
 batches, filed, requeued, skipped, active, finished, `stop{reason, sentence, resetsAt}`, arrivedSince — measured counts,
 never an estimate, G107), the entity/episode counters as the run's running sums, `episodesQueued` the frozen total,
 `episodeCap` the batch size, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`. **The write window
-(G174):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal that guards a page
+(G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal that guards a page
 (projects, entities, backlog, local sources, memory, maintenance, the remote connector's writes, paper details) and behind
 `GET /sleep/status`'s `writing`, which MCP's `_backend_sleep_running` and `BACKLOG_SLEEPING` read. A plain or scheduled cycle
 holds the bank for its whole run, as before; a drain holds it only from a batch's Stage 2 (which loads the pages Stage 5
@@ -1246,6 +1246,23 @@ to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
 Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12) — inside them only a measured or list-price figure that states its basis ("charged", "at list price", a plan window's share).
+
+**Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
+the server drains. `SleepStatusResponse.drain` (`SleepDrainInfo`, lenient like every field) and the SSE event's compact
+`SleepDrainSSE` are merged by one pure `resolveDrain(sse:status:)`: the status holds the whole block, the event overlays the
+moving counts only when it describes the same run (same frozen total), and neither is ever a hybrid of two runs. While it
+reads, the sentence's tail is "Batch 3 of 12 · 62 of 287 filed." (measured counts through `UsageFormat.count`, G107, and only
+with more than one batch); the lead, the strip's Read fill and the study list already read the cumulative origin dicts. A plan
+stop is a *pause*, not a failure: the tail is the vendor's own sentence (reset time inside it), the strip freezes where it
+stopped and the worm neither chews nor cheers (`SleepPageModel.stoppedEarly` feeds `stageStripState`, `stageStripIsVisible`,
+`deriveSleepPageMood` and `isRealCompletion(drainStop:)`). **Cancel keeps its name** and its semantics (stop at the next safe
+point, drop a batch that has not begun filing), so its caption and tooltip say what is kept and what is not
+(`Copy.cancelDrainCaption`), never "after this batch" and never "nothing is lost". Details › Last cycle gains a "Read everything"
+row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
+sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
+after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. The lamp's popover says
+a scheduled run reads one batch of `episodeCap` and Consolidate reads everything waiting (ruling 4 shown, not applied silently).
+A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`).
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

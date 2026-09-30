@@ -576,7 +576,7 @@ def test_sleep_drain_unit_helpers():
 
 
 # --------------------------------------------------------------------------- #
-# The write window (G174): what is refused, and what commits alone, mid-run
+# The write window (G177): what is refused, and what commits alone, mid-run
 # --------------------------------------------------------------------------- #
 
 
