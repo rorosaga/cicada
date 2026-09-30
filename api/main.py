@@ -40,6 +40,7 @@ from api.routers import (
     search,
     settings as settings_router,
     skills,
+    videos,
     sleep,
     sources,
     state,
@@ -248,3 +249,4 @@ app.include_router(consumption.router, tags=["consumption"])
 app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
+app.include_router(videos.router, tags=["videos"])

@@ -22,12 +22,17 @@ from api.services.auth import cicada_home
 KINDS = (
     "llm_call", "sleep_run", "agentic_write", "ask", "import", "throttle",
     "resolution", "audit", "dedup_verdict", "capture", "handshake", "read",
-    "remote_call", "connector_auth", "hook_recall", "read_agent",
+    "remote_call", "connector_auth", "hook_recall", "read_agent", "video_queue",
 )
 # G149: one row per recall-hook firing — harness, event, reason enum, the page
 # ids shown and their count, token and latency buckets, the model id when the
 # harness sent one (D7: an id is an enum). Never the prompt (R-H9, R-H10).
 HOOK_RECALL_KIND = "hook_recall"
+# G162: one row per video-queue claim, release or completion — `action`, `count`, `code`
+# (a closed fail-code enum), the harness label and the connector id. Never a link, a
+# title or a reason. A per-call receipt like `capture` and `hook_recall`: filed beside
+# `read` and kept out of every Usage view.
+VIDEO_QUEUE_KIND = "video_queue"
 # G166: one row per `cicada_record_read` call — the entity id (when a page is
 # involved), an `outcome` enum, a `host_class` enum (`walled` | `public`), the
 # harness label and the connector id. Never a URL, the tool the agent says it
@@ -52,7 +57,7 @@ FEEDBACK_KINDS = ("resolution", "audit", "dedup_verdict")
 # connection, the same class. G149: a ``hook_recall`` row is a per-prompt
 # receipt with no spend and no connection.
 NON_SPEND_KINDS = FEEDBACK_KINDS + ("capture", "handshake", "read", "remote_call", "connector_auth",
-                                    HOOK_RECALL_KIND, READ_AGENT_KIND)
+                                    HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND)
 
 
 def now_iso() -> str:
@@ -162,7 +167,7 @@ READS_KIND = "read"
 # in the events file ticks the app's consumption domain and refetches every
 # `/consumption/*` endpoint. G149 R-H9: a hook row fires on every prompt, so
 # it is filed here for the same reason.
-SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND, READ_AGENT_KIND})
+SIBLING_KINDS = frozenset({READS_KIND, "remote_call", HOOK_RECALL_KIND, READ_AGENT_KIND, VIDEO_QUEUE_KIND})
 _PREFIX_EVENTS = "events"
 _PREFIX_READS = "reads"
 

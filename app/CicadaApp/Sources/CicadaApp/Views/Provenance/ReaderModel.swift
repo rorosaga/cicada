@@ -71,6 +71,12 @@ enum EvidenceSpeaker {
         return name.isEmpty ? nil : name
     }
 
+    /// A media turn's place in the video ("4:05", "0:00" at the very start); nil when the line carried none.
+    static func mediaTime(_ t: Int?) -> String? {
+        guard let t, t >= 0 else { return nil }
+        return t == 0 ? "0:00" : VideoRef.durationLabel(t)
+    }
+
     static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?, source: String? = nil) -> String {
         switch turn.role {
         case "assistant":
@@ -84,6 +90,9 @@ enum EvidenceSpeaker {
             // What an agent reported from a page is that agent's reading, not a file the person attached.
             if source == pageReadSource { return Copy.Provenance.fromThePageAsRead(by: agentName(harness: harness, origin: origin)) }
             return attachmentName(turn.marker).map(Copy.Provenance.attached) ?? ""
+        case "media":
+            // G162 — "From the video · 4:05 · approximate wording": what the video said, never the person's words.
+            return Copy.Videos.mediaTurnMeta(time: mediaTime(turn.t), fidelity: turn.fidelity)
         case "speaker":
             return named(turn.speaker) ?? Copy.Provenance.someoneElse
         default:
@@ -403,6 +412,8 @@ enum ReaderHeader {
     /// it was; anything else says nothing rather than guess.
     static func captureLine(_ doc: EpisodeText) -> String? {
         if doc.isPage { return nil }
+        // G162 — a watch record says how the agent said it read the video, and that Cicada saw no frames itself.
+        if let watch = doc.watch { return Copy.Videos.watchRecord(basis: watch.basis, engine: watch.engine) }
         if doc.captureKind == hookCaptureKind { return Copy.Provenance.captureHonesty }
         if let origin = doc.origin, origin.hasSuffix("-export"),
            let vendor = EvidenceSpeaker.agentName(harness: nil, origin: origin) {
@@ -419,7 +430,8 @@ enum ReaderHeader {
             parts.append(Copy.Provenance.fromThePage)
         } else if let line = ModelNames.agentLine(
             agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin),
-            harness: doc.harness, model: doc.agent?.model, effort: doc.agent?.effort) {
+            harness: doc.harness, model: doc.watch?.authorModel ?? doc.agent?.model,
+            effort: doc.watch?.authorModel != nil ? doc.watch?.authorEffort : doc.agent?.effort) {
             // R-FA14 (C4) — "Claude Code · Opus 5.5 · high effort"; an app with
             // no capture says its model is not shared; a pre-D1 capture adds nothing.
             parts.append(line)

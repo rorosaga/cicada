@@ -60,8 +60,10 @@ from api.services.auth import cicada_home
 # lacks the other's text, so 7 is never reused (R-H13).
 # 8: G149 + G150 merged — past both 7s (G149 final review).
 # 9: G166 — item 9, reading pages for the person with their own browser (only
-# while `reading.agent` is on; the setting is part of the cache key).
-CONTRACT_VERSION = 9
+# while `reading.agent` is on; the setting is part of the cache key). 10: G162's
+# first cut — item 3 names the video queue tools and `basis`. 11: the merge of both,
+# one past either, so neither branch's cached primer is ever served as the other's.
+CONTRACT_VERSION = 11
 MAX_TOKENS = 1800
 VARIANTS = ("claude-code", "codex", "generic")
 
@@ -80,7 +82,8 @@ REMOTE_VARIANT = "remote"
 # connection holds cicada_add_backlog_item.
 # 6: G166 — the reading sentences (cicada_reading_queue / cicada_record_read,
 # each only where the connection holds it), only while `reading.agent` is on.
-REMOTE_CONTRACT_VERSION = 6
+# 7: G162 — the video clause, tool by tool. 8: the merge of both, one past either.
+REMOTE_CONTRACT_VERSION = 8
 # The runtime replaces this with a freshly minted handle AFTER the cache read,
 # so one cached primer serves every conversation of a tool set.
 CONVERSATION_SLOT = "{{conversation}}"
@@ -105,6 +108,19 @@ _REMOTE_VERBS = (
 
 def _join(words: list[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def _remote_video_queue(tools: frozenset[str]) -> str:
+    """G162: the video-queue clause, each tool named only where the connection holds it (R12)."""
+    if "cicada_video_claim" in tools:
+        return (" When the person asks you to work their video queue (or hands you a Cicada prompt for it), "
+                "`cicada_video_claim` takes the videos they asked you to read or watch; repeat it until it "
+                "returns nothing, record each one, and hand one back with "
+                "`cicada_video_claim(release=[{url, code, reason}])`."
+                + (" `cicada_video_queue` lists them without taking any." if "cicada_video_queue" in tools else ""))
+    if "cicada_video_queue" in tools:
+        return " `cicada_video_queue` lists the videos the person asked an agent to read or watch."
+    return ""
 
 
 def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
@@ -147,7 +163,8 @@ def _remote_contract(tools: frozenset[str], reading: bool = False) -> str:
                      "`cicada_add_backlog_note(item, note)`, never a second item.")
     if "cicada_record_watch" in tools:
         items.append("After watching a video the person saved: `cicada_record_watch(url, summary, "
-                     "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript.")
+                     "excerpts=[{t, quote}], basis)` — short timestamped quotes, never the transcript; `basis` "
+                     "is `transcript`, `frames` or `both`, whatever you actually used." + _remote_video_queue(tools))
     if "cicada_write_claim" in tools:
         items.append("Write facts as claims: `cicada_write_claim(subject, predicate, object, observer, "
                      "evidence=[{episode, quote}])` with observer `agent` (you inferred it) or `external` "
@@ -238,7 +255,10 @@ _CONTRACT = (
     "items are app-only and the ask path never returns them.\n"
     "3. Save as you learn: `cicada_save_episode(content, title)` for a decision, plan or fact worth keeping; "
     "`cicada_save_url` for a link; after watching a video the person saved, `cicada_record_watch(url, summary, "
-    "excerpts=[{t, quote}])` — short timestamped quotes, never the transcript. When the person says what they "
+    "excerpts=[{t, quote}], basis)` — short timestamped quotes, never the transcript, `basis` being "
+    "`transcript`, `frames` or `both`. For the person's video queue, `cicada_video_claim` takes videos to "
+    "watch (repeat until empty; hand one back with `cicada_video_claim(release=[{url, code, reason}])`). "
+    "When the person says what they "
     "did, got, started or finished in a project, record it with `cicada_note_progress(project, kind, summary, "
     "status, evidence)`. When the person asks to put something in the backlog (or to keep it for later), file it "
     "with `cicada_add_backlog_item(project, title, description)` — the brief task as the title, the reasoning as the "

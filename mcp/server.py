@@ -334,6 +334,20 @@ TOOLS = [
                     },
                     "description": "Optional. The video's chapters as {t, title}; stored only when the page has none.",
                 },
+                "basis": {
+                    "type": "string",
+                    "enum": ["transcript", "frames", "both"],
+                    "description": "Optional but asked for. What you actually used to read it: transcript (captions or a transcript), frames (you looked at the video), or both. Omitted reads as 'method not given'. Cicada cannot verify this, so answer truthfully.",
+                },
+                "engine": {
+                    "type": "string",
+                    "enum": ["captions", "video_link", "local_frames", "speech_to_text", "browser", "other"],
+                    "description": "Optional. Which route you took: captions, video_link (a model that takes the link), local_frames, speech_to_text, browser, or other.",
+                },
+                "duration": {
+                    "type": "string",
+                    "description": "Optional. The video's length as m:ss, h:mm:ss or whole seconds; stored only when the page has none.",
+                },
             },
             "required": ["url", "summary"],
         },
@@ -371,6 +385,40 @@ TOOLS = [
                 "title": {"type": "string", "description": "Optional: the page's real title, used only when the link is still titled by its address."},
             },
             "required": ["url", "outcome"],
+        },
+    },
+    {
+        "name": "cicada_video_queue",
+        "description": "The person's video queue, read-only: the saved videos they asked an agent to read or watch, and whether each is waiting or already picked up. Takes no lease and changes nothing. Titles and channels come from the video's site, not from the person. Use cicada_video_claim to take videos.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Optional. How many to list (default 20, at most 50)."},
+            },
+        },
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "cicada_video_claim",
+        "description": "Take the videos the person asked to have read or watched. With no `release`, leases the oldest queued ones to this session (up to `limit`, default 5, at most 10 a call) and returns each link with what is wanted; call it again until it returns nothing. With `release`, hands videos back that you could not do, with a code and a short reason (code needs_login when a sign-in stops you: do not sign in yourself). It changes only the person's queue, not their memory. Record each video you do with cicada_record_watch.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Optional. How many to take (default 5, at most 10)."},
+                "release": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "The video's link as leased."},
+                            "code": {"type": "string", "enum": ["needs_login", "no_captions", "not_found", "blocked", "failed"], "description": "Why it could not be done."},
+                            "reason": {"type": "string", "description": "One short line (at most 200 characters)."},
+                        },
+                        "required": ["url"],
+                    },
+                    "description": "Optional. Videos to hand back instead of taking more.",
+                },
+            },
         },
     },
     {
@@ -886,7 +934,12 @@ def handle_tool(name: str, arguments: dict) -> str:
         return handle_save_url(arguments.get("url", ""), arguments.get("note"))
     elif name == "cicada_record_watch":
         return handle_record_watch(arguments.get("url", ""), arguments.get("summary", ""),
-                                   arguments.get("excerpts"), arguments.get("chapters"))
+                                   arguments.get("excerpts"), arguments.get("chapters"),
+                                   arguments.get("basis"), arguments.get("engine"), arguments.get("duration"))
+    elif name == "cicada_video_queue":
+        return handle_video_queue(arguments.get("limit"))
+    elif name == "cicada_video_claim":
+        return handle_video_claim(arguments.get("limit"), arguments.get("release"))
     elif name == "cicada_reading_queue":
         return handle_reading_queue(arguments.get("limit"))
     elif name == "cicada_record_read":
@@ -1072,8 +1125,16 @@ def handle_save_url(url, note) -> str:
     return mcp_tools.save_url(_ctx(), url, note)
 
 
-def handle_record_watch(url, summary, excerpts=None, chapters=None) -> str:
-    return mcp_tools.record_watch(_ctx(), url, summary, excerpts, chapters)
+def handle_record_watch(url, summary, excerpts=None, chapters=None, basis=None, engine=None, duration=None) -> str:
+    return mcp_tools.record_watch(_ctx(), url, summary, excerpts, chapters, basis, engine, duration)
+
+
+def handle_video_queue(limit=None) -> str:
+    return mcp_tools.video_queue_list(_ctx(), limit)
+
+
+def handle_video_claim(limit=None, release=None) -> str:
+    return mcp_tools.video_claim(_ctx(), limit, release)
 
 
 def handle_reading_queue(limit=None) -> str:

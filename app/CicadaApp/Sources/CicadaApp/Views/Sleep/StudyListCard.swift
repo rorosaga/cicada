@@ -172,6 +172,8 @@ struct StudyListCard: View {
     var body: some View {
         SleepDetailsSection(title: "What's waiting") {
             content
+            // G162 — the video queue's one row (its own file; it hides itself when nothing is queued).
+            VideosWaitingRow()
 
             if let err = sleepVM.errorMessage ?? sleepVM.lastError, !err.isEmpty {
                 Text(err)

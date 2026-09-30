@@ -52,11 +52,12 @@ def test_build_carries_contract_state_and_capabilities(tmp_path):
     assert "cicada_recall" in text and "cicada_check_nudges(entity_ids=" in text
     assert "at most one question per turn" in text and "cicada_resolve_inbox(id, skip=true)" in text
     assert "Recommended option when the item shows them" in text and "Cause" in text and "normalization" in text
-    assert handshake.CONTRACT_VERSION == 9, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
+    assert handshake.CONTRACT_VERSION == 11, ("G140 named its tools (3), bridge lines joined (G138, 4), then G141 named "
                                              "cicada_project (5) and cicada_note_progress (6); G149 item 8 (the "
                                              "From Cicada note) and G150's backlog tools both took 7 on parallel "
                                              "branches, so the merge moves past both (8, R-H13); G166's reading "
-                                             "item 9 is the next (9)")
+                                             "item 9 is the next (9); G162's video-queue clause took 10 and the "
+                                             "merge of both moves past it (11)")
     assert "cicada_write_claim" in text and "evidence" in text and "sources" in text
     assert state_dictionary.WORLD_FACTS_NOTE in text
     # the now-view
@@ -224,7 +225,7 @@ def test_the_timezone_is_per_request_never_persisted_and_moves_the_cache(tmp_pat
 
 def test_the_contract_names_the_new_tools():
     text = handshake.build(None, variant="generic", bank="memory")
-    for needle in ("cicada_timeline(since)", "cicada_record_watch(url, summary, excerpts=[{t, quote}])",
+    for needle in ("cicada_timeline(since)", "cicada_record_watch(url, summary, excerpts=[{t, quote}], basis)",
                    "`expected_end`", "cicada_retract_claim(subject, claim_id, reason)",
                    "cicada_recall_detail(entity_id)"):
         assert needle in text, needle

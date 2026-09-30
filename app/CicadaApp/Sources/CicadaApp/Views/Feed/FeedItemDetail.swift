@@ -18,6 +18,7 @@ struct FeedItemDetail: View {
     @State private var enrichedDescription: String?
 
     private var title: String { item.title.isEmpty ? item.url : item.title }
+    private var isVideo: Bool { FeedKind.of(item) == .video }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -30,10 +31,30 @@ struct FeedItemDetail: View {
                 .accessibilityAddTraits(.isHeader)
             MediaPreview(model: previewModel)
                 .padding(.top, CicadaTheme.scaled(20))
-            SectionLabel(Copy.Lists.whySaved).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
-            why
-            SectionLabel(Copy.Lists.savedFrom).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
-            savedFrom
+            if isVideo {
+                // G162 — what Cicada holds for this video and the queue's buttons, between the player and "Why".
+                VideoBlock(feedId: item.id, url: item.url, title: title, mediaEntityId: item.mediaEntityId,
+                           topPadding: CicadaTheme.scaled(20))
+            }
+            if isVideo {
+                // G162 (VideoDetailLight) — under the block, "Why it's saved" and "Saved from" sit side by side and
+                // fill the column; a column too narrow for both at their floor stacks them as every other item does.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: CicadaTheme.scaled(24)) {
+                        whySection.frame(minWidth: Self.sideBySideFloor, idealWidth: Self.sideBySideFloor,
+                                         maxWidth: .infinity, alignment: .topLeading)
+                        savedFromSection.frame(minWidth: Self.sideBySideFloor, idealWidth: Self.sideBySideFloor,
+                                               maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        whySection
+                        savedFromSection
+                    }
+                }
+            } else {
+                whySection
+                savedFromSection
+            }
             // G166 — what an agent did with this link, and "Ask an agent".
             FeedReadSection(item: item)
             Text(meta)
@@ -55,7 +76,8 @@ struct FeedItemDetail: View {
                 TextButton(title: Copy.Lists.savedBack(n), help: Copy.Lists.showList, action: onShowList)
                     .padding(.leading, -CicadaTheme.scaled(10))
             }
-            Text(Eyebrow.text(FeedKind.of(item).singular, item.site ?? ""))
+            // G162 — a video's header reads "Video · youtube.com · 8:14" (its length when known).
+            Text(isVideo ? VideoWords.headerLine(item) : Eyebrow.text(FeedKind.of(item).singular, item.site ?? ""))
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(1)
@@ -71,6 +93,23 @@ struct FeedItemDetail: View {
         }
         .frame(minHeight: CicadaTheme.scaled(28))
         .padding(.bottom, CicadaTheme.spacingSM)
+    }
+
+    /// The width each of a video's two sections needs before they may share a row.
+    static var sideBySideFloor: CGFloat { CicadaTheme.scaled(220) }
+
+    private var whySection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionLabel(Copy.Lists.whySaved).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
+            why
+        }
+    }
+
+    private var savedFromSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionLabel(Copy.Lists.savedFrom).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
+            savedFrom
+        }
     }
 
     @ViewBuilder

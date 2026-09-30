@@ -338,6 +338,12 @@ struct EntityDetailCard: View {
                 } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
                     // G11: rich media preview above the body for `media`-type entities.
                     MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                    if VideoBlock.isVideo(media) {
+                        // G162 (M6) — the entity card's media block carries what Cicada holds for a video, joined by
+                        // the page and its link (a media entity id alone is not unique).
+                        VideoBlock(feedId: entity.id + "|" + media.url, url: media.url, title: entity.name,
+                                   mediaEntityId: entity.id)
+                    }
                 }
                 if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
             }

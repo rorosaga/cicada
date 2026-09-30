@@ -3138,3 +3138,19 @@ extension APIClient {
         try await patch(Self.backlogPath(project, item), body: change.body)
     }
 }
+
+// MARK: - Videos (G162) — the queue's writes
+
+extension APIClient {
+    func putVideo<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
+        try await put(path, body: body)
+    }
+
+    func postVideo<T: Decodable>(_ path: String, body: [String: Any]) async throws -> T {
+        try await post(path, body: body)
+    }
+
+    func deleteVideo(_ path: String) async throws {
+        _ = try await delete(path)
+    }
+}

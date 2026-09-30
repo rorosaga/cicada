@@ -64,7 +64,7 @@ BRIDGE_TEXT: dict[str, str] = {
     "papers": "- Papers: {names} installed. After you look a paper up, save the one you relied on with "
               "`cicada_save_url(url)` so it joins the person's memory.",
     "video": "- Videos: {names} installed. After you watch a video the person asked about, record it with "
-             "`cicada_record_watch(url, summary, excerpts)` — a faithful summary and a few short timed "
+             "`cicada_record_watch(url, summary, excerpts, basis)` — a faithful summary and a few short timed "
              "quotes in the video's own words, never a transcript.",
     "meetings": "- Meetings: {names} installed. To keep a meeting, save it with "
                 "`cicada_save_episode(content, title)`, one line per utterance written "

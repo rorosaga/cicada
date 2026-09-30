@@ -54,11 +54,14 @@ struct ContentView: View {
     @Environment(BacklogCache.self) private var backlogCache
     @Environment(ReadingSitesCache.self) private var readingSitesCache
     @Environment(ChannelItemsCache.self) private var channelItemsCache
+    @Environment(VideoStateCache.self) private var videoStateCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
 
-    var body: some View {
+    /// The first half of the window's lifecycle modifiers — split from `body` so the type checker never faces
+    /// one chain of every `onChange` (G162 and G166 both add to it).
+    private var lifecycleStage: some View {
         overlayLayers
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
@@ -101,10 +104,23 @@ struct ContentView: View {
             projectsCache.reset()
             backlogCache.reset()
             channelItemsCache.reset()
+            videoStateCache.reset()
+            // G162 — a page on screen keeps its video rows: the reset forgot the answers, never what was asked.
+            if videoStateCache.wantsReads { Task { await videoStateCache.revalidate() } }
             // G166 — the sites list and its icons are per bank.
             readingSitesCache.reset()
             Task { await SiteIconStore.shared.clear(bank: old) }
             inboxVM.resetColumns()
+        }
+    }
+
+    var body: some View {
+        lifecycleStage
+        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache no page has asked of
+        // stays unread until a page that shows it appears. A bank switch keeps what was asked (`wantsReads`).
+        .onChange(of: store.version) { old, new in
+            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
+            Task { await videoStateCache.revalidate() }
         }
         // A cached hover preview has no validator, so any change to the
         // bank's episodes or entities forgets them (final review): `/inbox`

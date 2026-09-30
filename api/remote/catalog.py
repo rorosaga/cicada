@@ -36,6 +36,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_timeline": "read",
     "cicada_project": "read",
     "cicada_backlog": "read",   # G150 R-B13
+    "cicada_video_queue": "read",   # G162: the person's own hand-off; read-only, takes no lease
     "cicada_reading_queue": "read",   # G166: the asks the person made; the URL is their own hand-off
     "cicada_save_episode": "record",
     "cicada_write_claim": "record",
@@ -43,6 +44,7 @@ TOOL_SCOPE: dict[str, str | None] = {
     "cicada_add_source": "record",
     "cicada_save_url": "record",
     "cicada_record_watch": "record",
+    "cicada_video_claim": "record",   # G162: leases queued videos; touches only the queue file
     "cicada_record_read": "record",   # G166: what an agent's browser read; never the person's words
     "cicada_note_progress": "record",   # G141 R-PJ23: a write, never the person's own words
     "cicada_add_backlog_item": "record",
@@ -54,10 +56,11 @@ TOOL_SCOPE: dict[str, str | None] = {
 NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_repo_context"})
 WRITE_TOOLS = frozenset({"cicada_save_episode", "cicada_write_claim", "cicada_retract_claim",
                          "cicada_save_url", "cicada_record_watch", "cicada_record_read", "cicada_add_source",
-                         "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note"})
+                         "cicada_note_progress", "cicada_add_backlog_item", "cicada_add_backlog_note",
+                         "cicada_video_claim"})
 READ_TOOLS = frozenset({"cicada_recall", "cicada_open_hub", "cicada_recall_detail", "cicada_get_perspective",
                         "cicada_check_nudges", "cicada_timeline", "cicada_project", "cicada_sources",
-                        "cicada_ask", "cicada_backlog", "cicada_reading_queue"})
+                        "cicada_ask", "cicada_backlog", "cicada_reading_queue", "cicada_video_queue"})
 
 TOKEN_RE = re.compile(r"^cic_rc_([a-z0-9]{8})_([A-Za-z0-9_-]{43})$")
 PRM_PATH = "/.well-known/oauth-protected-resource"

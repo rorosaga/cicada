@@ -1,0 +1,56 @@
+{
+ "state": {
+  "items": [
+   {
+    "basis": "transcript",
+    "engine": "captions",
+    "episodeId": "ep_2026-09-23_014",
+    "fidelity": "verbatim",
+    "key": "b089958b4a91",
+    "mediaEntityId": "media-perseverance-descent",
+    "readBySleep": true,
+    "recordedAt": "2026-09-23T10:05:20Z",
+    "recordedBy": "claude-code",
+    "state": "transcript",
+    "url": "https://www.youtube.com/watch?v=4czjS9h4Fpg"
+   },
+   {
+    "basis": "both",
+    "engine": "local_frames",
+    "episodeId": "ep_2026-09-23_015",
+    "fidelity": "verbatim",
+    "key": "d90498d2a973",
+    "mediaEntityId": "media-gripper-grasp-demo",
+    "readBySleep": false,
+    "recordedAt": "2026-09-23T10:05:25Z",
+    "recordedBy": "claude-code",
+    "state": "watched_and_transcript",
+    "url": "https://example.com/videos/gripper-grasp-demo.mp4"
+   },
+   {
+    "key": "afa6cd2d1f1d",
+    "mediaEntityId": "media-lab-walkthrough",
+    "state": "none",
+    "url": "https://example.com/videos/lab-walkthrough.mp4"
+   }
+  ],
+  "queue": {
+   "claimed": 0,
+   "failed": 0,
+   "queued": 0,
+   "read": 2,
+   "total": 3,
+   "unread": 1
+  },
+  "shape": "video-1"
+ },
+ "summary": {
+  "claimed": 0,
+  "failed": 0,
+  "queued": 0,
+  "read": 2,
+  "shape": "video-1",
+  "total": 3,
+  "unread": 1
+ }
+}

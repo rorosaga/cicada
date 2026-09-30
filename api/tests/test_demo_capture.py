@@ -255,6 +255,9 @@ WRITES = {
                                                                 "Shipped the first build.", "done"),
     "cicada_add_backlog_item": lambda ctx: mcp_tools.add_backlog_item(ctx, "alpha-project", "Cache it", "Slow."),
     "cicada_add_backlog_note": lambda ctx: mcp_tools.add_backlog_note(ctx, "AP1", "Found it."),
+    # G162: writes only the person's queue file (outside every bank), yet a demo bank's queue is a
+    # picture of the flow — no agent can work it.
+    "cicada_video_claim": lambda ctx: mcp_tools.video_claim(ctx),
 }
 
 

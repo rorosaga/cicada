@@ -533,6 +533,10 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
 - A harness contributor lists `models: [{model, effort?, beliefs}]`.
 - `/episodes/{id}/text` carries `agent` (the most recent agent turn's, null when that turn names
   neither) and per-turn `model`/`effort`.
+- A watch episode's `/episodes/{id}/text` also carries `watch: {basis?, engine?, fidelity, authorModel?, authorEffort?}`
+  (G162; `fidelity` is `approximate` for `video_link`, `other` and an absent engine, else `verbatim`; the model is the
+  same turn join, from the `describes` claim that cites the episode) and each `media` turn its `fidelity`; `/citations`
+  rows of kind `media` carry it too.
 - `claim_to_model(claim, *, turns)` takes the request's join as a required keyword.
 - `AUTHOR_SHAPE` also rides `/episodes/{id}/text` and both `/projects` ETags.
 
@@ -722,7 +726,9 @@ and the model id when the harness sends one. It is filed beside `read` for the s
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
 prompt never is. The `read_agent` kind (G166) is one row per `cicada_record_read` call — entity id, an `outcome` enum, a
 `host_class` enum (`walled | public`), the harness and connector id; never a URL, the tool the agent named, a note or an
-excerpt — filed beside `read` and kept out of every Usage view like `capture`.
+excerpt — filed beside `read` and kept out of every Usage view like `capture`. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
+closed fail-code enum, the harness and connector ids; never a link, a title or a reason — filed beside `read` and kept
+out of every Usage view (`SIBLING_KINDS`, `NON_SPEND_KINDS`, `PER_TURN_KINDS`).
 
 **Cycle usage (2026-09-28 ruling, Sleep page only).** Every `llm_call` a Sleep cycle makes carries `refs.cycle_id`
 (from the ambient `sleep:<id>` scope, so it survives `to_thread`/`gather`; the engine-independent tail runs outside
@@ -854,6 +860,32 @@ repo or `access: local` is refused; it commits alone under the harness. `cicada_
 takes a string or `{ref, access}`. The primer does not name `cicada_add_source` until S3's contract.
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
+**Video watch (G162, TODO ruling 17).** `cicada_record_watch` takes three more arguments the agent states about its
+own work — `basis` (`transcript | frames | both`), `engine` (`captions | video_link | local_frames | speech_to_text |
+browser | other`) and `duration` (kept only when the page has none) — none verified (R-VU2: the app says "an agent recorded
+that it watched", never "Cicada watched"); an unrecognised value is dropped and the record is still written. A repeat
+of the same record with a new basis merges into the episode in place (`transcript` + `frames` is `both`; `content_hash`
+and `processed` untouched). **A video's state is derived, never stored** (`video_state.py`): `none | transcript | watched
+| watched_and_transcript | recorded`, the set-union over the `source: video-watch` episodes that name its link, matched by
+the url-index key (`media_ingestor.url_hash`, never the media entity id); a record with no basis is `recorded`, never
+`watched`. The set of videos is the Feed's (`is_video_page`, the twin of `FeedKind.of`, pinned by
+`api/tests/fixtures/video_kind.json`). **The person's video queue lives outside every bank** —
+`$CICADA_HOME/video_queue/<bank>.json` (`video_queue.py`; a bank name that is not a plain slug gets an ASCII slug plus a short sha1 of its name, never a refusal; orphans are dropped only while the url index answers non-empty; keys only, never a URL or a title; flock plus atomic replace;
+expiry applied in memory and persisted inside a write) — so nothing in its lifecycle dirties a bank, commits, or answers
+409 while Sleep runs. `cicada_video_queue` (`read`, read-only) lists what waits; `cicada_video_claim` (`record`) leases
+the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, code, reason}]`, hands one back
+(`needs_login` tells the agent not to sign in and tells the person). It is in `WRITE_TOOLS` (the demo gate, the write
+lock; only its per-video title/channel lines are fenced, Cicada's own instructions in the reply stay outside) but `runtime._writes_bank` is false for it, and **a lapsed lease is judged only when Sleep is not
+holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain cannot burn a video's three attempts; while a
+lapsed lease is due, the `videoQueue` stamp also carries that hold bit (`<mtime>:<due>:<held>`), so the hold ending moves
+the component the app follows with nothing written. `VideoStateCache.reset()` on a bank switch keeps what a page asked
+for (`asked`), and the switch reads the new bank at once.
+`record_watch` credits the queue whether or not its bank commit ran. **No batch cap** (a hand-off takes every selected
+video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved video can be queued; a login wall is handed
+back and surfaced). The hand-off prompt (`video_prompt.py`, ≤ 1,200 characters) is provider-neutral, names no browser
+route by default, and carries the browser permission only while the single reading permission is on; the seam for "how
+your agent watches" is `video_prompt.method_clause`. Recall and its hook are deliberately not extended for video. Contract
+item 3 names all of it (CONTRACT_VERSION 11, remote 8, past G166's 9 and 6; remote names each tool only where held).
 **Reading with the person's own agent (G166, spec `2026-09-29-reading-the-web-design.md` §8.4, Route A).** Cicada never
 spawns a browser and never signs in (`test_reading_never_spawns_browser.py`, R-RW9: `--chrome` is in no argv). The
 person's own agent — a local harness with a browser tool, or a remote connection that can drive one — reads through a
@@ -1309,6 +1341,28 @@ the page's find row.
   folder and day, or `[ no source recorded ]`). The palette's saved-item row and a source page's items land there
   through `AppRouter.routeToFeedItem`, and the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an
   icon in the eyebrow row and opens the unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`.
+- **Videos (G162, the approved boards, 2026-09-30).** The app reads `GET /videos/state` and `/videos/summary` through
+  `VideoStateCache` (app-level, in memory, ETag-revalidated, never a Store domain; `VideoRefresh` follows the
+  `videoQueue`, `episodes`, `entities` and `bank` components, one revalidation is scheduled at the wire's
+  `nextChangeAt` so a lapsed lease never sticks as "Picked up", a bank switch empties it, and a 404 from an older
+  backend hides every video addition). **The server is the only deriver** of a video's state; the app decodes and labels.
+  A Feed video row carries a 64 × 36 frame (the stored thumbnail or a neutral play tile, never a URL derived from an id),
+  "channel · site · length · saved day" and one state word (a queue word wins). The Videos tab's 44 pt strip says how
+  many are not read yet and the one queue wording, and *Choose videos…* turns the page into the watch run: the picker's
+  tabs (Not yet read · Queued · Read, disjoint, nothing pre-selected) replace the sort and kind tabs, the list becomes
+  64 pt pick rows with `NeutralCheckToggleStyle`, and the detail becomes `VideoRunCard` — per-video Transcript/Watch,
+  known-length size words (no price, no estimate), how the agent should read, the prompt shown before it is copied
+  (`GET /videos/run/prompt`), and one primary, *Copy for an agent* (`POST /videos/run/handoff`, no cap); after it, the
+  progress card counts `batch.done` only. `VideoBlock` ("What Cicada has from this video") sits in a saved video's
+  detail column and the entity card's media block: the state, who recorded it (the harness and, where the turn join
+  found one, the model — data only), whether Sleep read it, the first quote, the honesty line, and Queue transcript /
+  Queue watch / Remove / Try again; a `needs_login` hand-back adds *Open in browser*, and the sentence about the
+  reading permission and its Settings button wait for the reading branch (`VideoActions.for(_:permission:)` takes `nil`
+  today, and `nil` shows no sentence — none points at a setting this build lacks). The honesty lines promise only what
+  the record says: "a model's reading, not captions" only when its engine is `video_link`, else "may be approximate";
+  a record with no basis reads "The agent didn't say how it read this", never a claim about when it was made.
+  The Reader's header for a watch record and each `media` turn's fidelity are built from the episode's `watch` block.
+  Every string is in `Copy+Videos.swift`, and `VideoCopyNeutralityTests` fails on a provider or model name.
 
 **Projects (G141 PJ-5, Direction D).** The eighth page (⌘8, after Sources), the first designed for D: a list page in
 progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
@@ -1356,7 +1410,9 @@ under Auto) that opens the five engines with their real marks, the chosen engine
 ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's caption shows while running
 — one whisper line for the schedule, and everything else under a single **Details** disclosure (Last
 cycle · What's waiting · Readout · Past nights) in D's list grammar — section labels over rows, no
-cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows — closed by
+cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows, and, while videos are
+queued, one Videos row in What's waiting (`VideosWaitingRow`, G162: the queue wording and *Choose videos ›*, starting
+nothing) — closed by
 default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
@@ -1470,7 +1526,8 @@ one ranker); ⏎ lands on the row through `AppRouter.openSettings(_:row:)` (DS-3
 
 **The demo and the guided tour (G117 round 4, G152).** The demo bank shows every page with something in it:
 `demo_showcase.write`, called last by `demo_bank.populate`, adds people and a company with pictures (the C11 upload
-rung; pastel avatars drawn in code by `demo_pictures`, never a photo), a saved NASA video and an article with a
+rung; pastel avatars drawn in code by `demo_pictures`, never a photo), a saved NASA video (read from its captions by an agent, through the same Leo session) plus two direct example.com
+video files — one recorded from frames and captions, one nobody has read — and an article with a
 public-domain preview, an arXiv paper with its CC0 details, a calendar day, an open Chrome tab group, beliefs Claude Code
 wrote over MCP that the card signs with the model and effort of their turn, and every inbox kind — each in its live
 writer's shape and committed as that writer commits, with `today` pinned; the only URLs off example.com are
@@ -1578,7 +1635,7 @@ opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch 
 
 ## API Design
 
-34 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
+35 routers mounted in `api/main.py`, plus repo-context and maintenance endpoints. **Read the routers
 for the endpoint list** — it is not duplicated here. What is *not* derivable:
 
 **Auth.** Every endpoint except `GET /healthz`, `POST /capture/telegram`, an OAuth adapter's
@@ -1610,6 +1667,16 @@ the same files (F1's context filter and fence strip); an entity node's hash also
 /projects/{id}/threads/{claim_id}` and `POST /projects/{id}/withdraw` (happenings only) — answer **409**
 while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
 `user/companion_app`.
+
+`GET /videos/state` and `GET /videos/summary` (G162) ETag over `entities`+`episodes`+`sources`+`videoQueue` with
+`extra` = `<name>|video-1` (`video_state.VIDEO_SHAPE`, which also rides both provenance ETags) and are **not** Store
+domains (the app's `VideoStateCache` revalidates on `VideoRefresh`, no `VersionVector` mapping). The `videoQueue`
+component is `<queue file mtime>:<how many leases, failed rows and finished batches have come due>`: a lease lapsing
+writes nothing, yet changes the body, so the count is what moves the tag; both reads carry `nextChangeAt` so the app
+schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/{key}`, `POST …/retry`,
+`POST /videos/run/handoff`) touch no bank file: no commit, no 409 while Sleep runs, and none sits under `/capture/` or
+`/sources/`, so queueing works in a demo bank (the demo's queue is a picture of the flow: `cicada_video_claim` and
+`cicada_record_watch` refuse it). `GET /videos/run/prompt?count=&method=` is the pure preview.
 
 **Endpoint traps worth knowing before you touch them:**
 

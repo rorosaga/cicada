@@ -31,7 +31,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import EpisodeCitations, EpisodeSpan, EpisodeText
-from api.services import evidence, git_service, provenance, sync_service
+from api.services import evidence, git_service, provenance, sync_service, video_state
 
 router = APIRouter()
 
@@ -107,7 +107,7 @@ async def get_episode_text(
     memory_path = settings.memory_path
     etag = sync_service.etag_for(
         memory_path, "episodes", "entities",
-        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|src1",
+        extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|src1|{video_state.VIDEO_SHAPE}",
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
@@ -137,7 +137,7 @@ async def get_episode_citations(
     written. 404 for an unknown or non-bare id.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "episodes", "entities", extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}")
+    etag = sync_service.etag_for(memory_path, "episodes", "entities", extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     result = await run_in_threadpool(provenance.episode_citations, memory_path, episode_id)

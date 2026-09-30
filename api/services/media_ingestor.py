@@ -18,7 +18,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from io import BytesIO
@@ -1826,9 +1828,22 @@ def load_url_index(memory_path: Path) -> dict:
 def save_url_index(memory_path: Path, idx: dict) -> None:
     sources_dir = memory_path / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
-    (sources_dir / "url_index.json").write_text(
-        json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    # Atomic: a reader (the video queue's orphan check among them) must never see a
+    # truncated index, so write beside it and rename over it.
+    # A unique name per call (two threads of one process share a pid), and the temp file is
+    # unlinked on any failure so it can never sit in the bank's tree for a `git add -A` writer.
+    target = sources_dir / "url_index.json"
+    fd, tmp = tempfile.mkstemp(prefix=".url_index.", suffix=".tmp", dir=str(sources_dir))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(idx, indent=2, ensure_ascii=False))
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult) -> tuple[str, bool] | None:

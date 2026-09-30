@@ -177,8 +177,36 @@ REMOTE_TOOLS: dict[str, dict] = {t["name"]: t for t in (
                         }}},
            "chapters": {"type": "array", "description": "Optional: the video's chapters.",
                         "items": {"type": "object", "required": ["t", "title"], "properties": {
-                            "t": {"type": "string"}, "title": {"type": "string"}}}}},
+                            "t": {"type": "string"}, "title": {"type": "string"}}}},
+           "basis": {"type": "string", "enum": ["transcript", "frames", "both"],
+                     "description": "Optional: what you actually used to read it. Omitted reads as method not given."},
+           "engine": {"type": "string",
+                      "enum": ["captions", "video_link", "local_frames", "speech_to_text", "browser", "other"],
+                      "description": "Optional: which route you took."},
+           "duration": {"type": "string",
+                        "description": "Optional: the video's length (m:ss, h:mm:ss or seconds); kept only if the page has none."}},
           ("url", "summary"), read_only=False, idempotent=True, open_world=True),
+    _tool("cicada_video_queue",
+          "The person's video queue, read-only: the saved videos they asked an agent to read or watch, and "
+          "whether each is waiting or already picked up. It takes no lease and changes nothing. Titles and "
+          "channels come from the video's site, not from the person.",
+          {"limit": {"type": "integer", "description": "Optional: how many to list (default 20, at most 50)."}},
+          read_only=True),
+    _tool("cicada_video_claim",
+          "Take the videos the person asked to have read or watched: with no `release`, leases the oldest "
+          "queued ones to this conversation (up to `limit`, default 5, at most 10 a call) and returns each "
+          "link with what is wanted. Call it again until it returns nothing. With `release`, hands videos back "
+          "that you could not do, with a code and a short reason. It changes only the person's queue, not "
+          "their memory.",
+          {"limit": {"type": "integer", "description": "Optional: how many to take (default 5, at most 10)."},
+           "release": {"type": "array", "description": "Optional: videos to hand back instead of taking more.",
+                       "items": {"type": "object", "required": ["url"], "properties": {
+                           "url": {"type": "string", "description": "The video's link as leased."},
+                           "code": {"type": "string",
+                                    "enum": ["needs_login", "no_captions", "not_found", "blocked", "failed"],
+                                    "description": "Why it could not be done; needs_login when a sign-in stops you."},
+                           "reason": {"type": "string", "description": "One short line (at most 200 characters)."}}}}},
+          read_only=False),
     _tool("cicada_reading_queue",
           "List the links waiting for an agent to read: ones the person asked about, then pages from sites "
           "they allowed. Empty unless they turned agent reading on in Cicada. Open each with your own browser "

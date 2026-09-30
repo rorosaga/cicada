@@ -70,10 +70,11 @@ final class FeedListTests: XCTestCase {
         let json = #"{"mediaEntityId": "a", "url": "https://example.com/a", "title": "A", "mediaType": "url", "site": "example.com", "savedAt": "2026-09-13T10:00:00Z", "tags": []}"#
         let saved = try! JSONDecoder().decode(MediaFeedItem.self, from: Data(json.utf8))
         XCTAssertEqual(FeedRowText.detail(saved, locale: us, timeZone: utc), "Link · example.com · saved Sep 13")
-        let clip = #"{"mediaEntityId": "v", "url": "https://vimeo.com/123456789", "title": "V", "mediaType": "url", "site": "vimeo.com", "savedAt": "2026-09-13T10:00:00Z", "durationS": 192, "tags": []}"#
+        let clip = #"{"mediaEntityId": "v", "url": "https://vimeo.com/123456789", "title": "V", "mediaType": "url", "site": "vimeo.com", "channel": "bob-example", "savedAt": "2026-09-13T10:00:00Z", "durationS": 192, "tags": []}"#
         let video = try! JSONDecoder().decode(MediaFeedItem.self, from: Data(clip.utf8))
-        XCTAssertEqual(FeedRowText.detail(video, locale: us, timeZone: utc), "Video · vimeo.com · 3:12 · saved Sep 13",
-                       "R17 — the duration a provider reported, which the retired row drew as a pill")
+        // G162 — a video reads "channel · site · length · saved day": no "Video ·", its thumbnail says so. R17 — the
+        // duration a provider reported, which the retired row drew as a pill.
+        XCTAssertEqual(FeedRowText.detail(video, locale: us, timeZone: utc), "bob-example · vimeo.com · 3:12 · saved Sep 13")
     }
 
     func testPageStatesInPrecedenceOrder() {

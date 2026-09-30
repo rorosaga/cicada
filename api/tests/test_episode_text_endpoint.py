@@ -108,7 +108,9 @@ def test_a_legacy_episode_without_markers_is_one_block(memory):
                               # G140 Q-R9: additive, set only on a timed video turn.
                               "t": None,
                               # Round 4 C4: additive, set only on an agent turn the capture labelled.
-                              "model": None, "effort": None}]
+                              "model": None, "effort": None,
+                              # G162: additive, set only on a `media` turn of a watch episode.
+                              "fidelity": None}]
 
 
 def test_a_page_is_one_page_block_with_the_claims_fence_excluded(memory):
