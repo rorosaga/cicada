@@ -44,6 +44,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let agentsCloud = SettingsRowID("agentsCloud")
     // Agents' pointer to Skills (Task 8)
     static let agentsSkill = SettingsRowID("agentsSkill")
+    /// G166 — the pointer from Agents to Reading the web (the reading switch left this page for its own).
+    static let agentsReading = SettingsRowID("agentsReading")
     // Agents' Remembers automatically (G149)
     static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
     // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser

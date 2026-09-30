@@ -12,6 +12,9 @@ struct FeedReadSection: View {
     @Environment(Store.self) private var store
     @State private var busy = false
     @State private var note: String?
+    /// The site whose "Let an agent read <site>" raised the first-use sheet (agent reading off or not acknowledged).
+    @State private var sheetSite: ReadWords.Action?
+    @State private var reading = ReadingAgentModel()
 
     var body: some View {
         if ReadWords.shows(item.read), let read = item.read {
@@ -22,7 +25,11 @@ struct FeedReadSection: View {
                     // DR-7 keeps `warning` for the settings attention dot and a failed source's first clause, so a
                     // login wall is the text ladder's primary step with a neutral glyph, never a colour.
                     HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingXS) {
-                        if read.status == "needs_login" {
+                        if let key = read.siteKey, !key.isEmpty, read.wall != nil || read.status == "needs_login" {
+                            // Like a browser tab: the site's own icon beside the words about it.
+                            SiteIcon(site: key, label: read.siteLabel, size: .inline)
+                                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - CicadaTheme.scaled(3) }
+                        } else if read.status == "needs_login" {
                             Image(systemName: "person.badge.key")
                                 .font(CicadaTheme.icon(.inline))
                                 .foregroundStyle(CicadaTheme.textSecondary)
@@ -59,6 +66,19 @@ struct FeedReadSection: View {
                 }
             }
             .task(id: item.id) { note = nil }
+            // R-HS16 — a sheet centred on the window.
+            .sheet(isPresented: Binding(get: { sheetSite != nil }, set: { if !$0 { sheetSite = nil } })) {
+                if case .allowSite(let site, let label)? = sheetSite {
+                    SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { sheetSite = nil }) {
+                        ReadingFirstUseSheet(model: reading, site: site, label: label) {
+                            if reading.enabled, reading.settings?.allowedSites[site] != nil {
+                                note = Copy.Reading.siteAllowedNote(label)
+                            }
+                            sheetSite = nil
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -79,6 +99,28 @@ struct FeedReadSection: View {
         case .copyForAgent:
             NeutralButton(title: Copy.Reading.copyPrompt, size: .compact, help: Copy.Reading.copyPromptHelp) {
                 Task { await copyPrompt() }
+            }
+        case .allowSite(_, let label):
+            NeutralButton(title: Copy.Reading.siteSwitchLabel(label), size: .compact, isDisabled: busy,
+                          help: Copy.Reading.allowSiteHelp) { allow(action) }
+        }
+    }
+
+    /// The site's switch, from here: one call when agent reading's sheet was already acknowledged (it also turns
+    /// agent reading on); otherwise the same first-use sheet Settings raises, and nothing changes until "Turn on".
+    private func allow(_ action: ReadWords.Action) {
+        guard case .allowSite(let site, let label) = action else { return }
+        busy = true
+        Task { @MainActor in
+            defer { busy = false }
+            await reading.loadSettings()
+            guard reading.settings != nil else { note = Copy.Reading.loadFailed; return }
+            if reading.needsFirstUseSheet {
+                sheetSite = action
+            } else if await reading.setSite(site, allowed: true) {
+                note = Copy.Reading.siteAllowedNote(label)
+            } else {
+                note = reading.note ?? Copy.Reading.saveFailed
             }
         }
     }

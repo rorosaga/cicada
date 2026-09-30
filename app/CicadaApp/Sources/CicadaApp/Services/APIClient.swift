@@ -2331,6 +2331,11 @@ actor APIClient {
     /// `GET /reading/sites` — the sites Cicada's own reader could not read, with counts. Not a Store domain.
     func fetchReadingSites() async throws -> ReadingSitesResponse { try await get("/reading/sites") }
 
+    /// The same list revalidated with its ETag (Home's `ReadingSitesCache`): a 304 keeps what is held.
+    func fetchReadingSites(etag: String?) async throws -> Conditional<ReadingSitesResponse> {
+        try await getConditional("/reading/sites", etag: etag)
+    }
+
     /// `GET /reading/sites/{site}/icon` — a site's favicon from the icon service (the site is never contacted). nil on
     /// a 404: "no icon" is an ordinary answer and the row draws its own mark.
     func fetchSiteIcon(site: String) async throws -> Data? {

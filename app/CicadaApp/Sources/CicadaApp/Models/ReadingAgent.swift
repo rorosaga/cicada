@@ -218,6 +218,9 @@ struct AgentMethodOption: Decodable, Equatable, Identifiable {
     var cicadaNote: String?
     var state: [String: String]
     var page: AgentMethodPage?
+    /// The whole Skills-card shape of a skill option, decoded through `RecommendedSkill`, so "Install…" can open the
+    /// skill's own detail from here (a skill ranked below the Skills page's five has no card there). nil for a built-in.
+    var skill: RecommendedSkill?
 
     var isSkill: Bool { kind == "skill" }
     /// Installed for at least one of the agents that can use it.
@@ -226,7 +229,8 @@ struct AgentMethodOption: Decodable, Equatable, Identifiable {
     enum CodingKeys: String, CodingKey { case id, kind, title, detail, reach, cicadaNote, state, page }
 
     init(id: String, kind: String, title: String, detail: String = "", reach: String? = nil,
-         cicadaNote: String? = nil, state: [String: String] = [:], page: AgentMethodPage? = nil) {
+         cicadaNote: String? = nil, state: [String: String] = [:], page: AgentMethodPage? = nil,
+         skill: RecommendedSkill? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -235,12 +239,14 @@ struct AgentMethodOption: Decodable, Equatable, Identifiable {
         self.cicadaNote = cicadaNote
         self.state = state
         self.page = page
+        self.skill = skill
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         kind = (try? c.decode(String.self, forKey: .kind)) ?? "skill"
+        skill = kind == "skill" ? try? RecommendedSkill(from: decoder) : nil
         title = (try? c.decode(String.self, forKey: .title)) ?? id
         detail = (try? c.decode(String.self, forKey: .detail)) ?? ""
         reach = try? c.decodeIfPresent(String.self, forKey: .reach)
@@ -310,6 +316,35 @@ struct AgentMethodWriteResponse: Decodable, Equatable {
     }
 }
 
+/// What a skill row of "How your agent reads" offers on its right, in order of what is true. Pure: the view and the
+/// tests read the same function. A built-in choice offers nothing.
+enum MethodRowWords {
+    enum Action: Equatable {
+        /// The skill has a page in the graph: open it there.
+        case openInGraph(String)
+        /// Installed for an agent but no page yet: "Add to your graph".
+        case addToGraph
+        /// Not installed anywhere: "Install…" opens the skill's own detail (its consent sheet or its setup prompt).
+        case install
+        case none
+    }
+
+    static func action(_ option: AgentMethodOption) -> Action {
+        guard option.isSkill else { return .none }
+        if let page = option.page { return .openInGraph(page.id) }
+        if option.installedAnywhere { return .addToGraph }
+        return option.skill == nil ? .none : .install
+    }
+
+    /// The line under a skill's name: whether it is installed, then what it reaches.
+    static func detail(_ option: AgentMethodOption) -> String {
+        let reach = option.reach ?? option.detail
+        guard option.isSkill else { return option.detail }
+        let installed = option.installedAnywhere ? Copy.Reading.skillInstalled : Copy.Reading.skillNotInstalled
+        return reach.isEmpty ? installed : "\(installed) · \(reach)"
+    }
+}
+
 /// The words of a site's row in Settings → Reading the web. Pure: the view and the tests read the same functions.
 /// Only measured counts and the server's own sentences; no page, title or URL ever reaches a row.
 enum ReadingSiteWords {
@@ -361,6 +396,9 @@ enum ReadWords {
         case openInBrowser
         /// "Copy for an agent" — the prompt for a link that is waiting.
         case copyForAgent
+        /// "Let an agent read <site>" — the site's switch, from a page Cicada's reader could not open. With agent
+        /// reading off it raises the first-use sheet, like the switch in Settings.
+        case allowSite(site: String, label: String)
     }
 
     /// Whether the Feed's detail column draws a Read section: something was recorded or asked, an agent may be asked,
@@ -392,6 +430,9 @@ enum ReadWords {
         let host = (read.host?.isEmpty == false) ? read.host! : Copy.Reading.thisSite
         switch read.status {
         case "waiting":
+            if read.siteAllowed, read.queuedBy == "site" {
+                return Copy.Reading.siteAllowedWaiting(siteName(read))
+            }
             return Copy.Reading.waiting
         case "ok":
             let who = read.by == "agent" ? reader(read) : Copy.Reading.cicadasReader
@@ -405,8 +446,17 @@ enum ReadWords {
         case "failed":
             return Copy.Reading.failed
         default:
+            if let wall = read.wall { return Copy.Reading.wallLine(wall) }
             return Copy.Reading.notRead
         }
+    }
+
+    /// The site's name as the sites list shows it, else its key, else the host.
+    static func siteName(_ read: MediaReadState) -> String {
+        for candidate in [read.siteLabel, read.siteKey, read.host] {
+            if let value = candidate?.trimmingCharacters(in: .whitespaces), !value.isEmpty { return value }
+        }
+        return Copy.Reading.thisSite
     }
 
     /// The controls, in order. A waiting ask offers the hand-off prompt; a wall offers the browser first; a link that
@@ -422,9 +472,18 @@ enum ReadWords {
         case "ok":
             return read.askable ? [.askAgain] : []
         default:
-            if read.askable { return [.ask] }
-            if let reason = read.reason, !reason.isEmpty { return [.unavailable(reason: reason)] }
-            return []
+            var actions: [Action] = []
+            if read.askable {
+                actions.append(.ask)
+            } else if let reason = read.reason, !reason.isEmpty {
+                actions.append(.unavailable(reason: reason))
+            }
+            // A page Cicada's reader could not open offers its site's switch, until the site is allowed.
+            if read.wall != nil, !read.siteAllowed, let key = read.siteKey?.trimmingCharacters(in: .whitespaces),
+               !key.isEmpty {
+                actions.append(.allowSite(site: key, label: siteName(read)))
+            }
+            return actions
         }
     }
 

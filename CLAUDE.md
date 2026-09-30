@@ -913,20 +913,33 @@ bank write) refreshes the Feed over SSE; `MediaFeedItem.read` (`MediaReadState`,
 a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
 in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
 answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
-raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, the sites' terms, an "I understand" that
-must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
+raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
+credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
+the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
 `PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group. *How your agent reads*: the
-`agent_methods` choice as radio rows (a skill wears a Skill tag and offers Open in graph, Add to your graph or Find in
-Skills). *Sites that need your browser*: every site `GET /reading/sites` surfaced — only a site Cicada's own reader could
-not read — each with its favicon (`SiteIconStore`, in memory per bank, from `GET /reading/sites/{site}/icon`; a globe
-until it arrives), its wall in words (`wallWords`), measured counts and one switch; a site switched on while the sheet is
+`agent_methods` choice as radio rows (a skill wears a Skill tag, says whether it is installed, and offers Open in graph,
+Add to your graph or **Install…**, which opens that skill's own `SkillDetailView` as this page's sub-page — the Skills
+list shows only five, so a lower-ranked skill has no card there — with an `agent-prompt` plan's sentence and a Copy
+button; the footer says the choice applies to agents on this Mac that can load a skill). *Sites that need your browser*: every site `GET /reading/sites` surfaced — only a site Cicada's own reader could
+not read — each with its favicon drawn like a browser tab's (`SiteIcon`: 20 pt, a 4 pt corner, never a circle or a ring; from
+`SiteIconStore`, in memory per bank and cleared on a bank switch, over `GET /reading/sites/{site}/icon` — the app makes no
+network call of its own, a lint holds it; until it arrives, and for a site with none, the family's bundled mark, else a
+ring monogram), its wall in words (`wallWords`), measured counts and one switch; a site switched on while the sheet is
 unacknowledged raises the sheet, whose one line says the site rides the same call, and a paused site ("your agent wasn't
 signed in") offers Try again. The **Feed's detail column**
 gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",
 "Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
 app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
-hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or the link is on a login-walled
-site (where the disabled button carries the server's own `reason`); an ordinary page with agent reading off draws nothing. The wall
+hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or Cicada's reader could not open the page (`wall`:
+"Cicada's reader couldn't open this page: it needs a signed-in browser / it stopped at a consent page / the site refused
+it", with the site's icon at 16 pt, and **Let an agent read <site>** beside Ask an agent — one `PUT` when the sheet is
+already acknowledged, else the same first-use sheet; a page of an allowed site reads "Waiting for your agent · <site> is
+allowed"; a disabled Ask carries the server's own `reason`); an ordinary page with agent reading off draws nothing.
+Settings → Agents keeps one row, "Reading pages", linking here. **Home** gains its own block, *Needs your browser*
+(`ReadingSitesSection` between Needs you and Last read, over `ReadingSitesCache` — in memory, ETag-revalidated when Home
+appears or the sources move, emptied on a bank switch, never a Store domain): "N saved pages need your browser to be read"
+(the server's `waitingNotAllowed`), up to three of those sites' icons, linking to Settings → Reading the web; hidden at
+zero and once every listed site is allowed, and never counted in Needs you. The wall
 is not shown only there: the Feed row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
 toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
 nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows

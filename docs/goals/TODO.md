@@ -23,7 +23,12 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   (`reading_walls`, `reading_queue`, `GET /reading/sites`, `agent_sites`), the reader recording its own walls, site icons,
   "How your agent reads" (`agent_methods`, catalog `roles`/`agent-prompt`, `skill_pages`) — and the app half: Settings →
   Reading the web (With an agent, How your agent reads, Sites that need your browser with icons and wall words; the
-  first-use sheet has no site picker; the old Settings → Agents → Reading pages group is gone). Review fixes 2026-09-30:
+  first-use sheet has no site picker; the old Settings → Agents → Reading pages group is gone). App half finished
+  2026-09-30 (third pass): the Feed's Read section shows a wall page ("Cicada's reader couldn't open this page: …") with
+  the site's icon and **Let an agent read <site>** (one call, or the same first-use sheet); Home's own *Needs your
+  browser* block; the first-use sheet carries Cicada's instruction and its honest limit; site icons fall back favicon →
+  bundled family mark → ring monogram; "Install…" in How your agent reads opens the skill's own detail with its
+  `agent-prompt` sentence to copy; Settings → Agents links to Reading the web. Review fixes 2026-09-30:
   a site row an agent's own outcome wrote no longer authorizes a record once the site is off; the hook's count is
   bounded by its deadline; an agent's `saved-link` save needs `sources` remotely; an X bookmark's post text counts as
   words. **Not yet measured:** the real-bank count of surfaced pages per site (read-only, before merge). Earlier: backend,

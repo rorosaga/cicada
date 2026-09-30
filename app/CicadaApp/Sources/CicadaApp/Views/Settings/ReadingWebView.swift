@@ -61,6 +61,12 @@ final class ReadingAgentModel {
         if let all = try? await deps.fetchMethods() { methods = all.job(Self.job) }
     }
 
+    /// The switch and the acknowledgement only — what the Feed's "Let an agent read <site>" needs to decide whether to
+    /// raise the first-use sheet (the sites list is a bank scan it does not need).
+    func loadSettings() async {
+        if let fresh = try? await deps.fetch() { settings = fresh }
+    }
+
     func refreshSites() async {
         if let fresh = try? await deps.fetchSites() { sites = fresh }
     }
@@ -139,9 +145,40 @@ struct ReadingWebView: View {
     @State private var showSheet = false
     /// The site whose switch raised the sheet: it rides the "Turn on" call.
     @State private var pendingSite: String?
+    /// A reading skill whose "Install…" was clicked: its own detail opens here as the page's one sub-page (R-O5), since
+    /// the Skills list shows only five and a lower-ranked skill has no card to open there (critic M5).
+    @State private var openSkill: RecommendedSkill?
     @Environment(Store.self) private var store
+    @Environment(SkillsViewModel.self) private var skillsVM
+    @Environment(SettingsFocus.self) private var focus: SettingsFocus?
 
     var body: some View {
+        Group {
+            if let skill = openSkill {
+                SkillDetailView(skill: skill, section: .reading) { closeSkill() }
+            } else {
+                page
+            }
+        }
+        // R-O5 — while the skill's detail is open, Esc goes back to this page instead of closing the panel.
+        .onChange(of: openSkill?.id, initial: true) { _, open in
+            focus?.escapeBack = open == nil ? nil : { closeSkill() }
+        }
+        .onChange(of: focus?.landedNonce ?? 0) { _, _ in openSkill = nil }
+        .onDisappear { focus?.escapeBack = nil }
+    }
+
+    /// Back from a skill's detail: an install or a copied prompt may have changed what is installed, so both lists
+    /// are read again.
+    private func closeSkill() {
+        openSkill = nil
+        Task {
+            await model.load()
+            await skillsVM.load()
+        }
+    }
+
+    private var page: some View {
         SettingsPage(section: .reading) {
             SettingsGroupCard(header: Copy.Reading.withAgentGroup) {
                 SettingsRow(.readingAgent, title: Copy.Reading.switchTitle,
@@ -161,7 +198,7 @@ struct ReadingWebView: View {
                         .toggleStyle(.switch)
                         .labelsHidden()
                         .disabled(model.settings == nil || model.busy)
-                        .help(model.settings == nil ? Copy.Reading.loadFailed : "")
+                        .help(ReadingSwitchHelp.text(model.settings))
                 }
                 if model.enabled, let settings = model.settings {
                     SettingsDivider()
@@ -197,6 +234,10 @@ struct ReadingWebView: View {
                     methodRow(option, chosen: job.chosen == option.id)
                 }
             }
+            Text(Copy.Reading.methodsFooter)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -218,7 +259,7 @@ struct ReadingWebView: View {
                                     .foregroundStyle(CicadaTheme.textPrimary)
                                 if option.isSkill { Tag(text: Copy.Reading.skillTag) }
                             }
-                            Text(option.reach ?? option.detail)
+                            Text(MethodRowWords.detail(option))
                                 .font(CicadaTheme.captionFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)
                                 .multilineTextAlignment(.leading)
@@ -238,15 +279,20 @@ struct ReadingWebView: View {
     }
 
     @ViewBuilder private func skillAction(_ option: AgentMethodOption) -> some View {
-        if let page = option.page {
-            NeutralButton(title: Copy.Reading.openInGraph, size: .compact) { openPage(page.id) }
-        } else if option.installedAnywhere {
+        switch MethodRowWords.action(option) {
+        case .openInGraph(let id):
+            NeutralButton(title: Copy.Reading.openInGraph, size: .compact) { openPage(id) }
+        case .addToGraph:
             NeutralButton(title: Copy.Reading.addToGraph, size: .compact, isDisabled: model.busy,
                           help: Copy.Reading.addToGraphHelp) {
                 Task { await model.addPage(option.id) }
             }
-        } else {
-            SettingsInlineLink(section: .skills, label: Copy.Reading.findInSkills)
+        case .install:
+            NeutralButton(title: Copy.Reading.installSkill, size: .compact, help: Copy.Reading.installSkillHelp) {
+                openSkill = option.skill
+            }
+        case .none:
+            EmptyView()
         }
     }
 
@@ -299,7 +345,7 @@ struct ReadingWebView: View {
         SettingsRowShell(.readingSite(site.site)) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-                    SiteIcon(site: site.site)
+                    SiteIcon(site: site.site, label: site.label)
                     VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                         Text(site.label)
                             .font(CicadaTheme.font(size: 13, weight: .medium))
@@ -367,30 +413,6 @@ struct ReadingWebView: View {
     }
 }
 
-/// A site's favicon, from the icon service through Cicada's own API (the site is never contacted); a globe until it
-/// arrives and for a site with none.
-private struct SiteIcon: View {
-    let site: String
-    @Environment(Store.self) private var store
-    @State private var image: NSImage?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-            } else {
-                Image(systemName: "globe")
-                    .font(CicadaTheme.icon(.inline))
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .frame(width: CicadaTheme.scaled(20), height: CicadaTheme.scaled(20))
-        .clipShape(RoundedRectangle(cornerRadius: CicadaTheme.scaled(4), style: .continuous))
-        .accessibilityHidden(true)
-        .task(id: "\(store.bank)|\(site)") { image = await SiteIconStore.shared.image(site: site, bank: store.bank) }
-    }
-}
-
 /// A padded row body that is a landing anchor, for rows whose whole layout is their own.
 private struct SettingsRowShell<Content: View>: View {
     let id: SettingsRowID
@@ -413,9 +435,11 @@ private struct SettingsRowShell<Content: View>: View {
 /// The first-use sheet (spec §7.2): what asking does, what Cicada does not promise, the sites' terms and an
 /// "I understand" that must be ticked before the button works (DR-41: 45 % and a `.help` saying why). Nothing changes
 /// until "Turn on". There is no site picker: a site is switched on in the list, and when that raised this sheet the
-/// one line says so and the switch rides the same call. It does not say an agent never posts, messages or fills a
-/// form: Cicada cannot enforce that, so it does not promise it.
-private struct ReadingFirstUseSheet: View {
+/// one line says so and the switch rides the same call. It carries Cicada's instruction to the agent (no credentials
+/// typed, nothing posted, messaged or changed) together with the honest limit that Cicada can't see or enforce what
+/// happens in the browser — an instruction, never a promise (ruling 14, R-RW8). Internal so the Feed's "Let an agent
+/// read <site>" raises the same sheet.
+struct ReadingFirstUseSheet: View {
     let model: ReadingAgentModel
     let site: String?
     let label: String?
@@ -425,8 +449,8 @@ private struct ReadingFirstUseSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-            ForEach([Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetTerms,
-                     Copy.Reading.sheetSaferExport], id: \.self) { paragraph in
+            ForEach([Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetInstruction,
+                     Copy.Reading.sheetTerms, Copy.Reading.sheetSaferExport], id: \.self) { paragraph in
                 Text(paragraph)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -460,5 +484,15 @@ private struct ReadingFirstUseSheet: View {
                 .help(understood ? "" : Copy.Reading.sheetTurnOnHelp)
             }
         }
+    }
+}
+
+/// The master switch's `.help`, pure: why it can't be read, or why it reads off after an older acknowledgement
+/// (the sheet's wording changed, so an earlier "I understand" no longer counts — critic L6(b)); else nothing.
+enum ReadingSwitchHelp {
+    static func text(_ settings: ReadingSettingsResponse?) -> String {
+        guard let settings else { return Copy.Reading.loadFailed }
+        if settings.ackedAt != nil, !settings.ackCurrent { return Copy.Reading.reAskHelp }
+        return ""
     }
 }

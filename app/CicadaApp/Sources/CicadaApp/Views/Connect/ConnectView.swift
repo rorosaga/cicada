@@ -322,6 +322,11 @@ struct ConnectView: View {
                 SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
                     SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)
                 }
+                SettingsDivider()
+                // G166 — reading pages with an agent has its own page; this is the way there from Agents.
+                SettingsRow(.agentsReading, title: Copy.Reading.agentsRowTitle, detail: Copy.Reading.agentsRowDetail) {
+                    SettingsInlineLink(section: .reading, row: .readingAgent, label: Copy.Reading.pageTitle)
+                }
             }
         }
         .onAppear {
