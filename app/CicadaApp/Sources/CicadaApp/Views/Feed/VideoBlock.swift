@@ -15,6 +15,8 @@ struct VideoBlock: View {
     let url: String
     let title: String
     let mediaEntityId: String
+    /// Space above the block, drawn only when there is a block (an older backend or a non-video draws nothing).
+    var topPadding: CGFloat = 0
 
     // Optional, like the evidence chips' (a host outside the main window, or a layout test, renders nothing
     // rather than trapping).
@@ -31,10 +33,20 @@ struct VideoBlock: View {
     }
 
     var body: some View {
-        if let videoCache, !videoCache.isGone, let state {
-            content(state)
-                .task(id: state.episodeId ?? "") { await loadRecord(state.episodeId) }
+        VStack(alignment: .leading, spacing: 0) {
+            if let videoCache, !videoCache.isGone, let state {
+                content(state)
+                    .padding(.top, topPadding)
+                    .task(id: state.episodeId ?? "") { await loadRecord(state.episodeId) }
+            }
         }
+        // A host that never read the states (the entity card on the Graph) asks once; a 304 costs nothing after.
+        .task { if let videoCache, !videoCache.hasRead, !videoCache.isGone { await videoCache.refresh() } }
+    }
+
+    /// True for a page the Feed would show as a video — the entity card's gate (the Feed's own is `FeedKind.of`).
+    static func isVideo(_ media: MediaBlock) -> Bool {
+        media.mediaType == "youtube" || media.mediaType == "video" || VideoRef.resolve(media.url) != nil
     }
 
     @ViewBuilder

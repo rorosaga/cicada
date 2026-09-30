@@ -60,7 +60,7 @@ final class VideoRunModel {
 
     /// The Feed's video items joined to their state, in the Feed's order. A video the state does not name (an older
     /// backend, a page indexed since) has no key to queue and is left out of every picker tab.
-    static func rows(items: [MediaFeedItem], states: [VideoStateItem]) -> [VideoRow] {
+    nonisolated static func rows(items: [MediaFeedItem], states: [VideoStateItem]) -> [VideoRow] {
         var byId: [String: VideoStateItem] = [:]
         for s in states { byId[s.id] = s }
         return items.compactMap { item in
@@ -69,12 +69,12 @@ final class VideoRunModel {
         }
     }
 
-    static func rows(_ rows: [VideoRow], in tab: VideoPickerTab) -> [VideoRow] {
+    nonisolated static func rows(_ rows: [VideoRow], in tab: VideoPickerTab) -> [VideoRow] {
         rows.filter { VideoPickerTab.of($0.state) == tab }
     }
 
     /// Tab counts, from the same join the list uses, so a tab and its rows never disagree.
-    static func counts(_ rows: [VideoRow]) -> [VideoPickerTab: Int] {
+    nonisolated static func counts(_ rows: [VideoRow]) -> [VideoPickerTab: Int] {
         Dictionary(grouping: rows, by: { VideoPickerTab.of($0.state) }).mapValues(\.count)
     }
 

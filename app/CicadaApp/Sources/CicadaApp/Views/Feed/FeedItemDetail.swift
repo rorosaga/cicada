@@ -33,8 +33,8 @@ struct FeedItemDetail: View {
                 .padding(.top, CicadaTheme.scaled(20))
             if isVideo {
                 // G162 — what Cicada holds for this video and the queue's buttons, between the player and "Why".
-                VideoBlock(feedId: item.id, url: item.url, title: title, mediaEntityId: item.mediaEntityId)
-                    .padding(.top, CicadaTheme.scaled(20))
+                VideoBlock(feedId: item.id, url: item.url, title: title, mediaEntityId: item.mediaEntityId,
+                           topPadding: CicadaTheme.scaled(20))
             }
             SectionLabel(Copy.Lists.whySaved).padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
             why

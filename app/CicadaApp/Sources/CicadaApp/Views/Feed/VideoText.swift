@@ -143,7 +143,7 @@ enum VideoWords {
         line == Copy.Videos.sawNoFrames || line == Copy.Videos.legacyRecord
     }
 
-    /// "Claude Code · Sonnet 5.5 · Sep 28" — built from DATA only: the harness the record carries (its app name through
+    /// <app> · <model> · Sep 28 — built from DATA only: the harness the record carries (its app name through
     /// `OriginIconography`), the model the turn join found, the day it was recorded. An app with no capture says its
     /// model was not shared (`ModelNames.agentLine`'s existing words); nothing is guessed.
     static func attribution(recordedBy: String?, recordedAt: String?, model: String?, effort: String?,

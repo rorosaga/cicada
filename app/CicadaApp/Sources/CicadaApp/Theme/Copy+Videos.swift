@@ -89,7 +89,7 @@ extension Copy {
         static let readBySleep = "Read by Sleep."
         static let notReadBySleep = "Sleep hasn't read this yet."
         static let approximateWording = "Wording is approximate (a model's reading, not captions)."
-        static func fromTheVideo(_ time: String?) -> String { time.map { "From the video · \($0)" } ?? "From the video" }
+        static func fromTheVideo(_ time: String?) -> String { time.map { t in "From the video · \(t)" } ?? "From the video" }
         static func recordedOn(_ day: String) -> String { day }
 
         // MARK: The reader's view of a watch record
