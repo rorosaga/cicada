@@ -2,7 +2,7 @@ import XCTest
 @testable import CicadaApp
 
 /// Pinning tests for the 2026-08-31 post-review fix wave
-/// (`.superpowers/sdd/2026-08-31-ui-round-2/final-review.md`): H1, M1, M3,
+/// (`.scratch/sdd/2026-08-31-ui-round-2/final-review.md`): H1, M1, M3,
 /// and the Feed sort picker's missing accessibility label. M2 is pinned
 /// alongside its sibling tests in `UsageRangeTests.swift`.
 final class FixWaveTests: XCTestCase {
