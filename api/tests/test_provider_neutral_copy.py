@@ -87,6 +87,8 @@ def test_prompts_notes_and_contract_item_are_neutral():
         agent_methods.AUTO_TITLE, agent_methods.AUTO_DETAIL,
         *(v for job in agent_methods.JOBS.values() for v in (job.question, job.own_title, job.own_detail)),
         *agent_methods._PERSON.values(), *agent_methods._REPLY.values(),
+        *(j.person_skill for j in agent_methods.JOBS.values() if j.person_skill),
+        *(line for triple in agent_methods._LINES.values() for line in triple),
     ]
     for text in samples:
         assert text and not BANNED.search(text), text
@@ -97,8 +99,11 @@ def test_the_built_in_choices_name_no_product_whatever_the_person_chose():
     catalog data the person picked and is filled at runtime."""
     for line in (agent_methods._PERSON[agent_methods.OWN], agent_methods._REPLY[agent_methods.OWN]):
         assert not BANNED.search(line)
-    for template in (agent_methods._PERSON["skill"], agent_methods._REPLY["skill"]):
-        assert not BANNED.search(template.format(name="`a-skill`"))
+    templates = [agent_methods._PERSON["skill"], agent_methods._REPLY["skill"],
+                 *(j.person_skill for j in agent_methods.JOBS.values() if j.person_skill),
+                 *(triple[2] for triple in agent_methods._LINES.values())]
+    for template in templates:
+        assert not BANNED.search(template.format(name="`a-skill`", invoke="a-skill", via_arg="via"))
 
 
 def test_what_the_two_reading_tools_actually_say_is_neutral(reading):  # noqa: F811

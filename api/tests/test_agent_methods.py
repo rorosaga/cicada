@@ -80,7 +80,7 @@ def test_skill_choice_gives_the_owners_sentence_in_both_voices():
     agent_methods.set_choice("reading", "browser-harness")
     person = agent_methods.prompt_clause("reading")
     assert person == ("I chose the `browser-harness` skill for this. If you run on this Mac and can load skills, "
-                      "use it, and set `via` to \"`browser-harness`\"; if it is not installed for you, say so and "
+                      "use it, and set `via` to \"browser-harness\"; if it is not installed for you, say so and "
                       "stop. If you cannot load skills where you run (an app connected from anywhere, say), use "
                       "your own browser tools instead.")
     reply = agent_methods.reply_clause("reading", variant="claude-code")

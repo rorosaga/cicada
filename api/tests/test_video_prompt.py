@@ -69,9 +69,11 @@ def test_browser_clause_only_when_permission_on():
     assert "hand it back with code needs_login" in clause
 
 
-def test_the_method_seam_is_empty_until_agent_methods_lands():
-    """The reading branch's `agent_methods` selection fills `method_clause`; until then it says nothing and the
-    prompt is unchanged."""
+def test_the_method_clause_is_empty_until_the_person_chooses(tmp_path, monkeypatch):
+    """`agent_methods`' watching choice fills `method_clause`; with none set it says nothing and the prompt is
+    byte-identical to the default."""
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     assert video_prompt.method_clause(None) is None
+    assert video_prompt.method_clause(None, reply=True, variant="claude-code") is None
     assert video_prompt.build(2, "auto", method_clause=None) == video_prompt.build(2, "auto")
     assert "Use the person's chosen skill." in video_prompt.build(2, method_clause="Use the person's chosen skill.")
