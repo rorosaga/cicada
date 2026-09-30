@@ -573,7 +573,7 @@ def test_the_hook_count_never_derives_a_cold_inbox_on_its_own_time(setup, monkey
 
     bank_index.files(memory, "entities")   # the page cache is warm; only the check candidates are cold
     asks, derived = reading_queue.counts(memory, warm_only=True, deadline=time.monotonic() + 5)
-    assert derived is None and calls == [] and started, "cold: unknown, nothing derived, a background warm started"
+    assert derived == 0 and calls == [] and started, "cold: checks not counted yet, nothing derived, a warm started"
     reading_queue._check_candidates(memory)        # warmed (by the background thread in real life)
     calls.clear()
     asks, derived = reading_queue.counts(memory, warm_only=True, deadline=time.monotonic() + 5)

@@ -945,7 +945,7 @@ an allowed, unpaused site (`reading_queue.authorizes_check`, recomputed now so a
 switched-off site revokes it), a source an agent already looked at for this question in the last week (UTC days — one row per
 source means the day cap alone would never bite), a finding without a quote, an option the item lacks, Sleep running, and the
 caps (3 a day per question, 30 a session). The candidates are memoised on the inbox+entities+sources stamp; the recall hook
-only reads the memo (a cold one is "unknown" and warms in the background), so it never loads the inbox on its 300 ms. A finding is one **`source-check` episode** (`assistant:` summary, then `attachment [<host>]: as
+only reads the memo (a cold one is not counted yet and warms in the background; it never turns the site count "unknown"), so it never loads the inbox on its 300 ms. A finding is one **`source-check` episode** (`assistant:` summary, then `attachment [<host>]: as
 <harness> read it` and ≤ 3 quoted lines ≤ 240 characters, so the quotes are `page`-kind spans — D4, no seventh evidence kind;
 `processed: true`, no `evidence_kind`, `media_entity_id` = the source's own `entity:` page when it still resolves) and one
 row in the item's `checks:` (`{at, checker, checker_kind, ref, host, outcome, option_key?, proposed_value?, quote?, episode,

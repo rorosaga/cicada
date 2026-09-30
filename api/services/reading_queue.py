@@ -414,8 +414,14 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
         if deadline is not None and time.monotonic() > deadline:
             raise reading_walls.DeadlineExceeded()
         bounded = warm_only or deadline is not None
-        return asks, derived + len(_safe_checks(memory_path, None, cached_only=bounded, deadline=deadline))
-    except (reading_walls.DeadlineExceeded, _ColdCandidates):
+        try:
+            checks = len(_safe_checks(memory_path, None, cached_only=bounded, deadline=deadline))
+        except (_ColdCandidates, reading_walls.DeadlineExceeded):
+            # The checks' memo is cold (a background warm has started): the site count stands, the checks join on the
+            # next prompt. They are never the reason the whole count turns "unknown".
+            checks = 0
+        return asks, derived + checks
+    except reading_walls.DeadlineExceeded:
         _warm_in_background(memory_path)
         return asks, None
 
