@@ -137,6 +137,13 @@ async def get_reading_site_icon(site: str, request: Request, settings: Settings 
     domain = (row or {}).get("iconHost")
     if not domain:
         raise HTTPException(404, "no icon for this site")
+    return await serve_site_icon(request, memory_path, site, domain)
+
+
+async def serve_site_icon(request: Request, memory_path, site: str, domain: str):
+    """One site's cached icon (ETag, a day's cache), asked of the icon service once and never of the site itself. 404
+    for "no icon" (the app draws its own mark). Shared by this router and `GET /entities/{id}/sources/icon/{site}`
+    (G61 S3-b), which decides WHICH sites may be asked for."""
     bank = logo_service.site_bank(logo_service.bank_name(memory_path))
     path = logo_service.cached_path(bank, site)
     if path is None:

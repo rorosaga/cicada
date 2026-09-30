@@ -676,23 +676,71 @@ def _html_title(html: str) -> str:
         return ""
 
 
-async def default_fetch(url: str, settings) -> FetchResult:
-    """The live page fetch for the backfill's §2b tier — robots-lite (R8).
+@dataclass
+class PageIdentity:
+    """What a site says about itself, for :func:`fetch_identity` — never stored, only judged
+    (``site_sources.judge``). ``status`` is a :class:`FetchResult` status; ``cross_site`` says the final host is a
+    different site from the one asked for (a redirect to somebody else's domain)."""
 
-    Fresh client per call, no cookies, no proxy env (``trust_env=False``),
-    Cicada's own User-Agent, 4 s, ≤ 5 redirects, body streamed and cut at
-    512 KB, HTML/text only. 401/403/407/451 — or a redirect that lands on a
-    consent/login host — is ``blocked`` and is never retried with different
-    headers: G102's rail is "no scraping behind auth, no circumventing a
-    block", the same line drawn for LinkedIn and X. A fetched page whose
-    title is an interstitial is ``interstitial`` (G86). Never raises.
-    """
+    status: str
+    final_url: str = ""
+    title: str = ""
+    site_name: str = ""
+    meta_description: str = ""
+    excerpt: str = ""
+    cross_site: bool = False
+
+
+def _meta_content(soup, *keys: tuple[str, str]) -> str:
+    for attr, value in keys:
+        tag = soup.find("meta", attrs={attr: value})
+        if tag is not None and str(tag.get("content") or "").strip():
+            return " ".join(str(tag["content"]).split())
+    return ""
+
+
+async def fetch_identity(url: str, settings=None) -> PageIdentity:
+    """Read ONE page as Cicada's own rail does (:func:`_stream_html`: 4 s, ≤ 512 KB, no cookies, ``net_guard``, a block
+    never retried) and return what it says about itself: title, ``og:site_name``, meta description and a short visible-
+    text excerpt. A walled host is never asked (``reading_hosts.is_walled``), so the caller need not remember to
+    check. Never raises."""
+    from api.services import reading_hosts
+
+    if not url or reading_hosts.is_walled(url):
+        return PageIdentity("blocked")
+    status, html, final = await _stream_html(url)
+    if status != "ok":
+        return PageIdentity(status)
+    if classify_page(_html_title(html), "") == "interstitial":
+        return PageIdentity("interstitial")
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        site_name = _meta_content(soup, ("property", "og:site_name"), ("name", "application-name"))
+        description = _meta_content(soup, ("name", "description"), ("property", "og:description"))
+    except Exception:
+        site_name = description = ""
+    excerpt = _extract_visible_text(html, int(getattr(settings, "link_enrich_excerpt_chars", 2000) or 2000))
+    return PageIdentity(
+        "ok", final_url=final, title=_html_title(html), site_name=site_name, meta_description=description,
+        excerpt=excerpt,
+        cross_site=bool(final) and reading_hosts.site_of(final) != reading_hosts.site_of(url))
+
+
+async def _stream_html(url: str) -> tuple[str, str, str]:
+    """``(status, html, final_url)`` — the ONE transport of every page Cicada reads on its own rail: fresh client per
+    call, no cookies, no proxy env, Cicada's own User-Agent, 4 s, ≤ 5 redirects, the body streamed and cut at 512 KB,
+    HTML/text only, every hop through ``net_guard``. 401/403/407/451 — or a redirect that lands on a consent/login
+    host — is ``blocked`` and is never retried with different headers. ``status`` is ``ok`` or a ``FetchResult`` status
+    (``blocked`` | ``failed:<reason>``); ``html`` and ``final_url`` are empty unless ``ok``. Never raises.
+    Shared by :func:`default_fetch` and :func:`fetch_identity` (G61 S3-b), so a site check is exactly a link read."""
     if not url:
-        return FetchResult("failed:no_url")
+        return "failed:no_url", "", ""
     from api.services import net_guard  # G135 R-R10
 
     if not await net_guard.is_fetchable_url_async(url):
-        return FetchResult("failed:private_host")
+        return "failed:private_host", "", ""
     try:
         import httpx
 
@@ -705,14 +753,14 @@ async def default_fetch(url: str, settings) -> FetchResult:
         ) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code in (401, 403, 407, 451):
-                    return FetchResult("blocked")
+                    return "blocked", "", ""
                 if resp.status_code >= 400:
-                    return FetchResult(f"failed:http_{resp.status_code}")
+                    return f"failed:http_{resp.status_code}", "", ""
                 if _redirected_to_wall(url, str(resp.url)):
-                    return FetchResult("blocked")
+                    return "blocked", "", ""
                 ctype = (resp.headers.get("content-type") or "").lower()
                 if "html" not in ctype and "text" not in ctype:
-                    return FetchResult("failed:content_type")
+                    return "failed:content_type", "", ""
                 chunks: list[bytes] = []
                 size = 0
                 async for chunk in resp.aiter_bytes():
@@ -721,13 +769,21 @@ async def default_fetch(url: str, settings) -> FetchResult:
                     if size >= FETCH_MAX_BYTES:
                         break
                 raw = b"".join(chunks)[:FETCH_MAX_BYTES]
-                html = raw.decode(resp.encoding or "utf-8", errors="replace")
+                return "ok", raw.decode(resp.encoding or "utf-8", errors="replace"), str(resp.url)
     except net_guard.UnsafeURL:
         # A public page redirected inward (the request hook refused the hop).
-        return FetchResult("failed:private_host")
+        return "failed:private_host", "", ""
     except Exception as e:
         logger.warning(f"link fetch failed for {url}: {type(e).__name__}")
-        return FetchResult(f"failed:{type(e).__name__}")
+        return f"failed:{type(e).__name__}", "", ""
+
+
+async def default_fetch(url: str, settings) -> FetchResult:
+    """The live page fetch for the backfill's §2b tier — robots-lite (R8), over :func:`_stream_html`. A fetched page
+    whose title is an interstitial is ``interstitial`` (G86). Never raises."""
+    status, html, _final = await _stream_html(url)
+    if status != "ok":
+        return FetchResult(status)
     if classify_page(_html_title(html), "") == "interstitial":
         return FetchResult("interstitial")
     excerpt = _extract_visible_text(

@@ -26,6 +26,10 @@ final class SourcesDecodeTests: XCTestCase {
         XCTAssertEqual(profile.origin, "remote:ab12cd34")
         XCTAssertEqual(profile.entity, "media-alpha-profile")
         XCTAssertNil(profile.verified)
+        XCTAssertEqual(rows.first { $0.ref == "https://example.com/staff-directory" }?.trusted, true, "the person's own entry")
+        XCTAssertEqual(profile.trusted, false, "an app's, not yet taken")
+        XCTAssertEqual(rows.first { $0.ref == "https://example.com/team" }?.trusted, false, "an agent's, not yet taken")
+        XCTAssertEqual(profile.effectiveAccess, "unknown")
         XCTAssertEqual(rows.first { $0.ref == "https://example.com/gone" }?.entity, nil, "a stale link is served as none")
         XCTAssertEqual(rows.first { $0.ref == "https://example.com/old-team" }?.accepted, true)
     }
@@ -200,5 +204,97 @@ final class SourceEdgeInPersonMapTests: XCTestCase {
         let json = #"[{"source":"a","target":"b","label":"profile","kind":"source"},{"source":"a","target":"c","label":"uses"}]"#
         let edges = try JSONDecoder().decode([GraphEdge].self, from: Data(json.utf8))
         XCTAssertEqual(edges.map(\.isSourceLink), [true, false])
+    }
+}
+
+/// G61 S3-b — a proposed official site says whether it was confirmed, in words; "Use this site" is one tap; a source row
+/// asks for its mark by the site, never the URL.
+final class SiteSourceWordsTests: XCTestCase {
+    private let us = Locale(identifier: "en_US")
+
+    private func site(by who: String, verified: EntitySource.Verified? = nil, checked: EntitySource.Verified? = nil,
+                      trusted: Bool?, accepted: Bool? = nil) -> EntitySource {
+        EntitySource(ref: "https://acme-inference.io", kind: "url", predicate: "website", addedBy: who, addedAt: "2026-09-30",
+                     accepted: accepted, verified: verified, trusted: trusted, checked: checked)
+    }
+
+    func testAVerifiedSiteSaysWhenItWasConfirmed() {
+        let line = FactSourceWords.line(site(by: "cicada", verified: .init(at: "2026-10-02", how: "name+content"), trusted: true), locale: us)
+        XCTAssertEqual(line.forFact, "Official site")
+        XCTAssertEqual(line.note, "Confirmed Oct 2")
+    }
+
+    func testAnUnreachableSiteIsStillJustProposed() {
+        let down = site(by: "cicada", checked: .init(at: "2026-10-02", outcome: "unreachable"), trusted: false)
+        XCTAssertEqual(FactSourceWords.line(down, locale: us).note, "Proposed, not confirmed yet")
+    }
+
+    func testAProposedSiteIsNotConfirmedYetUntilRead() {
+        let proposed = site(by: "agent", trusted: false)
+        XCTAssertEqual(FactSourceWords.line(proposed, locale: us).note, "Proposed, not confirmed yet")
+        XCTAssertTrue(proposed.isUnconfirmedSite && proposed.canBeTaken)
+        let thin = site(by: "cicada", checked: .init(at: "2026-10-02", outcome: "unconfirmed"), trusted: false)
+        XCTAssertEqual(FactSourceWords.line(thin, locale: us).note, "Read, but not confirmed yet")
+    }
+
+    func testTheOwnersOwnAndATakenSiteSayNothingAboutConfirmation() {
+        XCTAssertNil(FactSourceWords.line(site(by: "user", trusted: true), locale: us).note)
+        XCTAssertEqual(FactSourceWords.line(site(by: "agent", trusted: true, accepted: true), locale: us).note, "You chose to use this")
+        XCTAssertFalse(site(by: "user", trusted: true).isUnconfirmedSite)
+        XCTAssertFalse(site(by: "agent", trusted: nil).isUnconfirmedSite, "an older backend reads as trusted")
+    }
+
+    func testOtherFactsSaySomethingElse() {
+        let works = EntitySource(ref: "https://acme-inference.io/team", kind: "url", predicate: "works-at", addedBy: "cicada",
+                                 addedAt: "2026-09-30", trusted: false)
+        XCTAssertNil(FactSourceWords.line(works, locale: us).note)
+        XCTAssertEqual(FactSourceWords.line(works, locale: us).forFact, "For works at")
+    }
+
+    func testTheEffectiveAccessSpeaksWhenNothingWasStated() {
+        let signed = EntitySource(ref: "https://www.linkedin.com/company/acme", kind: "url", predicate: "profile",
+                                  addedBy: "user", addedAt: "2026-09-30", effectiveAccess: "signed_in")
+        XCTAssertEqual(FactSourceWords.line(signed, locale: us).readBy, "Needs sign-in")
+    }
+
+    func testTheSourceRowAsksForTheSiteNeverTheURL() {
+        func key(_ ref: String, kind: String = "url") -> String? {
+            SourceSite.key(of: EntitySource(ref: ref, kind: kind, addedBy: "user", addedAt: "2026-09-30"))
+        }
+        XCTAssertEqual(key("https://www.acme-inference.io/team/x?token=abc#frag"), "acme-inference.io")
+        XCTAssertEqual(key("https://docs.acme-inference.io/a"), "acme-inference.io")
+        XCTAssertEqual(key("https://www.acme.co.uk/about"), "acme.co.uk")
+        XCTAssertNil(key("Ask bob-example", kind: "note"))
+        XCTAssertNil(key("~/notes/a.md", kind: "path"))
+        XCTAssertNil(key("http://localhost/x"))
+    }
+}
+
+final class SiteIconStoreEntityTests: XCTestCase {
+    func testAMissIsAskedAgainAfterASourceWriteOnThatPageOnly() async {
+        actor Log { var calls = 0; func add() { calls += 1 } }
+        let log = Log()
+        let store = SiteIconStore(fetch: { _ in nil }, fetchForEntity: { _, _ in await log.add(); return nil })
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "widget-example")
+        var calls = await log.calls
+        XCTAssertEqual(calls, 2, "a 404 is remembered per page")
+        await store.forget(entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "widget-example")
+        calls = await log.calls
+        XCTAssertEqual(calls, 3, "only that page's misses are dropped")
+    }
+
+    func testAPageAsksItsOwnRouteAndTheSurfacedListAsksItsOwn() async {
+        actor Log { var calls: [String] = []; func add(_ s: String) { calls.append(s) } }
+        let log = Log()
+        let store = SiteIconStore(fetch: { site in await log.add("site:\(site)"); return nil },
+                                  fetchForEntity: { entity, site in await log.add("entity:\(entity):\(site)"); return nil })
+        _ = await store.image(site: "acme-inference.io", bank: "work", entity: "acme-example")
+        _ = await store.image(site: "acme-inference.io", bank: "work")
+        let calls = await log.calls
+        XCTAssertEqual(calls, ["entity:acme-example:acme-inference.io", "site:acme-inference.io"])
     }
 }

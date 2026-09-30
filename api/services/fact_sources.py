@@ -380,6 +380,49 @@ def linked_entity(memory_path: Path, source: dict, *, self_id: str | None = None
         return None
 
 
+WEBSITE = "website"
+UNVERIFIED_ADDERS = ("agent", CICADA)
+
+
+def propose_site(frontmatter: dict, ref: str, *, added_by: str = "agent", added_at: str | None = None) -> bool:
+    """G61 S3-b — put ONE proposed official site on a page's frontmatter, UNVERIFIED (no ``verified``, so
+    :func:`trusted` says no and no picture is drawn from it). Pure over the dict; the caller writes the page.
+
+    The one seam Stage 1's create branch and the engine-free backfill share. Idempotent, and it never overrides:
+    a page that already holds a ``website`` source for the same site (any state) or a tombstone for the key —
+    :func:`is_tombstoned`, which for a ``website`` also matches the same site — is left as it is; a page at a cap
+    likewise. Returns whether an entry was added. Never touches ``decay_class`` and never fetches anything."""
+    text = (ref or "").strip()
+    if not text or len(text) > MAX_REF_CHARS:
+        return False
+    try:
+        text = clean_text(text)
+    except InvalidSource:
+        return False
+    # Defence in depth: whatever a caller hands over, only an https origin of a public, non-platform host is stored
+    # (`site_sources.origin_of` — the same rail Stage 1's sanitizer applies).
+    from api.services import site_sources
+
+    text = site_sources.origin_of(text) or ""
+    if not text:
+        return False
+    existing = [s for s in (frontmatter.get("sources") or []) if isinstance(s, dict)]
+    if is_tombstoned(frontmatter, text, WEBSITE):
+        return False
+    site = _site(text)
+    for source in existing:
+        if same_predicate(source.get("predicate"), WEBSITE) and (
+                str(source.get("ref", "")).strip() == text or (site and _site(str(source.get("ref", ""))) == site)):
+            return False
+    if len(existing) >= MAX_SOURCES or sum(
+            1 for s in existing if same_predicate(s.get("predicate"), WEBSITE)) >= MAX_PER_PREDICATE:
+        return False
+    frontmatter["sources"] = existing + [{
+        "ref": text, "kind": KIND_URL, "predicate": WEBSITE, "added_by": added_by,
+        "added_at": added_at or str(date.today())}]
+    return True
+
+
 def add_source(
     memory_path: Path,
     entity_id: str,

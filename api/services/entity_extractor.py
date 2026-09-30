@@ -36,6 +36,7 @@ Output valid JSON with this exact structure:
       "tags": ["relevant", "tags"],
       "confidence": 0.7,
       "decay_class": "durable|active|volatile",
+      "website": "https://example.com   (optional; company, tool or project only)",
       "description": "Optional. Same content as summary; kept only for backward compatibility."
     }
   ],
@@ -99,6 +100,11 @@ being mentioned:
 - NEVER EVERGREEN a belief here: "evergreen" is reserved for ingested artifacts
   (bookmarks, saved media) and the user — an extraction may only propose
   durable|active|volatile.
+
+WEBSITE (optional, company, tool or project ONLY) — the entity's own official site:
+- Emit it ONLY when the transcript states it, or you are certain it is that entity's own site.
+- An origin URL only ("https://example.com"): never a profile, an article, a repository host or a social page.
+- Omit it when unsure. A guess is worse than nothing: it is checked against the site itself and removed when wrong.
 
 EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
@@ -197,6 +203,14 @@ def sanitize_decay_class(entity: dict) -> None:
     cls = decay_policy.agent_class(entity.pop("decay_class"))
     if cls is not None:
         entity["decay_class"] = cls.value
+
+
+def sanitize_website(entity: dict) -> None:
+    """G61 S3-b rail (``site_sources.sanitize_website``): keep an entity's proposed ``website`` only as an https origin
+    of a public, non-platform host for a company, tool or project; drop it otherwise. Mutates in place; never raises."""
+    from api.services import site_sources
+
+    site_sources.sanitize_website(entity)
 
 
 def _chunk_spans(content: str) -> list[tuple[int, int]]:
@@ -446,6 +460,7 @@ async def extract(
                     entity["source_episode_timestamp"] = episode.get("timestamp")
                     entity["origin"] = ep_origin
                     sanitize_decay_class(entity)
+                    sanitize_website(entity)
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
                     rel["source_episode_timestamp"] = episode.get("timestamp")

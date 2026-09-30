@@ -134,14 +134,28 @@ enum FactSourceWords {
         // G154 (R-SR16) — a Contacts card is named as one; its `addressbook://` id is only ever in the tooltip.
         let shown = s.ref.hasPrefix("addressbook://") ? Copy.contactsCardRef : s.ref
         return Line(ref: shown, isLink: s.url != nil, forFact: forFact(s.predicate),
-                    readBy: readBy(access: s.access, kind: s.kind), addedBy: words, addedByOrigin: who.origin,
-                    note: note(accepted: s.accepted, onlyMe: s.onlyMe),
+                    readBy: readBy(access: s.access ?? s.effectiveAccess, kind: s.kind), addedBy: words,
+                    addedByOrigin: who.origin,
+                    note: note(accepted: s.accepted, onlyMe: s.onlyMe) ?? confirmation(of: s, locale: locale),
                     help: rawShown ? s.ref : "\(s.ref)\n\(Copy.Graph.addedByRaw(s.addedBy))")
+    }
+
+    /// G61 S3-b — whether a proposed official site was confirmed, in words. Only a `website` speaks: "Confirmed 2 Oct" once
+    /// Cicada's own read found the page's name and its own words there, "Read, but not confirmed yet" when the read was
+    /// thin, "Proposed, not confirmed yet" before any read. Never a provider, a model or a host.
+    static func confirmation(of s: EntitySource, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard s.isOfficialSite else { return nil }
+        if let verified = s.verified {
+            return EntityDates.shortDay(verified.at, locale: locale).map(Copy.Graph.siteConfirmedOn) ?? Copy.Graph.siteConfirmed
+        }
+        guard s.isUnconfirmedSite else { return nil }
+        return s.checked?.outcome == "unconfirmed" ? Copy.Graph.siteReadNotConfirmed : Copy.Graph.siteProposed
     }
 
     static func forFact(_ predicate: String?) -> String {
         let p = (predicate ?? "").trimmingCharacters(in: .whitespaces)
         guard !p.isEmpty else { return Copy.Graph.forAnyFact }
+        if p.lowercased() == "website" { return Copy.Graph.sourcesOfficialSite }
         return Copy.Graph.forFact(p.replacingOccurrences(of: "-", with: " ").replacingOccurrences(of: "_", with: " "))
     }
 

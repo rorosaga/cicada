@@ -58,6 +58,7 @@ def extraction_schema(*, strict: bool) -> dict:
     decay = ({"type": ["string", "null"], "enum": [*decay_classes(), None]} if strict
              else {"type": "string", "enum": decay_classes()})
     quote = {"type": ["string", "null"]} if strict else {"type": "string"}
+    website = {"type": ["string", "null"]} if strict else {"type": "string"}   # G61 S3-b: company/tool/project only
     entity = _object({
         "name": text,
         "type": {"type": "string", "enum": entity_types()},
@@ -70,6 +71,7 @@ def extraction_schema(*, strict: bool) -> dict:
         "tags": texts,
         "confidence": {"type": "number"},
         "decay_class": decay,
+        "website": website,
     }, ["name", "type"], strict=strict)
     relationship = _object(
         {"source": text, "target": text, "label": text, "evidence_quote": quote},

@@ -667,8 +667,14 @@ class EntitySource(CamelModel):
     # served as stored; a stale id reads as no link app-side (the card resolves it against the graph's pages).
     origin: Optional[str] = None
     entity: Optional[str] = None
-    # PR2's stamp (Cicada's own read confirmed the entry); carried now so the wire does not move twice.
+    # G61 S3-b: Cicada's own read confirmed the entry (`{at, how}`), the access it needs as it is READ (stated, else
+    # inferred — `fact_sources.effective_access`), whether the card may lean on it (`fact_sources.trusted`: the person's,
+    # one they took, or a verified one) and — for a proposed site that was read and judged thin — that it is "not
+    # confirmed yet" (`checked`).
     verified: Optional[dict] = None
+    effective_access: Optional[str] = None
+    trusted: bool = True
+    checked: Optional[dict] = None
 
 
 class EntitySourceCreate(CamelModel):

@@ -1034,6 +1034,47 @@ async def _link_sources_safely(memory_path: Path) -> None:
         await asyncio.to_thread(source_links.restore, memory_path, report)
 
 
+async def _site_sources_safely(memory_path: Path) -> None:
+    """G61 S3-b — propose an official site from what a page already says (its `website` claim, a `## Links` host that
+    is its own name) and confirm proposed sites on Cicada's OWN rail (`link_enrichment.fetch_identity`): at most
+    `site_sources.TAIL_BUDGET` fetches a night, one per site, never a walled or platform host. Behind
+    `CICADA_ALLOW_CONNECTOR_FETCH` (the unattended-fetch gate; a skipped night writes nothing and asks nothing). One
+    path-scoped `cicada` commit (`Site check <date>`, trigger `sleep/site-check`, no engine trailer); pages dirty
+    before it ran are skipped and a failed commit restores them. Never raises."""
+    from api.services import site_sources
+    from api.services.connectors.base import network_allowed
+
+    if not network_allowed():
+        logger.info("site check skipped: unattended fetches are off (CICADA_ALLOW_CONNECTOR_FETCH)")
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Site check skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    report = site_sources.Report()   # built first and handed to both steps, so a page written before a failure is on it
+    try:
+        await asyncio.to_thread(site_sources.propose, memory_path, skip, report)
+        await site_sources.verify(memory_path, budget=site_sources.TAIL_BUDGET, skip=skip, report=report)
+    except Exception as exc:
+        # A page written before the failure must not ride the next `git add -A` writer's commit (the G85 smear).
+        logger.warning(f"Site check failed — undoing {len(report.paths)} page(s): {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(site_sources.restore, memory_path, report)
+        return
+    logger.info(f"Site check: {report.counts}")   # counts only — never a host, a page or a reason
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, site_sources.commit_message(report, date.today()), report.paths)
+    except Exception as exc:
+        logger.warning(f"Site check commit failed — undoing: {type(exc).__name__}: {exc}")
+        await asyncio.to_thread(site_sources.restore, memory_path, report)
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
     skip_links: bool = False,
@@ -1125,6 +1166,8 @@ async def _run_engine_independent_tail(
             # pull the person's real saves into the demo.
             logger.info("demo bank: connector, feed/calendar, link-backfill, paper and Wispr to-do steps skipped")
         else:
+            # G61 S3-b: before any poll's `git add -A`, so it cannot sweep this step's pages.
+            await _site_sources_safely(memory_path)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
             if skip_links:

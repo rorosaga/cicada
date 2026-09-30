@@ -40,6 +40,15 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
 - *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
 
+**Websites verified, pictures from sources (G61 S3-b) — built on `feat/sources-sites`, 2026-09-30 (PR to `dev`; not merged).** The owner:
+"the image resolver is not working the best for not as known things … get it from the icon of the actual website source … Sources are of
+extreme importance, and from them even the images can be derived." Stage 1's optional `website`, an engine-free backfill, Cicada's own read
+(`fetch_identity`), the Sleep-tail step behind `CICADA_ALLOW_CONNECTOR_FETCH` and `POST /maintenance/verify-sites`, `domain_for` reading only a
+trusted `website` source, a one-time logo-cache purge, the card's "not confirmed — Use this site". **Not yet seen live:** run
+`POST /maintenance/verify-sites` on a COPY of the real bank and read the counts (verified / unconfirmed / mismatch / unreachable) before the
+first nightly run; expect most company/tool pages to have no site until the backfill or a Stage 1 proposal finds one (they keep the monogram).
+*Pick up here:* review and merge, then PR3 (the agent check on G166's queue) from `~/.local/share/cicada-lead-scratch/wf4/plan-sources.md`.
+
 **Sources as a living set (G61 S3-a) — built on `feat/sources-set`, 2026-09-30 (PR to `dev`; not merged).** The owner: "sources …
 could be multiple, not just one. An agent can store/change/delete sources depending on whether they are relevant … Sources themselves
 can be linked to their own memory node." Many sources per fact; `cicada_change_source`; ownership (an agent changes only its own entries);
