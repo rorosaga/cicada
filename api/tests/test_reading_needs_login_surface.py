@@ -86,7 +86,8 @@ def test_the_sync_component_moves_and_sources_serves_the_state_under_a_new_etag(
     try:
         first = client.get("/sources")
         (item,) = first.json()["items"]
-        assert item["read"]["status"] == "waiting" and item["read"]["hostKey"] == "x" and item["read"]["askable"]
+        assert item["read"]["status"] == "waiting" and item["read"]["siteKey"] == "x" and item["read"]["askable"]
+        assert item["read"]["wall"] == "walled" and item["read"]["siteAllowed"] is False and "hostKey" not in item["read"]
         etag = first.headers["ETag"]
         assert client.get("/sources", headers={"If-None-Match": etag}).status_code == 304
         component = sync_service.components(memory)["reading"]

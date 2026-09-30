@@ -40,7 +40,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import skill_catalog, state_dictionary
+from api.services import agent_methods, skill_catalog, state_dictionary
 from api.services.auth import cicada_home
 
 # Bump when the contract or capability copy changes: the cache key carries
@@ -277,8 +277,9 @@ _CAPABILITIES = (
 # hand-off, in the primer's shorter voice. Emitted only while `reading.agent`
 # is on (the setting is part of the cache key).
 _READING_ITEM = (
-    "9. Reading pages for the person (they turned it on): `cicada_reading_queue(limit)` lists links they asked "
-    "an agent to read — check it when they ask, or when a note from Cicada says links are waiting. Open each "
+    "9. Reading pages for the person (they turned it on): `cicada_reading_queue(limit)` lists links waiting for "
+    "an agent to read (ones they asked about, and pages from sites they allowed) — check it when they ask, or "
+    "when a note from Cicada says links are waiting. Open each "
     "in the person's own signed-in browser session with your browser tools, then `cicada_record_read(url, "
     "outcome, summary, excerpts=[{quote}], via)`. If a page needs a login, code or captcha, never sign in or "
     "type credentials: record `needs_login` and move on. Never post, message, buy or change anything on a "
@@ -295,8 +296,8 @@ def _remote_reading_item(tools: frozenset[str]) -> str | None:
         return None
     parts = []
     if queue:
-        parts.append("`cicada_reading_queue(limit)` lists links the person asked an agent to read — check it when "
-                     "they ask")
+        parts.append("`cicada_reading_queue(limit)` lists links waiting for an agent to read (ones the person asked "
+                     "about, and pages from sites they allowed) — check it when they ask")
     if record:
         parts.append("open each in the person's own signed-in browser session with your own browser or computer "
                      "tools, then `cicada_record_read(url, outcome, summary, excerpts=[{quote}], via)`"
@@ -460,8 +461,8 @@ def _now_block(state: dict | None, bank: str, *, remote: bool = False, tz: str |
 
 
 def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None,
-              bridges: tuple[str, ...] = (), reading: bool = False) -> str:
-    capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges)
+              bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = ()) -> str:
+    capabilities = _CAPABILITIES + "".join(f"\n{line}" for line in bridges) + "".join(f"\n{line}" for line in methods)
     contract = _CONTRACT + (f"\n{_READING_ITEM}" if reading else "")
     return "\n\n".join([_WHAT, _PRELUDE[variant], contract, _now_block(state, bank, tz=tz), capabilities])
 
@@ -493,7 +494,7 @@ def _fit(assemble, state: dict | None) -> str:
 
 
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
-          bridges: tuple[str, ...] = (), reading: bool = False) -> str:
+          bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = ()) -> str:
     """Pure: the primer for a parsed state (or none) and a variant.
 
     The state block is the only elastic part (the contract is verbatim by
@@ -514,10 +515,16 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
     ``reading_settings.agent_enabled()``, so the item exists only while the
     person has agent reading on. It is in the fixed part, so ``_fit`` never
     trims it.
+
+    ``methods`` are at most ``skill_catalog.MAX_METHOD_LINES`` capability lines
+    saying how the person chose their agent reads (``agent_methods``); they live
+    in the fixed part beside the bridges, with their own cap, so a fourth bridge
+    never crowds them out and ``_fit`` never trims them. Local variants only.
     """
     variant = variant if variant in VARIANTS else "generic"
     bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
-    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading), state)
+    methods = tuple(methods)[: skill_catalog.MAX_METHOD_LINES]
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods), state)
 
 
 def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None,
@@ -599,12 +606,15 @@ def load_or_build(
         # bridge (`bridge_lines` returns [] otherwise); `build_remote` above is
         # untouched — a remote connection has no local skills.
         bridges = tuple(skill_catalog.bridge_lines(variant))
+        # G166: how the person chose their agent reads (agent_methods) — local variants only, and part of the
+        # key for the same reason the bridges are.
+        methods = tuple(agent_methods.method_lines(variant)) if reading else ()
         cache_name = variant
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.
-        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}"
+        key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}"
         make = lambda st: build(  # noqa: E731
-            st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges, reading=reading)
+            st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges, reading=reading, methods=methods)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)

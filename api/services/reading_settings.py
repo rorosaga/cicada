@@ -6,11 +6,18 @@
 * ``agent`` — the master switch, "Let an agent read pages for you". Off by
   default; while it is off ``cicada_reading_queue`` returns nothing, the tools
   refuse, and contract item 9 is not in the primer.
-* ``agent_hosts`` — which login-walled sites the person allowed an agent to be
-  asked about (``reading_hosts.AGENT_HOST_KEYS``). Empty by default.
+* ``agent_sites`` — ``{site: day}``: the sites the person let an agent read with
+  their own browser (owner, 2026-09-30: there is no pre-picked list; a site is
+  surfaced on Settings, Reading the web, when Cicada's own reader could not
+  read a page of it, and the person turns each on). A standing permission,
+  granted per site (``reading_hosts.site_of``); it only counts while the master
+  switch is on. Empty by default. The earlier ``agent_hosts`` key is ignored by
+  every reader and dropped on the next write: no carry-over, the branch had not
+  shipped.
 * ``agent_ack`` — ``{date, v}``: the person's "I understand" on the first-use
   sheet. Turning the switch on needs a current one; a change of the sheet's
-  wording bumps ``ACK_VERSION`` and asks again.
+  wording bumps ``ACK_VERSION`` and asks again (until they do, the switch reads
+  off).
 
 Read on EVERY call and never cached: the stdio MCP server and the backend are
 two processes that both read this file (the split-brain rule — a value one
@@ -29,8 +36,9 @@ from api.services.auth import cicada_home
 
 FILENAME = "reading.json"
 #: Bump when the first-use sheet's wording changes: every earlier "I understand"
-#: stops counting and the person is asked again.
-ACK_VERSION = 1
+#: stops counting and the person is asked again. (2: the sheet lost its site
+#: picker and gained the credentials line.)
+ACK_VERSION = 2
 
 
 def path() -> Path:
@@ -73,12 +81,23 @@ def agent_enabled() -> bool:
     return _load().get("agent") is True and ack_current()
 
 
-def allowed_hosts() -> tuple[str, ...]:
-    """The walled sites the person allowed, in the sheet's order; an unknown key
-    in a hand-edited file is dropped, never granted."""
-    raw = _load().get("agent_hosts")
-    held = {str(k) for k in raw} if isinstance(raw, list) else set()
-    return tuple(k for k in reading_hosts.AGENT_HOST_KEYS if k in held)
+def allowed_sites() -> dict[str, str]:
+    """``{site: day granted}`` as stored, in site order. A hand-edited key that is
+    not a valid site key grants nothing. NOT gated on the master switch — use
+    :func:`site_allowed` to ask whether a site counts right now."""
+    raw = _load().get("agent_sites")
+    out: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for key in sorted(raw):
+            if isinstance(key, str) and reading_hosts.valid_site_key(key):
+                out[key] = str(raw[key] or "")[:10]
+    return out
+
+
+def site_allowed(site: str) -> bool:
+    """Does the person's permission for ``site`` count right now? False whenever
+    the master switch is off — one place, so every reader agrees."""
+    return agent_enabled() and site in allowed_sites()
 
 
 def ack() -> dict | None:
@@ -102,7 +121,7 @@ def snapshot() -> dict:
     held = ack()
     return {
         "agentEnabled": agent_enabled(),
-        "agentHosts": list(allowed_hosts()),
+        "allowedSites": allowed_sites(),
         "ackedAt": held["date"] if held else None,
         "ackCurrent": ack_current(),
     }
@@ -112,43 +131,73 @@ class SettingsError(ValueError):
     """A change the person's settings refuse, with a sentence they can read."""
 
 
-def update(*, agent_enabled_: bool | None = None, agent_hosts=None, acknowledge: bool = False,
-           today: date | None = None) -> dict:
+def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sites=None,
+           surfaced=None, today: date | None = None) -> dict:
     """Apply one change and return the new snapshot.
 
     Turning the switch on needs a current acknowledgement — either already
-    stored, or given in this same call (``acknowledge``). An unknown host key is
-    refused whole, nothing written. Turning it off keeps the acknowledgement and
-    the per-site choices, so turning it back on does not re-ask."""
+    stored, or given in this same call (``acknowledge``). ``sites`` is a *patch*
+    ``{site: bool}``: True stamps today, False removes; an invalid key refuses
+    the whole call, nothing written. A grant (True) for a site that is neither
+    currently surfaced (``surfaced``, the sites the reader could not read) nor
+    already granted is refused too — a permission for a site nothing has asked
+    about would be a pre-picked list through the side door. A grant with no
+    current acknowledgement (stored, or given in the same call) is refused with
+    the sheet sentence; with one, it is stored even while the switch is off and
+    counts once it is on (``site_allowed``). Turning the switch off keeps the
+    acknowledgement and the grants (they read as not counting until it is back)."""
     data = _load()
     original = json.loads(json.dumps(data))
-    if agent_hosts is not None:
-        keys = [str(k) for k in agent_hosts] if isinstance(agent_hosts, (list, tuple, set, frozenset)) else None
-        if keys is None:
-            raise SettingsError("agentHosts must be a list of site keys.")
-        unknown = sorted(k for k in keys if k not in reading_hosts.AGENT_HOST_KEYS)
-        if unknown:
-            raise SettingsError(
-                f"Unknown site: {', '.join(unknown)}. The sites are {', '.join(reading_hosts.AGENT_HOST_KEYS)}.")
-        data["agent_hosts"] = [k for k in reading_hosts.AGENT_HOST_KEYS if k in set(keys)]
+    data.pop("agent_hosts", None)  # the pre-picked list is gone; nothing carries over
+    if sites is not None:
+        if not isinstance(sites, dict):
+            raise SettingsError("sites must be a map of site to true or false.")
+        bad = sorted(str(k) for k in sites if not reading_hosts.valid_site_key(str(k)))
+        if bad:
+            raise SettingsError(f"That is not a site name: {', '.join(bad)}. Nothing was changed.")
     if acknowledge:
         data["agent_ack"] = {"date": (today or date.today()).isoformat(), "v": ACK_VERSION}
     if agent_enabled_ is not None:
-        if agent_enabled_:
-            held = data.get("agent_ack")
-            try:
-                current = isinstance(held, dict) and int(held.get("v")) >= ACK_VERSION
-            except (TypeError, ValueError):
-                current = False
-            if not current:
-                raise SettingsError(
-                    "Read the sheet and tick I understand before turning this on. Nothing was changed.")
+        if agent_enabled_ and not _ack_ok(data):
+            raise SettingsError(
+                "Read the sheet and tick I understand before turning this on. Nothing was changed.")
         data["agent"] = bool(agent_enabled_)
+    if sites:
+        wants_on = [str(k) for k, v in sites.items() if v]
+        if wants_on and not _ack_ok(data):
+            raise SettingsError(
+                "Read the sheet and tick I understand before turning this on. Nothing was changed.")
+        held = data.get("agent_sites") if isinstance(data.get("agent_sites"), dict) else {}
+        held = {str(k): str(v) for k, v in held.items() if reading_hosts.valid_site_key(str(k))}
+        known = set(held) | {str(k) for k in (surfaced or ())}
+        stranger = sorted(k for k in wants_on if k not in known)
+        if stranger:
+            raise SettingsError(
+                f"Cicada hasn't needed your browser for {', '.join(stranger)}, so there is nothing to allow yet. "
+                "Nothing was changed.")
+        for key, on in sites.items():
+            key = str(key)
+            if on:
+                held.setdefault(key, (today or date.today()).isoformat())
+            else:
+                held.pop(key, None)
+        if held:
+            data["agent_sites"] = dict(sorted(held.items()))
+        else:
+            data.pop("agent_sites", None)
     if data != original:
         # A no-op call writes nothing, so the sync component's mtime never
         # moves for a change that changed nothing.
         _save(data)
     return snapshot()
+
+
+def _ack_ok(data: dict) -> bool:
+    held = data.get("agent_ack")
+    try:
+        return isinstance(held, dict) and int(held.get("v")) >= ACK_VERSION
+    except (TypeError, ValueError):
+        return False
 
 
 # --- the last read an agent recorded ----------------------------------------------

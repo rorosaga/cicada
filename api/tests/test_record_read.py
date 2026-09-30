@@ -249,7 +249,7 @@ def test_an_unknown_outcome_is_refused(saved):
     ("https://arxiv.org/abs/2401.00001", "paper"),
     ("https://blog.bob-example.org/a?token=abc", "secret"),
     ("http://192.168.1.5/a", "private network"),
-    ("https://www.reddit.com/r/alpha", "never offers"),
+    ("https://t.co/abc", "redirector"),
     ("https://chatgpt.com/share/abc", "AI app"),
 ])
 def test_a_denied_class_is_refused_with_its_sentence(saved, url, needle):
@@ -259,13 +259,12 @@ def test_a_denied_class_is_refused_with_its_sentence(saved, url, needle):
     assert not list((memory / "episodes").glob("*page-read*"))
 
 
-def test_a_walled_host_whose_switch_is_off_is_refused(reading):
+def test_a_walled_host_with_an_explicit_ask_records_with_no_site_permission(reading):
+    """'Ask an agent' on one page is the person's own consent for it: no site switch stands in the way
+    of an ask. (A page of a site nobody asked about needs the site's permission: test_reading_record_site.py.)"""
     server, memory = reading
     ask(memory, WALLED)
-    enable(hosts=())
-    out = record(server, url=WALLED, outcome="needs_login")
-    assert out.startswith("Not recorded:") and "X is not turned on" in out
-    enable(hosts=("x",))
+    enable(sites=())
     assert record(server, url=WALLED, outcome="needs_login").startswith("Recorded: the person needs to sign in")
 
 

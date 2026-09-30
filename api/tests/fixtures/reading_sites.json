@@ -1,0 +1,44 @@
+{
+ "sites": [
+  {
+   "site": "linkedin",
+   "label": "LinkedIn",
+   "wall": "walled",
+   "allowed": true,
+   "since": "2026-09-30",
+   "waiting": 1,
+   "read": 0,
+   "needsLogin": 1,
+   "note": null,
+   "iconHost": "linkedin.com"
+  },
+  {
+   "site": "paperfold.io",
+   "label": "paperfold.io",
+   "wall": "refused",
+   "allowed": false,
+   "since": null,
+   "waiting": 4,
+   "read": 0,
+   "needsLogin": 0,
+   "note": null,
+   "iconHost": "paperfold.io"
+  },
+  {
+   "site": "tiktok",
+   "label": "TikTok",
+   "wall": "walled",
+   "allowed": false,
+   "since": null,
+   "waiting": 1,
+   "read": 0,
+   "needsLogin": 0,
+   "note": "Profiles and pages only. A video goes through your agent's video tools.",
+   "iconHost": "tiktok.com"
+  }
+ ],
+ "waitingTotal": 6,
+ "waitingNotAllowed": 5,
+ "enabled": true,
+ "shape": "reading-sites-2"
+}

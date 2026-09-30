@@ -45,6 +45,11 @@ EXPIRES_AFTER_DAYS = 7
 MAX_NOTE_CHARS = 200
 MAX_VIA_CHARS = 40
 MAX_ROWS = 500
+#: Rows an agent's outcome created for a page of a site the person allowed (no
+#: explicit ask behind them). They are evicted before any explicit ask and
+#: capped, so a big allowed site can never push the person's own asks out.
+MAX_SITE_ROWS = 200
+ORIGIN_SITE = "site"
 STATES = ("waiting", "read", "needs_login", "blocked", "not_found", "failed")
 #: What an agent may record. ``waiting`` is the person's, never an outcome.
 OUTCOMES = STATES[1:]
@@ -123,6 +128,8 @@ def _clean_row(raw) -> dict | None:
         value = raw.get(key)
         if isinstance(value, str) and value:
             row[key] = value
+    if raw.get("origin") == ORIGIN_SITE:
+        row["origin"] = ORIGIN_SITE
     return row
 
 
@@ -168,8 +175,25 @@ def _locked(memory_path: Path):
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
+def _bounded(rows: list[dict]) -> list[dict]:
+    """The rows a write keeps: site-origin rows first to go (newest 200 of them
+    stay), then the oldest of the rest past ``MAX_ROWS`` — list order is time."""
+    site = [r for r in rows if r.get("origin") == ORIGIN_SITE]
+    if len(site) > MAX_SITE_ROWS:
+        drop = {id(r) for r in site[:-MAX_SITE_ROWS]}
+        rows = [r for r in rows if id(r) not in drop]
+    if len(rows) > MAX_ROWS:
+        overflow = len(rows) - MAX_ROWS
+        # Evict site rows before any explicit one, oldest first within each class.
+        order = [i for i, r in enumerate(rows) if r.get("origin") == ORIGIN_SITE] + \
+                [i for i, r in enumerate(rows) if r.get("origin") != ORIGIN_SITE]
+        gone = set(order[:overflow])
+        rows = [r for i, r in enumerate(rows) if i not in gone]
+    return rows
+
+
 def _write(target: Path, rows: list[dict]) -> None:
-    rows = rows[-MAX_ROWS:]
+    rows = _bounded(rows)
     fd, tmp = tempfile.mkstemp(prefix=".asks-", suffix=".tmp", dir=str(target.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -199,26 +223,33 @@ def ask(memory_path: Path, url_hash: str, *, host: str, host_class: str, now: da
 
 
 def record_outcome(memory_path: Path, url_hash: str, state: str, *, host: str = "", host_class: str = "public",
-                   via=None, harness: str | None = None, note=None, now: datetime | None = None) -> dict | None:
-    """The agent's outcome for a link the person asked about. The row keeps its
-    ask time and host. **A link with no live row gets none**: an outcome is an
-    answer to an ask, so an agent cannot plant a state on a link nobody asked
-    about (returns ``None``, writes nothing). ``host`` and ``host_class`` are
-    used only when the stored row lacks them."""
+                   via=None, harness: str | None = None, note=None, now: datetime | None = None,
+                   create: bool = False, origin: str | None = None) -> dict | None:
+    """The agent's outcome for a link. The row keeps its ask time and host.
+    **A link with no live row gets none** unless ``create`` is set: an outcome is
+    an answer to an ask, so an agent cannot plant a state on a link nobody asked
+    about (returns ``None``, writes nothing). The one caller that passes
+    ``create=True`` is ``mcp_tools.record_read``, and only after
+    ``reading_queue.authorizes`` said the page is on a site the person allowed
+    (the row then carries ``origin: site``). ``host`` and ``host_class`` are used
+    only when the stored row lacks them."""
     if state not in OUTCOMES:
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}")
     moment = _now(now)
     with _locked(memory_path) as target:
         rows = [r for r in _read_file(memory_path) if _alive(r, moment)]
         current = next((r for r in rows if r["url_hash"] == url_hash), None)
-        if current is None:
+        if current is None and not create:
             return None
         rows = [r for r in rows if r["url_hash"] != url_hash]
         row = {"url_hash": url_hash,
-               "host": current.get("host") or str(host or "")[:120],
-               "host_class": current.get("host_class") or ("walled" if host_class == "walled" else "public"),
-               "asked_at": current.get("asked_at") or _iso(moment), "state": state,
+               "host": (current or {}).get("host") or str(host or "")[:120],
+               "host_class": (current or {}).get("host_class") or ("walled" if host_class == "walled" else "public"),
+               "asked_at": (current or {}).get("asked_at") or _iso(moment), "state": state,
                "outcome_at": _iso(moment)}
+        keep_origin = (current or {}).get("origin") or (origin if create and current is None else None)
+        if keep_origin == ORIGIN_SITE:
+            row["origin"] = ORIGIN_SITE
         for key, value in (("via", clean_via(via)), ("harness", (harness or "").strip()[:60] or None),
                            ("note", clean_note(note))):
             if value:
@@ -226,6 +257,20 @@ def record_outcome(memory_path: Path, url_hash: str, state: str, *, host: str = 
         rows.append(row)
         _write(target, rows)
     return row
+
+
+def drop_where(memory_path: Path, predicate, *, now: datetime | None = None) -> int:
+    """Remove every live row ``predicate(row)`` is true for and return how many.
+    Prunes whatever expired beside them. Used to lift a site's ``needs_login``
+    pause when the person switches the site on again."""
+    moment = _now(now)
+    with _locked(memory_path) as target:
+        raw = _read_file(memory_path)
+        rows = [r for r in raw if _alive(r, moment)]
+        kept = [r for r in rows if not predicate(r)]
+        if len(kept) != len(raw):
+            _write(target, kept)
+    return len(rows) - len(kept)
 
 
 def drop(memory_path: Path, url_hash: str, *, now: datetime | None = None) -> bool:

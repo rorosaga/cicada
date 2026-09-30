@@ -307,7 +307,7 @@ class RemoteRuntime:
         try:
             from api.services import hook_recall, recall_text
 
-            waiting = hook_recall.waiting_links(memory_path)
+            waiting = hook_recall.waiting_links(memory_path, include_words_origin="cicada_sources" in tools)
             if waiting <= 0:
                 return ""
             return "\n\n" + recall_text.reading_line(waiting, record="cicada_record_read" in tools)

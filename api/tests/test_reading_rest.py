@@ -1,6 +1,6 @@
-"""G166 — the app's reading routes: settings and the acknowledgement, "Ask an
-agent" (which saves an unsaved link without a fetch, as the person), the asks and
-their ETag, cancel, the hand-off prompt, and the `read` block on `GET /sources`."""
+"""G166 — the app's reading routes: settings, the acknowledgement and the per-site permission
+patch, "Ask an agent" (which saves an unsaved link without a fetch, as the person), the asks
+and their ETag, cancel, the hand-off prompt, and the `read` block on `GET /sources`."""
 from __future__ import annotations
 
 import subprocess
@@ -8,7 +8,7 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
-from _reading_fixtures import PUBLIC, WALLED, enable, git_log, porcelain, record, reading, stdio_server  # noqa: F401
+from _reading_fixtures import PUBLIC, WALLED, enable, git_log, porcelain, record, reading, save, stdio_server  # noqa: F401
 from _synthetic_bank import _bank
 from api import config, main
 from api.services import media_ingestor, reading_asks, reading_prompt, reading_settings
@@ -28,24 +28,23 @@ def api(tmp_path, monkeypatch):
 # --- settings ---------------------------------------------------------------------
 
 
-def test_settings_start_off_with_the_five_switches_described(api):
+def test_get_settings_has_no_agent_hosts_or_host_switches(api):
     client, _ = api
     body = client.get("/reading/settings").json()
-    assert (body["agentEnabled"], body["agentHosts"], body["ackedAt"], body["ackCurrent"]) == (False, [], None, False)
-    assert [s["key"] for s in body["hostSwitches"]] == ["linkedin", "x", "facebook", "instagram", "tiktok"]
-    x = next(s for s in body["hostSwitches"] if s["key"] == "x")
-    assert x["label"] == "X" and x["domains"] == ["x.com", "twitter.com"]
-    assert "video" in next(s for s in body["hostSwitches"] if s["key"] == "tiktok")["note"].lower()
-    assert body["lastAgentRead"] is None and body["ackVersion"] == reading_settings.ACK_VERSION
+    assert (body["agentEnabled"], body["allowedSites"], body["ackedAt"], body["ackCurrent"]) == (False, {}, None, False)
+    assert "agentHosts" not in body and "hostSwitches" not in body, "no pre-picked list of sites"
+    assert body["lastAgentRead"] is None and body["ackVersion"] == reading_settings.ACK_VERSION == 2
+    assert body["shape"] == "reading-2"
 
 
 def test_settings_etag_and_304(api):
-    client, _ = api
+    client, memory = api
+    save(memory, "https://www.linkedin.com/in/alpha")
     first = client.get("/reading/settings")
     assert client.get("/reading/settings", headers={"If-None-Match": first.headers["ETag"]}).status_code == 304
-    client.put("/reading/settings", json={"agentHosts": ["x"]})
+    client.put("/reading/settings", json={"agentEnabled": True, "acknowledge": True, "sites": {"linkedin": True}})
     changed = client.get("/reading/settings", headers={"If-None-Match": first.headers["ETag"]})
-    assert changed.status_code == 200 and changed.json()["agentHosts"] == ["x"]
+    assert changed.status_code == 200 and list(changed.json()["allowedSites"]) == ["linkedin"]
 
 
 def test_turning_on_without_the_acknowledgement_is_a_422_with_a_sentence(api):
@@ -55,18 +54,26 @@ def test_turning_on_without_the_acknowledgement_is_a_422_with_a_sentence(api):
     assert client.get("/reading/settings").json()["agentEnabled"] is False
 
 
-def test_the_sheet_turns_it_on_with_its_sites_in_one_call(api):
-    client, _ = api
-    r = client.put("/reading/settings", json={"agentEnabled": True, "acknowledge": True, "agentHosts": ["linkedin"]})
+def test_put_sites_patch_round_trip_and_422_sentences(api):
+    client, memory = api
+    save(memory, "https://www.linkedin.com/in/alpha")
+    # the sheet: one call turns the switch on, acknowledges, and allows the site
+    r = client.put("/reading/settings", json={"agentEnabled": True, "acknowledge": True, "sites": {"linkedin": True}})
     body = r.json()
-    assert r.status_code == 200 and body["agentEnabled"] and body["ackCurrent"] and body["agentHosts"] == ["linkedin"]
+    assert r.status_code == 200 and body["agentEnabled"] and body["ackCurrent"] and list(body["allowedSites"]) == ["linkedin"]
     assert body["ackedAt"]
-
-
-def test_an_unknown_site_is_a_422(api):
-    client, _ = api
-    r = client.put("/reading/settings", json={"agentHosts": ["x", "reddit"]})
-    assert r.status_code == 422 and "reddit" in r.json()["detail"]
+    # taking it back
+    off = client.put("/reading/settings", json={"sites": {"linkedin": False}}).json()
+    assert off["allowedSites"] == {} and off["agentEnabled"] is True
+    # a malformed key, and a site Cicada has not needed the browser for, are 422s with sentences
+    bad = client.put("/reading/settings", json={"sites": {"Not A Site": True}})
+    assert bad.status_code == 422 and "Not A Site" in bad.json()["detail"]
+    never = client.put("/reading/settings", json={"sites": {"paperfold.io": True}})
+    assert never.status_code == 422 and "nothing to allow" in never.json()["detail"]
+    # a grant with no current acknowledgement needs the sheet
+    (memory.parent / "home" / "reading.json").unlink()
+    needs_sheet = client.put("/reading/settings", json={"sites": {"linkedin": True}})
+    assert needs_sheet.status_code == 422 and "I understand" in needs_sheet.json()["detail"]
 
 
 def test_the_last_agent_read_shows_only_once_one_has_been_recorded(api, monkeypatch, tmp_path):
@@ -124,11 +131,12 @@ def test_an_ask_with_reading_off_is_a_409_and_writes_nothing(api):
     assert not (reading_asks.path_for(memory)).exists() and media_ingestor.load_url_index(memory) == {}
 
 
-def test_a_walled_site_that_is_switched_off_is_a_409_naming_the_switch(api):
+def test_a_walled_link_is_askable_whenever_the_master_switch_is_on(api):
+    """The per-site 409 is gone: 'Ask an agent' on one page is the person's own consent for it."""
     client, _ = api
-    enable(hosts=())
+    enable(sites=())
     r = client.post("/reading/asks", json={"url": WALLED})
-    assert r.status_code == 409 and "X is not turned on" in r.json()["detail"]
+    assert r.status_code == 200 and r.json()["ask"]["host_class"] == "walled"
 
 
 @pytest.mark.parametrize("url, needle", [
@@ -136,7 +144,7 @@ def test_a_walled_site_that_is_switched_off_is_a_409_naming_the_switch(api):
     ("https://arxiv.org/abs/2401.00001", "paper"),
     ("https://blog.bob-example.org/a?token=abc", "secret"),
     ("http://localhost/a", "this Mac"),
-    ("https://www.reddit.com/r/alpha", "never offers"),
+    ("https://t.co/abc", "redirector"),
     ("ftp://x", "web address"),
 ])
 def test_a_denied_link_is_a_422_with_a_plain_sentence(api, url, needle):

@@ -1,8 +1,9 @@
 """G166 — the waiting-links sentence. Nothing tells an agent to check the reading
 queue, and the queue lives outside the bank (so `_state.md` cannot carry it), so
-the recall hook adds ONE per-request sentence — "N links the person asked an
-agent to read are waiting" — only while agent reading is on and only when more
-wait than this session was last told. Never stored, never in `_state.md`, never
+the recall hook adds ONE per-request sentence — "N links are waiting in Cicada's
+reading queue for an agent to read" — only while agent reading is on and only when
+more wait than this session was last told (a new ask always; pages of allowed sites
+only once they grew by ten, so a long session is not re-told for every save). Never stored, never in `_state.md`, never
 captured back as the person's words. The remote handshake adds the same sentence
 for a connection that can read the queue."""
 from __future__ import annotations
@@ -19,7 +20,7 @@ from api.services import hook_recall, media_ingestor, reading_asks, reading_serv
 from api.services import transcript_extract
 from test_hook_context_route import URL, _body, _clean  # noqa: F401 — autouse cleanup
 from test_hook_recall import _index, bank  # noqa: F401
-from _reading_fixtures import PUBLIC, enable
+from _reading_fixtures import PUBLIC, enable, put_page
 
 
 @pytest.fixture(autouse=True)
@@ -91,11 +92,20 @@ def test_it_rides_beside_a_page_note(client, bank):
     assert len(page_part) // 4 <= hook_recall.MAX_TOKENS, "the page note keeps its own 400-token budget"
 
 
-def test_a_walled_link_the_person_did_not_switch_on_is_not_counted(client, bank):
-    enable(hosts=("x",))
+def test_a_wall_page_of_a_site_that_is_not_allowed_is_not_counted_but_an_ask_is(client, bank):
+    enable()
     _ask(bank, "https://x.com/alpha/status/1")
-    assert hook_recall.waiting_links(bank) == 1
-    enable(hosts=())
+    assert hook_recall.waiting_links(bank) == 1, "an explicit ask needs no site permission"
+    reading_asks.drop(bank, media_ingestor.url_hash("https://x.com/alpha/status/1"))
+    assert hook_recall.waiting_links(bank) == 0, "a saved wall page of a site nobody allowed"
+    enable(sites=("x",))
+    from api.services import bank_index
+
+    bank_index.invalidate(bank)
+    assert hook_recall.waiting_links(bank) in (0, 1)  # cold cache: the derived part is counted next prompt
+    bank_index.files(bank, "entities")
+    assert hook_recall.waiting_links(bank) == 1, "allowed: it is waiting, with no write anywhere"
+    enable(sites=())
     assert hook_recall.waiting_links(bank) == 0
 
 
@@ -158,3 +168,53 @@ def test_the_remote_primer_promises_only_what_the_tools_will_do(bank):
     assert "when the person gives you a link" not in record_only
     queue_only = handshake._remote_reading_item(frozenset({"cicada_reading_queue"}))
     assert "stop and tell the person" in queue_only and "needs_login" not in queue_only
+
+
+def test_a_running_session_is_re_told_for_a_new_ask_but_not_for_every_saved_wall_page(client, bank):
+    for i in range(3):
+        put_page(bank, f"w{i}", f"https://www.linkedin.com/in/w{i}")
+    enable(sites=("linkedin",))
+    from api.services import bank_index
+
+    bank_index.files(bank, "entities")  # warm: the hook counts the derived part only from a warm cache
+    body = lambda: _body("fix the failing test in the parser", session="s-derived")  # noqa: E731
+    first = client.post(URL, json=body()).json()
+    assert recall_text.reading_line(3) in first["additionalContext"], "derived pages count once the cache is warm"
+    put_page(bank, "w3", "https://www.linkedin.com/in/w3")
+    bank_index.files(bank, "entities")
+    assert client.post(URL, json=body()).json()["additionalContext"] is None, "one more saved page: no repeat"
+    _ask(bank)
+    bank_index.files(bank, "entities")
+    again = client.post(URL, json=body()).json()
+    assert recall_text.reading_line(5) in again["additionalContext"], "a new ask is always told"
+    for i in range(4, 16):
+        put_page(bank, f"w{i}", f"https://www.linkedin.com/in/w{i}")
+    bank_index.files(bank, "entities")
+    big = client.post(URL, json=body()).json()
+    assert big["additionalContext"] is not None, "growth of ten or more is told"
+
+
+def test_the_hook_never_parses_a_cold_bank(client, bank, monkeypatch):
+    put_page(bank, "w", "https://www.linkedin.com/in/w")
+    enable(sites=("linkedin",))
+    from api.services import bank_index, reading_walls
+
+    bank_index.invalidate(bank)
+    monkeypatch.setattr(reading_walls, "scan", lambda *a, **k: (_ for _ in ()).throw(AssertionError("cold scan")))
+    assert hook_recall.waiting_links(bank) == 0
+
+
+def test_a_cold_cache_never_reads_as_drained(client, bank):
+    """A bank write makes the page cache cold; the derived count is then unknown, not zero, so a running
+    session is neither re-told nor reset while the cache warms in the background."""
+    for i in range(4):
+        put_page(bank, f"w{i}", f"https://www.linkedin.com/in/w{i}")
+    enable(sites=("linkedin",))
+    from api.services import bank_index
+
+    bank_index.files(bank, "entities")
+    body = lambda: _body("fix the failing test in the parser", session="s-cold")  # noqa: E731
+    assert recall_text.reading_line(4) in client.post(URL, json=body()).json()["additionalContext"]
+    bank_index.invalidate(bank)  # e.g. a Sleep rewrite
+    assert client.post(URL, json=body()).json()["additionalContext"] is None
+    assert hook_recall.READING_SEEN.told("s-cold") == 4, "the higher count is remembered, not reset to the cold 0"

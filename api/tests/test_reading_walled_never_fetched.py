@@ -62,3 +62,13 @@ def test_a_deferred_save_of_a_walled_link_makes_no_request_and_no_enrich_call(tm
     assert result.status == "created" and result.title == "1"
     assert media_ingestor.url_hash(item.url) in idx
     assert (memory / "entities" / f"{result.media_entity_id}.md").exists()
+
+
+def test_reddit_is_walled_like_the_rest_and_never_requested():
+    """Owner 2026-09-30: Reddit surfaces like any site (no never-offered carve-out), but the backend
+    still never requests its pages."""
+    client = Client()
+    for url in ("https://www.reddit.com/r/alpha/comments/abc/", "https://old.reddit.com/r/alpha", "https://redd.it/abc"):
+        asyncio.run(media_ingestor.enrich(url, client))
+        assert link_enrichment._excluded_media(url, "url") is True
+    assert client.calls == []

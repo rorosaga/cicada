@@ -8,7 +8,10 @@ mint rule live in one place:
   ``read:`` stamp (a successful read is memory, on the page) and the ask store
   (every outcome, and "waiting", outside the bank). The newest wins and a tie
   goes to the ask. It also carries whether "Ask an agent" is on offer and, when
-  not, the sentence why — so the app holds no host table of its own.
+  not, the sentence why — so the app holds no host table of its own. When
+  Cicada's own reader could not read the page it also names the wall and the
+  site (``reading_walls``, ``reading_hosts.site_of``), so the detail column can
+  offer the site's switch.
 * :func:`ask` — the person's "Ask an agent" on a link. A link that is not saved
   yet is saved first, **without a fetch** (``RawItem.defer_enrich``), as the
   person's own save (``Cicada-Author: user``, ``user/media_save``) — asking must
@@ -45,17 +48,25 @@ def _parse(value) -> datetime | None:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
-def read_state(url: str, fm_read, ask_row, *, enabled: bool, allowed_hosts) -> dict | None:
+def read_state(url: str, fm_read, ask_row, *, enabled: bool, wall: str | None = None,
+               allowed_sites=(), paused_sites=()) -> dict | None:
     """The ``read`` wire block for one link, or ``None`` for a link that is not a
     page to read (a video, a paper, or a class an agent is never offered) and has
-    nothing recorded. Pure: no file is opened here."""
-    verdict = reading_hosts.agent_may_read(url, enabled=enabled, allowed_hosts=allowed_hosts)
+    nothing recorded. Pure: no file is opened here.
+
+    ``wall`` is the page's wall kind when Cicada's reader could not read it and
+    it holds no words (``reading_walls``); ``allowed_sites`` / ``paused_sites``
+    are the person's permissions and the sites an agent was not signed in to
+    (``reading_queue.paused_sites``). ``askable`` is the structural verdict plus
+    the master switch, nothing about the site: "Ask an agent" on one page is the
+    person's own consent for it. A wall page of an allowed site with no ask of
+    its own reads ``waiting`` with ``queuedBy: site``."""
+    verdict = reading_hosts.agent_may_read(url, enabled=enabled)
     stamp = fm_read if isinstance(fm_read, dict) and fm_read.get("by") == "agent" else None
     if not verdict.ok and verdict.cls != "off" and stamp is None and ask_row is None:
         return None
     state: dict = {"status": "none", "host": reading_hosts.display_host(verdict.host) or None,
-                   "hostKey": verdict.host_key, "askable": verdict.ok,
-                   "reason": None if verdict.ok else verdict.reason}
+                   "askable": verdict.ok, "reason": None if verdict.ok else verdict.reason}
     stamp_at = _parse(stamp.get("at")) if stamp else None
     ask_at = _parse((ask_row or {}).get("outcome_at") or (ask_row or {}).get("asked_at")) if ask_row else None
     use_ask = ask_row is not None and (stamp_at is None or (ask_at is not None and ask_at >= stamp_at))
@@ -70,7 +81,16 @@ def read_state(url: str, fm_read, ask_row, *, enabled: bool, allowed_hosts) -> d
     elif stamp is not None:
         state.update(status="ok", by="agent", tier=str(stamp.get("tier") or "agent"), at=stamp.get("at"),
                      via=stamp.get("via"), harness=stamp.get("harness"))
-    return {k: v for k, v in state.items() if v is not None or k in ("hostKey", "reason")}
+    if wall and (verdict.ok or verdict.cls == "off"):
+        site = verdict.site
+        allowed = bool(enabled and site in set(allowed_sites or ()))
+        state.update(wall=wall, siteKey=site, siteLabel=reading_hosts.site_label(site), siteAllowed=allowed)
+        icon = reading_hosts.icon_host(site)
+        if icon:
+            state["siteIconHost"] = icon
+        if state["status"] == "none" and allowed and site not in set(paused_sites or ()):
+            state.update(status="waiting", queuedBy="site")
+    return {k: v for k, v in state.items() if v is not None or k == "reason"}
 
 
 async def ask(memory_path: Path, url: str) -> dict:
@@ -79,10 +99,9 @@ async def ask(memory_path: Path, url: str) -> dict:
     memory_path = Path(memory_path)
     url = (url or "").strip()
     enabled = reading_settings.agent_enabled()
-    verdict = reading_hosts.agent_may_read(
-        url, enabled=enabled, allowed_hosts=reading_settings.allowed_hosts())
+    verdict = reading_hosts.agent_may_read(url, enabled=enabled)
     if not verdict.ok:
-        # The link's own class is a 422; the person's switches are a 409.
+        # The link's own class is a 422; the person's master switch is a 409.
         raise AskRefused(409 if verdict.cls == "off" else 422, verdict.reason)
     h = media_ingestor.url_hash(url)
     idx = media_ingestor.load_url_index(memory_path)

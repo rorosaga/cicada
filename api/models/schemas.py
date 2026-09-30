@@ -2895,9 +2895,14 @@ class ReadState(CamelModel):
     ``blocked`` | ``not_found`` | ``failed``. ``by``/``tier`` are ``agent`` only
     when an agent read it. ``via`` is what the agent SAID it read with —
     self-reported, never proof; ``harness`` is the connection's label.
-    ``askable``/``reason``/``hostKey`` let the app decide "Ask an agent" without a
-    host table of its own: ``askable`` false carries the plain sentence why (agent
-    reading off, a site not switched on, a video, a secret-bearing link)."""
+    ``askable``/``reason`` let the app decide "Ask an agent" without a host table
+    of its own: ``askable`` false carries the plain sentence why (agent reading
+    off, a video, a secret-bearing link) — never a site, because "Ask an agent" on
+    one page is the person's own consent for it. ``wall`` (``walled`` | ``login`` |
+    ``consent`` | ``refused``) is present when Cicada's own reader could not read
+    the page and it holds no words; ``siteKey``/``siteLabel``/``siteAllowed`` name
+    the site the person can let an agent read, and ``queuedBy: site`` marks a
+    ``waiting`` that comes from that permission rather than from an ask."""
 
     by: Optional[str] = None
     status: str = "none"
@@ -2908,7 +2913,12 @@ class ReadState(CamelModel):
     harness: Optional[str] = None
     note: Optional[str] = None
     host: Optional[str] = None
-    host_key: Optional[str] = None
+    wall: Optional[str] = None
+    site_key: Optional[str] = None
+    site_label: Optional[str] = None
+    site_allowed: Optional[bool] = None
+    site_icon_host: Optional[str] = None
+    queued_by: Optional[str] = None
     askable: bool = False
     reason: Optional[str] = None
 

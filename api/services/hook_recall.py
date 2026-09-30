@@ -452,22 +452,31 @@ class _ReadingSeen:
 
     The waiting count is per request and never written to ``_state.md`` (it is
     machine-wide state outside the bank); this only keeps the sentence from
-    repeating every turn. A session hears it again only when MORE links are
-    waiting than it was last told about. Process-local, bounded, thread-safe."""
+    repeating every turn. A session hears it again when MORE of the person's own
+    asks are waiting than it was last told about, or when pages of allowed sites
+    grew by ``REPEAT_STEP`` or more (a long-lived session is not re-told for every
+    save). Process-local, bounded, thread-safe."""
+
+    #: How much the derived (allowed-site) count must grow before a running session hears it again.
+    REPEAT_STEP = 10
 
     def __init__(self, sessions: int = MAX_SESSIONS):
         self._sessions = sessions
         self._lock = threading.Lock()
-        self._data: OrderedDict[str, int] = OrderedDict()
+        self._data: OrderedDict[str, tuple[int, int]] = OrderedDict()
 
     def told(self, session_id: str) -> int:
         with self._lock:
-            return self._data.get(session_id, 0)
+            return self._data.get(session_id, (0, 0))[0]
 
-    def remember(self, session_id: str, waiting: int) -> None:
+    def told_asks(self, session_id: str) -> int:
         with self._lock:
-            self._data.pop(session_id, None)
-            self._data[session_id] = waiting
+            return self._data.get(session_id, (0, 0))[1]
+
+    def remember(self, session_id: str, waiting: int, asks: int | None = None) -> None:
+        with self._lock:
+            held = self._data.pop(session_id, (0, 0))
+            self._data[session_id] = (waiting, held[1] if asks is None else asks)
             while len(self._data) > self._sessions:
                 self._data.popitem(last=False)
 
@@ -479,51 +488,50 @@ class _ReadingSeen:
 READING_SEEN = _ReadingSeen()
 
 
-def waiting_links(memory_path: Path) -> int:
-    """How many links the person asked an agent to read are waiting — 0 unless
-    agent reading is on. Engine-free: two small files outside the bank."""
-    from api.services import reading_asks, reading_hosts, reading_settings
+def waiting_links(memory_path: Path, *, include_words_origin: bool = True) -> int:
+    """How many links are waiting for an agent to read — 0 unless agent reading is
+    on. The person's asks, plus saved pages of sites they allowed that Cicada's own
+    reader could not read (``reading_queue``). Engine-free, and inside the hook's
+    budget: the derived part is counted only when the bank's page cache is warm (a
+    cold cache counts the asks and warms in the background, so the next prompt
+    counts the rest)."""
+    from api.services import reading_queue
 
-    if not reading_settings.agent_enabled():
-        return 0
-    allowed = reading_settings.allowed_hosts()
-    try:
-        rows = reading_asks.waiting(memory_path)
-    except ValueError:
-        return 0
-    if not rows:
-        return 0
-    from api.services import media_ingestor
-
-    idx = media_ingestor.load_url_index(memory_path)
-    count = 0
-    for row in rows:
-        url = str((idx.get(row["url_hash"]) or {}).get("url") or "")
-        if url and reading_hosts.agent_may_read(url, enabled=True, allowed_hosts=allowed).ok:
-            count += 1
-    return count
+    return reading_queue.count_waiting(memory_path, warm_only=True, include_words_origin=include_words_origin)
 
 
 def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, event: str) -> Injection:
-    """G166: append one sentence — "N links the person asked an agent to read are
-    waiting" — to the note (or make it the whole note), only while agent reading is
-    on and more links wait than this session was last told. Per request, never
-    stored, never in ``_state.md``. It rides beside the page note rather than
-    inside its 400-token budget: it is one sentence, and it is what makes the
-    person's "Ask an agent" reach an agent that was never told to look."""
-    waiting = waiting_links(memory_path)
+    """G166: append one sentence — "N links are waiting in Cicada's reading queue for
+    an agent to read" — to the note (or make it the whole note), only while agent
+    reading is on and more links wait than this session was last told (see
+    ``_ReadingSeen``). Per request, never stored, never in ``_state.md``. It rides
+    beside the page note rather than inside its 400-token budget: it is one
+    sentence, and it is what makes the person's "Ask an agent" reach an agent that
+    was never told to look."""
+    from api.services import reading_queue
+
+    asks, derived = reading_queue.counts(memory_path, warm_only=True)
+    known = derived is not None  # a cold cache leaves the derived part unknown, never zero
+    waiting = asks + (derived or 0)
     told = READING_SEEN.told(session_id)
-    if waiting < told:
+    told_asks = READING_SEEN.told_asks(session_id)
+    if known and waiting < told:
         # The queue drained since this session was told: forget the higher count,
         # so the next ask counts as new instead of hiding behind it.
-        READING_SEEN.remember(session_id, waiting)
-        told = waiting
+        READING_SEEN.remember(session_id, waiting, asks)
+        told, told_asks = waiting, asks
+    elif not known and asks < told_asks:
+        READING_SEEN.remember(session_id, told, asks)
+        told_asks = asks
     if waiting <= 0:
         return inj
-    if event == "user_prompt_submit" and waiting <= told:
-        return inj
+    if event == "user_prompt_submit" and told > 0:
+        new_ask = asks > told_asks
+        grew = known and waiting - told >= READING_SEEN.REPEAT_STEP
+        if not (new_ask or grew):
+            return inj
     line = recall_text.reading_line(waiting)
-    READING_SEEN.remember(session_id, waiting)
+    READING_SEEN.remember(session_id, waiting, asks)
     if inj.text:
         return replace(inj, text=f"{inj.text}\n\n{line}")
     return Injection(f"{recall_text.READING_HEADER}\n{line}", inj.injected, "reading", inj.inbox_id)
@@ -540,7 +548,7 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
         return Injection.none("no_bank"), None
     if event == "session_start":
         RECENT.reset(session_id)
-        READING_SEEN.remember(session_id, 0)
+        READING_SEEN.remember(session_id, 0, 0)
         return with_reading_note(session_primer(target.path, harness), target.path, session_id, event=event), target.name
     note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
     return with_reading_note(note, target.path, session_id, event=event), target.name

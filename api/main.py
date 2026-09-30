@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
 from api.routers import (
+    agent_methods,
     agents,
     ask,
     backlog,
@@ -225,6 +226,7 @@ app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
 app.include_router(intake.router, tags=["intake"])
 app.include_router(agents.router, tags=["agents"])
+app.include_router(agent_methods.router, tags=["agent-methods"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])

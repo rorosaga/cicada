@@ -19,7 +19,7 @@ import asyncio
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -136,6 +136,14 @@ class MediaMeta:
     # G140 Q-R12 — chapters parsed from the provider's own description
     # (`video_chapters.parse`), never inferred; `None` when there is no list.
     chapters: list[dict] | None = None
+    # G166 (ruling 14 amended): what the one save-time page request returned when
+    # it was a WALL — ``blocked`` (401/403/407/451, or a redirect onto a login or
+    # consent host) or ``interstitial`` (a consent page). Recorded in the page's
+    # own ``fetch_status`` beside ``fetch_attempted_at``, the backfill's
+    # vocabulary, so the site surfaces at once and the backfill's 30-day backoff
+    # does not re-request it. A failure (a 500, a timeout) is deliberately NOT
+    # stamped here: the backfill retries those sooner than a wall.
+    fetch_status: str | None = None
 
 
 @dataclass
@@ -439,6 +447,13 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
         break
     else:
         return fallback
+    from api.services import link_enrichment  # lazy: it imports this module's neighbours
+
+    if getattr(resp, "status_code", 200) in (401, 403, 407, 451) or (
+            current != url and link_enrichment._redirected_to_wall(url, current)):
+        # A wall, recorded rather than swallowed: the one request already made is
+        # all that is read (no header change, no retry — the ToS rail).
+        return replace(fallback, fetch_status="blocked")
     resp.raise_for_status()
 
     # R13 / R-V7: mirror ``link_enrichment.default_fetch``'s guard
@@ -457,6 +472,8 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
+    if link_enrichment.classify_page(link_enrichment._html_title(html), "") == "interstitial":
+        return replace(fallback, fetch_status="interstitial")
 
     def meta(*selectors: tuple[str, str]) -> str | None:
         for attr, value in selectors:
@@ -1785,6 +1802,10 @@ def write_media_entity(
     # real chapter list, so every other page stays byte-identical.
     if meta.chapters:
         frontmatter["media"]["chapters"] = [dict(c) for c in meta.chapters]
+    if meta.fetch_status:
+        # G166: the wall the save-time request hit, in the backfill's own keys.
+        frontmatter["fetch_status"] = meta.fetch_status
+        frontmatter["fetch_attempted_at"] = today.strftime("%Y-%m-%d")
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 

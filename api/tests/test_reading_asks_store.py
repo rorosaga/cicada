@@ -149,7 +149,7 @@ def test_the_reading_component_moves_on_an_ask_an_outcome_and_a_settings_change(
     assert c != b
     from api.services import reading_settings
 
-    reading_settings.update(agent_hosts=["x"])
+    reading_settings.update(agent_enabled_=True, acknowledge=True)
     assert sync_service.components(memory)["reading"] != c
     # and only that component moved for a store write: the bank's own are untouched
     before = sync_service.components(memory)

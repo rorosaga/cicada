@@ -43,8 +43,10 @@ from api.services import (
     media_ingestor,
     notes_sync,
     reading_asks,
+    reading_queue,
     reading_service,
     reading_settings,
+    reading_walls,
     safari_tabs,
     saved_at as saved_at_service,
     source_overview,
@@ -582,14 +584,15 @@ def _description_excerpt(body: str, limit: int = 280) -> str | None:
     return f"{cut}…"
 
 
-def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed) -> ReadState | None:
+def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed, wall=None, paused=()) -> ReadState | None:
     """G166: one link's ``read`` block — never raises (a bad row is no block)."""
     try:
         url = str(entry.get("url") or "")
         if not url:
             return None
         state = reading_service.read_state(
-            url, fm_read, ask_rows.get(media_ingestor.url_hash(url)), enabled=enabled, allowed_hosts=allowed)
+            url, fm_read, ask_rows.get(media_ingestor.url_hash(url)), enabled=enabled, wall=wall,
+            allowed_sites=allowed, paused_sites=paused)
         return ReadState.model_validate(state) if state is not None else None
     except Exception:  # noqa: BLE001
         return None
@@ -617,11 +620,12 @@ async def list_sources(
         return early
     idx = media_ingestor.load_url_index(memory_path)
     reading_enabled = reading_settings.agent_enabled()
-    reading_allowed = reading_settings.allowed_hosts()
+    reading_allowed = tuple(reading_settings.allowed_sites())
     try:
         ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
     except ValueError:
         ask_rows = {}
+    reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
 
     items = []
     for entry in idx.values():
@@ -647,6 +651,7 @@ async def list_sources(
         kind: str | None = None
         paper: PaperSummary | None = None
         fm_read = None
+        wall_page = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -667,6 +672,14 @@ async def list_sources(
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
                 fm_read = fm.get("read")
+                # G166: is this a page Cicada's own reader could not read (and that holds no
+                # words)? Decided from the page this loop already parsed — no second read.
+                try:
+                    st = entity_path.stat()
+                    wall_page = reading_walls.page_for(
+                        memory_path, entity_id, fm, parsed.body, mtime_ns=st.st_mtime_ns, size=st.st_size)
+                except OSError:
+                    wall_page = None
                 # Track P R5 — what the person removed, and what enrichment
                 # retired, must stop rendering. G129 slice 2's `remove`
                 # ARCHIVES the media entity (`inbox_service.py:962-966`) and
@@ -714,7 +727,13 @@ async def list_sources(
                             published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
             except Exception:
                 pass
-        if status in _HIDDEN_STATUSES or enrichment_status == "junk":
+        if status in _HIDDEN_STATUSES:
+            continue
+        if enrichment_status == "junk" and wall_page is None and not (
+                isinstance(fm_read, dict) and fm_read.get("by") == "agent"):
+            # Track P R5, amended 2026-09-30 (ruling 14): a retired interstitial stays hidden
+            # unless it is a wall an agent can be asked to read, or an agent already read it —
+            # the person can find it, ask for it, or see what the agent brought back.
             continue
         items.append(
             MediaSourceItem(
@@ -740,7 +759,10 @@ async def list_sources(
                 duration_s=duration_s,
                 kind=kind,
                 paper=paper,
-                read=_read_block(entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed),
+                read=_read_block(
+                    entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed,
+                    wall=wall_page.wall if wall_page is not None and wall_page.waiting else None,
+                    paused=reading_paused),
             )
         )
 

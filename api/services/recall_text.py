@@ -43,12 +43,13 @@ READING_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — a
 
 
 def reading_line(waiting: int, *, record: bool = True) -> str:
-    """One sentence, per request and never stored: how many links the person asked
-    an agent to read are waiting. A statement, not a command (see the module's
+    """One sentence, per request and never stored: how many links are waiting in
+    Cicada's reading queue for an agent to read — ones the person asked about, and
+    pages from sites they allowed. A statement, not a command (see the module's
     note on hook wording). ``record`` false leaves out ``cicada_record_read`` for a
     remote connection that does not hold it (R12)."""
     noun = "link" if waiting == 1 else "links"
     tail = (" and `cicada_record_read(url, outcome, summary)` records what was read" if record else "")
-    return (f"The person asked an agent to read {waiting} {noun}; {'it is' if waiting == 1 else 'they are'} "
-            "waiting in Cicada's reading queue. Once their own request is done (or if it is about those links), "
-            f"`cicada_reading_queue(limit)` lists what is waiting{tail}.")
+    return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
+            "to read (ones the person asked about, and pages from sites they allowed). Once their own request is "
+            f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")

@@ -1,7 +1,8 @@
-"""G166 (spec §8.4) — `cicada_reading_queue`: empty unless the person turned agent
-reading on; only links they asked about; never a denied class or a video; a walled
-link only with its switch on, one per call; the remote reply names the record
-tool only when the connection holds it. Synthetic bank."""
+"""G166 (spec §8.4, ruling 14 amended 2026-09-30) — `cicada_reading_queue`: empty unless
+the person turned agent reading on; only links they asked about (and, see
+test_reading_queue.py, pages of sites they allowed); never a denied class or a video; one
+entry per site per call; the remote reply names the record tool only when the connection
+holds it. Synthetic bank."""
 from __future__ import annotations
 
 import re
@@ -38,7 +39,8 @@ def test_a_person_ask_is_listed_with_its_host_and_day_and_names_the_record_tool(
     ask(memory, PUBLIC)
     out = _queue(server)
     lines = out.splitlines()
-    assert lines[0].startswith("1 link(s) the person asked an agent to read.")
+    assert lines[0].startswith("1 link(s) waiting for an agent to read: ones the person asked about and pages "
+                               "from sites they allowed.")
     assert "`cicada_record_read(url, outcome, summary, excerpts=[{quote}], via)`" in lines[0]
     assert "do not sign in or type credentials" in lines[0] and "`needs_login`" in lines[0]
     assert lines[1].startswith(f"1. {PUBLIC} (blog.bob-example.org, asked ")
@@ -72,20 +74,20 @@ def test_the_limit_is_clamped_and_the_rest_is_counted(reading):
     assert len(_queue(server, limit=999).splitlines()) == 1 + 5
 
 
-def test_a_walled_link_appears_only_with_its_switch_and_one_per_call(reading):
+def test_a_walled_link_is_one_per_site_per_call_and_an_ask_needs_no_site_switch(reading):
     server, memory = reading
-    enable(hosts=("x", "linkedin"))
     urls = ["https://x.com/alpha/status/1", "https://x.com/alpha/status/2", "https://www.linkedin.com/in/alpha",
             PUBLIC, "https://blog.bob-example.org/p/2"]
     for url in urls:
         ask(memory, url)
     out = _queue(server)
     listed = [line.split()[1] for line in out.splitlines()[1:] if re.match(r"\d+\. ", line)]
-    assert listed == [urls[0], PUBLIC, "https://blog.bob-example.org/p/2"], "one walled row, the rest public"
-    assert "2 more link(s) are waiting" in out
-    enable(hosts=())
-    off = [line.split()[1] for line in _queue(server).splitlines()[1:] if re.match(r"\d+\. ", line)]
-    assert off == [PUBLIC, "https://blog.bob-example.org/p/2"], "a switched-off site is never listed"
+    assert listed == [urls[0], urls[2], PUBLIC, "https://blog.bob-example.org/p/2"], (
+        "one row per walled site, the public ones unpaced: 'Ask an agent' on a page is the person's own "
+        "consent, so no site switch is needed for it")
+    assert "1 more link(s) are waiting" in out
+    for line in out.splitlines()[1:5]:
+        assert "asked " in line and "a site the person allowed" not in line
 
 
 def test_a_link_that_became_denied_is_not_listed(reading):

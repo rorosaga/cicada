@@ -39,6 +39,7 @@ engine-independent Sleep tail and on demand; its rulings (R1-R9) are in
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import re
@@ -364,6 +365,13 @@ def _episode_persons(memory_path: Path, changes: list[dict]) -> dict[str, list[s
     return out
 
 
+#: The last ``FetchResult`` status ``default_summarize`` saw, in the caller's own
+#: task context (a coroutine awaited directly shares it). ``enrich_media_links``
+#: reads and clears it so a wall the in-cycle pass hit is stamped on the page
+#: (G166): the summarizer's contract is a string, and a wall is not one.
+_LAST_FETCH_STATUS: "contextvars.ContextVar[str | None]" = contextvars.ContextVar("link_fetch_status", default=None)
+
+
 async def default_summarize(title: str, url: str, settings) -> str | None:
     """The live §2b summarizer for Stage 5.57: the rail's own read of the page,
     then one bounded mini-model call. ``None`` unless the page came back ``ok``.
@@ -382,6 +390,7 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
     summarizer that is explicitly passed in.
     """
     result = await default_fetch(url, settings)
+    _LAST_FETCH_STATUS.set(result.status)
     if result.status != "ok" or not result.text:
         return None
     return await _summarize_excerpt(title, result.text, url, settings)
@@ -501,11 +510,18 @@ async def enrich_media_links(
         elif summarize_fn is not None:
             # §2b scour path (injected/hermetic in tests; default does the real
             # fetch+LLM). Offline-safe: a None/short return writes no claim.
+            _LAST_FETCH_STATUS.set(None)
             try:
                 summary = await summarize_fn(title, url, settings)
             except Exception as e:
                 logger.warning(f"link summarize failed for {media_id}: {type(e).__name__}: {e}")
                 summary = None
+            walled = _LAST_FETCH_STATUS.get()
+            _LAST_FETCH_STATUS.set(None)
+            if walled in ("blocked", "interstitial"):
+                # G166: the in-cycle read hit a wall — say so on the page, in the backfill's
+                # own keys, so the site surfaces now and the 30-day backoff holds.
+                _stamp(media_fp, fetch_status=walled, fetch_attempted_at=today)
             if summary and len(summary.strip()) >= 20:
                 description = summary.strip()
 

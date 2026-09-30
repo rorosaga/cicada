@@ -1,9 +1,8 @@
 """What an agent read on a page, kept as provenance (G166, spec §8.4, the ``watch_record`` sibling).
 
 Cicada never opens a browser and never holds a session. A person's own agent —
-Claude Code or Codex with a browser skill, or the ChatGPT and Claude apps'
-own browser use through the remote connector — reads a page in the person's
-signed-in session and brings back what it saw. This module records that, and
+a local harness with a browser tool, or a remote connection that can drive one —
+reads a page in the person's signed-in session and brings back what it saw. This module records that, and
 nothing about HOW it read: the tool is self-reported (``via``), the harness
 label is the connection's, and neither is ever shown as proof.
 
