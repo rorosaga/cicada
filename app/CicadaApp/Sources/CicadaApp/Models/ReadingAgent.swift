@@ -122,15 +122,18 @@ struct ReadingSite: Decodable, Equatable, Identifiable {
     var waiting: Int
     var read: Int
     var needsLogin: Int
+    /// G61 S3 — how many pending questions a source on this site could answer (counts only). A site only sources reach
+    /// is listed for this alone, so the person can allow it.
+    var checks: Int
     var note: String?
     var iconHost: String?
     var id: String { site }
 
-    enum CodingKeys: String, CodingKey { case site, label, wall, allowed, granted, since, waiting, read, needsLogin, note, iconHost }
+    enum CodingKeys: String, CodingKey { case site, label, wall, allowed, granted, since, waiting, read, needsLogin, checks, note, iconHost }
 
     init(site: String, label: String? = nil, wall: String? = nil, allowed: Bool = false, granted: Bool? = nil,
-         since: String? = nil, waiting: Int = 0, read: Int = 0, needsLogin: Int = 0, note: String? = nil,
-         iconHost: String? = nil) {
+         since: String? = nil, waiting: Int = 0, read: Int = 0, needsLogin: Int = 0, checks: Int = 0,
+         note: String? = nil, iconHost: String? = nil) {
         self.site = site
         self.label = label ?? site
         self.wall = wall
@@ -140,6 +143,7 @@ struct ReadingSite: Decodable, Equatable, Identifiable {
         self.waiting = waiting
         self.read = read
         self.needsLogin = needsLogin
+        self.checks = checks
         self.note = note
         self.iconHost = iconHost
     }
@@ -155,6 +159,7 @@ struct ReadingSite: Decodable, Equatable, Identifiable {
         waiting = (try? c.decode(Int.self, forKey: .waiting)) ?? 0
         read = (try? c.decode(Int.self, forKey: .read)) ?? 0
         needsLogin = (try? c.decode(Int.self, forKey: .needsLogin)) ?? 0
+        checks = (try? c.decode(Int.self, forKey: .checks)) ?? 0
         note = try? c.decodeIfPresent(String.self, forKey: .note)
         iconHost = try? c.decodeIfPresent(String.self, forKey: .iconHost)
     }
@@ -361,7 +366,16 @@ enum ReadingSiteWords {
             if isPaused(site) { return Copy.Reading.waitUntilSignIn(site.waiting) }
             return site.allowed ? Copy.Reading.queued(site.waiting) : Copy.Reading.waitingNotAllowed(site.waiting)
         }
-        return site.read > 0 ? Copy.Reading.readCount(site.read) : Copy.Reading.nothingWaiting
+        if site.read > 0 { return Copy.Reading.readCount(site.read) }
+        // A site listed only for the questions it could answer says that, not "nothing is waiting".
+        return site.checks > 0 ? "" : Copy.Reading.nothingWaiting
+    }
+
+    /// G61 S3 — "3 questions could be checked here": what allowing the site would let an agent do, in counts. Never a
+    /// link, a page or a question.
+    static func checkLine(_ site: ReadingSite) -> String? {
+        guard site.checks > 0 else { return nil }
+        return site.allowed ? Copy.Reading.checksAllowed(site.checks) : Copy.Reading.checksIfAllowed(site.checks)
     }
 
     /// A site the person allowed while agent reading is off: its switch stays on (so it can be turned off) and this
@@ -372,7 +386,8 @@ enum ReadingSiteWords {
 
     /// The whole line under a site's name.
     static func line(_ site: ReadingSite) -> String {
-        [countLine(site), grantNote(site), detail(site)].compactMap { $0 }.joined(separator: " · ")
+        [countLine(site), checkLine(site), grantNote(site), detail(site)].compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 
     /// The switch shows the stored grant: identical to `allowed` while agent reading is on, and still removable while

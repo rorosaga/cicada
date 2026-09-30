@@ -46,6 +46,19 @@ extension Copy {
         static let showConversationHelp = "Open the conversation beside this question"
         static let hideConversation = "Hide conversation"
         static let hideConversationHelp = "Close the conversation (Esc)"
+        // G61 S3 — what an agent reported from a source (a report, never an answer)
+        static let checkedByAgent = "Your agent"
+        static let checkedByApp = "An app you connected"
+        static let checkedASource = "a source"
+        static func checkedHeading(who: String, host: String, day: String) -> String { "\(who) looked at \(host) · \(day)" }
+        static func checkedHeadingNoDay(who: String, host: String) -> String { "\(who) looked at \(host)" }
+        static func checkSupports(_ label: String) -> String { "It points to “\(label)”." }
+        static let checkSupportsAnOption = "It points to one of these answers."
+        static func checkProposes(_ value: String) -> String { "It suggests another answer: “\(value)”." }
+        static let checkProposesAnother = "It suggests another answer."
+        static let checkContradicts = "It doesn’t match any of these answers."
+        static let checkUnclear = "It wasn’t clear."
+        static let checkCaption = "What your agent reported, not checked by Cicada. Nothing changed; you decide."
         static let openSource = "Open source"
         /// Round-4 final review, finding 3: a Contacts card opens in Contacts, and the button says where it goes.
         static let openInContacts = "Open in Contacts"

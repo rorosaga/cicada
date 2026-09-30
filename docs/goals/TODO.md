@@ -40,6 +40,14 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
 - *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
 
+**The agent check (G61 S3) — built on `feat/sources-check`, 2026-09-30 (PR to `dev`; not merged; shadow, recommend-only).** The owner:
+"give agents a place to look for information to update memory before surfacing it to the user … where does <person> work, my profile
+page might be a source for update." A source that could answer a pending question is a check entry in the reading queue (only on a
+site the person allowed; the owner's page only what they added or took); `cicada_record_check` records what an agent saw as a
+`source-check` episode and a `checks[]` row; the card shows it; nothing settles. **Not yet seen live:** a real agent checking a real
+page end to end; run `scripts/check-census.sh` on a COPY of the real bank first. *Pick up here:* review and merge; then S4 (Cicada's own
+fetch rung for a public source) is the next slice of G61, still recommend-only until the owner flips shadow (spec §15).
+
 **Websites verified, pictures from sources (G61 S3-b) — built on `feat/sources-sites`, 2026-09-30 (PR to `dev`; not merged).** The owner:
 "the image resolver is not working the best for not as known things … get it from the icon of the actual website source … Sources are of
 extreme importance, and from them even the images can be derived." Stage 1's optional `website`, an engine-free backfill, Cicada's own read

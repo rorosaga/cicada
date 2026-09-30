@@ -786,7 +786,7 @@ and the model id when the harness sends one. It is filed beside `read` for the s
 `capture` it is a per-turn receipt that `consumption_stats._activity` keeps out of every Usage view. The
 prompt never is. The `read_agent` kind (G166) is one row per `cicada_record_read` call — entity id, an `outcome` enum, a
 `host_class` enum (`walled | public`), the harness and connector id; never a URL, the tool the agent named, a note or an
-excerpt — filed beside `read` and kept out of every Usage view like `capture`. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
+excerpt — filed beside `read` and kept out of every Usage view like `capture`. The `check_agent` kind (G61 S3) is one row per `cicada_record_check` — item id, entity id, `outcome`, `host_class`, `effect` (`noted | recommended`) enums, harness, connector id; never the source, its host, a quote or a proposed value — filed beside `read_agent`. The `video_queue` kind (G162) is one row per claim, release or completion — `action`, `count`, a
 closed fail-code enum, the harness and connector ids; never a link, a title or a reason — filed beside `read` and kept
 out of every Usage view (`SIBLING_KINDS`, `NON_SPEND_KINDS`, `PER_TURN_KINDS`).
 
@@ -924,6 +924,37 @@ the caller added — keyed `(ref, predicate)`; `record` scope remotely, a remote
 local`; refused with nothing written in a demo bank, while Sleep runs, for no such page or key, for an entry that is not the
 caller's, for a ref that holds a secret; one commit under the harness whose manifest line names neither the ref nor the reason
 (both are in the diff and the tombstone). Its ledger row is ids and enums only (`source_added|source_changed|source_removed`).
+**The agent check (G61 S3, 2026-09-30; shadow — recommend-only).** "Give agents a place to look for information to update
+memory before surfacing it to the user." A source on a page that could answer a PENDING inbox question is a **check entry**
+in the reading queue (`reading_queue.check_entries`, derived at read from `inbox_service.load_inbox`: the item is
+`checkable`, or `inform_only` for a host only the person's own session may open, and the source is one of the item's own
+ranked targets — `source_check.targets_for`, `fact_sources.rank`, least recently checked first within a trust class; **the
+owner's own page counts only what the person added or took ("Use this source")**, D2). The one consent is the **per-site
+permission** (D5: no one-off ask): an entry exists only while agent reading is on, the link may be handed to an agent at
+all (`agent_may_read`), the person allowed its SITE, the site is not paused by a `needs_login`, no non-waiting ask row holds
+the link and no agent looked at it in the last 7 days. `cicada_reading_queue` lists it ("a source to check for `inbox-012`:
+<question>", one per site per call) and names `cicada_record_check` only where the caller holds it; the recall hook's and the
+Feed's waiting counts include checks; Settings' site list also shows a site only sources reach, with how many questions it
+could answer (`checks`, counts only; `SITES_SHAPE` reading-sites-4, `inbox` joins its stamp).
+**`cicada_record_check(item_id, source, outcome, option_key?, proposed_value?, quotes?, summary?, via?)`** (`record` scope;
+`check_record.py`) writes what the caller's own tools saw: outcomes `supports | proposes | unclear | contradicts_all`
+(findings) and `needs_login | blocked | not_found | failed` (not findings: only the machine-wide ask store, exactly as
+`cicada_record_read`, no bank write and no Sleep gate). Refusals, in order, write nothing: demo bank, reading off, unknown
+outcome, malformed id, a link that may never be handed to an agent, a source that is not one of THAT item's listed targets on
+an allowed, unpaused site (`reading_queue.authorizes_check`, recomputed now so a resolved item, a removed source or a
+switched-off site revokes it), a finding without a quote, an option the item lacks, Sleep running, and the caps (3 a day per
+question, 30 a session). A finding is one **`source-check` episode** (`assistant:` summary, then `attachment [<host>]: as
+<harness> read it` and ≤ 3 quoted lines ≤ 240 characters, so the quotes are `page`-kind spans — D4, no seventh evidence kind;
+`processed: true`, no `evidence_kind`, `media_entity_id` = the source's own `entity:` page when it still resolves) and one
+row in the item's `checks:` (`{at, checker, checker_kind, ref, host, outcome, option_key?, proposed_value?, quote?, episode,
+via?}`, newest per source, ≤ 5), committed alone under the harness. **It never writes a claim, adds an option, resolves,
+defers or reorders anything**; a `proposes` value lives on the row only. `GET /inbox` serves `checks[]` and `lastCheckedAt`;
+`cicada_check_nudges` prints `Check first: <ref> (<access>) — … cicada_record_check(…)` for a queue-listed source and
+`Checked by <who> · <host> · <day>: "<quote>" — supports <option> (reported, not verified; the person still answers)`, the
+quote only where the item's `Cause:` quote shows (never to a remote connection without `sources`). The ledger row
+(`check_agent`, beside `read_agent`, out of every Usage view) is ids and enums only. The card shows "Your agent looked at
+<host> · <day>", the quote, what it points to and "What your agent reported, not checked by Cicada. Nothing changed; you
+decide." — no highlight, no tag, no reorder.
 **`cicada_backlog`**, **`cicada_add_backlog_item`** and **`cicada_add_backlog_note`** (G150) read and file a
 project's backlog — see Backlogs.
 **Video watch (G162, TODO ruling 17).** `cicada_record_watch` takes three more arguments the agent states about its
@@ -996,7 +1027,7 @@ fetched by the backend's page readers** (R-RW4: `media_ingestor.enrich` and the 
 `link_enrichment._excluded_media`; the exceptions are TikTok's provider oEmbed call, which never loads the page, and the
 Reddit and X connectors' own API calls), and a link that carries a secret or a
 side effect, is local, an AI vendor's own page, a video (`cicada_record_watch`) or a paper is never offered at all
-(R-RW5). Contract item 9 (`CONTRACT_VERSION` 9, `REMOTE_CONTRACT_VERSION` 6) exists only while the switch is on and is an
+(R-RW5). Contract item 9 (`CONTRACT_VERSION` 13, `REMOTE_CONTRACT_VERSION` 10 since G61 S3) exists only while the switch is on and is an
 *instruction*, not a promise: read in the person's own session, never sign in, record `needs_login` and move on, never
 post. The **choice of how the agent reads** (`agent_methods.py`, `$CICADA_HOME/agent_methods.json`, `GET|PUT /agent-methods`) is an
 instruction Cicada passes to the person's own agent, never authority: `auto` (the default, no tool named), `own` ("don't
@@ -1891,8 +1922,8 @@ on word boundaries, **offsets recomputed on every read and never stored**. Nothi
 **Checkability (G61 phase 2 S2).** Every item also carries `check` — `{state:
 checkable|needs_source|inform_only|never, reason, locus, targets[], rungs[], settle_eligible}` —
 derived at read by `source_check.for_item` from the item, the subject page's `sources:`, `owner:`
-flag and claims, and the predicate `locus`: pure, engine-free, zero-network, never stored. Nothing
-acts on it yet (no check, hold or settle — S3+), and the app does not read it. `GET
+flag and claims, and the predicate `locus`: pure, engine-free, zero-network, never stored. Since
+G61 S3 an agent can CHECK a `checkable` item (recommend-only, below); nothing settles, holds or reorders one (S4–S8 wait). `GET
 /inbox/check-census` and `scripts/check-census.sh <bank>` report it as ids-free counts — the coverage
 gate for S3–S8.
 

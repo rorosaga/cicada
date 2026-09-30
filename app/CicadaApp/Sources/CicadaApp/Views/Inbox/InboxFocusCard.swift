@@ -69,6 +69,7 @@ struct InboxFocusCard: View {
             }
             variantBody.padding(.top, CicadaTheme.scaled(20))
             hintRow
+            checkRows
             if item.allowDefer, variant != .informational, variant != .legacyDecay {
                 TextButton(title: Copy.Inbox.notNowSevenDays, keyHint: "L", help: Copy.Inbox.notNowHelp) {
                     onAnswer(QuestionResolution(action: "defer", remindDays: 7))
@@ -304,6 +305,34 @@ struct InboxFocusCard: View {
             .font(CicadaTheme.metaFont)
             .foregroundStyle(CicadaTheme.textTertiary)
             .padding(.top, CicadaTheme.scaled(20))
+        }
+    }
+
+    // MARK: What an agent reported from a source (G61 S3) — a report; nothing is settled, highlighted or reordered
+
+    @ViewBuilder
+    private var checkRows: some View {
+        let lines = InboxCheckWords.lines(item)
+        if !lines.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                        Text(line.heading)
+                        if let quote = line.quote {
+                            Text("“\(quote)”") // count-lint:ok — a quoted sentence, no number
+                                .font(CicadaTheme.quoteFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text(line.result)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                Text(Copy.Inbox.checkCaption)
+            }
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textTertiary)
+            .padding(.top, CicadaTheme.scaled(16))
         }
     }
 

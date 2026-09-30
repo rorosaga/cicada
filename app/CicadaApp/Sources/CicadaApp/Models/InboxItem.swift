@@ -172,6 +172,27 @@ struct InboxCause: Codable, Hashable {
 /// (`api/routers/inbox.py` → `InboxItem`). `options` decodes both the current
 /// object form and the legacy flat `[String]`, so an item written before G60
 /// still renders.
+/// G61 S3 — one agent report on an inbox question (`InboxItem.checks`). The quote is the page's words as the agent
+/// reported them; `checker` is a harness label, never a model.
+struct InboxCheckFinding: Codable, Equatable {
+    var at: String
+    var checker: String
+    var checkerKind: String?
+    var host: String
+    var ref: String?
+    var outcome: String
+    var optionKey: String?
+    var proposedValue: String?
+    var quote: String?
+}
+
+/// Decodes to nil instead of throwing, so one unreadable element never loses its siblings.
+private struct Lenient<T: Codable>: Codable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+    func encode(to encoder: Encoder) throws { try value?.encode(to: encoder) }
+}
+
 struct InboxItem: Identifiable, Codable {
     let id: String
     var kind: InboxKind
@@ -211,6 +232,9 @@ struct InboxItem: Identifiable, Codable {
     var recommendedKey: String?
     /// G98: a conflict on a multi-valued predicate — shown, never asked.
     var informational: Bool
+    /// G61 S3 — what an agent reported after looking at a source for this question, newest first. A report only: it
+    /// settles nothing, highlights nothing and reorders nothing.
+    var checks: [InboxCheckFinding]
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -218,7 +242,7 @@ struct InboxItem: Identifiable, Codable {
         case question, allowOther, allowDefer, predicate, hint, channel, remindAfter, updatedDate
         case uncertaintyType, suggestedClassification, suggestedConfidence, mergeTargetHint
         case entityType, sourceEpisode, sourceEpisodeTimestamp, claimId, cause
-        case extractorConfidence, extractorModel, recommendedKey, informational
+        case extractorConfidence, extractorModel, recommendedKey, informational, checks
     }
 
     init(from decoder: Decoder) throws {
@@ -266,6 +290,9 @@ struct InboxItem: Identifiable, Codable {
         extractorModel = try c.decodeIfPresent(String.self, forKey: .extractorModel)
         recommendedKey = try c.decodeIfPresent(String.self, forKey: .recommendedKey)
         informational = try c.decodeIfPresent(Bool.self, forKey: .informational) ?? false
+        // Lenient: one finding this build cannot read is dropped alone, never the card.
+        checks = ((try? c.decodeIfPresent([Lenient<InboxCheckFinding>].self, forKey: .checks)) ?? nil)?
+            .compactMap(\.value) ?? []
     }
 
     /// Display name for the card header, falling back to the title when no
