@@ -21,13 +21,17 @@ final class ReadingAgentTests: XCTestCase {
         let item = try decode("""
         {"mediaEntityId":"media-a","url":"https://example.com/a","title":"A","mediaType":"url",
          "read":{"status":"needs_login","by":"agent","at":"2026-09-29T12:01:00Z","askedAt":"2026-09-29T12:00:00Z",
-                 "via":"a browser skill","harness":"claude-code","host":"LinkedIn","hostKey":"linkedin",
-                 "askable":true,"reason":null}}
+                 "via":"a browser skill","harness":"claude-code","host":"LinkedIn","wall":"walled","siteKey":"linkedin",
+                 "siteLabel":"LinkedIn","siteAllowed":true,"queuedBy":"site","askable":true,"reason":null}}
         """)
         let read = try XCTUnwrap(item.read)
         XCTAssertEqual(read.status, "needs_login")
         XCTAssertEqual(read.harness, "claude-code")
-        XCTAssertEqual(read.hostKey, "linkedin")
+        XCTAssertEqual(read.wall, "walled")
+        XCTAssertEqual(read.siteKey, "linkedin")
+        XCTAssertEqual(read.siteLabel, "LinkedIn")
+        XCTAssertTrue(read.siteAllowed)
+        XCTAssertEqual(read.queuedBy, "site")
         XCTAssertTrue(read.askable)
     }
 
@@ -73,7 +77,7 @@ final class ReadingAgentTests: XCTestCase {
             XCTAssertFalse(line.lowercased().contains("browser"), line)
         }
         let all = [Copy.Reading.switchDetail, Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetTerms,
-                   Copy.Reading.sheetSaferExport, Copy.Reading.askedNote, Copy.Reading.hostSwitchDetail,
+                   Copy.Reading.sheetSaferExport, Copy.Reading.askedNote, Copy.Reading.sitesIntro, Copy.Reading.methodsDetail,
                    Copy.Reading.waiting, Copy.Reading.copyPromptHelp]
         for text in all {
             for banned in ["read-only", "never posts", "never post", "cannot post", "safe to"] {
@@ -100,7 +104,7 @@ final class ReadingAgentTests: XCTestCase {
         // An ordinary page with agent reading off: nothing is offered, so nothing is drawn.
         XCTAssertFalse(ReadWords.shows(MediaReadState(status: "none", askable: false, reason: "Agent reading is off.")))
         XCTAssertTrue(ReadWords.shows(MediaReadState(status: "none", askable: true)))
-        XCTAssertTrue(ReadWords.shows(MediaReadState(status: "none", hostKey: "x", askable: false, reason: "X is off.")))
+        XCTAssertTrue(ReadWords.shows(MediaReadState(status: "none", wall: "refused", askable: false, reason: "Agent reading is off.")))
         XCTAssertTrue(ReadWords.shows(MediaReadState(status: "needs_login")))
     }
 
@@ -169,51 +173,160 @@ final class ReadingAgentTests: XCTestCase {
         XCTAssertNil(ReadWords.day("garbage"))
     }
 
-    // MARK: Settings
+    // MARK: Settings — the wire (the backend's own fixtures, read by `test_reading_sites_rest.py` / `test_agent_methods_rest.py`)
+
+    private func fixtureData(_ name: String) throws -> Data {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        return try Data(contentsOf: root.appendingPathComponent("api/tests/fixtures/\(name)"))
+    }
 
     func testTheSettingsResponseDecodesLeniently() throws {
         let json = """
-        {"agentEnabled":true,"agentHosts":["x"],"ackedAt":"2026-09-29","ackCurrent":true,
-         "hostSwitches":[{"key":"linkedin","label":"LinkedIn","domains":["linkedin.com"]},{"nope":1},
-                         {"key":"tiktok","label":"TikTok","note":"Profiles and pages only."}],
-         "lastAgentRead":"2026-09-29"}
+        {"agentEnabled":true,"allowedSites":{"linkedin":"2026-09-30"},"ackedAt":"2026-09-29","ackCurrent":true,
+         "ackVersion":2,"lastAgentRead":"2026-09-29","shape":"reading-2"}
         """
         let s = try JSONDecoder().decode(ReadingSettingsResponse.self, from: Data(json.utf8))
         XCTAssertTrue(s.agentEnabled)
-        XCTAssertEqual(s.agentHosts, ["x"])
-        XCTAssertEqual(s.hostSwitches.map(\.key), ["linkedin", "tiktok"], "a switch this build cannot read is dropped alone")
+        XCTAssertEqual(s.allowedSites, ["linkedin": "2026-09-30"])
+        XCTAssertEqual(s.lastAgentRead, "2026-09-29")
         XCTAssertEqual(try JSONDecoder().decode(ReadingSettingsResponse.self, from: Data("{}".utf8)), ReadingSettingsResponse())
+        // An older backend's shape (per-site `agentHosts`) decodes to nothing allowed, never a failure.
+        let old = try JSONDecoder().decode(ReadingSettingsResponse.self,
+                                           from: Data(#"{"agentEnabled":true,"agentHosts":["x"],"hostSwitches":[]}"#.utf8))
+        XCTAssertTrue(old.agentEnabled)
+        XCTAssertTrue(old.allowedSites.isEmpty)
     }
 
-    @MainActor
-    func testTurningItOnSendsTheAcknowledgementAndTheSitesInOneCall() async {
-        var sent: [(Bool?, [String]?, Bool)] = []
-        let model = ReadingAgentModel(deps: .init(
-            fetch: { ReadingSettingsResponse() },
-            write: { on, hosts, ack in
-                sent.append((on, hosts, ack))
-                return ReadingSettingsResponse(agentEnabled: on ?? false, agentHosts: hosts ?? [], ackCurrent: ack)
+    func testTheSitesFixtureDecodesAndReadsInWords() throws {
+        let list = try JSONDecoder().decode(ReadingSitesResponse.self, from: fixtureData("reading_sites.json"))
+        XCTAssertEqual(list.sites.map(\.site), ["linkedin", "paperfold.io", "tiktok"])
+        XCTAssertEqual(list.waitingTotal, 6)
+        XCTAssertEqual(list.waitingNotAllowed, 5)
+        XCTAssertTrue(list.enabled)
+        let linkedin = try XCTUnwrap(list.sites.first { $0.site == "linkedin" })
+        XCTAssertTrue(linkedin.allowed)
+        XCTAssertEqual(linkedin.iconHost, "linkedin.com")
+        XCTAssertEqual(ReadingSiteWords.countLine(linkedin), "1 page is queued for your agent")
+        XCTAssertTrue(ReadingSiteWords.isPaused(linkedin), "an allowed site whose agent was signed out is paused")
+        let paperfold = try XCTUnwrap(list.sites.first { $0.site == "paperfold.io" })
+        XCTAssertEqual(ReadingSiteWords.countLine(paperfold), "4 saved pages are waiting")
+        XCTAssertEqual(ReadingSiteWords.detail(paperfold), "Refused Cicada’s reader")
+        XCTAssertFalse(ReadingSiteWords.isPaused(paperfold))
+        let tiktok = try XCTUnwrap(list.sites.first { $0.site == "tiktok" })
+        XCTAssertEqual(ReadingSiteWords.detail(tiktok), tiktok.note, "the server's own caveat wins over the wall's name")
+    }
+
+    func testASiteThisBuildCannotReadIsDroppedAloneAndNoCountIsAnInvention() throws {
+        let json = #"{"sites":[{"nope":1},{"site":"x","allowed":true,"waiting":0,"read":2}],"enabled":true}"#
+        let list = try JSONDecoder().decode(ReadingSitesResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(list.sites.map(\.site), ["x"])
+        XCTAssertEqual(ReadingSiteWords.countLine(list.sites[0]), "2 read by an agent")
+        XCTAssertEqual(ReadingSiteWords.countLine(ReadingSite(site: "y")), "Nothing is waiting")
+    }
+
+    func testTheAgentMethodsFixtureDecodesWithSkillsTaggedAndTheChoiceKept() throws {
+        let all = try JSONDecoder().decode(AgentMethodsResponse.self, from: fixtureData("agent_methods.json"))
+        let job = try XCTUnwrap(all.job("reading"))
+        XCTAssertEqual(job.question, "How your agent reads")
+        XCTAssertEqual(job.chosen, "auto")
+        XCTAssertEqual(job.options.map(\.kind).prefix(2), ["auto", "own"])
+        let skills = job.options.filter(\.isSkill)
+        XCTAssertFalse(skills.isEmpty)
+        for skill in skills {
+            XCTAssertFalse(skill.title.isEmpty)
+            XCTAssertFalse(skill.installedAnywhere, "the fixture bank has none installed")
+            XCTAssertNil(skill.page)
+        }
+        XCTAssertEqual(skills.first?.reach, "Uses your own Chrome, including sites where you're signed in.")
+    }
+
+    func testAMethodWriteAnswersTheJobAndWhatHappenedToTheSkillsPage() throws {
+        let json = """
+        {"job":"reading","question":"How your agent reads","chosen":"own","options":[
+          {"id":"auto","kind":"auto","title":"Let my agent choose","detail":"x"},
+          {"id":"own","kind":"own","title":"Its own tools","detail":"y"}],
+         "write":{"page":"created"}}
+        """
+        let answer = try JSONDecoder().decode(AgentMethodWriteResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(answer.job.chosen, "own")
+        XCTAssertEqual(answer.pageState, "created")
+        XCTAssertEqual(Copy.Reading.pageNote("created"), "Added this skill to your graph.")
+        XCTAssertNil(Copy.Reading.pageNote("none"))
+    }
+
+    // MARK: Settings — the model
+
+    private func deps(
+        settings: ReadingSettingsResponse = ReadingSettingsResponse(),
+        sent: Box<[(Bool?, [String: Bool]?, Bool)]> = Box([]),
+        write: (@MainActor (Bool?, [String: Bool]?, Bool) async throws -> ReadingSettingsResponse)? = nil
+    ) -> ReadingAgentModel.Deps {
+        .init(
+            fetch: { settings },
+            write: write ?? { on, sites, ack in
+                sent.value.append((on, sites, ack))
+                var next = settings
+                next.agentEnabled = on ?? next.agentEnabled
+                next.ackCurrent = ack || next.ackCurrent
+                for (k, v) in sites ?? [:] { if v { next.allowedSites[k] = "2026-09-30" } else { next.allowedSites[k] = nil } }
+                return next
             },
-            prompt: { "prompt" }))
+            prompt: { "prompt" },
+            fetchSites: { ReadingSitesResponse(sites: [ReadingSite(site: "linkedin", waiting: 2)], enabled: true) },
+            fetchMethods: {
+                AgentMethodsResponse(jobs: [AgentMethodJob(job: "reading", question: "How your agent reads", chosen: "auto",
+                    options: [AgentMethodOption(id: "auto", kind: "auto", title: "Let my agent choose"),
+                              AgentMethodOption(id: "s", kind: "skill", title: "s", state: ["claude-code": "installed"])])])
+            },
+            setMethod: { choice in
+                AgentMethodWriteResponse(job: AgentMethodJob(job: "reading", question: "How your agent reads", chosen: choice),
+                                         pageState: choice == "s" ? "created" : "none")
+            },
+            addPage: { AgentMethodPage(id: "skill-\($0)", state: "created") })
+    }
+
+    final class Box<T> { var value: T; init(_ value: T) { self.value = value } }
+
+    @MainActor
+    func testTurningItOnSendsTheAcknowledgementAndTheSiteInOneCall() async {
+        let sent = Box<[(Bool?, [String: Bool]?, Bool)]>([])
+        let model = ReadingAgentModel(deps: deps(sent: sent))
         await model.load()
         XCTAssertFalse(model.enabled)
-        let ok = await model.setEnabled(true, acknowledge: true, hosts: ["x"])
+        XCTAssertTrue(model.needsFirstUseSheet)
+        let ok = await model.setEnabled(true, acknowledge: true, site: "linkedin")
         XCTAssertTrue(ok)
         XCTAssertTrue(model.enabled)
-        XCTAssertEqual(sent.count, 1)
-        XCTAssertEqual(sent[0].0, true)
-        XCTAssertEqual(sent[0].1, ["x"])
-        XCTAssertTrue(sent[0].2)
+        XCTAssertEqual(sent.value.count, 1)
+        XCTAssertEqual(sent.value[0].0, true)
+        XCTAssertEqual(sent.value[0].1, ["linkedin": true])
+        XCTAssertTrue(sent.value[0].2)
+        XCTAssertEqual(model.sites?.sites.map(\.site), ["linkedin"], "the list is read again after a write")
     }
 
     @MainActor
-    func testARefusedTurnOnKeepsItOffAndShowsTheServersSentence() async {
-        let model = ReadingAgentModel(deps: .init(
-            fetch: { ReadingSettingsResponse() },
-            write: { _, _, _ in
-                throw APIError.httpError(422, #"{"detail":"Read the sheet and tick I understand before turning this on."}"#)
-            },
-            prompt: { "" }))
+    func testASiteSwitchSendsOnlyThatSiteAndTurnsTheSwitchOnWhenItWasOffAndAcknowledged() async {
+        let sent = Box<[(Bool?, [String: Bool]?, Bool)]>([])
+        let model = ReadingAgentModel(deps: deps(settings: ReadingSettingsResponse(agentEnabled: false, ackCurrent: true),
+                                                 sent: sent))
+        await model.load()
+        XCTAssertFalse(model.needsFirstUseSheet, "an acknowledged person is not re-asked")
+        _ = await model.setSite("linkedin", allowed: true)
+        XCTAssertEqual(sent.value[0].0, true, "allowing a site while the switch is off turns it on in the same call")
+        XCTAssertEqual(sent.value[0].1, ["linkedin": true])
+        _ = await model.setSite("linkedin", allowed: false)
+        XCTAssertNil(sent.value[1].0, "taking a site back leaves the switch alone")
+        XCTAssertEqual(sent.value[1].1, ["linkedin": false])
+        XCTAssertFalse(sent.value[1].2)
+    }
+
+    @MainActor
+    func testARefusedWriteKeepsItOffAndShowsTheServersSentence() async {
+        let model = ReadingAgentModel(deps: deps(write: { _, _, _ in
+            throw APIError.httpError(422, #"{"detail":"Read the sheet and tick I understand before turning this on."}"#)
+        }))
         await model.load()
         let ok = await model.setEnabled(true)
         XCTAssertFalse(ok)
@@ -222,55 +335,47 @@ final class ReadingAgentTests: XCTestCase {
     }
 
     @MainActor
-    func testASiteSwitchSendsTheWholeList() async {
-        var lists: [[String]] = []
-        let model = ReadingAgentModel(deps: .init(
-            fetch: { ReadingSettingsResponse(agentEnabled: true, agentHosts: ["x"], ackCurrent: true) },
-            write: { _, hosts, _ in
-                lists.append(hosts ?? [])
-                return ReadingSettingsResponse(agentEnabled: true, agentHosts: hosts ?? [], ackCurrent: true)
-            },
-            prompt: { "" }))
+    func testChoosingHowTheAgentReadsSavesTheChoiceAndSaysWhatHappenedToTheSkillsPage() async {
+        let model = ReadingAgentModel(deps: deps())
         await model.load()
-        await model.setHost("linkedin", allowed: true)
-        await model.setHost("x", allowed: false)
-        XCTAssertEqual(lists, [["x", "linkedin"], ["linkedin"]])
+        XCTAssertEqual(model.methods?.chosen, "auto")
+        await model.choose("s")
+        XCTAssertEqual(model.methods?.chosen, "s")
+        XCTAssertEqual(model.methodNote, "Added this skill to your graph.")
+        await model.choose("auto")
+        XCTAssertNil(model.methodNote, "a choice with no page news says nothing")
     }
 
     @MainActor
-    func testOffThenOnKeepsTheSitesTheServerKept() async {
-        // The fake mimics the server: `agentHosts` replaces the list when sent, and a turn-on with none sent keeps it.
-        var held = ["linkedin", "x"]
-        var sentHosts: [[String]?] = []
-        let model = ReadingAgentModel(deps: .init(
-            fetch: { ReadingSettingsResponse(agentEnabled: true, agentHosts: held, ackCurrent: true) },
-            write: { on, hosts, _ in
-                sentHosts.append(hosts)
-                if let hosts { held = hosts }
-                return ReadingSettingsResponse(agentEnabled: on ?? false, agentHosts: held, ackCurrent: true)
-            },
-            prompt: { "" }))
+    func testAddingASkillsPageToTheGraphAnswersInWords() async {
+        let model = ReadingAgentModel(deps: deps())
         await model.load()
-        XCTAssertFalse(model.needsFirstUseSheet, "an acknowledged person is not re-asked")
-        _ = await model.setEnabled(false)
-        _ = await model.setEnabled(true)
-        XCTAssertEqual(held, ["linkedin", "x"])
-        XCTAssertEqual(model.settings?.agentHosts, ["linkedin", "x"])
-        XCTAssertTrue(sentHosts.allSatisfy { $0 == nil })
+        await model.addPage("s")
+        XCTAssertEqual(model.methodNote, "Added this skill to your graph.")
     }
 
-    @MainActor
-    func testTheSheetOpensWithTheHeldSitesTickedAndAskedOnlyWithoutACurrentAck() async {
-        let model = ReadingAgentModel(deps: .init(
-            fetch: { ReadingSettingsResponse(agentEnabled: false, agentHosts: ["x"], ackCurrent: false) },
-            write: { _, _, _ in ReadingSettingsResponse() }, prompt: { "" }))
-        await model.load()
-        XCTAssertTrue(model.needsFirstUseSheet)
-        XCTAssertEqual(model.heldHosts, ["x"])
+    // MARK: Settings — the section and its rows
+
+    func testTheSectionSitsAfterIntegrationsAndItsRowsAreIndexed() {
+        let all = SettingsSection.allCases
+        XCTAssertEqual(all.firstIndex(of: .reading), all.firstIndex(of: .integrations).map { $0 + 1 })
+        XCTAssertEqual(SettingsSection.reading.group, .customize)
+        XCTAssertEqual(SettingsSection.reading.title, "Reading the web")
+        XCTAssertEqual(SettingsSection(rawValue: "reading"), .reading, "the raw value is a machine key")
+        for id in [SettingsRowID.readingAgent, .readingMethods, .readingSites] {
+            XCTAssertTrue(SettingsIndex.staticIDs.contains(id))
+            XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == id && $0.section == .reading })
+        }
     }
 
-    func testTheSettingsRowIsIndexedAndWordedWithoutPromises() {
-        XCTAssertTrue(SettingsIndex.staticIDs.contains(.agentsReading))
-        XCTAssertTrue(SettingsIndex.staticEntries.contains { $0.id == .agentsReading && $0.section == .agents })
+    func testNoReadingCopyNamesAProviderOrAPromise() {
+        let lines = [Copy.Reading.switchDetail, Copy.Reading.methodsDetail, Copy.Reading.sitesIntro,
+                     Copy.Reading.sitesEmpty, Copy.Reading.sitesIconNote, Copy.Reading.needsLoginNote,
+                     Copy.Reading.sheetHow, Copy.Reading.sheetOnlyAsks, Copy.Reading.sheetTerms]
+        let banned = ["claude", "chatgpt", "codex", "ollama", "openrouter", "gemini", "haiku", "opus", "sonnet"]
+        for line in lines {
+            for word in banned { XCTAssertFalse(line.lowercased().contains(word), "\(word) in: \(line)") }
+            XCTAssertFalse(line.lowercased().contains("never posts"), line)
+        }
     }
 }

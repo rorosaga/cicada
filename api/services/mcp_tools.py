@@ -491,7 +491,11 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
     a chat export). The URL of an ask is the person's own hand-off, so a
     connection holding ``read`` sees it (TODO ruling 14); what ``sources`` gates
     is the person's words in a conversation. The reply names ``cicada_record_read``
-    only when the caller holds it (R12 for replies)."""
+    only when the caller holds it (R12 for replies).
+
+    Cost: the site part needs every page's frontmatter, so the first call in a process is a cold
+    parse of the bank (seconds on a large one) unless the connect-time warm (``mcp/server.py``) has
+    finished; later calls answer from the cached pages."""
     from api.services import agent_methods, media_ingestor, reading_hosts
     from api.services import reading_queue as queue
 

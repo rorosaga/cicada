@@ -105,3 +105,31 @@ def test_a_page_with_words_is_not_recordable_without_an_ask(reading):
     put_page(memory, "a", "https://x.com/alpha/status/9", origin="x-bookmarks", body=f"## Description\n\n{text}\n")
     enable(sites=("x",))
     assert record(server, url="https://x.com/alpha/status/9", outcome="needs_login").startswith("Not recorded:")
+
+
+def test_switching_the_site_off_revokes_recording_even_with_a_site_row_left(reading):
+    """A row this tool wrote itself (``origin: site``) is no consent of its own: once the person switches
+    the site off, a `read` for that page is refused and writes nothing — no episode, no claim, no commit."""
+    server, memory = reading
+    eid = put_page(memory, "a", ART, fetch_status="blocked")
+    enable(sites=("paperfold.io",))
+    assert record(server, url=ART, outcome="needs_login").startswith("Recorded:")
+    assert reading_asks.get(memory, _h(ART))["origin"] == "site"
+    enable(sites=())
+    tree = (git_log(memory, 3), porcelain(memory))
+    for outcome in ("read", "failed"):
+        assert record(server, url=ART, outcome=outcome).startswith("Not recorded:")
+    assert (git_log(memory, 3), porcelain(memory)) == tree
+    assert "read" not in page(memory, eid).frontmatter
+    assert not list((memory / "episodes").glob("*.md")) or all(
+        "page-read" not in p.name for p in (memory / "episodes").glob("*.md"))
+    assert reading_asks.get(memory, _h(ART))["state"] == "needs_login", "the refused call changed nothing"
+
+
+def test_an_explicit_ask_still_records_on_a_site_that_is_not_allowed(reading):
+    """Only the site's own rows lose their authority; an ask the person made keeps working."""
+    server, memory = reading
+    put_page(memory, "a", ART, fetch_status="blocked")
+    enable(sites=())
+    reading_asks.ask(memory, _h(ART), host="articles.paperfold.io", host_class="public")
+    assert record(server, url=ART, outcome="needs_login").startswith("Recorded:")

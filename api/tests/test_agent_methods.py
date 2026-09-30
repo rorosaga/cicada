@@ -194,10 +194,12 @@ def test_handshake_cache_key_moves_with_the_choice(tmp_path):
     reading_settings.update(agent_enabled_=True, acknowledge=True)
     cache = tmp_path / "cache"
     first, _ = handshake.load_or_build(memory, "claude-code", variant="claude-code", cache_dir=cache)
-    assert "the person chose" not in first
+    assert "the person chose" not in first and "with your browser tools" in first
     agent_methods.set_choice("reading", "browser-harness")
     second, meta = handshake.load_or_build(memory, "claude-code", variant="claude-code", cache_dir=cache)
     assert meta["cached"] is False and "the person chose the `browser-harness` skill for it" in second
+    assert "your browser tools" not in second, "item 9 must not contradict the method line that follows it"
+    assert "with the tool the person chose" in second
     _check(second, _schemas())
     agent_methods.set_choice("reading", "auto")
     third, _ = handshake.load_or_build(memory, "claude-code", variant="claude-code", cache_dir=cache)
@@ -206,6 +208,23 @@ def test_handshake_cache_key_moves_with_the_choice(tmp_path):
     remote, _ = handshake.load_or_build(memory, variant="remote", tools=catalog.tool_names_for(catalog.DEFAULT_SCOPES),
                                         cache_dir=cache)
     assert "browser-harness" not in remote
+
+
+def test_item_9_never_says_your_browser_tools_beside_a_chosen_method(tmp_path):
+    """R12-style: for every choice and variant, the primer says one thing about what opens pages."""
+    memory = _bank(tmp_path)
+    state_dictionary.refresh(memory, _settings(memory), force=True, repo_resolver=_ok_repo)
+    reading_settings.update(agent_enabled_=True, acknowledge=True)
+    for chosen in ("browser-harness", "own", "auto"):
+        agent_methods.set_choice("reading", chosen)
+        for variant in ("claude-code", "codex", "generic"):
+            text, _ = handshake.load_or_build(memory, variant, variant=variant, cache_dir=tmp_path / f"c-{chosen}-{variant}")
+            has_method_line = "- Reading pages:" in text
+            if has_method_line:
+                assert "your browser tools" not in text, (chosen, variant)
+            else:
+                assert "with your browser tools" in text, (chosen, variant)
+    agent_methods.set_choice("reading", "auto")
 
 
 def test_the_ask_reply_prompt_carries_the_choice(reading):

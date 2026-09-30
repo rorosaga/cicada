@@ -199,3 +199,17 @@ def test_the_never_sign_in_rule_is_in_the_unfenced_tool_descriptions():
     text = described["cicada_reading_queue"]
     assert "never sign in" in text and "Never post, message, buy or change anything" in text
     assert "cicada_record_read" not in text, "neither description names the other (different scopes)"
+
+
+def test_connect_warms_the_pages_in_the_background_only_once_a_site_is_allowed(reading, monkeypatch):
+    """Each agent session spawns its own MCP process; the first queue call must not cold-parse the bank."""
+    from api.services import reading_queue
+
+    server, memory = reading
+    warmed = []
+    monkeypatch.setattr(reading_queue, "warm", lambda p: warmed.append(p))
+    server.initialize_result({})
+    assert warmed == [], "no site allowed: nothing to derive, nothing to warm"
+    enable(sites=("paperfold.io",))
+    server.initialize_result({})
+    assert warmed == [memory]

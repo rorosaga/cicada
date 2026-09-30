@@ -486,6 +486,9 @@ class _ReadingSeen:
 
 
 READING_SEEN = _ReadingSeen()
+#: The slice of the route's budget the reading count leaves free, so a count that runs late
+#: gives up (unknown) rather than costing the page note its answer.
+READING_RESERVE_S = 0.04
 
 
 def waiting_links(memory_path: Path, *, include_words_origin: bool = True) -> int:
@@ -500,7 +503,8 @@ def waiting_links(memory_path: Path, *, include_words_origin: bool = True) -> in
     return reading_queue.count_waiting(memory_path, warm_only=True, include_words_origin=include_words_origin)
 
 
-def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, event: str) -> Injection:
+def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, event: str,
+                      deadline: float | None = None) -> Injection:
     """G166: append one sentence — "N links are waiting in Cicada's reading queue for
     an agent to read" — to the note (or make it the whole note), only while agent
     reading is on and more links wait than this session was last told (see
@@ -510,7 +514,8 @@ def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, eve
     was never told to look."""
     from api.services import reading_queue
 
-    asks, derived = reading_queue.counts(memory_path, warm_only=True)
+    asks, derived = reading_queue.counts(memory_path, warm_only=True,
+                                         deadline=None if deadline is None else deadline - READING_RESERVE_S)
     known = derived is not None  # a cold cache leaves the derived part unknown, never zero
     waiting = asks + (derived or 0)
     told = READING_SEEN.told(session_id)
@@ -549,9 +554,10 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
     if event == "session_start":
         RECENT.reset(session_id)
         READING_SEEN.remember(session_id, 0, 0)
-        return with_reading_note(session_primer(target.path, harness), target.path, session_id, event=event), target.name
+        return with_reading_note(session_primer(target.path, harness), target.path, session_id, event=event,
+                                 deadline=deadline), target.name
     note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
-    return with_reading_note(note, target.path, session_id, event=event), target.name
+    return with_reading_note(note, target.path, session_id, event=event, deadline=deadline), target.name
 
 
 LATENCY_BUCKETS = ((50, "<50"), (100, "50-100"), (200, "100-200"), (300, "200-300"))

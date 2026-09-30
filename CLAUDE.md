@@ -859,7 +859,7 @@ needs_login | blocked | not_found | failed`. Only a **successful read is memory*
 (`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
 *reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
 claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
-the harness and never mints a page. **Only a link the person asked about, or a wall page of a site they allowed, can be recorded** (`reading_queue.authorizes`: `("ask", row)`, `("site", None)` or nothing): `cicada_record_read` refuses every outcome for any other URL (a saved public page with no wall included), and `reading_asks.record_outcome` creates a row only for that site case (`create=True`, `origin: site`) — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about or on a site nobody allowed. **The exposure, stated:** with a site grant the person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site; the structural denials (R-RW5), the master switch, "every outcome but `read` is ask-store only" and `page`-kind spans bound it. A site-origin `read` writes no ask row (the page's own `read:` stamp keeps it out of the queue) and site rows are evicted before any explicit ask (`MAX_SITE_ROWS` 200). A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). A `page` span from `page_read` reads "From the page, as <agent> read it" everywhere the app labels it (the episode's `source: page-read` rides `/episodes/{id}/text` and the provenance conversation rows), never a bare "From the page". **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+the harness and never mints a page. **Only a link the person asked about, or a wall page of a site they allowed, can be recorded** (`reading_queue.authorizes`: `("ask", row)`, `("site", None)` or nothing; a row this tool wrote itself, `origin: site`, authorizes only while its site is still allowed and the page still a wall page, so switching a site off revokes recording at once): `cicada_record_read` refuses every outcome for any other URL (a saved public page with no wall included), and `reading_asks.record_outcome` creates a row only for that site case (`create=True`, `origin: site`) — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about or on a site nobody allowed. **The exposure, stated:** with a site grant the person consented to a *site*, not to a page, so any agent holding `record` can then record a wall page of that site; the structural denials (R-RW5), the master switch, "every outcome but `read` is ask-store only" and `page`-kind spans bound it. A site-origin `read` writes no ask row (the page's own `read:` stamp keeps it out of the queue) and site rows are evicted before any explicit ask (`MAX_SITE_ROWS` 200). A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). A `page` span from `page_read` reads "From the page, as <agent> read it" everywhere the app labels it (the episode's `source: page-read` rides `/episodes/{id}/text` and the provenance conversation rows), never a bare "From the page". **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
 gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
 shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
 it read with — self-reported, never proof. The last successful read's day is kept in `~/.cicada/reading-last.json` (one small file; `GET /reading/settings` never scans the ledger). Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
@@ -869,7 +869,7 @@ write). **There is no pre-picked list of sites** (owner, 2026-09-30: "limiting t
 because we will never know which sites this will happen"): a **wall page** is a saved page Cicada's own reader could not
 read — a sign-in, a consent wall, a refusal, or a host the backend never requests — decided by `reading_walls.wall_kind`
 from stamps the fetchers already write (`fetch_status`) plus the closed host set, and only while it holds no words (no
-`describes` claim, agent read stamp, substantive `## Description` or `description_source`; a saved sign-in or consent URL is
+`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Notes`; a saved sign-in or consent URL is
 never one). The stamps are written wherever the reader fails: at save time (`MediaMeta.fetch_status`), in the in-cycle pass
 and in the backfill, in the backfill's own vocabulary and 30-day backoff, so a site surfaces when its page is walled, not
 when the capped backfill reaches it. Wall pages group by **site** (`reading_hosts.site_of`: a walled family folds to its
@@ -910,17 +910,23 @@ contacted, not even for its favicon; a 404 is retried once with `www.`, only a s
 service is told the site's name (the registrable domain, never a saved subdomain), under `CICADA_ALLOW_LOGO_FETCH`.
 **The app half (G166).** `VersionVector.mapping["reading"] = [.sources]`, so an agent's outcome (an ask-store write, no
 bank write) refreshes the Feed over SSE; `MediaFeedItem.read` (`MediaReadState`, decoded leniently — an older backend, or
-a value this build cannot read, drops the block and never the row). **Settings → Agents → Reading pages**
-(`ReadingAgentGroup`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and answered by every write):
-"Let an agent read pages for you", off by default. Turning it on raises `SettingsSheet`'s first-use sheet (what asking
-does, that Cicada only asks, the sites' terms, the five per-site switches all off, an "I understand" that must be ticked,
-DR-41) and nothing changes until "Turn on", which sends the acknowledgement and the sites in one `PUT /reading/settings`;
-once on, one switch per site and "Copy for an agent" (`GET /reading/prompt`) sit in the group. The **Feed's detail column**
+a value this build cannot read, drops the block and never the row). **Settings → Reading the web** (`SettingsSection.reading`,
+in Customize after Integrations; `ReadingWebView`, `ReadingAgentModel`; not a Store domain — fetched when the page opens and
+answered by every write) has three groups. *With an agent*: "Let an agent read pages for you", off by default; turning it on
+raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, the sites' terms, an "I understand" that
+must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
+`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group. *How your agent reads*: the
+`agent_methods` choice as radio rows (a skill wears a Skill tag and offers Open in graph, Add to your graph or Find in
+Skills). *Sites that need your browser*: every site `GET /reading/sites` surfaced — only a site Cicada's own reader could
+not read — each with its favicon (`SiteIconStore`, in memory per bank, from `GET /reading/sites/{site}/icon`; a globe
+until it arrives), its wall in words (`wallWords`), measured counts and one switch; a site switched on while the sheet is
+unacknowledged raises the sheet, whose one line says the site rides the same call, and a paused site ("your agent wasn't
+signed in") offers Try again. The **Feed's detail column**
 gains a Read section (`FeedReadSection`, words and controls from the pure `ReadWords`): "Waiting for your agent",
 "Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
 app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
 hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or the link is on a login-walled
-site (where the disabled button says which switch is off); an ordinary page with agent reading off draws nothing. The wall
+site (where the disabled button carries the server's own `reason`); an ordinary page with agent reading off draws nothing. The wall
 is not shown only there: the Feed row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
 toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
 nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows

@@ -1,32 +1,74 @@
 import Foundation
 
-/// G166 — reading pages with the person's own agent: Settings → Agents → "Reading pages", the first-use sheet and the
+/// G166 — reading pages with the person's own agent: Settings → Reading the web, the first-use sheet and the
 /// Feed's Read section. Its own file for the reason `Copy+Lists.swift` gives. These are instructions and choices, never
 /// promises: Cicada cannot enforce what an agent does in its own browser, so no line here says an agent never posts
 /// or is read-only (TODO ruling 14, R-RW8). No price, no count of tokens (DR-59).
 extension Copy {
     enum Reading {
-        // MARK: Settings → Agents → Reading pages
-        static let group = "Reading pages"
+        // MARK: Settings → Reading the web
+        static let pageTitle = "Reading the web"
+        static let pageSubtitle = "Which sites your own agent may read for you, and how it reads them."
+        static let withAgentGroup = "With an agent"
         static let switchTitle = "Let an agent read pages for you"
-        static let switchDetail = "Some pages, LinkedIn and X among them, can only be read signed in, in your own browser, by an agent you run. You choose each page with “Ask an agent”. Cicada never signs in for you."
+        static let switchDetail = "When Cicada’s reader can’t open a page (a sign-in, a consent page, a refusal), your own agent can read it in your browser. You choose each page with “Ask an agent”, and which sites below. Cicada never signs in for you."
         static let switchLabel = "Let an agent read pages for you"
-        static let hostSwitchDetail = "Cicada offers a page on this site to your agent only when you ask."
-        static func hostSwitchLabel(_ site: String) -> String { "Allow \(site)" }
-        static let loadFailed = "Couldn't read this setting just now. Open this page again to retry."
-        static let saveFailed = "Couldn't save that. Try again."
+        static let loadFailed = "Couldn’t read this setting just now. Open this page again to retry."
+        static let saveFailed = "Couldn’t save that. Try again."
         static func lastRead(_ day: String) -> String { "An agent has recorded a read · last \(day)" }
         static let copyPrompt = "Copy for an agent"
         static let copyPromptHelp = "The sentence to give your agent so it works through the pages you asked about"
         static let promptCopied = "Copied. Give it to your agent."
 
+        // MARK: How your agent reads
+        static let methodsGroup = "How your agent reads"
+        static let methodsDetail = "Cicada tells your agent which you chose. It can’t see or limit what your agent does in your browser."
+        static let skillTag = "Skill"
+        static let addToGraph = "Add to your graph"
+        static let addToGraphHelp = "File this skill’s page in your graph, so an agent can find it there"
+        static let openInGraph = "Open in graph"
+        static let findInSkills = "Find in Skills"
+        static func methodRadioLabel(_ title: String) -> String { "Read with \(title)" }
+        static func pageNote(_ state: String) -> String? {
+            switch state {
+            case "created", "adopted": return "Added this skill to your graph."
+            case "busy": return "Sleep is updating your memory. Add it to your graph again in a moment."
+            case "foreign": return "A page with that name is already in your graph, so Cicada left it alone."
+            case "demo": return "This is the demo memory, so nothing is added to it."
+            default: return nil
+            }
+        }
+
+        // MARK: Sites that need your browser
+        static let sitesGroup = "Sites that need your browser"
+        static let sitesIntro = "A site is listed when Cicada’s own reader couldn’t open one of its saved pages. You decide which sites your agent may read. Turning one on queues its waiting pages for your agent, and pages saved later join by themselves."
+        static let sitesEmpty = "No site needs your browser so far. One shows up here when Cicada’s reader can’t open a page you saved."
+        static let sitesIconNote = "Site icons come from an icon service, which is told the site’s name. Cicada never contacts these sites itself."
+        static func siteSwitchLabel(_ site: String) -> String { "Let an agent read \(site)" }
+        static func waitingNotAllowed(_ n: Int) -> String { n == 1 ? "1 saved page is waiting" : "\(n) saved pages are waiting" }
+        static func queued(_ n: Int) -> String { n == 1 ? "1 page is queued for your agent" : "\(n) pages are queued for your agent" }
+        static let nothingWaiting = "Nothing is waiting"
+        static func readCount(_ n: Int) -> String { n == 1 ? "1 read by an agent" : "\(n) read by an agent" }
+        static let needsLoginNote = "Your agent wasn’t signed in to this site. Sign in in your browser, then try again."
+        static let tryAgain = "Try again"
+        static let tryAgainHelp = "Queue this site’s pages for your agent again"
+        static func wallWords(_ wall: String?) -> String? {
+            switch wall {
+            case "walled": return "Cicada never asks this site for pages"
+            case "login": return "Asks for a sign-in"
+            case "consent": return "Shows a consent page"
+            case "refused": return "Refused Cicada’s reader"
+            default: return nil
+            }
+        }
+
         // MARK: First-use sheet
         static let sheetTitle = "Let an agent read pages for you"
-        static let sheetHow = "You choose each page with “Ask an agent”. Cicada then offers that page to your own agent, which can read it in your browser, signed in as you, and tell Cicada what it saw."
+        static let sheetHow = "You choose each page with “Ask an agent”, and which sites to allow. Cicada then offers those pages to your own agent, which can read them in your browser, signed in as you, and tell Cicada what it saw."
         static let sheetOnlyAsks = "Cicada only asks. What your agent does in your browser is up to it and you."
         static let sheetTerms = "Some sites, LinkedIn and X among them, forbid automated access even when you are signed in. You are responsible for following a site’s terms, and the site may restrict your account."
         static let sheetSaferExport = "If a site offers a download of your own data, that is safer."
-        static let sheetSites = "Let an agent read pages from these sites (all off):"
+        static func sheetAlsoAllows(_ site: String) -> String { "This also lets an agent read pages from \(site)." }
         static let sheetUnderstand = "I understand"
         static let sheetNotNow = "Not now"
         static let sheetTurnOn = "Turn on"

@@ -318,7 +318,6 @@ struct ConnectView: View {
                 }
             }
             AutoRecallGroup()
-            ReadingAgentGroup()
             SettingsGroupCard {
                 SettingsRow(.agentsCloud, title: Copy.agentsCloudTitle, detail: Copy.agentsCloudDetail) {
                     SettingsInlineLink(section: .remote, label: Copy.fromAnywhere)

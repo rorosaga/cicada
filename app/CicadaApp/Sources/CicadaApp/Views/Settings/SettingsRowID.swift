@@ -46,9 +46,12 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let agentsSkill = SettingsRowID("agentsSkill")
     // Agents' Remembers automatically (G149)
     static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
-    // Agents' Reading pages (G166): the master switch, one switch per site, the hand-off prompt
-    static let agentsReading = SettingsRowID("agentsReading")
+    // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser
+    static let readingAgent = SettingsRowID("readingAgent")
     static let readingPrompt = SettingsRowID("reading:prompt")
+    static let readingMethods = SettingsRowID("readingMethods")
+    static let readingSites = SettingsRowID("readingSites")
+    static let readingSitesEmpty = SettingsRowID("reading:sitesEmpty")
     static let remoteSwitch = SettingsRowID("remoteSwitch")
     static let remoteReach = SettingsRowID("remoteReach")
     static let remoteNew = SettingsRowID("remoteNew")
@@ -88,8 +91,10 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static func agent(_ id: String) -> SettingsRowID { SettingsRowID("agent:\(id)") }
     static func skill(_ id: String) -> SettingsRowID { SettingsRowID("skill:\(id)") }
     static func autoRecall(_ id: String) -> SettingsRowID { SettingsRowID("autoRecall:\(id)") }
-    /// G166 — one switch per login-walled site an agent may be asked about.
-    static func readingHost(_ key: String) -> SettingsRowID { SettingsRowID("readingHost:\(key)") }
+    /// G166 — one switch per site Cicada's own reader could not read (a site is listed only once one of its pages hit
+    /// a wall), and one radio per way the person's agent may read.
+    static func readingSite(_ key: String) -> SettingsRowID { SettingsRowID("readingSite:\(key)") }
+    static func readingMethod(_ id: String) -> SettingsRowID { SettingsRowID("readingMethod:\(id)") }
     /// G147 — one row per kind of page under "How things fade" (a suggestion or a chosen pace).
     static func fadeType(_ type: String) -> SettingsRowID { SettingsRowID("fadeType:\(type)") }
 

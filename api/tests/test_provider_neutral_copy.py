@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from _reading_fixtures import PUBLIC, WALLED, ask, enable, put_page, reading  # noqa: F401 — `reading` is a fixture
+from _reading_fixtures import record
 from _stdio_server import stdio_server
 from api.remote import tools as remote_tools
 from api.services import agent_methods, handshake, mcp_tools, reading_hosts, reading_prompt, recall_text
@@ -30,6 +32,7 @@ MODULES = (
     "api/services/reading_prompt.py", "api/services/reading_settings.py", "api/services/reading_hosts.py",
     "api/services/reading_walls.py", "api/services/reading_queue.py", "api/services/reading_service.py",
     "api/services/reading_asks.py", "api/routers/reading.py", "api/services/agent_methods.py",
+    "api/services/page_read.py", "api/services/hook_recall.py",
 )
 
 
@@ -96,3 +99,42 @@ def test_the_built_in_choices_name_no_product_whatever_the_person_chose():
         assert not BANNED.search(line)
     for template in (agent_methods._PERSON["skill"], agent_methods._REPLY["skill"]):
         assert not BANNED.search(template.format(name="`a-skill`"))
+
+
+def test_what_the_two_reading_tools_actually_say_is_neutral(reading):  # noqa: F811
+    """The scan above reads source strings; this runs the tools on a fixture bank and scans their replies,
+    so a name added to the queue head or to any record outcome cannot pass. A skill the person picked is
+    catalog data, so the choices scanned are the two that name none."""
+    server, memory = reading
+    art = "https://articles.paperfold.io/post/{}"
+    put_page(memory, "w1", art.format(1), fetch_status="blocked")
+    put_page(memory, "w2", art.format(2), fetch_status="blocked")
+    put_page(memory, "w3", art.format(3), fetch_status="blocked")
+    ask(memory, PUBLIC)
+    ask(memory, WALLED)
+    enable(sites=("paperfold.io",))
+    replies = []
+    for chosen in ("auto", "own"):
+        agent_methods.set_choice("reading", chosen)
+        replies.append(server.handle_tool("cicada_reading_queue", {}))
+        replies.append(server.handle_tool("cicada_reading_queue", {"limit": 1}))
+    replies.append(record(server, url=PUBLIC))                                      # read
+    for outcome in ("needs_login", "blocked", "failed"):
+        replies.append(record(server, url=WALLED, outcome=outcome))
+    replies.append(record(server, url=art.format(1), outcome="needs_login"))        # a site entry
+    replies.append(record(server, url=art.format(2)))                               # a site read
+    replies.append(record(server, url="https://never-saved.example.net/x"))         # not on the list
+    replies.append(record(server, url=PUBLIC, outcome="nonsense"))                  # bad outcome
+    replies.append(record(server, url="http://localhost:9/x", outcome="failed"))    # a denied class
+    for text in replies:
+        assert text and not BANNED.search(text), text
+
+
+def test_the_reading_queue_is_neutral_when_the_person_chose_a_skill_apart_from_its_own_name(reading):  # noqa: F811
+    """The chosen skill's name is the person's own choice and may appear, once and as that choice; nothing
+    else in the reply names a provider."""
+    server, memory = reading
+    ask(memory, PUBLIC)
+    agent_methods.set_choice("reading", "browser-harness")
+    out = server.handle_tool("cicada_reading_queue", {})
+    assert not BANNED.search(out.replace("browser-harness", "the-skill")), out

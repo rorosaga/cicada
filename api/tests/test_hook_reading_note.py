@@ -218,3 +218,40 @@ def test_a_cold_cache_never_reads_as_drained(client, bank):
     bank_index.invalidate(bank)  # e.g. a Sleep rewrite
     assert client.post(URL, json=body()).json()["additionalContext"] is None
     assert hook_recall.READING_SEEN.told("s-cold") == 4, "the higher count is remembered, not reset to the cold 0"
+
+
+def test_a_slow_wall_scan_drops_only_the_reading_sentence_and_finishes_in_the_background(client, bank, monkeypatch):
+    """After a Sleep rewrite a warm cache can still hold many page bodies not yet judged. The hook's
+    budget bounds that parse: past the deadline the derived count is unknown (the reading sentence is
+    dropped), the page note is untouched, and a background scan finishes the judging."""
+    import threading
+    import time
+
+    from api.services import bank_index, reading_queue, reading_walls
+
+    for i in range(30):
+        put_page(bank, f"w{i}", f"https://articles.paperfold.io/post/{i}", fetch_status="blocked")
+    enable(sites=("paperfold.io",))
+    bank_index.invalidate(bank)
+    bank_index.files(bank, "entities")
+    reading_walls.reset_memo()
+    real = reading_walls._holds_words
+    slow = {"on": True}
+
+    def _slow(*a, **k):
+        if slow["on"]:
+            time.sleep(0.05)
+        return real(*a, **k)
+
+    monkeypatch.setattr(reading_walls, "_holds_words", _slow)
+    inj = hook_recall.Injection("From Cicada\nA page note.", ["alpha-project"], "injected", None)
+    t0 = time.monotonic()
+    out = hook_recall.with_reading_note(inj, bank, "s-slow", event="user_prompt_submit", deadline=t0 + 0.2)
+    assert time.monotonic() - t0 < 0.6, "the count gave up at the deadline instead of judging all 30 pages"
+    assert out.text == inj.text and out.injected == inj.injected, "the page note is untouched; no sentence"
+    assert reading_queue.counts(bank, warm_only=True, deadline=time.monotonic() - 1)[1] is None
+    for th in [th for th in threading.enumerate() if th.name == "reading-warm"]:
+        th.join(10)
+    slow["on"] = False
+    assert reading_queue.counts(bank, warm_only=True, deadline=time.monotonic() + 5)[1] == 30, \
+        "the background scan judged every page; the next prompt counts them"

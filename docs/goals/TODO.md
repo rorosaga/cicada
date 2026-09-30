@@ -21,9 +21,13 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
 **Agent reading (G166 Route A) — built on `feat/agent-reading`, 2026-09-29/30 (PR to `dev` pending; not merged).**
 - *State (2026-09-30, second pass):* the backend half of the permissions-page rework is on the branch — surfaced sites
   (`reading_walls`, `reading_queue`, `GET /reading/sites`, `agent_sites`), the reader recording its own walls, site icons,
-  "How your agent reads" (`agent_methods`, catalog `roles`/`agent-prompt`, `skill_pages`). The app half (Settings → Reading
-  the web, the wall states in the Feed, the icons, the neutral copy) follows on the same branch. Earlier: backend,
-  Settings → Agents → Reading pages, the Feed's Read section, the row flag ("Needs sign-in"), the toast
+  "How your agent reads" (`agent_methods`, catalog `roles`/`agent-prompt`, `skill_pages`) — and the app half: Settings →
+  Reading the web (With an agent, How your agent reads, Sites that need your browser with icons and wall words; the
+  first-use sheet has no site picker; the old Settings → Agents → Reading pages group is gone). Review fixes 2026-09-30:
+  a site row an agent's own outcome wrote no longer authorizes a record once the site is off; the hook's count is
+  bounded by its deadline; an agent's `saved-link` save needs `sources` remotely; an X bookmark's post text counts as
+  words. **Not yet measured:** the real-bank count of surfaced pages per site (read-only, before merge). Earlier: backend,
+  the Feed's Read section, the row flag ("Needs sign-in"), the toast
   and the honest chip label ("From the page, as <agent> read it") are built and reviewed; **TODO ruling 14 (R-RW4, R-RW5,
   R-RW8, R-RW9 and the review rulings) is binding.** Ruling 13 is the Sleep drain (on `dev`); reading is ruling 14. The
   narrowing-the-Sleep-refusals row is **G177**. **Not built:** the Reader's Links section (S2), the public Reader
@@ -633,7 +637,11 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       "per link, or per site the person turned on after a page from it could not be read"; "Reddit and `t.co` are never
       offered; the other five are five per-site switches" is "`t.co` is never offered; Reddit surfaces like any site"; and
       Track P R5 (a retired interstitial or login wall stays out of the Feed) now lets a page through **only** when it is such
-      a wall an agent can be asked to read, or an agent already read it.
+      a wall an agent can be asked to read, or an agent already read it. **Review 2026-09-30:** a row an agent's own outcome wrote
+      (`origin: site`) is no consent of its own — it authorizes a record only while the site is still allowed and the
+      page is still a wall page, so switching a site off revokes recording as it dequeues; a connector whose saved item
+      *is* the post (X bookmarks: the text in `## Notes`) holds words, while a Reddit or Pinterest save is a link out
+      whose title or pin description is not the linked page, and surfaces on purpose.
     - **A site switch is a standing permission, derived not fanned out (2026-09-30).** The queue is the person's asks plus
       wall pages of allowed sites, computed at read (`reading_queue`): a switch writes one line, a new wall page joins with
       no write, turning it off (or the master) dequeues at once. An agent's `needs_login` pauses that site's derived entries

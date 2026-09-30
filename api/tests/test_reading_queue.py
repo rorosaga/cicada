@@ -125,6 +125,30 @@ def test_chat_and_agent_saved_pages_need_sources_for_a_remote_caller(memory):
     assert reading_queue.count_waiting(memory, include_words_origin=False) == 2
 
 
+def test_an_agents_saved_link_is_fenced_even_though_its_origin_is_the_apps(memory):
+    """`cicada_save_url` stamps origin `saved-link` byte-identical to the app's own route; only the
+    save's episode (its `session_id`) tells an agent's save from the person's."""
+    import asyncio
+
+    def _save(url, **kw):
+        idx = media_ingestor.load_url_index(memory)
+        item = media_ingestor.RawItem(url=url, origin="saved-link", defer_enrich=True, **kw)
+        result = asyncio.run(media_ingestor.ingest_one(item, memory, None, idx))
+        media_ingestor.save_url_index(memory, idx)
+        path = memory / "entities" / f"{result.media_entity_id}.md"
+        parsed = media_ingestor.markdown_parser.parse(path)
+        parsed.frontmatter["fetch_status"] = "blocked"
+        media_ingestor.markdown_parser.write(path, parsed.frontmatter, parsed.body)
+
+    mine, agents = ART.format(1), ART.format(2)
+    _save(mine)
+    _save(agents, session_id="ses_chat_1", harness="claude-code")
+    enable(sites=("paperfold.io",))
+    assert sorted(_urls(memory)) == [mine, agents], "a local caller sees both"
+    assert _urls(memory, include_words_origin=False) == [mine], "the agent's save came up in chat: needs `sources`"
+    assert reading_queue.count_waiting(memory, include_words_origin=False) == 1
+
+
 def test_authorizes_ask_site_or_none(memory):
     url, other = ART.format(1), ART.format(2)
     put_page(memory, "a", url, fetch_status="blocked")

@@ -29,12 +29,15 @@ import Foundation
 /// and the link backfill); Advanced closes Engines & keys. New cases only, so
 /// every persisted raw value still restores (K1).
 ///
+/// G166 — Reading the web sits after Integrations in Customize: which sites the person's own agent may read for them and
+/// how it reads them. A new case only, so every persisted raw value still restores.
+///
 /// O5 — Skills (G138) closes Customize: what your agents can add, installed
 /// only by the agent's own installer after consent (R-O26).
 enum SettingsSection: String, CaseIterable, Identifiable {
     // Declared in sidebar order — `SettingsGroup.sections` filters this list,
     // and `SettingsKitTests` pins that the groups read it back unchanged.
-    case general, you, privacy, memory, sleep, integrations, agents, remote, skills, engines, plansAndKeys, advanced
+    case general, you, privacy, memory, sleep, integrations, reading, agents, remote, skills, engines, plansAndKeys, advanced
 
     var id: String { rawValue }
 
@@ -46,6 +49,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .memory: Copy.memorySection
         case .sleep: Copy.sleepSettings
         case .integrations: Copy.integrations
+        case .reading: Copy.Reading.pageTitle
         case .agents: Copy.agents
         case .remote: Copy.fromAnywhere
         case .skills: Copy.skills
@@ -64,6 +68,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .memory: Copy.memorySubtitle
         case .sleep: Copy.sleepSettingsSubtitle
         case .integrations: Copy.integrationsSubtitle
+        case .reading: Copy.Reading.pageSubtitle
         case .agents: Copy.agentsSubtitle
         case .remote: Copy.remoteSubtitle
         case .skills: Copy.skillsSubtitle
@@ -81,6 +86,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .memory: "books.vertical"
         case .sleep: "moon.zzz"
         case .integrations: "puzzlepiece.extension"
+        case .reading: "globe"
         case .agents: "cable.connector"
         case .remote: "dot.radiowaves.left.and.right"
         case .skills: "sparkles"
@@ -94,7 +100,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var group: SettingsGroup {
         switch self {
         case .general, .you, .privacy, .memory, .sleep: .cicada
-        case .integrations, .agents, .remote, .skills: .customize
+        case .integrations, .reading, .agents, .remote, .skills: .customize
         case .engines, .plansAndKeys, .advanced: .enginesAndKeys
         }
     }

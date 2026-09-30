@@ -716,7 +716,21 @@ def initialize_result(params: dict) -> dict:
         result["instructions"] = _handshake_text(delivery="initialize")
     except Exception as exc:  # never fail a connect over a primer
         print(f"cicada-mcp: handshake unavailable: {exc}", file=sys.stderr)
+    _warm_reading_queue()
     return result
+
+
+def _warm_reading_queue() -> None:
+    """G166: each agent session spawns its own MCP process, and the first `cicada_reading_queue` call
+    would cold-parse the bank's pages on its sync path. When agent reading is on and a site is allowed,
+    parse them in a background thread now, at connect, so that call answers from memory. Never fails a connect."""
+    try:
+        from api.services import reading_queue, reading_settings
+
+        if reading_settings.agent_enabled() and reading_settings.allowed_sites():
+            reading_queue.warm(get_memory_path())
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _handshake_text(*, delivery: str) -> str:

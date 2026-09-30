@@ -129,3 +129,33 @@ def test_scan_one_finds_a_page_by_url_without_walking_the_bank(memory):
     assert page is not None and page.wall == "refused" and page.site == "paperfold.io" and page.waiting
     assert reading_walls.scan_one(memory, "https://blog.paperfold.io/p") is None
     assert reading_walls.scan_one(memory, "https://never-saved.paperfold.io/") is None
+
+
+def test_an_x_bookmark_saved_by_the_connector_holds_its_post_text(memory):
+    """The real X connector shape: title + the post's text in `## Notes` (via `RawItem.note`), no
+    `## Description` and no `description_source`. Cicada already holds the post, so it is no wall page;
+    a bookmark whose post had no text (an image only) still is. Reddit and Pinterest saves are links out
+    — their title or pin description is not the linked page — so they are surfaced on purpose."""
+    import asyncio
+
+    from api.services import media_ingestor
+    from api.services.connectors import x
+
+    idx = media_ingestor.load_url_index(memory)
+    items = x.bookmarks_to_items([{"id": "1001", "text": "short post"}, {"id": "1002", "text": ""}])
+    ids = {}
+    for item in items:
+        item.defer_enrich = True
+        ids[item.url] = asyncio.run(media_ingestor.ingest_one(item, memory, None, idx)).media_entity_id
+    media_ingestor.save_url_index(memory, idx)
+    body = markdown_parser.parse(memory / "entities" / f"{ids['https://x.com/i/web/status/1001']}.md").body
+    assert "## Notes" in body and "## Description" not in body, "the connector's real page shape"
+    waiting = {p.url for p in reading_walls.scan(memory) if p.waiting}
+    assert "https://x.com/i/web/status/1001" not in waiting, "the post's text is already held"
+    assert "https://x.com/i/web/status/1002" in waiting, "an empty post has no words"
+
+
+def test_notes_on_a_page_from_another_origin_are_not_the_page(memory):
+    put_page(memory, "tg", "https://x.com/alpha/status/20", origin="telegram",
+             body="## Summary\nA saved link.\n\n## Notes\nlook at this later\n")
+    assert [p.entity_id for p in reading_walls.scan(memory) if p.waiting] == ["media-tg"]

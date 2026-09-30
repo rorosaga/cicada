@@ -25,7 +25,10 @@ read), and **a page that already holds words** — a live ``describes`` claim, a
 agent's read stamp, a substantive ``## Description`` or a ``description_source``.
 That last rule keeps a connector-saved post whose text Cicada already holds out
 of the list (the reuse tier never runs for a walled host, so such a page has a
-description and no claim).
+description and no claim). A connector whose saved item IS the post (``x-bookmarks``:
+the post's text rides ``RawItem.note`` into the page's ``## Notes``) holds words
+through any non-empty ``## Notes`` too. A Reddit or Pinterest save is a link out: its
+title or pin description is not the linked page, so such a page is surfaced on purpose.
 
 The words check parses a page body, so it runs only for the small set of
 candidates that passed the stamp rules, memoised per ``(bank, id, mtime_ns,
@@ -34,6 +37,7 @@ size)`` in a bounded LRU (a long-lived backend never leaks).
 from __future__ import annotations
 
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,11 +47,18 @@ from api.services import bank_index, media_ingestor, reading_hosts
 WALL_KINDS = ("walled", "login", "consent", "refused")  # closed; "js" is reserved (G164/G167)
 _MEMO_MAX = 4096
 _HIDDEN = frozenset({"archived", "dropped"})
+#: Connector origins whose ``## Notes`` is the saved item's own text (the post), not a note about it.
+_TEXT_IN_NOTES_ORIGINS = frozenset({"x-bookmarks"})
 
 _lock = threading.Lock()
 _words_memo: "OrderedDict[tuple, bool]" = OrderedDict()
 #: Counts body parses done for the words check — read by the "only candidates are parsed" test.
 body_parses = 0
+
+
+class DeadlineExceeded(Exception):
+    """A scan given a ``deadline`` ran out of time. Pages already judged stay memoised, so the
+    next (or a background) scan finishes what this one began."""
 
 
 @dataclass(frozen=True)
@@ -62,6 +73,7 @@ class WallPage:
     origin: str
     read_by_agent: bool
     words: bool  # the page already holds words (a claim, an agent read, a description)
+    episodes: tuple = ()  # the page's source episodes (an agent's save is told by the episode's session_id)
 
     @property
     def waiting(self) -> bool:
@@ -108,9 +120,17 @@ def _agent_read(fm: dict) -> bool:
     return isinstance(read, dict) and read.get("by") == "agent"
 
 
+def _notes_section(body: str) -> str:
+    from api.services.claims import strip_claims_block
+    from api.services.entity_body import parse_sections
+
+    return (parse_sections(strip_claims_block(body)).get("Notes", "") or "").strip()
+
+
 def _holds_words(entity_id: str, fm: dict, body_fn, key: tuple) -> bool:
-    """A live ``describes`` claim, a substantive ``## Description`` or a
-    ``description_source`` — memoised, bounded."""
+    """A live ``describes`` claim, a substantive ``## Description``, a
+    ``description_source``, or (a post connector) the post's own text in ``## Notes``
+    — memoised, bounded."""
     global body_parses
     if _agent_read(fm) or fm.get("description_source"):
         return True
@@ -133,6 +153,8 @@ def _holds_words(entity_id: str, fm: dict, body_fn, key: tuple) -> bool:
     if not words:
         text = link_enrichment._claim_description(link_enrichment._extract_description_section(body or ""), min_len)
         words = link_enrichment._is_substantive(text, min_len)
+    if not words and str(fm.get("origin") or "").strip().lower() in _TEXT_IN_NOTES_ORIGINS:
+        words = bool(_notes_section(body or ""))
     with _lock:
         _words_memo[key] = words
         while len(_words_memo) > _MEMO_MAX:
@@ -158,6 +180,7 @@ def _page(memory_path: Path, entity_id: str, fm: dict, body_fn, mtime_ns: int, s
         site=reading_hosts.site_of(url), wall=kind, title=str(fm.get("name") or entity_id),
         saved_at=str(fm.get("saved_at") or fm.get("created") or media.get("saved_at") or "")[:10],
         origin=str(fm.get("origin") or ""), read_by_agent=_agent_read(fm), words=words,
+        episodes=tuple(str(e) for e in (fm.get("source_episodes") or []) if isinstance(e, str))[:4],
     )
 
 
@@ -170,14 +193,18 @@ def page_for(memory_path: Path, entity_id: str, fm: dict, body: str, *, mtime_ns
         return None
 
 
-def scan(memory_path: Path) -> list[WallPage]:
+def scan(memory_path: Path, *, deadline: float | None = None, clock=time.monotonic) -> list[WallPage]:
     """Every wall page in the bank, oldest saved first. One ``bank_index`` pass
     over the media pages (their frontmatter is already cached); only pages that
-    pass the stamp rules have their body read, and only once per file version."""
+    pass the stamp rules have their body read, and only once per file version.
+    ``deadline`` (a ``clock()`` value) bounds a caller with a hard budget — the recall
+    hook: past it the scan raises :class:`DeadlineExceeded` instead of parsing on."""
     out: list[WallPage] = []
     for f in bank_index.files(Path(memory_path), "entities"):
         if not f.stem.startswith("media-"):
             continue
+        if deadline is not None and clock() >= deadline:
+            raise DeadlineExceeded
         try:
             page = _page(memory_path, f.stem, f.frontmatter or {}, f.body, f.mtime_ns, f.size)
         except Exception:  # noqa: BLE001 — one odd page is no list

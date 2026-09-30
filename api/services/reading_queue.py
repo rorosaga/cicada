@@ -22,7 +22,8 @@ A site entry whose page was not saved through a channel that is the person's own
 saved content (the allowlist below) is served to a caller without the
 ``sources`` scope only if ``include_words_origin`` is set: a link a person typed
 in Telegram or that an agent saved because it came up in chat is the person's
-own words, and the queue must not hand it to a ``read``-scope connection.
+own words, and the queue must not hand it to a ``read``-scope connection. An agent's
+``saved-link`` save is told from the app's by its episode's ``session_id``.
 """
 from __future__ import annotations
 
@@ -43,6 +44,22 @@ _SAVED_ORIGINS = frozenset({"rss", "saved-link", "pinterest"})
 def origin_is_saved_content(origin: str) -> bool:
     o = (origin or "").strip().lower()
     return o in _SAVED_ORIGINS or o.endswith(_SAVED_SUFFIXES)
+
+
+def _saved_by_agent(memory_path: Path, p: reading_walls.WallPage) -> bool:
+    """Was the page saved by an agent (an MCP save, or the app's save route given a session)?
+    Its origin cannot tell: ``cicada_save_url`` stamps ``saved-link`` byte-identical to the app's own
+    route on purpose, but the save's episode carries the conversation's ``session_id``."""
+    from api.services import markdown_parser
+
+    for ep in p.episodes:
+        try:
+            fm = markdown_parser.parse(Path(memory_path) / "episodes" / f"{ep}.md").frontmatter or {}
+        except (OSError, ValueError):
+            continue
+        if str(fm.get("session_id") or "").strip():
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -88,17 +105,20 @@ def ask_entries(memory_path: Path, rows: list[dict], idx: dict) -> list[Entry]:
 
 
 def site_entries(memory_path: Path, rows: list[dict], *, include_words_origin: bool = True,
-                 pages: list[reading_walls.WallPage] | None = None) -> list[Entry]:
+                 pages: list[reading_walls.WallPage] | None = None,
+                 deadline: float | None = None) -> list[Entry]:
     allowed = reading_settings.allowed_sites()
     if not allowed:
         return []
     live = {r["url_hash"] for r in rows}
     paused = paused_sites(rows)
     out: list[Entry] = []
-    for p in pages if pages is not None else reading_walls.scan(memory_path):
+    for p in pages if pages is not None else reading_walls.scan(memory_path, deadline=deadline):
         if not p.waiting or p.site not in allowed or p.site in paused or p.url_hash in live:
             continue
-        if not include_words_origin and not origin_is_saved_content(p.origin):
+        if not include_words_origin and (not origin_is_saved_content(p.origin)
+                                         or (p.origin.strip().lower() == "saved-link"
+                                             and _saved_by_agent(memory_path, p))):
             continue
         verdict = reading_hosts.classify(p.url)
         if not verdict.ok:
@@ -123,7 +143,7 @@ def entries(memory_path: Path, *, include_words_origin: bool = True, now: dateti
 
 def authorizes(memory_path: Path, url: str, *, now: datetime | None = None) -> tuple[str, dict | None] | None:
     """May an agent record an outcome for ``url``? ``("ask", row)`` for a link the
-    person asked about; ``("site", None)`` for a saved wall page, still without
+    person asked about (or a site row, see below); ``("site", None)`` for a saved wall page, still without
     words, of a site the person allowed; else ``None``. The anti-plant rule:
     a saved public page with no wall, or a site not allowed, gets nothing."""
     memory_path = Path(memory_path)
@@ -132,13 +152,17 @@ def authorizes(memory_path: Path, url: str, *, now: datetime | None = None) -> t
         row = reading_asks.get(memory_path, h, now=now)
     except ValueError:
         row = None
-    if row is not None:
+    if row is not None and row.get("origin") != reading_asks.ORIGIN_SITE:
         return "ask", row
+    # A row this tool wrote itself (``origin: site``, for a needs_login or a failed read of a site
+    # page) is no consent of its own: the site grant is. It authorizes only while the site is still
+    # allowed and the page is still a wall page waiting for words — switching the site off revokes
+    # recording at once, as it dequeues at once.
     if not reading_settings.agent_enabled():
         return None
     page = reading_walls.scan_one(memory_path, url)
     if page is not None and page.waiting and reading_settings.site_allowed(page.site):
-        return "site", None
+        return ("ask", row) if row is not None else ("site", None)
     return None
 
 
@@ -155,7 +179,11 @@ def _warm_in_background(memory_path: Path) -> None:
 
     def _run() -> None:
         try:
+            # Parse the pages, then judge the wall candidates' bodies (memoised), so the next
+            # counted prompt answers from memory instead of parsing inside the hook's budget.
             bank_index.files(memory_path, "entities")
+            if reading_settings.allowed_sites():
+                reading_walls.scan(memory_path)
         except Exception:  # noqa: BLE001
             pass
         finally:
@@ -165,13 +193,22 @@ def _warm_in_background(memory_path: Path) -> None:
     threading.Thread(target=_run, name="reading-warm", daemon=True).start()
 
 
-def counts(memory_path: Path, *, warm_only: bool = False,
-           include_words_origin: bool = True) -> tuple[int, int | None]:
+def warm(memory_path: Path) -> None:
+    """Parse the bank's pages and judge its wall candidates in a background thread (once at a time
+    per bank), so a later read of the queue answers from memory."""
+    _warm_in_background(Path(memory_path))
+
+
+def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: bool = True,
+           deadline: float | None = None) -> tuple[int, int | None]:
     """``(asks, site entries)`` waiting. ``warm_only`` (the recall hook's 300 ms
     budget): the derived part is counted only when the bank's page cache is
     already warm; a cold cache counts the asks, starts a background warm and
     answers ``None`` for the derived part (unknown, not zero), so the next prompt
-    counts the rest and a caller never mistakes 'not counted yet' for 'drained'."""
+    counts the rest and a caller never mistakes 'not counted yet' for 'drained'. ``deadline``
+    (a ``time.monotonic()`` value, the hook's budget) bounds the derived part too: a warm
+    cache can still hold page bodies not yet judged (after a Sleep rewrite), so past the
+    deadline the count is unknown, and the rest is finished in the background."""
     if not reading_settings.agent_enabled():
         return 0, 0
     memory_path = Path(memory_path)
@@ -184,7 +221,12 @@ def counts(memory_path: Path, *, warm_only: bool = False,
     if warm_only and not bank_index.is_warm(memory_path, "entities"):
         _warm_in_background(memory_path)
         return asks, None
-    return asks, len(site_entries(memory_path, rows, include_words_origin=include_words_origin))
+    try:
+        return asks, len(site_entries(memory_path, rows, include_words_origin=include_words_origin,
+                                      deadline=deadline if warm_only else None))
+    except reading_walls.DeadlineExceeded:
+        _warm_in_background(memory_path)
+        return asks, None
 
 
 def count_waiting(memory_path: Path, *, warm_only: bool = False, include_words_origin: bool = True) -> int:

@@ -15,17 +15,26 @@ struct MediaReadState: Codable, Equatable {
     var harness: String?
     var note: String?
     var host: String?
-    var hostKey: String?
+    /// The wall Cicada's own reader hit on this page (`walled`, `login`, `consent`, `refused`), the site it belongs to
+    /// (`siteKey`, `siteLabel`), whether the person let an agent read that site (`siteAllowed`) and how the page came to
+    /// wait (`queuedBy: site`). All nil for a page the reader opened.
+    var wall: String?
+    var siteKey: String?
+    var siteLabel: String?
+    var siteAllowed: Bool
+    var queuedBy: String?
     var askable: Bool
     var reason: String?
 
     enum CodingKeys: String, CodingKey {
-        case by, status, tier, at, askedAt, via, harness, note, host, hostKey, askable, reason
+        case by, status, tier, at, askedAt, via, harness, note, host, wall, siteKey, siteLabel, siteAllowed, queuedBy
+        case askable, reason
     }
 
     init(status: String = "none", by: String? = nil, tier: String? = nil, at: String? = nil, askedAt: String? = nil,
          via: String? = nil, harness: String? = nil, note: String? = nil, host: String? = nil,
-         hostKey: String? = nil, askable: Bool = false, reason: String? = nil) {
+         wall: String? = nil, siteKey: String? = nil, siteLabel: String? = nil, siteAllowed: Bool = false,
+         queuedBy: String? = nil, askable: Bool = false, reason: String? = nil) {
         self.status = status
         self.by = by
         self.tier = tier
@@ -35,7 +44,11 @@ struct MediaReadState: Codable, Equatable {
         self.harness = harness
         self.note = note
         self.host = host
-        self.hostKey = hostKey
+        self.wall = wall
+        self.siteKey = siteKey
+        self.siteLabel = siteLabel
+        self.siteAllowed = siteAllowed
+        self.queuedBy = queuedBy
         self.askable = askable
         self.reason = reason
     }
@@ -51,77 +64,271 @@ struct MediaReadState: Codable, Equatable {
         harness = try? c.decodeIfPresent(String.self, forKey: .harness)
         note = try? c.decodeIfPresent(String.self, forKey: .note)
         host = try? c.decodeIfPresent(String.self, forKey: .host)
-        hostKey = try? c.decodeIfPresent(String.self, forKey: .hostKey)
+        wall = try? c.decodeIfPresent(String.self, forKey: .wall)
+        siteKey = try? c.decodeIfPresent(String.self, forKey: .siteKey)
+        siteLabel = try? c.decodeIfPresent(String.self, forKey: .siteLabel)
+        siteAllowed = (try? c.decode(Bool.self, forKey: .siteAllowed)) ?? false
+        queuedBy = try? c.decodeIfPresent(String.self, forKey: .queuedBy)
         askable = (try? c.decode(Bool.self, forKey: .askable)) ?? false
         reason = try? c.decodeIfPresent(String.self, forKey: .reason)
     }
 }
 
-/// One of the five sites the person may allow an agent to be asked about (`GET /reading/settings`'s `hostSwitches`).
-struct ReadingHostSwitch: Decodable, Equatable, Identifiable {
-    var key: String
-    var label: String
-    var domains: [String]
-    var note: String?
-    var id: String { key }
-
-    enum CodingKeys: String, CodingKey { case key, label, domains, note }
-
-    init(key: String, label: String, domains: [String] = [], note: String? = nil) {
-        self.key = key
-        self.label = label
-        self.domains = domains
-        self.note = note
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        key = try c.decode(String.self, forKey: .key)
-        label = (try? c.decode(String.self, forKey: .label)) ?? key
-        domains = (try? c.decode([String].self, forKey: .domains)) ?? []
-        note = try? c.decodeIfPresent(String.self, forKey: .note)
-    }
-}
-
-/// `GET|PUT /reading/settings` (G166). Not a Store domain — fetched when Settings → Agents opens, like the fade pace
-/// — so no ETag use and no `VersionVector` mapping.
+/// `GET|PUT /reading/settings` (G166). Not a Store domain — fetched when Settings → Reading the web opens, like the
+/// fade pace — so no ETag use and no `VersionVector` mapping. `allowedSites` is `{site: day}`: the sites the person let an
+/// agent read (a site is offered to switch on only once Cicada's own reader could not read one of its pages).
 struct ReadingSettingsResponse: Decodable, Equatable {
     var agentEnabled: Bool
-    var agentHosts: [String]
+    var allowedSites: [String: String]
     var ackedAt: String?
     var ackCurrent: Bool
-    var hostSwitches: [ReadingHostSwitch]
     /// The day of the last read an agent recorded, `nil` until one has.
     var lastAgentRead: String?
 
-    enum CodingKeys: String, CodingKey {
-        case agentEnabled, agentHosts, ackedAt, ackCurrent, hostSwitches, lastAgentRead
-    }
+    enum CodingKeys: String, CodingKey { case agentEnabled, allowedSites, ackedAt, ackCurrent, lastAgentRead }
 
-    init(agentEnabled: Bool = false, agentHosts: [String] = [], ackedAt: String? = nil, ackCurrent: Bool = false,
-         hostSwitches: [ReadingHostSwitch] = [], lastAgentRead: String? = nil) {
+    init(agentEnabled: Bool = false, allowedSites: [String: String] = [:], ackedAt: String? = nil,
+         ackCurrent: Bool = false, lastAgentRead: String? = nil) {
         self.agentEnabled = agentEnabled
-        self.agentHosts = agentHosts
+        self.allowedSites = allowedSites
         self.ackedAt = ackedAt
         self.ackCurrent = ackCurrent
-        self.hostSwitches = hostSwitches
         self.lastAgentRead = lastAgentRead
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         agentEnabled = (try? c.decode(Bool.self, forKey: .agentEnabled)) ?? false
-        agentHosts = (try? c.decode([String].self, forKey: .agentHosts)) ?? []
+        allowedSites = (try? c.decode([String: String].self, forKey: .allowedSites)) ?? [:]
         ackedAt = try? c.decodeIfPresent(String.self, forKey: .ackedAt)
         ackCurrent = (try? c.decode(Bool.self, forKey: .ackCurrent)) ?? false
-        hostSwitches = ((try? c.decode([LossyHostSwitch].self, forKey: .hostSwitches)) ?? []).compactMap(\.value)
         lastAgentRead = try? c.decodeIfPresent(String.self, forKey: .lastAgentRead)
     }
 }
 
-private struct LossyHostSwitch: Decodable {
-    let value: ReadingHostSwitch?
-    init(from decoder: Decoder) throws { value = try? ReadingHostSwitch(from: decoder) }
+/// One site Cicada's own reader could not read (`GET /reading/sites`): counts only — never a URL, a title or a note of a
+/// page. `wall` is the commonest kind among its waiting pages; `needsLogin` counts pages whose last agent read said it
+/// was not signed in; `note` is the server's one sentence for a site with a caveat; `iconHost` is the name the icon
+/// service is asked about (never the site itself).
+struct ReadingSite: Decodable, Equatable, Identifiable {
+    var site: String
+    var label: String
+    var wall: String?
+    var allowed: Bool
+    var since: String?
+    var waiting: Int
+    var read: Int
+    var needsLogin: Int
+    var note: String?
+    var iconHost: String?
+    var id: String { site }
+
+    enum CodingKeys: String, CodingKey { case site, label, wall, allowed, since, waiting, read, needsLogin, note, iconHost }
+
+    init(site: String, label: String? = nil, wall: String? = nil, allowed: Bool = false, since: String? = nil,
+         waiting: Int = 0, read: Int = 0, needsLogin: Int = 0, note: String? = nil, iconHost: String? = nil) {
+        self.site = site
+        self.label = label ?? site
+        self.wall = wall
+        self.allowed = allowed
+        self.since = since
+        self.waiting = waiting
+        self.read = read
+        self.needsLogin = needsLogin
+        self.note = note
+        self.iconHost = iconHost
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        site = try c.decode(String.self, forKey: .site)
+        label = (try? c.decode(String.self, forKey: .label)) ?? site
+        wall = try? c.decodeIfPresent(String.self, forKey: .wall)
+        allowed = (try? c.decode(Bool.self, forKey: .allowed)) ?? false
+        since = try? c.decodeIfPresent(String.self, forKey: .since)
+        waiting = (try? c.decode(Int.self, forKey: .waiting)) ?? 0
+        read = (try? c.decode(Int.self, forKey: .read)) ?? 0
+        needsLogin = (try? c.decode(Int.self, forKey: .needsLogin)) ?? 0
+        note = try? c.decodeIfPresent(String.self, forKey: .note)
+        iconHost = try? c.decodeIfPresent(String.self, forKey: .iconHost)
+    }
+}
+
+/// `GET /reading/sites`. A row this build cannot read is dropped alone, never the list.
+struct ReadingSitesResponse: Decodable, Equatable {
+    var sites: [ReadingSite]
+    var waitingTotal: Int
+    var waitingNotAllowed: Int
+    var enabled: Bool
+
+    enum CodingKeys: String, CodingKey { case sites, waitingTotal, waitingNotAllowed, enabled }
+
+    init(sites: [ReadingSite] = [], waitingTotal: Int = 0, waitingNotAllowed: Int = 0, enabled: Bool = false) {
+        self.sites = sites
+        self.waitingTotal = waitingTotal
+        self.waitingNotAllowed = waitingNotAllowed
+        self.enabled = enabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sites = ((try? c.decode([Lossy<ReadingSite>].self, forKey: .sites)) ?? []).compactMap(\.value)
+        waitingTotal = (try? c.decode(Int.self, forKey: .waitingTotal)) ?? 0
+        waitingNotAllowed = (try? c.decode(Int.self, forKey: .waitingNotAllowed)) ?? 0
+        enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? false
+    }
+}
+
+private struct Lossy<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+}
+
+// MARK: How your agent reads (`GET|PUT /agent-methods`)
+
+/// The page of a skill in the graph, when it has one: `state` is `present`, `adopted`, `created` or another word the
+/// server uses; the app reads only whether an id exists.
+struct AgentMethodPage: Decodable, Equatable {
+    var id: String
+    var state: String?
+
+    enum CodingKeys: String, CodingKey { case id, state }
+
+    init(id: String, state: String? = nil) {
+        self.id = id
+        self.state = state
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        state = try? c.decodeIfPresent(String.self, forKey: .state)
+    }
+}
+
+/// One choice of how the person's agent does a job. `kind` is `auto`, `own` or `skill`; a skill is catalog data the
+/// person can pick, tagged Skill in its row. `state` is per agent (`installed`, `missing`, …) and `page` the skill's page
+/// in the graph. The server sends the whole Skills-card shape for a skill; this build reads only what a row shows.
+struct AgentMethodOption: Decodable, Equatable, Identifiable {
+    var id: String
+    var kind: String
+    var title: String
+    var detail: String
+    var reach: String?
+    var cicadaNote: String?
+    var state: [String: String]
+    var page: AgentMethodPage?
+
+    var isSkill: Bool { kind == "skill" }
+    /// Installed for at least one of the agents that can use it.
+    var installedAnywhere: Bool { state.values.contains("installed") }
+
+    enum CodingKeys: String, CodingKey { case id, kind, title, detail, reach, cicadaNote, state, page }
+
+    init(id: String, kind: String, title: String, detail: String = "", reach: String? = nil,
+         cicadaNote: String? = nil, state: [String: String] = [:], page: AgentMethodPage? = nil) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.reach = reach
+        self.cicadaNote = cicadaNote
+        self.state = state
+        self.page = page
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        kind = (try? c.decode(String.self, forKey: .kind)) ?? "skill"
+        title = (try? c.decode(String.self, forKey: .title)) ?? id
+        detail = (try? c.decode(String.self, forKey: .detail)) ?? ""
+        reach = try? c.decodeIfPresent(String.self, forKey: .reach)
+        cicadaNote = try? c.decodeIfPresent(String.self, forKey: .cicadaNote)
+        state = (try? c.decode([String: String].self, forKey: .state)) ?? [:]
+        page = try? c.decodeIfPresent(AgentMethodPage.self, forKey: .page)
+    }
+}
+
+struct AgentMethodJob: Decodable, Equatable {
+    var job: String
+    var question: String
+    var chosen: String
+    var options: [AgentMethodOption]
+
+    enum CodingKeys: String, CodingKey { case job, question, chosen, options }
+
+    init(job: String, question: String, chosen: String = "auto", options: [AgentMethodOption] = []) {
+        self.job = job
+        self.question = question
+        self.chosen = chosen
+        self.options = options
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        job = try c.decode(String.self, forKey: .job)
+        question = (try? c.decode(String.self, forKey: .question)) ?? ""
+        chosen = (try? c.decode(String.self, forKey: .chosen)) ?? "auto"
+        options = ((try? c.decode([Lossy<AgentMethodOption>].self, forKey: .options)) ?? []).compactMap(\.value)
+    }
+}
+
+/// `GET /agent-methods` — a job per entry (today only `reading`). A `PUT` answers one job plus `write.page`, what the
+/// server did about the chosen skill's page (`created`, `adopted`, `exists`, `foreign`, `busy`, `demo`, `none`).
+struct AgentMethodsResponse: Decodable, Equatable {
+    var jobs: [AgentMethodJob]
+
+    enum CodingKeys: String, CodingKey { case jobs }
+
+    init(jobs: [AgentMethodJob] = []) { self.jobs = jobs }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        jobs = ((try? c.decode([Lossy<AgentMethodJob>].self, forKey: .jobs)) ?? []).compactMap(\.value)
+    }
+
+    func job(_ name: String) -> AgentMethodJob? { jobs.first { $0.job == name } }
+}
+
+struct AgentMethodWriteResponse: Decodable, Equatable {
+    var job: AgentMethodJob
+    var pageState: String
+
+    enum CodingKeys: String, CodingKey { case write }
+    struct Write: Decodable { var page: String? }
+
+    init(job: AgentMethodJob, pageState: String = "none") {
+        self.job = job
+        self.pageState = pageState
+    }
+
+    init(from decoder: Decoder) throws {
+        job = try AgentMethodJob(from: decoder)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pageState = (try? c.decode(Write.self, forKey: .write))?.page ?? "none"
+    }
+}
+
+/// The words of a site's row in Settings → Reading the web. Pure: the view and the tests read the same functions.
+/// Only measured counts and the server's own sentences; no page, title or URL ever reaches a row.
+enum ReadingSiteWords {
+    static func countLine(_ site: ReadingSite) -> String {
+        if site.waiting > 0 {
+            return site.allowed ? Copy.Reading.queued(site.waiting) : Copy.Reading.waitingNotAllowed(site.waiting)
+        }
+        return site.read > 0 ? Copy.Reading.readCount(site.read) : Copy.Reading.nothingWaiting
+    }
+
+    /// The server's caveat for the site, else the wall's plain name.
+    static func detail(_ site: ReadingSite) -> String? {
+        if let note = site.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty { return note }
+        return Copy.Reading.wallWords(site.wall)
+    }
+
+    /// An allowed site whose last agent read found the agent signed out: its pages wait until the person signs in and
+    /// says "try again" (the server pauses the site for a week).
+    static func isPaused(_ site: ReadingSite) -> Bool { site.allowed && site.needsLogin > 0 }
 }
 
 /// `POST /reading/asks` — only the hand-off sentence is read; the ask itself lands on the link's `read` block over the
@@ -157,11 +364,11 @@ enum ReadWords {
     }
 
     /// Whether the Feed's detail column draws a Read section: something was recorded or asked, an agent may be asked,
-    /// or the link is on a login-walled site (`hostKey`), where the disabled button says which switch is off. An
-    /// ordinary page with agent reading off draws nothing: "Ask an agent" is offered only once it is on.
+    /// or Cicada's own reader hit a wall on the page (`wall`), where the disabled button says why. An ordinary page
+    /// with agent reading off draws nothing: "Ask an agent" is offered only once it is on.
     static func shows(_ read: MediaReadState?) -> Bool {
         guard let read else { return false }
-        return read.status != "none" || read.askable || read.hostKey != nil
+        return read.status != "none" || read.askable || read.wall != nil
     }
 
     /// Who read it, in words: the connection's own label when it sent one.
