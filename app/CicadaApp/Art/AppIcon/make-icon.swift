@@ -91,9 +91,9 @@ func render(size: Int) -> CGImage {
     ctx.setLineWidth(max(1, 4 * s)); ctx.strokePath()
     ctx.restoreGState()
 
-    // The art: 5 × its 128 px pixels on the 1024 canvas, centred on the plate (a hair below centre, where the eye
+    // The art: 6 × its 128 px pixels on the 1024 canvas, centred on the plate (a hair below centre, where the eye
     // puts the middle of a resting object).
-    let scale = 5 * s
+    let scale = 6 * s
     let w = box.width * scale, h = box.height * scale
     let artRect = CGRect(x: (CGFloat(size) - w) / 2, y: (CGFloat(size) - h) / 2 - 12 * s, width: w, height: h)
     if scale == scale.rounded() {

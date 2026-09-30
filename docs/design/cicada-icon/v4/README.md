@@ -14,7 +14,7 @@ The icon itself is built by `app/CicadaApp/Art/AppIcon/make-icon.swift` (no depe
 
 It crops the art to its opaque pixels and centres it on Apple's app-icon grid: an 824 px continuous-corner plate in a
 1024 canvas, filled with a near-black graphite (`#202124` to `#141517`) with a faint light edge. At 1024 px each art pixel
-is a 5 × 5 square drawn with nearest-neighbour. Every other size is first blown up with nearest-neighbour to a whole
+is a 6 × 6 square drawn with nearest-neighbour. Every other size is first blown up with nearest-neighbour to a whole
 multiple and then area-averaged down, so pixel edges stay hard and nothing rings. It writes `Cicada.icns` and a
 `Cicada-1024.png` preview beside itself. `app/CicadaApp/bundle.sh` copies `Cicada.icns` into
 `Contents/Resources/`, and the bundle's `Info.plist` names it as `CFBundleIconFile`.
