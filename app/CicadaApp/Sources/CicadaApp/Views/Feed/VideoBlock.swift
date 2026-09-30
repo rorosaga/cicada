@@ -46,7 +46,8 @@ struct VideoBlock: View {
 
     /// True for a page the Feed would show as a video — the entity card's gate (the Feed's own is `FeedKind.of`).
     static func isVideo(_ media: MediaBlock) -> Bool {
-        media.mediaType == "youtube" || media.mediaType == "video" || VideoRef.resolve(media.url) != nil
+        media.kind != "paper"
+            && (media.mediaType == "youtube" || media.mediaType == "video" || VideoRef.resolve(media.url) != nil)
     }
 
     @ViewBuilder

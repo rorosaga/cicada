@@ -565,3 +565,66 @@ final class ProvenanceFidelityTests: XCTestCase {
         XCTAssertTrue(meta.contains("high effort"), meta)
     }
 }
+
+// MARK: - The entity card hosts the block too (critic M6)
+
+final class EntityCardVideoBlockTests: XCTestCase {
+    /// The entity card's gate is the Feed's rule on the page's own media block — the same shared fixture.
+    func testTheCardsGateAgreesWithTheSharedFixture() throws {
+        struct Case: Decodable { let mediaType: String; let url: String; let kind: String?; let video: Bool }
+        struct File: Decodable { let cases: [Case] }
+        let file = try JSONDecoder().decode(File.self, from: Data(contentsOf: VideoFixtures.apiFixtures
+            .appendingPathComponent("video_kind.json")))
+        for c in file.cases {
+            let media = MediaBlock(url: c.url, mediaType: c.mediaType, kind: c.kind)
+            XCTAssertEqual(VideoBlock.isVideo(media), c.video, "\(c.mediaType) \(c.url) \(c.kind ?? "")")
+        }
+    }
+
+    func testTheCardHostsTheBlockOnlyForAVideo() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/Views/Graph/EntityDetailCard.swift")
+        let text = try String(contentsOf: root, encoding: .utf8)
+        XCTAssertTrue(text.contains("if VideoBlock.isVideo(media) {"), "the block is gated on the one rule")
+        XCTAssertFalse(VideoBlock.isVideo(MediaBlock(url: "https://example.com/post", mediaType: "url")))
+        XCTAssertFalse(VideoBlock.isVideo(MediaBlock(url: "https://www.youtube.com/watch?v=abcdefghijk",
+                                                     mediaType: "youtube", kind: "paper")), "a paper is never a video")
+    }
+}
+
+// MARK: - Row metrics and lints (DR-34, DR-48, DR-69)
+
+final class VideoRowLintTests: XCTestCase {
+    private func source(_ path: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp/")
+        return try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    func testThePickRowIsSixtyFourUnitsFromItsToken() throws {
+        XCTAssertEqual(RowMetrics.videoPick, 64)
+        let strip = try source("Views/Feed/VideosStrip.swift")
+        XCTAssertTrue(strip.contains("RowMetrics.videoPick"), "the pick row's height comes from its token")
+        XCTAssertEqual(VideosStrip.height, 44)
+    }
+
+    func testVideoRowsNeverLiftAndNeverSetALiteralVerticalPadding() throws {
+        let files = ["Views/Feed/VideosStrip.swift", "Views/Feed/VideoRunList.swift", "Views/Feed/VideoRunCard.swift",
+                     "Views/Feed/VideoBlock.swift", "Views/Sleep/VideosWaitingRow.swift"]
+        for path in files {
+            let text = try source(path)
+            XCTAssertFalse(text.contains(".hoverLift("), "\(path): rows never lift (DR-48)")
+            XCTAssertNil(text.range(of: #"\.padding\(\.vertical, [0-9]"#, options: .regularExpression),
+                         "\(path): row height comes from a token (DR-34)")
+        }
+    }
+
+    func testTheSleepRowAndTheStripUseTheSharedControls() throws {
+        let row = try source("Views/Sleep/VideosWaitingRow.swift")
+        XCTAssertTrue(row.contains("TextButton(") && row.contains("help:"), "a trailing link with its help (DR-69)")
+        XCTAssertTrue(row.contains("RowMetrics.oneLine"))
+        let strip = try source("Views/Feed/VideosStrip.swift")
+        XCTAssertTrue(strip.contains("NeutralCheckToggleStyle()"), "the boards' neutral check (P8)")
+        XCTAssertTrue(strip.contains("NeutralButton("), "Choose videos… is a neutral button, never a second primary (DR-40)")
+    }
+}

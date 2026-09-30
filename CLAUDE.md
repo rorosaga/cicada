@@ -1200,6 +1200,25 @@ the page's find row.
   folder and day, or `[ no source recorded ]`). The palette's saved-item row and a source page's items land there
   through `AppRouter.routeToFeedItem`, and the preview sheet is gone. The one-shot import's `+` (with ⌘N) is an
   icon in the eyebrow row and opens the unchanged `AddSourceSheet`, whose root hosts the one `IntakePanel`.
+- **Videos (G162, the approved boards, 2026-09-30).** The app reads `GET /videos/state` and `/videos/summary` through
+  `VideoStateCache` (app-level, in memory, ETag-revalidated, never a Store domain; `VideoRefresh` follows the
+  `videoQueue`, `episodes`, `entities` and `bank` components, one revalidation is scheduled at the wire's
+  `nextChangeAt` so a lapsed lease never sticks as "Picked up", a bank switch empties it, and a 404 from an older
+  backend hides every video addition). **The server is the only deriver** of a video's state; the app decodes and labels.
+  A Feed video row carries a 64 × 36 frame (the stored thumbnail or a neutral play tile, never a URL derived from an id),
+  "channel · site · length · saved day" and one state word (a queue word wins). The Videos tab's 44 pt strip says how
+  many are not read yet and the one queue wording, and *Choose videos…* turns the page into the watch run: the picker's
+  tabs (Not yet read · Queued · Read, disjoint, nothing pre-selected) replace the sort and kind tabs, the list becomes
+  64 pt pick rows with `NeutralCheckToggleStyle`, and the detail becomes `VideoRunCard` — per-video Transcript/Watch,
+  known-length size words (no price, no estimate), how the agent should read, the prompt shown before it is copied
+  (`GET /videos/run/prompt`), and one primary, *Copy for an agent* (`POST /videos/run/handoff`, no cap); after it, the
+  progress card counts `batch.done` only. `VideoBlock` ("What Cicada has from this video") sits in a saved video's
+  detail column and the entity card's media block: the state, who recorded it (the harness and, where the turn join
+  found one, the model — data only), whether Sleep read it, the first quote, the honesty line, and Queue transcript /
+  Queue watch / Remove / Try again; a `needs_login` hand-back adds *Open in browser* and a sentence about the reading
+  permission (its Settings button waits for the reading branch: `VideoActions.for(_:permission:)` takes `nil` today).
+  The Reader's header for a watch record and each `media` turn's fidelity are built from the episode's `watch` block.
+  Every string is in `Copy+Videos.swift`, and `VideoCopyNeutralityTests` fails on a provider or model name.
 
 **Projects (G141 PJ-5, Direction D).** The eighth page (⌘8, after Sources), the first designed for D: a list page in
 progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
@@ -1247,7 +1266,9 @@ under Auto) that opens the five engines with their real marks, the chosen engine
 ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's caption shows while running
 — one whisper line for the schedule, and everything else under a single **Details** disclosure (Last
 cycle · What's waiting · Readout · Past nights) in D's list grammar — section labels over rows, no
-cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows — closed by
+cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows, and, while videos are
+queued, one Videos row in What's waiting (`VideosWaitingRow`, G162: the queue wording and *Choose videos ›*, starting
+nothing) — closed by
 default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure

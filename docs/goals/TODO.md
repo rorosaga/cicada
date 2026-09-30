@@ -25,9 +25,11 @@ owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cica
   and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
   cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
   the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run (the app's own Projects/Backlog controls still key off `running`, so they stay disabled for the whole run: `/status` does not carry `writing`).
-- **Video watch run — backend built (2026-09-30, ruling 15, branch `feat/video-watch`, G162):** the honest per-video state,
+- **Video watch run — built (2026-09-30, ruling 15, branch `feat/video-watch`, G162):** the honest per-video state,
   the queue outside the bank, `cicada_video_queue` / `cicada_video_claim`, the hand-off prompt and `/videos/*` routes, the
-  provenance `watch` block, the demo's three states. **No app half yet** (Feed rows, picker, run card, Sleep Details row).
+  provenance `watch` block, the demo's three states. **The app half is in too** (Feed rows and strip, picker, run card,
+  `VideoBlock` in the Feed and the entity card, the Reader's watch header, one Sleep Details row); the room-sentence rung is
+  left to Sleep v5 and the needs-login Settings button to the reading branch.
   It builds on the merged drain (#151: `is_writing()`, the narrowed write window); the reading branch (ruling 14) and this one
   both touch the contract numbers (9/6 there, 10/7 here), `runtime._writes_bank` and `sync_service.components` — take both.
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
