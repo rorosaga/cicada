@@ -42,8 +42,17 @@ INSTALLED, NOT_INSTALLED, UNKNOWN = "installed", "not_installed", "unknown"
 #: The only programs an install step may start — each agent's own CLI, and
 #: `npx skills`, the cross-agent installer upstream READMEs document (R-O24).
 PROGRAMS = frozenset({"claude", "codex", "npx"})
+#: What a person's agent can do with a skill that has more than one way to be done
+#: (``agent_methods.JOBS``); ``watching`` belongs to the video branch's job table but
+#: the catalog names it now, since the catalog is shared. A catalog entry's ``roles``
+#: are drawn from these.
+ROLES = frozenset({"reading", "watching"})
 MAX_SHOWN = 5
 MAX_BRIDGE_LINES = 3
+#: Capability lines for the person's chosen method per job (``agent_methods``), in the
+#: primer's fixed part beside the bridges but with their own cap, so a fourth bridge can
+#: never crowd them out (``handshake.build`` slices each list on its own).
+MAX_METHOD_LINES = 2
 #: Marks a card names before anyone has committed them (R-O29).
 PENDING_MARKS = frozenset({"granola", "wispr-flow", "arxiv"})
 _PLUGIN_ID = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$")
@@ -64,7 +73,7 @@ BRIDGE_TEXT: dict[str, str] = {
 }
 
 _PUBLIC = ("id", "kind", "rank", "title", "summary", "why", "publisher", "sourceUrl", "licence",
-           "mark", "symbol", "endpoint", "needs", "terms", "cicadaNote")
+           "mark", "symbol", "endpoint", "needs", "terms", "cicadaNote", "roles", "invoke", "pageName", "reach")
 
 
 def agent_home() -> Path:
@@ -149,6 +158,12 @@ def install_plan(entry: dict, agent: str) -> dict[str, Any]:
         return {"runnable": True, "env": env | {"DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}, "steps": [
             {"argv": ["npx", "--yes", "skills", "add", url, "-g", "-a", agent, "-y"], "tolerateFailure": False},
         ]}
+    if method == "agent-prompt":
+        # Copy-only, like mcp-http: the backend never installs (R-O24) and the app runs only an agent's own
+        # installer (R-O26). The person hands the agent this text; the agent runs upstream's own installer,
+        # which also installs the CLI the skill drives — a bare `npx skills add` would copy only the SKILL.md
+        # and leave the CLI missing, a half install that would still read "installed".
+        return {"runnable": False, "env": env, "steps": [], "prompt": str(how.get("prompt") or "")}
     if method == "mcp-stdio":
         command = list(how["command"])
         argv = (["claude", "mcp", "add", "--transport", "stdio", "--scope", "user", how["name"], "--", *command]

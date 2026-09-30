@@ -143,18 +143,24 @@ struct SkillInstallPlan: Decodable, Equatable {
     var runnable = true
     var steps: [SkillInstallStep] = []
     var env: [String: String] = [:]
+    /// G166 — an `agent-prompt` install: the sentence to hand the agent, which installs the skill itself. The app
+    /// shows it and copies it; it never runs anything for such a plan (`runnable` is false and `steps` empty).
+    var prompt: String?
 
-    init(runnable: Bool = true, steps: [SkillInstallStep] = [], env: [String: String] = [:]) {
+    init(runnable: Bool = true, steps: [SkillInstallStep] = [], env: [String: String] = [:], prompt: String? = nil) {
         self.runnable = runnable
         self.steps = steps
         self.env = env
+        self.prompt = prompt
     }
-    enum CodingKeys: String, CodingKey { case runnable, steps, env }
+    enum CodingKeys: String, CodingKey { case runnable, steps, env, prompt }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         runnable = (try? c.decode(Bool.self, forKey: .runnable)) ?? true
         steps = (try? c.decode([SkillInstallStep].self, forKey: .steps)) ?? []
         env = (try? c.decode([String: String].self, forKey: .env)) ?? [:]
+        let text = (try? c.decodeIfPresent(String.self, forKey: .prompt))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        prompt = (text?.isEmpty ?? true) ? nil : text
     }
 }
 

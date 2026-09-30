@@ -1,0 +1,317 @@
+{
+ "comment": "G166: the closed host sets, pinned (site = the key a permission is stored under, reading_hosts.site_of; '' when there is no usable host). Placeholders only (bob-example, alpha-project); no real host from a bank.",
+ "cases": [
+  {
+   "url": "https://blog.bob-example.org/post/1",
+   "ok": true,
+   "cls": "",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "http://blog.bob-example.org/post/1?utm_source=x&page=2",
+   "ok": true,
+   "cls": "",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://notes.alpha-project.dev:443/a",
+   "ok": true,
+   "cls": "",
+   "site": "alpha-project.dev"
+  },
+  {
+   "url": "https://www.linkedin.com/in/alpha",
+   "ok": true,
+   "cls": "",
+   "site": "linkedin"
+  },
+  {
+   "url": "https://lnkd.in/abc",
+   "ok": true,
+   "cls": "",
+   "site": "linkedin"
+  },
+  {
+   "url": "https://x.com/alpha/status/1",
+   "ok": true,
+   "cls": "",
+   "site": "x"
+  },
+  {
+   "url": "https://mobile.twitter.com/alpha",
+   "ok": true,
+   "cls": "",
+   "site": "x"
+  },
+  {
+   "url": "https://m.facebook.com/alpha",
+   "ok": true,
+   "cls": "",
+   "site": "facebook"
+  },
+  {
+   "url": "https://fb.watch/xyz",
+   "ok": true,
+   "cls": "",
+   "site": "facebook"
+  },
+  {
+   "url": "https://www.instagram.com/alpha/",
+   "ok": true,
+   "cls": "",
+   "site": "instagram"
+  },
+  {
+   "url": "https://www.tiktok.com/@alpha",
+   "ok": true,
+   "cls": "",
+   "site": "tiktok"
+  },
+  {
+   "url": "https://notx.com/a",
+   "ok": true,
+   "cls": "",
+   "site": "notx.com"
+  },
+  {
+   "url": "https://box.com/a",
+   "ok": true,
+   "cls": "",
+   "site": "box.com"
+  },
+  {
+   "url": "https://alinkedin.com/a",
+   "ok": true,
+   "cls": "",
+   "site": "alinkedin.com"
+  },
+  {
+   "url": "https://www.reddit.com/r/alpha",
+   "ok": true,
+   "cls": "",
+   "site": "reddit"
+  },
+  {
+   "url": "https://old.reddit.com/r/alpha",
+   "ok": true,
+   "cls": "",
+   "site": "reddit"
+  },
+  {
+   "url": "https://redd.it/abc",
+   "ok": true,
+   "cls": "",
+   "site": "reddit"
+  },
+  {
+   "url": "https://t.co/abc",
+   "ok": false,
+   "cls": "N",
+   "site": "t.co"
+  },
+  {
+   "url": "https://blog.bob-example.org/a?token=abc",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://blog.bob-example.org/a?api_key=abc",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://blog.bob-example.org/a?X-Amz-Signature=abc",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://blog.bob-example.org/unsubscribe/123",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://blog.bob-example.org/account/reset",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://blog.bob-example.org:8443/a",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://user:pw@blog.bob-example.org/a",
+   "ok": false,
+   "cls": "S",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://docs.google.com/document/d/abc",
+   "ok": false,
+   "cls": "S",
+   "site": "google.com"
+  },
+  {
+   "url": "https://www.notion.so/alpha-abc",
+   "ok": false,
+   "cls": "S",
+   "site": "notion.so"
+  },
+  {
+   "url": "https://alpha.slack.com/archives/C1",
+   "ok": false,
+   "cls": "S",
+   "site": "slack.com"
+  },
+  {
+   "url": "http://localhost:3000/a",
+   "ok": false,
+   "cls": "S",
+   "site": "localhost"
+  },
+  {
+   "url": "http://localhost/a",
+   "ok": false,
+   "cls": "L",
+   "site": "localhost"
+  },
+  {
+   "url": "http://192.168.1.5/a",
+   "ok": false,
+   "cls": "L",
+   "site": "192.168.1.5"
+  },
+  {
+   "url": "http://[::1]/a",
+   "ok": false,
+   "cls": "L",
+   "site": ""
+  },
+  {
+   "url": "https://printer.local/a",
+   "ok": false,
+   "cls": "L",
+   "site": "printer.local"
+  },
+  {
+   "url": "https://intranet/a",
+   "ok": false,
+   "cls": "L",
+   "site": "intranet"
+  },
+  {
+   "url": "https://example.com/a",
+   "ok": false,
+   "cls": "L",
+   "site": "example.com"
+  },
+  {
+   "url": "https://www.example.org/a",
+   "ok": false,
+   "cls": "L",
+   "site": "example.org"
+  },
+  {
+   "url": "https://site.test/a",
+   "ok": false,
+   "cls": "L",
+   "site": "site.test"
+  },
+  {
+   "url": "https://chatgpt.com/share/abc",
+   "ok": false,
+   "cls": "H",
+   "site": "chatgpt.com"
+  },
+  {
+   "url": "https://claude.ai/share/abc",
+   "ok": false,
+   "cls": "H",
+   "site": "claude.ai"
+  },
+  {
+   "url": "https://gemini.google.com/share/abc",
+   "ok": false,
+   "cls": "H",
+   "site": "google.com"
+  },
+  {
+   "url": "https://www.perplexity.ai/search/abc",
+   "ok": false,
+   "cls": "H",
+   "site": "perplexity.ai"
+  },
+  {
+   "url": "https://www.youtube.com/watch?v=abcdefghijk",
+   "ok": false,
+   "cls": "V",
+   "site": "youtube.com"
+  },
+  {
+   "url": "https://youtu.be/abcdefghijk",
+   "ok": false,
+   "cls": "V",
+   "site": "youtu.be"
+  },
+  {
+   "url": "https://vimeo.com/123456789",
+   "ok": false,
+   "cls": "V",
+   "site": "vimeo.com"
+  },
+  {
+   "url": "https://www.tiktok.com/@alpha/video/7300000000000000000",
+   "ok": false,
+   "cls": "V",
+   "site": "tiktok"
+  },
+  {
+   "url": "https://vm.tiktok.com/abc",
+   "ok": false,
+   "cls": "V",
+   "site": "tiktok"
+  },
+  {
+   "url": "https://blog.bob-example.org/clip.mp4",
+   "ok": false,
+   "cls": "V",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "https://arxiv.org/abs/2401.00001",
+   "ok": false,
+   "cls": "P",
+   "site": "arxiv.org"
+  },
+  {
+   "url": "https://doi.org/10.1000/xyz123",
+   "ok": false,
+   "cls": "P",
+   "site": "doi.org"
+  },
+  {
+   "url": "ftp://blog.bob-example.org/a",
+   "ok": false,
+   "cls": "B",
+   "site": "bob-example.org"
+  },
+  {
+   "url": "not a url",
+   "ok": false,
+   "cls": "B",
+   "site": ""
+  },
+  {
+   "url": "",
+   "ok": false,
+   "cls": "B",
+   "site": ""
+  }
+ ]
+}

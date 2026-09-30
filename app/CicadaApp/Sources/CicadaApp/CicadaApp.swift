@@ -49,6 +49,8 @@ struct CicadaApp: App {
     @State private var backlogCache = BacklogCache()
     /// G161 — what each source brought in, by name; app-level for ProjectsCache's reason, never a Store domain.
     @State private var channelItemsCache = ChannelItemsCache()
+    /// G166 — the sites Cicada's reader could not read, for Home's one line; app-level for ProjectsCache's reason.
+    @State private var readingSitesCache = ReadingSitesCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -191,6 +193,7 @@ struct CicadaApp: App {
                 .environment(projectsCache)
                 .environment(backlogCache)
                 .environment(channelItemsCache)
+                .environment(readingSitesCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)

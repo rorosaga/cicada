@@ -264,6 +264,10 @@ struct MediaFeedItem: Codable, Identifiable {
     /// row and from an older backend.
     let kind: String?
     let paper: PaperSummary?
+    /// G166 — how an agent read (or was asked to read) this link and whether it may be asked: the row's `read`
+    /// block. `nil` from an older backend, and for a link that is not a page to read (a video, a paper) with
+    /// nothing recorded. It moves on the `reading` sync component, so a `needs_login` shows here over SSE.
+    let read: MediaReadState?
 
     // Row identity must be unique per SAVED ITEM, not per entity page: the
     // ingestor slugifies page titles into mediaEntityId, so 148 distinct
@@ -311,6 +315,7 @@ struct MediaFeedItem: Codable, Identifiable {
         case origin, folder
         case provider, durationS
         case kind, paper
+        case read
     }
 
     init(from decoder: Decoder) throws {
@@ -337,6 +342,7 @@ struct MediaFeedItem: Codable, Identifiable {
         durationS = try c.decodeIfPresent(Int.self, forKey: .durationS)
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         paper = try c.decodeIfPresent(PaperSummary.self, forKey: .paper)
+        read = try? c.decodeIfPresent(MediaReadState.self, forKey: .read)
     }
 
     var isPaper: Bool { kind == "paper" }
@@ -2303,6 +2309,78 @@ actor APIClient {
     /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
     /// already chosen. Not a Store domain, no ETag.
     func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }
+
+    // MARK: Reading with the person's own agent (G166)
+
+    /// `GET /reading/settings` — the switch, the sites the person let an agent read, and the first-use acknowledgement.
+    func fetchReadingSettings() async throws -> ReadingSettingsResponse { try await get("/reading/settings") }
+
+    /// `PUT /reading/settings` — only the fields passed are sent. `sites` is a patch `{site: bool}` (true lets an agent
+    /// read that site, false takes it back; a site Cicada's reader has not needed the browser for is a 422). Turning the
+    /// switch or a site on needs a current acknowledgement, given in the same call (`acknowledge`) or already stored;
+    /// a 422 carries the sentence why.
+    func setReadingSettings(agentEnabled: Bool? = nil, sites: [String: Bool]? = nil,
+                            acknowledge: Bool = false) async throws -> ReadingSettingsResponse {
+        var body: [String: Any] = [:]
+        if let agentEnabled { body["agentEnabled"] = agentEnabled }
+        if let sites { body["sites"] = sites }
+        if acknowledge { body["acknowledge"] = true }
+        return try await put("/reading/settings", body: body)
+    }
+
+    /// `GET /reading/sites` — the sites Cicada's own reader could not read, with counts. Not a Store domain.
+    func fetchReadingSites() async throws -> ReadingSitesResponse { try await get("/reading/sites") }
+
+    /// The same list revalidated with its ETag (Home's `ReadingSitesCache`): a 304 keeps what is held.
+    func fetchReadingSites(etag: String?) async throws -> Conditional<ReadingSitesResponse> {
+        try await getConditional("/reading/sites", etag: etag)
+    }
+
+    /// `GET /reading/sites/{site}/icon` — a site's favicon from the icon service (the site is never contacted). nil on
+    /// a 404: "no icon" is an ordinary answer and the row draws its own mark.
+    func fetchSiteIcon(site: String) async throws -> Data? {
+        guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
+            return nil
+        }
+        var request = makeRequest("/reading/sites/\(site)/icon", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
+    /// `GET /agent-methods` — how the person's agent does each job, with the choices. Not a Store domain.
+    func fetchAgentMethods() async throws -> AgentMethodsResponse { try await get("/agent-methods") }
+
+    /// `PUT /agent-methods` — save a choice (`auto`, `own` or a catalog skill's id). The server also tries to file the
+    /// chosen skill's page in the graph; `write.page` says what happened. A 422 carries a sentence.
+    func setAgentMethod(job: String, choice: String) async throws -> AgentMethodWriteResponse {
+        try await put("/agent-methods", body: ["job": job, "choice": choice])
+    }
+
+    /// `POST /agent-methods/skills/{skill}/page` — "Add to your graph" for an installed skill that has no page. 409
+    /// while Sleep is writing (with a sentence).
+    func addSkillPage(skill: String) async throws -> AgentMethodPage {
+        try await post("/agent-methods/skills/\(skill)/page")
+    }
+
+    /// `GET /reading/prompt` — the generic, URL-free sentence to hand the person's own agent.
+    func fetchReadingPrompt() async throws -> String {
+        struct Reply: Decodable { let prompt: String }
+        let reply: Reply = try await get("/reading/prompt")
+        return reply.prompt
+    }
+
+    /// `POST /reading/asks` — "Ask an agent" on one link. 409 while the switch (or the link's site) is off, 422 for a
+    /// link an agent is never offered; both carry a sentence written for the person.
+    func askAgentToRead(url: String) async throws -> ReadingAskResponse {
+        try await post("/reading/asks", body: ["url": url])
+    }
 
     /// `PUT /memory/decay-tuning` (G147) — `nil` clears a kind back to the usual pace. 409
     /// while Sleep runs; 422 with a plain sentence for a pace outside what the server allows.

@@ -64,6 +64,12 @@ META_FILENAME = "meta.json"
 # it can never be mistaken for one of `write_meta`'s `meta.json.<pid>.tmp`).
 LOCK_FILENAME = "meta.lock"
 HIT_TTL = timedelta(days=30)
+#: The one place an icon is looked up when the site itself must not be contacted.
+SERVICE_URL = "https://icons.duckduckgo.com/ip3/{domain}.ico"
+#: A bank's site-icon namespace inside its own logo folder (G166): ``logos/<bank>/sites/``, with its
+#: own ``meta.json``. Entity ids cannot contain ``/``, so a site key can never collide with an entity id
+#: and ``cached_ids`` (which feeds ``/graph``'s ``has_logo``) never sees a site.
+SITES_DIR = "sites"
 MISS_TTL = timedelta(days=7)
 MAX_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 4.0
@@ -422,6 +428,36 @@ async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> Fetc
     return None
 
 
+async def fetch_via_icon_service(
+    domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """The last rung on its own: one GET of the icon service for ``domain``, then the
+    same accept rules as any logo (a 404 placeholder is a miss; an SVG or an
+    oversize file is refused). ``fetch_logo`` and the walled-site icons share
+    this one URL builder — the service is the ONLY thing a walled site's icon
+    ever asks (R-RW4: the site itself is never contacted)."""
+    if fetcher is None:
+        if not fetch_allowed():
+            return None
+        fetcher = _http_get
+    resolver = resolver or _resolve_host
+    result = await _get_safely(SERVICE_URL.format(domain=domain), fetcher=fetcher, resolver=resolver)
+    return _accept(result) if result is not None else None
+
+
+async def fetch_site_icon(
+    domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """A site's icon from the icon service, retrying once with ``www.`` prepended
+    when the bare domain has none (the service answers 404 for a bare
+    ``instagram.com`` and 200 for the ``www.`` form). Both requests go to the
+    service only; the miss is the caller's to cache once both fail."""
+    got = await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver)
+    if got is None and not domain.startswith("www."):
+        got = await fetch_via_icon_service("www." + domain, fetcher=fetcher, resolver=resolver)
+    return got
+
+
 async def fetch_logo(
     domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
 ) -> tuple[bytes, str, str | None] | None:
@@ -433,6 +469,10 @@ async def fetch_logo(
     each rung and any redirect it follows — passes the SSRF host check in
     ``_get_safely``/``_is_safe_url``; an injected ``resolver`` lets tests
     simulate DNS without touching the network.
+
+    A login-walled host (``reading_hosts.is_walled``, R-RW4) is never contacted:
+    its first two rungs (its own ``apple-touch-icon`` and homepage) are skipped
+    and only the icon service is asked.
     """
     if fetcher is None:
         if not fetch_allowed():
@@ -440,28 +480,28 @@ async def fetch_logo(
         fetcher = _http_get
     resolver = resolver or _resolve_host
 
-    homepage = f"https://{domain}/"
-    candidates = [f"https://{domain}/apple-touch-icon.png"]
+    from api.services import reading_hosts
 
-    for url in candidates:
-        result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
-        accepted = _accept(result) if result is not None else None
-        if accepted:
-            return accepted
+    if not reading_hosts.is_walled(f"https://{domain}/"):
+        homepage = f"https://{domain}/"
+        candidates = [f"https://{domain}/apple-touch-icon.png"]
 
-    page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
-    if page is not None and page.status == 200 and page.body:
-        href = _icon_href(page.body, homepage)
-        if href:
-            result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
+        for url in candidates:
+            result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
             accepted = _accept(result) if result is not None else None
             if accepted:
                 return accepted
 
-    ddg_result = await _get_safely(
-        f"https://icons.duckduckgo.com/ip3/{domain}.ico", fetcher=fetcher, resolver=resolver
-    )
-    return _accept(ddg_result) if ddg_result is not None else None
+        page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
+        if page is not None and page.status == 200 and page.body:
+            href = _icon_href(page.body, homepage)
+            if href:
+                result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
+                accepted = _accept(result) if result is not None else None
+                if accepted:
+                    return accepted
+
+    return await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver)
 
 
 # --- cache ------------------------------------------------------------------
@@ -820,3 +860,46 @@ async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | N
         except Exception as exc:
             logger.debug(f"warm_logos: {entity_id} failed: {type(exc).__name__}: {exc}")
     return warmed
+
+
+# --- site icons (G166) --------------------------------------------------------------------------------------
+
+
+def site_bank(bank: str) -> str:
+    """The cache namespace of a bank's site icons: ``<bank>/sites`` — the same helpers
+    (``logos_dir``, ``read_meta``, ``_record_meta``, the flock, the TTLs) run over it."""
+    return f"{bank or 'default'}/{SITES_DIR}"
+
+
+async def ensure_site_icon(
+    memory_path: Path, site: str, domain: str, *, fetcher: Fetcher | None = None
+) -> Path | None:
+    """Resolve -> cache-check -> ONE icon-service lookup (with the ``www.`` retry) -> store.
+
+    ``site`` is the key (``reading_hosts.site_of``) the cache is filed under;
+    ``domain`` is the name the icon service is told (``reading_hosts.icon_host``).
+    The site itself is never contacted. Gated by ``CICADA_ALLOW_LOGO_FETCH``
+    exactly as ``ensure_logo`` is, and never caches a "never asked" as a miss.
+    A hit lasts 30 days, a miss 7."""
+    bank = site_bank(bank_name(Path(memory_path)))
+    async with _lock(f"site:{bank}/{site}"):
+        entry = read_meta(bank).get(site)
+        cached_ok = bool(entry) and is_fresh(entry)
+        if cached_ok:
+            return cached_path(bank, site)
+        if fetcher is None and not fetch_allowed():
+            return None
+        result = await fetch_site_icon(domain, fetcher=fetcher)
+        now = datetime.now(timezone.utc).isoformat()
+        if result is None:
+            await _record_meta(bank, site, {"fetched_at": now, "domain": domain, "miss": True, "etag": None, "ext": None})
+            return None
+        body, ext, etag = result
+        path = logos_dir(bank) / f"{site}.{ext}"
+        try:
+            path.write_bytes(body)
+        except OSError as exc:
+            logger.warning(f"Could not cache a site icon: {type(exc).__name__}: {exc}")
+            return None
+        await _record_meta(bank, site, {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext})
+        return path

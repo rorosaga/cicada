@@ -15,6 +15,8 @@ struct EvidenceDocMeta: Hashable, Sendable {
     var title: String?
     var harness: String?
     var origin: String?
+    /// The episode's `source`; `page-read` makes a `page` quote read "From the page, as <agent> read it".
+    var source: String?
 }
 
 struct EvidenceDocIndex: Hashable, Sendable {
@@ -30,7 +32,7 @@ struct EvidenceDocIndex: Hashable, Sendable {
         var out: [String: EvidenceDocMeta] = [:]
         for row in provenance.conversations {
             let meta = EvidenceDocMeta(title: row.title.isEmpty ? nil : row.title,
-                                       harness: row.harness, origin: row.origin)
+                                       harness: row.harness, origin: row.origin, source: row.source)
             for ep in Set(row.episodeIds + [row.episodeId]) { out[ep] = meta }
         }
         return EvidenceDocIndex(byEpisode: out)
@@ -148,8 +150,12 @@ enum EvidenceLabel {
 
     /// The speaker half of the label — the carrier of meaning; colour never
     /// carries it alone (§4.2, K13). `derived` is never "You said".
-    static func speaker(kind: EvidenceKind, agent: String?, speakerName: String? = nil) -> String {
-        switch kind {
+    static func speaker(kind: EvidenceKind, agent: String?, speakerName: String? = nil,
+                        source: String? = nil) -> String {
+        if kind == .page, source == EvidenceSpeaker.pageReadSource {
+            return Copy.Provenance.fromThePageAsRead(by: agent)
+        }
+        return switch kind {
         case .user: Copy.Provenance.youSaid
         case .assistant: agent.map(Copy.Provenance.replied) ?? Copy.Provenance.theAgentReplied
         case .page: Copy.Provenance.fromThePage
@@ -172,11 +178,11 @@ enum EvidenceLabel {
     static func label(_ chip: EvidenceChipModel, meta: EvidenceDocMeta?) -> String {
         guard chip.kind == .assistant,
               ModelNames.line(model: chip.model, effort: chip.effort) != nil else {
-            return speaker(kind: chip.kind, agent: agent(meta))
+            return speaker(kind: chip.kind, agent: agent(meta), source: meta?.source)
         }
         return ModelNames.agentLine(agent: agent(meta) ?? Copy.Provenance.theAgent, harness: nil,
                                     model: chip.model, effort: chip.effort)
-            ?? speaker(kind: chip.kind, agent: agent(meta))
+            ?? speaker(kind: chip.kind, agent: agent(meta), source: meta?.source)
     }
 
     /// "You said · Sep 3" — the date from the episode id (`ep_YYYY-MM-DD_nnn`);
