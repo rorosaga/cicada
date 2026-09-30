@@ -289,7 +289,8 @@ then says the model wasn't shared.
 An **engine-independent tail** runs on every exit path, idle nights included: the state-dictionary
 refresh, claim expiry (first in the clean-tree-guarded slot, its own `commit_paths` commit),
 follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the exact-match source links (G61 S3-a, `source_links`,
-its own `cicada` commit, dirty pages skipped), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
+its own `cicada` commit, dirty pages skipped), the site check (G61 S3-b, behind `CICADA_ALLOW_CONNECTOR_FETCH`, its own
+`cicada` commit), the connector poll, RSS/ICS polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
@@ -587,8 +588,8 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   and the reverse. **Removal is remembered:** the entry leaves `sources:` and a row joins the page's `sources_removed:` (≤ 20,
   newest kept; `{ref, predicate?, by, at, reason?}`; git keeps the history, the row is what makes it stick; a replace
   (`new_ref`/`new_predicate`) tombstones the old key too). Today the writers that respect it are `attach_cited_urls`, `cicada_write_claim(sources=)`,
-  `cicada_add_source` and Cicada's own DOI/skill-page adds (a refusal there never fails the page write); **PR2's Stage-1 site proposal and
-  the website backfill will consult it (`is_tombstoned`) when they land** — they do not exist yet. `website` matches by site. An agent's
+  `cicada_add_source` and Cicada's own DOI/skill-page adds (a refusal there never fails the page write); and (G61 S3-b) Stage 1's site proposal (`fact_sources.propose_site`) and the website backfill (`site_sources`).
+  `website` matches by site. An agent's
   add (`cicada_add_source`, `write_claim(sources=)`) is refused what the person or Cicada removed but may put back what an
   agent removed, and the reply says who removed it and why; the person's add clears the tombstone, and the person's removal
   (`POST /entities/{id}/sources/change`, or the older index DELETE) writes one too. A ref the scrub would alter is REFUSED, not
@@ -601,8 +602,33 @@ older Stop-hook episode's count — as no times. Round 4 (C2–C4):
   which the person map and "What's happening" skip — a source is where to look, not a relationship); the card's row wears the linked
   page's picture and offers "Open page ›". The person's three source routes answer 409 while Sleep runs; `cicada_add_source`
   is refused then too (it used to write uncommitted). A Contacts card row offers only Remove on the card.
+- `website` (G61 S3-b) — the official-site ROLE: a `sources:` entry with `predicate: website`, many allowed. Stage 1 may
+  propose ONE for a `company`, `tool` or `project` (an optional `website` field on the extracted entity;
+  `site_sources.sanitize_website` keeps only an https origin of a public host that is not a platform (`PLATFORM_HOSTS`:
+  code hosts, encyclopedias, social, profile and article hosts) or a walled one, and drops it for every other type); the
+  create branch stores it UNVERIFIED (`added_by: agent`, no network), never over a tombstone. An engine-free backfill
+  (`site_sources.candidates`) proposes one for a page that has none from ONLY its own current `website` claim or a
+  `## Links` URL whose host is the page's own name (or whose title says official/homepage/website) — never a domain
+  guessed from a name. Cicada's own read confirms it (`link_enrichment.fetch_identity`, sharing `_stream_html` with
+  `default_fetch`: 4 s, ≤ 512 KB, no cookies, `net_guard`, a block never retried; a walled or platform host is refused
+  before any request): `judge` needs the page's name (or an alias) whole-word in the site's title or `og:site_name` AND
+  two distinctive words of its own summary on the page. Outcomes (D1): `verified` stamps `verified: {at, how}` and
+  `access: public`; a `mismatch` or `walled` site is removed and remembered (`sources_removed`, by `cicada`, with the
+  reason); a thin page keeps it `checked: {outcome: unconfirmed}` ("not confirmed", re-read after 30 days, one tap of
+  "Use this site" = `accepted` trusts it); a network failure is `tries` up to three nights, then dropped and remembered.
+  `fact_sources.trusted` (the person's, one they took, or verified) is the only trust; nothing else draws a picture. The
+  Sleep tail step (`sleep_cycle._site_sources_safely`: propose, then verify, ≤ 25 fetches a night, one per site) runs
+  behind `CICADA_ALLOW_CONNECTOR_FETCH`, in one path-scoped `cicada` commit `Site check <date>`, trigger
+  `sleep/site-check`, no engine trailer, dirty pages skipped, a failed commit restores; `POST /maintenance/verify-sites`
+  is the person's click (ungated, ≤ 100, 409 while Sleep runs, trigger `user/companion_app`), counts only.
 - `logo:` — a domain hint for `logo_service`. Logos are cached under `$CICADA_HOME/logos/<bank>/`,
-  **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory.
+  **never inside a bank** — a logo is a derived artifact of the outside world, not versioned memory. Since G61 S3-b a
+  page's domain comes from a source and never a guess: `logo:` first, else the first TRUSTED `website` source
+  (`logo_service.domain_for`); no `## Links` fallback, no saved link's site, no `website` claim, no `<name>.com` guess,
+  no platform or walled host, and never a `person` or `media` page (G146/G159). `LOGO_RULE = 2`: a bank's cache written
+  under the older rule is purged ONCE (`ensure_rule`, marker `logos/<bank>/.rule`; `sites/` is spared), and a page that
+  no longer resolves a domain drops its cached mark and records a miss. `GET /entities/{id}/sources/icon/{site}` serves
+  the mark of a trusted site THIS page lists (icon service only, keyed on the site, never a ref).
 - `picture:` (G146) — the person's own choice of picture for a page: `{kind: upload, sha, ext, added}` for a
   picture they uploaded, whose bytes live **in the bank** at `assets/pictures/<id>.<png|jpg>` (their record, so it
   travels with the bank; the path is derived from the id, never read from the page), or `{kind: initials, added}`
@@ -795,7 +821,7 @@ Cicada-Session: <id>
 ```
 
 **Triggers:** `sleep/extraction`, `sleep/promotion`, `sleep/conflict_resolution`, `sleep/decay`,
-`sleep/state`, `sleep/expiry`, `sleep/followup`, `sleep/source-links`, `maintenance/source-links`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
+`sleep/state`, `sleep/expiry`, `sleep/followup`, `sleep/source-links`, `maintenance/source-links`, `sleep/site-check`, `capture/calendar`, `capture/tab-groups`, `capture/contacts`, `nudge/resolved`, `clarification/resolved`, `user/manual_edit`,
 `user/companion_app` (also the Projects page's writes, G141 — `Project update <date>`,
 `Cicada-Author: user` — and the Backlog section's, `Backlog update <date>`), `user/backlog_import` (G150's
 importer),
@@ -1968,9 +1994,11 @@ Three gates, and they do **not** mean the same thing — read the difference bef
 - **`CICADA_ALLOW_CONNECTOR_FETCH`** gates the default transport of every fetch Sleep starts on its
   own: the unattended nightly connector poll, **link enrichment's page read** — Stage 5.57's
   in-cycle pass (`sleep_cycle._link_summarizer`, G61 phase 2 S0) and the G102 tail backfill, both
-  through `link_enrichment.default_fetch`, the rail's reference transport — and paper details
+  through `link_enrichment.default_fetch`, the rail's reference transport — **the site check** (G61 S3-b: the Sleep tail's
+  `site_sources.verify` reads a proposed official site through `link_enrichment.fetch_identity`, which shares that
+  transport's `_stream_html`; a walled or platform host is never requested) — and paper details
   (below). It is **opt-OUT** (on by default; `=off` disables it, which is what the test suite sets).
-  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, every OAuth
+  A user-initiated `sync_now`, `POST /maintenance/enrich-links`, `POST /maintenance/verify-sites`, every OAuth
   `authorize_url`/`exchange_code` call and OpenRouter's sign-in key exchange (`openrouter.ai/api/v1/auth/keys`,
   R-AG10; the key lands only in `secrets.env`) are **never** gated by it — they always need the network to
   do what the user just asked.

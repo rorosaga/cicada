@@ -40,4 +40,7 @@ struct EntitySourceWrite: Mutation {
     }
 
     var failureMessage: String { SourceWriteFailure.message(failure.value) }
+
+    /// A trusted site draws the page's mark (`logo_service.domain_for`): the graph's picture moves with it.
+    var refreshDomains: Set<SyncDomain> { [.graph] }
 }

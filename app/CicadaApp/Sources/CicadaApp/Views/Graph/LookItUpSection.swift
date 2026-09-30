@@ -6,6 +6,8 @@ import SwiftUI
 /// wire says so until G61 S3 (R-DI13). The page's open question closes the section with a way into the Inbox.
 struct LookItUpSection: View {
     let entityId: String
+    /// The page's type, for what the empty field asks for: a brand its official website, a person a profile.
+    var entityType: EntityType? = nil
     @Binding var sources: [EntitySource]
     /// Opens another page's card (the card's own `navigate(to:)`) — a source's "Open page ›".
     var navigate: (String) -> Void = { _ in }
@@ -53,6 +55,8 @@ struct LookItUpSection: View {
             line: FactSourceWords.line(source), url: source.url, linked: linked,
             node: linked.flatMap { pair in store.graph.value?.nodes.first { $0.id == pair.id } },
             canBeTaken: source.canBeTaken,
+            entityId: entityId, site: SourceSite.key(of: source),
+            isUnconfirmedSite: source.isUnconfirmedSite,
             // A Contacts card is the Contacts sync's: it can be removed, never edited or re-linked here.
             isManaged: !source.ref.hasPrefix("addressbook://"),
             onOpenPage: { if let linked { navigate(linked.id) } },
@@ -80,7 +84,7 @@ struct LookItUpSection: View {
     /// The add field: a real input border (DR-9), a neutral Add with its ⏎ (DR-49), disabled until there is text.
     private var addField: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            TextField(Copy.Graph.addSourcePlaceholder, text: $newRef)
+            TextField(placeholder, text: $newRef)
                 .textFieldStyle(.plain)
                 .font(CicadaTheme.font(size: 13))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -92,6 +96,17 @@ struct LookItUpSection: View {
             NeutralButton(title: Copy.Graph.add, keyHint: "⏎", isDisabled: newRef.trimmed.isEmpty, action: add)
         }
     }
+
+    /// A brand page asks for its site, a person's for a profile (G61 S3-b) — what an agent would want to look at first.
+    private var placeholder: String {
+        switch entityType {
+        case .company?, .tool?, .project?: Copy.Graph.sourcePlaceholderSite
+        case .person?: Copy.Graph.sourcePlaceholderProfile
+        default: Copy.Graph.addSourcePlaceholder
+        }
+    }
+
+    private var addsSite: Bool { [.company, .tool, .project].contains(entityType) }
 
     private func openQuestion(_ item: InboxItem) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
@@ -114,8 +129,13 @@ struct LookItUpSection: View {
         let ref = newRef.trimmed
         guard !ref.isEmpty else { return }
         newRef = ""
+        // A link typed on a brand page is its official site: the person's own word, trusted at once (G61 S3-b).
+        let predicate = addsSite && ref.lowercased().hasPrefix("http") && !sources.contains { $0.isOfficialSite } ? "website" : nil
         Task {
-            if let updated = try? await APIClient.shared.addEntitySource(entityId: entityId, ref: ref) { sources = updated }
+            if let updated = try? await APIClient.shared.addEntitySource(entityId: entityId, ref: ref, predicate: predicate) {
+                sources = updated
+                await store.refresh([.graph])   // its picture is drawn from a trusted site
+            }
         }
     }
 
@@ -208,6 +228,10 @@ private struct FactSourceRow: View {
     let linked: (id: String, name: String)?
     let node: GraphNode?
     let canBeTaken: Bool
+    let entityId: String
+    /// The site whose mark leads the row (a url source only).
+    let site: String?
+    let isUnconfirmedSite: Bool
     let isManaged: Bool
     let onOpenPage: () -> Void
     let onChange: (SourceChange) -> Void
@@ -245,6 +269,10 @@ private struct FactSourceRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if isUnconfirmedSite {
+                // "Not confirmed — Use this site?": one tap trusts it and its mark is drawn from it (G61 S3-b).
+                TextButton(title: Copy.Graph.useThisSite, help: Copy.Graph.useThisSiteHelp) { onChange(.useThis) }
+            }
             if let linked {
                 TextButton(title: Copy.Graph.openLinkedPage, help: Copy.Graph.openLinkedPageHelp(linked.name), action: onOpenPage)
             }
@@ -266,6 +294,9 @@ private struct FactSourceRow: View {
         if let linked, let node {
             EntityPicture(id: linked.id, name: linked.name, type: node.type, size: 20)
                 .padding(.top, CicadaTheme.scaled(1))
+        } else if let site, line.isLink {
+            SiteIcon(site: site, size: .inline, entity: entityId)
+                .padding(.top, CicadaTheme.scaled(2))
         } else {
             Image(systemName: line.isLink ? "link" : "doc")
                 .font(CicadaTheme.icon(.inline))
@@ -280,7 +311,7 @@ private struct FactSourceRow: View {
         Menu {
             if isManaged {
                 if canBeTaken {
-                    Button(Copy.Graph.useThisSource) { onChange(.useThis) }
+                    Button(isUnconfirmedSite ? Copy.Graph.useThisSite : Copy.Graph.useThisSource) { onChange(.useThis) }
                     Divider()
                 }
                 Button(Copy.Graph.changeFact) { onEdit(.fact) }
@@ -305,5 +336,20 @@ private struct FactSourceRow: View {
         .fixedSize()
         .help(Copy.Graph.sourceMenu)
         .accessibilityLabel(Copy.Graph.sourceMenu)
+    }
+}
+
+/// The site a source row's mark is asked for: a `url` source's own site (`reading_hosts.site_of`'s twin — the host
+/// without `www.`, the last two labels). The server answers only for a trusted site of the page, and the key is the site,
+/// never the URL, so no path or token leaves the app in a request.
+enum SourceSite {
+    static func key(of source: EntitySource) -> String? {
+        guard source.kind == "url", let host = URL(string: source.ref)?.host?.lowercased(), !host.isEmpty else { return nil }
+        var labels = host.hasPrefix("www.") ? String(host.dropFirst(4)).split(separator: ".") : host.split(separator: ".")
+        guard labels.count >= 2 else { return nil }
+        let secondLevel: Set<Substring> = ["co", "com", "org", "net", "gov", "edu", "ac"]
+        let keep = (labels.last!.count == 2 && secondLevel.contains(labels[labels.count - 2])) ? 3 : 2
+        labels = Array(labels.suffix(keep))
+        return labels.joined(separator: ".")
     }
 }

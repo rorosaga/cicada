@@ -2529,6 +2529,24 @@ actor APIClient {
         try await getConditional("/reading/sites", etag: etag)
     }
 
+    /// G61 S3-b — `GET /entities/{id}/sources/icon/{site}`: the mark of a site a source on this page names (icon
+    /// service only; the site is never contacted). nil on a 404.
+    func fetchEntitySourceIcon(entityId: String, site: String) async throws -> Data? {
+        guard site.range(of: "^[a-z0-9][a-z0-9.-]*$", options: .regularExpression) != nil, !site.contains("..") else {
+            return nil
+        }
+        var request = makeRequest("/entities/\(encodedID(entityId))/sources/icon/\(site)", method: "GET", json: false)
+        request.timeoutInterval = Self.refreshTimeout
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.serverUnreachable }
+        if http.statusCode == 404 { return nil }
+        guard (200...299).contains(http.statusCode) else {
+            if http.statusCode == 401 { Self.invalidateToken() }
+            throw APIError.httpError(http.statusCode, String(data: data, encoding: .utf8) ?? "Unknown error")
+        }
+        return data
+    }
+
     /// `GET /reading/sites/{site}/icon` — a site's favicon from the icon service (the site is never contacted). nil on
     /// a 404: "no icon" is an ordinary answer and the row draws its own mark.
     func fetchSiteIcon(site: String) async throws -> Data? {
