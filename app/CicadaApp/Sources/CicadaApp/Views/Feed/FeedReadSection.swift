@@ -19,10 +19,26 @@ struct FeedReadSection: View {
                 SectionLabel(Copy.Reading.sectionLabel)
                     .padding(.top, CicadaTheme.scaled(24)).padding(.bottom, CicadaTheme.scaled(6))
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text(ReadWords.line(read, day: ReadWords.day(read.at ?? read.askedAt)))
-                        .font(CicadaTheme.detailBodyFont)
-                        .foregroundStyle(read.status == "needs_login" ? CicadaTheme.warning : CicadaTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    // DR-7 keeps `warning` for the settings attention dot and a failed source's first clause, so a
+                    // login wall is the text ladder's primary step with a neutral glyph, never a colour.
+                    HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingXS) {
+                        if read.status == "needs_login" {
+                            Image(systemName: "person.badge.key")
+                                .font(CicadaTheme.icon(.inline))
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .accessibilityHidden(true)
+                        }
+                        Text(ReadWords.line(read, day: ReadWords.day(read.at ?? read.askedAt)))
+                            .font(CicadaTheme.detailBodyFont)
+                            .foregroundStyle(read.status == "needs_login" ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let line = ReadWords.agentNoteLine(read) {
+                        Text(line)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let via = read.via, !via.isEmpty, read.by == "agent" {
                         Text(Copy.Reading.via(via))
                             .font(CicadaTheme.metaFont)

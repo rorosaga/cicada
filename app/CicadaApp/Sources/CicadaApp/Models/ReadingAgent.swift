@@ -91,7 +91,7 @@ struct ReadingSettingsResponse: Decodable, Equatable {
     var ackedAt: String?
     var ackCurrent: Bool
     var hostSwitches: [ReadingHostSwitch]
-    /// The day of the last read an agent recorded (ledger, last 30 days), `nil` until one has.
+    /// The day of the last read an agent recorded, `nil` until one has.
     var lastAgentRead: String?
 
     enum CodingKeys: String, CodingKey {
@@ -219,6 +219,38 @@ enum ReadWords {
             if let reason = read.reason, !reason.isEmpty { return [.unavailable(reason: reason)] }
             return []
         }
+    }
+
+    /// The Feed row's flag: only a login wall an agent reported. Any other outcome stays in the detail column.
+    static func rowFlag(_ read: MediaReadState?) -> String? {
+        read?.status == "needs_login" ? Copy.Reading.rowFlag : nil
+    }
+
+    /// The ids of the links currently behind a login wall.
+    static func walledIds(_ items: [MediaFeedItem]) -> Set<String> {
+        Set(items.filter { $0.read?.status == "needs_login" }.map(\.id))
+    }
+
+    /// What changed since the last look: the new wall set and the links that just hit one. `previous == nil` is the
+    /// first look (a launch, or after a bank switch) and announces nothing, so old walls never toast on startup.
+    static func newlyWalled(previous: Set<String>?, items: [MediaFeedItem]) -> (current: Set<String>, fresh: [MediaFeedItem]) {
+        let current = walledIds(items)
+        guard let previous else { return (current, []) }
+        return (current, items.filter { current.contains($0.id) && !previous.contains($0.id) })
+    }
+
+    /// The toast for links that just hit a wall, or nil when none did.
+    static func walledToast(_ fresh: [MediaFeedItem]) -> String? {
+        guard !fresh.isEmpty else { return nil }
+        let hosts = fresh.map { ($0.read?.host).flatMap { $0.isEmpty ? nil : $0 } ?? Copy.Reading.thisSite }
+        return Copy.Reading.walledToast(fresh.count == 1 ? [hosts[0]] : hosts)
+    }
+
+    /// The agent's own note on a link, marked as its words, or nil.
+    static func agentNoteLine(_ read: MediaReadState) -> String? {
+        guard read.by == "agent", let note = read.note?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !note.isEmpty else { return nil }
+        return Copy.Reading.agentNote(reader(read), note)
     }
 
     /// Only a web link is ever opened in a browser (never a file path or a custom scheme).

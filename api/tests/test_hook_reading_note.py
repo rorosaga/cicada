@@ -68,6 +68,18 @@ def test_a_session_that_never_started_hears_it_on_its_first_prompt_and_again_onl
     assert recall_text.reading_line(2) in more["additionalContext"]
 
 
+def test_a_drained_queue_lets_the_next_ask_count_as_new_in_the_same_session(client, bank):
+    enable()
+    _ask(bank)
+    body = lambda: _body("fix the failing test in the parser", session="s-drain")  # noqa: E731
+    assert client.post(URL, json=body()).json()["reason"] == "reading"
+    reading_asks.record_outcome(bank, media_ingestor.url_hash(PUBLIC), "needs_login")
+    assert client.post(URL, json=body()).json()["additionalContext"] is None, "nothing waits, nothing said"
+    _ask(bank, "https://blog.bob-example.org/post/2")
+    again = client.post(URL, json=body()).json()
+    assert recall_text.reading_line(1) in again["additionalContext"], "a second ask after a drain is new"
+
+
 def test_it_rides_beside_a_page_note(client, bank):
     enable()
     _ask(bank)
@@ -134,3 +146,15 @@ def test_a_remote_handshake_is_quiet_when_off_or_nothing_waits(bank):
     assert "reading queue" not in _handshake(bank, {"read", "record"})
     enable()
     assert "reading queue" not in _handshake(bank, {"read", "record"})
+
+
+def test_the_remote_primer_promises_only_what_the_tools_will_do(bank):
+    from api.services import handshake
+
+    both = handshake._remote_reading_item(frozenset({"cicada_reading_queue", "cicada_record_read"}))
+    assert "record `needs_login` and move on" in both
+    record_only = handshake._remote_reading_item(frozenset({"cicada_record_read"}))
+    assert "Ask an agent" in record_only and "only mentioned in chat is refused" in record_only
+    assert "when the person gives you a link" not in record_only
+    queue_only = handshake._remote_reading_item(frozenset({"cicada_reading_queue"}))
+    assert "stop and tell the person" in queue_only and "needs_login" not in queue_only

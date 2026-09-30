@@ -94,12 +94,14 @@ def _excerpts(raw) -> tuple[list[str], int]:
     return kept, dropped
 
 
-def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dict) -> str:
-    """One episode per (page, body): a repeated call returns the same id."""
+def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dict) -> tuple[str, bool]:
+    """One episode per (page, body): a repeated call returns the same id.
+    Returns ``(id, created)`` — ``created`` is False for an episode that was
+    already there, which a failed record must never delete."""
     content_hash = hashlib.sha256(f"{target.entity_id}\x00{body}".encode("utf-8")).hexdigest()[:12]
     for f in bank_index.files(memory_path, "episodes"):
         if f.frontmatter.get("content_hash") == content_hash and f.frontmatter.get("source") == SOURCE:
-            return f.stem
+            return f.stem, False
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
     episode_id = episode_ids.next_episode_id(episodes_dir, datetime.now().strftime("%Y-%m-%d"))
@@ -119,7 +121,7 @@ def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dic
         **session_fm,
     }
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
-    return episode_id
+    return episode_id, True
 
 
 def _apply_title(memory_path: Path, target: Target, title: str) -> bool:
@@ -236,7 +238,7 @@ def record(
     quote_lines = [f"> {q}" for q in quotes]
     head = f"{MARKER} [{host}]: as {label} read it"
     body = "\n".join([f"assistant: {summary}", *(["", head, *quote_lines] if quote_lines else [])])
-    episode_id = _write_episode(memory_path, target, body, session_frontmatter or {})
+    episode_id, created = _write_episode(memory_path, target, body, session_frontmatter or {})
     text = evidence_mod.source_text(memory_path, episode_id) or body
     # Each quote is located inside its OWN line's window: a quote the summary
     # repeats would otherwise land on the `assistant:` line and cite the agent's
@@ -261,6 +263,14 @@ def record(
     )
     paths = [f"episodes/{episode_id}.md"]
     if result.get("action") in ("error", "ambiguous_subject", "corrupt_claims_block"):
+        if created:
+            # Nothing cites this episode and nothing will commit it: left on disk, the next
+            # `git add -A` writer would sweep it in under its own author (the G85-class smear).
+            try:
+                (memory_path / "episodes" / f"{episode_id}.md").unlink()
+            except OSError:
+                pass
+            paths = []
         return {"error": result.get("error") or result.get("action"), "episode_id": episode_id, "paths": paths}
     day = (today or date.today()).isoformat()
     described, closed = _finish_page(

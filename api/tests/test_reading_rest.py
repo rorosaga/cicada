@@ -71,7 +71,6 @@ def test_an_unknown_site_is_a_422(api):
 
 def test_the_last_agent_read_shows_only_once_one_has_been_recorded(api, monkeypatch, tmp_path):
     client, memory = api
-    monkeypatch.setenv("CICADA_TELEMETRY", "on")
     enable()
     server = stdio_server()
     monkeypatch.setattr(server, "get_memory_path", lambda: memory)
@@ -85,6 +84,27 @@ def test_the_last_agent_read_shows_only_once_one_has_been_recorded(api, monkeypa
     assert client.get("/reading/settings").json()["lastAgentRead"] is None, "only a read counts"
     record(server)
     assert client.get("/reading/settings").json()["lastAgentRead"] is not None
+    assert (tmp_path / "home" / reading_settings.LAST_READ_FILENAME).exists(), "the day is kept, not re-derived"
+
+
+def test_a_read_episode_says_it_is_a_page_read_on_both_provenance_wires(api, monkeypatch):
+    """The app labels a page-read quote "From the page, as <agent> read it", never bare
+    "From the page": Cicada never had the page, so the wire carries the episode's source."""
+    from _reading_fixtures import ids
+
+    client, memory = api
+    enable()
+    server = stdio_server()
+    monkeypatch.setattr(server, "get_memory_path", lambda: memory)
+    from api.services import mcp_tools
+
+    monkeypatch.setattr(mcp_tools, "_backend_sleep_running", lambda *a, **k: False)
+    assert client.post("/reading/asks", json={"url": PUBLIC}).status_code == 200
+    eid, ep, _cid = ids(record(server))
+    text = client.get(f"/episodes/{ep}/text").json()
+    assert text["source"] == "page-read"
+    rows = client.get(f"/entities/{eid}/provenance").json()["conversations"]
+    assert rows and rows[0]["source"] == "page-read"
 
 
 def test_the_prompt_is_generic_and_names_no_url(api):

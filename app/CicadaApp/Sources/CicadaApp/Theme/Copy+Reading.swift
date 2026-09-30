@@ -52,5 +52,14 @@ extension Copy {
         static let openInBrowserHelp = "Open the link in your browser to sign in yourself, then ask again"
         static let askedNote = "Asked. Give your agent the sentence copied to your clipboard."
         static let askFailed = "Couldn't ask just now. Try again."
+        /// The Feed row's flag and the toast for a login wall an agent hit: ambient, so a person on another page
+        /// or item still learns of it (the Read section on the link has the detail and the way out).
+        static let rowFlag = "Needs sign-in"
+        static func walledToast(_ hosts: [String]) -> String {
+            hosts.count == 1 ? "\(hosts[0]) needs you to sign in. It's marked in the Feed."
+                             : "\(hosts.count) pages need you to sign in. They're marked in the Feed."
+        }
+        /// The agent's own one-sentence note, marked as its words (never Cicada's).
+        static func agentNote(_ who: String, _ note: String) -> String { "\(who) noted: \(note)" }
     }
 }

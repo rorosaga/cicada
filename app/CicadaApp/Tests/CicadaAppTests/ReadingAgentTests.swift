@@ -104,6 +104,55 @@ final class ReadingAgentTests: XCTestCase {
         XCTAssertTrue(ReadWords.shows(MediaReadState(status: "needs_login")))
     }
 
+    // MARK: Ambient surfaces (a wall is not visible only inside the open item)
+
+    private func feedItem(_ id: String, read: String? = nil) -> MediaFeedItem {
+        let extra = read.map { #", "read": \#($0)"# } ?? ""
+        let json = #"{"mediaEntityId": "\#(id)", "url": "https://example.com/\#(id)", "title": "T \#(id)", "mediaType": "url", "savedAt": "2026-09-13T10:00:00Z", "relevance": 0.5, "tags": []\#(extra)}"#
+        return try! JSONDecoder().decode(MediaFeedItem.self, from: Data(json.utf8))
+    }
+
+    func testTheFeedRowFlagsALoginWallAndNothingElse() {
+        let wall = feedItem("a", read: #"{"status":"needs_login","by":"agent","host":"linkedin.com"}"#)
+        let done = feedItem("b", read: #"{"status":"ok","by":"agent"}"#)
+        let plain = feedItem("c")
+        XCTAssertEqual(ReadWords.rowFlag(wall.read), "Needs sign-in")
+        XCTAssertNil(ReadWords.rowFlag(done.read))
+        XCTAssertNil(ReadWords.rowFlag(plain.read))
+        let utc = TimeZone(identifier: "UTC")!
+        let us = Locale(identifier: "en_US")
+        let line = FeedRowText.detail(wall, locale: us, timeZone: utc)
+        XCTAssertTrue(line.hasSuffix("Needs sign-in · saved Sep 13"), line)
+        XCTAssertFalse(FeedRowText.detail(done, locale: us, timeZone: utc).contains("Needs sign-in"))
+    }
+
+    func testAWallIsAnnouncedOnceAndNeverOnTheFirstLook() {
+        let wall = feedItem("a", read: #"{"status":"needs_login","by":"agent","host":"linkedin.com"}"#)
+        let quiet = feedItem("b")
+        let first = ReadWords.newlyWalled(previous: nil, items: [wall, quiet])
+        XCTAssertEqual(first.current, [wall.id])
+        XCTAssertTrue(first.fresh.isEmpty, "a wall from an earlier session never toasts at launch")
+        XCTAssertNil(ReadWords.walledToast(first.fresh))
+        let newWall = feedItem("b", read: #"{"status":"needs_login","by":"agent","host":"x.com"}"#)
+        let second = ReadWords.newlyWalled(previous: first.current, items: [wall, newWall])
+        XCTAssertEqual(second.fresh.map(\.id), [newWall.id])
+        XCTAssertEqual(ReadWords.walledToast(second.fresh), "x.com needs you to sign in. It's marked in the Feed.")
+        let again = ReadWords.newlyWalled(previous: second.current, items: [wall, newWall])
+        XCTAssertTrue(again.fresh.isEmpty, "the same wall does not toast twice")
+        let cleared = ReadWords.newlyWalled(previous: second.current, items: [wall, quiet])
+        XCTAssertEqual(cleared.current, [wall.id])
+        let two = ReadWords.newlyWalled(previous: [], items: [wall, newWall])
+        XCTAssertEqual(ReadWords.walledToast(two.fresh), "2 pages need you to sign in. They're marked in the Feed.")
+    }
+
+    func testTheAgentsNoteIsShownAsItsOwnWords() {
+        let noted = MediaReadState(status: "ok", by: "agent", harness: "claude-code", note: "  The page loaded fine.  ")
+        XCTAssertEqual(ReadWords.agentNoteLine(noted), "Claude Code noted: The page loaded fine.")
+        XCTAssertNil(ReadWords.agentNoteLine(MediaReadState(status: "ok", by: "agent", note: "  ")))
+        XCTAssertNil(ReadWords.agentNoteLine(MediaReadState(status: "ok", by: "cicada", note: "x")), "only an agent's words")
+        XCTAssertNil(ReadWords.agentNoteLine(MediaReadState(status: "ok", by: "agent")))
+    }
+
     func testOnlyAWebLinkOpensInTheBrowser() {
         XCTAssertNotNil(ReadWords.browserURL("https://example.com/a"))
         XCTAssertNil(ReadWords.browserURL("file:///etc/hosts"))

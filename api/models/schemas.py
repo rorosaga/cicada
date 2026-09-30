@@ -1048,6 +1048,9 @@ class EpisodeText(CamelModel):
     timestamp: Optional[str] = None
     harness: Optional[str] = None
     origin: Optional[str] = None
+    #: The episode's ``source`` (G166: ``page-read`` is what an agent reported from a page — the
+    #: app labels its quotes "From the page, as <agent> read it").
+    source: Optional[str] = None
     conversation_id: Optional[str] = None
     capture_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
@@ -1114,6 +1117,7 @@ class ProvenanceConversation(CamelModel):
     title: str = ""
     harness: Optional[str] = None
     origin: Optional[str] = None
+    source: Optional[str] = None
     timestamp: Optional[str] = None
     claim_count: int = 0
     available: bool = True

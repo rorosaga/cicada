@@ -512,9 +512,15 @@ def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, eve
     inside its 400-token budget: it is one sentence, and it is what makes the
     person's "Ask an agent" reach an agent that was never told to look."""
     waiting = waiting_links(memory_path)
+    told = READING_SEEN.told(session_id)
+    if waiting < told:
+        # The queue drained since this session was told: forget the higher count,
+        # so the next ask counts as new instead of hiding behind it.
+        READING_SEEN.remember(session_id, waiting)
+        told = waiting
     if waiting <= 0:
         return inj
-    if event == "user_prompt_submit" and waiting <= READING_SEEN.told(session_id):
+    if event == "user_prompt_submit" and waiting <= told:
         return inj
     line = recall_text.reading_line(waiting)
     READING_SEEN.remember(session_id, waiting)

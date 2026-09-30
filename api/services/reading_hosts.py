@@ -3,8 +3,10 @@
 One module, three questions, no network and no DNS:
 
 * :func:`is_walled` — is this a login-walled host? The backend's own fetchers
-  (``media_ingestor.enrich``, ``link_enrichment``) ask it and never request such
+  (``media_ingestor.enrich``, ``link_enrichment``) ask it and never fetch such
   a page (R-RW4, which also closes the X gap: X was never in the fetch rail).
+  Not covered, and not loading the walled page: TikTok's provider oEmbed call
+  and the Reddit and X connectors' own API calls.
 * :func:`classify` — may this URL be handed to a person's agent at all? The
   structural denials that hold whatever the person switched on: a URL that
   carries a secret or a side effect (S, R-RW5), a local or reserved host (L), an

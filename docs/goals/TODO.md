@@ -18,6 +18,15 @@ statting its cwd; #131 has the app run git in a declared repo and the backend on
 #132 matches a `device:` by any of this Mac's names (`local_refs.is_this_device`). Dev tooling: #122–#127 keep the
 owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cicada.dev-autoupdate`).
 
+**Agent reading (G166 Route A) — built on `feat/agent-reading`, 2026-09-29/30 (PR to `dev` pending; not merged).**
+- *State:* backend, Settings → Agents → Reading pages, the Feed's Read section, the row flag ("Needs sign-in"), the toast
+  and the honest chip label ("From the page, as <agent> read it") are built and reviewed; **TODO ruling 14 (R-RW4, R-RW5,
+  R-RW8, R-RW9 and the review rulings) is binding.** Ruling 13 is reserved for the Sleep-drain branch and lands with it;
+  its narrowing-the-Sleep-refusals row is **G177**. **Not built:** the Reader's Links section (S2), the public Reader
+  ladder (**G164** S1), Route B (RESEARCH). **Not yet seen live:** a real agent (Claude Code with a browser skill, or the
+  ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
+- *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
+
 **Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
 - **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
 - *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
@@ -566,22 +575,29 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
     Revisit (widen it beyond the Sleep page) only when the owner asks for a second surface.
 
+13. *Reserved for the Sleep-drain branch (a separate branch that lands after this one); nothing here.*
+
 14. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
     (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
     chatgpt app and claude app, which uses the logged in sessions and swiftly surfaces 'needs login'… I want this built
     now"; G166, spec `2026-09-29-reading-the-web-design.md`).** Four of the spec's proposed rulings are now binding; the
     rest (R-RW1–3 the Reader's identity and metadata tier, R-RW6–7 and R-RW12 chat links, R-RW10–11 robots and backoff)
     stay with the Reader slices.
+    - **The Feed shows a wall without being opened (review, 2026-09-30).** The row's second line says "Needs sign-in" and a
+      toast announces a link that just hit a wall (not on the first look after launch); the text is the text ladder plus a
+      neutral glyph, not `warning` (DR-7 is unchanged). A quote from `cicada_record_read` is labelled "From the page, as
+      <agent> read it", never bare "From the page" (spec §8.5).
     - **R-RW8 — the ruling that keeps this from eroding the rail.** The standing rail ("no scraping behind
       authentication", 4 s / ≤ 512 KB / no cookies / a block never retried with different headers) governs *Cicada's own
       fetcher* and is unchanged. Agent reading is person-driven and never scheduled; Cicada only *asks* — per link, for a
       site the person switched on, after a versioned first-use acknowledgement — and promises nothing about what the
       agent does in its own browser. The backend never holds a session, a cookie or a profile. No Cicada text says
       "read-only" or "never posts"; contract item 9 and the hand-off prompt are *instructions*, not promises.
-    - **R-RW4 — one closed set of login-walled hosts, and the backend never requests one.** X, Facebook, LinkedIn,
+    - **R-RW4 — one closed set of login-walled hosts, and the backend's page readers never fetch one.** X, Facebook, LinkedIn,
       Instagram, TikTok, Reddit and `t.co` (dot-boundary match: `lnkd.in` and `fb.watch` in, `notx.com` out). This closes
       the X gap (X fell through to the OpenGraph fetch). TikTok keeps its provider oEmbed branch, which never loads the
-      page. Reddit and `t.co` are never offered to an agent; the other five are five per-site switches, all off.
+      page, and the Reddit and X connectors still call their own APIs; the rule covers the *page* fetch of
+      `media_ingestor.enrich` and the `link_enrichment` backfill. Reddit and `t.co` are never offered to an agent; the other five are five per-site switches, all off.
       `link_enrichment._excluded_media` is shared with `fact_sources.is_refused_host` and `link_recon`, so a source on
       such a host now reads as needing the person's login there too.
     - **R-RW5 — a link that carries a secret or a side effect is never offered** (a token-like query key, an

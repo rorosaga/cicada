@@ -22,8 +22,6 @@ agent's ``needs_login`` shows on the link over SSE with no bank write.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
@@ -31,7 +29,6 @@ from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
     media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_service, reading_settings, sync_service,
-    telemetry,
 )
 
 router = APIRouter()
@@ -50,23 +47,6 @@ class AskRequest(BaseModel):
     url: str
 
 
-def _last_agent_read(memory_bank: str | None) -> str | None:
-    """The day of the last ``read`` an agent recorded, from the ledger's last 30
-    days — machine-wide, ids and enums only. ``None`` until one has."""
-    today = date.today()
-    latest: str | None = None
-    try:
-        for event in telemetry.read_events(start=today - timedelta(days=30), end=today):
-            if event.kind != telemetry.READ_AGENT_KIND:
-                continue
-            refs = event.refs if isinstance(event.refs, dict) else {}
-            if refs.get("outcome") == "read" and (latest is None or event.ts > latest):
-                latest = event.ts
-    except Exception:  # noqa: BLE001 — a ledger problem never fails the settings page
-        return None
-    return latest[:10] if latest else None
-
-
 def _settings_body() -> dict:
     snap = reading_settings.snapshot()
     return {
@@ -77,7 +57,7 @@ def _settings_body() -> dict:
              "domains": list(reading_hosts.WALLED_DOMAINS[key]), "note": reading_hosts.HOST_NOTES.get(key)}
             for key in reading_hosts.AGENT_HOST_KEYS
         ],
-        "lastAgentRead": _last_agent_read(None),
+        "lastAgentRead": reading_settings.last_agent_read(),
         "shape": SHAPE,
     }
 

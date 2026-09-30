@@ -164,6 +164,25 @@ def test_a_read_without_a_summary_records_nothing(saved):
     assert len(list((memory / "episodes").glob("*.md"))) == before
 
 
+def test_a_failed_claim_write_leaves_no_orphan_episode_behind(saved):
+    import subprocess
+
+    server, memory = saved
+    eid, ep, _ = ids(record(server))
+    page_path = memory / "entities" / f"{eid}.md"
+    text = page_path.read_text()
+    assert "```claims" in text
+    page_path.write_text(text.replace("```claims\n", "```claims\n- : [unbalanced\n  }{\n", 1))
+    subprocess.run(["git", "-C", str(memory), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(memory), "commit", "-qm", "corrupt the block"], check=True)
+    before = sorted(p.name for p in (memory / "episodes").glob("*.md"))
+    out = server.handle_tool("cicada_record_read", {"url": PUBLIC, "outcome": "read",
+                                                    "summary": "A different reading of the same page."})
+    assert out.startswith("Could not record the read"), out
+    assert sorted(p.name for p in (memory / "episodes").glob("*.md")) == before
+    assert porcelain(memory) == "", "nothing is left uncommitted for the next writer to sweep in"
+
+
 def test_the_title_replaces_only_a_slug_title(saved):
     server, memory = saved
     idx = media_ingestor.load_url_index(memory)

@@ -42,7 +42,7 @@ def test_needs_login_changes_no_bank_file_and_makes_no_commit(reading):
     out = record(server, url=WALLED, outcome="needs_login", via="Claude in Chrome")
     assert _tree(memory) == before and git_log(memory) == head
     assert out == ("Recorded: the person needs to sign in to x.com. Stop on this page. Do not sign in, type "
-                   "credentials or try another route. Move to the next link. Cicada has told them.")
+                   "credentials or try another route. Move to the next link. It shows on the link in Cicada's Feed.")
     row = reading_asks.get(memory, media_ingestor.url_hash(WALLED))
     assert row["state"] == "needs_login" and row["via"] == "Claude in Chrome"
 

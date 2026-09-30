@@ -70,6 +70,44 @@ final class EvidenceChipLabelTests: XCTestCase {
             .hasPrefix("Claude Code · Opus 5.5 · high effort, September 24"))
     }
 
+    /// G166 (spec 8.5) — Cicada never had the page an agent read and cannot check the quote, so the chip, its
+    /// VoiceOver label and the Reader's turn say whose reading it is, never a bare "From the page".
+    func testAQuoteAnAgentReportedFromAPageSaysWhoReadItAndNeverABareFromThePage() {
+        let quote = EvidenceChipModel(source: .stored(Evidence(episode: "ep_2026-09-03_004", start: 1, end: 5,
+                                                               kind: .page)))
+        let meta = EvidenceDocMeta(title: "Read: A post", harness: "claude-code", origin: "mcp",
+                                   source: EvidenceSpeaker.pageReadSource)
+        XCTAssertEqual(EvidenceLabel.chipText(quote, meta: meta, locale: us, timeZone: utc),
+                       "From the page, as Claude Code read it · Sep 3")
+        XCTAssertEqual(EvidenceLabel.chipText(quote, meta: nil, locale: us, timeZone: utc), "From the page · Sep 3",
+                       "no episode facts: an ordinary page quote keeps its label")
+        XCTAssertEqual(EvidenceLabel.speaker(kind: .page, agent: nil, source: EvidenceSpeaker.pageReadSource),
+                       "From the page, as an agent read it")
+        XCTAssertTrue(EvidenceLabel.accessibility(quote, meta: meta, opens: false, locale: us, timeZone: utc)
+            .hasPrefix("From the page, as Claude Code read it, September 3"))
+        XCTAssertEqual(EvidenceLabel.speaker(kind: .assistant, agent: "Claude Code", source: "page-read"),
+                       "Claude Code replied", "only a page quote is relabelled")
+        let turn = EpisodeTurn(index: 2, start: 0, contentStart: 0, end: 1, role: "page",
+                               marker: "attachment [blog.bob-example.org]")
+        XCTAssertEqual(EvidenceSpeaker.turnSpeaker(turn, harness: "claude-code", origin: "mcp",
+                                                   source: EvidenceSpeaker.pageReadSource),
+                       "From the page, as Claude Code read it")
+        XCTAssertEqual(EvidenceSpeaker.turnSpeaker(turn, harness: nil, origin: nil),
+                       "Attached · blog.bob-example.org", "an upload's extracted text is still an attachment")
+    }
+
+    func testTheEpisodeSourceRidesBothProvenanceWires() throws {
+        let text = try JSONDecoder().decode(EpisodeText.self, from: Data(
+            #"{"episode":"ep_2026-09-03_004","source":"page-read","text":"x"}"#.utf8))
+        XCTAssertTrue(text.isPageRead)
+        let none = try JSONDecoder().decode(EpisodeText.self, from: Data(#"{"episode":"ep_1","text":"x"}"#.utf8))
+        XCTAssertNil(none.source)
+        let row = try JSONDecoder().decode(ProvenanceConversation.self, from: Data(
+            #"{"episodeId":"ep_2026-09-03_004","source":"page-read","harness":"claude-code"}"#.utf8))
+        let index = EvidenceDocIndex.from(EntityProvenance(entityId: "media-a", conversations: [row]))
+        XCTAssertEqual(index.meta("ep_2026-09-03_004")?.source, "page-read")
+    }
+
     func testTheAccessibilityLabelIsASentence() {
         let chip = EvidenceChipModel(source: .stored(Evidence(episode: "ep_2026-09-03_004", start: 1, end: 5,
                                                               kind: .user)))

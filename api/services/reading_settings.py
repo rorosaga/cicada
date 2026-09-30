@@ -149,3 +149,49 @@ def update(*, agent_enabled_: bool | None = None, agent_hosts=None, acknowledge:
         # moves for a change that changed nothing.
         _save(data)
     return snapshot()
+
+
+# --- the last read an agent recorded ----------------------------------------------
+#
+# A day and nothing else, in its own tiny file beside ``reading.json`` (so a
+# recorded read never rewrites the person's switches, and never races a settings
+# change). The Agents page shows it; it used to be re-derived by parsing two months
+# of the telemetry ledger on every settings request, on the event loop.
+
+LAST_READ_FILENAME = "reading-last.json"
+
+
+def record_agent_read(day: date | None = None) -> None:
+    """Note that an agent recorded a successful read today. Never raises: a note
+    that cannot be written must not fail the read it describes."""
+    target = cicada_home() / LAST_READ_FILENAME
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".reading-last-", suffix=".tmp", dir=str(target.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps({"day": (day or date.today()).isoformat()}) + "\n")
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, target)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        return
+
+
+def last_agent_read() -> str | None:
+    """The day (``YYYY-MM-DD``) of the last read an agent recorded, else None."""
+    try:
+        data = json.loads((cicada_home() / LAST_READ_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    day = str(data.get("day") or "")[:10] if isinstance(data, dict) else ""
+    try:
+        date.fromisoformat(day)
+    except ValueError:
+        return None
+    return day

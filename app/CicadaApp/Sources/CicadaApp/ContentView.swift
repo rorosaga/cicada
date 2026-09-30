@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     /// Home is the front door (G108, R-IB2); a stored selection still wins.
     @State private var selectedTab: AppTab = .home
+    /// The links behind a login wall as of the last look (`nil` before the first); see `noteReadWalls`.
+    @State private var seenWalls: Set<String>?
     /// Reopen where the user left off. Always read back through
     /// `AppTab.restored(from:)`: this string can name a tab that no longer
     /// exists (G68 retired five of them).
@@ -108,6 +110,10 @@ struct ContentView: View {
         // entities on its own. A 304 leaves `loadedAt` alone, so an idle
         // sync never empties the cache.
         .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        // G166 — a link an agent found behind a login wall is announced once, wherever the person is; the row in
+        // the Feed keeps the flag. The first look after launch or a bank switch announces nothing.
+        .onChange(of: store.sources.loadedAt) { _, _ in noteReadWalls() }
+        .onChange(of: store.bank) { _, _ in seenWalls = nil }
         .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
         .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
@@ -411,6 +417,16 @@ struct ContentView: View {
         case .lightMode: colorSchemeRaw = AppColorScheme.light.rawValue
         case .darkMode: colorSchemeRaw = AppColorScheme.dark.rawValue
         }
+    }
+
+    /// G166 — compares the links behind a login wall with the last look and toasts the ones that just got there.
+    private func noteReadWalls() {
+        let items = store.sources.value ?? []
+        // An empty snapshot is not a first look: walls that were already there would toast when the real one lands.
+        if seenWalls == nil && items.isEmpty { return }
+        let result = ReadWords.newlyWalled(previous: seenWalls, items: items)
+        seenWalls = result.current
+        if let message = ReadWords.walledToast(result.fresh) { store.toast = message }
     }
 
     /// Transient capsule for `store.toast`, auto-clearing after 4 s. Keyed on

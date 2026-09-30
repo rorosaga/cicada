@@ -806,19 +806,21 @@ needs_login | blocked | not_found | failed`. Only a **successful read is memory*
 (`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
 *reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
 claim (a re-read closes the previous one), a thin description filled, and a `read:` stamp on the page; it commits alone as
-the harness and never mints a page. **Only a link the person asked about can be recorded**: `cicada_record_read` refuses every outcome for a URL with no live ask row (a saved link with no ask included), and `reading_asks.record_outcome` never creates a row — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about. A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). **Known gap:** a `page` span from `page_read` still reads "From the page" in the app, not "as <agent> read it" (G166's DR-57 chip label is open). **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
+the harness and never mints a page. **Only a link the person asked about can be recorded**: `cicada_record_read` refuses every outcome for a URL with no live ask row (a saved link with no ask included), and `reading_asks.record_outcome` never creates a row — an agent, or a page steering it, cannot rewrite a saved link's description or plant a `needs_login` banner on a link nobody asked about. A `read` is also refused while Sleep runs on stdio, as the remote path refuses it (its reply says to keep the summary and record it when Cicada has finished). A `page` span from `page_read` reads "From the page, as <agent> read it" everywhere the app labels it (the episode's `source: page-read` rides `/episodes/{id}/text` and the provenance conversation rows), never a bare "From the page". **The other four outcomes touch only the ask store**: no bank write, no commit, no Sleep
 gate (`RemoteRuntime._writes_bank`), and the `reading` sync component (asks + `reading.json` mtimes) moves so the app
 shows "needs you to sign in" over SSE at once; the tool's reply tells the agent to stop. `via` is what the agent *said*
-it read with — self-reported, never proof. Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
+it read with — self-reported, never proof. The last successful read's day is kept in `~/.cicada/reading-last.json` (one small file; `GET /reading/settings` never scans the ledger). Settings live in `~/.cicada/reading.json` (`reading_settings.py`: `agent`,
 `agent_hosts` — five keys, empty by default —, `agent_ack` with a version that re-asks when the sheet's wording
 changes). The closed host sets are one module (`reading_hosts.py`, dot-boundary matching, no DNS): walled hosts (X,
-Facebook, LinkedIn, Instagram, TikTok — switchable — and Reddit and `t.co`, never offered) are **never requested by the
-backend** (R-RW4: `media_ingestor.enrich` and `link_enrichment._excluded_media`), and a link that carries a secret or a
+Facebook, LinkedIn, Instagram, TikTok — switchable — and Reddit and `t.co`, never offered) have their **page never
+fetched by the backend's page readers** (R-RW4: `media_ingestor.enrich` and the `link_enrichment` backfill, through
+`link_enrichment._excluded_media`; the exceptions are TikTok's provider oEmbed call, which never loads the page, and the
+Reddit and X connectors' own API calls), and a link that carries a secret or a
 side effect, is local, an AI vendor's own page, a video (`cicada_record_watch`) or a paper is never offered at all
 (R-RW5). Contract item 9 (`CONTRACT_VERSION` 9, `REMOTE_CONTRACT_VERSION` 6) exists only while the switch is on and is an
 *instruction*, not a promise: read in the person's own session, never sign in, record `needs_login` and move on, never
-post. Because the queue is outside the bank, nothing in `_state.md` can say links are waiting, so the recall hook and the
-remote handshake add one per-request sentence (`recall_text.reading_line`) when more wait than the session was told.
+post. The remote reply for `cicada_reading_queue` is fenced as reference data, so the never-sign-in rule also sits in its unfenced tool description, and a connection that can read but not record is told to stop and tell the person. A saved page's title is folded to one line and scrubbed before it is printed. Because the queue is outside the bank, nothing in `_state.md` can say links are waiting, so the recall hook and the
+remote handshake add one per-request sentence (`recall_text.reading_line`) when more wait than the session was told; a session that has seen the queue drain hears the next ask as new.
 Routes (`routers/reading.py`, none a Store domain): `GET|PUT /reading/settings`, `GET|POST /reading/asks`,
 `DELETE /reading/asks/{urlHash}`, `GET /reading/prompt`; `GET /sources` carries `MediaSourceItem.read`
 (`status, by, tier, at, via, harness, host, hostKey, askable, reason`, merged from the page stamp and the ask row,
@@ -835,8 +837,11 @@ gains a Read section (`FeedReadSection`, words and controls from the pure `ReadW
 "Read by <agent> · <day>", "Needs you to sign in to <site>" with **Open in browser** (the person signs in themselves; the
 app opens an http(s) link and nothing else) and **Ask again**, and "Ask an agent" (`POST /reading/asks`, which copies the
 hand-off sentence). It is drawn only when something was recorded, an agent may be asked, or the link is on a login-walled
-site (where the disabled button says which switch is off); an ordinary page with agent reading off draws nothing. No line
-says "in your browser" of what an agent did, or promises what it will not do.
+site (where the disabled button says which switch is off); an ordinary page with agent reading off draws nothing. The wall
+is not shown only there: the Feed row's second line says "Needs sign-in" (`ReadWords.rowFlag`) and `ContentView`
+toasts a link that just hit one (`ReadWords.newlyWalled`; the first look after launch or a bank switch announces
+nothing). The wall reads in the text ladder with a neutral glyph, never `warning` (DR-7), and the agent's own note shows
+as "<agent> noted: …". No line says "in your browser" of what an agent did, or promises what it will not do.
 
 **Implicit recall (G149).** G105 stopped capture depending on a model's tool call, and recall now works the
 same way.
@@ -1731,8 +1736,9 @@ a paper link saved any other way too (a bookmark, `cicada_save_url`, Telegram): 
 keeps arXiv/DOI links and every arxiv.org page out of save-time enrichment and the link backfill.
 
 **Reading with an agent (G166) does not loosen the rail below; it sits beside it.** The rail governs *Cicada's own*
-fetcher, and the backend now never requests a login-walled host at all (R-RW4, one closed set in `reading_hosts.py`,
-which also closed the X gap). What the person's own agent does in its own signed-in browser is the person's and the
+fetcher, and the backend's page readers (`media_ingestor.enrich`, the `link_enrichment` backfill) no longer fetch the
+page of a login-walled host (R-RW4, one closed set in `reading_hosts.py`, which also closed the X gap; TikTok's provider
+oEmbed call and the Reddit and X connectors' own API calls remain, and none loads the walled page). What the person's own agent does in its own signed-in browser is the person's and the
 agent's, not Cicada's: Cicada only *asks*, per link, for a site the person switched on, after a first-use
 acknowledgement, and promises nothing about what the agent does there. The backend never holds a session, a cookie or a
 browser profile. An ask's URL is the person's explicit hand-off to their agent, so a remote connection holding `read`
