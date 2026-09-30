@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1788,9 +1789,12 @@ def load_url_index(memory_path: Path) -> dict:
 def save_url_index(memory_path: Path, idx: dict) -> None:
     sources_dir = memory_path / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
-    (sources_dir / "url_index.json").write_text(
-        json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    # Atomic: a reader (the video queue's orphan check among them) must never see a
+    # truncated index, so write beside it and rename over it.
+    target = sources_dir / "url_index.json"
+    tmp = sources_dir / f".url_index.json.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, target)
 
 
 def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult) -> tuple[str, bool] | None:

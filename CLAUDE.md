@@ -855,12 +855,12 @@ and `processed` untouched). **A video's state is derived, never stored** (`video
 the url-index key (`media_ingestor.url_hash`, never the media entity id); a record with no basis is `recorded`, never
 `watched`. The set of videos is the Feed's (`is_video_page`, the twin of `FeedKind.of`, pinned by
 `api/tests/fixtures/video_kind.json`). **The person's video queue lives outside every bank** —
-`$CICADA_HOME/video_queue/<bank>.json` (`video_queue.py`; keys only, never a URL or a title; flock plus atomic replace;
+`$CICADA_HOME/video_queue/<bank>.json` (`video_queue.py`; a bank name that is not a plain slug gets an ASCII slug plus a short sha1 of its name, never a refusal; orphans are dropped only while the url index answers non-empty; keys only, never a URL or a title; flock plus atomic replace;
 expiry applied in memory and persisted inside a write) — so nothing in its lifecycle dirties a bank, commits, or answers
 409 while Sleep runs. `cicada_video_queue` (`read`, read-only) lists what waits; `cicada_video_claim` (`record`) leases
 the oldest queued videos (10 a call, 45-minute lease) or, with `release=[{url, code, reason}]`, hands one back
 (`needs_login` tells the agent not to sign in and tells the person). It is in `WRITE_TOOLS` (the demo gate, the write
-lock, fenced replies) but `runtime._writes_bank` is false for it, and **a lapsed lease is judged only when Sleep is not
+lock; only its per-video title/channel lines are fenced, Cicada's own instructions in the reply stay outside) but `runtime._writes_bank` is false for it, and **a lapsed lease is judged only when Sleep is not
 holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain cannot burn a video's three attempts.
 `record_watch` credits the queue whether or not its bank commit ran. **No batch cap** (a hand-off takes every selected
 video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved video can be queued; a login wall is handed

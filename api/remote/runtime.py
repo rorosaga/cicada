@@ -41,17 +41,17 @@ from api.services import demo_guard, handshake, mcp_tools, telemetry
 
 HANDLE_RE = re.compile(r"^rc_([a-z0-9]{8})_(\d{4}-\d{2}-\d{2})(?:_([0-9a-f]{8}))?$")
 REFERENCE_HEADER = mcp_tools.REFERENCE_HEADER
-FENCE_OPEN = "<<<cicada-reference"
-FENCE_CLOSE = "cicada-reference>>>"
+FENCE_OPEN = mcp_tools.FENCE_OPEN
+FENCE_CLOSE = mcp_tools.FENCE_CLOSE
 MAX_RESULT_CHARS = 24_000
 SOURCES_LIMIT = (3, 1000)
 ASK_PER_DAY = 20
 CONVERSATION_TTL_S = 24 * 3600
 MAX_CONVERSATIONS = 2000
 
-#: Write tools whose reply carries text the caller did not write (a video's title and channel come
-#: from a provider's oEmbed response): fenced and capped like a read (G162, M2).
-FENCED_WRITE_REPLIES = frozenset({"cicada_video_claim"})
+# ``cicada_video_claim`` is a write whose reply carries a provider's titles and channels: it is not
+# fenced here as a whole (that would tell the agent to discount Cicada's own instructions in it);
+# ``mcp_tools.video_claim`` fences only the per-video lines (G162, M2).
 
 BUSY_TEXT = "Cicada is consolidating memory right now. Nothing was saved — try again in a few minutes."
 DENIED_TEXT = "This connection isn't allowed to do that. The person chooses what it may do in Cicada's settings."
@@ -290,7 +290,7 @@ class RemoteRuntime:
         else:
             text = _DISPATCH[tool](ctx, args)
         self.conversations.set_hint_sent(handle, ctx.state_hint_sent)
-        if tool in catalog.READ_TOOLS or tool in FENCED_WRITE_REPLIES:
+        if tool in catalog.READ_TOOLS:
             text = fence(cap(strip_unavailable(text, ctx.available or frozenset())))
         return text
 

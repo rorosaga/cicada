@@ -5,6 +5,7 @@ CICADA_HOME."""
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import threading
 from datetime import datetime, timedelta, timezone
@@ -366,6 +367,50 @@ def test_a_bank_name_that_cannot_name_a_file_is_refused(tmp_path):
     with pytest.raises(ValueError):
         video_queue.path_for(tmp_path / ".." / "..")
     assert video_queue.mtime(tmp_path / "bad name!") == 0.0
+
+
+def test_a_bank_name_outside_the_plain_slug_still_gets_its_own_queue(tmp_path):
+    """A bank named with non-ASCII letters, an ampersand or an apostrophe is a real bank
+    (id_utils.sanitize_id keeps them): its queue works, and no two names share a file."""
+    seen = set()
+    for name in ("diseño", "trabajo-&-vida", "rodrigo's-memory", "_underscore", "x" * 100, "日本語"):
+        memory, keys = bank_with_videos(tmp_path / f"b{len(seen)}", 1)
+        memory = memory.rename(memory.parent / name)
+        path = video_queue.path_for(memory)
+        assert path.parent == video_queue.path_for(tmp_path / "plain").parent and path.name.endswith(".json")
+        assert re.fullmatch(r"[A-Za-z0-9._-]+", path.stem) and path not in seen
+        seen.add(path)
+        keys = list(video_state.saved_videos(memory))
+        video_queue.put(memory, keys[0], "watch")
+        assert path.exists() and len(video_queue.view(memory)[0]) == 1
+        assert video_queue.stamp(memory) != "0.000000:0"
+        assert video_queue.remove(memory, keys[0]) is True
+
+
+def test_an_unreadable_url_index_never_wipes_the_queue(bank):
+    """A bookmark sync rewriting sources/url_index.json can leave it empty or half-written for a
+    moment: a claim, a release or a completion in that window must leave every row and batch alone."""
+    memory, keys = bank
+    for k in keys:
+        video_queue.put(memory, k, "watch", now=_at())
+    index = memory / "sources" / "url_index.json"
+    good = index.read_text()
+    for broken in (good[: len(good) // 2], "", "{}"):
+        index.write_text(broken)
+        video_queue.claim(memory, session="s", harness="claude-code", limit=2, now=_at(1))
+        video_queue.remove(memory, "0" * 12, now=_at(1))
+        rows = json.loads(video_queue.path_for(memory).read_text())["items"]
+        assert {r["key"] for r in rows} == set(keys), broken[:10]
+    index.write_text(good)
+    assert len(video_queue.view(memory, _at(2))[0]) == len(keys)
+
+
+def test_the_url_index_is_written_atomically(tmp_path):
+    memory, keys = bank_with_videos(tmp_path, 1)
+    idx = media_ingestor.load_url_index(memory)
+    media_ingestor.save_url_index(memory, idx)
+    assert media_ingestor.load_url_index(memory) == idx
+    assert not list((memory / "sources").glob(".url_index.json.*.tmp"))
 
 
 # --- the stamp: H2 --------------------------------------------------------------------------------------------

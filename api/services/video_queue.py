@@ -34,11 +34,13 @@ Nothing here fetches a video, a caption, a frame or a stream (Track V).
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
 import secrets
 import tempfile
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -87,12 +89,22 @@ class QueueFull(QueueError):
 
 
 def bank_slug(memory_path: Path) -> str:
-    """The bank's directory name, refused unless it is a plain slug — the file
-    name derives from it, so a crafted name can never reach another path."""
+    """The queue file's stem for a bank — always a plain slug, never a refusal.
+
+    A directory name that is already a plain slug is used as it is (so an existing
+    file keeps its name). Any other name (non-ASCII letters, an apostrophe, an
+    ampersand, a leading underscore, more than 64 characters) becomes an ASCII
+    slug of itself plus a short sha1 of the full name, so two banks never share a
+    file and a crafted name can never reach another path."""
     name = Path(memory_path).name
-    if not _BANK_RE.match(name):
-        raise ValueError(f"bank name {name!r} cannot name a video queue")
-    return name
+    if _BANK_RE.match(name):
+        return name
+    if not name or name in (".", ".."):
+        raise QueueError("this memory bank cannot have a video queue")
+    ascii_part = re.sub(r"[^A-Za-z0-9._-]+", "-", unicodedata.normalize("NFKD", name)
+                        .encode("ascii", "ignore").decode("ascii")).strip("-._")[:40]
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:10]
+    return f"{ascii_part}-{digest}" if ascii_part else f"bank-{digest}"
 
 
 def path_for(memory_path: Path) -> Path:
@@ -442,7 +454,12 @@ def _open(memory_path: Path, now: datetime, saved, holding):
     """Load under the lock, settle, drop orphans. Returns rows, batches, changed."""
     rows, batches = _read_file(memory_path)
     rows, batches, c1 = _settle(rows, batches, now, records=_records_fn(memory_path), holding=holding)
-    rows, batches, c2 = _drop_orphans(rows, batches, saved)
+    # Orphans are dropped only on affirmative evidence: an empty ``saved`` is what an
+    # unreadable or half-written url index looks like (``save_url_index`` was once a
+    # truncate-then-write), and must never wipe the person's queue.
+    c2 = False
+    if saved:
+        rows, batches, c2 = _drop_orphans(rows, batches, saved)
     return rows, batches, c1 or c2
 
 
