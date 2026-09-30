@@ -145,7 +145,7 @@ Day-to-day commands:
 | `make dev` | Rebuild debug, reinstall over `~/Applications/Cicada.app`, relaunch |
 | `make install-app` | Release build, install without relaunch |
 | `make doctor` | Backend, MCP, and environment health checks |
-| `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Consolidate: read everything waiting, in batches, each one filed and committed (also the Consolidate button in the app) |
+| `curl -X POST -H "Authorization: Bearer $(cat ~/.cicada/api_token)" localhost:8000/sleep/trigger` | Consolidate: read everything waiting, in batches, each one filed and committed (also the Consolidate button in the app). A bare POST is always a fresh run; `-H 'Content-Type: application/json' -d '{"continue": true}'` resumes a paused one |
 | `api/.venv/bin/python -m pytest api/tests -q` | Backend suite |
 | `cd app/CicadaApp && swift test` | App suite |
 

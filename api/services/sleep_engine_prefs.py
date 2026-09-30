@@ -32,6 +32,8 @@ from api.models.schemas import (
     SleepEnginePreviews,
     SleepEngineProvider,
     SleepEngineResponse,
+    SleepReserveStatus,
+    SleepReserveWindow,
 )
 from api.services import agent_engine, codex_app_server, codex_engine, cycle_usage, engine_select, telemetry
 from api.services.connections import byok, secrets
@@ -274,7 +276,34 @@ def _preview(resolved: Settings, why: str) -> SleepEnginePreview:
         model = resolved.ollama_model
     else:
         model = resolved.litellm_model
-    return SleepEnginePreview(engine=engine, model=model, why=why)
+    return SleepEnginePreview(engine=engine, model=model, why=why, billing=billing_for(engine))
+
+
+#: How a run on an engine is billed, from its id alone (Sleep page v5). No provider is named:
+#: the app words it from this enum and the engine label the person already chose.
+_BILLING = {"claude-cli": "plan", "codex-cli": "plan", "litellm": "charged", "ollama": "local"}
+
+
+def billing_for(engine: str | None) -> str:
+    return _BILLING.get(engine or "", "unknown")
+
+
+def _reserve_status(settings: Settings, reg, manual_engine: str) -> SleepReserveStatus:
+    """The reserve line ("Leave room in my plan"): what is set, whether it applies to the
+    engine a run you start would use, and which windows the last run saw the engine report."""
+    from api.services import sleep_cycle, sleep_run_prefs
+
+    opts = sleep_run_prefs.load(reg)
+    applies = manual_engine in engine_select.PLAN_ENGINES
+    windows: list[SleepReserveWindow] = []
+    ds = getattr(sleep_cycle.get_sleep_state(), "drain", None)
+    guard = getattr(ds, "guard", None) if ds is not None else None
+    if guard is not None and getattr(ds, "memory_path", None) in (None, settings.memory_path):
+        windows = [SleepReserveWindow(**w) for w in guard.wire()["windows"]]
+    elif applies and manual_engine == "claude-cli":
+        windows = [SleepReserveWindow(window="five_hour"), SleepReserveWindow(window="seven_day")]
+    return SleepReserveStatus(pct=opts.reserve_pct, choices=list(sleep_run_prefs.RESERVE_CHOICES),
+                              applies=applies, windows=windows)
 
 
 async def build_response(settings: Settings, reg) -> SleepEngineResponse:
@@ -321,6 +350,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         mode=mode, model=model, disambiguation_model=disambiguation_model,
         source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
         selected=selected_card(mode, model), provider=provider, providers=providers,
+        reserve=_reserve_status(settings, reg, preview.manual.engine),
     )
 
 

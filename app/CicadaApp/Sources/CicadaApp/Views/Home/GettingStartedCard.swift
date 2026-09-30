@@ -353,6 +353,20 @@ struct GettingStartedCard: View {
     /// and disabled, saying why, until someone can read (`EngineReadiness`).
     @ViewBuilder
     private func trigger(_ title: String, readiness: EngineReadiness) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            triggerRow(title, readiness: readiness)
+            // Sleep page v5 — the same caption as the intake card's Read now: it reads everything waiting, saving as it
+            // goes, or (while a run is paused) it opens the Sleep page, where Continue is.
+            if readiness != .needsChoice, let caption = sleepVM.door.readNowCaption {
+                Text(caption)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func triggerRow(_ title: String, readiness: EngineReadiness) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             MeadowPill(title: title) { read() }
                 .disabled(readiness == .needsChoice)

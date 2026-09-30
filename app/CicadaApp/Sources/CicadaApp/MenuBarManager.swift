@@ -43,6 +43,9 @@ final class MenuBarManager: NSObject {
     private var digestExpiryTask: Task<Void, Never>?
     private var frameIndex = 0
     private var currentSnapshot: StatusSnapshot?
+    /// Sleep page v5 — what the run item and the header say (`SleepDoor`): "Consolidate now — all 287", and while a run
+    /// is paused "Paused — 98 of 287 filed" with "Continue on the Sleep page…", which opens the page and never continues.
+    var sleepDoor: (@MainActor () -> SleepDoor)?
     private var justFinishedAt: Date?
 
     // Quick-action closures injected by the App.
@@ -212,7 +215,9 @@ final class MenuBarManager: NSObject {
         let menu = NSMenu()
 
         // Status header (disabled): "<icon> <title> — <detail>".
-        let header = NSMenuItem(title: "\(state.title) — \(state.detail)", action: nil, keyEquivalent: "")
+        let door = sleepDoor?()
+        let header = NSMenuItem(title: door?.menuHeader ?? "\(state.title) — \(state.detail)", action: nil,
+                                keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
 
@@ -240,9 +245,10 @@ final class MenuBarManager: NSObject {
 
         // Quick actions.
         let isRunning = currentSnapshot?.sleep.status == "running"
-        let runItem = NSMenuItem(title: "Run sleep cycle now", action: #selector(runSleepAction), keyEquivalent: "r")
+        let runItem = NSMenuItem(title: door?.menuItemTitle ?? Copy.consolidateNow, action: #selector(runSleepAction),
+                                 keyEquivalent: "r")
         runItem.target = self
-        runItem.isEnabled = !isRunning
+        runItem.isEnabled = !isRunning || door?.isPaused == true
         menu.addItem(runItem)
 
         let saveItem = NSMenuItem(title: "Save clipboard URL", action: #selector(saveClipboardAction), keyEquivalent: "s")

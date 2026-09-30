@@ -42,7 +42,13 @@ final class SleepMeadowTests: XCTestCase {
                 XCTAssertFalse(text.contains(other), "\(file.lastPathComponent): \(other)")
             }
         }
-        XCTAssertEqual(prominent, ["SleepHero.swift×1"])
+        // Sleep page v5 (DR-40, one primary at a time): the control row's Consolidate or, while a run is paused, its
+        // Continue — mutually exclusive branches of one row — and the Reading options sheet's own Consolidate now,
+        // which is a sheet over the page, not a second action on it.
+        XCTAssertEqual(prominent, ["SleepHero.swift×2", "ReadingOptionsSheet.swift×1"])
+        let hero = try sleepFile("SleepHero.swift").joined(separator: "\n")
+        XCTAssertTrue(hero.contains("} else if let paused {\ncontinueButton(paused)\n} else {\nconsolidateButton"),
+                      "Continue replaces Consolidate; the two never show together")
         XCTAssertFalse(try sleepFile("SleepHero.swift").contains { $0.contains(".white") }, "the capsule's literal ink is gone")
     }
 

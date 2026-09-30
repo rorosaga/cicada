@@ -18,6 +18,9 @@ struct CycleUsageModel: Codable, Hashable, Identifiable {
     var costUsd: Double? = nil
     var equivCostUsd: Double? = nil
     var basis: String? = nil
+    /// Sleep page v5 — the ledger's own stage names this model was called for: data, never copy that says which
+    /// model "reads".
+    var stages: [String] = []
 
     var id: String { "\(engine ?? "")|\(model ?? "")" }
 }
@@ -34,6 +37,7 @@ extension CycleUsageModel {
         costUsd = (try? c.decodeIfPresent(Double.self, forKey: .costUsd)) ?? nil
         equivCostUsd = (try? c.decodeIfPresent(Double.self, forKey: .equivCostUsd)) ?? nil
         basis = (try? c.decodeIfPresent(String.self, forKey: .basis)) ?? nil
+        stages = ((try? c.decodeIfPresent([String].self, forKey: .stages)) ?? nil) ?? []
     }
 }
 

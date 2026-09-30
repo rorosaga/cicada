@@ -169,6 +169,11 @@ struct ConsolidationHistoryCard: View {
     let expanded: String?
     let onToggle: (String) -> Void
     var onSelectEntity: ((String) -> Void)?
+    /// Sleep page v5 (A8) — a run that read in batches is one row (`PastNightItem.group`); opening it shows its
+    /// detail (`GET /sleep/runs/{id}`, cached by the view model) and its batches' own commits under it.
+    var runDetails: [String: SleepRunDetail] = [:]
+    var expandedRun: String? = nil
+    var onToggleRun: (String) -> Void = { _ in }
 
     var body: some View {
         SleepDetailsSection(title: "Past nights") {
@@ -180,18 +185,38 @@ struct ConsolidationHistoryCard: View {
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(entries) { entry in
-                        PastNightRow(entry: entry, isExpanded: expanded == entry.commitHash, onToggle: onToggle)
-                        if expanded == entry.commitHash {
-                            detail(for: entry)
-                                // The mock's indent: the detail starts under the headline.
-                                .padding(.leading, CicadaTheme.scaled(142))
-                                .padding(.trailing, CicadaTheme.scaled(40))
+                    ForEach(PastNightItem.group(entries)) { item in
+                        switch item {
+                        case .cycle(let entry):
+                            cycleRow(entry)
+                        case .run(let ref, let members):
+                            PastRunRow(ref: ref, newest: members[0], isExpanded: expandedRun == ref.id,
+                                       onToggle: { onToggleRun(ref.id) })
+                            if expandedRun == ref.id {
+                                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                                    RunDetailBlock(detail: runDetails[ref.id], onSelectEntity: onSelectEntity)
+                                        .padding(.leading, CicadaTheme.scaled(142))
+                                        .padding(.trailing, CicadaTheme.scaled(40))
+                                    ForEach(members) { entry in cycleRow(entry) }
+                                }
                                 .padding(.bottom, CicadaTheme.spacingSM)
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func cycleRow(_ entry: SleepHistoryEntry) -> some View {
+        PastNightRow(entry: entry, isExpanded: expanded == entry.commitHash, onToggle: onToggle)
+        if expanded == entry.commitHash {
+            detail(for: entry)
+                // The mock's indent: the detail starts under the headline.
+                .padding(.leading, CicadaTheme.scaled(142))
+                .padding(.trailing, CicadaTheme.scaled(40))
+                .padding(.bottom, CicadaTheme.spacingSM)
         }
     }
 

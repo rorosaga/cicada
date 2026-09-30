@@ -677,14 +677,26 @@ struct SleepDebtInfo: Codable, Equatable {
     /// `nil` ONLY when the queue is empty AND Sleep has never run in this
     /// bank — no baseline to call "rested" (see the backend docstring).
     let restedPct: Int?
+    /// Sleep page v5 — conversations parked after failing twice for their own reasons: still waiting (they are in
+    /// `unprocessedCount`), but a run's freeze skips them. 0 on an older backend.
+    let parkedCount: Int
+    /// What a run would read now (`unprocessed - parked`); `nil` on an older backend. Every "reads all N" string
+    /// reads `readable`, never `unprocessedCount` (M7).
+    let readableCount: Int?
+
+    /// What a Consolidate would read now: the server's own count, else the queue (an older backend parks nothing).
+    var readable: Int { readableCount ?? max(0, unprocessedCount - parkedCount) }
 
     enum CodingKeys: String, CodingKey {
         case unprocessedCount, oldestUnprocessedAgeHours, hoursSinceLastCycle
-        case hasRunBefore, volumePct, agePct, restedPct
+        case hasRunBefore, volumePct, agePct, restedPct, parkedCount, readableCount
     }
 
     init(unprocessedCount: Int, oldestUnprocessedAgeHours: Double?, hoursSinceLastCycle: Double?,
-         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?) {
+         hasRunBefore: Bool, volumePct: Int, agePct: Int, restedPct: Int?, parkedCount: Int = 0,
+         readableCount: Int? = nil) {
+        self.parkedCount = parkedCount
+        self.readableCount = readableCount
         self.unprocessedCount = unprocessedCount
         self.oldestUnprocessedAgeHours = oldestUnprocessedAgeHours
         self.hoursSinceLastCycle = hoursSinceLastCycle
@@ -703,6 +715,8 @@ struct SleepDebtInfo: Codable, Equatable {
         volumePct = try c.decodeIfPresent(Int.self, forKey: .volumePct) ?? 0
         agePct = try c.decodeIfPresent(Int.self, forKey: .agePct) ?? 0
         restedPct = try c.decodeIfPresent(Int.self, forKey: .restedPct)
+        parkedCount = ((try? c.decodeIfPresent(Int.self, forKey: .parkedCount)) ?? nil) ?? 0
+        readableCount = (try? c.decodeIfPresent(Int.self, forKey: .readableCount)) ?? nil
     }
 
     /// A backend too old to send `debt` at all — the honest "we don't know"
@@ -769,9 +783,13 @@ struct SleepStatusResponse: Codable {
     /// (`ProjectWriteGate`) still key off `running`, because `/status` does not carry this field.
     /// `false` on an older backend, which is why it is not read as "not running".
     let writing: Bool
+    /// Sleep page v5 — a run that stopped with conversations still waiting, read from the active bank's sidecar;
+    /// `nil` while a run reads, when there is none, and on an older backend. Paused is not a state of Sleep:
+    /// `status` stays `idle` and nothing is held.
+    let paused: SleepPausedRun?
 
     enum CodingKeys: String, CodingKey {
-        case drain, writing
+        case drain, writing, paused
         case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
@@ -808,6 +826,7 @@ struct SleepStatusResponse: Codable {
         readByOrigin = try c.decodeIfPresent([String: Int].self, forKey: .readByOrigin) ?? [:]
         drain = try? c.decodeIfPresent(SleepDrainInfo.self, forKey: .drain)
         writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? false
+        paused = (try? c.decodeIfPresent(SleepPausedRun.self, forKey: .paused)) ?? nil
     }
 }
 
@@ -822,17 +841,20 @@ struct SleepDrainInfo: Codable, Equatable {
         var sentence: String?
         /// The vendor's unix reset time, when one was measured.
         var resetsAt: Int?
+        /// Which limit a plan stop was (Sleep page v5): `five_hour | seven_day | overage | unknown`.
+        var limit: String?
 
-        init(reason: String, sentence: String? = nil, resetsAt: Int? = nil) {
-            self.reason = reason; self.sentence = sentence; self.resetsAt = resetsAt
+        init(reason: String, sentence: String? = nil, resetsAt: Int? = nil, limit: String? = nil) {
+            self.reason = reason; self.sentence = sentence; self.resetsAt = resetsAt; self.limit = limit
         }
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             reason = (try? c.decode(String.self, forKey: .reason)) ?? "error"
             sentence = try? c.decodeIfPresent(String.self, forKey: .sentence)
             resetsAt = try? c.decodeIfPresent(Int.self, forKey: .resetsAt)
+            limit = (try? c.decodeIfPresent(String.self, forKey: .limit)) ?? nil
         }
-        enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt }
+        enum CodingKeys: String, CodingKey { case reason, sentence, resetsAt, limit }
 
         /// A plan pause whose vendor-measured reset time has passed: the limit no longer holds, so nothing
         /// should keep saying "paused". `false` without a measured time (it is never guessed).
@@ -860,6 +882,99 @@ struct SleepDrainInfo: Codable, Equatable {
     /// Episodes that arrived after the run began (they wait for the next one); `nil` until it ends.
     var arrivedSince: Int?
 
+    // MARK: Sleep page v5 — every key optional, so an older backend reads no news.
+
+    /// One stage of the running batch (P15 / R-A8 amended): a stage carries a fill only when it counts something
+    /// that finished (Read, Sort, Decide); Notice and File carry no number.
+    struct Stage: Codable, Equatable, Identifiable {
+        var id: String
+        var unit: String?
+        var done: Int
+        var total: Int?
+        var failed: Int
+        /// `pending | active | done`.
+        var state: String
+
+        init(id: String, unit: String? = nil, done: Int = 0, total: Int? = nil, failed: Int = 0, state: String = "pending") {
+            self.id = id; self.unit = unit; self.done = done; self.total = total; self.failed = failed; self.state = state
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = ((try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil) ?? ""
+            unit = (try? c.decodeIfPresent(String.self, forKey: .unit)) ?? nil
+            done = ((try? c.decodeIfPresent(Int.self, forKey: .done)) ?? nil) ?? 0
+            total = (try? c.decodeIfPresent(Int.self, forKey: .total)) ?? nil
+            failed = ((try? c.decodeIfPresent(Int.self, forKey: .failed)) ?? nil) ?? 0
+            state = ((try? c.decodeIfPresent(String.self, forKey: .state)) ?? nil) ?? "pending"
+        }
+        enum CodingKeys: String, CodingKey { case id, unit, done, total, failed, state }
+    }
+
+    /// The running batch: `read` finished, `reading` started and not finished, `failed` this batch.
+    struct BatchState: Codable, Equatable {
+        var index: Int
+        var of: Int
+        var total: Int
+        var read: Int
+        var reading: Int
+        var failed: Int
+
+        init(index: Int = 0, of: Int = 0, total: Int = 0, read: Int = 0, reading: Int = 0, failed: Int = 0) {
+            self.index = index; self.of = of; self.total = total; self.read = read; self.reading = reading; self.failed = failed
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func int(_ key: CodingKeys) -> Int { ((try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil) ?? 0 }
+            index = int(.index); of = int(.of); total = int(.total); read = int(.read); reading = int(.reading)
+            failed = int(.failed)
+        }
+        enum CodingKeys: String, CodingKey { case index, of, total, read, reading, failed }
+    }
+
+    /// Per source: `frozen = filed + read + waiting + couldNotBeRead + parked + skipped` at every step.
+    struct Origin: Codable, Equatable {
+        var frozen: Int
+        var filed: Int
+        var read: Int
+        var waiting: Int
+        var couldNotBeRead: Int
+        var parked: Int
+        var skipped: Int
+        var newSince: Int
+
+        init(frozen: Int = 0, filed: Int = 0, read: Int = 0, waiting: Int = 0, couldNotBeRead: Int = 0,
+             parked: Int = 0, skipped: Int = 0, newSince: Int = 0) {
+            self.frozen = frozen; self.filed = filed; self.read = read; self.waiting = waiting
+            self.couldNotBeRead = couldNotBeRead; self.parked = parked; self.skipped = skipped; self.newSince = newSince
+        }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func int(_ key: CodingKeys) -> Int { ((try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil) ?? 0 }
+            frozen = int(.frozen); filed = int(.filed); read = int(.read); waiting = int(.waiting)
+            couldNotBeRead = int(.couldNotBeRead); parked = int(.parked); skipped = int(.skipped); newSince = int(.newSince)
+        }
+        enum CodingKeys: String, CodingKey { case frozen, filed, read, waiting, couldNotBeRead, parked, skipped, newSince }
+    }
+
+    /// `user | schedule`.
+    var startedBy: String? = nil
+    /// No earlier Sleep commit in this bank when the run started.
+    var firstRun: Bool? = nil
+    var committedBatches: Int? = nil
+    /// Engine calls made in this run; never decreases (a discarded batch's calls stay counted).
+    var calls: Int? = nil
+    /// Measured, never a prediction (G107).
+    var elapsedMs: Int? = nil
+    var pausedMs: Int? = nil
+    var batchState: BatchState? = nil
+    var stages: [Stage]? = nil
+    var byOrigin: [String: Origin]? = nil
+    /// Conversations parked in this run.
+    var parked: Int? = nil
+    var ownerPage: SleepOwnerPageCount? = nil
+    var reserve: SleepReserveInfo? = nil
+    var resumed: Bool? = nil
+
     init(id: String = "", frozen: Int = 0, batchSize: Int = 0, batch: Int = 0, batches: Int = 0, filed: Int = 0,
          requeued: Int = 0, skipped: Int = 0, active: Bool = false, finished: Bool = false, stop: Stop? = nil,
          arrivedSince: Int? = nil) {
@@ -878,10 +993,23 @@ struct SleepDrainInfo: Codable, Equatable {
         active = flag(.active); finished = flag(.finished)
         stop = try? c.decodeIfPresent(Stop.self, forKey: .stop)
         arrivedSince = try? c.decodeIfPresent(Int.self, forKey: .arrivedSince)
+        func opt(_ key: CodingKeys) -> Int? { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil }
+        startedBy = (try? c.decodeIfPresent(String.self, forKey: .startedBy)) ?? nil
+        firstRun = (try? c.decodeIfPresent(Bool.self, forKey: .firstRun)) ?? nil
+        committedBatches = opt(.committedBatches); calls = opt(.calls)
+        elapsedMs = opt(.elapsedMs); pausedMs = opt(.pausedMs); parked = opt(.parked)
+        batchState = (try? c.decodeIfPresent(BatchState.self, forKey: .batchState)) ?? nil
+        stages = (try? c.decodeIfPresent([Stage].self, forKey: .stages)) ?? nil
+        byOrigin = (try? c.decodeIfPresent([String: Origin].self, forKey: .byOrigin)) ?? nil
+        ownerPage = (try? c.decodeIfPresent(SleepOwnerPageCount.self, forKey: .ownerPage)) ?? nil
+        reserve = (try? c.decodeIfPresent(SleepReserveInfo.self, forKey: .reserve)) ?? nil
+        resumed = (try? c.decodeIfPresent(Bool.self, forKey: .resumed)) ?? nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, frozen, batchSize, batch, batches, filed, requeued, skipped, active, finished, stop, arrivedSince
+        case startedBy, firstRun, committedBatches, calls, elapsedMs, pausedMs, batchState, stages, byOrigin
+        case parked, ownerPage, reserve, resumed
     }
 }
 
@@ -889,6 +1017,12 @@ struct SleepTriggerResponse: Codable {
     let status: String
     let message: String
     let cycleId: String?
+}
+
+/// `POST /sleep/run/end` — `ended`, or `none` when there was no paused run.
+struct SleepEndRunResponse: Codable {
+    let status: String
+    let message: String
 }
 
 /// `POST /sleep/cancel` — see `SleepCancelResponse` on the API side for the
@@ -997,12 +1131,19 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     let durationMs: Int?
     /// 2026-09-28 — what the cycle cost, one flat value; `nil` = not recorded (or an older backend).
     let usageSummary: CycleUsageSummary?
+    /// Sleep page v5 — the run this commit was a batch of, and that run's own numbers (never summed from the
+    /// visible page of history). `nil` for a plain cycle, an older commit, or an older backend.
+    var drainId: String? = nil
+    var batch: Int? = nil
+    var batches: Int? = nil
+    var run: SleepRunRef? = nil
 
     var id: String { commitHash }
 
     enum CodingKeys: String, CodingKey {
         case commitHash, date, message, filesChanged, engine, kind
         case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs, usageSummary
+        case drainId, batch, batches, run
     }
 
     init(from decoder: Decoder) throws {
@@ -1020,6 +1161,10 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
         authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
         usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
+        drainId = (try? c.decodeIfPresent(String.self, forKey: .drainId)) ?? nil
+        batch = (try? c.decodeIfPresent(Int.self, forKey: .batch)) ?? nil
+        batches = (try? c.decodeIfPresent(Int.self, forKey: .batches)) ?? nil
+        run = (try? c.decodeIfPresent(SleepRunRef.self, forKey: .run)) ?? nil
     }
 }
 
@@ -2155,6 +2300,48 @@ actor APIClient {
 
     func triggerSleep() async throws -> SleepTriggerResponse {
         return try await post("/sleep/trigger")
+    }
+
+    /// Sleep page v5 — resume the paused run (same run id, its counters carried). Only the Sleep page's Continue
+    /// calls this (`SleepViewModel.continueRun`); every other door routes to the page while a run is paused.
+    func continueSleepRun() async throws -> SleepTriggerResponse {
+        return try await post("/sleep/trigger", body: ["continue": true])
+    }
+
+    /// `POST /sleep/run/end` — forget the paused run; every conversation still waits. 409 while a run reads.
+    func endSleepRun() async throws -> SleepEndRunResponse {
+        return try await post("/sleep/run/end")
+    }
+
+    /// `POST /sleep/parked/retry` — read exactly these parked conversations (all of them when `ids` is `nil`)
+    /// in a run of their own. 409 while a run reads or is paused.
+    func retryParked(ids: [String]?) async throws -> SleepTriggerResponse {
+        return try await post("/sleep/parked/retry", body: ids.map { ["ids": $0] } ?? [:])
+    }
+
+    func fetchRunOptions() async throws -> SleepRunOptions {
+        return try await get("/sleep/run-options")
+    }
+
+    func updateRunOptions(_ change: SleepRunOptionsChange) async throws -> SleepRunOptions {
+        return try await put("/sleep/run-options", body: change.body)
+    }
+
+    /// `GET /sleep/queue` — bounded (≤ 200), frontmatter only.
+    func fetchSleepQueue(origin: String? = nil, state: String? = nil, offset: Int = 0,
+                         limit: Int = 50) async throws -> SleepQueueResponse {
+        var query = ["offset=\(offset)", "limit=\(min(200, max(1, limit)))"]
+        if let origin, let o = origin.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            query.append("origin=\(o)")
+        }
+        if let state { query.append("state=\(state)") }
+        return try await get("/sleep/queue?" + query.joined(separator: "&"))
+    }
+
+    /// `GET /sleep/runs/{id}` — one whole run (not a Store domain).
+    func fetchSleepRun(_ id: String) async throws -> SleepRunDetail {
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        return try await get("/sleep/runs/\(encoded)")
     }
 
     /// Cooperative-cancel whatever cycle is currently running. See

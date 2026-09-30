@@ -41,8 +41,17 @@ async def resolve_and_prune(
     now: datetime | None = None,
     tuning: dict[str, float] | None = None,
     decay: bool = True,
+    cancel_check=None,
+    progress_callback=None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``cancel_check`` (Sleep page v5, a pause must be able to land here): polled before
+    each page's synthesis and contradiction calls — the long, paid part of this stage,
+    a loop of engine calls. Once it says stop, no further page is asked about and the
+    partial ``changes`` come back for the caller to discard, as Stage 2 does; nothing
+    is on disk before Stage 5. ``progress_callback(done, total)`` counts the pages to
+    update, fixed when the loop starts.
 
     ``decay``: ``False`` skips the unreferenced-entity decay loop only — a drain
     (``sleep_drain``) charges decay once, in the batch that empties its queue,
@@ -75,7 +84,13 @@ async def resolve_and_prune(
         disable=len(update_changes) == 0,
     )
     conflicts_found = 0
-    for change in update_changes:
+    if progress_callback is not None:
+        progress_callback(0, len(update_changes))
+    for done_pages, change in enumerate(update_changes):
+        if cancel_check is not None and cancel_check():
+            break
+        if progress_callback is not None and done_pages:
+            progress_callback(done_pages, len(update_changes))
         progress.update(1)
         if change.get("action") != "update":
             continue
@@ -154,6 +169,8 @@ async def resolve_and_prune(
             })
 
     progress.close()
+    if progress_callback is not None and not (cancel_check is not None and cancel_check()):
+        progress_callback(len(update_changes), len(update_changes))
 
     # Temporal decay for unreferenced entities (G147). The weekly rate is
     # `decay_policy.effective`: the class's (or explicit) rate x the spacing

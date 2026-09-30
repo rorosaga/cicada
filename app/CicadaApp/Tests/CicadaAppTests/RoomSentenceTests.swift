@@ -80,7 +80,7 @@ final class RoomSentenceTests: XCTestCase {
         // P9: a bank that has never consolidated is not "overdue" — T8 says why.
         let firstNight = roomSentence(ctx(.hungry, debt: debt(12, hasRunBefore: false, rested: 10)))
         XCTAssertEqual(firstNight.lead, "12 to read.")
-        XCTAssertEqual(firstNight.tail, "My first night — nothing's been filed yet.")
+        XCTAssertEqual(firstNight.tail, "My first night. I'll read all of them, saving every 25.")
     }
 
     /// Z-P6 — the design's table has no row for `.reading` with nothing
@@ -130,7 +130,7 @@ final class RoomSentenceTests: XCTestCase {
 
     func test_T8_T9_theFirstNight() {
         XCTAssertEqual(roomSentence(ctx(.reading, debt: debt(3, hasRunBefore: false))).tail,
-                       "My first night — nothing's been filed yet.")
+                       "My first night. I'll read all of them, saving every 25.")
         XCTAssertEqual(roomSentence(ctx(.happy, debt: debt(0, hasRunBefore: false))).tail,
                        "Nothing's been filed in this memory yet.")
         XCTAssertNotEqual(roomSentence(ctx(.happy, debt: nil)).tail, "Nothing's been filed in this memory yet.",

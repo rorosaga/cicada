@@ -90,7 +90,7 @@ def test_a_chosen_chatgpt_plan_previews_on_your_start_and_never_on_the_schedule(
     client.put("/sleep/engine", json={"mode": "codex", "model": "gpt-5.6-luna"})
     body = client.get("/sleep/engine").json()
     assert body["preview"]["manual"] == {"engine": "codex-cli", "model": "gpt-5.6-luna",
-                                         "why": "Sleep engine set to 'codex' in Settings"}
+                                         "why": "Sleep engine set to 'codex' in Settings", "billing": "plan"}
     assert body["preview"]["scheduled"]["engine"] == "litellm"
 
 

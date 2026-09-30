@@ -82,10 +82,14 @@ def test_status_carries_the_drain_block_as_camel_case_and_null_when_plain():
     ds.filed, ds.stop = 2, sleep_drain.DrainStop("plan_limit", "Paused.", 1790000000)
     state.drain = ds
     drain = client.get("/sleep/status").json()["drain"]
-    assert drain == {
+    # The ruling-13 keys are byte-identical (Sleep page v5 only adds optional ones beside them).
+    legacy = ("id", "frozen", "batchSize", "batch", "batches", "filed", "requeued", "skipped", "active",
+              "finished", "stop", "arrivedSince")
+    assert {k: drain[k] for k in legacy} == {
         "id": "sleep_x", "frozen": 3, "batchSize": 2, "batch": 1, "batches": 2, "filed": 2, "requeued": 0,
         "skipped": 0, "active": True, "finished": False,
-        "stop": {"reason": "plan_limit", "sentence": "Paused.", "resetsAt": 1790000000}, "arrivedSince": None}
+        "stop": {"reason": "plan_limit", "sentence": "Paused.", "resetsAt": 1790000000, "limit": None},
+        "arrivedSince": 0}   # live now: nothing waiting beyond the frozen list
     assert "frozenIds" not in drain and "frozen_ids" not in drain, "ids never leave the process"
 
 
@@ -94,7 +98,12 @@ def test_the_sse_event_carries_a_compact_drain_block():
 
     ds = sleep_drain.DrainState(drain_id="x", frozen_ids=list("abcd"), batch_size=2, batches=2, batch=2)
     ds.filed, ds.stop = 2, sleep_drain.DrainStop("cancelled")
-    assert sleep_drain.to_sse(ds) == {"batch": 2, "batches": 2, "filed": 2, "frozen": 4, "active": True, "stop": "cancelled"}
+    sse = sleep_drain.to_sse(ds)
+    assert {k: sse[k] for k in ("batch", "batches", "filed", "frozen", "active", "stop")} == {
+        "batch": 2, "batches": 2, "filed": 2, "frozen": 4, "active": True, "stop": "cancelled"}
+    # Sleep page v5: a call or a stage tick moves the change key (at most one event a second).
+    for key in ("calls", "read", "failed", "sort", "decide", "parked", "arrived"):
+        assert key in sse
     assert sleep_drain.to_sse(None) is None
 
 

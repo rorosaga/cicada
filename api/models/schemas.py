@@ -2101,6 +2101,11 @@ class SleepDebtResponse(CamelModel):
     # — no baseline to call "rested". Every other state gets an honest
     # number (see `sleep_debt.rested_pct_from_components`).
     rested_pct: Optional[int] = None
+    # Conversations parked after failing twice for their own reasons (Sleep page v5):
+    # still waiting (they are in ``unprocessed_count``) but a run's freeze skips them.
+    # ``readable_count`` is what a run would read now — every "reads all N" string uses it.
+    parked_count: int = 0
+    readable_count: Optional[int] = None
 
 
 class SleepDrainStop(CamelModel):
@@ -2112,6 +2117,62 @@ class SleepDrainStop(CamelModel):
     reason: str
     sentence: Optional[str] = None
     resets_at: Optional[int] = None
+    # Which limit a plan stop was (Sleep page v5): ``five_hour | seven_day | overage | unknown``.
+    limit: Optional[str] = None
+
+
+class SleepDrainStage(CamelModel):
+    """One stage of the running batch. A stage carries a fill only when it counts
+    something that finished (Read, Sort, Decide); Notice and File carry no number.
+    A stage starts over each batch — ``batch_state.index`` says which one."""
+    id: str
+    unit: Optional[str] = None
+    done: int = 0
+    total: Optional[int] = None
+    failed: int = 0
+    state: str = "pending"
+
+
+class SleepDrainBatchState(CamelModel):
+    index: int
+    of: int
+    total: int
+    read: int = 0
+    reading: int = 0
+    failed: int = 0
+
+
+class SleepDrainOrigin(CamelModel):
+    """Per source: ``frozen = filed + read + waiting + could_not_be_read + parked + skipped``
+    at every step. ``read`` is read in the running batch and not yet filed."""
+    frozen: int = 0
+    filed: int = 0
+    read: int = 0
+    waiting: int = 0
+    could_not_be_read: int = 0
+    parked: int = 0
+    skipped: int = 0
+    new_since: int = 0
+
+
+class SleepDrainOwnerPage(CamelModel):
+    beliefs: int
+    at_start: Optional[int] = None
+    after_first_batch: Optional[int] = None
+
+
+class SleepReserveWindow(CamelModel):
+    window: str
+    enforced: Optional[bool] = None
+    reason: Optional[str] = None
+
+
+class SleepReserve(CamelModel):
+    """The reserve line ("Leave room in my plan") and which windows it can enforce.
+    ``enforced`` is true only for a window the engine reported, false for one that
+    should have been reported and was not, null before anything could tell."""
+    pct: Optional[int] = None
+    windows: list[SleepReserveWindow] = Field(default_factory=list)
 
 
 class SleepDrain(CamelModel):
@@ -2136,6 +2197,49 @@ class SleepDrain(CamelModel):
     finished: bool = False
     stop: Optional[SleepDrainStop] = None
     arrived_since: Optional[int] = None
+    # --- Sleep page v5. Every key is optional so an older client reads no news. ---
+    started_by: Optional[str] = None            # user | schedule
+    first_run: Optional[bool] = None            # no earlier Sleep commit in this bank
+    committed_batches: Optional[int] = None
+    calls: Optional[int] = None                 # engine calls made in this run; never decreases
+    elapsed_ms: Optional[int] = None            # measured, never a prediction (G107)
+    paused_ms: Optional[int] = None
+    batch_state: Optional[SleepDrainBatchState] = None
+    stages: Optional[list[SleepDrainStage]] = None
+    by_origin: Optional[dict[str, SleepDrainOrigin]] = None
+    parked: Optional[int] = None                # conversations parked in this run
+    owner_page: Optional[SleepDrainOwnerPage] = None
+    reserve: Optional[SleepReserve] = None
+    resumed: Optional[bool] = None
+
+
+class SleepPausedAutoContinue(CamelModel):
+    armed: bool = False
+    at: Optional[int] = None
+    left: Optional[int] = None
+    blocked: Optional[str] = None
+
+
+class SleepPaused(CamelModel):
+    """A run that stopped with conversations still waiting and can be continued. Paused
+    is a fact about a run, not a state of Sleep: ``status`` stays ``idle`` and nothing is
+    held. ``reason``: ``user | plan_window | plan_weekly | reserve | overage | engine |
+    restart``; ``sentence`` is the vendor's own for a plan stop; ``resets_at`` is the
+    vendor's, ``null`` when none was given — never guessed."""
+    run_id: str
+    started_by: str = "user"
+    reason: str
+    sentence: Optional[str] = None
+    resets_at: Optional[int] = None
+    limit: Optional[str] = None
+    filed: int = 0
+    frozen: int = 0
+    calls: int = 0
+    committed_batches: int = 0
+    paused_at: Optional[str] = None
+    can_continue: bool = True
+    engine_label: Optional[str] = None
+    auto_continue: Optional[SleepPausedAutoContinue] = None
 
 
 class SleepStatusResponse(CamelModel):
@@ -2226,6 +2330,9 @@ class SleepStatusResponse(CamelModel):
     # cumulative read, ``stage`` / ``progress`` the current batch's, and the
     # counters (entities_created … organic_resolutions) the run's running sums.
     drain: Optional[SleepDrain] = None
+    # A run that stopped with conversations still waiting (Sleep page v5), read from its
+    # machine-local sidecar for the active bank; ``None`` while a run is reading.
+    paused: Optional[SleepPaused] = None
 
 
 class CycleUsageModel(CamelModel):
@@ -2244,6 +2351,9 @@ class CycleUsageModel(CamelModel):
     cost_usd: Optional[float] = None
     equiv_cost_usd: Optional[float] = None
     basis: Optional[str] = None
+    # The ledger's own stage names this model was called for (``extraction``, ``disambiguation``…):
+    # data from the ledger, never a claim written into copy that a smaller model "reads".
+    stages: list[str] = Field(default_factory=list)
 
 
 class CycleUsagePlanWindow(CamelModel):
@@ -2324,6 +2434,78 @@ class SleepHistoryEntry(CamelModel):
     # 2026-09-28 ruling: what the cycle cost, joined from the ledger at read
     # (never cached with the git-derived entry). None = not recorded.
     usage_summary: Optional[CycleUsageSummary] = None
+    # Sleep page v5 — the run this commit was a batch of (from the ledger row's refs) and the
+    # run's own numbers (from its machine-local summary, never summed from the visible page of
+    # history: a long run alone can fill it). ``None`` for a plain cycle, an older commit, or
+    # when telemetry is off (batches then read ungrouped).
+    drain_id: Optional[str] = None
+    batch: Optional[int] = None
+    batches: Optional[int] = None
+    run: Optional["SleepRunRef"] = None
+
+
+class SleepRunRef(CamelModel):
+    id: str
+    batches: int = 0
+    filed: int = 0
+    parked: int = 0
+    frozen: int = 0
+    pauses: int = 0
+    read_ms: int = 0
+    paused_ms: int = 0
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    state: Optional[str] = None            # running | paused | finished | failed | ended
+    started_by: str = "user"
+
+
+class SleepRunPause(CamelModel):
+    started_at: str
+    ended_at: Optional[str] = None
+    reason: str
+    resets_at: Optional[int] = None
+
+
+class SleepRunBatch(CamelModel):
+    index: int
+    commit: Optional[str] = None
+    ts: Optional[str] = None
+    filed: int = 0
+    not_filed: int = 0             # read but not filed, or not started: failed, or stopped by the reserve line
+    took_ms: Optional[int] = None
+    calls: int = 0
+    windows: list["CycleUsagePlanWindow"] = Field(default_factory=list)
+
+
+class SleepRunPages(CamelModel):
+    created: int = 0
+    owner_touched: Optional[bool] = None
+    first: list[str] = Field(default_factory=list)   # page ids (at most 8) the run created first
+
+
+class SleepRunDetail(CamelModel):
+    """``GET /sleep/runs/{id}`` — one whole run, engine-free (ids, counts and enums; never a
+    title or a line of text). Unknown is ``null``, never zero. Plan windows are per batch:
+    a reset between two batches is visible there and never averaged away."""
+    id: str
+    started_by: str = "user"
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    state: Optional[str] = None
+    filed: int = 0
+    frozen: int = 0
+    parked: int = 0
+    skipped: int = 0
+    calls: Optional[int] = None
+    read_ms: Optional[int] = None
+    paused_ms: Optional[int] = None
+    pauses: list[SleepRunPause] = Field(default_factory=list)
+    questions_raised: Optional[int] = None
+    owner: Optional[SleepDrainOwnerPage] = None
+    batches: list[SleepRunBatch] = Field(default_factory=list)
+    models: list["CycleUsageModel"] = Field(default_factory=list)
+    usage: Optional["CycleUsage"] = None
+    pages: Optional[SleepRunPages] = None
 
 
 class SleepCycleEntity(CamelModel):
@@ -2467,6 +2649,10 @@ class SleepEnginePreview(CamelModel):
     engine: str
     model: str
     why: str
+    # How a run on this engine is billed (Sleep page v5), from the engine id alone —
+    # no provider name: ``plan`` (a plan you signed in to), ``charged`` (per use, on a key),
+    # ``local`` (this Mac) or ``unknown``. A scheduled preview is never ``plan`` (ruling 4).
+    billing: Optional[str] = None
 
 
 class SleepEnginePreviews(CamelModel):
@@ -2503,6 +2689,68 @@ class SleepEngineResponse(CamelModel):
     selected: str = ""
     provider: Optional[str] = None
     providers: list[SleepEngineProvider] = Field(default_factory=list)
+    # "Leave room in my plan" (Sleep page v5): the line, the choices, whether it applies to
+    # the engine a run you start would use, and which windows are enforced (from the last
+    # run's observations; ``null`` = nothing could tell yet).
+    reserve: Optional["SleepReserveStatus"] = None
+
+
+class SleepReserveStatus(CamelModel):
+    pct: Optional[int] = None
+    choices: list[int] = Field(default_factory=list)
+    applies: bool = False
+    windows: list[SleepReserveWindow] = Field(default_factory=list)
+
+
+class SleepRunOptions(CamelModel):
+    """Reading options: how often progress is saved, whether a run you start may continue
+    itself after its plan window resets (TODO ruling 15; off), and the reserve line
+    (off). A run snapshots them when it starts."""
+    batch_size: int
+    batch_size_choices: list[int] = Field(default_factory=list)
+    continue_after_reset: bool = False
+    reserve_pct: Optional[int] = None
+    reserve_choices: list[int] = Field(default_factory=list)
+
+
+class SleepRunOptionsUpdate(CamelModel):
+    """A PUT body; omitted fields are left alone (``reservePct: null`` clears it)."""
+    batch_size: Optional[int] = None
+    continue_after_reset: Optional[bool] = None
+    reserve_pct: Optional[int] = None
+
+
+class SleepTriggerBody(BaseModel):
+    """``POST /sleep/trigger``'s optional body. ``continue: true`` resumes the paused run;
+    with no paused run, or no body at all, it is a fresh run (the documented curl stays)."""
+    model_config = ConfigDict(populate_by_name=True)
+    continue_run: bool = Field(False, alias="continue")
+
+
+class SleepParkedRetryBody(CamelModel):
+    ids: Optional[list[str]] = None
+
+
+class SleepEndRunResponse(CamelModel):
+    status: str
+    message: str
+
+
+class SleepQueueItem(CamelModel):
+    id: str
+    timestamp: str = ""
+    origin: str = "unknown"
+    title: Optional[str] = None
+    state: str = "waiting"          # waiting | reading | read | filed | could_not_be_read | parked
+    reason: Optional[str] = None    # empty_answer | timed_out | unparseable | refused | other
+    attempts: int = 0
+    batch: Optional[int] = None
+
+
+class SleepQueueResponse(CamelModel):
+    total: int
+    offset: int = 0
+    items: list[SleepQueueItem] = Field(default_factory=list)
 
 
 class SleepEngineChoice(CamelModel):

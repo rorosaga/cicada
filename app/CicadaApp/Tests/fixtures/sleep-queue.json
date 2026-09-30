@@ -1,0 +1,66 @@
+{
+  "items": [
+    {
+      "attempts": 0,
+      "batch": null,
+      "id": "ep_2026-09-01_000",
+      "origin": "claude-code",
+      "reason": null,
+      "state": "filed",
+      "timestamp": "2026-09-01T10:00:00",
+      "title": null
+    },
+    {
+      "attempts": 0,
+      "batch": 1,
+      "id": "ep_2026-09-01_001",
+      "origin": "claude-code",
+      "reason": null,
+      "state": "read",
+      "timestamp": "2026-09-01T10:00:00",
+      "title": null
+    },
+    {
+      "attempts": 1,
+      "batch": 1,
+      "id": "ep_2026-09-01_002",
+      "origin": "claude-code",
+      "reason": "empty_answer",
+      "state": "could_not_be_read",
+      "timestamp": "2026-09-01T10:00:00",
+      "title": null
+    },
+    {
+      "attempts": 0,
+      "batch": 1,
+      "id": "ep_2026-09-01_003",
+      "origin": "claude-code",
+      "reason": null,
+      "state": "reading",
+      "timestamp": "2026-09-01T10:00:00",
+      "title": null
+    },
+    {
+      "attempts": 0,
+      "batch": 1,
+      "id": "ep_2026-09-01_004",
+      "origin": "claude-code",
+      "reason": null,
+      "state": "waiting",
+      "timestamp": "2026-09-01T10:00:00",
+      "title": null
+    },
+    {
+      "attempts": 2,
+      "batch": null,
+      "id": "ep_2026-09-01_005",
+      "origin": "claude-code",
+      "reason": "timed_out",
+      "state": "parked",
+      "timestamp": "2026-09-01T10:00:00",
+      "title": null
+    }
+  ],
+  "offset": 0,
+  "total": 6
+}

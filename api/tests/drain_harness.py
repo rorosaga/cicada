@@ -84,6 +84,9 @@ class Rig:
         self.on_extract = None                         # async (batch_no, episodes) -> None | list(omit ids)
         self.on_generate = None                        # async (batch_no) -> None
         self.fail_ids: set[str] = set()                # ids Stage 1 "failed" for (omitted from its result)
+        self.fail_exc: dict[str, BaseException] = {}   # id -> the exception its failure hook is told about
+        self.after_read = None                         # (episode) -> None, after each successful read
+        self.skipped: list[str] = []                   # ids the reserve line stopped from starting
         self.generate_calls = 0
 
 
@@ -94,18 +97,33 @@ def install(monkeypatch, *, engine_label: str | None = None) -> Rig:
     async def fake_extract(episodes, settings_, cancel_check=None, progress_callback=None,
                            on_episode_done=None, **_kw):
         rig.extract_batches.append([e["id"] for e in episodes])
-        omit: set[str] = set(rig.fail_ids)
+        omit: set[str] = set(rig.fail_ids) | set(rig.fail_exc)
         if rig.on_extract is not None:
             more = await rig.on_extract(len(rig.extract_batches), episodes)
-            omit |= set(more or ())
+            omit |= set(more or ()) | set(rig.fail_exc)
+        started, read = _kw.get("on_episode_started"), _kw.get("on_episode_read")
+        failed_cb, skipped_cb, stop_check = _kw.get("on_episode_failed"), _kw.get("on_episode_skipped"), _kw.get("stop_check")
         out = []
         for ep in episodes:
             if progress_callback:
                 progress_callback()
             if on_episode_done:
                 on_episode_done(ep)
-            if ep["id"] in omit:
+            if stop_check is not None and stop_check():
+                rig.skipped.append(ep["id"])
+                if skipped_cb:
+                    skipped_cb(ep)
                 continue
+            if started:
+                started(ep)
+            if ep["id"] in omit:
+                if ep["id"] in rig.fail_exc and failed_cb:
+                    failed_cb(ep, rig.fail_exc[ep["id"]])
+                continue
+            if read:
+                read(ep)
+            if rig.after_read is not None:
+                rig.after_read(ep)
             out.append({
                 "episode_id": ep["id"], "episode_timestamp": ep["timestamp"], "origin": "mcp",
                 "entities": [{"name": ep["id"], "type": "concept", "confidence": 0.7,
@@ -114,7 +132,7 @@ def install(monkeypatch, *, engine_label: str | None = None) -> Rig:
             })
         return out
 
-    async def fake_resolve(extracted, existing, settings_, cancel_check=None):
+    async def fake_resolve(extracted, existing, settings_, cancel_check=None, **_kw):
         changes = [{
             "id": f"e-{r['episode_id']}", "action": "create", "source_episode": r["episode_id"],
             "source_episodes": [r["episode_id"]], "trigger": "sleep/extraction",
@@ -134,7 +152,8 @@ def install(monkeypatch, *, engine_label: str | None = None) -> Rig:
     real_generate = inbox_generator.generate
 
     async def spy_prune(resolved, existing, settings_, **kw):
-        rig.prune_calls.append(dict(kw))
+        # What the once-per-drain switch did — the progress and cancel hooks are not what these tests are about.
+        rig.prune_calls.append({k: v for k, v in kw.items() if k == "decay"})
         return await real_prune(resolved, existing, settings_, **kw)
 
     def spy_pipeline(*a, **kw):

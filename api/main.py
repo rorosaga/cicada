@@ -170,6 +170,12 @@ async def lifespan(app: FastAPI):
     cfg = sleep_scheduler.load_schedule(settings.memory_path)
     sleep_scheduler.register_job(scheduler, settings, cfg)
     app.state.scheduler = scheduler
+    # Sleep page v5: the opt-in continue-after-reset (TODO ruling 15) needs the scheduler, and a
+    # paused run that had armed it re-arms after a restart (its sidecar says when).
+    from api.services import sleep_autocontinue
+
+    sleep_autocontinue.bind(scheduler)
+    sleep_autocontinue.rearm_after_restart(settings.memory_path)
 
     # G135 — the remote connector's own listener (127.0.0.1:8765), started only
     # when the person turned "From anywhere" on. Never raises into boot (R-R21).

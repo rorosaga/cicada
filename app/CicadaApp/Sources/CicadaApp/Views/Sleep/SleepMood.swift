@@ -83,6 +83,23 @@ func resolveDrain(sse: SleepEventPayload?, status: SleepStatusResponse?) -> Slee
     guard let live, live.frozen == base.frozen else { return base }
     base.batch = live.batch; base.batches = live.batches; base.filed = live.filed; base.active = live.active
     if base.stop == nil, let reason = live.stop { base.stop = SleepDrainInfo.Stop(reason: reason) }
+    // Sleep page v5 — the live counters, only where the event carries them (never a fabricated 0).
+    if let calls = live.calls { base.calls = max(base.calls ?? 0, calls) }
+    if let parked = live.parked { base.parked = parked }
+    if let arrived = live.arrived { base.arrivedSince = arrived }
+    if var state = base.batchState, state.index == live.batch {
+        if let read = live.read { state.read = read }
+        if let failed = live.failed { state.failed = failed }
+        base.batchState = state
+    }
+    if var stages = base.stages {
+        for i in stages.indices {
+            if stages[i].id == "read", let read = live.read { stages[i].done = read }
+            if stages[i].id == "sort", let sort = live.sort { stages[i].done = sort }
+            if stages[i].id == "decide", let decide = live.decide { stages[i].done = decide }
+        }
+        base.stages = stages
+    }
     return base
 }
 
@@ -115,12 +132,16 @@ func deriveSleepPageMood(
     debt: SleepDebtView?,
     justFinishedAt: Date?,
     intakeInFlight: Bool = false,
+    paused: Bool = false,
     now: Date = .now
 ) -> BookwormState {
     guard let status else { return .awake }
     if status.status == "running" {
         return .sleeping(stage: activeStage(completed: status.stage))
     }
+    // Sleep page v5 — a paused run is the worm at its desk with the pile still there: never a failure (the engine
+    // stop's sentence lives on the paused record), never a chew, never a cheer.
+    if paused { return .reading }
     if let err = status.error, !err.isEmpty {
         return .error   // R6: the failure is the news, not the six-second chew
     }

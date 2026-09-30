@@ -304,12 +304,14 @@ def test_a_cancel_reserved_before_run_starts_stops_before_any_batch(tmp_path, mo
 # --------------------------------------------------------------------------- #
 
 
-def test_scheduled_run_is_one_batch_and_never_drains(tmp_path, monkeypatch):
+def test_a_run_called_without_drain_is_still_one_batch(tmp_path, monkeypatch):
+    """The default stays False: a caller that never asks for a drain gets the plain cycle it
+    always got (only the scheduler and the trigger route pass ``drain=True`` now)."""
     ids = episode_ids(5)
     memory = seed_bank(tmp_path, ids)
     rig = install(monkeypatch)
 
-    asyncio.run(sleep_cycle.run(settings(memory, sleep_max_episodes_per_cycle=2), "sleep_sched", user_triggered=False))
+    asyncio.run(sleep_cycle.run(settings(memory, sleep_max_episodes_per_cycle=2), "sleep_plain", user_triggered=False))
 
     assert rig.extract_batches == [ids[0:2]]
     assert sleep_cycle.get_sleep_state().drain is None
@@ -317,18 +319,29 @@ def test_scheduled_run_is_one_batch_and_never_drains(tmp_path, monkeypatch):
     assert inspect.signature(sleep_cycle.run).parameters["drain"].default is False
 
 
-def test_the_scheduler_never_asks_for_a_drain(monkeypatch):
-    from api.services import sleep_scheduler
+def test_the_scheduler_asks_for_a_drain_on_both_entry_points(tmp_path, monkeypatch):
+    """TODO ruling 16 (owner 2026-09-30): a scheduled run reads everything waiting too. Ruling 4
+    is untouched — it still passes ``user_triggered=False``, so no plan engine can be chosen."""
+    from datetime import datetime, timedelta
+
+    from api.services import sleep_debt, sleep_scheduler
     import asyncio as _a
 
-    seen = {}
+    seen = []
 
     async def fake_run(settings_, cycle_id, **kw):
-        seen.update(kw)
+        seen.append(kw)
+
+    async def fake_debt(memory_path, settings_=None):
+        return SimpleNamespace(unprocessed_count=3, readable_count=3, parked_count=0,
+                               newest_unprocessed_at=datetime.now() - timedelta(hours=1))
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
-    _a.run(sleep_scheduler._run_if_idle(SimpleNamespace()))
-    assert seen == {"user_triggered": False}
+    monkeypatch.setattr(sleep_debt, "compute", fake_debt)
+    cfg = SimpleNamespace(memory_path=tmp_path)
+    _a.run(sleep_scheduler._run_if_idle(cfg))
+    _a.run(sleep_scheduler._run_after_intake_if_settled(cfg))
+    assert seen == [{"user_triggered": False, "drain": True}] * 2
 
 
 # --------------------------------------------------------------------------- #
@@ -467,17 +480,30 @@ def test_a_plain_cycle_reports_no_drain_block(tmp_path, monkeypatch):
     assert body["drain"] is None and body["episodesProcessed"] == 2
 
 
-def test_requeued_episodes_get_one_attempt_per_drain_and_wait_for_the_next_run(tmp_path, monkeypatch):
+def test_a_content_failure_gets_one_more_try_then_parks(tmp_path, monkeypatch):
+    """Sleep page v5: a conversation that fails for its own reasons goes first in the very next
+    batch (its one more try); a second failure parks it. It stays waiting (``processed: false``),
+    a later run skips it, and the run itself is finished, not failed."""
+    from api.services import sleep_parked
+
     ids = episode_ids(6)
     memory = seed_bank(tmp_path, ids)
     rig = install(monkeypatch)
     rig.fail_ids = {ids[1]}
     _cfg, state = run_drain(memory, cap=3)
 
-    assert sum(1 for b in rig.extract_batches for i in b if i == ids[1]) == 1
-    assert (state.drain.filed, state.drain.requeued) == (5, 1) and state.drain.finished
+    assert rig.extract_batches == [ids[0:3], [ids[1], ids[3], ids[4]], [ids[5]]], "the retry leads batch 2"
+    ds = state.drain
+    assert (ds.filed, ds.requeued) == (5, 1) and ds.finished and ds.stop is None
+    assert ds.parked == {ids[1]: "other"} and ds.attempts[ids[1]] == 2
     assert waiting(memory) == [ids[1]]
+    assert sleep_parked.ids(memory) == {ids[1]}
     assert "1 episode(s) requeued" in state.progress
+
+    # The next run never re-reads it, and says nothing is left to read.
+    rig.extract_batches.clear()
+    run_drain(memory, cap=3)
+    assert rig.extract_batches == []
 
 
 # --------------------------------------------------------------------------- #

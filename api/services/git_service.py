@@ -1291,7 +1291,7 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
         oldest = min(date.fromisoformat(e.date[:10]) for e in out) - timedelta(days=1)
         events = telemetry.read_events(start=oldest)
         sleep_history.attach_durations(out, events)
-        cycle_usage.attach_usage(out, events)
+        cycle_usage.attach_usage(out, events, memory_path=memory_path)
     return out
 
 
@@ -1324,7 +1324,7 @@ async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDe
     )
     events = telemetry.read_events(start=date.fromisoformat(detail.date[:10]) - timedelta(days=1))
     sleep_history.attach_durations([detail], events)
-    cycle_usage.attach_usage([detail], events, detail=True)
+    cycle_usage.attach_usage([detail], events, detail=True, memory_path=memory_path)
     return detail
 
 

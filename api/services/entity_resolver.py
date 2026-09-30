@@ -45,8 +45,13 @@ async def resolve(
     settings: Settings,
     *,
     cancel_check: Callable[[], bool] | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict:
     """Resolve extracted entities against existing graph. Enforce promotion model.
+
+    ``progress_callback(done, total)`` (Sleep page v5): names finished of the names
+    to sort, fired as each one starts and once more at the end. ``total`` is fixed
+    when the loop starts (the names left after the exact-name dedup).
 
     Returns dict with 'changes' (entity updates) and 'relationships' (resolved edges).
 
@@ -180,7 +185,12 @@ async def resolve(
         reverse=True,
     )
 
-    for name_lower, entity in ordered_entities:
+    total_names = len(ordered_entities)
+    if progress_callback is not None:
+        progress_callback(0, total_names)
+    for done_names, (name_lower, entity) in enumerate(ordered_entities):
+        if progress_callback is not None and done_names:
+            progress_callback(done_names, total_names)
         # Sleep-control checkpoint: the long sequential loop the task calls
         # out by name. Checked BEFORE each name's own (possibly LLM-calling)
         # judge — never mid-judge — so a cancel stops taking new names
@@ -327,6 +337,8 @@ async def resolve(
                     {},
                 ))
 
+    if progress_callback is not None and not cancelled:
+        progress_callback(total_names, total_names)
     resolved = list(resolved_updates.values()) + list(resolved_creates.values())
 
     # Resolve relationships — only keep edges where both endpoints survived promotion

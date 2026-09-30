@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from api.config import Settings
-from api.services import bank_index, git_service, sync_service
+from api.services import bank_index, git_service, sleep_parked, sync_service
 
 # Reference points the two debt components are measured against.
 # Deliberately simple, round numbers — legibility over precision; both are
@@ -73,6 +73,11 @@ class SleepDebt:
     # the oldest — and share this one scan rather than each re-deriving it.
     # `None` when the queue is empty.
     newest_unprocessed_at: datetime | None = None
+    # Sleep page v5: conversations parked after failing twice for their own reasons. They are
+    # in ``unprocessed_count`` (still waiting) but a run's freeze skips them, so every "reads
+    # all N" string and the schedulers use ``readable_count``.
+    parked_count: int = 0
+    readable_count: int = 0
 
 
 def rested_components(
@@ -144,7 +149,8 @@ def _parse_episode_timestamp(raw: str) -> datetime | None:
     return dt
 
 
-def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float | None, datetime | None]:
+def _count_and_oldest(memory_path: Path, *, now: datetime,
+                      parked: set[str] | None = None) -> tuple[int, float | None, datetime | None]:
     """Unprocessed episode count, the oldest one's age in hours, and the
     NEWEST one's timestamp (G125 (4) R7 — the after-import probe and
     ``next_run_at`` both need "how long has the queue been quiet", i.e. the
@@ -168,6 +174,8 @@ def _count_and_oldest(memory_path: Path, *, now: datetime) -> tuple[int, float |
         age_hours = max(0.0, (now - ts).total_seconds() / 3600.0)
         if oldest_hours is None or age_hours > oldest_hours:
             oldest_hours = age_hours
+        if parked and str(fm.get("id", f.stem)) in parked:
+            continue   # a parked conversation is waiting but never "just arrived"
         if newest_ts is None or ts > newest_ts:
             newest_ts = ts
     return count, oldest_hours, newest_ts
@@ -277,7 +285,13 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
     beyond the one bounded ``git log``.
     """
     now = datetime.now()
-    count, oldest_hours, newest_ts = _count_and_oldest(memory_path, now=now)
+    parked_ids = sleep_parked.ids(memory_path)
+    count, oldest_hours, newest_ts = _count_and_oldest(memory_path, now=now, parked=parked_ids)
+    parked_count = 0
+    if parked_ids:
+        waiting_ids = {str(f.frontmatter.get("id", f.stem)) for f in bank_index.files(memory_path, "episodes")
+                       if not f.frontmatter.get("processed", False)}
+        parked_count = len(parked_ids & waiting_ids)
     last_cycle = await _last_cycle_at(memory_path)
     hours_since = (
         max(0.0, (now - last_cycle).total_seconds() / 3600.0)
@@ -304,4 +318,6 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
         age_pct=age_pct,
         rested_pct=rested,
         newest_unprocessed_at=newest_ts,
+        parked_count=parked_count,
+        readable_count=max(0, count - parked_count),
     )

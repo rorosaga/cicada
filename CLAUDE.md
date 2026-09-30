@@ -292,26 +292,29 @@ follow-ups (G141 PJ-6, right after expiry, its own `cicada` commit), the connect
 enrichment backfill — all in a clean-tree-guarded slot, after `_finalize`'s own commit so the poll's
 `git add -A` sweeps only its own files.
 
-**Consolidate reads everything (owner, 2026-09-29; TODO ruling 13).** "I don't want to cap the max episodes per sleep —
+**Consolidate reads everything (owner, 2026-09-29; TODO ruling 13; scheduled runs too since 2026-09-30, ruling 16).** "I don't want to cap the max episodes per sleep —
 it's just progress Cicada has to go through." A **person-started** run (`POST /sleep/trigger`, so every Consolidate door:
-the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) is a **drain** — `run(..., drain=True)`, one
+the Sleep page, Home's and the intake card's *Read now*, the menu-bar worm) — and, since ruling 16, a **scheduled** one, on the scheduled engine — is a **drain** — `run(..., drain=True)`, one
 `run()` that keeps `status == "running"` for its whole length. It freezes the ids waiting when it started
 (`sleep_cycle._drain`; episodes captured meanwhile wait for the next run, counted as `arrivedSince`), resolves the engine
 **once** ("Auto" must not flip to another, paid, engine at batch 9) and reads them in batches of
-`sleep_max_episodes_per_cycle` (default 25 — the setting keeps its name and now means *how often progress is saved*). Each
+`sleep_max_episodes_per_cycle` (default 25; Reading options can make it 10, 25 or 50 — the setting keeps its name and now means *how often progress is saved*). Each
 batch is a whole pipeline under its own `<drain id>_b<nnn>` cycle id, breaker scope, models ledger and clock, and **Stage 5
 files and commits it** (`Sleep cycle <date> (batch k of n)`, `sleep_run` refs gain `drain_id`/`batch`/`batches`, ids and
 ints only), so a cancel or a plan stop loses at most the batch in progress and the next Consolidate continues with what is
 left. A plan limit (`EngineThrottled`/`Exhausted`/`Overage`, the breaker tripped by a swallowed per-episode throttle, or the
 ChatGPT pre-flight's used-up sentence, whose snapshot `resets_at` rides along via `codex_engine.last_limit_resets_at`) is a **pause, not a failure**: the vendor's own sentence and reset time
 (`agent_engine.breaker_resets_at`) ride `drain.stop`, `error` stays null, and the run does **not** continue itself after the
-reset — the person presses Consolidate again (auto-continue would be a ruling 4 amendment, not built). A cancel is the
-existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. Each
-frozen id gets **one attempt per drain** (a Stage 1 failure stays queued for the next run), an id another writer marked
-processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
-`leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle is still one
-batch** (`user_triggered=False`, no `drain`): ruling 4 — it runs on an API key, and draining the whole queue unattended would
-be real money — and the scheduler never passes `drain`. **Once per drain, not per batch:** temporal decay (both engines,
+reset unless the person switched on *Continue after a plan reset* (off by default, ruling 15, below) — otherwise the person presses Continue. A cancel is the
+existing cooperative one: a batch before Stage 5 is discarded (its paid reads are lost and it is read again next time — the API's cancel message says so), one already writing commits, then the loop stops. A
+conversation that fails **for its own reasons** (an empty answer, a timeout, an unparseable reply — `sleep_drain.classify_episode`)
+goes first in the very next batch for **one more try and is then parked**; a failure that is the **engine's** (signed out,
+throttled, exhausted, model not found) stops the run after the batch commits what it read and is never counted against a
+conversation. An id another writer marked processed meanwhile is `skipped`, and a bank switch between batches stops the run (`bank_switched`; `activate`, `demo`,
+`leave-demo` and the active bank's rename answer **409** while `SleepState.drain_run`). **A scheduled cycle drains too**
+(ruling 16: both scheduler entry points pass `drain=True`) but with `user_triggered=False`, so ruling 4 holds — it never uses
+a plan; on a metered engine it spends until the queue is empty, with no limit Cicada sets, and the engine menu and Details
+say so in words. **Once per drain, not per batch:** temporal decay (both engines,
 `decay=False` on `resolve_and_prune` / `reconcile_stage3` / `run_claim_pipeline`) and Stage 5.57's page reads run only in the
 batch that empties the queue (a decay-only finishing pass covers a last batch whose ids were read elsewhere), so decay is
 charged once (TODO ruling 1) and a stopped drain never decays; **once per run:** the whole engine-independent tail, whose
@@ -332,8 +335,17 @@ and rides that batch's commit (minutes, the pre-drain exposure); bank switching,
 whole run (the run is pinned to its bank), and `activate`'s sentence is shown as the toast. A batch that commits with the
 plan's breaker tripped stops the drain only while frozen ids are still waiting; with none left it is a finished run (the
 note is logged, the link backfill still runs).
+**Sleep page v5, backend (2026-09-30; TODO rulings 15 and 16; the boards are applied on top of the drain).**
+- **Reading options** — `GET/PUT /sleep/run-options` (`sleep_run_prefs`, machine-wide in `~/.cicada/connections.json` under `sleep-run`, snapshotted when a run starts, never 409s): batch size 10/25/50, *Continue after a plan reset* (off), *Leave room in my plan* (off, set in the engine menu). "Read faster" is **not** built (owner, 2026-09-30): no parallel reading and no small-model map.
+- **Machine-local state, never in a bank** (`sleep_local`: `$CICADA_HOME/sleep/<bank>-<hash>/`, 0700 dir, 0600 files, ids and counts and enums only, never a title): `run.json` (the run's sidecar), `parked.json`, `runs.json` (one summary per run, the newest 100).
+- **Paused is a fact about a run, not a state of Sleep.** A run that stops with conversations still waiting (Pause = the cancel path, a plan limit, the engine going away, the reserve line, or a restart) leaves a `paused` record in its sidecar (`sleep_paused`); `status` stays `idle`, `is_writing()` is false, nothing is held. `POST /sleep/trigger {"continue": true}` rebuilds the drain from it (same run id, the frozen list minus what is filed, the counters carried, batch numbering from what was committed); **a no-body trigger stays a fresh run and clears it** (the documented curl); `POST /sleep/run/end` forgets it (409 while reading); `POST /sleep/parked/retry` unparks and reads exactly those ids (409 while running or paused). **The scheduler reads nothing while a paused run waits** — except a *scheduled* run's pause no person chose: a `restart`, or an `engine` pause at least 6 hours old, is ended (Past nights says `ended`) and replaced by a fresh unattended drain (`sleep_paused.schedule_may_replace`) — it still runs the engine-free tail (`run(tail_only=True)`: expiry, follow-ups, the state refresh, the polls, the link backfill; the after-import probe at most once a day), and the paused record stays on the wire meanwhile — and counts *readable* conversations (`sleep_debt`'s `readableCount` = waiting minus `parkedCount`). `sync_service`'s `sleep` component and the SSE event carry the pause, so the app hears it. Only the Sleep page continues a paused run (the app's doors route to it; the server stays permissive).
+- **Honest live progress** on `drain` and the SSE event (every key optional): `startedBy`, `firstRun`, `calls` (each spawned engine call; only grows, a discarded batch's included), `elapsedMs`/`pausedMs` (measured, never a remaining time), `batchState`, `stages` (Read/Sort/Decide fill only from finished work; Notice and File carry no number), `byOrigin` (frozen = filed + read + waiting + couldNotBeRead + parked + skipped), a live `arrivedSince`, `ownerPage` beliefs, `reserve`. `GET /sleep/queue` serves the per-conversation rows from frontmatter only (≤ 200). Neither it nor `GET /sleep/run-options` / `GET /sleep/runs/{id}` is a Store domain (no `VersionVector` mapping; in-memory caches in the app, emptied on a bank switch).
+- **The reserve is a soft stop** (`sleep_reserve`): Stage 1 stops *starting* reads once a plan window is past the line, what was read is filed, the rest is not an attempt; the run pauses with "Paused to leave room in your plan." A line, not a guarantee: overshoot is unmeasured, a window the engine never reports is served `enforced: false`, and the ChatGPT plan is read from the pre-flight snapshot each batch already takes. Off leaves the Claude rung's own R-E12 90% stop; a reserve lifts it for that run.
+- **Continue after a plan reset** (`sleep_autocontinue`, ruling 15): a one-shot job per bank (`job_id`; a trigger or End in one bank never drops another's, and a bank's activation re-arms its own), for a run the person started, only after a 5-hour window (or the reserve on one, or extra usage) that gave a reset time, at most twice, within 36 hours, same engine, never weekly, never scheduled; `run(continue_from=…)` is called from the Continue route and this module only.
+- **Past nights groups by run:** history rows carry `drainId`/`batch`/`batches` and a `run` summary (from `runs.json`; a paused run dropped without a Continue — a fresh Consolidate, an empty Continue, End, the schedule's replacement — is `ended` with its pause closed, and a restart records its open `restart` pause), and `GET /sleep/runs/{id}` (ETag) sums by `refs.drain_id` over every `llm_call` — models with the ledger's own stage names, plan windows per batch (a reset between two batches is never averaged away), pages touched. `SleepEnginePreview.billing` (`plan|charged|local`) lets the app word the spend without naming a provider.
+
 **Disclosed asymmetries (not fixed here):** Stage 5.57's `recommends` person credit reads only the last batch's changes;
-Home's "Last read" shows the last batch's pages and Past nights lists one row per batch (per-batch grouping is unbuilt). Details › Last cycle's cost line and "took" row come from the newest history commit, which is one batch of a multi-batch run, so they are titled "last batch" (a whole-run sum by `drain_id` is unbuilt). The **app's own** Projects, Backlog and Fade-pace controls still key off `sleep.status == "running"` (`ProjectWriteGate`; `/status` does not carry `writing`), so they stay disabled, saying "Sleep is running", for the whole drain although the server would accept a write between batches. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; a weekly-window "leave room" reserve is not built.
+Home's "Last read" shows the last batch's pages. Details › Last cycle's cost line and "took" row still come from the newest history commit (one batch) — the run's own totals are in Past nights' run row. **Pause and a hard plan rejection mid-batch still discard the batch in progress** (no journal of paid answers — the tail must say "the part it was reading is read again", never "read and kept"). A scheduled drain pins its bank for hours (the same 409 as any run) and, on a metered engine, has no ceiling Cicada sets. The **app's own** Projects, Backlog and Fade-pace controls still key off `sleep.status == "running"` (`ProjectWriteGate`; `/status` does not carry `writing`), so they stay disabled, saying "Sleep is running", for the whole drain although the server would accept a write between batches. After a stop, Details says how many stay filed and never a batch count (the wire's `batches` is the plan); a cancelled or plan-paused strip and tail retire with the backend's cancel window and the vendor's reset time respectively. A drain on a consumer plan is the largest plan spend Cicada makes; the "leave room" reserve covers every window the engine reports (the 5-hour and the weekly one alike), is a line and not a guarantee, and a window the engine never reports is served `enforced: false`.
 
 ### Entity promotion
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
@@ -722,6 +734,7 @@ plan's from two fresh app-server snapshots bracketing the cycle. `api/services/c
 figure carries its basis (`charged` | `list` | `plan` | `free`), and a cycle without the marker reads `null`, never zero.
 The Sleep page's Details (Last cycle, Past nights, an opened cycle's Models) and the engine menu's captions read them
 (2026-09-28 ruling); a `plan` block and a `cycle_id` are numbers and ids, never text.
+Since Sleep page v5 a drain's calls also carry `refs.drain_id` (the run's id, ids only), so `GET /sleep/runs/{id}` sums a whole run — a paused or discarded batch's calls included — and `sleep_run` rows carry `drain_id`/`batch`/`batches`; `usage_for_drain` lists a plan window at the run level only when every batch saw the same reset time.
 
 **Feedback events (G113):** every inbox resolution emits a `resolution` event (`stage: feedback`,
 `refs` = item id, kind, predicate, entity id, action label, `verdict: agreed|overruled|neutral`,
@@ -1385,8 +1398,34 @@ point, drop a batch that has not begun filing), so its caption and tooltip say w
 (`Copy.cancelDrainCaption`), never "after this batch" and never "nothing is lost". Details › Last cycle gains a "Read everything"
 row (only when it took more than one batch or something waits), a "Paused at your plan's limit" row carrying the vendor's whole
 sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drain. Home's Getting started says "Keep reading"
-after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. The lamp's popover says
-a scheduled run reads one batch of `batchSize` (the configured size, so it shows after a restart and an empty run too) and Consolidate reads everything waiting (ruling 4 shown, not applied silently).
+after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
+(`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
+Mac") — never a provider's name.
+**Sleep page v5, the app half (2026-09-30; rulings 15, 16).** All copy is `Theme/Copy+SleepV5.swift`, provider-neutral
+(`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
+person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
+`GET /sleep/status` and in brief on the SSE event, where a present `null` means none) outranks every idle rung of the sentence — Paused / Paused to
+leave room in your plan / Your plan window is full / The engine needs a look / Cicada restarted while reading — with what is filed and, when armed
+(ruling 15), "Continues after 3:40 PM" (one locale-aware formatter, `sleepClockWords`); the mood is `.reading`, never an error or a cheer. **One
+primary at a time (DR-40):** Consolidate / Pause (a drain's cancel, "Pausing…") / Continue (named for the manual engine; held while a weekly limit's
+reset is ahead) with *End this run* beside it. `SleepViewModel.continueRun()` is the only sender of `{"continue": true}`; **every other door goes
+through `triggerManually()`, which routes to the Sleep page while a run is paused** (`AppRouter.routeToSleep`), and the menu bar, the intake card's
+and Home's *Read now* say what the click reads — "Consolidate now — all 287", "Reads all 318 waiting, oldest first, saving every 25." (`SleepDoor`,
+readable = waiting minus parked, M7; a pause whose record has not loaded says only "Paused", and an unknown batch size is left out, never a
+fallback — `Store.onSleepPausedChanged` refetches the record app-wide, not only on the Sleep page). While a drain reads: "Reading 14 of 25." / "Sorting 31 of 86." / "Deciding 4 of 12." / "Filing…" (a stage
+fills only from finished work over a fixed total; Notice and File never), a caption under the strip in words, `RunProgressBar` (filed ·
+read, waiting to file · waiting · could not be read, and calls made; one accessibility value; elapsed "Running 27 m", never a remaining time),
+and the first save's "Your page has 31 beliefs so far" with *See your page ›*. *Reading options…* (`ReadingOptionsSheet`, 720 pt) sets batch size
+10/25/50 and *Continue by itself when my plan resets* (off) on change; it has no Read faster row, no engine advice and no site list. The engine
+menu's *Keep plan free* (Off or 5–30 % of the window, plan engines only, a line not a guarantee, an unreported window said so) is one of ruling
+12's two homes; Details is the other: Last cycle's run rows (`LastCycleRow.runRows`, merged over the pre-v5 drain rows), per-source counts and
+per-conversation rows from `GET /sleep/queue` (refetched when the run's counts move, never per tick) with Retry for a parked one — offered only while no run reads or waits paused, since the
+server refuses it then (`LastCycleRow.canRetryParked`) — a scheduled run's spend note billed from the run's own usage, never today's preview, and Past nights
+folded by run (`PastNightItem.group`, the run's numbers from the server's `run`, never summed from visible rows; opened: models, cost, pages,
+batches and pauses from `GET /sleep/runs/{id}`, cached in the view model and refetched when the run's counts, pause or end move; touched pages
+by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, run details and history details on a bank switch
+(`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
+file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
@@ -1766,7 +1805,7 @@ never forks across writers.
 ### 4. Manual Sleep trigger
 "Run Sleep cycle now" + next-scheduled indicator. A person's trigger **drains the queue** (see Sleep — Consolidate reads
 everything, TODO ruling 13); `POST /sleep/cancel` says so ("Batches already filed stay filed"), and while a drain runs the
-bank-switching routes answer 409.
+bank-switching routes answer 409. `POST /sleep/trigger` takes an optional `{"continue": true}` (Sleep page v5).
 
 **Schedule modes (G125 R6/R7).** Settings → Schedule offers four modes on `ScheduleConfig.mode`:
 `manual`, `daily` (hour/minute), `interval` (`interval_hours`, 1–168, default 6), and `after_import`
@@ -1777,8 +1816,9 @@ newest unprocessed episode is ≥ `AFTER_IMPORT_SETTLE_MINUTES` (10) old — `Sl
 (`mode != "manual"`) and always written on the wire so an older client still decodes; an old
 `PUT {enabled,hour,minute}` with no `mode` is accepted and mapped onto `daily`/`manual`. Every
 scheduled path — daily, interval, or the settle probe — passes `user_triggered=False`, so a
-scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads one batch of
-`sleep_max_episodes_per_cycle`, never the whole queue** (only a person's Consolidate drains — ruling 13).
+scheduled cycle never spends Claude or ChatGPT plan quota (the standing ruling in `TODO.md`), **and reads everything
+waiting, in batches** (ruling 16: unattended, on the scheduled engine — on a key that is spend with no limit Cicada sets; a
+paused run is left for the person to continue or end; the tail still runs over it).
 
 ### 5. Conversation upload
 **One chat-export pipeline (Track I).** Claude, ChatGPT and Gemini exports — a whole .zip, a
