@@ -1,0 +1,168 @@
+{
+  "version": "2026-10-01",
+  "note": "One palette for every Cicada sprite. Keys are unique across the file. Binary alpha only.",
+  "colors": [
+    {
+      "key": "K",
+      "hex": "#090707",
+      "group": "worm",
+      "role": "worm.outline"
+    },
+    {
+      "key": "G",
+      "hex": "#9CC460",
+      "group": "worm",
+      "role": "worm.body.light"
+    },
+    {
+      "key": "g",
+      "hex": "#679144",
+      "group": "worm",
+      "role": "worm.body.shadow"
+    },
+    {
+      "key": "D",
+      "hex": "#4A4647",
+      "group": "worm",
+      "role": "worm.glasses.dark"
+    },
+    {
+      "key": "L",
+      "hex": "#858182",
+      "group": "worm",
+      "role": "worm.glasses.light"
+    },
+    {
+      "key": "W",
+      "hex": "#FDFDFD",
+      "group": "worm",
+      "role": "worm.white"
+    },
+    {
+      "key": "S",
+      "hex": "#5FC8FB",
+      "group": "fx",
+      "role": "fx.sweat"
+    },
+    {
+      "key": "m",
+      "hex": "#ACEC62",
+      "group": "worm",
+      "role": "worm.small.body"
+    },
+    {
+      "key": "B",
+      "hex": "#097FFD",
+      "group": "book",
+      "role": "book.cover1.mid"
+    },
+    {
+      "key": "b",
+      "hex": "#0055B9",
+      "group": "book",
+      "role": "book.cover1.dark"
+    },
+    {
+      "key": "H",
+      "hex": "#2890FD",
+      "group": "book",
+      "role": "book.cover1.light"
+    },
+    {
+      "key": "C",
+      "hex": "#FEF7EC",
+      "group": "book",
+      "role": "book.page.cream"
+    },
+    {
+      "key": "P",
+      "hex": "#BCB8B4",
+      "group": "book",
+      "role": "book.page.grey"
+    },
+    {
+      "key": "1",
+      "hex": "#B8433A",
+      "group": "book",
+      "role": "book.cover2.mid"
+    },
+    {
+      "key": "2",
+      "hex": "#7E2620",
+      "group": "book",
+      "role": "book.cover2.dark"
+    },
+    {
+      "key": "3",
+      "hex": "#D5675B",
+      "group": "book",
+      "role": "book.cover2.light"
+    },
+    {
+      "key": "4",
+      "hex": "#C98A2B",
+      "group": "book",
+      "role": "book.cover3.mid"
+    },
+    {
+      "key": "5",
+      "hex": "#8F5A12",
+      "group": "book",
+      "role": "book.cover3.dark"
+    },
+    {
+      "key": "6",
+      "hex": "#E3AE52",
+      "group": "book",
+      "role": "book.cover3.light"
+    },
+    {
+      "key": "j",
+      "hex": "#46672F",
+      "group": "worm",
+      "role": "worm.lid"
+    },
+    {
+      "key": "e",
+      "hex": "#E5484D",
+      "group": "worm",
+      "role": "worm.pupilError"
+    },
+    {
+      "key": "r",
+      "hex": "#5A2230",
+      "group": "worm",
+      "role": "worm.mouth"
+    },
+    {
+      "key": "Z",
+      "hex": "#8896FF",
+      "group": "fx",
+      "role": "fx.z.bright"
+    },
+    {
+      "key": "Y",
+      "hex": "#B3BBFF",
+      "group": "fx",
+      "role": "fx.z.mid"
+    },
+    {
+      "key": "X",
+      "hex": "#DADFFF",
+      "group": "fx",
+      "role": "fx.z.pale"
+    },
+    {
+      "key": "q",
+      "hex": "#FFCB57",
+      "group": "fx",
+      "role": "fx.sparkle"
+    },
+    {
+      "key": "Q",
+      "hex": "#FFF1B8",
+      "group": "fx",
+      "role": "fx.sparkleCore"
+    }
+  ]
+}
