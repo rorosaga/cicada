@@ -22,7 +22,7 @@ struct SpriteFrameSchedule: TimelineSchedule {
         var end = 0.0
         for seconds in track.seconds {
             end += seconds
-            if end > phase + 1e-4 { return track.origin.addingTimeInterval(cycle * total + end + 0.0005) }
+            if end > phase + 1e-9 { return track.origin.addingTimeInterval(cycle * total + end + 0.0005) }
         }
         return track.loops ? track.origin.addingTimeInterval((cycle + 1) * total + track.seconds[0] + 0.0005) : nil
     }

@@ -46,6 +46,8 @@ struct BookwormView: View {
             }
             .frame(width: size.size.width, height: size.size.height)
             .background(WindowVisibilityReader { windowVisible = $0 })
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isImage)
             .accessibilityLabel("\(state.title) — \(state.detail)")
             if let caption {
                 Text(caption).font(captionFont).foregroundStyle(captionColor)

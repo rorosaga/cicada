@@ -28,12 +28,11 @@ This worktree builds the app against that contract while the art runs supply the
    in the acceptance tests at 3 pt meanwhile.
 6. Update every §8 doc and draft the PR body with Q1 first and PR `#n`. Run `swift test` and the CLAUDE size test.
 7. Review the behavioral diff line by line, then correctness and rails/privacy/docs. Record exact results and
-   unresolved art-dependent checks in the Run C report.
+   unresolved art-dependent checks in the final handoff message.
 
 ## Handoff
 
 Run C part 1 is complete. Two full runs each executed 2,730 tests: 2,689 passed and 41 failed only on missing art
-inputs, with zero unexpected failures. The specified CLAUDE-size check passed. See the
-[Run C report](../specs/2026-10-01-bookworm-sprites-run-c-report.md) for every expected-red test, the file inventory,
-review evidence, deviations and the weather-motion sidecar contract. Runs A/B must land before literal hotspot
+inputs, with zero unexpected failures. The specified CLAUDE-size check passed. The orchestrator holds the run report
+and PR body outside this repository. Runs A/B must land before literal hotspot
 measurements, composites, bundled app contents and the owner's visual/CPU review can be completed.

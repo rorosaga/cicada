@@ -17,7 +17,7 @@ enum RoomDrag: Equatable {
 
     /// Expectant toward the drag, eager over the worm (§6.1). `BookwormPose
     /// .effective` folds both away where they would contradict state art (a
-    /// sleeping worm keeps its nightcap and its shut eyes).
+    /// sleeping worm keeps its eyes shut).
     var pose: BookwormPose {
         switch self {
         case .overRoom(let gaze): .expectant(gaze)

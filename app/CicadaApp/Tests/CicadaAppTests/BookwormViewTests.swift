@@ -2,6 +2,28 @@ import XCTest
 @testable import CicadaApp
 
 final class BookwormViewTests: XCTestCase {
+    func testSharedArtFrameIsOneLabelledImageForEverySize() throws {
+        let source = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Common/BookwormView.swift")
+        let text = try String(contentsOf: source)
+        let frame = try XCTUnwrap(text.range(of: ".frame(width: size.size.width, height: size.size.height)"))
+        let caption = try XCTUnwrap(text.range(of: "if let caption", range: frame.upperBound..<text.endIndex))
+        let artFrame = text[frame.lowerBound..<caption.lowerBound]
+        let visibility = try XCTUnwrap(artFrame.range(of: ".background(WindowVisibilityReader { windowVisible = $0 })"))
+        let element = try XCTUnwrap(artFrame.range(of: ".accessibilityElement(children: .ignore)"),
+                                  "the shared frame must expose an element even for decorative or missing art")
+        let image = try XCTUnwrap(artFrame.range(of: ".accessibilityAddTraits(.isImage)"))
+        let label = try XCTUnwrap(artFrame.range(of: ".accessibilityLabel(\"\\(state.title) — \\(state.detail)\")"))
+        XCTAssertLessThan(visibility.lowerBound, element.lowerBound)
+        XCTAssertLessThan(element.lowerBound, image.lowerBound)
+        XCTAssertLessThan(image.lowerBound, label.lowerBound)
+
+        // The Sleep room deliberately supplies the text twin through its hotspot instead.
+        let room = try String(contentsOf: SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep/StudyRoom.swift"))
+        let stage = try XCTUnwrap(room.range(of: "struct WormStage: View"))
+        let tasks = try XCTUnwrap(room.range(of: ".task(id: room.reaction?.id)", range: stage.upperBound..<room.endIndex))
+        XCTAssertTrue(room[stage.lowerBound..<tasks.lowerBound].contains(".accessibilityHidden(true)"))
+    }
+
     func testReadingCoverIsChosenInsideTheTimelineClosure() throws {
         let source = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Common/BookwormView.swift")
         let text = try String(contentsOf: source)

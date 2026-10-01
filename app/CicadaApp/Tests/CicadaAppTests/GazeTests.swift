@@ -42,9 +42,14 @@ final class GazeTests: XCTestCase {
     }
 
     func test_leavingASideTakesAWholeCell() {
-        XCTAssertEqual(gazeFor(pointerX: left + layout.cell / 2, layout: layout, previous: .left, state: .awake), .left)
-        XCTAssertEqual(gazeFor(pointerX: left + 2 * layout.cell, layout: layout, previous: .left, state: .awake), .center)
-        XCTAssertEqual(gazeFor(pointerX: right - layout.cell / 2, layout: layout, previous: .right, state: .awake), .right)
-        XCTAssertEqual(gazeFor(pointerX: right - 2 * layout.cell, layout: layout, previous: .right, state: .awake), .center)
+        for step in 8...14 {
+            let layout = deskSceneLayout(uiScale: Double(step) / 10)
+            let left = CGFloat(DeskHotspots.wormCols.lowerBound) * layout.cell
+            let right = CGFloat(DeskHotspots.wormCols.upperBound + 1) * layout.cell
+            XCTAssertEqual(gazeFor(pointerX: left + layout.cell - 0.5, layout: layout, previous: .left, state: .awake), .left)
+            XCTAssertEqual(gazeFor(pointerX: left + layout.cell, layout: layout, previous: .left, state: .awake), .center)
+            XCTAssertEqual(gazeFor(pointerX: right - layout.cell, layout: layout, previous: .right, state: .awake), .right)
+            XCTAssertEqual(gazeFor(pointerX: right - layout.cell - 0.5, layout: layout, previous: .right, state: .awake), .center)
+        }
     }
 }

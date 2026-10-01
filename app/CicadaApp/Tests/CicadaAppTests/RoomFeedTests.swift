@@ -130,9 +130,9 @@ final class RoomFeedTests: XCTestCase {
         let room = RoomModel()
         room.dragMoved(to: overWorm, scene: scene, spots: spots, state: .sleeping(stage: 2))
         XCTAssertEqual(BookwormPose.eager.effective(for: .sleeping(stage: 2), reduceMotion: false), .idle,
-                       "no open mouth under the nightcap")
+                       "sleeping eyes stay shut")
         room.fed(.handedOver, state: .sleeping(stage: 2), reduceMotion: false)
-        XCTAssertNil(room.reaction, "no gulp — the nightcap stays on")
+        XCTAssertNil(room.reaction, "no gulp — sleeping eyes stay shut")
         XCTAssertEqual(room.feedResult, .handedOver, "…but the drop went through")
         let running = try JSONDecoder().decode(SleepStatusResponse.self, from: Data(#"{"status":"running","stage":0}"#.utf8))
         XCTAssertEqual(deriveSleepPageMood(status: running, debt: nil, justFinishedAt: nil, intakeInFlight: true),

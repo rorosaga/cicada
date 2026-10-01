@@ -73,6 +73,25 @@ final class SpriteClipTests: XCTestCase {
         XCTAssertNil(SpriteFrameSchedule.nextBoundary(after: at(0), track: .init(origin: at(0), seconds: [], loops: true)))
     }
 
+    func testBoundaryFiftyMicrosecondsAheadIsNeverSkipped() throws {
+        for loops in [true, false] {
+            let track = SpriteFrameSchedule.Track(origin: at(0), seconds: clip.seconds, loops: loops)
+            for (step, boundary) in [0.1, 0.3, 0.6].enumerated() {
+                let before = at(boundary - 0.00005)
+                XCTAssertEqual(clip.loopStep(at: before, profile: .full), step)
+                let next = try XCTUnwrap(SpriteFrameSchedule.nextBoundary(after: before, track: track))
+                XCTAssertEqual(next.timeIntervalSinceReferenceDate, boundary + 0.0005, accuracy: 0.000001,
+                               "a re-evaluation just before the boundary must still schedule that frame")
+                if loops {
+                    XCTAssertEqual(clip.loopStep(at: next, profile: .full), (step + 1) % clip.order.count)
+                } else {
+                    XCTAssertEqual(clip.onceStep(at: next, startedAt: at(0), profile: .full),
+                                   step + 1 == clip.order.count ? nil : step + 1)
+                }
+            }
+        }
+    }
+
     func testScheduleMergesTracksAndAdvancesSharedBoundaries() throws {
         let schedule = SpriteFrameSchedule(tracks: [.init(origin: at(0), seconds: [0.1, 0.2], loops: false),
                                                     .init(origin: at(0), seconds: [0.1, 0.1, 0.2], loops: false)])

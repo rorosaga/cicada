@@ -49,8 +49,10 @@ final class DeskSceneLayoutTests: XCTestCase {
             XCTAssertEqual(art.sheet, RoomArt.tag(layer.prop, lampLit: true, weather: .night)?.sheet)
             XCTAssertEqual([art.x, art.y, art.w, art.h, art.z], [layer.cellX, layer.cellY, layer.w, layer.h, layer.z])
         }
-        XCTAssertEqual([plan.worm.x, plan.worm.y, plan.worm.w, plan.worm.h], [36, 9, 64, 48])
-        XCTAssertEqual([plan.pile.x, plan.pile.y, plan.pile.w, plan.pile.h], [110, 0, 50, 52])
+        XCTAssertEqual([plan.worm.x, plan.worm.y, plan.worm.w, plan.worm.h],
+                       [DeskScene.wormCell.x, DeskScene.wormCell.y, 64, 48])
+        XCTAssertEqual([plan.pile.x, plan.pile.y, plan.pile.w, plan.pile.h],
+                       [DeskScene.pileCell.x, DeskScene.pileCell.y, DeskScene.pileCell.width, DeskScene.pileCell.height])
     }
 
     func testWormBaselineEqualsTheBeanbagSeatRow() throws {
@@ -79,7 +81,7 @@ final class DeskSceneLayoutTests: XCTestCase {
             let sheet = try SpriteTestAssets.sheet(name)
             for frame in sheet.frameRects.indices {
                 let ink = try SpriteTestAssets.plane(sheet, frame: frame).ink
-                XCTAssertTrue(ink.allSatisfy { layer.cellX + $0.x < 110 }, name)
+                XCTAssertTrue(ink.allSatisfy { layer.cellX + $0.x < DeskScene.pileCell.x }, name)
             }
         }
     }

@@ -48,30 +48,80 @@ final class RoomModelTests: XCTestCase {
         }
     }
 
-    func testSettleUsesInjectedBeatLengthAndKeepsAReplacement() async {
+    func testSettleReactionHonoursInjectedBeatLength() async {
         let room = RoomModel()
-        room.reaction = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: 0)
-        await room.settleReaction()
-        XCTAssertNil(room.reaction)
-        let first = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: 100)
+        for length in [0.05, 0.1] {
+            let playing = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: length)
+            room.reaction = playing
+            var started = false
+            let settling = Task {
+                let clock = ContinuousClock.now
+                started = true
+                await room.settleReaction()
+                return clock.duration(to: .now)
+            }
+            while !started { await Task.yield() }
+            await Task.yield()
+            XCTAssertEqual(room.reaction?.id, playing.id, "a beat stays present while its length elapses")
+            let elapsed = await settling.value
+            XCTAssertGreaterThanOrEqual(elapsed, .seconds(length))
+            XCTAssertNil(room.reaction)
+        }
+    }
+
+    func testSettleReactionKeepsAReplacementWithoutCancellation() async {
+        let room = RoomModel()
+        let first = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
         room.reaction = first
-        let settling = Task { await room.settleReaction() }
+        var started = false
+        let settling = Task { started = true; await room.settleReaction() }
+        while !started { await Task.yield() }
         await Task.yield()
-        room.reaction = ActiveReaction(kind: .cheer, startedAt: SpriteClock.origin, id: UUID(), length: 0)
-        settling.cancel()
+        XCTAssertEqual(room.reaction?.id, first.id)
+        let replacement = ActiveReaction(kind: .cheer, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.reaction = replacement
         await settling.value
-        XCTAssertEqual(room.reaction?.kind, .cheer)
+        XCTAssertEqual(room.reaction?.id, replacement.id, "the first beat completes but cannot clear its replacement")
     }
 
     func testTransitionSettlementAndBeatClearing() async {
         let room = RoomModel()
-        room.transition = ActiveTransition(kind: .yawn, startedAt: SpriteClock.origin, id: UUID(), length: 0)
-        await room.settleTransition()
-        XCTAssertNil(room.transition)
+        for length in [0.05, 0.1] {
+            let playing = ActiveTransition(kind: .yawn, startedAt: SpriteClock.origin, id: UUID(), length: length)
+            room.transition = playing
+            var started = false
+            let settling = Task {
+                let clock = ContinuousClock.now
+                started = true
+                await room.settleTransition()
+                return clock.duration(to: .now)
+            }
+            while !started { await Task.yield() }
+            await Task.yield()
+            XCTAssertEqual(room.transition?.id, playing.id, "a transition stays present while its length elapses")
+            let elapsed = await settling.value
+            XCTAssertGreaterThanOrEqual(elapsed, .seconds(length))
+            XCTAssertNil(room.transition)
+        }
         room.moodChanged(from: "sleeping", to: .reading, reduceMotion: false)
         XCTAssertNotNil(room.transition)
         room.play(.talk, state: .reading, reduceMotion: false)
         XCTAssertNil(room.transition)
+    }
+
+    func testSettleTransitionKeepsAReplacementWithoutCancellation() async {
+        let room = RoomModel()
+        let first = ActiveTransition(kind: .yawn, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.transition = first
+        var started = false
+        let settling = Task { started = true; await room.settleTransition() }
+        while !started { await Task.yield() }
+        await Task.yield()
+        XCTAssertEqual(room.transition?.id, first.id)
+        let replacement = ActiveTransition(kind: .stretch, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.transition = replacement
+        await settling.value
+        XCTAssertEqual(room.transition?.id, replacement.id, "the first transition completes but cannot clear its replacement")
     }
 
     private let scene = deskSceneLayout(uiScale: 1.0)

@@ -16,12 +16,14 @@ final class WindowSpritesTests: XCTestCase {
                 let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(mood, .room))
                 var tags = BookwormArt.requiredTags(mood)
                 tags.subtract(["intro", "outro"])
-                hidden.formUnion(SpriteTestAssets.scene(try SpriteTestAssets.unionInk(sheet, tags: tags), x: 36, y: 9, h: 48))
+                hidden.formUnion(SpriteTestAssets.scene(try SpriteTestAssets.unionInk(sheet, tags: tags),
+                                                       x: DeskScene.wormCell.x, y: DeskScene.wormCell.y, h: 48))
             }
             if [.night, .dawn, .clear, .fair, .overcast].contains(weather) {
                 let sleeping = try SpriteTestAssets.sheet("bookworm-sleeping")
                 let tag = weather == .night ? "intro" : "outro"
-                hidden.formUnion(SpriteTestAssets.scene(try SpriteTestAssets.unionInk(sleeping, tags: [tag]), x: 36, y: 9, h: 48))
+                hidden.formUnion(SpriteTestAssets.scene(try SpriteTestAssets.unionInk(sleeping, tags: [tag]),
+                                                       x: DeskScene.wormCell.x, y: DeskScene.wormCell.y, h: 48))
             }
             let clip = try SpriteTestAssets.clip(pane, weather.rawValue)
             for (step, index) in clip.order.enumerated() {

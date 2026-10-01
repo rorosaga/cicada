@@ -481,11 +481,6 @@ struct SleepView: View {
     /// Reconcile retry policy, pulled out as pure functions (mirrors
     /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
     /// curve are unit-testable without standing up a view or a live Task loop.
-    /// The one requested point size for the whole hero. `BookwormView` and
-    /// `deskSceneLayout` each snap it the same way (G130 R6), so passing this
-    /// single number to both is what puts the room and the character on one
-    /// lattice — P12: two pixel scales in one picture read as a bug.
-
     static let maxReconcileAttempts = 3
 
     static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {

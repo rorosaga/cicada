@@ -75,9 +75,50 @@ final class BookwormPoseSpriteTests: XCTestCase {
             }
         }
         let curious = try SpriteTestAssets.clip(sheet, "curious")
-        let lens = try XCTUnwrap(sheet.slices["lensR"])
-        XCTAssertLessThanOrEqual(lens.maxY, 11, "the badge cannot cover the glasses")
-        XCTAssertFalse(curious.order.isEmpty)
+        let lenses = try ["lensL", "lensR"].map { try XCTUnwrap(sheet.slices[$0]) }
+        XCTAssertLessThanOrEqual(lenses[1].maxY, 10, "the lens and its one-pixel ring must stay above badge row 11")
+        for frame in curious.order {
+            let plane = try SpriteTestAssets.plane(sheet, frame: frame)
+            let covered = plane.ink.filter { cell in
+                Self.isGlassesInkInBadge(plane.at(cell.x, cell.y), at: cell, roles: roles, lenses: lenses, outline: k)
+            }
+            XCTAssertTrue(covered.isEmpty, "curious frame \(frame): the badge cannot cover glasses ink at \(covered)")
+        }
+    }
+
+    func testBadgeGuardRejectsGlassInkButAllowsNeckAndTransparency() {
+        let k: UInt32 = 0x010101, lime: UInt32 = 0xACEC62, dark: UInt32 = 0x4A4647, white: UInt32 = 0xFDFDFD
+        let roles = [k: "worm.outline", lime: "worm.small.body", dark: "worm.glasses.dark", white: "worm.white"]
+        let lenses = [CGRect(x: 2, y: 8, width: 4, height: 3), CGRect(x: 9, y: 8, width: 4, height: 3)]
+        // The old maxY <= 11 check admitted this black ring at row 11.
+        XCTAssertTrue(Self.isGlassesInkInBadge(.init(rgb: k, alpha: 255), at: .init(x: 10, y: 11),
+                                             roles: roles, lenses: lenses, outline: k))
+        for rgb in [dark, white] {
+            XCTAssertTrue(Self.isGlassesInkInBadge(.init(rgb: rgb, alpha: 255), at: .init(x: 17, y: 15),
+                                                 roles: roles, lenses: lenses, outline: k))
+        }
+        // Small lenses and neck share lime, so geometry must distinguish them too.
+        XCTAssertTrue(Self.isGlassesInkInBadge(.init(rgb: lime, alpha: 255), at: .init(x: 10, y: 11),
+                                             roles: roles, lenses: [CGRect(x: 9, y: 11, width: 4, height: 1)], outline: k))
+        for rgb in [k, lime] {
+            XCTAssertFalse(Self.isGlassesInkInBadge(.init(rgb: rgb, alpha: 255), at: .init(x: 16, y: 14),
+                                                  roles: roles, lenses: lenses, outline: k))
+        }
+        XCTAssertFalse(Self.isGlassesInkInBadge(.init(rgb: k, alpha: 0), at: .init(x: 10, y: 11),
+                                              roles: roles, lenses: lenses, outline: k))
+        XCTAssertFalse(Self.isGlassesInkInBadge(.init(rgb: dark, alpha: 255), at: .init(x: 10, y: 10),
+                                              roles: roles, lenses: lenses, outline: k))
+    }
+
+    private static func isGlassesInkInBadge(_ pixel: SpriteTestAssets.Pixel, at cell: SpriteTestAssets.Cell,
+                                          roles: [UInt32: String], lenses: [CGRect], outline: UInt32) -> Bool {
+        guard pixel.alpha > 0, (9...17).contains(cell.x), (11...17).contains(cell.y) else { return false }
+        let role = roles[pixel.rgb] ?? ""
+        let point = CGPoint(x: Double(cell.x) + 0.5, y: Double(cell.y) + 0.5)
+        // K is shared by the neck outline and glasses ring; m is shared by the neck and lens interiors.
+        return role.hasPrefix("worm.glasses.") || role == "worm.white"
+            || lenses.contains { $0.contains(point) }
+            || (pixel.rgb == outline && lenses.contains { $0.insetBy(dx: -1, dy: -1).contains(point) })
     }
 
     func testEveryBeatFitsTheMotionBudget() throws {
