@@ -245,7 +245,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The app is not the primary surface — the chat is.** The app makes the graph observable.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
   a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art never behind data or text;
-  Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion`.
+  Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
 - **Prices and plan usage show only on the Sleep page's Details and engine menu** (ruling 12), each figure with its basis.

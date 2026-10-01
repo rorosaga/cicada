@@ -8,11 +8,77 @@ import XCTest
 @MainActor
 final class RoomModelTests: XCTestCase {
 
-    private let scene = deskSceneLayout(pointSize: 120, uiScale: 1.0)
+    func testMoodTransitionsAndColdStartSuppression() {
+        let room = RoomModel()
+        room.moodChanged(from: "reading", to: .sleeping(stage: 1), reduceMotion: false)
+        XCTAssertEqual(room.transition?.kind, .yawn)
+        for state in [BookwormState.digesting, .happy, .reading, .hungry] {
+            room.moodChanged(from: "sleeping", to: state, reduceMotion: false)
+            XCTAssertEqual(room.transition?.kind, .stretch)
+        }
+        for (old, new) in [("sleeping", BookwormState.error), ("awake", .sleeping(stage: 1)),
+                           ("reading", .awake), ("sleeping", .sleeping(stage: 2))] {
+            room.moodChanged(from: old, to: new, reduceMotion: false)
+            XCTAssertNil(room.transition)
+        }
+        room.moodChanged(from: "reading", to: .sleeping(stage: 1), reduceMotion: true)
+        XCTAssertNil(room.transition)
+    }
+
+    func testAllowedBeatSurvivesMoodEdgeAndForbiddenBeatIsCleared() {
+        let room = RoomModel()
+        room.play(.talk, state: .reading, reduceMotion: false)
+        let id = room.reaction?.id
+        room.moodChanged(from: "reading", to: .happy, reduceMotion: false)
+        XCTAssertEqual(room.reaction?.id, id)
+        XCTAssertNil(room.transition)
+        room.moodChanged(from: "happy", to: .error, reduceMotion: false)
+        XCTAssertNil(room.reaction)
+        XCTAssertNil(room.transition)
+    }
+
+    func testCheerWinsInBothCallbackOrders() {
+        for cheerFirst in [true, false] {
+            let room = RoomModel()
+            if cheerFirst { room.play(.cheer, state: .digesting, reduceMotion: false) }
+            room.moodChanged(from: "sleeping", to: .digesting, reduceMotion: false)
+            if !cheerFirst { room.play(.cheer, state: .digesting, reduceMotion: false) }
+            XCTAssertEqual(room.reaction?.kind, .cheer)
+            XCTAssertNil(room.transition)
+        }
+    }
+
+    func testSettleUsesInjectedBeatLengthAndKeepsAReplacement() async {
+        let room = RoomModel()
+        room.reaction = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: 0)
+        await room.settleReaction()
+        XCTAssertNil(room.reaction)
+        let first = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: 100)
+        room.reaction = first
+        let settling = Task { await room.settleReaction() }
+        await Task.yield()
+        room.reaction = ActiveReaction(kind: .cheer, startedAt: SpriteClock.origin, id: UUID(), length: 0)
+        settling.cancel()
+        await settling.value
+        XCTAssertEqual(room.reaction?.kind, .cheer)
+    }
+
+    func testTransitionSettlementAndBeatClearing() async {
+        let room = RoomModel()
+        room.transition = ActiveTransition(kind: .yawn, startedAt: SpriteClock.origin, id: UUID(), length: 0)
+        await room.settleTransition()
+        XCTAssertNil(room.transition)
+        room.moodChanged(from: "sleeping", to: .reading, reduceMotion: false)
+        XCTAssertNotNil(room.transition)
+        room.play(.talk, state: .reading, reduceMotion: false)
+        XCTAssertNil(room.transition)
+    }
+
+    private let scene = deskSceneLayout(uiScale: 1.0)
     private var spots: [DeskHotspot: CGRect] { deskHotspots(scene) }
-    /// Top-left points (what `onContinuousHover` reports) at 5 pt cells.
-    private let overWorm = CGPoint(x: 200, y: 70)
-    private let overLamp = CGPoint(x: 20, y: 100)
+    /// Top-left points (what `onContinuousHover` reports) at 3 pt cells.
+    private var overWorm: CGPoint { let r = spots[.worm]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
+    private var overLamp: CGPoint { let r = spots[.lamp]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
 
     func test_theLadderStepsThroughThenReturnsToTheStatus() {
         XCTAssertEqual(RoomModel.nextAnswerIndex(after: nil, count: 3), 0)

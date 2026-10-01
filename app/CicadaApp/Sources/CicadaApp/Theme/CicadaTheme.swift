@@ -115,6 +115,8 @@ final class ThemeStore {
 }
 
 enum CicadaTheme {
+    /// Mode-independent shading for coloured pixel spines.
+    static let spineShade = Color.black.opacity(0.25)
     /// Active theme mode. Defaults to `.dark` to preserve the app's original
     /// hardcoded look for anyone who hasn't touched the toggle yet.
     ///

@@ -65,20 +65,25 @@ final class BookwormStateTests: XCTestCase {
         XCTAssertEqual(BookwormState.reading.stageNumber, 0)
     }
 
-    func testErrorFramesHaveRedPupilsAndMove() {
-        let (frames, interval) = BookwormSprites.frames(for: .error)
-        XCTAssertEqual(frames.count, 2)
-        XCTAssertNotEqual(frames[0], frames[1])
-        XCTAssertEqual(frames[0][7], "....obaweewabaweewabo...")
-        XCTAssertTrue(frames[1].joined().contains("e"), "the glitch frame keeps the red eyes")
-        XCTAssertEqual(interval, 0.5, accuracy: 0.001)
+    func testErrorFramesHaveRedPupilsAndMove() throws {
+        let sheet = try SpriteTestAssets.sheet("bookworm-error")
+        let clip = try SpriteTestAssets.clip(sheet, "idle")
+        XCTAssertGreaterThanOrEqual(Set(clip.order.map { sheet.rectIndex[$0] }).count, 2)
+        let palette = try SpriteTestAssets.palette()
+        let e = try palette.rgb("e"), sweat = try palette.rgb("S")
+        for frame in clip.order {
+            let plane = try SpriteTestAssets.plane(sheet, frame: frame)
+            XCTAssertGreaterThanOrEqual(plane.count(e), 4)
+            XCTAssertGreaterThanOrEqual(plane.count(sweat), 1)
+        }
     }
 
     /// Task 3: the menu bar ticks for EVERY state (all are multi-frame — the
     /// brief's "always moving") and holds frame 0 only under Reduce Motion
     /// (ruling R7). The rule is a pure static so it is testable without an
     /// `NSStatusItem`. 18 pt is ruling R3.
-    func testMenuBarAnimatesEveryStateUnlessReduceMotion() {
+    func testMenuBarAnimatesEveryStateUnlessReduceMotion() throws {
+        _ = try SpriteTestAssets.sheet("bookworm-small")
         for state in BookwormSpriteTests.states {
             XCTAssertTrue(MenuBarManager.animates(state, reduceMotion: false), state.caseName)
             XCTAssertFalse(MenuBarManager.animates(state, reduceMotion: true), state.caseName)

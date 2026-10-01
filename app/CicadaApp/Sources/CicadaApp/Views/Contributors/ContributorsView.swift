@@ -332,7 +332,7 @@ struct ContributorAvatar: View {
     /// has usually already paid for. `.interpolation(.none)` keeps the pixel
     /// grid hard at a non-multiple scale, exactly as the menu bar draws it.
     private var systemAvatar: some View {
-        Image(nsImage: BookwormRenderer.cachedImage(state: .happy, frameIndex: 0, pointSize: 24))
+        Image(nsImage: BookwormRenderer.smallImage(state: .happy, frameStep: 0, pointSize: 18))
             .interpolation(.none)
             .resizable()
             .frame(width: size, height: size)

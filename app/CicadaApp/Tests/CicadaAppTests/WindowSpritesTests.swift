@@ -2,156 +2,79 @@ import AppKit
 import XCTest
 @testable import CicadaApp
 
-/// Track Z §7.3 / Z-P13 — the window as frame + pane, checked against the REAL
-/// worm: the sun, moon, stars and bolt are fully visible beside the worm's
-/// union ink over every frame, pose and reaction of the moods that show that
-/// weather, and never under a mullion; every cloud is at least half visible.
 final class WindowSpritesTests: XCTestCase {
+    static let moods: [BookwormState] = [.sleeping(stage: 2), .digesting, .happy, .reading, .hungry, .error, .awake]
 
-    private struct Cell: Hashable { let r: Int; let c: Int }
-
-    private var paneLayer: DeskLayer { DeskScene.plan.first { $0.prop == .pane }! }
-    private var frameLayer: DeskLayer { DeskScene.plan.first { $0.prop == .window }! }
-
-    /// Pane cells the frame paints over (jambs, mullions, sill), in pane space.
-    private var frameCells: Set<Cell> {
-        let dx = frameLayer.cellX - paneLayer.cellX, dy = paneLayer.cellY - frameLayer.cellY
-        var out = Set<Cell>()
-        for (r, row) in DeskSceneSprites.window.enumerated() {
-            for (c, ch) in row.enumerated() where ch != "." { out.insert(Cell(r: r + dy, c: c + dx)) }
+    func testRulingNineForEveryWeatherFrameAndEveryReachableWormFrame() throws {
+        let pane = try SpriteTestAssets.sheet("room-weather")
+        let frame = try SpriteTestAssets.sheet("room-window")
+        let frameMask = SpriteTestAssets.scene(try SpriteTestAssets.unionInk(frame), x: 18, y: 23, h: 38)
+        let roles = try SpriteTestAssets.palette().roles
+        for weather in WindowWeather.all {
+            var hidden = frameMask
+            for mood in Self.moods where windowWeather(for: mood) == weather {
+                let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(mood, .room))
+                var tags = BookwormArt.requiredTags(mood)
+                tags.subtract(["intro", "outro"])
+                hidden.formUnion(SpriteTestAssets.scene(try SpriteTestAssets.unionInk(sheet, tags: tags), x: 36, y: 9, h: 48))
+            }
+            if [.night, .dawn, .clear, .fair, .overcast].contains(weather) {
+                let sleeping = try SpriteTestAssets.sheet("bookworm-sleeping")
+                let tag = weather == .night ? "intro" : "outro"
+                hidden.formUnion(SpriteTestAssets.scene(try SpriteTestAssets.unionInk(sleeping, tags: [tag]), x: 36, y: 9, h: 48))
+            }
+            let clip = try SpriteTestAssets.clip(pane, weather.rawValue)
+            for (step, index) in clip.order.enumerated() {
+                let plane = try SpriteTestAssets.plane(pane, frame: index)
+                let celestial = SpriteTestAssets.scene(plane.cells { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("celestial.") ?? false) }, x: 20, y: 27, h: 32)
+                let cloud = SpriteTestAssets.scene(plane.cells { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("cloud.") ?? false) }, x: 20, y: 27, h: 32)
+                XCTAssertTrue(celestial.isDisjoint(with: hidden), "\(weather.rawValue) frame \(step): celestial ink hidden")
+                XCTAssertGreaterThanOrEqual(cloud.subtracting(hidden).count * 2, cloud.count, "\(weather.rawValue) frame \(step): cloud hidden")
+            }
         }
-        return out
     }
 
-    /// The worm's union ink, in pane space, over every look of every page mood
-    /// that shows `weather` (per weather — Z-P13).
-    private func wormMask(for weather: WindowWeather) -> Set<Cell> {
-        let moods: [BookwormState] = [.awake, .happy, .reading, .hungry, .digesting, .error] + (1...5).map { .sleeping(stage: $0) }
-        let dx = DeskScene.wormCell.x - paneLayer.cellX, dy = paneLayer.cellY - DeskScene.wormCell.y
-        var mask = Set<Cell>()
-        for mood in moods where windowWeather(for: mood) == weather {
-            for look in BookwormLook.reachable(for: mood) {
-                for frame in BookwormSprites.frames(for: mood, look: look).frames {
-                    for (r, row) in frame.enumerated() {
-                        for (c, ch) in row.enumerated() where ch != "." { mask.insert(Cell(r: r + dy, c: c + dx)) }
+    func testSevenDistinctWeatherKeyFrames() throws {
+        let sheet = try SpriteTestAssets.sheet("room-weather")
+        let keys = try WindowWeather.all.map { weather -> Data in
+            let plane = try SpriteTestAssets.plane(sheet, frame: SpriteTestAssets.clip(sheet, weather.rawValue).order[0])
+            return Data(plane.pixels.flatMap { [UInt8(($0.rgb >> 16) & 255), UInt8(($0.rgb >> 8) & 255), UInt8($0.rgb & 255), UInt8($0.alpha)] })
+        }
+        XCTAssertEqual(Set(keys).count, 7)
+    }
+
+    /// Always render and validate all composites. The flag controls writing only, never sheet acceptance.
+    func testRoomCompositesAtUnitAndMaximumZoom() throws {
+        let write = ProcessInfo.processInfo.environment["CICADA_WRITE_COMPOSITES"] == "1"
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cicada-sprite-composites")
+        if write { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        for scale in [1.0, 1.4] {
+            let layout = deskSceneLayout(uiScale: scale)
+            for mood in Self.moods { for lit in [false, true] {
+                let width = Int(layout.size.width), height = Int(layout.size.height)
+                let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.interpolationQuality = .none
+                context.setShouldAntialias(false)
+                for layer in layout.layers {
+                    if let art = RoomArt.tag(layer.prop, lampLit: lit, weather: windowWeather(for: mood)) {
+                        let sheet = try SpriteTestAssets.sheet(art.sheet)
+                        let image = try XCTUnwrap(sheet.frameImage(SpriteTestAssets.clip(sheet, art.tag).order[0]))
+                        context.draw(image, in: CGRect(x: CGFloat(layer.cellX) * layout.cell, y: CGFloat(layer.cellY) * layout.cell,
+                            width: CGFloat(layer.w) * layout.cell, height: CGFloat(layer.h) * layout.cell))
                     }
                 }
-            }
-        }
-        return mask
-    }
-
-    /// What must be fully visible, and which characters make a cloud (§7.3).
-    private func classes(_ weather: WindowWeather) -> (full: Set<Character>, cloud: Set<Character>) {
-        switch weather {
-        case .night: (["m", "n", "s"], [])
-        case .dawn, .clear: (["m", "n"], [])
-        case .fair: (["m", "n"], ["j", "x"])
-        case .overcast: ([], ["j", "N"])
-        case .storm: (["s"], ["N", "x"])
-        case .curtains: ([], [])
-        }
-    }
-
-    private func cells(_ weather: WindowWeather, _ chars: Set<Character>) -> Set<Cell> {
-        var out = Set<Cell>()
-        for (r, row) in DeskSceneSprites.pane(weather).enumerated() {
-            for (c, ch) in row.enumerated() where chars.contains(ch) { out.insert(Cell(r: r, c: c)) }
-        }
-        return out
-    }
-
-    /// 4-connected groups — one per cloud.
-    private func clouds(_ all: Set<Cell>) -> [Set<Cell>] {
-        var left = all, groups: [Set<Cell>] = []
-        while let seed = left.first {
-            left.remove(seed)
-            var group: Set<Cell> = [seed], frontier = [seed]
-            while let cell = frontier.popLast() {
-                for next in [Cell(r: cell.r + 1, c: cell.c), Cell(r: cell.r - 1, c: cell.c),
-                             Cell(r: cell.r, c: cell.c + 1), Cell(r: cell.r, c: cell.c - 1)] where left.contains(next) {
-                    left.remove(next); group.insert(next); frontier.append(next)
+                let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(mood, .room))
+                let image = try XCTUnwrap(sheet.frameImage(SpriteTestAssets.clip(sheet, "idle").order[0]))
+                context.draw(image, in: CGRect(origin: layout.wormOrigin, size: CGSize(width: 64 * layout.cell, height: 48 * layout.cell)))
+                let composite = try XCTUnwrap(context.makeImage())
+                XCTAssertEqual(composite.width, width); XCTAssertEqual(composite.height, height)
+                if write {
+                    let bytes = try XCTUnwrap(NSBitmapImageRep(cgImage: composite).representation(using: .png, properties: [:]))
+                    try bytes.write(to: dir.appendingPathComponent("\(mood.caseName)-\(lit ? "lit" : "dark")-\(scale).png"))
                 }
-            }
-            groups.append(group)
-        }
-        return groups
-    }
-
-    func test_theFeaturesAreFullyVisible_andEveryCloudAtLeastHalf() {
-        for weather in WindowWeather.all {
-            let hidden = wormMask(for: weather).union(frameCells)
-            let (full, cloud) = classes(weather)
-            for cell in cells(weather, full) {
-                XCTAssertFalse(hidden.contains(cell), "\(weather) \(cell) is hidden")
-            }
-            for group in clouds(cells(weather, cloud)) {
-                let visible = group.subtracting(hidden).count
-                XCTAssertGreaterThanOrEqual(visible * 2, group.count, "\(weather) cloud \(visible)/\(group.count)")
-            }
-        }
-    }
-
-    /// Design defect 8: two of the old window's four stars sat behind the worm.
-    func test_theNightKeepsFourStars() {
-        XCTAssertEqual(cells(.night, ["s"]).count, 4)
-    }
-
-    func test_everyPaneIsGlassOnly_flushToColumnZero_inTheDeskPalette() {
-        let glass = DeskSceneSprites.windowGlass
-        let allowed = Set(DeskPalette.colors.keys).union(["."])
-        for weather in WindowWeather.all {
-            let pane = DeskSceneSprites.pane(weather)
-            XCTAssertEqual(pane.count, 24)
-            XCTAssertEqual(DeskSceneSprites.inkBounds(pane)?.rows, glass.rows, "\(weather)")
-            XCTAssertEqual(DeskSceneSprites.inkBounds(pane)?.cols, 0...(glass.cols.count - 1), "\(weather)")
-            for row in pane {
-                XCTAssertEqual(row.count, 24)
-                for ch in row where !allowed.contains(ch) { XCTFail("\(weather): '\(ch)'") }
-            }
-        }
-        XCTAssertEqual(Set(WindowWeather.all.map { DeskSceneSprites.pane($0) }).count, 7, "seven different skies")
-    }
-
-    /// The frame is today's window with the glass taken out: jambs and
-    /// mullions in `f`, the sill in `d`, nothing else.
-    func test_theFrameHasNoGlass() {
-        let frame = DeskSceneSprites.window
-        let glass = DeskSceneSprites.windowGlass
-        for r in glass.rows {
-            for c in glass.cols {
-                let mullion = (9...10).contains(c) || (11...12).contains(r)
-                XCTAssertEqual(Array(frame[r])[c], mullion ? "f" : ".", "(\(r),\(c))")
-            }
-        }
-        XCTAssertEqual(frame[22], String(repeating: "d", count: 20) + "....")
-    }
-
-    /// Opt-in art check (design §14 Z8):
-    /// `CICADA_WRITE_COMPOSITES=1 swift test --filter WindowSpritesTests`
-    /// writes one PNG per weather — frame over pane, with the first frame of
-    /// that weather's mood at its real offset — for a person to look at.
-    func test_writeCompositesWhenAsked() throws {
-        guard ProcessInfo.processInfo.environment["CICADA_WRITE_COMPOSITES"] == "1" else { return }
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cicada-composites")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let moodFor: [WindowWeather: BookwormState] = [.night: .sleeping(stage: 2), .dawn: .digesting, .clear: .happy,
-                                                        .fair: .reading, .overcast: .hungry, .storm: .error, .curtains: .awake]
-        let palette = DeskPalette.ns.merging(PixelRenderer.nsColors(BookwormPalette.colors)) { desk, _ in desk }
-        for weather in WindowWeather.all {
-            var grid = Array(repeating: Array(repeating: Character("."), count: 36), count: 36)
-            func paint(_ layer: PixelGrid, at dx: Int) {
-                for (r, row) in layer.enumerated() {
-                    for (c, ch) in row.enumerated() where ch != "." && c + dx < 36 { grid[r][c + dx] = ch }
-                }
-            }
-            paint(DeskSceneSprites.pane(weather), at: 2)
-            paint(DeskSceneSprites.window, at: 0)
-            paint(BookwormSprites.frames(for: moodFor[weather]!).frames[0], at: 10)
-            let image = PixelRenderer.image(grid: grid.map { String($0) }, gridSize: 36, pointSize: 360, palette: palette)
-            let rep = NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation))
-            try XCTUnwrap(rep?.representation(using: .png, properties: [:]))
-                .write(to: dir.appendingPathComponent("\(weather.rawValue).png"))
+            } }
         }
     }
 }

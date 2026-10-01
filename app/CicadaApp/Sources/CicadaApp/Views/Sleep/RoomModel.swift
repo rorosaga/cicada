@@ -51,6 +51,7 @@ final class RoomModel {
     var gaze: Gaze = .center
     var pointerInRoom = false
     var reaction: ActiveReaction?
+    var transition: ActiveTransition?
     /// `nil` = the status sentence; otherwise the answer rung on show (§6.3).
     var answerIndex: Int?
     var pointerInSentence = false
@@ -321,16 +322,39 @@ final class RoomModel {
     @discardableResult
     func play(_ kind: BookwormReaction, state: BookwormState, now: Date = Date(), reduceMotion: Bool) -> Bool {
         guard Self.beatAllowed(kind, state: state, reduceMotion: reduceMotion) else { return false }
-        reaction = ActiveReaction(kind: kind, startedAt: now, id: UUID())
+        transition = nil
+        reaction = ActiveReaction(kind: kind, startedAt: now, id: UUID(), length: BookwormArt.beatLength(kind, state: state))
         return true
     }
 
-    /// Clears a beat once its frames have played (≤ 0.36 s, R-Z12) — unless a
+    /// Clears a beat once its sheet has played (ruling 18) — unless a
     /// newer beat replaced it meanwhile.
     func settleReaction() async {
         guard let playing = reaction else { return }
-        try? await Task.sleep(for: .seconds(SleepMotion.beatFrameInterval * Double(SleepMotion.maxBeatFrames)))
+        do { try await Task.sleep(for: .seconds(playing.length * SpritePlaybackProfile.of(reduceMotion: false,
+            lowPower: SceneStore.shared.lowPower).slowdown)) } catch { return }
         if reaction?.id == playing.id { reaction = nil }
+    }
+
+    /// Only a real mood edge animates; cold starts, errors and refreshes show their state immediately.
+    func moodChanged(from old: String, to new: BookwormState, now: Date = Date(), reduceMotion: Bool) {
+        transition = nil
+        if let reaction, !Self.beatAllowed(reaction.kind, state: new, reduceMotion: reduceMotion) { self.reaction = nil }
+        guard !reduceMotion, old != "awake", new.caseName != "awake", old != new.caseName, reaction == nil else { return }
+        let kind: BookwormTransition
+        if new.caseName == "sleeping" {
+            kind = .yawn
+        } else if old == "sleeping", ["digesting", "happy", "reading", "hungry"].contains(new.caseName) {
+            kind = .stretch
+        } else { return }
+        transition = ActiveTransition(kind: kind, startedAt: now, id: UUID(), length: BookwormArt.transitionLength(kind))
+    }
+
+    func settleTransition() async {
+        guard let playing = transition else { return }
+        do { try await Task.sleep(for: .seconds(playing.length * SpritePlaybackProfile.of(reduceMotion: false,
+            lowPower: SceneStore.shared.lowPower).slowdown)) } catch { return }
+        if transition?.id == playing.id { transition = nil }
     }
 
     /// One click past the last rung returns to the status sentence (§6.3):

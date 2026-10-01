@@ -1,49 +1,43 @@
 import CoreGraphics
 
-/// The room's three hotspots (Track Z §6.2). Spines are their own buttons
-/// inside `BookPileView` — their frames are SwiftUI layout, not lattice cells
-/// (Z-P14). Z-P14 also means a hotspot is drawn as a button only once the
-/// thing it opens exists: the worm from Z5, the lamp with its popover (Z6),
-/// the window with its legend (Z8) — a hotspot that opens nothing would break
-/// R-Z2. Every rectangle is derived and tested here regardless.
-enum DeskHotspot: Hashable, CaseIterable {
-    case worm, lamp, window
-}
+/// Hotspot keys and interaction semantics are unchanged; geometry comes from authored slices.
+enum DeskHotspot: Hashable, CaseIterable { case worm, lamp, window }
 
 enum DeskHotspots {
-    /// The worm's ink span on the scene lattice: the 20 columns `DeskScene`
-    /// lines up with the cushion (scene cols 30…49), and the worm box's full
-    /// height (rows 4…27), cap and hop included.
-    static let wormCols = (DeskScene.wormCell.x + 2)...(DeskScene.wormCell.x + 21)
-    static let wormRows = DeskScene.wormCell.y...(DeskScene.wormCell.y + BookwormSprites.size - 1)
-    /// The glasses' bridge (grid row 7, col 12) in scene cells — the invariant
-    /// test's anchor for "the eyes are inside the worm".
-    static let eyeCell = (col: DeskScene.wormCell.x + 12, row: DeskScene.wormCell.y + BookwormSprites.size - 1 - 7)
+    static var wormCols: ClosedRange<Int> {
+        let ink = BookwormArt.wormInk
+        return (DeskScene.wormCell.x + Int(ink.minX))...(DeskScene.wormCell.x + Int(ink.maxX) - 1)
+    }
+    static var wormRows: ClosedRange<Int> {
+        let ink = BookwormArt.wormInk
+        return (DeskScene.wormCell.y + 48 - Int(ink.maxY))...(DeskScene.wormCell.y + 47 - Int(ink.minY))
+    }
+    static var eyeCell: (col: Int, row: Int) {
+        let eye = BookwormArt.eyePixel
+        return (DeskScene.wormCell.x + Int(eye.x), DeskScene.wormCell.y + 47 - Int(eye.y))
+    }
 }
 
-/// Whole-cell rectangles in points, bottom-leading origin — the same space
-/// `DeskSceneLayout` uses — derived from cells, never from typed points, so
-/// the hotspot layer cannot drift from the art (R-Z8).
+/// Whole-cell, disjoint rectangles in bottom-leading scene points. Missing sheets use their declared canvases.
 func deskHotspots(_ layout: DeskSceneLayout) -> [DeskHotspot: CGRect] {
-    let last = BookwormSprites.size - 1
     func rect(cols: ClosedRange<Int>, rows: ClosedRange<Int>) -> CGRect {
         CGRect(x: CGFloat(cols.lowerBound) * layout.cell, y: CGFloat(rows.lowerBound) * layout.cell,
                width: CGFloat(cols.count) * layout.cell, height: CGFloat(rows.count) * layout.cell)
     }
     var spots: [DeskHotspot: CGRect] = [.worm: rect(cols: DeskHotspots.wormCols, rows: DeskHotspots.wormRows)]
-    // A grid's row 0 is its TOP; the scene counts rows up from the floor, so
-    // grid row r of a layer at `cellY` sits at scene row `cellY + last − r`.
-    if let lamp = layout.layers.first(where: { $0.prop == .lamp }),
-       let ink = DeskSceneSprites.inkBounds(DeskSceneSprites.lampLit) {
-        spots[.lamp] = rect(cols: (lamp.cellX + ink.cols.lowerBound)...(lamp.cellX + ink.cols.upperBound),
-                            rows: (lamp.cellY + last - ink.rows.upperBound)...(lamp.cellY + last - ink.rows.lowerBound))
+    if let lamp = layout.layers.first(where: { $0.prop == .lamp }) {
+        let ink = SpriteSheets.sheet(named: "room-lamp")?.slices["ink"] ?? CGRect(x: 0, y: 0, width: lamp.w, height: lamp.h)
+        spots[.lamp] = rect(cols: (lamp.cellX + Int(ink.minX))...(lamp.cellX + Int(ink.maxX) - 1),
+                            rows: (lamp.cellY + lamp.h - Int(ink.maxY))...(lamp.cellY + lamp.h - 1 - Int(ink.minY)))
     }
     if let window = layout.layers.first(where: { $0.prop == .window }) {
-        let glass = DeskSceneSprites.windowGlass
-        // Clipped where the worm starts, so the two never overlap (§6.2).
-        let lastCol = min(window.cellX + glass.cols.upperBound, DeskHotspots.wormCols.lowerBound - 1)
-        spots[.window] = rect(cols: (window.cellX + glass.cols.lowerBound)...lastCol,
-                              rows: (window.cellY + last - glass.rows.upperBound)...(window.cellY + last - glass.rows.lowerBound))
+        let glass = SpriteSheets.sheet(named: "room-window")?.slices["glass"] ?? CGRect(x: 2, y: 2, width: 36, height: 32)
+        let firstCol = window.cellX + Int(glass.minX)
+        let lastCol = min(window.cellX + Int(glass.maxX) - 1, DeskHotspots.wormCols.lowerBound - 1)
+        if lastCol >= firstCol {
+            spots[.window] = rect(cols: firstCol...lastCol,
+                rows: (window.cellY + window.h - Int(glass.maxY))...(window.cellY + window.h - 1 - Int(glass.minY)))
+        }
     }
     return spots
 }

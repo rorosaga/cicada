@@ -13,11 +13,11 @@ final class SleepLayoutTests: XCTestCase {
 
     /// Room + the card's padding (`spacingLG`) + the page's (`spacingXL`), both
     /// scaled, must fit the unscaled column at every View-menu step. At 1.4×
-    /// that is 630 + 44.8 + 67.2 = 742 pt.
+    /// that is 640 + 44.8 + 67.2 = 752 pt.
     func test_theRoomFitsTheColumnAtEveryZoomStep() {
         for step in 8...14 {
             let scale = Double(step) / 10
-            let room = deskSceneLayout(pointSize: SleepView.wormPointSize, uiScale: scale).size.width
+            let room = deskSceneLayout(uiScale: scale).size.width
             let padding = 2 * 16 * CGFloat(scale) + 2 * 24 * CGFloat(scale)
             XCTAssertLessThanOrEqual(room + padding, SleepLayout.contentWidth, "uiScale \(scale)")
         }

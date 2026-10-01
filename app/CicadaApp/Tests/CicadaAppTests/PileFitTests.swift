@@ -12,7 +12,7 @@ final class PileFitTests: XCTestCase {
     private let steps: [Double] = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4]
 
     private func room(_ scale: Double) -> DeskSceneLayout {
-        deskSceneLayout(pointSize: SleepView.wormPointSize, uiScale: scale)
+        deskSceneLayout(uiScale: scale)
     }
 
     private func sources(_ n: Int, chars: Int, count: Int = 300) -> [OriginVolume] {
@@ -64,7 +64,7 @@ final class PileFitTests: XCTestCase {
     }
 
     /// The cap is measured, not a round number: eight spines at the label floor
-    /// fit every step; a ninth does not fit at 1.0×.
+    /// fit every step; a ninth fails at 0.8× and 1.1×.
     func test_eightSpinesAtTheLabelFloorFitEveryStep_nineWouldNot() {
         for scale in steps {
             let layout = room(scale)
@@ -72,9 +72,12 @@ final class PileFitTests: XCTestCase {
             let perSpine = PileFitting.labelMinPoints * CGFloat(scale) + BookPileView.spineGap * unit
             XCTAssertLessThanOrEqual(CGFloat(PileFitting.maxSpines) * perSpine, layout.pileFrame.height, "\(scale)×")
         }
-        let one = room(1.0)
-        XCTAssertGreaterThan(CGFloat(PileFitting.maxSpines + 1) * (PileFitting.labelMinPoints + BookPileView.spineGap),
-                             one.pileFrame.height)
+        for scale in [0.8, 1.1] {
+            let layout = room(scale)
+            let floor = PileFitting.labelMinPoints * scale + BookPileView.spineGap * layout.cell / PileFitting.referenceCell
+            XCTAssertGreaterThan(CGFloat(PileFitting.maxSpines + 1) * floor, layout.pileFrame.height)
+        }
+        XCTAssertEqual(PileFitting.referenceCell, 3)
         XCTAssertEqual(PileFitting.maxBooks, PileFitting.maxSpines - 1, "the eighth spine is the remainder")
         XCTAssertEqual(bookPileLayout(sources(30, chars: 1_000_000_000, count: 50)).count, PileFitting.maxSpines)
     }
@@ -102,8 +105,8 @@ final class PileFitTests: XCTestCase {
     func test_thePileScalesWithTheLattice() {
         XCTAssertEqual(room(1.0).cell, PileFitting.referenceCell, "the heights were authored at 1.0×")
         let books = bookPileLayout([OriginVolume(origin: "rss", count: 3, chars: 2000, remaining: 3)])
-        XCTAssertEqual(fitPile(books, in: room(1.1), uiScale: 1.1).height(books[0]), 14 * 6 / 5, accuracy: 0.001,
-                       "1.1× snaps to 6 pt cells: the spine grows with the room, not by 1.1")
+        XCTAssertEqual(fitPile(books, in: room(1.2), uiScale: 1.2).height(books[0]), 14 * 4 / 3, accuracy: 0.001,
+                       "1.2× snaps to 4 pt cells: the spine grows with the room, not by 1.1")
     }
 
     /// A source read through this cycle draws no spine, so it takes no height.

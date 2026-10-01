@@ -9,11 +9,11 @@ import XCTest
 @MainActor
 final class RoomFeedTests: XCTestCase {
 
-    private let scene = deskSceneLayout(pointSize: 120, uiScale: 1.0)
+    private let scene = deskSceneLayout(uiScale: 1.0)
     private var spots: [DeskHotspot: CGRect] { deskHotspots(scene) }
-    /// Top-left points (what `DropInfo.location` reports) at 5 pt cells.
-    private let overWorm = CGPoint(x: 200, y: 70)
-    private let overLamp = CGPoint(x: 20, y: 100)
+    /// Top-left points (what `DropInfo.location` reports) at 3 pt cells.
+    private var overWorm: CGPoint { let r = spots[.worm]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
+    private var overLamp: CGPoint { let r = spots[.lamp]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
 
     private var everyPhase: [FeedPhase] {
         let refusals: [FeedPhase] = FeedRefusal.allCases.map(FeedPhase.refused)

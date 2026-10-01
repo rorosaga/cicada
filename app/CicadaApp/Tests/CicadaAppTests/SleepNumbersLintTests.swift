@@ -74,7 +74,7 @@ final class SleepNumbersLintTests: XCTestCase {
     /// pulse, which is capped separately at 1.2 s by `SleepStages`. A budget
     /// stated only in a comment drifts; these are the numbers the comment
     /// names.
-    func testEveryNamedDurationIsInsideTheBudget() {
+    func testEveryNamedDurationIsInsideTheBudget() throws {
         XCTAssertLessThanOrEqual(SleepMotion.settleDuration, SleepMotion.maxDuration)
         XCTAssertLessThanOrEqual(SleepMotion.pileDuration, SleepMotion.maxDuration)
         XCTAssertLessThanOrEqual(SleepMotion.disclosureDuration, SleepMotion.maxDuration)
@@ -82,10 +82,15 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertLessThanOrEqual(SleepStages.pulsePeriod, 1.2)
         // Track Z Z5 — the sentence cross-fade, and every beat (≤ 3 frames).
         XCTAssertLessThanOrEqual(SleepMotion.sentenceDuration, SleepMotion.maxDuration)
-        XCTAssertLessThanOrEqual(SleepMotion.beatFrameInterval * Double(SleepMotion.maxBeatFrames),
-                                 SleepMotion.maxDuration)
-        XCTAssertEqual(SleepMotion.beatFrameInterval, BookwormSprites.reactionInterval,
-                       "one beat clock — the sprite's and the page's")
+        for state in BookwormSpriteTests.states {
+            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
+            for look in BookwormLook.reachable(for: state) {
+                if case .reaction(let kind, _) = look {
+                    let clip = try SpriteTestAssets.clip(sheet, BookwormArt.tag(look))
+                    XCTAssertLessThanOrEqual(clip.total, kind == .perk ? CicadaMotion.spritePerkMax : CicadaMotion.spriteBeatMax)
+                }
+            }
+        }
         XCTAssertEqual(SleepMotion.answerDwell, .seconds(12))
         // Track Z Z6 — a spine lifting under the pointer.
         XCTAssertLessThanOrEqual(SleepMotion.hoverDuration, SleepMotion.maxDuration)
@@ -110,6 +115,46 @@ final class SleepNumbersLintTests: XCTestCase {
         XCTAssertNotNil(SleepMotion.hover(reduceMotion: false))
         XCTAssertNil(SleepMotion.weather(reduceMotion: true))
         XCTAssertNotNil(SleepMotion.weather(reduceMotion: false))
+        XCTAssertEqual(SpritePlaybackProfile.of(reduceMotion: true, lowPower: false), .still)
+        XCTAssertEqual(SpritePlaybackProfile.of(reduceMotion: true, lowPower: true), .still)
+    }
+
+    @MainActor
+    func testReduceMotionSuppressesMoodTransitions() {
+        let room = RoomModel()
+        room.moodChanged(from: "reading", to: .sleeping(stage: 1), reduceMotion: true)
+        XCTAssertNil(room.transition)
+    }
+
+    func testRoomSpritesAreNeverTransformed() throws {
+        var chains = 0
+        for file in try Self.sleepSources() {
+            let lines = try String(contentsOf: file).components(separatedBy: .newlines)
+            var i = 0
+            while i < lines.count {
+                let code = lines[i].trimmingCharacters(in: .whitespaces)
+                guard !code.hasPrefix("//"), code.contains("SpriteLayerView(") else { i += 1; continue }
+                var chain = [lines[i]]
+                var depth = lines[i].filter { $0 == "(" }.count - lines[i].filter { $0 == ")" }.count
+                i += 1
+                while i < lines.count, depth > 0 {
+                    chain.append(lines[i])
+                    depth += lines[i].filter { $0 == "(" }.count - lines[i].filter { $0 == ")" }.count
+                    i += 1
+                }
+                while i < lines.count {
+                    let code = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard code.hasPrefix(".") || code.hasPrefix("//") else { break }
+                    chain.append(lines[i]); i += 1
+                }
+                chains += 1
+                for line in chain where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                    for needle in [".scaleEffect(", ".rotationEffect(", ".spring("] { XCTAssertFalse(line.contains(needle), file.lastPathComponent) }
+                    if line.contains(".offset(") { XCTAssertTrue(line.contains("cell"), file.lastPathComponent) }
+                }
+            }
+        }
+        XCTAssertGreaterThan(chains, 0)
     }
 
     /// Design §10 — the pointer is read in ONE place under `Views/Sleep/`, the
