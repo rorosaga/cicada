@@ -5,37 +5,27 @@ The prompt Rodrigo hands a fresh session to run the study room sprites work
 the brief changes, edit this prompt in the same commit so the two never disagree.
 
 ```
-Read docs/specs/2026-09-29-study-room-sprites-brief.md in full. Where §9 and §10 (my later refinements) differ from §3/§4,
-they win. Also read backlog rows G175 and G176 in docs/goals/memory-evolution.md, then CLAUDE.md and
+Dated amendment 2026-10-01: read docs/specs/2026-10-01-bookworm-sprites-spec.md in full, then the older
+docs/specs/2026-09-29-study-room-sprites-brief.md. The new spec and TODO ruling 18 win wherever they differ. Also read backlog rows G175 and G176 in docs/goals/memory-evolution.md, then CLAUDE.md and
 docs/goals/working-method.md. Your job is the brief's Phase 1: Cicada's new bookworm and study room as real, detailed,
-animated pixel art. It happens in two steps, and you stop between them.
+animated pixel art. The base design is approved; the deferred count props still require design rounds.
 
-STEP 1 — The worm's base design. Give me several directions to choose from before anything else.
+STEP 1 — Closed 2026-10-01: the worm is approved. Use the owner's reference set in
+app/CicadaApp/Art/sprites/bookworm-2026-10-01/reference/; see the 2026-10-01 spec. The round-1 directions are
+superseded. Charcoal-grey glasses replace orange; no antennae. Implement Runs A, B and C of that spec for the approved
+character and room. Q1 remains deferred. The count props, queue as a room, time-of-day palettes and night light below
+are future design rounds, not extra work in the approved sprite run.
 
-Start from the concept in app/CicadaApp/Art/sprites/concept-2026-09-29/: its README, generator/worm.py and room.py, and
-the boards, which are also on the design canvas https://claude.ai/artifact/FDqb1tSiqsWdFQEDGYm3JF (read it with the
-Artifact tool). Treat it as a reference, not the answer. Its antenna language is superseded.
+Dated amendment 2026-10-02: docs/specs/2026-10-02-study-room-scenery.md supersedes those scenery deferrals.
+Day/dusk/night skies, the dark room lit by the lamp (replacing the separate night light) and the wall clock are built.
+The open design rounds are count props, the queue as a room, G175 marks, a second G127 character and Q1.
+The existing character is Bookworm in Settings → Sleep → Mascot. Follow the finishing handoff for current acceptance;
+these historical Phase 1 instructions do not authorize computer use or installing over the owner's app.
 
-- Draw 5–6 genuinely different worm directions, not recolours of one. Vary:
-  · silhouette and proportions (head-to-body ratio, segment count, chubby vs slender, how it sits or curls);
-  · the face (eye style, brows, mouth, cheeks);
-  · the glasses (round, square, half-moon, oversized);
-  · the palette and the outline treatment;
-  · the grid (32×32 vs 48×48 in the room).
-  Every direction keeps these constants: NO antennae, recognisably a bookworm, glasses, and legible at 18×18 in the menu
-  bar. Expression lives in the eyes, brows, mouth, posture and tail.
-- For each direction, make:
-  · a hero portrait at room size and the 18×18 menu-bar version;
-  · an expression sheet: neutral, happy, sleepy, reading, worried, curious;
-  · three short animated loops: idle, reading (with the pages flipping) and sleeping (with the z's);
-  · a thumbnail of it sitting in the room, day and night.
-- Author these in Aseprite. Put them on the design canvas side by side, one board per direction with a one-paragraph
-  rationale, plus one comparison board with all directions at both sizes.
-- Then STOP and ask me to pick one direction or combine parts ("A's body, C's face"). Iterate on my pick for as many
-  rounds as I ask. Show each round as new boards, and keep the old ones.
-- Don't build the room, props or marks until I've approved the final worm. Their palette and proportions follow from it.
 
-STEP 2 — Once the worm is approved: the full character, the room and the props.
+STEP 2 — Future design rounds for the full count props and the queue as a room. The 2026-10-01 spec
+ships the approved worm, lamp/fly, window/weather, bean bag, plant, mug and spine textures first; the older ideas below
+remain a reference wherever they fall outside that scope.
 
 - The worm: every state and response animation in the brief, drawn in the approved design.
   · Reading (while consolidating): it holds an open book, its eyes track the lines, and it FLIPS THE PAGES — a real
@@ -82,11 +72,10 @@ STEP 2 — Once the worm is approved: the full character, the room and the props
   design canvas for my review.
 
 How to work:
-- Author everything headless:
-  /Applications/Aseprite.app/Contents/MacOS/aseprite -b --script <file>.lua
-  Produce layered .aseprite sources with tagged animations and per-frame timings, export PNG sheets + JSON, and save
-  them where the brief says.
-- Use workflows: Opus for design and pixel art, Sonnet for scripts and code, and a critic before anything is final.
+- R-BW12 (2026-10-01): use computer use in Aseprite for hand-correctable parts and GUI review. Rebuild and export
+  every sheet headless from the parts and Lua generators, with reproducible manifest hashes. The owner chose Codex
+  (gpt-6.1-sol, extra-high effort) for this job only; this replaces the earlier model split. The small-models rule
+  otherwise stands. PR to dev; no merge until the owner reviews preview.html and the composites.
 - Before Phase 2, ask me the open questions: the final prop set, the count buckets, the animation-lint amendment, and
   any vendor-guideline conflicts.
 - Work only in your own git worktree under .worktrees/. Never edit or switch branches in the main checkout: an

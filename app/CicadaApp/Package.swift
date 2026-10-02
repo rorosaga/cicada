@@ -11,7 +11,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CicadaAppTests",
-            dependencies: ["CicadaApp"]
+            dependencies: ["CicadaApp"],
+            resources: [.copy("Fixtures/sprites")]
         )
     ]
 )

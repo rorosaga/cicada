@@ -1,17 +1,20 @@
 import XCTest
 @testable import CicadaApp
 
-/// Design §6.1 / Z-P24 — `frames(for:)` is recomposed twice per tick
-/// (`BookwormView.body` and `BookwormRenderer.cachedImage`), and poses
-/// multiply those calls. A memo ships only if this benchmark moves.
 final class BookwormFramesBenchmarkTests: XCTestCase {
-    func test_benchmark_framesForEveryReachableLook() {
-        let pairs = BookwormPoseSpriteTests.pageStates.flatMap { state in
-            BookwormLook.reachable(for: state).map { (state, $0) }
+    func testBenchmarkWarmClipsAndCropsForEveryReachableLook() throws {
+        let pairs = try BookwormSpriteTests.states.flatMap { state -> [(SpriteSheet, SpriteClip)] in
+            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
+            return try BookwormLook.reachable(for: state).map { (sheet, try SpriteTestAssets.clip(sheet, BookwormArt.tag($0))) }
         }
+        for (sheet, clip) in pairs { for index in clip.order { _ = sheet.frameImage(index) } }
         measure {
             for _ in 0..<20 {
-                for (state, look) in pairs { _ = BookwormSprites.frames(for: state, look: look) }
+                for state in BookwormSpriteTests.states {
+                    for look in BookwormLook.reachable(for: state) {
+                        if let (sheet, clip) = BookwormArt.clip(state, look: look) { _ = sheet.frameImage(clip.order[0]) }
+                    }
+                }
             }
         }
     }

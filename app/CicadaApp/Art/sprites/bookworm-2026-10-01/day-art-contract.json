@@ -1,0 +1,294 @@
+{
+  "note": "G176 night-room regression baseline from the saved 2026-10-02 day exports. Digest is canonical JSON of tag -> {ms,pixels}; pixels are decoded RGBA frame SHA-256, so repacking never changes the day contract.",
+  "sheets": {
+    "bookworm-awake": {
+      "tags": [
+        "idle",
+        "attentive.left",
+        "attentive.center",
+        "attentive.right",
+        "expectant.left",
+        "expectant.center",
+        "expectant.right",
+        "eager",
+        "perk.left",
+        "perk.center",
+        "perk.right",
+        "talk.left",
+        "talk.center",
+        "talk.right",
+        "gulp.center",
+        "shake.left",
+        "shake.center",
+        "shake.right"
+      ],
+      "dayTagsSha256": "417bd4f432b7a8540181b5c61ccdca7b3965f63c95829a1c8882a6447acb147f",
+      "pngSha256": "1fb2a77e3143dcbe9250586418dd0cbf8dd361a5fb853b34078f9b46bd22b99b",
+      "jsonSha256": "1c2ba69432a4a831b9435dbf90eca476458036225413736a35bf709a0f871d72"
+    },
+    "bookworm-curious": {
+      "tags": [
+        "idle"
+      ],
+      "dayTagsSha256": "b547d2c2112f5a26d45d29e92595d9652140186e48e55d1bb85b2fe5c96018e3",
+      "pngSha256": "1de7a0e2b1163e0e01d35b357d6df581936ab27d26882d8a30bb49adced2e74d",
+      "jsonSha256": "44e4918529ebc263b2ed6fd770c95e3c75fd0494851b44ff2bdae8b0f6172006"
+    },
+    "bookworm-digesting": {
+      "tags": [
+        "idle",
+        "expectant.center",
+        "eager",
+        "talk.center",
+        "gulp.center",
+        "shake.center",
+        "cheer.center"
+      ],
+      "dayTagsSha256": "43eb10021a75368ac076d082b9faa163dee230b69773e03a549459a8acd6ee87",
+      "pngSha256": "0a9bb88c8b1ff362f039337080c4ae8b8b097ac8a4c0119461ec2a14729d5cf9",
+      "jsonSha256": "d4b332ac44a2c07deb790c9c37fe47060f8a671c8820452c01ab35487509e1a3"
+    },
+    "bookworm-error": {
+      "tags": [
+        "idle"
+      ],
+      "dayTagsSha256": "b2ed070ab7ff4d51d652c08fbbed117f5ca5fb91416bffc83ef7330c72cc40c0",
+      "pngSha256": "106d80dee4a4d3625aab3aeb89955da0235937295725b463f67499bd78c8a9d8",
+      "jsonSha256": "32dfa62ec510f1f0a8ad116b279e71d1ed5d30cbc0da266577f59d74e6159dc3"
+    },
+    "bookworm-happy": {
+      "tags": [
+        "idle",
+        "attentive.left",
+        "attentive.center",
+        "attentive.right",
+        "expectant.left",
+        "expectant.center",
+        "expectant.right",
+        "eager",
+        "perk.left",
+        "perk.center",
+        "perk.right",
+        "talk.left",
+        "talk.center",
+        "talk.right",
+        "gulp.center",
+        "shake.left",
+        "shake.center",
+        "shake.right",
+        "cheer.center"
+      ],
+      "dayTagsSha256": "8c63b972ceee6dab3daf1ba774f84ec3593f0ee55a494bb46af09f83b1a6567a",
+      "pngSha256": "ae4096d66e438a81d51793e6d74e998b4bc67334cf7dde9f8117de1d348f64f9",
+      "jsonSha256": "714af2920e2fa4c5eebaee34ab48a9fcf562ae11d82330e9e37f325f7a0b1a48"
+    },
+    "bookworm-hungry": {
+      "tags": [
+        "idle",
+        "attentive.left",
+        "attentive.center",
+        "attentive.right",
+        "expectant.left",
+        "expectant.center",
+        "expectant.right",
+        "eager",
+        "perk.left",
+        "perk.center",
+        "perk.right",
+        "talk.left",
+        "talk.center",
+        "talk.right",
+        "gulp.center",
+        "shake.left",
+        "shake.center",
+        "shake.right"
+      ],
+      "dayTagsSha256": "92e8f3dd4a2c8356dbd83e9bf6faad3c3ce8747072754c6e00666d58d64988e9",
+      "pngSha256": "66c2481f186dd87feed9bf5dd5aefd528fc620b5beb8abfe2e31e5f5ceefdd33",
+      "jsonSha256": "5cea1e7401b04347a4fb1e6c8f931d8b9aa63a010e796638a7651ebbc77defe9"
+    },
+    "bookworm-reading": {
+      "tags": [
+        "idle",
+        "attentive.left",
+        "attentive.center",
+        "attentive.right",
+        "expectant.left",
+        "expectant.center",
+        "expectant.right",
+        "eager",
+        "perk.left",
+        "perk.center",
+        "perk.right",
+        "talk.left",
+        "talk.center",
+        "talk.right",
+        "gulp.center",
+        "shake.left",
+        "shake.center",
+        "shake.right",
+        "idle@2",
+        "attentive.left@2",
+        "attentive.center@2",
+        "attentive.right@2",
+        "expectant.left@2",
+        "expectant.center@2",
+        "expectant.right@2",
+        "eager@2",
+        "perk.left@2",
+        "perk.center@2",
+        "perk.right@2",
+        "talk.left@2",
+        "talk.center@2",
+        "talk.right@2",
+        "gulp.center@2",
+        "shake.left@2",
+        "shake.center@2",
+        "shake.right@2",
+        "idle@3",
+        "attentive.left@3",
+        "attentive.center@3",
+        "attentive.right@3",
+        "expectant.left@3",
+        "expectant.center@3",
+        "expectant.right@3",
+        "eager@3",
+        "perk.left@3",
+        "perk.center@3",
+        "perk.right@3",
+        "talk.left@3",
+        "talk.center@3",
+        "talk.right@3",
+        "gulp.center@3",
+        "shake.left@3",
+        "shake.center@3",
+        "shake.right@3"
+      ],
+      "dayTagsSha256": "f2d72cbd18e6c244bc407deac78f2e278f1a870ae6b3e0d174a8011f832539a6",
+      "pngSha256": "fd5301ac65601653cb613a8a04702c6a1052e44be9ecaeac90fc4d7916cc3d2a",
+      "jsonSha256": "c8f05cc225257b02e3fe2adc0c88cfd72dc7c28e8be909074d9411ec3caf81b1"
+    },
+    "bookworm-sleeping": {
+      "tags": [
+        "idle",
+        "talk.center",
+        "intro",
+        "outro"
+      ],
+      "dayTagsSha256": "43e322dbd1a520d1887fd85597fccc8f3d54a13af90f69d2ab9a39c0f989ff1f",
+      "pngSha256": "ab53f55491153cf67d1423474f64d3c8a7c7c72f11a7bfef9348d77627fb07d7",
+      "jsonSha256": "5486c53234b9739593408d5ff4316ded06a7371708681747c76151cfddbbde2f"
+    },
+    "bookworm-small": {
+      "tags": [
+        "awake",
+        "sleeping",
+        "digesting",
+        "happy",
+        "curious",
+        "hungry",
+        "reading",
+        "error"
+      ],
+      "dayTagsSha256": "dcd40247b6e7f74eb592d8916e60c4668f47778953284dbee8a1182740864679",
+      "pngSha256": "d9bd3b574be74bf9ad34df8c3701240d410e1f6df1ec3554e62679ab72208db1",
+      "jsonSha256": "1c7ab4eb86fa574bd95628d723f2e1e375641734a51555c5b8cc659f47d5d01a"
+    },
+    "room-backdrop": {
+      "tags": [
+        "dark",
+        "lit"
+      ],
+      "dayTagsSha256": "5001764e6da3c13d392b59a904fe760ffbe63c94481512d71499cc2d4ea88efb",
+      "pngSha256": "1d6bb18109104dfc6520d533aa98651e625282fb83e757d9a276b548937e216c",
+      "jsonSha256": "33e03d327ea9ec92ad61f29eef2f092589a3f3547c3b77297964abf82cdb6c12"
+    },
+    "room-beanbag": {
+      "tags": [
+        "idle"
+      ],
+      "dayTagsSha256": "a41512b9a935304db95648dd4c29bf2d9c3abbc82b0a484d8e6daddf0c0ea001",
+      "pngSha256": "1aadce18c472f277c4a65f94b9b82124debea6261da931fbce447b35b6a744a8",
+      "jsonSha256": "83c18e735bd1e03ee8dfade0bbaff6f6b812ed857acd06199e70cb77be63e339"
+    },
+    "room-fly": {
+      "tags": [
+        "buzz"
+      ],
+      "dayTagsSha256": "509c48c8a4597ff02f8cebb022a7c630078c3dee23b01090386ea7cb89e47f34",
+      "pngSha256": "e0d8b87a35e53cbf4f8ed905134e73d71bb82c0ec4e958e1e375fbeef2c9e363",
+      "jsonSha256": "5b1bdf7ba9990196a3e6c39b48ab9f9c41e6e51435890fef4968bfd5980aad96"
+    },
+    "room-lamp": {
+      "tags": [
+        "dark",
+        "lit"
+      ],
+      "dayTagsSha256": "d2a21b0e325f7fe96bbbaa4236b4a331da5414c00284d9fbcf74ebf77aa25f29",
+      "pngSha256": "35a1976cde9ed97bb8ce111a5b9183988a946618273d03c54d5d0110bd20b9ba",
+      "jsonSha256": "e7ddf4a6d436c0a0a5fca619d49bf174ec6f8aa1b94a694a7c0d64220097ba87"
+    },
+    "room-mug": {
+      "tags": [
+        "idle"
+      ],
+      "dayTagsSha256": "525aafe98c3173d765e9d06eac966fcb7c9c4c6bcab99a8bd1ad107815ecbf14",
+      "pngSha256": "7c54e8402f8a3da3fdc35d01d516704589c6ba074adf3581c41f713ab0438b2c",
+      "jsonSha256": "358b99d763b800536d23d4a0d991ae2c6885ccda475958ed1c2fdd9b076a7f26"
+    },
+    "room-plant": {
+      "tags": [
+        "idle"
+      ],
+      "dayTagsSha256": "d647c0be4a77b28a0ddc4c0f77c611b3c8ff8c1b73e5b21dd679a3960a7ed87a",
+      "pngSha256": "290a3f15aad9a9e972b2447a40385c8637b83facef0a6b993faddc16054446c0",
+      "jsonSha256": "674f36644c9b6f95e48d0e104f25958565801363ddedf419df1b47c4b899c0be"
+    },
+    "room-spines": {
+      "tags": [
+        "chat",
+        "page",
+        "note",
+        "video",
+        "other"
+      ],
+      "dayTagsSha256": "a6e575099521d338c3f7f6815095da6566660c5e3b13e4fef9394efdb65b9d32",
+      "pngSha256": "2bc50f8abd337d80c860219d10f30282e4c51bb0078197e99bd04e325bd3091f",
+      "jsonSha256": "2f24ba07f9895637b0146376df7d646b0af7154222556f7252f076b19d271f36"
+    },
+    "room-weather": {
+      "tags": [
+        "night",
+        "dawn",
+        "clear",
+        "fair",
+        "overcast",
+        "storm",
+        "curtains"
+      ],
+      "dayTagsSha256": "b290b2b6597e257cbf589edaad1afd20a3b8a6b52bc1f953296c5b0cea5fabc8",
+      "pngSha256": "de54481675e59587cb99178fc8ac8e4e8db3d047905b65035e65a6c04881646b",
+      "jsonSha256": "58e4e23388f5b5445d5015c694162df6f47fc8ab8745fad0e096279298465100",
+      "preservedDayTags": {
+        "sunny-day": "d06e2b4b330daace98d5010ec9cd2f2dd3ffdb66c921ea1aae4e88d34702d076",
+        "windy-day": "42f6cf6d4604918cbb9360dc9f3b187de1f65d6135300b8fcbd028c9642cdf81",
+        "rainy-day": "8038eb4cfdf066047e62c78bbef33d14fb5252f1665ba7738b468dfd2d257de3",
+        "curtains-day": "801d986dc664ec0310c56e9144d1cc00f73e61a62f9caae6b50f9a6f42527a87"
+      },
+      "adaptedDayTags": {
+        "cloudy-day": {
+          "originalSha256": "210e62f10812256ddb2e07dc67ad77e736935f9d87fc085d5669fc10d01207ec",
+          "change": "Move the lower cloud from y=23 to y=5 and near cloud from y=9 to y=6. All eight states are reachable: original clouds fail ruling 9. Colours, frame counts, durations and horizontal cadence are retained."
+        }
+      }
+    },
+    "room-window": {
+      "tags": [
+        "idle"
+      ],
+      "dayTagsSha256": "942a304f17adf3c8a9b80768a06eb6284e7c30d1df329e66e002d0f81409c109",
+      "pngSha256": "8083520f164f6569c88e0c3e74508888b46c18415ef3e97eed8caf2aab2d6e14",
+      "jsonSha256": "9f96d14c68deb78302bf49166ea955a6cc3b1c2b4ba67016aaf509d40ac466a7"
+    }
+  }
+}

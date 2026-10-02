@@ -71,7 +71,7 @@ announces the row (G139). `SettingsSection` raw values did not move. General's a
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
 Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
-menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays); a login launch opens no
+menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no
 window — the bookworm waits in the menu bar, and the Dock icon brings the window (`LaunchKind` from the 'oapp' event,
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
@@ -375,7 +375,9 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
   value. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
 
-**Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
+**Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
+animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
+preview*, below). One 760 pt column at every width: the room,
 one sentence in the display face under it, one Consolidate/Cancel control with the engine menu
 beside it — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
 under Auto) that opens the five engines with their real marks, the chosen engine's model and both
@@ -389,10 +391,16 @@ default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
-omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1):**
-*state art* — the mood's frames, the lamp (= the schedule), the pile, and the window's **weather**,
-a total function of the mood with a legend popover as its twin — and *response art* (gaze, perk,
-talk, cheer), transient and never contradicting state. The art layer stays inert; interaction is a
+omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1, amended by ruling 18):**
+*state art* — the owner's worm on a 160 × 64 lattice (3 pt per cell at 1.0), the real pile, the lamp (= the schedule)
+and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
+perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
+and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
+schedules, shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+Settings passes the room's pause to every sprite leaf as well as its clock and weather reader. The steady-state
+redraw test covers all 240 weather/time/mood/lamp combinations and sums independent leaves, including 60 clock ticks:
+rain's unchanged 48-frame loop now holds 100 ms (4.8 s total), giving a maximum of 1,758/minute against the 1,800 cap.
+The room's wall/floor, plant and mug stay inert, with lighting chosen by the scenery. The art layer stays inert; interaction is a
 hotspot layer derived from the pure layout (`deskHotspots`), and **no click on art changes what the
 machine does**: the lamp's popover shows the scheduled engine and its reason *before* its labelled
 toggle can flip, and Consolidate stays the one trigger. The strip appears only while running or
@@ -411,7 +419,7 @@ page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro D
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
-Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12) — inside them only a measured or list-price figure that states its basis ("charged", "at list price", a plan window's share).
+Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count driving the window (time of day follows the clock or the person's choice, R-Z11 as amended 2026-10-02), duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12). State art loops (ruling 18).
 
 **Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
 the server drains. `SleepStatusResponse.drain` (`SleepDrainInfo`, lenient like every field) and the SSE event's compact
@@ -429,6 +437,80 @@ sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drai
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
 (`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
 Mac") — never a provider's name.
+**The study room's scenery (G176, owner 2026-10-02).** `Scenery.resolve(mode:clock:forecast:mood:manual:)` is pure:
+base weather · `SkyPhase` · optional overlay · effective source. The worm still means Sleep at any hour/in any weather.
+Clock time is `SceneStore.phase` (day · dusk · night), shared with Home's existing boundary/hourly/wake/time-zone
+checks, with no new per-second timer. Local weather (default) reads the time zone's principal city's public conditions,
+not the person's location. Missing weather falls back to How Sleep is doing and says “Local weather unavailable.”
+The fallback maps happy/sleeping/digesting → sunny, reading/curious → cloudy, hungry → windy, error → rainy,
+awake → curtains. Choose ignores clock and forecast and pins a time/base. In every mode, sleeping adds calm mist and
+digesting adds a rainbow by day/dusk or a shooting star at night. Night OR rainy makes the room dark; dusk otherwise
+keeps day lighting. The lamp still means the schedule.
+
+`room-weather` uses `<base>-<time>` (five bases × three times). `room-skyfx` uses six moment/time tags, with its layer
+between pane and window in `DeskScene.plan`/`room-plan.json`. In darkness the backdrop/lamp and the window/plant/beanbag/
+mug select `night-dark`/`night-lit`, and all eight worm states select `bookworm-<state>-night-dark`/`-night-lit`, including
+beats, covers and both sleeping transitions. Tags, frame counts and timings match the day sheets; the small/menu worm
+has no room lighting. The existing sleeping-outro → reading key frame can still change from a closed to an open
+book in one frame; a reading opening beat is not part of the named contract. `SceneryRoomArt` crossfades room layers on weather/overlay/lamp appearance and keeps the worm outside that identity.
+The worm crossfades only on its day / dark-lit / dark-unlit sheet set, and only while no transition or beat is active.
+`StudyRoom` passes the active transition/reaction flag to suppress the worm swap's animation. This includes the
+day/dusk error → sleeping edge in How Sleep is doing or Local weather fallback: rainy/dark becomes sunny/day,
+but the new-sheet yawn starts fully visible. Passive lighting changes still use the existing 0.4 s opacity
+`SleepMotion.weather` token; the room layers keep their crossfade during a worm response. Reduce Motion swaps instantly.
+Hotspots and the real pile keep their layout/identity. Beat/transition cleanup tasks live on the stable study room,
+so a sky/lighting crossfade cannot restart or extend them.
+The current legend line, help and VoiceOver share `Scenery.text`, for example “Night · Rainy · local weather”;
+mist/completion meaning is appended, and under How Sleep is doing the base meanings remain visible in its key-frame
+legend. No scenery action starts work; the window offers a link to its Settings row.
+
+**The wall clock (owner amendment, 2026-10-02).** `RoomClockReading.indices(at:zone:)` maps civil time to
+sixty whole-pixel angles: hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their integer values.
+`RoomClock` is a separate inert leaf, with a `TimelineView(.periodic)` at `CicadaMotion.roomClockTick` (one second)
+only while its window/room is visible and its host is active; it never redraws the parent room. `room-clock` has
+`face`, `hour`, `minute`, `second` and each `-night` variant. Night-or-rain lighting selects the dark dial/hands;
+black hour/minute hands and the thin red second hand use transparent state frames, not timed sprite loops.
+Normal ticks start on whole seconds; Reduce Motion removes the second hand and ticks on minute boundaries while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”
+in the system's short format, after the window and before the lamp; it is not a button. The 15 × 15 clock at
+`(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
+also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
+
+**Settings → Sleep → The scenery.** One group in the in-app Settings panel's existing list grammar:
+Source (Local weather · How Sleep is doing · Choose), then Time of day and Weather under Choose, then Preview.
+Three time thumbnails (Day · Dusk · Night) and five weather thumbnails (Sunny · Cloudy · Windy · Rainy · Curtains drawn)
+use the sheets' key frames; every native button has a text label, keyboard focus, VoiceOver label and selected trait.
+Selection uses the neutral ground/ring, text below the art, no shadow. The small live preview uses the same room
+composition and current Sleep mood/schedule, reading cached weather only. The Settings search indexes each row; hidden
+Choose-only rows land on Source. Preferences are per viewer (`cicada.sleep.scenerySource`, `sceneryTime`,
+`sceneryWeather`), separate from Home's scene and never in a bank. Local weather's one-line disclosure is
+“Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request, your network address. Nothing from your memory is sent.”
+`LocalWeatherReader` suppresses CFNetwork's preferred-language header with an empty field, pins fixed Accept/encoding/User-Agent headers,
+and uses an ephemeral session without cookies, credentials or disk cache. Its freshness policy keeps the same city's stale
+reading only when a visible refresh is due to start or in flight; failure clears it, and a backwards clock makes the next
+attempt due. It is an in-memory read, not a Store domain; its own visibility/source gate, half-hour attempts and
+four-second/64-KiB/no-cookie transport are detailed in `network.md`. The ImageRenderer hook uses isolated viewer
+preferences and frozen sprite frames without native visibility probes; it renders the native source menu's current
+text as a SwiftUI label because ImageRenderer cannot draw that menu. It verifies pane layout/art, not native menu
+interaction. The actual menu remains keyboard-accessible. Six light/dark source panes are in the art review index.
+
+**Settings → Sleep → Mascot (owner, 2026-10-02).** A group beside The scenery follows the same list/tile grammar.
+`MascotRegistry` is the pure, ordered catalog; today its only entry is **Bookworm** (`bookworm`). Each entry names
+its room-sheet prefix, menu sheet and repository-relative art folder for provenance. One tile shows the awake
+room key frame, the 18 × 18 menu head at 2× and the name; a checkmark and neutral ring mark selection, with native
+keyboard focus and “Bookworm, selected” for VoiceOver. No timer runs in the tile and there is no future-character copy.
+The viewer's `cicada.mascot` preference defaults to `bookworm`; an unknown stored id resolves to Bookworm.
+`BookwormView` observes that preference on every surface, including the room, empty states and intake; `BookwormArt`
+resolves all states, lighting/lamp variants, cover timing, transitions and geometry through the entry. The menu
+renderer keys its cache by mascot id, and a choice change redraws/restarts its frame timer immediately. Names of
+the existing state/view types and the state/response matrix remain unchanged.
+
+To add a mascot, author its own base with the same pipeline, export `<prefix><state>` and
+`<prefix><state>-night-dark|lit` for all eight states plus its menu sheet, using the shared canvases, tag/timing
+contract and slices. Add those PNG/JSON pairs with provenance/hashes to `sprites.manifest.json`, then add one
+`MascotRegistry` entry naming that prefix, menu sheet and art folder. The picker and sprite readers enumerate/resolve
+the registry; they need no character-specific wiring. Registry acceptance tests require every listed sheet in the
+manifest. The ImageRenderer hook produces light/dark Mascot panes, including unknown-id fallback.
+
 **Sleep page v5, the app half (2026-09-30; rulings 15, 16).** All copy is `Theme/Copy+SleepV5.swift`, provider-neutral
 (`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
 person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
@@ -461,17 +543,49 @@ A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`),
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
 the intake router has a request in flight) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
-only a measured, telemetry-joined duration is ever shown. Track Z adds **response art** inside
-`BookwormSprites`: `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and
-`BookwormReaction` (perk · talk · gulp · shake · cheer), gated by one state × response matrix
-(`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay shut and red pupils never
-look away; every beat is ≤ 3 frames × 0.12 s; a hop is a whole-cell shift (a capped state crouches
-instead — the nightcap owns the grid's headroom); and a lint bans
-`.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(` on the worm except its lattice placement. The
-renderer key gains one `look` segment, omitted for idle (every older key byte-identical); the
-page's reachable set is ≤ 256 keys per size and the wipe bound is 1024. **Feeding** — a file dropped
+only a measured, telemetry-joined duration is ever shown. Track Z's **response art** remains
+`BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and `BookwormReaction` (perk · talk · gulp · shake ·
+cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay
+shut and the X-eyed error worm never looks away. The selected mascot resolves through `MascotRegistry`; the current
+Bookworm entry is the owner's design as Aseprite sheets
+(`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
+drawn in code); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
+Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
+covers on its own loop. A transition always uses the sleeping sheet from the current room lighting/lamp set; a cold page never transitions, and a real
+completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`
+on every sprite except whole-cell lattice placement. Cached room crops are bounded by distinct frame rects and
+decoded pixels; the small renderer's independent cache keeps its 1024-entry wipe bound. Spines use kind-specific
+binary masks over the existing origin colour; `fitPile` and spine interactions are unchanged. **Feeding** — a file dropped
 on the worm imports through the one intake (R-Z10) — shipped in Z9; the matrix decides its gulp and
 shake like every other beat.
+
+**The sprite art and its preview (G176).** The worm and the room are pixel art authored in Aseprite, in
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/`: the owner's references in `reference/`, the saved parts (the source of
+truth), the Lua builders, and `tools/export_all.sh`, which rebuilds every sheet into `Resources/sprites/`, verifies pixels
+and timing, writes the manifest and regenerates the preview. **To see all of it move, open
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser straight from disk** (no server, no
+network): every worm state, beat and transition, the contract's fifteen weather/time tags and six overlays behind the window, the clock's hand-angle states, the lamp and its fly, the room
+in day/night lighting with the lamp lit or dark, every mood in every environment, Reduce Motion and Low Power, and the 18 × 18 menu-bar strips on a light and a dark
+bar, all at their real per-frame timings. **To make another mascot** (every animation, the dark-room relight, its
+menu-bar set, its registry entry and Settings tile), follow `app/CicadaApp/Art/sprites/MAKING_A_MASCOT.md` — it opens with
+an agent quickstart — and start a session with `docs/specs/2026-10-02-new-mascot-handoff-prompt.md`. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
+its dark outlines on a dark bar (one sheet for both). The 2026-10-02 scenery contract and wall-clock amendment expand the bundle to 36
+sheet pairs (429 tags, 4,426 frames), all integrated with the plan, motion sidecar, manifest and preview.
+Both full and partial/worm-stage exports rebuild saved-parts predecessors, all night sheets and the manifest, then
+run complete acceptance. Independent night/fx builders are repeatable; static `authoring-provenance.json` records
+tool/model/effort/date per family, so rebuilding requires Aseprite and Python/Pillow rather than the Codex CLI.
+`INTEGRATION_REPORT.md` in the art directory records the app checks and all inspected render paths: 480
+environment/mood/lamp/zoom composites, 48 overlay composites, 24 fixed-clock composites and six scenery Settings panes.
+`CICADA_WRITE_COMPOSITES=1 swift test --filter WindowSpritesTests` reproduces the room PNGs; run the same flag with
+`--filter ScenerySettingsTests` for the panes and `tools/make_integration_review.py` for the review boards/index.
+The same snapshot flag with `--filter MascotSettingsTests` adds four Mascot panes (valid/unknown choice × light/dark)
+to that review index.
+The palette loader follows the art verifier's complete declaration: authoring colours, night ramps/question glyph,
+scenery ramps/overlay colours and clock colours. Only the 81 authoring keys count against 87; all 699 declared RGBs
+still meet palette/alpha/reserved-hue checks. A defect reports sheet/frame/cell/colour once per sheet.
+The registry and one-entry Mascot selector are built; a second character's own design remains open.
+Count props, the queue as a room, G175 marks and Q1 remain open; app-side tests do not
+establish the owner's visual acceptance or the live CPU budget.
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
@@ -563,13 +677,14 @@ fallback, opaque under Reduce Transparency); a lint fails the build on any glass
 afternoon and night of one composition — `docs/design/ART_DIRECTION.md`) appears only on non-data surfaces — never the
 graph, a list, a grid, a form or a number, and text never sits directly on paint — enforced by an allowlist lint;
 Home's band and the Welcome are `PaintedScene` (C10), composed inside `Views/Meadow/`, and its particle colours are
-the art's (`ScenePaint`), never theme tokens. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+the art's (`ScenePaint`), never theme tokens. Pixel sprites carry the same provenance in
+`Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
 read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
-never animates.
+never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
 **Video (Track V).** A saved video plays where the user already is — a saved item's detail column in the
 Feed, the entity Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is

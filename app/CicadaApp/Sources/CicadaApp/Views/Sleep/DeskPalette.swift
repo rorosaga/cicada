@@ -8,7 +8,7 @@ import AppKit
 /// `ThemeTokenTests.testNoStateHexOutsideTheTheme`'s banned list: no collision
 /// (and `DeskPaletteTests` asserts the values, not just the absent literals).
 /// One NIGHT palette, mode-independent, for the same reason the worm palette
-/// is (`BookwormSprites.swift:13-19`) and a stronger one here — this is the
+/// is (`BookwormOverlays` / `BookwormArt`) and a stronger one here — this is the
 /// Sleep page, and a night window is the metaphor, not a theme accident.
 ///
 /// The keys are disjoint from `BookwormPalette`'s so a grid authored for one

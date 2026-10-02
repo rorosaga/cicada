@@ -1,0 +1,1641 @@
+{ "frames": [
+   {
+    "filename": "room-skyfx 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 1.aseprite",
+    "frame": { "x": 36, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 2.aseprite",
+    "frame": { "x": 72, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 3.aseprite",
+    "frame": { "x": 108, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 4.aseprite",
+    "frame": { "x": 144, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 5.aseprite",
+    "frame": { "x": 180, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 6.aseprite",
+    "frame": { "x": 216, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 7.aseprite",
+    "frame": { "x": 252, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 8.aseprite",
+    "frame": { "x": 288, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 9.aseprite",
+    "frame": { "x": 324, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 10.aseprite",
+    "frame": { "x": 360, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 11.aseprite",
+    "frame": { "x": 396, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 12.aseprite",
+    "frame": { "x": 0, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 13.aseprite",
+    "frame": { "x": 36, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 14.aseprite",
+    "frame": { "x": 72, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 15.aseprite",
+    "frame": { "x": 108, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 16.aseprite",
+    "frame": { "x": 144, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 17.aseprite",
+    "frame": { "x": 180, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 18.aseprite",
+    "frame": { "x": 216, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 19.aseprite",
+    "frame": { "x": 252, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 20.aseprite",
+    "frame": { "x": 288, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 21.aseprite",
+    "frame": { "x": 324, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 22.aseprite",
+    "frame": { "x": 360, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 23.aseprite",
+    "frame": { "x": 396, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 24.aseprite",
+    "frame": { "x": 0, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 25.aseprite",
+    "frame": { "x": 36, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 26.aseprite",
+    "frame": { "x": 72, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 27.aseprite",
+    "frame": { "x": 108, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 28.aseprite",
+    "frame": { "x": 144, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 29.aseprite",
+    "frame": { "x": 180, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 30.aseprite",
+    "frame": { "x": 216, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 31.aseprite",
+    "frame": { "x": 252, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 32.aseprite",
+    "frame": { "x": 288, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 33.aseprite",
+    "frame": { "x": 324, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 34.aseprite",
+    "frame": { "x": 360, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 35.aseprite",
+    "frame": { "x": 396, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 36.aseprite",
+    "frame": { "x": 0, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 37.aseprite",
+    "frame": { "x": 36, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 38.aseprite",
+    "frame": { "x": 72, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 39.aseprite",
+    "frame": { "x": 108, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 40.aseprite",
+    "frame": { "x": 144, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 41.aseprite",
+    "frame": { "x": 180, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 42.aseprite",
+    "frame": { "x": 216, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 43.aseprite",
+    "frame": { "x": 252, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 44.aseprite",
+    "frame": { "x": 288, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 45.aseprite",
+    "frame": { "x": 324, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 46.aseprite",
+    "frame": { "x": 360, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 47.aseprite",
+    "frame": { "x": 396, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 48.aseprite",
+    "frame": { "x": 0, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 49.aseprite",
+    "frame": { "x": 36, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 50.aseprite",
+    "frame": { "x": 72, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 51.aseprite",
+    "frame": { "x": 108, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 52.aseprite",
+    "frame": { "x": 144, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 53.aseprite",
+    "frame": { "x": 180, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 54.aseprite",
+    "frame": { "x": 216, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 55.aseprite",
+    "frame": { "x": 252, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 56.aseprite",
+    "frame": { "x": 288, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 57.aseprite",
+    "frame": { "x": 324, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 58.aseprite",
+    "frame": { "x": 360, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 59.aseprite",
+    "frame": { "x": 396, "y": 128, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 60.aseprite",
+    "frame": { "x": 0, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 61.aseprite",
+    "frame": { "x": 36, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 62.aseprite",
+    "frame": { "x": 72, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 63.aseprite",
+    "frame": { "x": 108, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 64.aseprite",
+    "frame": { "x": 144, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 65.aseprite",
+    "frame": { "x": 180, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 66.aseprite",
+    "frame": { "x": 216, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 67.aseprite",
+    "frame": { "x": 252, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 68.aseprite",
+    "frame": { "x": 288, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 69.aseprite",
+    "frame": { "x": 324, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 70.aseprite",
+    "frame": { "x": 360, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 71.aseprite",
+    "frame": { "x": 396, "y": 160, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 72.aseprite",
+    "frame": { "x": 0, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 73.aseprite",
+    "frame": { "x": 36, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 74.aseprite",
+    "frame": { "x": 72, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 75.aseprite",
+    "frame": { "x": 108, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 76.aseprite",
+    "frame": { "x": 144, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 77.aseprite",
+    "frame": { "x": 180, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 78.aseprite",
+    "frame": { "x": 216, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 79.aseprite",
+    "frame": { "x": 252, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 80.aseprite",
+    "frame": { "x": 288, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 81.aseprite",
+    "frame": { "x": 324, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 82.aseprite",
+    "frame": { "x": 360, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 83.aseprite",
+    "frame": { "x": 396, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 84.aseprite",
+    "frame": { "x": 0, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 85.aseprite",
+    "frame": { "x": 36, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 86.aseprite",
+    "frame": { "x": 72, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 87.aseprite",
+    "frame": { "x": 108, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 88.aseprite",
+    "frame": { "x": 144, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 89.aseprite",
+    "frame": { "x": 180, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 90.aseprite",
+    "frame": { "x": 216, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 91.aseprite",
+    "frame": { "x": 252, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 92.aseprite",
+    "frame": { "x": 288, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 93.aseprite",
+    "frame": { "x": 324, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 94.aseprite",
+    "frame": { "x": 360, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 95.aseprite",
+    "frame": { "x": 396, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 96.aseprite",
+    "frame": { "x": 0, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 97.aseprite",
+    "frame": { "x": 36, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 98.aseprite",
+    "frame": { "x": 72, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 99.aseprite",
+    "frame": { "x": 108, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 100.aseprite",
+    "frame": { "x": 144, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 101.aseprite",
+    "frame": { "x": 180, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 102.aseprite",
+    "frame": { "x": 216, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 103.aseprite",
+    "frame": { "x": 252, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 104.aseprite",
+    "frame": { "x": 288, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 105.aseprite",
+    "frame": { "x": 324, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 106.aseprite",
+    "frame": { "x": 360, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 107.aseprite",
+    "frame": { "x": 396, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-skyfx 108.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 109.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 110.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 111.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 112.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 113.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 114.aseprite",
+    "frame": { "x": 72, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 115.aseprite",
+    "frame": { "x": 72, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 116.aseprite",
+    "frame": { "x": 72, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 117.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 118.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 119.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 120.aseprite",
+    "frame": { "x": 108, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 121.aseprite",
+    "frame": { "x": 108, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 122.aseprite",
+    "frame": { "x": 108, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 123.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 124.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 125.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 126.aseprite",
+    "frame": { "x": 180, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 127.aseprite",
+    "frame": { "x": 180, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 128.aseprite",
+    "frame": { "x": 180, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 129.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 130.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 131.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-skyfx 132.aseprite",
+    "frame": { "x": 216, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 133.aseprite",
+    "frame": { "x": 252, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 134.aseprite",
+    "frame": { "x": 288, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 135.aseprite",
+    "frame": { "x": 324, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 136.aseprite",
+    "frame": { "x": 360, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 137.aseprite",
+    "frame": { "x": 396, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 138.aseprite",
+    "frame": { "x": 0, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 139.aseprite",
+    "frame": { "x": 36, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 140.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 141.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 142.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 143.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 144.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 145.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 146.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 147.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 148.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 149.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 150.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 151.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 152.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 153.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 154.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 155.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 156.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 157.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 158.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 159.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 160.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 161.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 162.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 163.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 164.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 165.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 166.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 167.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 168.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 169.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 170.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 171.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 172.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 173.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 174.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 175.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 176.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 177.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 178.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   },
+   {
+    "filename": "room-skyfx 179.aseprite",
+    "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 250
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.6-dev",
+  "image": "room-skyfx.png",
+  "format": "RGBA8888",
+  "size": { "w": 432, "h": 352 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "mist-day", "from": 0, "to": 35, "direction": "forward", "color": "#000000ff" },
+   { "name": "mist-dusk", "from": 36, "to": 71, "direction": "forward", "color": "#000000ff" },
+   { "name": "mist-night", "from": 72, "to": 107, "direction": "forward", "color": "#000000ff" },
+   { "name": "rainbow-day", "from": 108, "to": 119, "direction": "forward", "color": "#000000ff" },
+   { "name": "rainbow-dusk", "from": 120, "to": 131, "direction": "forward", "color": "#000000ff" },
+   { "name": "shootingstar-night", "from": 132, "to": 179, "direction": "forward", "color": "#000000ff" }
+  ],
+  "slices": [
+  ]
+ }
+}

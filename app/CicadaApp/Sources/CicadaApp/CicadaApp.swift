@@ -122,6 +122,7 @@ struct CicadaApp: App {
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     /// Round-4 decision 6 (R-HO16) — Settings → General → Show in menu bar, per viewer, on by default.
     @AppStorage(MenuBarPreference.defaultsKey) private var menuBarVisible = true
+    @AppStorage(MascotPreference.defaultsKey) private var mascotRaw = MascotRegistry.bookworm.id
     /// R-O4 — the preference resolved against the system appearance
     /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
     private var appColorScheme: AppColorScheme {
@@ -224,6 +225,7 @@ struct CicadaApp: App {
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
                 .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
+                .onChange(of: mascotRaw) { _, _ in menuBarManager.mascotChanged() }
                 .onReceive(DistributedNotificationCenter.default()
                     .publisher(for: AppearancePreference.systemChangedNotification)
                     .receive(on: RunLoop.main)) { _ in

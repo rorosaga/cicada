@@ -157,6 +157,21 @@ enum CicadaMotion {
     }
 }
 
+// MARK: - Sprites (TODO ruling 18)
+extension CicadaMotion {
+    static let spriteFrameMin: TimeInterval = 0.04
+    static let spriteFrameMax: TimeInterval = 4.0
+    static let spriteLoopMin: TimeInterval = 0.4
+    static let spriteLoopMax: TimeInterval = 30
+    static let spritePerkMax: TimeInterval = 0.4
+    static let spriteBeatMax: TimeInterval = 0.8
+    static let spriteTransitionMax: TimeInterval = 1.6
+    static let spriteGentleSlowdown: Double = 2
+    static let spriteTimerTolerance: Double = 0.2
+    /// The wall clock is real time, independent of every ambient sprite loop (owner, 2026-10-02).
+    static let roomClockTick: TimeInterval = 1
+}
+
 // MARK: - The living painting (round-4 T-Home, C10)
 
 /// rationale-F's motion table and ART_DIRECTION §5, as the tokens `SceneMotion` reads (R-HO3). Ambient, not UI

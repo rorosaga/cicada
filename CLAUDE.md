@@ -245,7 +245,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **The app is not the primary surface — the chat is.** The app makes the graph observable.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
   a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art never behind data or text;
-  Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion`.
+  Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (a sprite's frame timings are data in its sheet, inside `CicadaMotion`'s sprite caps — TODO ruling 18).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
 - **Prices and plan usage show only on the Sleep page's Details and engine menu** (ruling 12), each figure with its basis.
@@ -258,6 +258,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Three gates, not one:** `CICADA_ALLOW_CONNECTOR_FETCH` (opt-out) gates every fetch Sleep starts on its own — a click
   the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables logos.
   Every server-side fetch of someone else's URL goes through `net_guard`.
+- **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible and Settings is closed, at 4 s / ≤ 64 KB / no cookies or identifiers; see `docs/architecture/network.md`.
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
   different headers.** No scraping behind authentication, ever.

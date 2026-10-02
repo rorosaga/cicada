@@ -1,0 +1,27 @@
+{
+ "version": 1,
+ "note": "Static authoring record, independent of the tools installed when rebuilding. Owner reference designs are credited in README.md.",
+ "families": {
+  "day": {
+   "tool": "Codex",
+   "model": "gpt-6.1-sol",
+   "effort": "extra-high",
+   "date": "2026-10-01",
+   "process": "original day art authored in Aseprite"
+  },
+  "night": {
+   "tool": "Codex",
+   "model": "gpt-6.1-sol",
+   "effort": "extra-high",
+   "date": "2026-10-02",
+   "process": "headless night relight from saved day art"
+  },
+  "scenery": {
+   "tool": "Codex",
+   "model": "gpt-6.1-sol",
+   "effort": "extra-high",
+   "date": "2026-10-02",
+   "process": "headless scenery built from saved parts and declared palette"
+  }
+ }
+}

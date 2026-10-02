@@ -4,7 +4,41 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-25) — round 4 closed
+## Where things stand (2026-10-02) — round 4 closed; G176 merged (PR #164)
+
+**Study room sprites and scenery (G176), 2026-10-02 — merged to `dev` as PR #164 on the owner's word, after his review of `preview.html`.**
+The complete delivery is 36 sheet pairs, 429 tags and 4,426 frames: the owner's worm, all 16 night worm sheets,
+15 weather/time skies, six overlays, relit props and the real wall clock, with the app player, scenery model,
+Settings thumbnails and visible-room-only public-city weather read. All parts are integrated in this worktree;
+missing art is an acceptance failure. Error keeps black X eyes and the drop; one dark-outline menu sheet serves both bars.
+The clock uses the art plan's `(94,34)` placement. Reduce Motion holds sprite key frames and hides the second hand;
+Low Power doubles sprite holds; hidden/occluded rooms and Settings pause the room sprites, clock and weather read.
+Rain now holds each of its 48 unchanged frames for 100 ms: worst steady state is rainy-night + digesting + lit lamp,
+**1,758 boundaries/minute including 60 clock ticks**, below ruling 18's unchanged 1,800 cap.
+The app's 552 room composites (all eight moods, both lamp states and both zooms, overlays and fixed clock times) and
+six scenery and four Mascot Settings panes have a reproducible writer and review index; see the art
+`INTEGRATION_REPORT.md` for checks and paths.
+Final checks after the Mascot addition, five-lens review and lighting-edge follow-up: two full Swift suites, **2,787 tests each / zero failures**;
+CLAUDE size/link checks **2 passed**;
+two headless exports **120 files byte-identical**; documented worm-stage and partial skyfx builds match the same delivery;
+`make app` bundle **36 pairs + manifest, every hash matched**;
+`git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
+**Still to measure live:** idle CPU on the Sleep page against the previous build (≤ 3% of one core and within 2 points)
+and the demo-bank light/dark look at 0.8×–1.4×.
+*Pick up here:* the next mascot — `app/CicadaApp/Art/sprites/MAKING_A_MASCOT.md` and the prompt
+`docs/specs/2026-10-02-new-mascot-handoff-prompt.md`. **Open design rounds:** count props, the queue as a room, G175 marks, a second G127 character and
+Q1 (running Sleep currently sleeps rather than reads). Time-of-day/dark-room scenery and the clock are built.
+**Owner 2026-10-02, mascot selector:** Settings → Sleep → Mascot is built beside The scenery. Its pure registry
+holds exactly Bookworm; the per-viewer choice defaults/falls back to `bookworm`, and all room/menu/empty/intake
+sprite reads resolve through that entry. G127's selector foundation is built; a second character's base remains open.
+
+**G176 worm art fix pass (2026-10-01), integrated in the day-art bundle described by the finishing handoff.**
+The chosen bookworm's eyes/brows, outlines, shadow band, book transitions, z fade and 18 × 18 state details are repaired
+in the saved sources; the day worm exports 130 tags / 1,095 frames. Error has black diagonal X eyes and the drop; one
+dark-outline menu sheet serves both appearances. Original references remain unchanged. The integrated app fixes the
+five resulting test failures, including the extra error lens slice and the fly's top-rim check. B12's narrower menu
+lens stays held for the owner. The sleeping-outro → reading key-frame closed/open-book handoff can still pop; the
+contract does not name a reading opening beat. No live app review is claimed by these code/art checks.
 
 **2026-09-28 fixes (on `dev`):** #118 drops the owner's paths from the MCP tool description, docs and test
 fixtures (the agent setup prompt was already per-machine); #119 imports Claude projects exported one file per project
@@ -525,7 +559,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   art on the Sleep page (G127 would throw it away); a time-of-day sky was deliberately left out (art
   only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
   260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
-  16-cell grid (the spec said 40).
+  16-cell grid (the spec said 40). (2026-10-01, ruling 18: the nightcap retired with the owner's own worm; 2026-10-02: clock-based scenery and dark lighting are built.)
 - **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
   Sleep cycle starting mid-remote-write can still sweep that file (R-R27); a stdio
   `cicada_write_claim` asks `GET /sleep/status` before its own commit and leaves the page dirty for
@@ -851,6 +885,132 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     Revisit R-VU10 only if a real run shows the clause steering an agent somewhere the person did not allow; revisit
     R-VU12 only if a bank's queue file ever nears its ceiling.
 
+18. **The study room is animated pixel art on the owner's own bookworm — state art may move, and it still shows only
+    real state (owner, 2026-10-01; G176, G107, G125).** The owner: "I've already done here the base model of the
+    bookworm i want. Can you iterate with codex sol 6.1 extra high effort all the sprites with the animations? and
+    generate the assets like the lamp, extra books, window, environment behind window animated too. Little fly (pixel
+    size almost), moving around turned on lamp. Have environemnts for sunny, night, windy, rainy... all animated. You
+    will find the bookworm png and 5 emotion states here app/assets/. Make sure to generate everything, have codex
+    implement it using computer use in aseprite and add it to the app." The binding spec is
+    [`2026-10-01-bookworm-sprites-spec.md`](../specs/2026-10-01-bookworm-sprites-spec.md). This amends Track Z's R-Z1
+    (its persist list: the held book at room scale in every state, shut eyes when sleeping, black X eyes and the drop on
+    error; the nightcap retires; the stage dots persist only in the 18 × 18 set), R-Z4, R-Z11 (titles, motion and
+    palette: `palette.json`, not `DeskPalette`) and R-Z12, G125 v3's R-A13 and P14, the 2026-09-02 mascot plan's R1
+    (nine colours), R3 (the 24-cell grid) and R8 (250–800 ms), and the sprites brief's §4, §5 and §9 where named below.
+    R-Z2, R-Z3, R-Z5, R-Z7, R-Z8, R-Z9, R-Z10, R-Z13, R-Z14, P10, P11, P12, P13 and rulings 8–10 and 12 are untouched.
+    - **R-BW1 — the worm is the owner's reference.** `app/CicadaApp/Art/sprites/bookworm-2026-10-01/reference/` (the
+      base model, five emotions and the menu-bar design) is the approved design: a green bookworm, charcoal-grey
+      glasses, a blue book, no antennae. It closes G176 Step 1 (the round-1 directions are superseded) and replaces
+      "orange glasses" (brief §4, §9). The book is the character's own in every room-scale state; P10 is about props,
+      not the worm. The 18 × 18 set follows the owner's menu-bar design (head, glasses and neck in two colours) and
+      shows a book only in `reading`. The nightcap retires (P14), and the room worm drops the stage dots: the stage
+      strip, the sentence and VoiceOver carry the stage; the 18 × 18 set keeps them.
+    - **R-BW2 — sprites are sheets, not strings.** Sources and Lua generators live in
+      `app/CicadaApp/Art/sprites/bookworm-2026-10-01/`; exported PNG sheets + Aseprite JSON (tags, per-frame
+      durations, slices) live in `Resources/sprites/` with `sprites.manifest.json` (generator, script, source, date,
+      licence, sha256) and a test that checks every hash and that each JSON's tags are exactly the ones the app asks
+      for. Sheets load only through `Bundle.cicadaResource`. One `palette.json` is read by the scripts and the tests.
+      G127's seam stands: a character is a set of sheets with the same tags.
+    - **R-BW3 — frame animation (the Track Z lint amendment brief §4 asked for).** Motion is sprite frames with
+      per-frame durations from the sheet, on whole pixels of the one lattice, drawn nearest-neighbour. R-Z4's
+      no-transform lint stays for the worm and widens to every room sprite. "≤ 3 frames × 0.12 s" becomes: a beat
+      settles within 800 ms (the perk within 400 ms); a transition within 1.6 s; no frame is shorter than 40 ms or
+      longer than 4 s; a loop runs 0.4–30 s — `CicadaMotion`'s sprite caps, checked against every sheet. The renderer
+      key bound (≤ 256 per size) becomes a bound on frame rects and decoded pixels.
+    - **R-BW4 — state art may move (R-Z12 and R-A13 amended).** A state's art may loop — breathing, blinks, page
+      flips, z → zz → zzz, the weather's own loop, the fly — because the loop shows a state that is already true. It
+      never adds a fact and never speeds up, densifies or brightens with a count, an age or a stage (R-Z3). A mood
+      change may play one transition (a yawn into sleep, a stretch out of it) besides the cheer and the weather
+      crossfade; a hydrate or a refresh never does (DR-65). Glances, sways, tail flicks and nod-offs inside a state's
+      idle loop, and cloud drift inside a weather's loop, are state art (R-Z12's "no glance, no drift" is amended for
+      them). Still refused: any flash or strobe (the storm flash), weather driven by a count, motion with
+      no state behind it (mug steam, plant sway), and duration estimates.
+    - **R-BW5 — scenery separates environment and Sleep (owner amendment, 2026-10-02; R-Z11).** The time follows
+      `SceneClock`'s day · dusk · night through `SceneStore` unless Choose pins it. The five base weathers are sunny,
+      cloudy, windy, rainy and curtains. Local weather (default) reads the time zone's principal city, falling back to
+      How Sleep is doing when unavailable; How Sleep is doing maps the mood; Choose fixes the time and base. Running
+      adds calm mist; digesting adds a rainbow by day/dusk or a shooting star at night in every mode. The legend, help
+      and VoiceOver share the same time/base/source and moment text. Ruling 9 applies to every weather frame and every
+      reachable worm frame in each lighting set. Pixels on the lattice only, never Meadow paintings (DR-13).
+    - **R-BW6 — the room is dark iff night or rainy (owner amendment, 2026-10-02; R-A13).** Lighting is a pure
+      function of time, base weather and lamp: the dark room has only faint window light and, when scheduled, the lamp.
+      Dusk keeps the day-lit room. Props select `night-dark`/`night-lit`; all eight room states use matching night sheets,
+      including beats and both sleeping transitions, with identical tags/frame counts/timings to day. The complete art
+      layer crossfades with the pane using the existing 0.4 s token; Reduce Motion swaps instantly. The menu bar stays
+      independent of room lighting. The worm's mood remains Sleep's at any hour and in any weather.
+    - **R-BW7 — the five emotions map to states, once.** happy → `.happy`, `.digesting` and the cheer; tired →
+      `.hungry`; worried (sweat drop and black X eyes) → `.error`; sad → the shake beat; the base model → `.awake` and
+      `.reading`; mad is drawn but unused. Never random, never the clock. The menu bar gets an 18 × 18 set drawn from
+      the owner's menu-bar design, with the count badge and stage dots drawn on it in code (G107 R2), and its own
+      precedence unchanged.
+    - **R-BW8 — the lamp and its fly.** The lamp is redrawn and still means exactly the schedule (R-A3, P11; it never
+      previews). The fly is the lit lamp's art: present only while lit, inert, never in the glass or the pile column,
+      resting on the shade under Reduce Motion.
+    - **R-BW9 — books (P10 holds).** The worm's own book has three covers that change as he picks up the next one;
+      the real pile's spines gain a pixel texture by kind (a second cue beside colour; `fitPile` unchanged). No other
+      book is drawn: a shelf, cart or bookcase needs a real count and its own design round.
+    - **R-BW10 — interaction is unchanged.** The hotspots stay the worm, the lamp and the window; the plant, mug, bean
+      bag, wall, rug, cord, scenery, wall clock and fly stay inert (R-Z2). No click on art starts, cancels or schedules work (R-Z9).
+    - **R-BW11 — Reduce Motion, Low Power, unseen.** Under Reduce Motion every sprite shows its key frame (G107 R7)
+      and the yawn and stretch do not play; under Low Power every frame plays at half speed; a sprite rests while its
+      window cannot be seen or a host pauses it (R-HO7's reader and policy). Each animated layer redraws only at its
+      own frame boundaries. **Budget:** the room's summed sprite redraws stay ≤ 1,800 per minute in every steady
+      environment/mood/lamp combination, computed from the sheets (sprite boundaries plus the clock's 60 ticks ≤ 1,800 per
+      minute, tested in `SpriteClipTests`); mean CPU with the room frontmost stays ≤ 3 % of one core and within 2
+      points of `dev`, measured by the owner on the demo bank before merge.
+      **Wall-clock amendment (owner, 2026-10-02):** `room-clock` is state art selected from `Date()` and
+      `TimeZone.current`, not a sprite loop. Hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their
+      integer values. Its own visible-only `TimelineView(.periodic)` ticks once per second; no room-wide timer.
+      Black hour/minute hands and a thin red second hand use dark variants in a dark room. Reduce Motion removes
+      only the second hand; hour/minute keep time. Help and VoiceOver say “Wall clock, <system short time>”,
+      after the window. The inert clock at `(94,34)`, 15 × 15, z1 clears every worm frame, the window, shade and pile;
+      the art verifier rechecks night sheets. The manifest is 36 pairs; motion sidecars exclude the clock.
+    - **R-BW12 — how it was made, and the gate.** The owner chose the tool and the model for this job: Codex
+      (gpt-6.1-sol, extra-high effort) with computer use in Aseprite. This overrides brief §5's "Computer use in the GUI
+      is not needed and is worse" and the handoff's model split for this job only; the small-models rule is otherwise
+      unchanged. Parts are hand-correctable in the GUI; every sheet is rebuilt and exported headless so the manifest's
+      hashes are reproducible. PR to `dev`; no merge until the owner has reviewed `preview.html` and the composites.
+    - **Dated owner amendment, 2026-10-01 — black X eyes and one menu sheet.** Error retains its worried brows and
+      drop, with the exact black diagonal Xs in both lenses; red pupils retire. `errorLensL = (10,17,5,6)` records the
+      error state's widened inner left rim; common rest-registration slices remain unchanged. The 18 × 18 sheet keeps
+      its dark outlines on both menu-bar appearances; no dark-bar variant.
+    - **Dated owner amendment, 2026-10-02 — Settings and the weather gate.** Settings → Sleep → The scenery offers
+      Local weather · How Sleep is doing · Choose, with per-viewer source/time/base preferences. Choose exposes labelled,
+      keyboard- and VoiceOver-accessible key-frame thumbnails for three times and five base weathers and a small live
+      room preview. Local weather discloses the public city read. The app's own weather gate is Local weather AND the
+      study room visible: one HTTPS host, four seconds, at most 64 KiB, no cookies or identifiers, no redirects/auth,
+      at most one attempt per half hour including failures, memory cache only; selecting another source turns it off.
+      It reads public city coordinates from `TimeZoneCoordinates`, never location permission or a bank. The binding
+      [`2026-10-02-study-room-scenery.md`](../specs/2026-10-02-study-room-scenery.md) supersedes the old seven skies and
+      no-clock refusal. A lightning flash stays refused. Count props, the queue as a room, G175 marks and Q1 remain open.
+    - **Dated timing amendment, 2026-10-02 — retain R-BW11's cap.** Independent leaves cost 1,908 boundaries/minute
+      for rainy-night + digesting + lamp lit: rain 749, fly 520, worm 340, shooting star 239, clock 60. Rain's holds
+      move from 80 to 100 ms in day/dusk/night, keeping all 48 original pixels/frames and every seamless motion step.
+      The amended rain costs 599/minute; the measured maximum over all 240 combinations is **1,758/minute**. The
+      art verifier pins 100 ms exactly and still checks the historical day-pixel hash. No cap was raised. Hidden
+      rooms and Settings explicitly pass the pause to the sprite leaves as well as the clock and weather reader.
+    - **Dated mascot amendment, owner 2026-10-02:** “work on the selector for the mascot in settings. Name this one
+      bookworm.” The Mascot group beside The scenery uses registry entries (id, display name, room prefix, menu
+      sheet, art folder), with exactly **Bookworm** today. Selection is a per-viewer preference, default/fallback
+      `bookworm`; shared art readers, cover/transition timing and the menu cache resolve that entry. Tiles show
+      room/menu key frames, a checkmark, keyboard focus and a selected VoiceOver label. Another character will have
+      its own base and the same pipeline/tag/canvas contract, plus one entry and manifest files; no state change.
+    - **Integration review correction, 2026-10-02:** room layers keep the appearance crossfade; the worm is its
+      sibling, keyed only by day/dark-lit/dark-unlit lighting. Mood/overlay edges and day-time lamp toggles start
+      their new frames fully visible when the lighting set stays the same. **Re-review follow-up:** an active
+      transition or beat also suppresses the worm's lighting-swap animation, so error → sleeping's day/dusk
+      rainy/dark → sunny/day yawn starts fully visible in Sleep-driven scenery or Local weather fallback. Room
+      layers still crossfade; passive worm lighting changes retain their fade. The wall clock ticks on whole seconds (whole minutes without seconds under
+      Reduce Motion). Weather sends no viewer language/region; an empty language field suppresses CFNetwork's
+      default, fixed headers accompany the coordinate/condition query, and the disclosure includes the network
+      address. Backwards time makes the next attempt due; stale readings remain only for an eligible visible
+      refresh or an in-flight refresh, and failures/cancellation/zone changes cannot retain expired weather.
+      Night book/glasses/lid/z/question/X/drop marks and fly shade occlusion are checked from the real sheets.
+      Partial builds refresh saved-parts predecessors and all night exports/manifest/full verification; repeated
+      night/fx builders replace prior output. Static family provenance removes the Codex CLI rebuild dependency.
+    Revisit R-BW4 or R-BW11 if either half of R-BW11's budget is exceeded or a viewer reports motion discomfort;
+    R-BW5–R-BW9 on the owner's word.
+
 ## How work is run here
 
 - **PRs merge to `dev`**; `main` is a manual promotion. Never commit directly to `dev` except docs.
@@ -885,7 +1045,7 @@ Everything about *what to do next and why* lives in one place:
 The queue there, in order: **G118 slice 2** (server merged PR #72; the app is built on
 `feat/provenance-ui` and awaits the live check and merge; P6 rides Track S — drop this from the
 queue once it merges) → **G93** (cross-stream ask). Then the bigger
-rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — now a character selector to build (owner 2026-09-23, Strawberry browser's companions as inspiration). Before
+rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — the Bookworm selector foundation is built (owner 2026-10-02); a second character and the room shortcut remain open (owner 2026-09-23, Strawberry browser's companions as inspiration). Before
 any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.

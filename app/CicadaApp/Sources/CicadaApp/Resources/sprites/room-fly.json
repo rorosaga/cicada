@@ -1,0 +1,377 @@
+{ "frames": [
+   {
+    "filename": "room-fly 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 1200
+   },
+   {
+    "filename": "room-fly 1.aseprite",
+    "frame": { "x": 20, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 80
+   },
+   {
+    "filename": "room-fly 2.aseprite",
+    "frame": { "x": 40, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 3.aseprite",
+    "frame": { "x": 60, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 4.aseprite",
+    "frame": { "x": 80, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 5.aseprite",
+    "frame": { "x": 100, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 6.aseprite",
+    "frame": { "x": 0, "y": 26, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 80
+   },
+   {
+    "filename": "room-fly 7.aseprite",
+    "frame": { "x": 20, "y": 26, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 8.aseprite",
+    "frame": { "x": 40, "y": 26, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 9.aseprite",
+    "frame": { "x": 60, "y": 26, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 10.aseprite",
+    "frame": { "x": 80, "y": 26, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 80
+   },
+   {
+    "filename": "room-fly 11.aseprite",
+    "frame": { "x": 60, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 12.aseprite",
+    "frame": { "x": 80, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 13.aseprite",
+    "frame": { "x": 100, "y": 26, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 14.aseprite",
+    "frame": { "x": 0, "y": 52, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 15.aseprite",
+    "frame": { "x": 20, "y": 52, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 16.aseprite",
+    "frame": { "x": 40, "y": 52, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 80
+   },
+   {
+    "filename": "room-fly 17.aseprite",
+    "frame": { "x": 60, "y": 52, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 18.aseprite",
+    "frame": { "x": 80, "y": 52, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 19.aseprite",
+    "frame": { "x": 100, "y": 52, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 20.aseprite",
+    "frame": { "x": 0, "y": 78, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 21.aseprite",
+    "frame": { "x": 20, "y": 78, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 80
+   },
+   {
+    "filename": "room-fly 22.aseprite",
+    "frame": { "x": 40, "y": 78, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 23.aseprite",
+    "frame": { "x": 60, "y": 78, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 24.aseprite",
+    "frame": { "x": 80, "y": 78, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 25.aseprite",
+    "frame": { "x": 100, "y": 78, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 26.aseprite",
+    "frame": { "x": 0, "y": 104, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 80
+   },
+   {
+    "filename": "room-fly 27.aseprite",
+    "frame": { "x": 20, "y": 104, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 60
+   },
+   {
+    "filename": "room-fly 28.aseprite",
+    "frame": { "x": 40, "y": 104, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 29.aseprite",
+    "frame": { "x": 60, "y": 104, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 90
+   },
+   {
+    "filename": "room-fly 30.aseprite",
+    "frame": { "x": 80, "y": 104, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 600
+   },
+   {
+    "filename": "room-fly 31.aseprite",
+    "frame": { "x": 100, "y": 104, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 32.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 33.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 34.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 35.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 36.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 37.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 38.aseprite",
+    "frame": { "x": 0, "y": 130, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 70
+   },
+   {
+    "filename": "room-fly 39.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 20, "h": 26 },
+    "sourceSize": { "w": 20, "h": 26 },
+    "duration": 120
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.6-dev",
+  "image": "room-fly.png",
+  "format": "RGBA8888",
+  "size": { "w": 120, "h": 156 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "buzz", "from": 0, "to": 39, "direction": "forward", "color": "#000000ff" }
+  ],
+  "slices": [
+   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 7, "y": 0, "w": 12, "h": 17 } }] }
+  ]
+ }
+}

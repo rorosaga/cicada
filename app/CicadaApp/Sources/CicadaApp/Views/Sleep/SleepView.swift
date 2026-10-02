@@ -133,32 +133,27 @@ func sleepLiveness(isConnected: Bool,
 
 // MARK: - Sleep Dashboard — the study desk (G125)
 
-/// **The motion budget (G125 v3 Task 8, spec R-A13).** Four rules, and every
-/// one of them has a test or a lint behind it — a budget that lives only in a
-/// comment is a budget that drifts:
+/// **The motion budget (G125, TODO ruling 18).** State art may loop; chrome
+/// settles within 400 ms and the active stage pulse stays capped at 1.2 s.
+/// Sprite frames stay inside `CicadaMotion`'s caps: beats within 800 ms, the
+/// perk within 400 ms, and yawn/stretch within 1.6 s. Sheet tests check every
+/// frame and tag; each layer redraws only at its frame boundaries.
 ///
-/// 1. **Idle is still.** Nothing on a settled page moves except the worm's own
-///    frame loop. `DeskSceneView` has no `TimelineView` (its docstring says
-///    so), and `SleepStageStrip` starts one *only* while a pip is actually
-///    active — an idle page costs zero redraws.
-/// 2. **Nothing animates longer than 400 ms**, except the stage pulse, which
-///    is capped separately at 1.2 s (`SleepStages.pulsePeriod`) because a
-///    breath is a state indicator, not a transition. Every duration on this
-///    page is a named constant on `SleepMotion`, and
-///    `SleepNumbersLintTests.testTheSleepFolderDeclaresNoLiteralAnimationDuration`
-///    fails the build on a literal `duration:` anywhere else under
-///    `Views/Sleep/`.
-/// 3. **Reduce Motion holds every animation at its terminal frame.** The worm
-///    through `BookwormView.frameIndex(…reduceMotion:)`, the pulse through
-///    `stagePulse(at:reduceMotion:)`, and every value-driven settle through
-///    `SleepMotion.settle/pile/disclosure(reduceMotion:)`, which return `nil`
-///    — SwiftUI for "jump to the new value".
-/// 4. **No spinner where a real count exists.** A `ProgressView` on this page
+/// Reduce Motion holds sprites at their key frame, suppresses beats and
+/// transitions, and jumps the weather and value-driven settles. Low Power
+/// plays every frame at half speed; unseen or host-paused sprites do not tick.
+/// `SleepNumbersLintTests` retains the no-transform and literal-duration rails.
+///
+/// **No spinner where a real count exists.** A `ProgressView` on this page
 ///    appears only where there is genuinely nothing to count yet: the queue
 ///    before its first fetch, a history row's detail mid-load, and the
 ///    Consolidate/Cancel buttons' own in-flight state. The queue's rows lost
 ///    theirs in Task 6 — they have `read of total`.
 struct SleepView: View {
+    @AppStorage(SceneryMode.defaultsKey) private var scenerySourceRaw = SceneryMode.localWeather.rawValue
+    @AppStorage(ManualScenery.timeKey) private var sceneryTimeRaw = "day"
+    @AppStorage(ManualScenery.baseKey) private var sceneryWeatherRaw = "sunny"
+
     @Binding var selectedTab: AppTab
     /// Entity chips inside the consolidation history's expanded detail land
     /// here (mirrors `SourcesPageView`'s own closure at `ContentView.swift`)
@@ -222,7 +217,10 @@ struct SleepView: View {
             // `SkyBand.ships` is the one switch (Z-B16).
             if SkyBand.isDrawn(contrast: contrast) {
                 VStack(spacing: 0) {
-                    SleepSkyBand(weather: windowWeather(for: page.mood))
+                    SleepSkyBand(scenery: Scenery.resolve(mode: SceneryMode.stored(scenerySourceRaw),
+                        clock: SceneStore.shared.phase,
+                        forecast: LocalWeatherReader.shared.base(for: SceneStore.shared.timeZoneIdentifier),
+                        mood: page.mood, manual: ManualScenery(timeRaw: sceneryTimeRaw, baseRaw: sceneryWeatherRaw)))
                     Spacer(minLength: 0)
                 }
             }
@@ -490,12 +488,6 @@ struct SleepView: View {
     /// Reconcile retry policy, pulled out as pure functions (mirrors
     /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
     /// curve are unit-testable without standing up a view or a live Task loop.
-    /// The one requested point size for the whole hero. `BookwormView` and
-    /// `deskSceneLayout` each snap it the same way (G130 R6), so passing this
-    /// single number to both is what puts the room and the character on one
-    /// lattice — P12: two pixel scales in one picture read as a bug.
-    static let wormPointSize: CGFloat = 120
-
     static let maxReconcileAttempts = 3
 
     static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {

@@ -1,5 +1,13 @@
 # G107 Pixel Bookworm Mascot + Single Menu-Bar Tamagotchi — Implementation Plan
 
+**Historical design/implementation snapshot — superseded for sprite art (2026-10-02).**
+The [owner sprite contract](../specs/2026-10-01-bookworm-sprites-spec.md) and
+[scenery amendment](../specs/2026-10-02-study-room-scenery.md) override the old code grids, red error-eye marks,
+seven mood-only skies and clock refusal below. Current art uses black X eyes plus the drop, one dark-outline menu
+sheet on both bars, 15 time/weather skies, relit night rooms/worms, 100 ms rain and a wall clock. The worm's mood
+remains independent of clock/weather. Use [app.md](../architecture/app.md) and the current handoff for implementation.
+
+
 > **For agentic workers:** Implement this plan task-by-task as [`docs/goals/working-method.md`](../goals/working-method.md) describes. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the 16×16 monochrome template glyph with one code-defined, colour, 24×24 pixel bookworm whose every state is always moving (≥ 2 frames each), show exactly ONE animated Tamagotchi in the macOS menu bar with the inbox count baked into the sprite (the duplicated `button.title` text badge goes away), and put the same character on every in-app surface — including the Sleep page, above its bracket status line, which stays as the caption.

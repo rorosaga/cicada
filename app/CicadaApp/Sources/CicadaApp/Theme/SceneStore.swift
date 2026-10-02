@@ -14,6 +14,8 @@ final class SceneStore {
     static let shared = SceneStore()
 
     private(set) var phase: CicadaTheme.SkyPhase
+    /// Weather re-checks the city even when the phase stays the same.
+    private(set) var timeZoneIdentifier: String
     /// Round-4 T-Home (R-HO1) — the clock's painting: day, the afternoon's golden hour, or night.
     private(set) var time: SceneTime
     /// Low Power Mode turns every living painting gentle and halves its frame rate (DR-66, R-HO7).
@@ -34,6 +36,7 @@ final class SceneStore {
         self.table = table
         readLowPower = lowPower
         let at = now(), zone = timeZone()
+        timeZoneIdentifier = zone.identifier
         phase = SceneClock.phase(at: at, timeZone: zone, table: table)
         time = SceneClock.time(at: at, timeZone: zone, table: table)
         self.lowPower = lowPower()
@@ -59,6 +62,7 @@ final class SceneStore {
 
     func refresh() {
         let at = now(), zone = timeZone()
+        if timeZoneIdentifier != zone.identifier { timeZoneIdentifier = zone.identifier }
         let nextPhase = SceneClock.phase(at: at, timeZone: zone, table: table)
         if nextPhase != phase { phase = nextPhase }
         let nextTime = SceneClock.time(at: at, timeZone: zone, table: table)
