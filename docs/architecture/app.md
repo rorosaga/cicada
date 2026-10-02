@@ -566,7 +566,9 @@ and timing, writes the manifest and regenerates the preview. **To see all of it 
 `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser straight from disk** (no server, no
 network): every worm state, beat and transition, the contract's fifteen weather/time tags and six overlays behind the window, the clock's hand-angle states, the lamp and its fly, the room
 in day/night lighting with the lamp lit or dark, every mood in every environment, Reduce Motion and Low Power, and the 18 × 18 menu-bar strips on a light and a dark
-bar, all at their real per-frame timings. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
+bar, all at their real per-frame timings. **To make another mascot** (every animation, the dark-room relight, its
+menu-bar set, its registry entry and Settings tile), follow `app/CicadaApp/Art/sprites/MAKING_A_MASCOT.md` — it opens with
+an agent quickstart — and start a session with `docs/specs/2026-10-02-new-mascot-handoff-prompt.md`. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
 its dark outlines on a dark bar (one sheet for both). The 2026-10-02 scenery contract and wall-clock amendment expand the bundle to 36
 sheet pairs (429 tags, 4,426 frames), all integrated with the plan, motion sidecar, manifest and preview.
 Both full and partial/worm-stage exports rebuild saved-parts predecessors, all night sheets and the manifest, then
