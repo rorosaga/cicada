@@ -163,6 +163,336 @@
       "hex": "#FFF1B8",
       "group": "fx",
       "role": "fx.sparkleCore"
+    },
+    {
+      "key": "A",
+      "hex": "#C7BEAA",
+      "group": "room",
+      "role": "room.wall.0"
+    },
+    {
+      "key": "E",
+      "hex": "#D6CBB3",
+      "group": "room",
+      "role": "room.wall.1"
+    },
+    {
+      "key": "F",
+      "hex": "#B3AA98",
+      "group": "room",
+      "role": "room.wall.2"
+    },
+    {
+      "key": "I",
+      "hex": "#AA8864",
+      "group": "room",
+      "role": "room.floor.0"
+    },
+    {
+      "key": "J",
+      "hex": "#C5A47C",
+      "group": "room",
+      "role": "room.floor.1"
+    },
+    {
+      "key": "M",
+      "hex": "#765D48",
+      "group": "room",
+      "role": "room.floor.2"
+    },
+    {
+      "key": "N",
+      "hex": "#5E493C",
+      "group": "room",
+      "role": "room.wood.0"
+    },
+    {
+      "key": "O",
+      "hex": "#936C50",
+      "group": "room",
+      "role": "room.wood.1"
+    },
+    {
+      "key": "R",
+      "hex": "#C69A69",
+      "group": "room",
+      "role": "room.wood.2"
+    },
+    {
+      "key": "T",
+      "hex": "#3F4A52",
+      "group": "room",
+      "role": "room.lamp.0"
+    },
+    {
+      "key": "U",
+      "hex": "#70818B",
+      "group": "room",
+      "role": "room.lamp.1"
+    },
+    {
+      "key": "V",
+      "hex": "#CBD7D5",
+      "group": "room",
+      "role": "room.lamp.2"
+    },
+    {
+      "key": "a",
+      "hex": "#D39A53",
+      "group": "room",
+      "role": "room.lampWarm.0"
+    },
+    {
+      "key": "c",
+      "hex": "#FFF2C7",
+      "group": "room",
+      "role": "room.lampWarm.1"
+    },
+    {
+      "key": "d",
+      "hex": "#DDC29B",
+      "group": "room",
+      "role": "room.glow.0"
+    },
+    {
+      "key": "f",
+      "hex": "#EBCB9C",
+      "group": "room",
+      "role": "room.glow.1"
+    },
+    {
+      "key": "h",
+      "hex": "#564458",
+      "group": "room",
+      "role": "room.bag.0"
+    },
+    {
+      "key": "i",
+      "hex": "#826778",
+      "group": "room",
+      "role": "room.bag.1"
+    },
+    {
+      "key": "k",
+      "hex": "#BBA1AA",
+      "group": "room",
+      "role": "room.bag.2"
+    },
+    {
+      "key": "l",
+      "hex": "#294A43",
+      "group": "room",
+      "role": "room.leaf.0"
+    },
+    {
+      "key": "n",
+      "hex": "#49715B",
+      "group": "room",
+      "role": "room.leaf.1"
+    },
+    {
+      "key": "o",
+      "hex": "#799968",
+      "group": "room",
+      "role": "room.leaf.2"
+    },
+    {
+      "key": "p",
+      "hex": "#AE6751",
+      "group": "room",
+      "role": "room.pot.0"
+    },
+    {
+      "key": "s",
+      "hex": "#D79568",
+      "group": "room",
+      "role": "room.pot.1"
+    },
+    {
+      "key": "t",
+      "hex": "#465D69",
+      "group": "room",
+      "role": "room.mug.0"
+    },
+    {
+      "key": "u",
+      "hex": "#ADD1CF",
+      "group": "room",
+      "role": "room.mug.1"
+    },
+    {
+      "key": "v",
+      "hex": "#18243B",
+      "group": "weather",
+      "role": "weather.sky.night.0"
+    },
+    {
+      "key": "w",
+      "hex": "#26334A",
+      "group": "weather",
+      "role": "weather.sky.night.1"
+    },
+    {
+      "key": "x",
+      "hex": "#35465C",
+      "group": "weather",
+      "role": "weather.sky.night.2"
+    },
+    {
+      "key": "y",
+      "hex": "#725363",
+      "group": "weather",
+      "role": "weather.sky.dawn.0"
+    },
+    {
+      "key": "z",
+      "hex": "#D59A84",
+      "group": "weather",
+      "role": "weather.sky.dawn.1"
+    },
+    {
+      "key": "0",
+      "hex": "#F3C697",
+      "group": "weather",
+      "role": "weather.sky.dawn.2"
+    },
+    {
+      "key": "7",
+      "hex": "#508EB0",
+      "group": "weather",
+      "role": "weather.sky.clear.0"
+    },
+    {
+      "key": "8",
+      "hex": "#75ADC4",
+      "group": "weather",
+      "role": "weather.sky.clear.1"
+    },
+    {
+      "key": "9",
+      "hex": "#A0CAD5",
+      "group": "weather",
+      "role": "weather.sky.clear.2"
+    },
+    {
+      "key": "!",
+      "hex": "#8DADB9",
+      "group": "weather",
+      "role": "weather.sky.fair.0"
+    },
+    {
+      "key": "#",
+      "hex": "#B4CDD1",
+      "group": "weather",
+      "role": "weather.sky.fair.1"
+    },
+    {
+      "key": "$",
+      "hex": "#74858C",
+      "group": "weather",
+      "role": "weather.sky.overcast.0"
+    },
+    {
+      "key": "%",
+      "hex": "#9BABAA",
+      "group": "weather",
+      "role": "weather.sky.overcast.1"
+    },
+    {
+      "key": "&",
+      "hex": "#344A56",
+      "group": "weather",
+      "role": "weather.sky.storm.0"
+    },
+    {
+      "key": "(",
+      "hex": "#4F6470",
+      "group": "weather",
+      "role": "weather.sky.storm.1"
+    },
+    {
+      "key": ")",
+      "hex": "#CDD9D7",
+      "group": "weather",
+      "role": "cloud.0"
+    },
+    {
+      "key": "*",
+      "hex": "#EDF0E2",
+      "group": "weather",
+      "role": "cloud.1"
+    },
+    {
+      "key": "+",
+      "hex": "#F4BE56",
+      "group": "weather",
+      "role": "celestial.sun.0"
+    },
+    {
+      "key": ",",
+      "hex": "#FFE59D",
+      "group": "weather",
+      "role": "celestial.sun.1"
+    },
+    {
+      "key": "-",
+      "hex": "#E6E8C6",
+      "group": "weather",
+      "role": "celestial.moon.0"
+    },
+    {
+      "key": "/",
+      "hex": "#DFE6ED",
+      "group": "weather",
+      "role": "celestial.star.0"
+    },
+    {
+      "key": ":",
+      "hex": "#8A9BAB",
+      "group": "weather",
+      "role": "celestial.star.1"
+    },
+    {
+      "key": ";",
+      "hex": "#849EAB",
+      "group": "weather",
+      "role": "weather.rain.0"
+    },
+    {
+      "key": "<",
+      "hex": "#B8CDDE",
+      "group": "weather",
+      "role": "weather.rain.1"
+    },
+    {
+      "key": "=",
+      "hex": "#735B6C",
+      "group": "weather",
+      "role": "weather.curtain.0"
+    },
+    {
+      "key": ">",
+      "hex": "#B098A2",
+      "group": "weather",
+      "role": "weather.curtain.1"
+    },
+    {
+      "key": "?",
+      "hex": "#292A2E",
+      "group": "fly",
+      "role": "fly.body.0"
+    },
+    {
+      "key": "@",
+      "hex": "#F3E5B3",
+      "group": "fly",
+      "role": "fly.wing.0"
+    },
+    {
+      "key": "[",
+      "hex": "#FFFFFF",
+      "group": "spine",
+      "role": "spine.mask.0"
     }
   ]
 }

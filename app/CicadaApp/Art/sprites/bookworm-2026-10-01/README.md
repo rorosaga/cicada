@@ -1,4 +1,6 @@
-# Bookworm sprites — Run A
+# Bookworm sprites — sources and delivery
+
+Current delivery: **19 sheet pairs, 159 tags and 1,450 frames** — Run A's ten worm sheets (including the dark menu-bar variant), plus Run B's nine room sheets. Open [preview.html](preview.html) locally for the complete art review. Read [RUN_B_REPORT.md](RUN_B_REPORT.md) for the room's acceptance evidence, remaining browser-review limitation and Run C handoff; [ROOM_TAG_TIMINGS.md](ROOM_TAG_TIMINGS.md) lists all 21 room tags. The Run A record below is preserved as historical evidence.
 
 Run A supplies the room worm and the owner's independently drawn 18 × 18 menu-bar head. The saved Aseprite parts are the pixel authority. Run B adds the room; Run C implements the Swift player and app integration.
 
@@ -72,7 +74,7 @@ The visual comparisons inspected include:
 
 `lua/gui_review.lua` opens the saved sources and plays every tag with Aseprite's native timeline command. It also supports `CicadaReviewMode = 'gif'` for actual exported GIF playback and `'step'` for native next-frame inspection at 800%. `CicadaReviewStart` resumes at a plan index and `CicadaReviewEnd` bounds a partial pass; clear the latter for a full pass. While running, the status shows the plan index. Its completion count and `CicadaReview.completed` describe only clips completed in that invocation. Playback completion is recorded only after each clip's full duration. Acquire the shared GUI lock before running it; stop it and close its documents before releasing the lock. Run headless exports separately from GUI computer use, since batch processes register the same macOS app identifier.
 
-## Run B / Run C handoff and limits
+## Run A handoff and limits (recorded before Run B)
 
 Run B can append palette groups without changing the 27 worm/fx/book keys; 60 single-character keys remain under the spec's 87-key limit. The shared helper API and its tests are ready. Extend `verify.py` with the room/ruling-9/fly/weather checks, add the three room builders, and supply `manifest.py` and `make_preview.py` for `STAGE=all`. `--worm-only` must stay independently usable. The extra dark sheet needs a manifest entry too.
 
@@ -107,3 +109,53 @@ The final pipeline completed twice after the last z correction and the combined 
 - [x] All five emotion references compared at matching size. Evidence: `qa/compare-{happy,tired,sad,worried,mad}@6x.png` and the mad demo.
 - [x] Small art inspected on `#F6F6F6` and `#1E1E1E` at 1× and 2×, plus the owner's requested `#ECECEC`. Evidence: menu boards and comparison strips above.
 - [x] Final `swift test` remains green. Evidence: `qa/final-swift.log`, 2,720 tests and zero failures.
+
+## Run B — the room, weather, fly and spine textures
+
+The room occupies a 160 × 64 lattice with bottom-left coordinates in [room-plan.json](room-plan.json). Columns 0–109 contain the art; columns 110–159 are reserved for the real pile. The window pane is 36 × 32 at (20, 27), the worm is at (36, 9), and the bean bag's seat maps to row 9. All props remain inert. The lamp and fly show the schedule's lit state; weather still follows the page mood, never a clock or count.
+
+| Sheet | Canvas | Tags | Frames | Contents |
+|---|---|---:|---:|---|
+| `room-backdrop` | 110 × 64 | 2 | 2 | Textured wall and planks, baseboard bevel, rug, cord, right trim; dark and warm-lit variants |
+| `room-window` | 40 × 38 | 1 | 1 | Wood frame, crossbars and sill |
+| `room-weather` | 36 × 32 | 7 | 260 | Night, dawn, sunny, partly cloudy, windy, rainy, curtains drawn |
+| `room-lamp` | 18 × 50 | 2 | 2 | Unlit shade and warm-lit rim, pole and foot |
+| `room-fly` | 20 × 26 | 1 | 40 | Tiny erratic route, two landings, wing glints and shade occlusion |
+| `room-beanbag` | 62 × 12 | 1 | 1 | Folded lobes and a dented seat |
+| `room-plant` | 12 × 22 | 1 | 1 | Connected leaf clusters and terracotta pot |
+| `room-mug` | 8 × 9 | 1 | 1 | Coffee, handle and upper-left highlight |
+| `room-spines` | 24 × 12 | 5 | 15 | `chat`, `page`, `note`, `video`, `other`; body/light/shade masks, not animation |
+
+The room adds 55 colours to the original 27, for **82 unique palette entries**. Each painted pixel is a palette RGB with alpha 255; all other pixels have alpha 0. Props use coloured outlines. Light comes from the upper left, with a separate warm lamp contribution. No smoothing, gradient, alpha fade, flash, mug steam, plant sway or decorative book pile was added.
+
+### Saved parts and rebuild
+
+`parts/room-parts.aseprite` holds the reusable room parts on a 110 × 64 master canvas. Each named tag is registered at its own local top-left origin. `seed_room_parts.lua` creates this file only when missing. **Keep the saved file:** it contains the native GUI corrections. The builders read its named parts, crop to the fixed prop canvases, assemble layers and slices, and save the nine `src/room-*.aseprite` sources. Exports come from those sources.
+
+From this directory:
+
+```sh
+tools/export_all.sh
+python3 tools/make_room_review.py
+node tools/check_preview.mjs
+```
+
+The default pipeline rebuilds the three room builders, exports all 19 saved sources, writes the manifest, verifies all sheets and GIFs, and generates the offline HTML. **During the orchestrator's Run A freeze it deliberately skips the two worm builders.** Their sources, parts, scripts and exported bytes are unchanged. `STAGE=worm` retains Run A's explicit rebuild workflow, for its separate fix pass. No worm helper was edited. `run_checked.lua` requires a completion marker from every builder and the part checker before the shell can export; a missing marker stops the pipeline even if the authoring process returns zero.
+
+`room-motion.json` contains the seven weather tags and integer positions/steps in play order, including the last-to-first step. Positive wraps describe periodic motion; zero means no wrap. A `.phase` element records a pose phase rather than a physical point; tree lean and curtain hem tracks record their integer offsets. Clouds and rain record physical coordinates. Leaf height resets occur behind the jamb, with both endpoint frames hidden.
+
+### Native Aseprite authoring and review
+
+Computer use opened the saved room parts and sources, used Aseprite's native 1-pixel Pencil/Eraser through `gui_room_tune.lua`, enabled onion skin, and inspected at displayed 800% zoom. The saved corrections include leaf clusters; lamp highlights and warm rim; bean-bag folds; staircase corners of the glow; sill and mug highlights; and the round cloud's top and outer corners. The final extreme tree lean was tightened by four native outline strokes in `gui_room_final.lua`, keeping its canopy inside glass columns 1–12. Both scripts record corrections; neither runs during rebuilding.
+
+`gui_room_build.lua` ran all three builders **inside Aseprite's Developer Console**, then the same builders ran headless. This keeps scripts inside the worktree rather than installing them in Aseprite's user scripts directory. GUI authoring and review held the shared lock; documents were closed before releasing it. The source and exported-GIF review plans each visibly completed 21 clips. Each weather played three full loops in each plan; fly stepping used 800% and onion skin. The final 40-step fly was replayed frame by frame in Aseprite. The timing/path refinements, separated moon/star pixel and final tree outline were also checked in the regenerated filmstrips.
+
+The rain and fly each received multiple refinement passes: rain gained irregularly placed streaks, glass drops that leave through the bottom, and hidden leaf resets; the fly gained two uneven loops, short changes of pace, two explicit landing holds and a continuous hidden return. The fly's final loop is 4,590 ms, with 1,200 ms on the top and 600 ms on the right rim. Every step moves at most one pixel on each axis; zero-ink frames are intentional occlusion behind the shade. It is present only with the lit lamp, and its first frame rests on the top for Reduce Motion.
+
+### Verification and remaining review
+
+Two final default exports produced identical bytes for **52 files**: all 38 sheet files, the manifest, HTML, plan and motion JSON, nine room sources and the room parts file. The independent verifier also compares re-exports with the bundled files and checks every tag GIF against the sheet pixels and delays. The final bundle is **588,486 bytes**, with **1,958,256 decoded pixels** and a longest sheet side of **1,024 px**. Ruling 9 passes for every weather frame against all reachable worm art; the lowest visible-cloud ratio is 53.97%. The storm's largest luminance deviation is 0.2102%, below 2%.
+
+All 28 mood × lamp × 3×/4× composites were inspected in `qa/composites/`. All room-frame filmstrips, the seven weather GIFs, 40 fly frames at 8× and all 15 spine masks at 6× were reviewed. The final Swift run passed **2,720 tests / 0 failures**, 78.620 seconds. Earlier full and focused runs hit the existing three-second polling assertion; those logs are retained and the final full rerun passed without changing Swift.
+
+The browser tool rejected `file://` under its URL policy. **Actual offline browser playback is unverified.** The preview includes all 19 sheets and 159 tags, uses relative images and inline JSON without network dependencies, and its JavaScript/control wiring passes `check_preview.mjs`; that check uses a mock Canvas and does not verify browser rendering. Open `preview.html` manually for this remaining acceptance item. [RUN_B_FILES.txt](RUN_B_FILES.txt) lists every authored, exported and local QA file written by Run B. App integration and the owner's CPU/visual approval remain Run C/orchestrator gates.

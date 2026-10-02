@@ -1,0 +1,27 @@
+{ "frames": [
+   {
+    "filename": "room-beanbag.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 62, "h": 12 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 62, "h": 12 },
+    "sourceSize": { "w": 62, "h": 12 },
+    "duration": 1000
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.6-dev",
+  "image": "room-beanbag.png",
+  "format": "RGBA8888",
+  "size": { "w": 62, "h": 12 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "idle", "from": 0, "to": 0, "direction": "forward", "color": "#000000ff" }
+  ],
+  "slices": [
+   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 0, "y": 0, "w": 62, "h": 12 } }] },
+   { "name": "seat", "keys": [{ "frame": 0, "bounds": {"x": 4, "y": 2, "w": 54, "h": 1 } }] }
+  ]
+ }
+}

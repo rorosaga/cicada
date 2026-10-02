@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run A verifier. Run B adds room checks here; --worm-only remains independent."""
+"""Complete sprite verifier; --worm-only keeps Run A independently usable."""
 import argparse
 from collections import Counter
 import hashlib
@@ -171,7 +171,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--worm-only', action='store_true')
     args = parser.parse_args()
-    check(args.worm_only, 'Run A implements --worm-only. Run B must add the room checks before STAGE=all.')
     palette = json.loads((ART / 'palette.json').read_text())['colors']
     colors = {c['key']: tuple(bytes.fromhex(c['hex'].removeprefix('#'))) + (255,) for c in palette}
     allowed = set(colors.values())
@@ -300,9 +299,14 @@ def main():
             for ext in ['png','json']: check((temp/f'{name}.{ext}').read_bytes()==(RES/f'{name}.{ext}').read_bytes(),f'{name}: non-deterministic {ext}')
             report['sheets'][name]={'frames':len(records),'tags':len(tags),'pngSha256':hashlib.sha256(png.read_bytes()).hexdigest(),'jsonSha256':hashlib.sha256(js.read_bytes()).hexdigest()}
             print(f'{name}: {len(tags)} tags, {len(records)} frames, pixels/timing/marks/GIFs/determinism OK')
-    boards(small_keys['bookworm-small'],small_keys['bookworm-small-dark'])
+    if not args.worm_only:
+        from verify_room import verify_room
+        verify_room(report, palette)
+    # Reference comparison exports belong to Run A, and stay untouched in Run B.
+    if args.worm_only:
+        boards(small_keys['bookworm-small'],small_keys['bookworm-small-dark'])
     (ART/'qa/verification.json').write_text(json.dumps(report,indent=2)+'\n')
-    print('worm verification: OK')
+    print(('worm' if args.worm_only else 'all sprite') + ' verification: OK')
 
 
 if __name__ == '__main__':
