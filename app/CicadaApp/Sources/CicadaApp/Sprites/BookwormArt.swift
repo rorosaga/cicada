@@ -12,8 +12,9 @@ enum BookwormArt {
                                          .hungry, .error, .curious(count: 1)]
 
     static func sheetName(_ state: BookwormState, _ set: BookwormArtSet,
-                          lighting: RoomLighting = .day, lampLit: Bool = false) -> String {
-        set == .small ? "bookworm-small" : "bookworm-\(state.caseName)\(lighting.suffix(lampLit: lampLit))"
+                          lighting: RoomLighting = .day, lampLit: Bool = false,
+                          mascot: Mascot = MascotPreference.selected()) -> String {
+        set == .small ? mascot.menuBarSheet : mascot.roomSheet(state, lighting: lighting, lampLit: lampLit)
     }
 
     static func tag(_ look: BookwormLook, cover: Int = 1) -> String {
@@ -44,15 +45,16 @@ enum BookwormArt {
 
     static func clip(_ state: BookwormState, look: BookwormLook, cover: Int = 1,
                      set: BookwormArtSet = .room, lighting: RoomLighting = .day,
-                     lampLit: Bool = false) -> (SpriteSheet, SpriteClip)? {
-        guard let sheet = SpriteSheets.sheet(named: sheetName(state, set, lighting: lighting, lampLit: lampLit)) else { return nil }
+                     lampLit: Bool = false, mascot: Mascot = MascotPreference.selected()) -> (SpriteSheet, SpriteClip)? {
+        guard let sheet = SpriteSheets.sheet(named: sheetName(state, set, lighting: lighting, lampLit: lampLit, mascot: mascot)) else { return nil }
         let name = set == .small ? state.caseName : tag(look, cover: state.caseName == "reading" ? cover : 1)
         guard let clip = fallbackClip(in: sheet, tag: name) else { return nil }
         return (sheet, clip)
     }
 
-    static func coverIndex(at date: Date, profile: SpritePlaybackProfile) -> Int {
-        guard profile != .still, let total = SpriteSheets.sheet(named: "bookworm-reading")?.clip("idle")?.total,
+    static func coverIndex(at date: Date, profile: SpritePlaybackProfile,
+                           mascot: Mascot = MascotPreference.selected()) -> Int {
+        guard profile != .still, let total = SpriteSheets.sheet(named: sheetName(.reading, .room, mascot: mascot))?.clip("idle")?.total,
               total > 0 else { return 1 }
         let elapsed = max(0, date.timeIntervalSince(SpriteClock.origin))
         guard elapsed.isFinite else { return 1 }
@@ -60,36 +62,37 @@ enum BookwormArt {
         return 1 + Int(cycle.truncatingRemainder(dividingBy: Double(covers)))
     }
 
-    static func beatLength(_ kind: BookwormReaction, state: BookwormState) -> TimeInterval {
+    static func beatLength(_ kind: BookwormReaction, state: BookwormState,
+                           mascot: Mascot = MascotPreference.selected()) -> TimeInterval {
         let look = BookwormLook.reaction(kind, .center)
-        return SpriteSheets.sheet(named: sheetName(state, .room))?.clip(tag(look))?.total ?? CicadaMotion.spriteBeatMax
+        return SpriteSheets.sheet(named: sheetName(state, .room, mascot: mascot))?.clip(tag(look))?.total ?? CicadaMotion.spriteBeatMax
     }
 
     static func transitionClip(_ t: BookwormTransition, lighting: RoomLighting = .day,
-                               lampLit: Bool = false) -> (SpriteSheet, SpriteClip)? {
-        let name = sheetName(.sleeping(stage: 1), .room, lighting: lighting, lampLit: lampLit)
+                               lampLit: Bool = false, mascot: Mascot = MascotPreference.selected()) -> (SpriteSheet, SpriteClip)? {
+        let name = sheetName(.sleeping(stage: 1), .room, lighting: lighting, lampLit: lampLit, mascot: mascot)
         guard let sheet = SpriteSheets.sheet(named: name), let clip = sheet.clip(t.rawValue) else { return nil }
         return (sheet, clip)
     }
 
-    static func transitionLength(_ t: BookwormTransition) -> TimeInterval {
-        transitionClip(t)?.1.total ?? CicadaMotion.spriteTransitionMax
+    static func transitionLength(_ t: BookwormTransition, mascot: Mascot = MascotPreference.selected()) -> TimeInterval {
+        transitionClip(t, mascot: mascot)?.1.total ?? CicadaMotion.spriteTransitionMax
     }
 
-    /// Cache the union once. Before art lands, the declared canvas is the honest layout bound.
-    static let wormInk: CGRect = {
+    /// The selected skin's cached sheet slices drive the hotspot, so switching cannot leave old geometry behind.
+    static var wormInk: CGRect {
         let rects = states.filter { $0.caseName != "curious" }.compactMap {
             SpriteSheets.sheet(named: sheetName($0, .room))?.slices["ink"]
         }
         return rects.isEmpty ? CGRect(origin: .zero, size: roomFrame) : rects.reduce(CGRect.null) { $0.union($1) }
-    }()
+    }
 
-    static let eyePixel: CGPoint = {
-        guard let eye = SpriteSheets.sheet(named: "bookworm-awake")?.slices["eye"] else {
+    static var eyePixel: CGPoint {
+        guard let eye = SpriteSheets.sheet(named: sheetName(.awake, .room))?.slices["eye"] else {
             return CGPoint(x: roomFrame.width / 2, y: roomFrame.height / 2)
         }
         return CGPoint(x: eye.midX, y: eye.midY)
-    }()
+    }
 }
 
 struct BookwormSize: Equatable {

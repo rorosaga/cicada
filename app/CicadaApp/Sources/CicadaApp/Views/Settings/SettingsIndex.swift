@@ -77,6 +77,7 @@ enum SettingsIndex {
         .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
+        .mascot,
         .calendarApp, .contactsApp,
         .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsReading,
         .readingAgent, .readingMethods, .watchingMethods, .readingSites,
@@ -88,6 +89,8 @@ enum SettingsIndex {
     ]
 
     static let staticEntries: [SettingsEntry] = [
+        SettingsEntry(.mascot, .sleep, Copy.Mascot.title,
+                      keywords: ["character", "avatar"] + MascotRegistry.all.map(\.displayName)),
         SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"], detail: Copy.Scenery.disclosure),
         SettingsEntry(.sceneryTime, .sleep, Copy.Scenery.time, keywords: ["scenery", "day", "dusk", "night"], anchor: .scenerySource),
         SettingsEntry(.sceneryWeather, .sleep, Copy.Scenery.weather, keywords: ["scenery", "sunny", "cloudy", "windy", "rainy", "curtains"], anchor: .scenerySource),

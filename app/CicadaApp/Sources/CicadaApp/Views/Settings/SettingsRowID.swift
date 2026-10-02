@@ -32,6 +32,7 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let sceneryTime = SettingsRowID("sceneryTime")
     static let sceneryWeather = SettingsRowID("sceneryWeather")
     static let sceneryPreview = SettingsRowID("sceneryPreview")
+    static let mascot = SettingsRowID("mascot")
     // Engines (Task 2)
     static let engineChoice = SettingsRowID("engineChoice")
     static let engineModel = SettingsRowID("engineModel")

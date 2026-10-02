@@ -101,13 +101,15 @@ those warning patches are absent in the final inspected renders. No saved art pi
 
 ## Verification record
 
-Two full `swift test` runs after the final exports pass **2,766 tests each, zero failures**: **132.631 s** and
-**128.247 s** (`qa/integration-swift-{1,2}.log`). No polling test flaked; no isolated polling rerun was needed.
-The requested `PYTHONDONTWRITEBYTECODE=1` CLAUDE.md size/link pytest command passes **2 tests in 1.06 s**.
+Two full `swift test` runs after the Mascot addition and final exports pass **2,775 tests each, zero failures**:
+**128.977 s** and **128.185 s** (`qa/mascot-swift-{1,2}.log`). No polling test flaked; no isolated polling rerun was
+needed. This adds nine tests to the earlier 2,766-test sprite/scenery checks, whose logs remain in `qa/`.
+The requested `PYTHONDONTWRITEBYTECODE=1` CLAUDE.md size/link pytest command passes **2 tests in 1.08 s**
+(`qa/mascot-claude-size.log`).
 `make app` builds only this worktree's debug bundle; it installs and launches nothing. The built
 `.build/arm64-apple-macosx/debug/Cicada.app` contains **36 PNG/JSON pairs plus the manifest (73 files)**,
 with every PNG/JSON SHA-256 matching its manifest entry and no extra sprite files. The bundle's sprite bytes total
-**1,834,301** (`qa/integration-build.log`, `qa/integration-bundle.json`). `git diff --check` is clean.
+**1,834,301** (`qa/mascot-build.log`, `qa/mascot-bundle.json`). `git diff --check` is clean.
 The Run C call-site size check reads `IntakePanel`'s reading/importing `pointSize: 48` and
 `EmptyStateLayout.wormPointSize = 96`; `BookwormArtTests.testSizesAtTheCallSites` verifies their integer-scaled
 room-sheet results (**64 × 48** and **128 × 96 pt** at unit UI scale). This is code/test verification, not another
@@ -116,7 +118,8 @@ The first full suite overlapped the exporter and SwiftPM copied a transient reso
 `bookworm-reading-night-dark.png`; all 12 resulting failures traced to that missing file.
 The failed attempt is retained as `qa/integration-swift-overlap.log`; it is not counted as a green pass.
 Two completed full exports pass all art verifiers and match **119 files byte for byte**.
-`qa/integration-export-{1,2}.log` and `qa/scenery-rebuild.json` record them.
+`qa/mascot-export-{1,2}.log`, `qa/mascot-export-compare.log` and `qa/scenery-rebuild.json` record them. The Mascot
+addition changes no art source, PNG/JSON, palette, sidecar, manifest or preview bytes.
 The offline script smoke check passes **36 sheets / 429 tags / 480 combinations**; it is a Canvas stub, not a browser.
 Resources measure **1,834,301 bytes** (cap 6 MiB), **6,151,414 decoded pixels** (cap 8,388,608).
 
@@ -124,7 +127,7 @@ Resources measure **1,834,301 bytes** (cap 6 MiB), **6,151,414 decoded pixels** 
 
 Q1 stays first: running Sleep still sleeps while queued/paused work reads; the owner's earlier brief requested
 reading while consolidating. The state machine and matrix remain unchanged. Count props (computer, phone, globe,
-TV, letter tray, calendar), the queue as a room (cart/crate/bookcase), G175 pixel marks and G127 identity selection
+TV, letter tray, calendar), the queue as a room (cart/crate/bookcase), G175 pixel marks and a second G127 character's own base
 are separate design rounds. Time-of-day lighting, local/manual scenery and the clock are complete.
 B12's narrower menu lens needs the owner's decision. The sleeping-outro to reading key frame can still change a
 standing closed book to an open book in one frame; the sheets have no named opening beat. This limitation is
@@ -133,3 +136,40 @@ documented rather than inventing a state transition.
 Owner motion review in [preview.html](preview.html) and the Sleep page, demo-bank light/dark review at
 0.8×–1.4× and idle CPU (≤ 3% of one core and within 2 points of dev) remain required before merge.
 No PR was opened and no commit was made by this integration run.
+
+
+## Mascot selector addition — owner 2026-10-02
+
+The selector beside The scenery names the current character **Bookworm**. `MascotRegistry` is pure and holds
+exactly one entry: `bookworm`, Bookworm, room prefix `bookworm-`, menu sheet `bookworm-small` and this art folder.
+The per-viewer `cicada.mascot` AppStorage preference defaults to Bookworm; unknown stored ids resolve to Bookworm
+without reading or changing a bank. `BookwormArt` routes state/night/transition sheets, reading covers and geometry
+through that entry. Shared `BookwormView` observes the choice on room/empty/intake and all other call sites. The
+menu renderer separates image-cache entries by mascot id, and a choice change restarts its timer at the key frame.
+Existing Bookworm types, state precedence and response matrix retain their names and meaning.
+
+The tile follows Settings' existing list/scenery grammar, uses the awake room key frame and the 18 × 18 menu head
+at 2×, and marks selection with a checkmark plus neutral ground/ring. It has native keyboard focus and the VoiceOver
+label **“Bookworm, selected”**, with no future-character teaser. A new character supplies its own base, shared
+canvases/tags/slices, day and dark/lit night sheets, a menu sheet, manifest entries and one registry entry.
+
+Registry tests verify unique ids, all 25 mascot sheet pairs in the manifest, exact existing Bookworm names for all
+32 state/lighting/lamp combinations, transition resolution, isolated persisted preferences and fallback. A synthetic
+nonregistered skin verifies that explicitly requested sheets do not silently fall back to Bookworm; another cache
+test verifies identity separation even when pixels happen to be the same. Tile tests cover labels/search/focus/marks
+and actual key-frame pixels. Targeted validation passes **43 tests / zero failures**.
+
+Four additional ImageRenderer panes were inspected individually; paths relative to this art directory:
+
+| Path | Observation |
+|---|---|
+| `qa/integration/settings/mascot-bookworm-light.png` | Compact left tile; room worm and menu head are crisp, with Bookworm, checkmark and dark selection ring clearly visible. |
+| `qa/integration/settings/mascot-bookworm-dark.png` | Both green designs remain readable on the neutral ground; white ring/checkmark clearly mark selection. |
+| `qa/integration/settings/mascot-missing-character-light.png` | Unknown stored id shows the identical selected Bookworm tile without an empty or placeholder option. |
+| `qa/integration/settings/mascot-missing-character-dark.png` | Same fallback and selection in dark appearance; no missing-image or native-view warning patch. |
+
+The review index now contains **552 room renders / 24 boards / ten Settings panes** (six scenery and four Mascot).
+Unlike the scenery source menu, the Mascot button/key-frame views render directly in ImageRenderer. No live keyboard
+or VoiceOver session was driven; focus/labels are checked in the view/tests. The selector foundation is complete;
+a second character's base and G127's room shortcut remain open. Final full-suite/export/build checks are in the
+verification record above.

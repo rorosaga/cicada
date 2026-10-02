@@ -46,10 +46,20 @@ final class BookwormRendererTests: XCTestCase {
     }
 
     func testCacheKeyDistinguishesCountStageRectAndSize() {
-        XCTAssertEqual(BookwormRenderer.cacheKey(state: .awake, rectIndex: 0, pointSize: 18), "small|awake|0|18")
-        XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 47), rectIndex: 2, pointSize: 18), "small|curious|47|2|18")
-        XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 250), rectIndex: 0, pointSize: 18), "small|curious|99|0|18")
-        XCTAssertEqual(BookwormRenderer.cacheKey(state: .sleeping(stage: 3), rectIndex: 1, pointSize: 18), "small|sleeping|3|1|18")
+        XCTAssertEqual(BookwormRenderer.cacheKey(state: .awake, rectIndex: 0, pointSize: 18), "small|bookworm|awake|0|18")
+        XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 47), rectIndex: 2, pointSize: 18), "small|bookworm|curious|47|2|18")
+        XCTAssertEqual(BookwormRenderer.cacheKey(state: .curious(count: 250), rectIndex: 0, pointSize: 18), "small|bookworm|curious|99|0|18")
+        XCTAssertEqual(BookwormRenderer.cacheKey(state: .sleeping(stage: 3), rectIndex: 1, pointSize: 18), "small|bookworm|sleeping|3|1|18")
+    }
+
+    func testTwoSkinsNeverShareAnImageCacheEntry() {
+        // Reuse real art with a different id to isolate the cache key from pixel differences.
+        let other = Mascot(id: "cache-test", displayName: "Test", roomSheetPrefix: MascotRegistry.bookworm.roomSheetPrefix,
+                           menuBarSheet: MascotRegistry.bookworm.menuBarSheet, artFolder: MascotRegistry.bookworm.artFolder)
+        let a = BookwormRenderer.smallImage(state: .awake, frameStep: 0, pointSize: 18, mascot: MascotRegistry.bookworm)
+        let b = BookwormRenderer.smallImage(state: .awake, frameStep: 0, pointSize: 18, mascot: other)
+        XCTAssertFalse(a === b)
+        XCTAssertTrue(b === BookwormRenderer.smallImage(state: .awake, frameStep: 0, pointSize: 18, mascot: other))
     }
 
     func testCacheIdentityAndDeduplicatedFrames() throws {

@@ -16,15 +16,20 @@ Low Power doubles sprite holds; hidden/occluded rooms and Settings pause the roo
 Rain now holds each of its 48 unchanged frames for 100 ms: worst steady state is rainy-night + digesting + lit lamp,
 **1,758 boundaries/minute including 60 clock ticks**, below ruling 18's unchanged 1,800 cap.
 The app's 552 room composites (all eight moods, both lamp states and both zooms, overlays and fixed clock times) and
-six Settings panes have a reproducible writer and review index; see the art `INTEGRATION_REPORT.md` for checks and paths.
-Final checks: two full Swift suites, **2,766 tests each / zero failures**; CLAUDE size/link checks **2 passed**;
+six scenery and four Mascot Settings panes have a reproducible writer and review index; see the art
+`INTEGRATION_REPORT.md` for checks and paths.
+Final checks after the Mascot addition: two full Swift suites, **2,775 tests each / zero failures**;
+CLAUDE size/link checks **2 passed**;
 two headless exports **119 files byte-identical**; `make app` bundle **36 pairs + manifest, every hash matched**;
 `git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
 **Still open before merge:** the owner's `preview.html`/Sleep-page motion review, demo-bank light/dark review at
 0.8×–1.4× and live idle CPU against `dev` (≤ 3% of one core and within 2 points of `dev`).
 *Pick up here:* review the integration report and diff, commit/open the PR to `dev`, then have the owner review the
-preview and Sleep page before merge. **Open design rounds:** count props, the queue as a room, G175 marks, G127 and
+preview and Sleep page before merge. **Open design rounds:** count props, the queue as a room, G175 marks, a second G127 character and
 Q1 (running Sleep currently sleeps rather than reads). Time-of-day/dark-room scenery and the clock are built.
+**Owner 2026-10-02, mascot selector:** Settings → Sleep → Mascot is built beside The scenery. Its pure registry
+holds exactly Bookworm; the per-viewer choice defaults/falls back to `bookworm`, and all room/menu/empty/intake
+sprite reads resolve through that entry. G127's selector foundation is built; a second character's base remains open.
 
 **G176 worm art fix pass (2026-10-01), integrated in the day-art bundle described by the finishing handoff.**
 The chosen bookworm's eyes/brows, outlines, shadow band, book transitions, z fade and 18 × 18 state details are repaired
@@ -983,6 +988,12 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       The amended rain costs 599/minute; the measured maximum over all 240 combinations is **1,758/minute**. The
       art verifier pins 100 ms exactly and still checks the historical day-pixel hash. No cap was raised. Hidden
       rooms and Settings explicitly pass the pause to the sprite leaves as well as the clock and weather reader.
+    - **Dated mascot amendment, owner 2026-10-02:** “work on the selector for the mascot in settings. Name this one
+      bookworm.” The Mascot group beside The scenery uses registry entries (id, display name, room prefix, menu
+      sheet, art folder), with exactly **Bookworm** today. Selection is a per-viewer preference, default/fallback
+      `bookworm`; shared art readers, cover/transition timing and the menu cache resolve that entry. Tiles show
+      room/menu key frames, a checkmark, keyboard focus and a selected VoiceOver label. Another character will have
+      its own base and the same pipeline/tag/canvas contract, plus one entry and manifest files; no state change.
     Revisit R-BW4 or R-BW11 if either half of R-BW11's budget is exceeded or a viewer reports motion discomfort;
     R-BW5–R-BW9 on the owner's word.
 
@@ -1020,7 +1031,7 @@ Everything about *what to do next and why* lives in one place:
 The queue there, in order: **G118 slice 2** (server merged PR #72; the app is built on
 `feat/provenance-ui` and awaits the live check and merge; P6 rides Track S — drop this from the
 queue once it merges) → **G93** (cross-stream ask). Then the bigger
-rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — now a character selector to build (owner 2026-09-23, Strawberry browser's companions as inspiration). Before
+rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — the Bookworm selector foundation is built (owner 2026-10-02); a second character and the room shortcut remain open (owner 2026-09-23, Strawberry browser's companions as inspiration). Before
 any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
 (Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
 demo bank, never the live one, after the next visual change.

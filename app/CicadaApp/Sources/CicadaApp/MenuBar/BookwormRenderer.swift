@@ -7,17 +7,19 @@ enum BookwormRenderer {
     static let maxCacheEntries = 1024
     private static let colors = PixelRenderer.nsColors(BookwormPalette.colors)
 
-    static func cacheKey(state: BookwormState, rectIndex: Int, pointSize: CGFloat) -> String {
-        "small|\(state.spriteKey)|\(rectIndex)|\(Int(pointSize))"
+    static func cacheKey(state: BookwormState, rectIndex: Int, pointSize: CGFloat,
+                         mascot: Mascot = MascotPreference.selected()) -> String {
+        "small|\(mascot.id)|\(state.spriteKey)|\(rectIndex)|\(Int(pointSize))"
     }
 
-    static func smallImage(state: BookwormState, frameStep: Int, pointSize: CGFloat) -> NSImage {
-        let pair = BookwormArt.clip(state, look: .idle, set: .small)
+    static func smallImage(state: BookwormState, frameStep: Int, pointSize: CGFloat,
+                           mascot: Mascot = MascotPreference.selected()) -> NSImage {
+        let pair = BookwormArt.clip(state, look: .idle, set: .small, mascot: mascot)
         let count = pair?.1.order.count ?? 1
         let step = ((frameStep % count) + count) % count
         let frame = pair?.1.order[step] ?? 0
         let rect = pair?.0.rectIndex[frame] ?? 0
-        let key = cacheKey(state: state, rectIndex: rect, pointSize: pointSize)
+        let key = cacheKey(state: state, rectIndex: rect, pointSize: pointSize, mascot: mascot)
         lock.lock()
         defer { lock.unlock() }
         if let hit = cache[key] { return hit }

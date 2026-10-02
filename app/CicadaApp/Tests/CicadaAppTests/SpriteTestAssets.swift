@@ -6,12 +6,16 @@ import XCTest
 enum SpriteTestAssets {
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let art = root.appendingPathComponent("Art/sprites/bookworm-2026-10-01")
-    static let dayWormNames = BookwormArt.states.map { BookwormArt.sheetName($0, .room) }
-    static let nightWormNames = BookwormArt.states.flatMap { state in
-        [false, true].map { BookwormArt.sheetName(state, .room, lighting: .dark, lampLit: $0) }
+    static let dayWormNames = MascotRegistry.all.flatMap { mascot in
+        BookwormArt.states.map { BookwormArt.sheetName($0, .room, mascot: mascot) }
+    }
+    static let nightWormNames = MascotRegistry.all.flatMap { mascot in
+        BookwormArt.states.flatMap { state in
+            [false, true].map { BookwormArt.sheetName(state, .room, lighting: .dark, lampLit: $0, mascot: mascot) }
+        }
     }
     static let roomNames = ["room-backdrop", "room-clock", "room-window", "room-weather", "room-skyfx", "room-lamp", "room-fly", "room-beanbag", "room-plant", "room-mug", "room-spines"]
-    static let sheetNames = dayWormNames + nightWormNames + ["bookworm-small"] + roomNames
+    static let sheetNames = dayWormNames + nightWormNames + MascotRegistry.all.map(\.menuBarSheet) + roomNames
 
     static func url(_ name: String, ext: String) throws -> URL {
         try XCTUnwrap(Bundle.cicadaResources.cicadaResource(name, ext: ext, in: "sprites"), "Missing sheet resource: \(name).\(ext)")

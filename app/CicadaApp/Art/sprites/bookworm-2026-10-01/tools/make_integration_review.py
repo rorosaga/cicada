@@ -53,8 +53,13 @@ def main():
             name = f'{mode}-{scheme}.png'
             shutil.copyfile(SOURCE / 'settings' / name, settings / name)
             index.append({'settings': str((settings / name).relative_to(ART))})
+    for choice in ['bookworm', 'missing-character']:
+        for scheme in ['light', 'dark']:
+            name = f'mascot-{choice}-{scheme}.png'
+            shutil.copyfile(SOURCE / 'settings' / name, settings / name)
+            index.append({'settings': str((settings / name).relative_to(ART))})
     (OUT / 'render-index.json').write_text(json.dumps(index, indent=2) + '\n')
-    print(f'{sum(len(g) for g in groups.values())} room renders in {len(groups)} boards, six Settings panes')
+    print(f'{sum(len(g) for g in groups.values())} room renders in {len(groups)} boards, ten Settings panes (six scenery, four mascot)')
 
 
 if __name__ == '__main__':

@@ -18,9 +18,11 @@ struct BookwormView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePaused) private var hostPaused
     @Environment(\.spriteSnapshotDate) private var snapshotDate
+    @AppStorage(MascotPreference.defaultsKey) private var mascotRaw = MascotRegistry.bookworm.id
     @State private var windowVisible = true
 
     var body: some View {
+        let mascot = MascotRegistry.resolve(mascotRaw)
         let size = BookwormSize.resolve(pointSize: pointSize, uiScale: CicadaTheme.uiScale, latticeCell: latticeCell)
         let profile = SpritePlaybackProfile.of(reduceMotion: reduceMotion, lowPower: SceneStore.shared.lowPower)
         let paused = snapshotDate != nil || SceneRunPolicy.isPaused(windowVisible: windowVisible, hostPaused: hostPaused)
@@ -28,23 +30,23 @@ struct BookwormView: View {
         let beat = reduceMotion ? nil : reaction.flatMap { BookwormLook.beat($0.kind, for: state, gaze: effective.gaze) }
         let look = beat ?? .pose(effective)
         let activeTransition = reduceMotion || beat != nil || size.set == .small ? nil : transition
-        let pair = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit) }
-            ?? BookwormArt.clip(state, look: look, set: size.set, lighting: lighting, lampLit: lampLit)
+        let pair = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit, mascot: mascot) }
+            ?? BookwormArt.clip(state, look: look, set: size.set, lighting: lighting, lampLit: lampLit, mascot: mascot)
         let start = beat != nil ? reaction?.startedAt : activeTransition?.startedAt
 
         VStack(alignment: alignment, spacing: CicadaTheme.spacingSM) {
             Group {
                 if let pair, pair.1.order.count > 1, profile != .still, !paused {
-                    let tracks = playbackTracks(clip: pair.1, startedAt: start, profile: profile)
+                    let tracks = playbackTracks(clip: pair.1, startedAt: start, profile: profile, mascot: mascot)
                     TimelineView(SpriteFrameSchedule(tracks: tracks)) { context in
                         // TimelineView re-evaluates this closure only: the cover must be chosen here.
-                        let cover = BookwormArt.coverIndex(at: context.date, profile: profile)
-                        let current = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit) }
-                            ?? BookwormArt.clip(state, look: look, cover: cover, set: size.set, lighting: lighting, lampLit: lampLit)
-                        draw(current, at: context.date, startedAt: start, profile: profile, size: size)
+                        let cover = BookwormArt.coverIndex(at: context.date, profile: profile, mascot: mascot)
+                        let current = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit, mascot: mascot) }
+                            ?? BookwormArt.clip(state, look: look, cover: cover, set: size.set, lighting: lighting, lampLit: lampLit, mascot: mascot)
+                        draw(current, at: context.date, startedAt: start, profile: profile, size: size, mascot: mascot)
                     }
                 } else {
-                    draw(pair, at: SpriteClock.origin, startedAt: nil, profile: .still, size: size)
+                    draw(pair, at: SpriteClock.origin, startedAt: nil, profile: .still, size: size, mascot: mascot)
                 }
             }
             .frame(width: size.size.width, height: size.size.height)
@@ -58,12 +60,13 @@ struct BookwormView: View {
         }
     }
 
-    private func playbackTracks(clip: SpriteClip, startedAt: Date?, profile: SpritePlaybackProfile) -> [SpriteFrameSchedule.Track] {
+    private func playbackTracks(clip: SpriteClip, startedAt: Date?, profile: SpritePlaybackProfile,
+                                mascot: Mascot) -> [SpriteFrameSchedule.Track] {
         var tracks: [SpriteFrameSchedule.Track] = [.init(origin: startedAt ?? SpriteClock.origin,
             seconds: clip.seconds.map { $0 * profile.slowdown }, loops: startedAt == nil)]
         // Reading poses and once beats also redraw at the cover boundary.
         if state.caseName == "reading", transition == nil,
-           let idle = SpriteSheets.sheet(named: "bookworm-reading")?.clip("idle") {
+           let idle = SpriteSheets.sheet(named: BookwormArt.sheetName(.reading, .room, mascot: mascot))?.clip("idle") {
             tracks.append(.init(origin: SpriteClock.origin, seconds: [idle.total * profile.slowdown], loops: true))
         }
         return tracks
@@ -71,12 +74,12 @@ struct BookwormView: View {
 
     @ViewBuilder
     private func draw(_ pair: (SpriteSheet, SpriteClip)?, at date: Date, startedAt: Date?,
-                      profile: SpritePlaybackProfile, size: BookwormSize) -> some View {
+                      profile: SpritePlaybackProfile, size: BookwormSize, mascot: Mascot) -> some View {
         if let (sheet, clip) = pair {
             let step = startedAt.map { clip.onceStep(at: date, startedAt: $0, profile: profile) ?? max(0, clip.order.count - 1) }
                 ?? clip.loopStep(at: date, profile: profile)
             if size.set == .small {
-                Image(nsImage: BookwormRenderer.smallImage(state: state, frameStep: step, pointSize: size.size.width))
+                Image(nsImage: BookwormRenderer.smallImage(state: state, frameStep: step, pointSize: size.size.width, mascot: mascot))
                     .interpolation(.none)
             } else if let cg = sheet.frameImage(clip.order[step]) {
                 Image(decorative: cg, scale: 1).resizable().interpolation(.none)

@@ -485,6 +485,24 @@ preferences and frozen sprite frames without native visibility probes; it render
 text as a SwiftUI label because ImageRenderer cannot draw that menu. It verifies pane layout/art, not native menu
 interaction. The actual menu remains keyboard-accessible. Six light/dark source panes are in the art review index.
 
+**Settings → Sleep → Mascot (owner, 2026-10-02).** A group beside The scenery follows the same list/tile grammar.
+`MascotRegistry` is the pure, ordered catalog; today its only entry is **Bookworm** (`bookworm`). Each entry names
+its room-sheet prefix, menu sheet and repository-relative art folder for provenance. One tile shows the awake
+room key frame, the 18 × 18 menu head at 2× and the name; a checkmark and neutral ring mark selection, with native
+keyboard focus and “Bookworm, selected” for VoiceOver. No timer runs in the tile and there is no future-character copy.
+The viewer's `cicada.mascot` preference defaults to `bookworm`; an unknown stored id resolves to Bookworm.
+`BookwormView` observes that preference on every surface, including the room, empty states and intake; `BookwormArt`
+resolves all states, lighting/lamp variants, cover timing, transitions and geometry through the entry. The menu
+renderer keys its cache by mascot id, and a choice change redraws/restarts its frame timer immediately. Names of
+the existing state/view types and the state/response matrix remain unchanged.
+
+To add a mascot, author its own base with the same pipeline, export `<prefix><state>` and
+`<prefix><state>-night-dark|lit` for all eight states plus its menu sheet, using the shared canvases, tag/timing
+contract and slices. Add those PNG/JSON pairs with provenance/hashes to `sprites.manifest.json`, then add one
+`MascotRegistry` entry naming that prefix, menu sheet and art folder. The picker and sprite readers enumerate/resolve
+the registry; they need no character-specific wiring. Registry acceptance tests require every listed sheet in the
+manifest. The ImageRenderer hook produces light/dark Mascot panes, including unknown-id fallback.
+
 **Sleep page v5, the app half (2026-09-30; rulings 15, 16).** All copy is `Theme/Copy+SleepV5.swift`, provider-neutral
 (`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
 person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
@@ -520,7 +538,8 @@ the intake router has a request in flight) forces `reading` ahead of `happy`/`hu
 only a measured, telemetry-joined duration is ever shown. Track Z's **response art** remains
 `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and `BookwormReaction` (perk · talk · gulp · shake ·
 cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay
-shut and the X-eyed error worm never looks away. The worm is the owner's design as Aseprite sheets
+shut and the X-eyed error worm never looks away. The selected mascot resolves through `MascotRegistry`; the current
+Bookworm entry is the owner's design as Aseprite sheets
 (`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
 drawn in code); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
 Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
@@ -543,12 +562,15 @@ bar, all at their real per-frame timings. Owner 2026-10-01: the error worm has b
 its dark outlines on a dark bar (one sheet for both). The 2026-10-02 scenery contract and wall-clock amendment expand the bundle to 36
 sheet pairs (429 tags, 4,426 frames), all integrated with the plan, motion sidecar, manifest and preview.
 `INTEGRATION_REPORT.md` in the art directory records the app checks and all inspected render paths: 480
-environment/mood/lamp/zoom composites, 48 overlay composites, 24 fixed-clock composites and six Settings panes.
+environment/mood/lamp/zoom composites, 48 overlay composites, 24 fixed-clock composites and six scenery Settings panes.
 `CICADA_WRITE_COMPOSITES=1 swift test --filter WindowSpritesTests` reproduces the room PNGs; run the same flag with
 `--filter ScenerySettingsTests` for the panes and `tools/make_integration_review.py` for the review boards/index.
+The same snapshot flag with `--filter MascotSettingsTests` adds four Mascot panes (valid/unknown choice × light/dark)
+to that review index.
 The palette loader follows the art verifier's complete declaration: authoring colours, night ramps/question glyph,
 scenery ramps/overlay colours and clock colours. Only the 81 authoring keys count against 87; all 699 declared RGBs
 still meet palette/alpha/reserved-hue checks. A defect reports sheet/frame/cell/colour once per sheet.
+The registry and one-entry Mascot selector are built; a second character's own design remains open.
 Count props, the queue as a room, G175 marks and Q1 remain open; app-side tests do not
 establish the owner's visual acceptance or the live CPU budget.
 

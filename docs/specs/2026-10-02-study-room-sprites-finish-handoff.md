@@ -17,6 +17,10 @@ dated owner decisions and TODO ruling 18 still applying.
   of the worm. Night and rain darken the room; the lamp supplies a local warm pool; the real wall
   clock follows local time. Settings offers Local weather, How Sleep is doing and Choose, with
   time/weather thumbnails and the public-city weather disclosure.
+- **Owner 2026-10-02, mascot:** Settings → Sleep → Mascot names the sole entry Bookworm. A pure registry and
+  per-viewer preference route all shared room/menu/empty/intake sprite reads; unknown ids fall back to Bookworm.
+  The selected tile shows room/menu key frames, a checkmark, keyboard focus and selected VoiceOver text. A later
+  character supplies its own base/prefix/sheets, manifest entries and one registry entry.
 - **App:** per-frame sprite player, room/worm/menu wiring, scenery model, weather reader and clock.
   Reduce Motion holds key frames and hides seconds; Low Power doubles sprite holds; hidden rooms
   and Settings pause sprites, clock and weather reads. The state machine and response matrix stay.
@@ -31,13 +35,14 @@ The clock's app placement matches the art plan at **(94,34)**. Rain holds **100 
 falls from **1,908 to 1,758 boundaries/minute**, including the clock, under the unchanged **1,800 cap**.
 Settings' existing pause now reaches the sprite leaves as well as the reader and clock.
 
-Two stable-resource full Swift suites pass **2,766 tests each, zero failures**; no polling flake.
+Two stable-resource full Swift suites after the Mascot addition pass **2,775 tests each, zero failures**; no polling flake.
 The CLAUDE.md size/link checks pass **2 tests**. Two full headless exports pass all verifiers and
 match **119 files byte for byte**. The offline preview smoke check passes 36 sheets / 429 tags /
 480 room combinations. `make app` builds only the worktree bundle, containing **36 PNG/JSON pairs
 plus the manifest (73 files)** with matching hashes. `git diff --check` is clean.
 
-The integration writer renders **552 room composites** and **six Settings panes**. All were
+The integration writer renders **552 room composites** and **ten Settings panes** (six scenery and four Mascot,
+including valid/unknown choices in both appearances). All were
 inspected through labelled boards or individual PNGs. Literal hotspot/gaze pins, every inspected
 path, observations, logs and snapshot limitations are recorded in
 [`INTEGRATION_REPORT.md`](../../app/CicadaApp/Art/sprites/bookworm-2026-10-01/INTEGRATION_REPORT.md).
@@ -49,7 +54,7 @@ The offline motion review entry remains
 **Q1 first in the PR:** running Sleep still sleeps while queued/paused work reads; the owner's
 09-29 brief requested reading while consolidating. No art fixes that state-machine decision.
 Count-driven props (computer, phone, globe, TV, letter tray, calendar), the queue as a room
-(cart/crate/bookcase), G175 pixel marks and G127 identity selection remain separate design rounds.
+(cart/crate/bookcase), G175 pixel marks and a second G127 character's own base remain separate design rounds.
 Time-of-day scenery, dark-room/lamp lighting and the clock are built.
 
 B12's narrower menu lens remains held for the owner. The sleeping-outro's standing closed book

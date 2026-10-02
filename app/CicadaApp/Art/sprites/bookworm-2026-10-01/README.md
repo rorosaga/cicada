@@ -29,6 +29,12 @@ by night mean just finished. The clock shows the Mac's civil time and sits at **
 it is inert. Reduce Motion omits seconds and holds sprite key frames. Low Power doubles sprite holds; hidden rooms
 and Settings pause the room's leaves.
 
+Owner 2026-10-02: this character is named **Bookworm** in Settings → Sleep → Mascot, beside The scenery.
+`MascotRegistry` supplies its id, display name, sheet prefix, menu sheet and this art folder. The per-viewer choice
+defaults/falls back to `bookworm`; all shared sprite readers use the selected entry. The tile shows awake room/menu
+key frames with a checkmark, keyboard focus and selected VoiceOver text. A later character uses its own base/prefix,
+the same sheet/tag/canvas pipeline, new manifest entries and one registry entry.
+
 **Integration timing amendment, 2026-10-02:** rain keeps all 48 frames/pixels and seamless steps, with **100 ms** holds
 in all three times (4,800 ms loops), replacing 80 ms. Independent room leaves cost at most **1,758/minute**, including
 60 clock ticks, against ruling 18's unchanged 1,800 cap. The worst case is rainy-night + digesting + lamp lit.
@@ -63,10 +69,11 @@ From `app/CicadaApp/`, reproduce the actual app's composites and Settings panes:
 ```sh
 CICADA_WRITE_COMPOSITES=1 swift test --filter WindowSpritesTests
 CICADA_WRITE_COMPOSITES=1 swift test --filter ScenerySettingsTests
+CICADA_WRITE_COMPOSITES=1 swift test --filter MascotSettingsTests
 python3 Art/sprites/bookworm-2026-10-01/tools/make_integration_review.py
 ```
 
-The writer copies **552 room PNGs and six Settings PNGs** into gitignored `qa/integration/`, groups them into
+The writer copies **552 room PNGs and ten Settings PNGs** (six scenery, four Mascot valid/fallback) into gitignored `qa/integration/`, groups them into
 24 labelled boards and records every path in `qa/integration/render-index.json`. Settings uses ImageRenderer,
 isolated preferences and frozen sprite frames; the source menu's text twin replaces its unsupported native
 snapshot control. This checks layout/art, not a real menu click or live app motion. The separate wall clock chooses
@@ -82,6 +89,6 @@ none remains in the current manifest. `qa/` is reproducible and gitignored.
 Owner motion review in preview.html and the Sleep page, demo-bank light/dark review at 0.8×–1.4× and live CPU against
 dev remain the merge gate. Q1 stays explicit: the worm sleeps while a cycle runs and reads while items wait; the
 owner's earlier brief requested reading while consolidating. Count props (computer, phone, globe, TV, letter tray,
-calendar), the queue as a room, G175 pixel brand marks and G127's character selector remain separate design rounds.
+calendar), the queue as a room, G175 pixel brand marks and G127's alternative character base remain separate design rounds.
 B12's narrower menu lens needs an owner decision. The sleeping-outro/reading handoff can still switch a closed book
 to an open book in one frame; no named reading opening beat exists, so that limit is documented.

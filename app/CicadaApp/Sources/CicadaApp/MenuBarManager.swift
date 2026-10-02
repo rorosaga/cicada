@@ -22,6 +22,12 @@ final class MenuBarManager: NSObject {
         restartAnimation()
     }
 
+    /// A new skin can have different frame holds. Redraw immediately and restart its chained timer at its key frame.
+    func mascotChanged() {
+        frameStep = 0
+        restartAnimation()
+    }
+
     /// One point per art pixel, at the standard status-item image height.
     nonisolated static let spritePointSize: CGFloat = 18
 
