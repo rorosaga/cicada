@@ -29,10 +29,10 @@ def main():
    ref='bookworm_menu_bar.png' if small else 'bookworm.png'
    asset['reference']='reference/'+ref+' '+hashlib.sha256((ART/'reference'/ref).read_bytes()).hexdigest()
   assets.append(asset)
- assert len(assets)==19,'Expected ten worm and nine room sheets'
+ assert len(assets)==18,'Expected nine worm and nine room sheets'
  data={'note':"Cicada's sprite sheets (G176, TODO ruling 18). Regenerating a sheet means a new entry in the same commit. Sources and scripts: app/CicadaApp/Art/sprites/bookworm-2026-10-01/.",'assets':assets}
  raw=json.dumps(data,indent=1,ensure_ascii=False)+'\n'
  assert '/Users/' not in raw and '/private/' not in raw
  (RES/'sprites.manifest.json').write_text(raw)
- print('manifest: 19 sheet pairs')
+ print('manifest: 18 sheet pairs')
 if __name__=='__main__':main()

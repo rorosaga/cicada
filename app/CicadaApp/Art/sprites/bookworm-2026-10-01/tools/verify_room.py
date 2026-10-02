@@ -48,8 +48,8 @@ def verify_room(report,palette):
  colors={tuple(bytes.fromhex(c['hex'][1:]))+(255,):c['role'] for c in palette}
  registry=json.loads((ART/'qa/room-registry.json').read_text())['sheets'];all_data={}
  expected=set(report['sheets'])|set(CONTRACT)
- check({p.stem for p in RES.glob('*.png')}==expected,'19-sheet PNG coverage')
- check({p.stem for p in RES.glob('*.json') if p.name!='sprites.manifest.json'}==expected,'19-sheet JSON coverage')
+ check({p.stem for p in RES.glob('*.png')}==expected,'18-sheet PNG coverage')
+ check({p.stem for p in RES.glob('*.json') if p.name!='sprites.manifest.json'}==expected,'18-sheet JSON coverage')
  with tempfile.TemporaryDirectory(dir=ART/'qa',prefix='room-verify-') as td:
   for name,(canvas,required_tags,required_slices) in CONTRACT.items():
    data,ims=load(name);all_data[name]=(data,ims)
@@ -165,7 +165,7 @@ def verify_room(report,palette):
  check(len(set(marks))==5,'spine middle-three-row marks')
  report['paletteColors']=len(palette);report['bytes']=sum(p.stat().st_size for p in RES.iterdir() if p.suffix in ['.png','.json'])
  manifest=json.loads((RES/'sprites.manifest.json').read_text());entries=manifest['assets']
- check(len(entries)==19 and {a['id'] for a in entries}==expected,'manifest complete coverage')
+ check(len(entries)==18 and {a['id'] for a in entries}==expected,'manifest complete coverage')
  for a in entries:
   required=['id','png','json','role','generator','script','source','authoring','date','licence','processing','pngSha256','jsonSha256']
   check(all(isinstance(a.get(k),str) and a[k] for k in required),'manifest required provenance')

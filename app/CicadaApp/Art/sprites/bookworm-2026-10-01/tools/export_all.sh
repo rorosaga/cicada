@@ -1,5 +1,5 @@
 #!/bin/bash
-# Saved Aseprite sources own the pixels. Run B freezes the completed Run A art.
+# Saved Aseprite sources own the pixels; every builder reads them and every sheet is re-exported.
 set -euo pipefail
 ASE="${ASEPRITE:-/Applications/Aseprite.app/Contents/MacOS/aseprite}"
 BUILDS="${BUILDS:-build_worm build_worm_small build_room build_weather build_spines}"
@@ -19,12 +19,6 @@ run_lua() {
   rm -f "$status"
 }
 for build in $BUILDS; do
-  # The orchestrator explicitly froze Run A for a separate art fix pass. Full
-  # exports still verify/re-export every worm source; do not rewrite its palette.
-  if [[ "$STAGE" == all && "$build" == build_worm* ]]; then
-    [[ -s "$ART/src/bookworm-awake.aseprite" && -s "$ART/src/bookworm-small-dark.aseprite" ]] || { echo 'Run A sources required' >&2; exit 1; }
-    continue
-  fi
   run_lua "$build"
 done
 if [[ "$STAGE" == all ]]; then

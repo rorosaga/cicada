@@ -260,7 +260,11 @@ def main():
     book = {colors[c['key']] for c in palette if c['role'].startswith('book.')}
     check(not (BANNED & {int(c['hex'][1:], 16) for c in palette}), 'reserved hue in palette')
     check(len({c['key'] for c in palette}) == len(palette), 'duplicate palette key')
-    check('e' not in colors and 'R' not in colors, 'owner: unused error-red/dark-rim palette key')
+    # Owner 2026-10-01: no error red and no dark-bar rim. Judged by role, because the room
+    # palette reuses the freed key letters (`R` is a room wood).
+    worm_roles = {c['role'] for c in palette if c['group'] not in ('room', 'weather', 'fly', 'spine')}
+    check(not any('error' in r or 'rimDark' in r or 'small.rim' in r for r in worm_roles),
+          'owner: unused error-red/dark-rim palette role')
     verify_owner_single_menubar()
     registry = json.loads((ART / 'qa/registry.json').read_text())['sheets']
     report = {'sheets': {}, 'blinkGapsMs': {}, 'deterministic': True}
