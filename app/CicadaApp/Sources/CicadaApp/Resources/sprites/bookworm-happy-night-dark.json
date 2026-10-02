@@ -1,0 +1,1253 @@
+{ "frames": [
+   {
+    "filename": "bookworm-happy-night-dark 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 700
+   },
+   {
+    "filename": "bookworm-happy-night-dark 1.aseprite",
+    "frame": { "x": 64, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 180
+   },
+   {
+    "filename": "bookworm-happy-night-dark 2.aseprite",
+    "frame": { "x": 128, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 220
+   },
+   {
+    "filename": "bookworm-happy-night-dark 3.aseprite",
+    "frame": { "x": 128, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 600
+   },
+   {
+    "filename": "bookworm-happy-night-dark 4.aseprite",
+    "frame": { "x": 192, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 180
+   },
+   {
+    "filename": "bookworm-happy-night-dark 5.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 260
+   },
+   {
+    "filename": "bookworm-happy-night-dark 6.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 200
+   },
+   {
+    "filename": "bookworm-happy-night-dark 7.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 8.aseprite",
+    "frame": { "x": 320, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 9.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 10.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 290
+   },
+   {
+    "filename": "bookworm-happy-night-dark 11.aseprite",
+    "frame": { "x": 384, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 12.aseprite",
+    "frame": { "x": 448, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 13.aseprite",
+    "frame": { "x": 512, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 14.aseprite",
+    "frame": { "x": 0, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 15.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 600
+   },
+   {
+    "filename": "bookworm-happy-night-dark 16.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 17.aseprite",
+    "frame": { "x": 320, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 18.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 19.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 500
+   },
+   {
+    "filename": "bookworm-happy-night-dark 20.aseprite",
+    "frame": { "x": 64, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 180
+   },
+   {
+    "filename": "bookworm-happy-night-dark 21.aseprite",
+    "frame": { "x": 128, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 220
+   },
+   {
+    "filename": "bookworm-happy-night-dark 22.aseprite",
+    "frame": { "x": 128, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 700
+   },
+   {
+    "filename": "bookworm-happy-night-dark 23.aseprite",
+    "frame": { "x": 192, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 180
+   },
+   {
+    "filename": "bookworm-happy-night-dark 24.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 260
+   },
+   {
+    "filename": "bookworm-happy-night-dark 25.aseprite",
+    "frame": { "x": 64, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 26.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 900
+   },
+   {
+    "filename": "bookworm-happy-night-dark 27.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 1400
+   },
+   {
+    "filename": "bookworm-happy-night-dark 28.aseprite",
+    "frame": { "x": 192, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 29.aseprite",
+    "frame": { "x": 256, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 30.aseprite",
+    "frame": { "x": 192, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 31.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 1250
+   },
+   {
+    "filename": "bookworm-happy-night-dark 32.aseprite",
+    "frame": { "x": 320, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 33.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 34.aseprite",
+    "frame": { "x": 192, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 35.aseprite",
+    "frame": { "x": 256, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 36.aseprite",
+    "frame": { "x": 192, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 37.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 2300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 38.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 1400
+   },
+   {
+    "filename": "bookworm-happy-night-dark 39.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 40.aseprite",
+    "frame": { "x": 320, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 41.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 42.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 1250
+   },
+   {
+    "filename": "bookworm-happy-night-dark 43.aseprite",
+    "frame": { "x": 384, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 44.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 45.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 46.aseprite",
+    "frame": { "x": 320, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 47.aseprite",
+    "frame": { "x": 256, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 48.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 2300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 49.aseprite",
+    "frame": { "x": 448, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 1400
+   },
+   {
+    "filename": "bookworm-happy-night-dark 50.aseprite",
+    "frame": { "x": 512, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 51.aseprite",
+    "frame": { "x": 0, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 52.aseprite",
+    "frame": { "x": 512, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 53.aseprite",
+    "frame": { "x": 448, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 1250
+   },
+   {
+    "filename": "bookworm-happy-night-dark 54.aseprite",
+    "frame": { "x": 64, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 55.aseprite",
+    "frame": { "x": 448, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 56.aseprite",
+    "frame": { "x": 512, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 57.aseprite",
+    "frame": { "x": 0, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 58.aseprite",
+    "frame": { "x": 512, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 50
+   },
+   {
+    "filename": "bookworm-happy-night-dark 59.aseprite",
+    "frame": { "x": 448, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 2300
+   },
+   {
+    "filename": "bookworm-happy-night-dark 60.aseprite",
+    "frame": { "x": 128, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 240
+   },
+   {
+    "filename": "bookworm-happy-night-dark 61.aseprite",
+    "frame": { "x": 192, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 62.aseprite",
+    "frame": { "x": 128, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 63.aseprite",
+    "frame": { "x": 128, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 200
+   },
+   {
+    "filename": "bookworm-happy-night-dark 64.aseprite",
+    "frame": { "x": 256, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 240
+   },
+   {
+    "filename": "bookworm-happy-night-dark 65.aseprite",
+    "frame": { "x": 320, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 66.aseprite",
+    "frame": { "x": 256, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 67.aseprite",
+    "frame": { "x": 256, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 200
+   },
+   {
+    "filename": "bookworm-happy-night-dark 68.aseprite",
+    "frame": { "x": 384, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 240
+   },
+   {
+    "filename": "bookworm-happy-night-dark 69.aseprite",
+    "frame": { "x": 448, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 70.aseprite",
+    "frame": { "x": 384, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 71.aseprite",
+    "frame": { "x": 384, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 200
+   },
+   {
+    "filename": "bookworm-happy-night-dark 72.aseprite",
+    "frame": { "x": 512, "y": 96, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 73.aseprite",
+    "frame": { "x": 0, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy-night-dark 74.aseprite",
+    "frame": { "x": 64, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 75.aseprite",
+    "frame": { "x": 128, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 140
+   },
+   {
+    "filename": "bookworm-happy-night-dark 76.aseprite",
+    "frame": { "x": 192, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 77.aseprite",
+    "frame": { "x": 256, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 78.aseprite",
+    "frame": { "x": 320, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy-night-dark 79.aseprite",
+    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 80.aseprite",
+    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 81.aseprite",
+    "frame": { "x": 512, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 82.aseprite",
+    "frame": { "x": 0, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy-night-dark 83.aseprite",
+    "frame": { "x": 64, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 84.aseprite",
+    "frame": { "x": 128, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 60
+   },
+   {
+    "filename": "bookworm-happy-night-dark 85.aseprite",
+    "frame": { "x": 192, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 86.aseprite",
+    "frame": { "x": 256, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy-night-dark 87.aseprite",
+    "frame": { "x": 320, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 88.aseprite",
+    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 89.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 90.aseprite",
+    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 91.aseprite",
+    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 92.aseprite",
+    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 93.aseprite",
+    "frame": { "x": 128, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 94.aseprite",
+    "frame": { "x": 512, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 95.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 96.aseprite",
+    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 97.aseprite",
+    "frame": { "x": 512, "y": 192, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 98.aseprite",
+    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 99.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 100.aseprite",
+    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 101.aseprite",
+    "frame": { "x": 448, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 102.aseprite",
+    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 103.aseprite",
+    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 104.aseprite",
+    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 105.aseprite",
+    "frame": { "x": 448, "y": 48, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 106.aseprite",
+    "frame": { "x": 192, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 107.aseprite",
+    "frame": { "x": 256, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 108.aseprite",
+    "frame": { "x": 320, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 109.aseprite",
+    "frame": { "x": 384, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 110.aseprite",
+    "frame": { "x": 448, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 111.aseprite",
+    "frame": { "x": 512, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy-night-dark 112.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy-night-dark 113.aseprite",
+    "frame": { "x": 64, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 114.aseprite",
+    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 115.aseprite",
+    "frame": { "x": 64, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 116.aseprite",
+    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 117.aseprite",
+    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 150
+   },
+   {
+    "filename": "bookworm-happy-night-dark 118.aseprite",
+    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 119.aseprite",
+    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 120.aseprite",
+    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 121.aseprite",
+    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 122.aseprite",
+    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 150
+   },
+   {
+    "filename": "bookworm-happy-night-dark 123.aseprite",
+    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 124.aseprite",
+    "frame": { "x": 512, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 125.aseprite",
+    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 126.aseprite",
+    "frame": { "x": 512, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 70
+   },
+   {
+    "filename": "bookworm-happy-night-dark 127.aseprite",
+    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 150
+   },
+   {
+    "filename": "bookworm-happy-night-dark 128.aseprite",
+    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 129.aseprite",
+    "frame": { "x": 64, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 130.aseprite",
+    "frame": { "x": 128, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy-night-dark 131.aseprite",
+    "frame": { "x": 192, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 132.aseprite",
+    "frame": { "x": 256, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy-night-dark 133.aseprite",
+    "frame": { "x": 320, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 80
+   },
+   {
+    "filename": "bookworm-happy-night-dark 134.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.6-dev",
+  "image": "bookworm-happy-night-dark.png",
+  "format": "RGBA8888",
+  "size": { "w": 576, "h": 384 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "idle", "from": 0, "to": 26, "direction": "forward", "color": "#000000ff" },
+   { "name": "attentive.left", "from": 27, "to": 37, "direction": "forward", "color": "#000000ff" },
+   { "name": "attentive.center", "from": 38, "to": 48, "direction": "forward", "color": "#000000ff" },
+   { "name": "attentive.right", "from": 49, "to": 59, "direction": "forward", "color": "#000000ff" },
+   { "name": "expectant.left", "from": 60, "to": 63, "direction": "forward", "color": "#000000ff" },
+   { "name": "expectant.center", "from": 64, "to": 67, "direction": "forward", "color": "#000000ff" },
+   { "name": "expectant.right", "from": 68, "to": 71, "direction": "forward", "color": "#000000ff" },
+   { "name": "eager", "from": 72, "to": 75, "direction": "forward", "color": "#000000ff" },
+   { "name": "perk.left", "from": 76, "to": 79, "direction": "forward", "color": "#000000ff" },
+   { "name": "perk.center", "from": 80, "to": 83, "direction": "forward", "color": "#000000ff" },
+   { "name": "perk.right", "from": 84, "to": 87, "direction": "forward", "color": "#000000ff" },
+   { "name": "talk.left", "from": 88, "to": 93, "direction": "forward", "color": "#000000ff" },
+   { "name": "talk.center", "from": 94, "to": 99, "direction": "forward", "color": "#000000ff" },
+   { "name": "talk.right", "from": 100, "to": 105, "direction": "forward", "color": "#000000ff" },
+   { "name": "gulp.center", "from": 106, "to": 112, "direction": "forward", "color": "#000000ff" },
+   { "name": "shake.left", "from": 113, "to": 117, "direction": "forward", "color": "#000000ff" },
+   { "name": "shake.center", "from": 118, "to": 122, "direction": "forward", "color": "#000000ff" },
+   { "name": "shake.right", "from": 123, "to": 127, "direction": "forward", "color": "#000000ff" },
+   { "name": "cheer.center", "from": 128, "to": 134, "direction": "forward", "color": "#000000ff" }
+  ],
+  "slices": [
+   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 4, "y": 3, "w": 56, "h": 45 } }] },
+   { "name": "eye", "keys": [{ "frame": 0, "bounds": {"x": 27, "y": 21, "w": 2, "h": 2 } }] },
+   { "name": "lensL", "keys": [{ "frame": 0, "bounds": {"x": 11, "y": 17, "w": 4, "h": 6 } }] },
+   { "name": "lensR", "keys": [{ "frame": 0, "bounds": {"x": 23, "y": 18, "w": 8, "h": 7 } }] }
+  ]
+ }
+}

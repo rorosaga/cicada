@@ -15,8 +15,8 @@ from api.services import sleep_cycle, sleep_scheduler
 def test_the_scheduled_cron_path_marks_the_cycle_not_user_triggered(monkeypatch):
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
-        calls.append(user_triggered)
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
+        calls.append((user_triggered, drain))
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
     state = sleep_cycle.get_sleep_state()
@@ -24,13 +24,14 @@ def test_the_scheduled_cron_path_marks_the_cycle_not_user_triggered(monkeypatch)
 
     asyncio.run(sleep_scheduler._run_if_idle(Settings()))
 
-    assert calls == [False]
+    # Not user-triggered (ruling 4: no plan engine), and it reads everything waiting (ruling 16).
+    assert calls == [(False, True)]
 
 
 def test_the_scheduled_cron_path_skips_when_a_cycle_is_already_running(monkeypatch):
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
         calls.append(user_triggered)
 
     monkeypatch.setattr(sleep_cycle, "run", fake_run)
@@ -51,8 +52,9 @@ def test_the_manual_trigger_endpoint_marks_the_cycle_user_triggered(monkeypatch)
 
     calls = []
 
-    async def fake_run(settings, cycle_id, *, user_triggered=True):
-        calls.append(user_triggered)
+    async def fake_run(settings, cycle_id, *, user_triggered=True, drain=False):
+        # A person pressing Consolidate is a drain (owner, 2026-09-29).
+        calls.append((user_triggered, drain))
 
     # `api/routers/sleep.py` did `from ... import run` — that binds a
     # SEPARATE name in the router module's own namespace, so patching
@@ -65,4 +67,6 @@ def test_the_manual_trigger_endpoint_marks_the_cycle_user_triggered(monkeypatch)
     resp = client.post("/sleep/trigger")
 
     assert resp.status_code == 200
-    assert calls == [True]
+    assert calls == [(True, True)]
+    sleep_cycle.get_sleep_state().status = "idle"
+    sleep_cycle.get_sleep_state().drain_run = False

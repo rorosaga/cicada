@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     /// Home is the front door (G108, R-IB2); a stored selection still wins.
     @State private var selectedTab: AppTab = .home
+    /// The links behind a login wall as of the last look (`nil` before the first); see `noteReadWalls`.
+    @State private var seenWalls: Set<String>?
     /// Reopen where the user left off. Always read back through
     /// `AppTab.restored(from:)`: this string can name a tab that no longer
     /// exists (G68 retired five of them).
@@ -50,11 +52,16 @@ struct ContentView: View {
     @Environment(ProvenanceCache.self) private var provenanceCache
     @Environment(ProjectsCache.self) private var projectsCache
     @Environment(BacklogCache.self) private var backlogCache
+    @Environment(ReadingSitesCache.self) private var readingSitesCache
+    @Environment(ChannelItemsCache.self) private var channelItemsCache
+    @Environment(VideoStateCache.self) private var videoStateCache
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// True while a file is dragged over the window — shows the drop veil (I1).
     @State private var dropTargeted = false
 
-    var body: some View {
+    /// The first half of the window's lifecycle modifiers — split from `body` so the type checker never faces
+    /// one chain of every `onChange` (G162 and G166 both add to it).
+    private var lifecycleStage: some View {
         overlayLayers
         // No `.task { load() }` here: `graphVM`/`inboxVM` are thin
         // projections over `Store.graph`/`Store.inbox` (§5.5). The Store
@@ -89,13 +96,31 @@ struct ContentView: View {
         // Reader and forgets every cached document rather than show another
         // bank's conversation under this one.
         // R-DI19 — and the Inbox's open question and tab go with it: ids repeat across banks — and the Projects
-        // cache: project ids repeat across banks (R-PP3) — and the backlog's: item ids repeat across banks (R-B18).
-        .onChange(of: store.bank) { _, _ in
+        // cache: project ids repeat across banks (R-PP3) — and the backlog's: item ids repeat across banks (R-B18) —
+        // and what each source brought in (G161): episode and page ids repeat across banks too.
+        .onChange(of: store.bank) { old, _ in
             provenance.close()
             provenanceCache.reset()
             projectsCache.reset()
             backlogCache.reset()
+            channelItemsCache.reset()
+            videoStateCache.reset()
+            // G162 — a page on screen keeps its video rows: the reset forgot the answers, never what was asked.
+            if videoStateCache.wantsReads { Task { await videoStateCache.revalidate() } }
+            // G166 — the sites list and its icons are per bank.
+            readingSitesCache.reset()
+            Task { await SiteIconStore.shared.clear(bank: old) }
             inboxVM.resetColumns()
+        }
+    }
+
+    var body: some View {
+        lifecycleStage
+        // G162 — the video reads follow what their ETags fold (a 304 costs nothing); a cache no page has asked of
+        // stays unread until a page that shows it appears. A bank switch keeps what was asked (`wantsReads`).
+        .onChange(of: store.version) { old, new in
+            guard VideoRefresh.shouldRevalidate(old: old, new: new), videoStateCache.wantsReads else { return }
+            Task { await videoStateCache.revalidate() }
         }
         // A cached hover preview has no validator, so any change to the
         // bank's episodes or entities forgets them (final review): `/inbox`
@@ -105,6 +130,10 @@ struct ContentView: View {
         // entities on its own. A 304 leaves `loadedAt` alone, so an idle
         // sync never empties the cache.
         .onChange(of: store.inbox.loadedAt) { _, _ in provenanceCache.forgetSpans() }
+        // G166 — a link an agent found behind a login wall is announced once, wherever the person is; the row in
+        // the Feed keeps the flag. The first look after launch or a bank switch announces nothing.
+        .onChange(of: store.sources.loadedAt) { _, _ in noteReadWalls() }
+        .onChange(of: store.bank) { _, _ in seenWalls = nil }
         .onChange(of: store.graph.loadedAt) { _, _ in provenanceCache.forgetSpans() }
         .onChange(of: store.banks.loadedAt) { _, _ in evaluateFirstRun() }
         .onChange(of: store.graph.loadedAt) { _, _ in evaluateFirstRun() }
@@ -300,7 +329,7 @@ struct ContentView: View {
             bankResolved: store.banks.value != nil,
             isOnboarded: OnboardingState.isOnboarded(bank: store.bank),
             graphLoaded: store.graph.value != nil,
-            graphIsEmpty: store.graph.value?.nodes.isEmpty ?? false
+            graphIsEmpty: store.graph.value?.nodes.hasNoContentBeyondOwner ?? false
         ) {
             welcomeMode = .firstRun
             showFirstRun = true
@@ -408,6 +437,16 @@ struct ContentView: View {
         case .lightMode: colorSchemeRaw = AppColorScheme.light.rawValue
         case .darkMode: colorSchemeRaw = AppColorScheme.dark.rawValue
         }
+    }
+
+    /// G166 — compares the links behind a login wall with the last look and toasts the ones that just got there.
+    private func noteReadWalls() {
+        let items = store.sources.value ?? []
+        // An empty snapshot is not a first look: walls that were already there would toast when the real one lands.
+        if seenWalls == nil && items.isEmpty { return }
+        let result = ReadWords.newlyWalled(previous: seenWalls, items: items)
+        seenWalls = result.current
+        if let message = ReadWords.walledToast(result.fresh) { store.toast = message }
     }
 
     /// Transient capsule for `store.toast`, auto-clearing after 4 s. Keyed on

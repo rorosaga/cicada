@@ -1,12 +1,12 @@
 import asyncio
 import hashlib
-import os
 import re
 from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -23,15 +23,18 @@ from api.models.schemas import (
     EntityReadResponse,
     EntityResponse,
     EntitySource,
+    EntitySourceChange,
     EntitySourceCreate,
     EntitySourceList,
-    LocationEntry,
     LocationListing,
     PaperDetailResponse,
     PictureInputsModel,
     RepoContext,
     RepoContextList,
+    RepoDeclaration,
+    RepoDeclarationList,
     RepoInput,
+    RepoObservedRequest,
     RepoUpdateRequest,
     VideoChapter,
 )
@@ -41,9 +44,11 @@ from api.services import (
     entity_picture,
     fact_sources,
     git_service,
+    local_refs,
     logo_service,
     markdown_parser,
     repo_context,
+    repo_observations,
     telemetry,
 )
 from api.services.claims import strip_claims_block
@@ -186,12 +191,24 @@ PICTURE_BUSY = "Sleep is updating your memory — try the picture again in a mom
 _PICTURE_LOCK = asyncio.Lock()
 
 
+SOURCE_BUSY = "Sleep is updating your memory — try the source change again in a moment."
+
+
+def _source_guard() -> None:
+    """G61 S3-a review — the person's source writes wait for Sleep like the picture's (same reason): a page frontmatter
+    rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a model's name."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, SOURCE_BUSY)
+
+
 def _picture_guard() -> None:
     """G146 plan R-PE8 — 409 while Sleep runs (`projects._guard`'s reason): Sleep rewrites the same pages, and a picture
     written between its read and its commit would be lost or swept into the cycle's commit under a model's name."""
     from api.services import sleep_cycle
 
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, PICTURE_BUSY)
 
 
@@ -417,10 +434,6 @@ async def update_entity_decay(
     return await get_entity(entity_id, settings=settings)
 
 
-# Bound on the number of immediate children returned, so a huge directory can
-# never produce an unbounded payload.
-LOCATION_MAX_ENTRIES = 200
-
 # Detect an absolute filesystem path inside a location entity's body when no
 # ``path:`` frontmatter key is present (TODO: Sleep should extract this into
 # frontmatter — see ``get_entity_location``). POSIX-only, anchored at a slash
@@ -449,15 +462,16 @@ async def get_entity_location(
     entity_id: str,
     settings: Settings = Depends(get_settings),
 ):
-    """Safe immediate-children listing for a ``type: location`` entity.
+    """The folder a ``directory`` or ``location`` page declares — the path only.
 
-    Security model: the only path ever used is the one the ENTITY ITSELF declares
-    (frontmatter ``path:`` if present, else a path detected in the body) — never a
-    path supplied by the request — so there is no arbitrary-path traversal. Lists
-    immediate children only (``os.scandir``, depth 1), reports name/isDir/size
-    (stat metadata only, never file contents), bounds the count at
-    ``LOCATION_MAX_ENTRIES``, and degrades gracefully: missing path →
-    ``exists=False``; permission error → ``accessible=False``; both still 200.
+    The path is the one the ENTITY ITSELF declares (frontmatter ``path:`` if
+    present, else a path detected in the body), never one the request names.
+    The backend never touches it: no ``resolve``, ``stat``, ``is_dir`` or
+    listing. The app lists the folder itself (``LocationLister``), so a macOS
+    privacy prompt names Cicada, not the launchd backend's interpreter (the
+    ``~/Library`` rail: the app reads the person's Mac, the backend parses).
+    The envelope keeps ``exists``/``accessible``/``entries`` at their defaults;
+    they are the app's to fill.
 
     TODO (Sleep): the entity extractor should write a ``path:`` key into
     ``type: location`` frontmatter when a description names a directory, so this
@@ -475,81 +489,123 @@ async def get_entity_location(
     if str(fm.get("type", "")).lower() not in ("directory", "location"):
         raise HTTPException(400, f"Entity {entity_id} is not a directory or location")
 
-    declared = _detect_location_path(fm, parsed.body)
-    if not declared:
-        return LocationListing(path=None, exists=False, entries=[])
+    return LocationListing(path=_detect_location_path(fm, parsed.body))
 
-    resolved = Path(os.path.expanduser(declared)).resolve()
-    if not resolved.is_dir():
-        # Missing, or points at a file rather than a listable directory.
-        return LocationListing(path=declared, exists=False, entries=[])
 
-    entries: list[LocationEntry] = []
-    truncated = False
-    try:
-        with os.scandir(resolved) as it:
-            raw = list(it)
-    except PermissionError:
-        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
-    except OSError:
-        return LocationListing(path=declared, exists=True, accessible=False, entries=[])
+def _repo_declarations(frontmatter: dict) -> list[dict]:
+    """The page's ``repos:`` read leniently — entries come from Sleep and generators
+    too: a non-dict is skipped, a scalar is coerced to a string, and ``path`` is
+    kept exactly as written (it is the key the app posts back)."""
+    raw = frontmatter.get("repos") if isinstance(frontmatter, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or entry.get("path") is None or isinstance(entry["path"], (dict, list)):
+            continue
+        path = entry["path"] if isinstance(entry["path"], str) else str(entry["path"])
+        if not path.strip():
+            continue
+        decl: dict = {"path": path}
+        for key in ("device", "remote", "default_branch"):
+            value = entry.get(key)
+            if value is not None and not isinstance(value, (dict, list)) and str(value).strip():
+                decl[key] = str(value).strip()
+        worktrees = []
+        for w in entry.get("worktrees") if isinstance(entry.get("worktrees"), list) else []:
+            if isinstance(w, dict) and w.get("path") is not None and str(w["path"]).strip():
+                branch = w.get("branch")
+                worktrees.append({
+                    "path": str(w["path"]),
+                    "branch": str(branch) if branch is not None and not isinstance(branch, (dict, list)) else None,
+                    "primary": bool(w.get("primary", False)),
+                })
+        if worktrees:
+            decl["worktrees"] = worktrees
+        out.append(decl)
+    return out
 
-    # Sort dirs-first, then by name (case-insensitive) for stable display.
-    def _sort_key(d: os.DirEntry) -> tuple:
-        try:
-            is_dir = d.is_dir(follow_symlinks=False)
-        except OSError:
-            is_dir = False
-        return (0 if is_dir else 1, d.name.lower())
 
-    raw.sort(key=_sort_key)
-    if len(raw) > LOCATION_MAX_ENTRIES:
-        truncated = True
-        raw = raw[:LOCATION_MAX_ENTRIES]
+def _declared_repos(settings: Settings, entity_id: str) -> list[dict]:
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    return _repo_declarations(markdown_parser.parse(entity_path).frontmatter)
 
-    for d in raw:
-        try:
-            is_dir = d.is_dir(follow_symlinks=False)
-        except OSError:
-            is_dir = False
-        size = 0
-        if not is_dir:
-            try:
-                size = d.stat(follow_symlinks=False).st_size
-            except OSError:
-                size = 0
-        entries.append(LocationEntry(name=d.name, is_dir=is_dir, size=size))
 
-    return LocationListing(
-        path=declared, exists=True, accessible=True, truncated=truncated, entries=entries
+def _declarations_payload(entity_id: str, declared: list[dict]) -> RepoDeclarationList:
+    return RepoDeclarationList(
+        entity_id=entity_id,
+        this_device=local_refs.current_device_id(),
+        repos=[RepoDeclaration(**d, on_this_device=local_refs.is_this_device(d.get("device"))) for d in declared],
     )
 
 
-@router.get("/entities/{entity_id}/repos", response_model=RepoContextList)
+@router.get("/entities/{entity_id}/repos", response_model=RepoDeclarationList)
 async def get_entity_repos(
     entity_id: str,
     settings: Settings = Depends(get_settings),
 ):
-    """Live git context for an entity's declared ``repos:`` frontmatter (G-repo).
+    """The repos a page declares (G-repo), and which device this Mac is.
 
-    Trust boundary mirrors ``get_entity_location``: the only paths ever probed
-    are the ones the ENTITY ITSELF declares (frontmatter ``repos: [...]``) —
-    never a request-supplied path. 404 only when the entity file itself does
-    not exist; an entity with no ``repos:`` key returns ``repos: []`` at 200.
+    Declarations only: the backend never runs git, stats or resolves a
+    declared path — under launchd its interpreter is what macOS names, so a
+    probe here made the Mac ask whether "python3.12" may read the person's
+    folder. The app runs ``repo_context.REPO_COMMANDS`` (pinned by
+    ``api/tests/fixtures/repo_commands.json``) in each repo on this Mac and
+    posts the outputs to ``POST …/repos/observed``. 404 only when the entity
+    file does not exist; no ``repos:`` key is ``repos: []``.
     """
-    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
-    if not entity_path.exists():
-        raise HTTPException(404, f"Entity {entity_id} not found")
+    return _declarations_payload(entity_id, _declared_repos(settings, entity_id))
 
-    parsed = markdown_parser.parse(entity_path)
-    declared_repos = parsed.frontmatter.get("repos") or []
 
-    contexts = [
-        RepoContext(**repo_context.resolve_repo_context(decl))
-        for decl in declared_repos
-        if isinstance(decl, dict) and decl.get("path")
-    ]
-    return RepoContextList(entity_id=entity_id, repos=contexts)
+def _match_declaration(declared: list[dict], path: str, device: str | None) -> dict | None:
+    """The declaration a posted observation answers: the same path string, and the
+    same device when the page declares that path more than once."""
+    same_path = [d for d in declared if d["path"] == path]
+    if not same_path:
+        return None
+    device = (device or "").strip() or None
+    for d in same_path:
+        if d.get("device") == device:
+            return d
+    return same_path[0]
+
+
+@router.post("/entities/{entity_id}/repos/observed", response_model=RepoContextList)
+async def post_entity_repos_observed(
+    entity_id: str,
+    request: RepoObservedRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """Parse what the app's git printed in the page's declared repos (G-repo).
+
+    Each observation names a path exactly as the page declares it — any other
+    path is a 422, so a request can never make the backend describe a folder
+    the page does not claim. ``repo_context.parse_snapshot`` (the one parser the
+    MCP tool uses too) turns the outputs into the card's ``RepoContext``; a repo
+    declared on another device is ``other_device`` whatever was posted. Only a
+    summary is kept — branch, dirty, ahead/behind, status and when — in
+    ``$CICADA_HOME/repos/<bank>.json`` (``repo_observations``), never in the
+    bank, so ``_state.md`` can name the branch without a probe of its own.
+    """
+    declared = _declared_repos(settings, entity_id)
+    this_device = local_refs.current_device_id()
+    contexts: list[dict] = []
+    for obs in request.repos:
+        decl = _match_declaration(declared, obs.path, obs.device)
+        if decl is None:
+            raise HTTPException(422, "a posted repo is not one this page declares")
+        unknown = set(obs.outputs) - repo_context.COMMAND_KEYS
+        if unknown:
+            raise HTTPException(422, f"unknown command keys: {', '.join(sorted(unknown))}")
+        other = repo_context.is_other_device(decl, this_device)
+        if not other and obs.error is None and "inside" not in obs.outputs:
+            raise HTTPException(422, "an observation on this device needs the 'inside' output or an error")
+        outputs = {} if other else {k: v.model_dump() for k, v in obs.outputs.items()}
+        contexts.append(repo_context.parse_snapshot(outputs, decl, error=obs.error, this_device=this_device))
+    await run_in_threadpool(repo_observations.record, settings.memory_path, contexts)
+    return RepoContextList(entity_id=entity_id, repos=[RepoContext(**c) for c in contexts])
 
 
 def _repo_input_to_frontmatter(r: RepoInput) -> dict:
@@ -569,7 +625,7 @@ def _repo_input_to_frontmatter(r: RepoInput) -> dict:
     return out
 
 
-@router.patch("/entities/{entity_id}/repos", response_model=RepoContextList)
+@router.patch("/entities/{entity_id}/repos", response_model=RepoDeclarationList)
 async def update_entity_repos(
     entity_id: str,
     request: RepoUpdateRequest,
@@ -582,6 +638,7 @@ async def update_entity_repos(
     Every other frontmatter key and the body are left untouched. Commits via
     the same structured-commit-message + git_service pattern as every other
     Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user``.
+    Answers the declarations, like ``GET`` — never a probe.
     """
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
@@ -604,20 +661,18 @@ async def update_entity_repos(
     )
     await git_service.commit_changes(settings.memory_path, message)
 
-    declared_repos = fm.get("repos") or []
-    contexts = [
-        RepoContext(**repo_context.resolve_repo_context(decl))
-        for decl in declared_repos
-        if isinstance(decl, dict) and decl.get("path")
-    ]
-    return RepoContextList(entity_id=entity_id, repos=contexts)
+    return _declarations_payload(entity_id, _repo_declarations(fm))
 
 
 def _sources_payload(memory_path: Path, entity_id: str) -> EntitySourceList:
-    return EntitySourceList(
-        entity_id=entity_id,
-        sources=[EntitySource(**s) for s in fact_sources.list_sources(memory_path, entity_id)],
-    )
+    rows = []
+    for s in fact_sources.list_sources(memory_path, entity_id):
+        # A link to a page that is gone (deleted, merged away, dropped) reads as no link.
+        s["entity"] = fact_sources.linked_entity(memory_path, s, self_id=entity_id)
+        s["effective_access"] = fact_sources.effective_access(s)
+        s["trusted"] = fact_sources.trusted(s)
+        rows.append(EntitySource(**s))
+    return EntitySourceList(entity_id=entity_id, sources=rows)
 
 
 async def _commit_sources(memory_path: Path, entity_id: str, verb: str, extra: tuple[str, ...] = ()) -> None:
@@ -648,6 +703,37 @@ async def get_entity_sources(
     return _sources_payload(settings.memory_path, entity_id)
 
 
+@router.get("/entities/{entity_id}/sources/icon/{site}")
+async def get_entity_source_icon(
+    entity_id: str,
+    site: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """G61 S3-b — the mark of a site THIS page lists as a source, for the card's row: the icon service only, the site
+    itself is never contacted. Keyed on the site (``reading_hosts.site_of``), never a URL, so no ref, token or path
+    reaches a log. Served only for a site one of this page's sources (that is not a note) belongs to — 404 otherwise, with no
+    lookup, so this is not a proxy for an arbitrary name — and never for an unverified proposal: nothing draws a
+    mark from a site nobody vouched for (`fact_sources.trusted`)."""
+    from api.routers.reading import serve_site_icon
+    from api.services import reading_hosts
+
+    if not reading_hosts.valid_site_key(site):
+        raise HTTPException(404, "no icon for this site")
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, "no icon for this site")
+    # G159: a person's page never draws a mark — a personal domain can carry the name, and no service is sent it.
+    if str(markdown_parser.parse(entity_path).frontmatter.get("type") or "").strip().lower() in ("person", "media"):
+        raise HTTPException(404, "no icon for this site")
+    allowed = {reading_hosts.site_of(str(s.get("ref") or "")) for s in fact_sources.list_sources(settings.memory_path, entity_id)
+               if str(s.get("kind") or "") == "url" and fact_sources.trusted(s)}
+    domain = reading_hosts.icon_host(site) if site in allowed else None
+    if not domain:
+        raise HTTPException(404, "no icon for this site")
+    return await serve_site_icon(request, settings.memory_path, site, domain)
+
+
 @router.get("/entities/{entity_id}/paper", response_model=PaperDetailResponse)
 async def get_entity_paper(entity_id: str, settings: Settings = Depends(get_settings)):
     """G133 / G121 — a paper page's two tiers, resolved at read (engine-free):
@@ -672,6 +758,7 @@ async def add_entity_source(
     G61 phase 2 S1 (plan R-AC21, R-AC27): the person's ``access``/``accepted``/
     ``only_me`` ride along, and a value the record does not allow is a 400 with
     ``fact_sources.InvalidSource``'s message — never a silently dropped field."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -689,10 +776,54 @@ async def add_entity_source(
             access=request.access,
             accepted=request.accepted,
             only_me=request.only_me,
+            entity=request.entity,
         )
     except fact_sources.InvalidSource as exc:
         raise HTTPException(400, str(exc)) from exc
     await _commit_sources(settings.memory_path, entity_id, "Add")
+    return _sources_payload(settings.memory_path, entity_id)
+
+
+@router.post("/entities/{entity_id}/sources/change", response_model=EntitySourceList)
+async def change_entity_source(
+    entity_id: str,
+    request: EntitySourceChange,
+    settings: Settings = Depends(get_settings),
+):
+    """G61 S3-a — change or remove ONE source by its key ``(ref, predicate)``, as the person (any entry).
+
+    ``update`` changes ``access``/``entity`` in place (an explicit ``entity: null`` clears the link) and a
+    ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a ``sources_removed``
+    tombstone so no machine writer puts it back. 404: no page, or nothing under that key; 400: a value the
+    record does not allow. Commits alone as ``user`` (``user/companion_app``), like the other source writes."""
+    _source_guard()
+    entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
+    if not entity_path.exists():
+        raise HTTPException(404, f"Entity {entity_id} not found")
+    if not (request.ref or "").strip():
+        raise HTTPException(400, "ref is required")
+    removing = next((s for s in fact_sources.list_sources(settings.memory_path, entity_id)
+                     if str(s.get("ref", "")).strip() == request.ref.strip()
+                     and fact_sources.same_predicate(s.get("predicate"), request.predicate)), None)
+    result = fact_sources.change_source(
+        settings.memory_path, entity_id, request.ref, request.predicate,
+        actor=fact_sources.USER, action=request.action, reason=request.reason,
+        new_ref=request.new_ref, new_predicate=request.new_predicate, access=request.access,
+        entity=request.entity if "entity" in request.model_fields_set else fact_sources._UNSET,
+        accepted=request.accepted, only_me=request.only_me,
+    )
+    if result.action == "not_found":
+        raise HTTPException(404, result.message)
+    if result.action in ("refused", "not_yours"):
+        raise HTTPException(400, result.message)
+    extra: tuple[str, ...] = ()
+    if result.action == "removed":
+        from api.services import contacts_local
+
+        refused = contacts_local.remember_removal(settings.memory_path, entity_id, removing or {})
+        extra = (refused,) if refused else ()
+    await _commit_sources(
+        settings.memory_path, entity_id, "Remove" if result.action == "removed" else "Change", extra)
     return _sources_payload(settings.memory_path, entity_id)
 
 
@@ -703,6 +834,7 @@ async def delete_entity_source(
     settings: Settings = Depends(get_settings),
 ):
     """Remove the source at ``index`` (0-based, file order)."""
+    _source_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
@@ -710,7 +842,10 @@ async def delete_entity_source(
     raw = markdown_parser.parse(entity_path).frontmatter.get("sources") or []
     current = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
     removing = current[index] if 0 <= index < len(current) else None
-    if not fact_sources.delete_source(settings.memory_path, entity_id, index):
+    # G61 S3-a: the person's removal is remembered like an agent's (`sources_removed`, by `user`) — an older client's
+    # index delete included — so no machine writer puts the key back. A Contacts card keeps its own memory (below).
+    remembered = None if str((removing or {}).get("ref") or "").startswith("addressbook://") else fact_sources.USER
+    if not fact_sources.delete_source(settings.memory_path, entity_id, index, remembered_by=remembered):
         raise HTTPException(404, f"No source at index {index} on {entity_id}")
     # Round-4 final review, finding 1: a Contacts entry the person removes stays removed — the next Contacts sync
     # would otherwise put it back under the person's own name. Committed with the removal, one `user` commit.

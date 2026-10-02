@@ -160,17 +160,19 @@ def inputs_for(fm: dict, *, logo_available: bool = False) -> PictureInputs:
 
 def logo_available(entity_id: str, fm: dict, body: str, *, cached: set[str], missed: dict[str, float],
                    page_mtime: float) -> bool:
-    """R-PE9 — a fresh cached hit, or no fresh miss since the page last changed and a domain to fetch. The second half
+    """R-PE9 — a trusted site to draw from (G61 S3-b) and either a fresh cached hit or no fresh miss since the page last changed. The second half
     keeps G59's on-demand fetch alive (a company card still asks `/logo` once) without offering a favicon the ladder
     already failed to find."""
     if not logo_eligible(fm):
         return False
+    # G61 S3-b: a picture needs a source to be drawn from — a cached mark whose page no longer resolves a domain
+    # (the trusted site was removed, or a name guess put it there) is not offered.
+    if logo_service.domain_for(fm, body) is None:
+        return False
     if entity_id in cached:
         return True
     missed_at = missed.get(entity_id)
-    if missed_at is not None and page_mtime <= missed_at:
-        return False
-    return logo_service.domain_for(fm, body) is not None
+    return not (missed_at is not None and page_mtime <= missed_at)
 
 
 def resolve_page(memory_path, entity_id: str, fm: dict, body: str, *, page_mtime: float,

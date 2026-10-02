@@ -1,9 +1,9 @@
 """Keyless Apple Notes one-way import connector.
 
-Enumerates the local Notes.app database via a single batched ``osascript``
-call (one AppleScript invocation returns every note across every account/
-folder — never one invocation per note), diffs against what has already been
-ingested, and writes ONE episode per new or modified note into the standard
+The companion app reads Notes.app with one batched AppleScript
+(``AppleNotesReader.swift`` — every note across every account/folder in one
+call) and posts the raw dump; this module parses it, diffs against what has
+already been ingested, and writes ONE episode per new or modified note into the standard
 episode inbox (the same "episode inbox" ``telegram_capture``/``media_ingestor``
 write to). One-way: Cicada never writes back into Notes.app.
 
@@ -15,18 +15,17 @@ last-seen *modification* date (not just presence) lets an edited note
 re-emit an updated episode while an unchanged note is skipped on every
 subsequent sync.
 
-TESTS MUST NEVER INVOKE REAL ``osascript`` — it triggers a macOS TCC consent
-prompt and is inherently non-hermetic/non-portable. The one function that
-shells out, ``_run_osascript``, is deliberately tiny and is the single seam
-every test monkeypatches; everything else in this module is pure (takes the
-raw dump as a plain string) or file I/O against a ``tmp_path`` workspace.
+The backend never runs ``osascript`` (the ``~/Library`` rail: the app reads,
+the backend parses bytes). Run from the launchd backend, macOS asked whether
+"python3.12" may control Notes — and an Allow there reached every script that
+interpreter runs. Everything here is pure (the dump is a plain string) or file
+I/O against the bank.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -49,77 +48,6 @@ _EXPECTED_FIELDS = 6  # id, name, body, created, modified, folder
 # episode is a lightweight staging chunk, not a full document store; the Sleep
 # cycle only needs enough text to extract entities/claims from.
 MAX_NOTE_BODY_CHARS = 20_000
-
-# Single batched AppleScript: walks every account -> folder and emits one
-# RECORD_SEP-terminated, FIELD_SEP-joined record per note. Two performance
-# constraints shaped this (a 217-note library blew the original 30s budget —
-# even `count of notes` alone took 16s): (1) properties are fetched in BULK
-# per folder (`id of every note of fld` = one Apple event for the whole
-# folder) instead of five events per note; (2) records accumulate in an
-# AppleScript *list* joined once via text item delimiters at the end —
-# `out & ...` string concat is quadratic in total output size. A per-folder
-# `try` block means one folder Notes.app can't read is skipped rather than
-# aborting the whole dump; the inner per-note `try` skips a single
-# unreadable/corrupt note.
-_APPLESCRIPT = """
-set FS to (ASCII character 30)
-set RS to (ASCII character 29)
-set outList to {}
-tell application "Notes"
-    repeat with acc in accounts
-        repeat with fld in folders of acc
-            try
-                set folderName to name of fld as string
-                set noteIds to id of every note of fld
-                set noteNames to name of every note of fld
-                set noteBodies to plaintext of every note of fld
-                set cDates to creation date of every note of fld
-                set mDates to modification date of every note of fld
-                repeat with i from 1 to count of noteIds
-                    try
-                        set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName
-                    end try
-                end repeat
-            end try
-        end repeat
-    end repeat
-end tell
-set AppleScript's text item delimiters to RS
-set out to outList as string
-set AppleScript's text item delimiters to ""
-return out
-""".strip()
-
-# Bulk fetch cuts Apple-event count dramatically, but a large library
-# (hundreds of notes with long bodies) still needs real time to serialize
-# plaintext across the Apple Events boundary. Overridable via env for
-# pathological libraries.
-OSASCRIPT_TIMEOUT_S = int(os.environ.get("CICADA_NOTES_SYNC_TIMEOUT_S", "180"))
-
-
-# --- The one real I/O seam --------------------------------------------------
-
-
-def _run_osascript() -> str:
-    """The single real call to ``osascript`` — kept intentionally small so
-    every test monkeypatches exactly this function instead of touching
-    ``subprocess``/the real Notes.app directly.
-
-    Raises on a non-zero exit (e.g. no Notes.app, AppleScript automation
-    denied, not macOS) or if ``osascript`` isn't on ``PATH``; callers degrade
-    that to an empty sync rather than crashing (see ``sync_from_local_notes``).
-    Never invoked by the test suite.
-    """
-    result = subprocess.run(
-        ["osascript", "-e", _APPLESCRIPT],
-        capture_output=True,
-        text=True,
-        timeout=OSASCRIPT_TIMEOUT_S,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"osascript failed: {result.stderr.strip()}")
-    return result.stdout
 
 
 # --- Parsing -----------------------------------------------------------------
@@ -332,23 +260,6 @@ async def sync_notes(memory_path: Path, *, dump: str) -> dict[str, Any]:
         "total": len(notes),
         "excluded": excluded_count,
     }
-
-
-async def sync_from_local_notes(memory_path: Path) -> dict[str, Any]:
-    """Best-effort, offline-safe sync against the real local Notes.app.
-
-    Calls ``_run_osascript()`` — the one seam that shells out. Any failure
-    (no Notes.app, AppleScript automation denied, not macOS) degrades to an
-    empty sync rather than raising. Not exercised against real ``osascript``
-    in tests.
-    """
-    try:
-        raw = _run_osascript()
-    except Exception as e:
-        logger.debug(f"Could not read Apple Notes: {type(e).__name__}: {e}")
-        return {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
-
-    return await sync_notes(memory_path, dump=raw)
 
 
 async def _commit_notes_sync(memory_path: Path, new_count: int, updated_count: int) -> None:

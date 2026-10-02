@@ -85,6 +85,13 @@ struct LampPopover: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if page.lampLit, let scheduled = SleepEnginePreviewSource.current(chooser: engineVM.response,
+                                                                              page: sleepVM.enginePreview)?.scheduled {
+                Text(Copy.scheduledReadsAll(engine: scheduled.engine, billing: scheduled.billing))
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if failed {
                 Text(Copy.scheduleWriteFailed)
                     .font(CicadaTheme.captionFont)

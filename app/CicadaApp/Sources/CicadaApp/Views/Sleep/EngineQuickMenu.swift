@@ -8,7 +8,9 @@ import SwiftUI
 /// **One source of truth (R-HS7).** It is built from `SleepEngineViewModel.response` — the object
 /// `EngineChooser` (Settings → Engines) reads, over the same `GET/PUT /sleep/engine` — and a tap
 /// writes through the same rule (`EngineWrite`). No second pref, no Store domain (Track E's
-/// ruling 6), and no price or token: the wire models it reads carry none (2026-09-03).
+/// ruling 6). Since the 2026-09-28 ruling a plan row's caption is its window's state and a key
+/// row's is its model's list price (`CycleUsageText`); with no `usage` on the wire it is the
+/// card's own caption, as before.
 struct EngineQuickMenuModel: Equatable {
     /// One engine: its card's label and state caption (`EngineOption`, R-E25), its real mark
     /// (DR-52), and whether a tap can choose it — a signed-out plan stays listed and says why.
@@ -41,6 +43,42 @@ struct EngineQuickMenuModel: Equatable {
     let command: String?
     let previews: [Preview]
     let showsRuling: Bool
+    /// Set while `CICADA_LLM_MODE` pins the engine: said above the rows, which then choose nothing.
+    var pinnedNote: String? = nil
+    /// 2026-09-28 — a model's list price per million tokens ("$0.40 / $1.60"), by model id, for the
+    /// picker; and the sentence that says what the two figures are.
+    var modelPrices: [String: String] = [:]
+    var pricesNote: String? = nil
+    /// "Last cycle: $0.42 charged", under the two ruling-4 lines, when a card knows it.
+    var lastCycleLine: String? = nil
+    /// Sleep page v5 — *Keep plan free* (the reserve), only when a run you start would use a plan.
+    var reserve: Reserve? = nil
+    /// How a scheduled run spends (ruling 16), in words from `preview.scheduled.billing`; never a provider's name.
+    var scheduledSpend: String? = nil
+
+    /// The reserve row (ruling 12's home for its figure): the line, its choices, and — only for a window the engine
+    /// said it does not report — why that window cannot be kept free. A window nothing has reported yet says nothing.
+    struct Reserve: Equatable {
+        let pct: Int?
+        let choices: [Int]
+        let value: String
+        let notReported: [String]
+
+        static func from(_ status: SleepReserveStatus?, billing: String?) -> Reserve? {
+            guard let status, status.applies || billing == "plan" else { return nil }
+            let enforced = status.windows.filter { $0.enforced == true }.map { Copy.SleepUsage.window($0.window) }
+            let unreported = status.windows.filter { $0.enforced == false && $0.reason == "not_reported" }
+                .map { Copy.SleepV5.reserveNotReported(Copy.SleepUsage.window($0.window)) }
+            let value = status.pct.map { Copy.SleepV5.reserveValue($0, windows: enforced) } ?? Copy.SleepV5.off
+            return Reserve(pct: status.pct, choices: status.choices.isEmpty ? [5, 10, 20, 30] : status.choices,
+                           value: value, notReported: status.pct == nil ? [] : unreported)
+        }
+    }
+
+    /// A picker entry: the model, then its list price when the wire gave one.
+    func pickerLabel(_ id: String) -> String {
+        modelPrices[id].map { "\(id) · \($0)" } ?? id
+    }
 
     /// What the button says (R-HS8): the engine and model a cycle you start would run — the manual
     /// preview, in the card's own name — prefixed "Auto ·" while Auto is the choice. The retired
@@ -54,17 +92,24 @@ struct EngineQuickMenuModel: Equatable {
         return response.mode == "auto" ? "\(Copy.EngineMenu.autoPrefix) · \(runs)" : runs
     }
 
-    static func from(_ response: SleepEngineResponse) -> EngineQuickMenuModel {
+    static func from(_ response: SleepEngineResponse, now: Date = Date(), locale: Locale = .autoupdatingCurrent,
+                     timeZone: TimeZone = .current) -> EngineQuickMenuModel {
         // R-AG12 — rows are cards, so the selected CARD is current (OpenRouter and the API key are
         // both `byok`); a model pick below still writes `response.mode`.
         let current = response.selected
         let rows = response.candidates.map { candidate -> Row in
-            let caption = EngineOption.caption(for: candidate)
+            // A plan's window state or a key's price replaces the card's state caption only while the
+            // card can run; a signed-out plan keeps saying so.
+            let usage = candidate.connected ? CycleUsageText.caption(for: candidate, now: now, locale: locale,
+                                                                     timeZone: timeZone) : nil
+            let caption = usage?.caption ?? EngineOption.caption(for: candidate)
             let selectable = EngineOption.isSelectable(candidate, selectedMode: current)
+                && !response.isPinnedByEnvironment
             return Row(id: candidate.id, label: candidate.label, caption: caption,
                        logo: EngineOption.logoName(for: candidate.id), symbol: EngineOption.symbol(for: candidate.id),
                        isSelected: candidate.id == current, isSelectable: selectable,
-                       help: selectable ? "\(candidate.label) — \(caption)" : Copy.EngineMenu.signInFirst(candidate.label))
+                       help: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode)
+                           : selectable ? "\(candidate.label) — \(usage?.help ?? caption)" : Copy.EngineMenu.signInFirst(candidate.label))
         }
         let chosen = response.candidates.first { $0.id == current }
         // R-HS10 — a model list only where the engine has one to pick from; Auto and the API key say
@@ -80,6 +125,8 @@ struct EngineQuickMenuModel: Equatable {
                      text: "\(EngineOption.previewName(engine: p.scheduled.engine, model: p.scheduled.model)) · \(p.scheduled.model)",
                      model: p.scheduled.model)]
         } ?? []
+        let prices = pickable ? (chosen?.modelPrices ?? [:]).compactMapValues { CycleUsageText.modelPrice($0, locale: locale) } : [:]
+        let manualCard = response.preview.flatMap { EngineOption.candidateId(forEngine: $0.manual.engine, model: $0.manual.model) }
         return EngineQuickMenuModel(
             rows: rows,
             modelLabel: current == "auto" ? Copy.EngineMenu.howAutoPicks : Copy.EngineMenu.model,
@@ -89,7 +136,13 @@ struct EngineQuickMenuModel: Equatable {
             showsPlansAndKeysLink: current == "byok",
             command: command,
             previews: previews,
-            showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false)
+            showsRuling: response.preview.map { $0.manual.engine != $0.scheduled.engine } ?? false,
+            pinnedNote: response.isPinnedByEnvironment ? Copy.EngineMenu.pinnedByEnvironment(response.mode) : nil,
+            modelPrices: prices,
+            pricesNote: prices.isEmpty ? nil : Copy.SleepUsage.perMillionNote,
+            lastCycleLine: CycleUsageText.lastCycleLine(response.candidates, preferring: manualCard, locale: locale),
+            reserve: Reserve.from(response.reserve, billing: response.preview?.manual.billing),
+            scheduledSpend: Copy.SleepV5.scheduledSpend(response.preview?.scheduled.billing))
     }
 }
 
@@ -107,6 +160,7 @@ enum SleepEnginePreviewSource {
 /// the menu's open state and the writes; `EngineQuickMenu` is a pure renderer.
 struct EngineQuickMenuButton: View {
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(SleepViewModel.self) private var sleepVM
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @State private var open = false
@@ -126,7 +180,8 @@ struct EngineQuickMenuButton: View {
                     // can measure the menu unframed and catch a rigid child (DR-70).
                     EngineQuickMenu(model: .from(response), isSaving: engineVM.isSaving,
                                     writeFailed: engineVM.writeFailed,
-                                    choose: choose, pickModel: pickModel, openSettings: openSettings)
+                                    choose: choose, pickModel: pickModel, openSettings: openSettings,
+                                    setReserve: setReserve)
                         .frame(width: CicadaTheme.scaled(EngineQuickMenu.width), alignment: .leading)
                 }
         }
@@ -143,6 +198,15 @@ struct EngineQuickMenuButton: View {
         guard let response = engineVM.response,
               let write = EngineWrite.model(model, mode: response.mode, current: response.model) else { return }
         apply(write)
+    }
+
+    /// Sleep page v5 — the reserve lives in the reading options (`PUT /sleep/run-options`); the engine response
+    /// re-reads it so the row shows what the server now holds.
+    private func setReserve(_ pct: Int?) {
+        Task { @MainActor in
+            await sleepVM.updateRunOptions(.reservePct(pct))
+            await engineVM.load()
+        }
     }
 
     private func apply(_ write: EngineWrite) {
@@ -174,6 +238,7 @@ struct EngineQuickMenu: View {
     let choose: (String) -> Void
     let pickModel: (String) -> Void
     let openSettings: (SettingsSection, SettingsRowID?) -> Void
+    var setReserve: (Int?) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -181,10 +246,19 @@ struct EngineQuickMenu: View {
                 .padding(.horizontal, CicadaTheme.spacingSM)
                 .padding(.top, CicadaTheme.spacingSM)
                 .padding(.bottom, CicadaTheme.spacingXS)
+            if let pinned = model.pinnedNote {
+                Text(pinned)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, CicadaTheme.spacingSM)
+                    .padding(.bottom, CicadaTheme.spacingXS)
+            }
             ForEach(model.rows) { row in
                 EngineMenuRow(row: row, isSaving: isSaving) { choose(row.id) }
             }
             modelSection
+            reserveSection
             if writeFailed {
                 Text(Copy.EngineMenu.writeFailed)
                     .font(CicadaTheme.metaFont)
@@ -216,7 +290,7 @@ struct EngineQuickMenu: View {
                         // R-HS10 — a native menu picker: rosters are the plan's own list, any length.
                         Picker(model.modelLabel, selection: Binding(get: { model.selectedModel },
                                                                     set: { pickModel($0) })) {
-                            ForEach(model.models, id: \.self) { Text($0).tag($0) }
+                            ForEach(model.models, id: \.self) { Text(model.pickerLabel($0)).tag($0) }
                         }
                         .labelsHidden()
                         .pickerStyle(.menu)
@@ -225,6 +299,12 @@ struct EngineQuickMenu: View {
                         .frame(maxWidth: CicadaTheme.scaled(220), alignment: .trailing)
                         .disabled(isSaving)
                     }
+                }
+                if let note = model.pricesNote {
+                    Text(note)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let note = model.note {
                     Text(note)
@@ -237,6 +317,41 @@ struct EngineQuickMenu: View {
                 }
                 if let command = model.command {
                     CommandBox(command: command)
+                }
+            }
+            .padding(.horizontal, CicadaTheme.spacingSM)
+            .padding(.top, CicadaTheme.spacingSM)
+        }
+    }
+
+    /// Sleep page v5 (A6) — *Keep plan free*: Off or a share of the plan window, a soft stop (a line, not a
+    /// guarantee). Only for a plan engine; the figure lives here and in Details alone (ruling 12).
+    @ViewBuilder
+    private var reserveSection: some View {
+        if let reserve = model.reserve {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    SectionLabel(Copy.SleepV5.keepPlanFree)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    Picker(Copy.SleepV5.keepPlanFree, selection: Binding(get: { reserve.pct ?? 0 },
+                                                                        set: { setReserve($0 == 0 ? nil : $0) })) {
+                        Text(Copy.SleepV5.off).tag(0)
+                        ForEach(reserve.choices, id: \.self) { Text(Copy.SleepV5.reserveChoice($0)).tag($0) }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .disabled(isSaving)
+                    .help(Copy.SleepV5.reserveHelp)
+                }
+                Text(reserve.value)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                ForEach(reserve.notReported, id: \.self) { line in
+                    Text(line)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, CicadaTheme.spacingSM)
@@ -263,6 +378,19 @@ struct EngineQuickMenu: View {
                         }
                     }
                     .accessibilityElement(children: .combine)
+                }
+                if let last = model.lastCycleLine {
+                    Text(last)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                if let spend = model.scheduledSpend {
+                    Text(spend)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if model.showsRuling {
                     Text(Copy.scheduledNeverSpendsPlans)

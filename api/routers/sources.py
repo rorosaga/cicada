@@ -16,6 +16,7 @@ from api.models.schemas import (
     NotesSyncRequest,
     NotesSyncResponse,
     PaperSummary,
+    ReadState,
     SafariTabsDevice,
     SafariTabsPreview,
     SafariTabsSyncRequest,
@@ -36,10 +37,16 @@ from api.services import (
     agent_commits,
     bookmark_sync,
     calendar_registry,
+    channel_items,
     channel_registry,
     feed_registry,
     media_ingestor,
     notes_sync,
+    reading_asks,
+    reading_queue,
+    reading_service,
+    reading_settings,
+    reading_walls,
     safari_tabs,
     saved_at as saved_at_service,
     source_overview,
@@ -391,26 +398,21 @@ def _bookmark_sync_lock(memory_path: Path) -> asyncio.Lock:
 
 @router.post("/sources/sync-bookmarks", response_model=None, dependencies=_DEMO_GATE)
 async def sync_bookmarks(
-    request: BookmarkSyncRequest | None = None,
+    request: BookmarkSyncRequest,
     preview: bool = Query(False),
     settings: Settings = Depends(get_settings),
 ) -> BookmarkSyncResponse | BookmarkTreePreview:
     """Keyless bookmark sync: diff Chrome/Safari bookmarks and ingest only new URLs.
 
-    Body is optional. Pass base64 ``chromeDataB64``/``safariDataB64`` (inline
-    data — what the companion app sends after reading the files itself, R1,
-    and what tests use) to sync against that data hermetically. Omit the body
-    ENTIRELY to read the real local bookmark files instead — best-effort,
-    offline-safe; see ``bookmark_sync.sync_from_local_files``. That fallback
-    exists for ``curl``/tests and is never the app's path: the launchd
-    backend has no Full Disk Access.
-
-    A body that carries no bookmark data is a 422, never the fallback, and an
-    unknown field is a 422 too (``extra="forbid"``). Round 4 phase A final
-    review, finding 3: a pre-round-4 route dropped the new ``chromium`` field,
-    saw no data, and read the Chrome file the person had not turned on —
-    Chrome's profile is not behind Full Disk Access, so the backend could.
-    The next new field fails loudly instead of reading local files.
+    The body carries base64 ``chromeDataB64``/``safariDataB64``/``chromium`` —
+    the files the companion app read itself (R1), or a test's inline bytes.
+    The backend never reads a browser's file (the ``~/Library`` rail), so a
+    request without a body, or with one that carries no bookmark data, is a
+    422, never a local read. An unknown field is a 422 too
+    (``extra="forbid"``). Round 4 phase A final review, finding 3: a
+    pre-round-4 route dropped the new ``chromium`` field, saw no data, and
+    read the Chrome file the person had not turned on — Chrome's profile is
+    not behind Full Disk Access, so the backend could.
 
     409 while another bookmark sync of this bank is still running (see
     ``_bookmark_sync_locks``).
@@ -418,8 +420,7 @@ async def sync_bookmarks(
     ``?preview=true`` (R5) parses the supplied bytes and returns each source's
     folder tree with leaf counts WITHOUT ingesting anything — the same
     staging-free contract as ``/sources/upload?preview=true`` — so the app can
-    show the folders before the user picks one. Inline data is required for a
-    preview; there is nothing to preview from the local-file fallback.
+    show the folders before the user picks one.
     ``folders`` on the body narrows the sync to those folder paths (segment-
     boundary prefixes; ``""`` or omitted = everything, unchanged behaviour).
     ``chromium`` (round 4, C9) carries the Chromium-family browsers; 422 for an
@@ -436,34 +437,36 @@ async def sync_bookmarks(
     chrome_data = None
     safari_data = None
     chromium: list[tuple[str, bytes]] = []
-    if request is not None:
-        if request.chrome_data_b64:
-            try:
-                chrome_data = base64.b64decode(request.chrome_data_b64)
-            except Exception:
-                raise HTTPException(status_code=422, detail="Invalid chromeDataB64")
-        if request.safari_data_b64:
-            try:
-                safari_data = base64.b64decode(request.safari_data_b64)
-            except Exception:
-                raise HTTPException(status_code=422, detail="Invalid safariDataB64")
-        # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
-        # both fields — a browser sent twice would ingest its file twice and write
-        # two seen-sets for one channel.
-        for entry in request.chromium or []:
-            browser = entry.browser.strip().lower()
-            if browser not in bookmark_sync.CHROMIUM_BROWSERS:
-                raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
-            if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
-                raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
-            try:
-                chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
-            except Exception:
-                raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
+    if request.chrome_data_b64:
+        try:
+            chrome_data = base64.b64decode(request.chrome_data_b64)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid chromeDataB64")
+    if request.safari_data_b64:
+        try:
+            safari_data = base64.b64decode(request.safari_data_b64)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Invalid safariDataB64")
+    # Round 4 (C9): the Chromium family. Each browser once, Chrome once across
+    # both fields — a browser sent twice would ingest its file twice and write
+    # two seen-sets for one channel.
+    for entry in request.chromium or []:
+        browser = entry.browser.strip().lower()
+        if browser not in bookmark_sync.CHROMIUM_BROWSERS:
+            raise HTTPException(status_code=422, detail=f"Unknown browser {entry.browser!r}")
+        if (browser == "chrome" and chrome_data is not None) or any(b == browser for b, _ in chromium):
+            raise HTTPException(status_code=422, detail=f"{browser} was sent twice")
+        try:
+            chromium.append((browser, base64.b64decode(entry.data_b64, validate=True)))
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"Invalid dataB64 for {browser}")
+
+    if chrome_data is None and safari_data is None and not chromium:
+        if preview:
+            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
+        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
 
     if preview:
-        if chrome_data is None and safari_data is None and not chromium:
-            raise HTTPException(status_code=422, detail="Preview needs chromeDataB64, safariDataB64 or chromium")
         # Off the event loop, same reason as the upload preview: a plist the
         # size of a real Safari library is a CPU-bound parse and must not
         # stall the SSE stream.
@@ -472,24 +475,17 @@ async def sync_bookmarks(
         )
         return BookmarkTreePreview(**result)
 
-    has_data = chrome_data is not None or safari_data is not None or bool(chromium)
-    if request is not None and not has_data:
-        raise HTTPException(status_code=422, detail="Send chromeDataB64, safariDataB64 or chromium")
-
     lock = _bookmark_sync_lock(memory_path)
     if lock.locked():
         raise HTTPException(status_code=409, detail=BOOKMARK_SYNC_BUSY)
     async with lock:
-        if has_data:
-            result = await bookmark_sync.sync_bookmarks(
-                memory_path,
-                chrome_data=chrome_data,
-                safari_data=safari_data,
-                chromium=chromium,
-                folders=request.folders if request is not None else None,
-            )
-        else:
-            result = await bookmark_sync.sync_from_local_files(memory_path)
+        result = await bookmark_sync.sync_bookmarks(
+            memory_path,
+            chrome_data=chrome_data,
+            safari_data=safari_data,
+            chromium=chromium,
+            folders=request.folders,
+        )
 
     # G62: the only durable trace that bookmark sync ever ran. `found` is the
     # number of bookmarks seen this pass (new + already-known), which is what
@@ -588,6 +584,20 @@ def _description_excerpt(body: str, limit: int = 280) -> str | None:
     return f"{cut}…"
 
 
+def _read_block(entry, fm_read, ask_rows, *, enabled: bool, allowed, wall=None, paused=()) -> ReadState | None:
+    """G166: one link's ``read`` block — never raises (a bad row is no block)."""
+    try:
+        url = str(entry.get("url") or "")
+        if not url:
+            return None
+        state = reading_service.read_state(
+            url, fm_read, ask_rows.get(media_ingestor.url_hash(url)), enabled=enabled, wall=wall,
+            allowed_sites=allowed, paused_sites=paused)
+        return ReadState.model_validate(state) if state is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     request: Request,
@@ -602,10 +612,20 @@ async def list_sources(
     computed from each entity's frontmatter.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", extra=sort)
+    # G166: the `reading` component (the ask store and the reading settings, both
+    # outside the bank) is an ETag input, so an agent's outcome or a per-site
+    # switch reaches the Feed's read state without a bank write.
+    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", extra=sort)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)
+    reading_enabled = reading_settings.agent_enabled()
+    reading_allowed = tuple(reading_settings.allowed_sites())
+    try:
+        ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
+    except ValueError:
+        ask_rows = {}
+    reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
 
     items = []
     for entry in idx.values():
@@ -630,6 +650,8 @@ async def list_sources(
         duration_s: int | None = None
         kind: str | None = None
         paper: PaperSummary | None = None
+        fm_read = None
+        wall_page = None
         entity_path = Path(memory_path) / "entities" / f"{entity_id}.md"
         if entity_path.exists():
             try:
@@ -649,6 +671,15 @@ async def list_sources(
                 folder = str(fm.get("folder") or "").strip() or None
                 related_count = len(fm.get("related") or [])
                 status = fm.get("status", "active")
+                fm_read = fm.get("read")
+                # G166: is this a page Cicada's own reader could not read (and that holds no
+                # words)? Decided from the page this loop already parsed — no second read.
+                try:
+                    st = entity_path.stat()
+                    wall_page = reading_walls.page_for(
+                        memory_path, entity_id, fm, parsed.body, mtime_ns=st.st_mtime_ns, size=st.st_size)
+                except OSError:
+                    wall_page = None
                 # Track P R5 — what the person removed, and what enrichment
                 # retired, must stop rendering. G129 slice 2's `remove`
                 # ARCHIVES the media entity (`inbox_service.py:962-966`) and
@@ -696,7 +727,13 @@ async def list_sources(
                             published=pp.get("published"), venue=pp.get("venue") or pp.get("journal_ref"))
             except Exception:
                 pass
-        if status in _HIDDEN_STATUSES or enrichment_status == "junk":
+        if status in _HIDDEN_STATUSES:
+            continue
+        if enrichment_status == "junk" and wall_page is None and not (
+                isinstance(fm_read, dict) and fm_read.get("by") == "agent"):
+            # Track P R5, amended 2026-09-30 (ruling 14): a retired interstitial stays hidden
+            # unless it is a wall an agent can be asked to read, or an agent already read it —
+            # the person can find it, ask for it, or see what the agent brought back.
             continue
         items.append(
             MediaSourceItem(
@@ -722,6 +759,10 @@ async def list_sources(
                 duration_s=duration_s,
                 kind=kind,
                 paper=paper,
+                read=_read_block(
+                    entry, fm_read, ask_rows, enabled=reading_enabled, allowed=reading_allowed,
+                    wall=wall_page.wall if wall_page is not None and wall_page.waiting else None,
+                    paused=reading_paused),
             )
         )
 
@@ -819,6 +860,39 @@ async def list_source_channels(
         connectors_connected=connectors_connected,
     )
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
+
+
+@router.get("/sources/channels/{channel_id}/items")
+async def list_channel_items(
+    channel_id: str,
+    request: Request,
+    response: Response,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(channel_items.LIMIT_DEFAULT, ge=1, le=channel_items.LIMIT_MAX),
+    settings: Settings = Depends(get_settings),
+):
+    """What a channel brought in, by name (G161): each item's title and day, newest first, a page at a time.
+
+    Derived at read from the set the row's count means (`channel_items`' docstring names it per channel) —
+    titles only, never a body; for Contacts, the matched page's name only. Engine-free and read-only, and NOT a
+    Store domain: the app keeps each page in memory and revalidates it with this ETag, like provenance. The
+    ETag rides `sources` (the notes index, the bookmark seen-set and the url index live there), `episodes` and
+    `entities`, plus the shape, the channel and the page asked for.
+    """
+    memory_path = settings.memory_path
+    if not channel_items.known(memory_path, channel_id):
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    etag = sync_service.etag_for(
+        memory_path, "sources", "episodes", "entities",
+        extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}",
+    )
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
+    page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Unknown channel")
+    return page
 
 
 # --- Feed subscriptions (registry + poll) -----------------------------------
@@ -927,16 +1001,13 @@ async def poll_calendars(settings: Settings = Depends(get_settings)):
 
 @router.post("/sources/sync-notes", response_model=NotesSyncResponse, dependencies=_DEMO_GATE)
 async def sync_notes(
-    request: NotesSyncRequest | None = None,
+    request: NotesSyncRequest,
     settings: Settings = Depends(get_settings),
 ):
-    """Keyless Apple Notes sync: enumerate local Notes via ``osascript`` and
-    write an episode for every new or modified note.
-
-    Body is optional. Pass an inline ``notesDump`` (the raw delimited dump —
-    what tests and a future companion-app path use) to sync against that data
-    hermetically. Omit the body to read the real local Notes.app via
-    ``osascript`` instead — never exercised in tests.
+    """Keyless Apple Notes sync: parse the dump the app read from Notes.app
+    (``notesDump``) and write an episode for every new or modified note. The
+    backend never reads Notes itself — the ``~/Library`` rail — so a request
+    without a dump is a 422, never a local read.
 
     Dedup/re-emit is entirely ``memory/sources/notes_index.json`` (keyed on
     note id, last-seen modification date): unchanged notes are skipped,
@@ -944,10 +1015,7 @@ async def sync_notes(
     """
     memory_path = settings.memory_path
 
-    if request is not None and request.notes_dump is not None:
-        result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
-    else:
-        result = await notes_sync.sync_from_local_notes(memory_path)
+    result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump)
 
     sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0))
 

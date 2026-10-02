@@ -1,0 +1,117 @@
+{
+  "frames": [
+    {
+      "filename": "synthetic 0.aseprite",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 2
+      },
+      "sourceSize": {
+        "w": 2,
+        "h": 2
+      },
+      "duration": 100,
+      "trimmed": false,
+      "rotated": false
+    },
+    {
+      "filename": "synthetic 1.aseprite",
+      "frame": {
+        "x": 2,
+        "y": 0,
+        "w": 2,
+        "h": 2
+      },
+      "sourceSize": {
+        "w": 2,
+        "h": 2
+      },
+      "duration": 200,
+      "trimmed": false,
+      "rotated": false
+    },
+    {
+      "filename": "synthetic 2.aseprite",
+      "frame": {
+        "x": 0,
+        "y": 0,
+        "w": 2,
+        "h": 2
+      },
+      "sourceSize": {
+        "w": 2,
+        "h": 2
+      },
+      "duration": 300,
+      "trimmed": false,
+      "rotated": false
+    }
+  ],
+  "meta": {
+    "image": "probe.png",
+    "size": {
+      "w": 4,
+      "h": 2
+    },
+    "frameTags": [
+      {
+        "name": "forward",
+        "from": 0,
+        "to": 2,
+        "direction": "forward",
+        "repeat": "3"
+      },
+      {
+        "name": "reverse",
+        "from": 0,
+        "to": 2,
+        "direction": "reverse",
+        "repeat": "3"
+      },
+      {
+        "name": "pingpong",
+        "from": 0,
+        "to": 2,
+        "direction": "pingpong",
+        "repeat": "3"
+      },
+      {
+        "name": "pingpong_reverse",
+        "from": 0,
+        "to": 2,
+        "direction": "pingpong_reverse",
+        "repeat": "3"
+      },
+      {
+        "name": "idle",
+        "from": 0,
+        "to": 2,
+        "direction": "forward"
+      },
+      {
+        "name": "talk.center",
+        "from": 1,
+        "to": 2,
+        "direction": "forward"
+      }
+    ],
+    "slices": [
+      {
+        "name": "eye",
+        "keys": [
+          {
+            "frame": 0,
+            "bounds": {
+              "x": 0,
+              "y": 0,
+              "w": 1,
+              "h": 1
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -120,3 +120,17 @@ def dir_stamp(memory_path: Path, subdir: str) -> tuple[int, int]:
     """(file count, max mtime_ns) — a cheap change stamp, no parsing."""
     current = _scan(Path(memory_path) / subdir)
     return len(current), max((m for m, _ in current.values()), default=0)
+
+
+def is_warm(memory_path: Path, subdir: str) -> bool:
+    """True when :func:`files` would answer from the cache without parsing a
+    file: the subdir is cached and every file's (mtime, size) still matches its
+    entry. One directory scan, no parse — the recall hook asks it so a cold
+    cache never blows the hook's budget."""
+    directory = Path(memory_path) / subdir
+    with _lock:
+        known = _cache.get((str(memory_path), subdir))
+        if known is None:
+            return False
+        held = {n: (f.mtime_ns, f.size) for n, f in known.items()}
+    return _scan(directory) == held

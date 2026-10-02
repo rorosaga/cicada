@@ -47,6 +47,13 @@ struct CicadaApp: App {
     @State private var projectsCache = ProjectsCache()
     /// G150 (R-B18) — the Backlog section's in-memory cache; app-level for ProjectsCache's reason.
     @State private var backlogCache = BacklogCache()
+    /// G161 — what each source brought in, by name; app-level for ProjectsCache's reason, never a Store domain.
+    @State private var channelItemsCache = ChannelItemsCache()
+    /// G162 — every saved video's state and the person's video queue; app-level for ProjectsCache's reason, never a
+    /// Store domain.
+    @State private var videoStateCache = VideoStateCache()
+    /// G166 — the sites Cicada's reader could not read, for Home's one line; app-level for ProjectsCache's reason.
+    @State private var readingSitesCache = ReadingSitesCache()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -115,6 +122,7 @@ struct CicadaApp: App {
     @AppStorage("cicada.colorScheme") private var colorSchemeRaw: String = AppColorScheme.dark.rawValue
     /// Round-4 decision 6 (R-HO16) — Settings → General → Show in menu bar, per viewer, on by default.
     @AppStorage(MenuBarPreference.defaultsKey) private var menuBarVisible = true
+    @AppStorage(MascotPreference.defaultsKey) private var mascotRaw = MascotRegistry.bookworm.id
     /// R-O4 — the preference resolved against the system appearance
     /// `ThemeStore` tracks (observable, so a macOS flip repaints this scene).
     private var appColorScheme: AppColorScheme {
@@ -188,6 +196,9 @@ struct CicadaApp: App {
                 .environment(provenanceCache)
                 .environment(projectsCache)
                 .environment(backlogCache)
+                .environment(channelItemsCache)
+                .environment(videoStateCache)
+                .environment(readingSitesCache)
                 .environment(banksVM)
                 .environment(feedVM)
                 .environment(contributorsVM)
@@ -214,6 +225,7 @@ struct CicadaApp: App {
                 .preferredColorScheme(appColorScheme == .light ? .light : .dark)
                 .onChange(of: colorSchemeRaw) { _, _ in applyAppearance() }
                 .onChange(of: menuBarVisible) { _, visible in menuBarManager.setVisible(visible) }
+                .onChange(of: mascotRaw) { _, _ in menuBarManager.mascotChanged() }
                 .onReceive(DistributedNotificationCenter.default()
                     .publisher(for: AppearancePreference.systemChangedNotification)
                     .receive(on: RunLoop.main)) { _ in
@@ -327,6 +339,20 @@ struct CicadaApp: App {
                     menuBarManager.exportWaitLines = { [exportWaits, store] in
                         exportWaits.active(bank: store.bank).map { ExportWaits.menuLine($0, now: Date()) }
                     }
+                    // Sleep page v5 — while a run is paused, every door routes to the Sleep page (only its Continue
+                    // resumes the run); the menu bar reads the same words the page's doors do.
+                    sleepVM.onPausedDoor = { [appRouter] in appRouter.routeToSleep() }
+                    // The doors read the paused run's record and the batch size even when the Sleep page was never
+                    // opened: a pause that appears, changes or clears refetches the status app-wide, and a bank
+                    // switch empties the VM's per-bank caches (the queue's titles, runs' details) and rereads.
+                    store.onSleepPausedChanged = { [sleepVM] in
+                        Task { @MainActor in
+                            await sleepVM.refreshStatus()
+                            if sleepVM.runOptions == nil { await sleepVM.loadRunOptions() }
+                        }
+                    }
+                    store.onBankChanged = { [sleepVM] in Task { @MainActor in await sleepVM.bankChanged() } }
+                    menuBarManager.sleepDoor = { [sleepVM] in sleepVM.door }
                     menuBarManager.setup(
                         onOpenApp: { [appRouter] in appRouter.showMainWindow() },
                         onRunSleep: {
@@ -364,7 +390,11 @@ struct CicadaApp: App {
                     }
 
                     // Disk first (instant frame), network second, then live.
-                    Task { @MainActor in await store.bootstrap() }
+                    Task { @MainActor in
+                        await store.bootstrap()
+                        // The doors' "saving every N" reads the person's choice, not a fallback.
+                        await sleepVM.loadRunOptions()
+                    }
                 }
                 // NOTE: no `.onDisappear` teardown — closing the window must
                 // not stop the sync engine. The app lives on in the menu bar,

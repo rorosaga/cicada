@@ -57,7 +57,7 @@ struct EntityDetailCard: View {
     // Repository context (G9 companion). Loaded lazily on appear for
     // `.project`/`.directory` entities; empty while loading, on 404, or when
     // the entity carries no `repos:` key — the section renders nothing in
-    // all three cases (see `fetchEntityRepos`).
+    // all three cases (see `RepoCard.load`).
     @State private var repoContexts: [RepoContext] = []
 
     // Fact sources (G61) — "where to look this fact up" refresh references.
@@ -294,13 +294,20 @@ struct EntityDetailCard: View {
             // lands via `graphVM.selectedEntity`/`entities`, which is what
             // feeds this view its `entity`.
             await graphVM.loadFullEntity(id: entity.id)
-            // Only location entities have a directory listing to fetch.
-            if entity.type == .location {
-                locationListing = try? await APIClient.shared.fetchLocationListing(id: entity.id)
+            // Location and directory pages declare a folder. The backend names the path only;
+            // the app lists it, so any macOS prompt names Cicada (the ~/Library rail).
+            if Self.listsFolder(entity.type) {
+                let declared = (try? await APIClient.shared.fetchLocationListing(id: entity.id))?.path ?? entity.path
+                if let declared, !declared.isEmpty {
+                    let listing = await LocationLister.list(declared)
+                    if !Task.isCancelled { locationListing = listing }
+                }
             }
-            // Only project/directory entities carry a `repos:` frontmatter key.
+            // Only project/directory entities carry a `repos:` frontmatter key. The backend names the repos;
+            // the app runs git in the ones on this Mac (so a prompt names Cicada) and posts what it printed.
             if entity.type == .project || entity.type == .directory {
-                repoContexts = (try? await APIClient.shared.fetchEntityRepos(entityId: entity.id)) ?? []
+                let contexts = await RepoCard.load(entityId: entity.id)
+                if !Task.isCancelled { repoContexts = contexts }
             }
         }
     }
@@ -331,17 +338,23 @@ struct EntityDetailCard: View {
                 } else if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper {
                     // G11: rich media preview above the body for `media`-type entities.
                     MediaPreview(model: MediaPreviewModel(block: media, title: entity.name, description: mediaDescription))
+                    if VideoBlock.isVideo(media) {
+                        // G162 (M6) — the entity card's media block carries what Cicada holds for a video, joined by
+                        // the page and its link (a media entity id alone is not unique).
+                        VideoBlock(feedId: entity.id + "|" + media.url, url: media.url, title: entity.name,
+                                   mediaEntityId: entity.id)
+                    }
                 }
                 if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
             }
-            if entity.type == .location { locationSection }
+            if Self.listsFolder(entity.type) { locationSection }
             if !repoContexts.isEmpty { repositorySection }
             if !showRawMarkdown, showsBeliefs, !validClaims.isEmpty {
                 WhatCicadaKnowsSection(claims: validClaims) { claim in openTimeline(for: claim) }
             }
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
             // `.id` — the add field's draft belongs to one page, as the card's own field was reset per id.
-            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            LookItUpSection(entityId: entity.id, entityType: entity.type, sources: $sources, navigate: { navigate(to: $0) }).id(entity.id)
             detailsSection
         }
     }
@@ -368,7 +381,7 @@ struct EntityDetailCard: View {
             WhereThisCameFromSection(entityId: entity.id, state: provenanceState)
             personPage
             // `.id` — the add field's draft belongs to one page (as in `standardContent`).
-            LookItUpSection(entityId: entity.id, sources: $sources).id(entity.id)
+            LookItUpSection(entityId: entity.id, entityType: entity.type, sources: $sources, navigate: { navigate(to: $0) }).id(entity.id)
             detailsSection
         }
     }
@@ -399,9 +412,15 @@ struct EntityDetailCard: View {
 
     // MARK: - Location Section (issue #7)
     //
-    // For `.location` entities, shows the declared directory path (monospace,
-    // copyable) and a bounded listing of its immediate children. Degrades
-    // quietly: no path / inaccessible / endpoint absent → renders nothing.
+    // For `.location` and `.directory` entities, shows the declared directory path
+    // (monospace, copyable) and a bounded listing of its immediate children, read by
+    // `LocationLister` on this Mac. Degrades quietly: no path → renders nothing; a
+    // folder macOS will not let Cicada read says where to allow it.
+
+    /// The page types that declare a folder (G18: `directory`; `location` for legacy graphs).
+    static func listsFolder(_ type: EntityType) -> Bool {
+        type == .location || type == .directory
+    }
 
     @ViewBuilder
     private var locationSection: some View {
@@ -436,12 +455,11 @@ struct EntityDetailCard: View {
     private var locationContents: some View {
         if let listing = locationListing {
             if !listing.exists {
-                locationNote("Directory not found.", icon: "questionmark.folder")
+                locationNote(Copy.Graph.folderNotFound, icon: "questionmark.folder")
             } else if !listing.accessible {
-                locationNote("Permission denied — can't list this directory.",
-                             icon: "lock")
+                locationNote(Copy.Graph.folderNotAllowed, icon: "lock")
             } else if listing.entries.isEmpty {
-                locationNote("Empty directory.", icon: "tray")
+                locationNote(Copy.Graph.folderEmpty, icon: "tray")
             } else {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(listing.entries) { entry in
@@ -466,7 +484,7 @@ struct EntityDetailCard: View {
                         .padding(.vertical, 2)
                     }
                     if listing.truncated {
-                        Text("…listing truncated")
+                        Text(Copy.Graph.folderTruncated)
                             .font(CicadaTheme.font(size: 10))
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .padding(.top, 2)
@@ -504,12 +522,12 @@ struct EntityDetailCard: View {
     // MARK: - Repository Section (G9 companion)
     //
     // For `.project`/`.directory` entities carrying a `repos:` frontmatter
-    // key, shows the live local-checkout state per declared repo — remote,
+    // key, shows the local-checkout state per declared repo — remote,
     // branch, dirty/ahead/behind counts, last commit, worktrees, and any
-    // `stale_hint`. Gated entirely by `!repoContexts.isEmpty` in `contentTab`,
+    // `stale_hint` — as `RepoCard` loads it (git run by the app, parsed by the
+    // backend). Gated entirely by `!repoContexts.isEmpty` in `contentTab`,
     // so this only ever renders once data has actually arrived — no empty
-    // section, no loading skeleton. NOT INTEGRATION-TESTED against a live
-    // backend (built in parallel by another agent).
+    // section, no loading skeleton.
 
     private var repositorySection: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -518,7 +536,7 @@ struct EntityDetailCard: View {
         }
     }
 
-    /// G9 — live git context, resolved on demand and never cached. R-DG21: words and neutral tags, one block on
+    /// G9 — git context as the app just saw it (`RepoCard`). R-DG21: words and neutral tags, one block on
     /// `bgFocus` with a resting ring (DR-7, DR-9). Paths, hashes and branches stay copyable (DR-19).
     private func repoBlock(_ repo: RepoContext) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
@@ -564,6 +582,10 @@ struct EntityDetailCard: View {
             }
             if let hint = repo.staleHint, !hint.isEmpty {
                 Text(hint).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+            if let fix = RepoWords.fix(repo.status) {
+                Text(fix).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(CicadaTheme.spacingMD)

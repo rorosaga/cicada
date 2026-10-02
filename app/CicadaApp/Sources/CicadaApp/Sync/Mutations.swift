@@ -424,6 +424,7 @@ struct UnsubscribeCalendar: Mutation {
 struct ActivateBank: Mutation {
     let name: String
     private let memo = MutationMemo<(bank: String, roster: BanksResponse?)>()
+    private let failure = MutationMemo<any Error>()
 
     init(name: String) { self.name = name }
 
@@ -446,7 +447,8 @@ struct ActivateBank: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        try await api.activateBank(name: name)
+        do { try await api.activateBank(name: name) }
+        catch { failure.value = error; throw error }
     }
 
     func rollback(_ store: Store) async {
@@ -456,13 +458,33 @@ struct ActivateBank: Mutation {
         store.banks.value = previous.roster
     }
 
-    var failureMessage: String { "Couldn't switch project — reverted" }
+    var failureMessage: String { BankSwitchFailure.message(failure.value) }
     /// Every domain, not just `.banks`. `Store.refresh`'s own bank-switch
     /// fan-out keys off `active != previous`, and `optimistic` already moved
     /// `store.bank`, so that branch can never fire here — this mutation owns
     /// the post-switch reconcile itself. `refresh` walks `SyncDomain.allCases`
     /// with `.banks` first, exactly as `refreshAll` does.
     var refreshDomains: Set<SyncDomain> { Set(SyncDomain.allCases) }
+}
+
+/// A refused switch in words. While Consolidate reads, the run is pinned to its bank, so the server answers
+/// 409 with a sentence written for the person ("Cicada is reading — stop it first, …"); every other failure
+/// keeps the old words. A 404's or a 400's detail names ids and is never shown (DR-54).
+enum BankSwitchFailure {
+    static let generic = "Couldn't switch project — reverted"
+
+    static func message(_ error: (any Error)?) -> String {
+        guard case .httpError(let code, let body)? = error as? APIError, code == 409 else { return generic }
+        return ProjectWriteFailure.detail(body) ?? Copy.bankSwitchWhileReading
+    }
+
+    /// Any other door that hits a bank refusal (the demo's enter, a rename of the active bank): a 409 that carries the
+    /// server's sentence shows it; everything else keeps the error's own words. The raw `HTTP 409: {"detail": …}` is
+    /// never shown.
+    static func words(_ error: Error) -> String {
+        if case .httpError(409, let body)? = error as? APIError, let why = ProjectWriteFailure.detail(body) { return why }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
 }
 
 // MARK: - Sleep
@@ -476,8 +498,11 @@ struct TriggerSleep: Mutation {
     /// flight, and restoring a whole stale snapshot would throw its inbox and
     /// episode counts away too.
     private let memo = MutationMemo<String>()
+    /// Sleep page v5 — resume the paused run instead of starting a fresh one. Only the Sleep page's Continue sets
+    /// it (`SleepViewModel.continueRun`); a fresh trigger clears a paused run on the server.
+    let continueRun: Bool
 
-    init() {}
+    init(continueRun: Bool = false) { self.continueRun = continueRun }
 
     func optimistic(_ store: Store) async {
         memo.value = store.status.value?.sleep.status
@@ -485,7 +510,7 @@ struct TriggerSleep: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        _ = try await api.triggerSleep()
+        _ = continueRun ? try await api.continueSleepRun() : try await api.triggerSleep()
     }
 
     func rollback(_ store: Store) async {
@@ -496,7 +521,7 @@ struct TriggerSleep: Mutation {
         }
     }
 
-    var failureMessage: String { "Couldn't start the sleep cycle — reverted" }
+    var failureMessage: String { continueRun ? Copy.SleepV5.continueFailed : "Couldn't start the sleep cycle — reverted" }
     /// Replace the optimistic `running` with the server's own answer as soon
     /// as the trigger returns — a cycle with nothing to do can already be
     /// idle again, and leaving a stale `running` in the Store would make the

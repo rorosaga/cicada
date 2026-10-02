@@ -13,8 +13,11 @@ struct FeedListColumn: View {
     let focusDetail: () -> Void
     let escape: () -> Void
     let openSheet: (AddSourceTile?) -> Void
+    /// G162 — the Videos tab's strip opens the watch run.
+    var chooseVideos: () -> Void = {}
 
     @Environment(FeedViewModel.self) private var viewModel
+    @Environment(VideoStateCache.self) private var videoCache: VideoStateCache?
     @Environment(IntakeRouter.self) private var intake
 
     private var searchText: Binding<String> {
@@ -35,7 +38,11 @@ struct FeedListColumn: View {
                 ScrollView {
                     LazyVStack(alignment: .leading,
                                spacing: style == .titles || style == .hidden ? 0 : CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                        if style == .wide && !searching {
+                        if style == .wide && !searching && showsVideosStrip {
+                            // G162 — the Videos tab's own strip stands where the Connected strip stands elsewhere.
+                            VideosStrip(summary: videoCache?.summary, choose: chooseVideos)
+                                .padding(.bottom, CicadaTheme.spacingSM)
+                        } else if style == .wide && !searching {
                             // Labelled, not a trailing closure: `FeedLayoutPinTests` finds the call by its opening paren.
                             ConnectedChannelsStrip(onManage: { openSheet($0) })
                                 .padding(.horizontal, CicadaTheme.scaled(10))
@@ -61,6 +68,11 @@ struct FeedListColumn: View {
             focusDetail()
             return true
         }, escape: escape)
+    }
+
+    /// The Videos tab, with a backend that answers the video reads.
+    private var showsVideosStrip: Bool {
+        viewModel.kind == .video && videoCache.map { !$0.isGone } == true
     }
 
     @ViewBuilder
@@ -105,8 +117,14 @@ struct FeedListRow: View {
     let now: Date
     let open: () -> Void
 
+    /// G162 — a video's state word ("Transcript", "Queued") joins its age; optional so a host without the cache (a
+    /// layout test) draws the plain row.
+    @Environment(VideoStateCache.self) private var videoCache: VideoStateCache?
+
     private var metaColor: Color { selected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary }
     private var title: String { item.title.isEmpty ? item.url : item.title }
+    private var isVideo: Bool { FeedKind.of(item) == .video }
+    private var videoState: VideoStateItem? { isVideo ? videoCache?.item(feedId: item.id) : nil }
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
@@ -149,8 +167,14 @@ struct FeedListRow: View {
     private var content: some View {
         switch style {
         case .wide, .triage:
-            HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
-                mark.frame(width: CicadaTheme.scaled(14)).padding(.top, CicadaTheme.scaled(2))
+            HStack(alignment: isVideo ? .center : .top, spacing: CicadaTheme.scaled(10)) {
+                mark.frame(width: CicadaTheme.scaled(14)).padding(.top, isVideo ? 0 : CicadaTheme.scaled(2))
+                if isVideo {
+                    // G162 (§9 2026-09-30) — a 64 × 36 frame with its length at full width, 48 × 27 beside a detail.
+                    VideoThumb(thumbnail: item.thumbnail, durationS: item.durationS,
+                               width: style == .wide ? 64 : 48, height: style == .wide ? 36 : 27,
+                               showsLength: style == .wide)
+                }
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
                     HStack(spacing: CicadaTheme.spacingMD) {
                         titleText
@@ -162,7 +186,7 @@ struct FeedListRow: View {
                                 .foregroundStyle(metaColor)
                                 .help(Copy.Lists.relevanceHelp)
                         }
-                        if let age = FeedDates.age(item, now: now) {
+                        if !(isVideo && style == .wide), let age = FeedDates.age(item, now: now) {
                             Text(age)
                                 .font(CicadaTheme.metaFont)
                                 .monospacedDigit()
@@ -170,18 +194,20 @@ struct FeedListRow: View {
                                 .help(FeedDates.day(item, withYear: true) ?? "")
                         }
                     }
-                    Text(FeedRowText.detail(item))
+                    Text(isVideo && style == .triage ? VideoWords.triageLine(item, state: videoState) : FeedRowText.detail(item))
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(metaColor)
                         .lineLimit(1)
                 }
-                if style == .wide, FeedKind.of(item) == .video, let thumb = item.thumbnail, let url = URL(string: thumb) {
-                    AsyncImage(url: url) { phase in
-                        if case .success(let image) = phase { image.resizable().scaledToFill() } else { CicadaTheme.bgSelected }
-                    }
-                    .frame(width: CicadaTheme.scaled(36), height: CicadaTheme.scaled(36))
-                    .clipShape(CicadaTheme.shape(CicadaTheme.radiusXS))
-                    .accessibilityHidden(true)
+                if isVideo && style == .wide {
+                    // The state word and the age, one tabular group at the trailing edge ("Transcript · 3h").
+                    Text(VideoWords.trailing(state: videoState, age: FeedDates.age(item, now: now)))
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(metaColor)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .help(FeedDates.day(item, withYear: true) ?? "")
                 }
             }
         case .titles, .hidden:

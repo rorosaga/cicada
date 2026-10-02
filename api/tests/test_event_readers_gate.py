@@ -21,8 +21,10 @@ EXEMPT = {
     "api/services/graph_builder.py": "current-only: _claim_edge_row drops closed and literal claims",
     "api/services/transclusion_resolver.py": "current-only (_is_valid)",
     "api/services/vector_index.py": "indexes open claims only",
-    "api/services/logo_service.py": "current-only",
+    "api/services/site_sources.py": "current-only: proposes a site from an OPEN `website` claim (valid_to unset); no event has that predicate",
     "api/services/papers.py": "writes its own external claims",
+    "api/services/page_read.py": "a writer; closes only the previous read's own `describes` claim by id (G166)",
+    "api/services/reading_walls.py": "current-only: asks whether a live `describes` claim exists (valid_to unset)",
     "api/services/inbox_service.py": "a resolver: closes the claims a question names",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",

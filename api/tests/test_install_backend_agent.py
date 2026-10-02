@@ -117,3 +117,26 @@ def test_install_sh_has_no_second_copy_of_the_plist():
     assert "scripts/install-backend-agent.sh" in install
     assert "<key>ProgramArguments</key>" not in install
     assert SCRIPT.read_text().count("<key>ProgramArguments</key>") == 1
+
+
+def test_without_the_variable_it_takes_the_memory_path_api_env_names(tmp_path):
+    """The app's Install runs this with no environment: the plist must carry the
+    bank api/.env names, never the empty default beside it."""
+    env, repo, plist_path, _ = _setup(tmp_path)
+    del env["CICADA_MEMORY_PATH"]
+    (repo / "api" / ".env").write_text('OTHER=1\nCICADA_MEMORY_PATH="~/src/alpha-memory"\n')
+    assert _run(env).returncode == 0
+    plist = plistlib.loads(plist_path.read_bytes())
+    assert plist["EnvironmentVariables"]["CICADA_MEMORY_PATH"] == f"{env['HOME']}/src/alpha-memory"
+
+
+def test_the_variable_still_wins_and_the_default_stays_last(tmp_path):
+    env, repo, plist_path, _ = _setup(tmp_path)
+    (repo / "api" / ".env").write_text("CICADA_MEMORY_PATH=/elsewhere/memory\n")
+    assert _run(env).returncode == 0
+    assert plistlib.loads(plist_path.read_bytes())["EnvironmentVariables"]["CICADA_MEMORY_PATH"] == env["CICADA_MEMORY_PATH"]
+    del env["CICADA_MEMORY_PATH"]
+    (repo / "api" / ".env").write_text("OTHER=1\n")
+    assert _run(env).returncode == 0
+    assert plistlib.loads(plist_path.read_bytes())["EnvironmentVariables"]["CICADA_MEMORY_PATH"] == \
+        f"{env['HOME']}/cicada/memory"

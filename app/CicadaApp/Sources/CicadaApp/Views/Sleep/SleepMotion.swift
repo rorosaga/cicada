@@ -1,29 +1,7 @@
 import SwiftUI
 
-/// The Sleep page's motion budget, as numbers instead of habits (G125 v3
-/// Task 8, spec R-A13). The budget itself is written out in prose above
-/// `SleepView` — this file is the one place its durations are spelled, and
-/// `SleepNumbersLintTests` fails the build on a literal `duration:` anywhere
-/// else under `Views/Sleep/` (the same exemption shape
-/// `FontLiteralLintTests` grants `Theme/CicadaTheme.swift`).
-///
-/// Two rules the type exists to make unforgettable:
-///
-/// - **Nothing here exceeds `maxDuration`.** The stage pulse is the single
-///   exception and lives on `SleepStages.pulsePeriod` with its own ≤ 1.2 s
-///   cap, because a breath is a *state* indicator and a settle is a
-///   *transition*.
-/// - **Reduce Motion returns `nil`, which is SwiftUI for "jump to the new
-///   value".** That is the terminal frame, the same place
-///   `BookwormView.frameIndex(…reduceMotion:)` and `stagePulse(…)` hold. A
-///   `.animation(...)` modifier that takes a non-optional literal is how
-///   Reduce Motion gets silently skipped, which is exactly what this replaced
-///   on the hero meter and the stage strip.
-///
-/// Z10 (Z-B13): where a name mirrors `CicadaMotion`'s it forwards to it — one
-/// budget, app-wide — and the Sleep-only constants below stay here.
-/// `SleepMeadowTests` pins the equalities, so "one budget" is a fact, not a
-/// comment.
+/// Sleep's chrome timings. Sprite frame timings are sheet data within CicadaMotion's caps (ruling 18).
+/// Reduce Motion jumps chrome transitions and holds sprite key frames.
 enum SleepMotion {
 
     /// The ceiling every settle on this page sits under.
@@ -45,11 +23,6 @@ enum SleepMotion {
 
     // Track Z Z5 — the room responds.
 
-    /// One beat frame (R-Z12) — pinned equal to `BookwormSprites.reactionInterval`
-    /// by `SleepNumbersLintTests`, so the sprite and the page share one beat clock.
-    static let beatFrameInterval: TimeInterval = 0.12
-    /// Every beat is at most three frames, so ≤ 0.36 s ≤ `maxDuration`.
-    static let maxBeatFrames = 3
     /// The status ⇄ answer cross-fade in the sentence slot (opacity only — a
     /// slot whose height is reserved never slides).
     static let sentenceDuration: TimeInterval = 0.18

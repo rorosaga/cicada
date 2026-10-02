@@ -355,6 +355,17 @@ async def _connected(registry, connection_id: str) -> bool | None:
     return bool(getattr(status, "connected", False))
 
 
+def scheduled_plan_pin(settings) -> bool:
+    """True when an explicit ``CICADA_LLM_MODE=agent|codex`` dotfile pin — the one case
+    ``resolve_llm_mode`` hands a scheduled run a plan — decides the scheduled engine. The
+    scheduler then reads one batch, never a whole queue, unattended on a plan (TODO ruling 16).
+    No registry, no probe: only the env pin can do this."""
+    fields = getattr(settings, "model_fields_set", None)
+    if not fields or "llm_mode" not in fields:
+        return False
+    return (getattr(settings, "llm_mode", None) or "").strip().lower() in SUBSCRIPTION_MODES
+
+
 async def resolve_llm_mode(
     settings: Settings, registry=None, *, user_triggered: bool = True,
 ) -> tuple[str, str]:

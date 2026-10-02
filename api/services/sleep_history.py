@@ -6,6 +6,12 @@ from pathlib import Path
 from api.services import bank_index
 
 
+def commit_matches(commit_hash: str, ref: str) -> bool:
+    """A full-hash prefix match either way, ≥ 7 chars — the one rule every
+    ledger-to-commit join uses."""
+    return len(ref) >= 7 and bool(commit_hash) and (commit_hash.startswith(ref) or ref.startswith(commit_hash))
+
+
 def attach_durations(entries, events) -> None:
     """Join `sleep_run` ledger rows onto history entries by `refs.commit` —
     a full-hash prefix match either way, ≥ 7 chars. No match → ``None`` (R5)."""
@@ -14,7 +20,7 @@ def attach_durations(entries, events) -> None:
     for entry in entries:
         h = entry.commit_hash
         for ref, ms in runs:
-            if len(ref) >= 7 and (h.startswith(ref) or ref.startswith(h)):
+            if commit_matches(h, ref):
                 entry.duration_ms = int(ms)
                 break
 

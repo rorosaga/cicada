@@ -94,6 +94,8 @@ enum CicadaMotion {
     static let revealMaxRows = 8
     /// One nod of a brand mark on hover (`MarkHover`).
     static let markNodDuration: TimeInterval = 0.32
+    /// The rail glyph's subtle hover nod (`IconHover(subtle:)`).
+    static let iconNodDuration: TimeInterval = 0.24
     /// The window-wide drop veil fading in (I1).
     static let dropVeilDuration: TimeInterval = 0.18
     /// The one-shot ✓ on a finished import (I6, W9).
@@ -153,6 +155,21 @@ enum CicadaMotion {
         reduceMotion ? .opacity
             : .asymmetric(insertion: .opacity.combined(with: .offset(x: 16)), removal: .opacity)
     }
+}
+
+// MARK: - Sprites (TODO ruling 18)
+extension CicadaMotion {
+    static let spriteFrameMin: TimeInterval = 0.04
+    static let spriteFrameMax: TimeInterval = 4.0
+    static let spriteLoopMin: TimeInterval = 0.4
+    static let spriteLoopMax: TimeInterval = 30
+    static let spritePerkMax: TimeInterval = 0.4
+    static let spriteBeatMax: TimeInterval = 0.8
+    static let spriteTransitionMax: TimeInterval = 1.6
+    static let spriteGentleSlowdown: Double = 2
+    static let spriteTimerTolerance: Double = 0.2
+    /// The wall clock is real time, independent of every ambient sprite loop (owner, 2026-10-02).
+    static let roomClockTick: TimeInterval = 1
 }
 
 // MARK: - The living painting (round-4 T-Home, C10)
@@ -323,6 +340,14 @@ struct IconHover: ViewModifier {
     /// target the glyph sits in (a sidebar row).
     var hovering: Bool?
     var selected: Bool = false
+    /// The rail's gentler acknowledgement (owner, 2026-09-30: "they move too much … a bit more subtle"): a small
+    /// grow-and-settle of the whole glyph — scale 1 → 1.05 → 1, no rotation — instead of SF Symbols' per-layer wiggle,
+    /// whose strength cannot be set.
+    var subtle: Bool = false
+
+    /// No tilt at all (owner, 2026-09-30, after the first nod: it still read as a jiggle): the glyph only grows a touch
+    /// and settles.
+    static let subtleScaleKeys: [CGFloat] = [1.05, 1]
 
     @State private var hoverBumps = 0
     @State private var selectBumps = 0
@@ -334,7 +359,7 @@ struct IconHover: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        wiggle(content.symbolEffectsRemoved(reduceMotion))
+        hoverMotion(content.symbolEffectsRemoved(reduceMotion))
             .symbolEffect(.bounce.up.byLayer, options: .nonRepeating, value: selectBumps)
             .onHover { inside in
                 guard hovering == nil else { return }
@@ -346,6 +371,24 @@ struct IconHover: ViewModifier {
             .onChange(of: selected) { _, now in
                 selectBumps = Self.nextBump(selectBumps, entering: now, reduceMotion: reduceMotion)
             }
+    }
+
+    @ViewBuilder
+    private func hoverMotion(_ view: some View) -> some View {
+        if subtle { nod(view) } else { wiggle(view) }
+    }
+
+    /// The subtle variant: one small keyframed grow-and-settle of the whole glyph per entry (`hoverBumps` is already held at
+    /// its value under Reduce Motion, so nothing moves then).
+    private func nod(_ view: some View) -> some View {
+        view.keyframeAnimator(initialValue: CGFloat(1), trigger: hoverBumps) { glyph, scale in
+            glyph.scaleEffect(scale)
+        } keyframes: { _ in
+            KeyframeTrack {
+                CubicKeyframe(Self.subtleScaleKeys[0], duration: CicadaMotion.iconNodDuration * 0.4)
+                CubicKeyframe(Self.subtleScaleKeys[1], duration: CicadaMotion.iconNodDuration * 0.6)
+            }
+        }
     }
 
     /// `.wiggle` is macOS 15 API, and `#available` is only a runtime check:
@@ -446,8 +489,8 @@ extension View {
 
     /// See `IconHover`. `iconHover()` follows the glyph's own hover;
     /// `iconHover(hovering: rowIsHovered, selected: isSelected)` a larger target's.
-    func iconHover(hovering: Bool? = nil, selected: Bool = false) -> some View {
-        modifier(IconHover(hovering: hovering, selected: selected))
+    func iconHover(hovering: Bool? = nil, selected: Bool = false, subtle: Bool = false) -> some View {
+        modifier(IconHover(hovering: hovering, selected: selected, subtle: subtle))
     }
 
     /// See `MarkHover` — for brand marks (rasters); glyphs use `iconHover()`.

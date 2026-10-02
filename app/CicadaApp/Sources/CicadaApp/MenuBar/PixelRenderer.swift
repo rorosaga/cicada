@@ -1,22 +1,15 @@
 import AppKit
 
+/// One palette key per cell; used by code-drawn icons and overlays.
+typealias PixelGrid = [String]
+
 /// Rasterizes a `PixelGrid` of ANY square size, in ANY palette, into a COLOUR
 /// `NSImage` with nearest-neighbour cells.
 ///
-/// This is `BookwormRenderer`'s body, generalized (G125 v3 Task 2). The Sleep
-/// page's study room draws five 24×24 props and — later — a strip of small
-/// stage icons; every one of them wants the same three properties the mascot
-/// needed: hard pixel edges at any scale, a point size snapped so a cell is a
-/// whole number of points, and a cache so a repaint is a dictionary hit rather
-/// than a rasterization. Copying that code once per consumer is how two
-/// renderers drift into drawing the same grid two different ways, so there is
-/// one, and `BookwormRenderer` became four thin forwarders over it.
-///
-/// COLOUR, not template (G107): a template image is tinted uniformly by the
-/// system and so cannot show mood, and the room's night window cannot be a
-/// silhouette. The palette is a parameter rather than a global because the
-/// room and the character are different drawings — see `DeskPalette`, which
-/// exists precisely because `BookwormPalette` is contractually nine keys.
+/// Used by the stage icons and code-drawn mascot overlays. The character and room
+/// themselves are Aseprite sheets (TODO ruling 18); each sheet has its own crop cache.
+/// Grid renderings stay colour images, never templates, and palettes are supplied by
+/// the caller. The stage palette remains distinct from the legacy nine-key overlays.
 enum PixelRenderer {
 
     /// Snaps a scaled point size onto a multiple of `gridSize` (G130 R6):
@@ -27,9 +20,7 @@ enum PixelRenderer {
     /// small `pointSize` would otherwise round down to.
     ///
     /// The snap is onto the grid's own multiple, not a hardcoded 24 — that is
-    /// the whole generalization: a 16-cell icon snaps to 16s, the 24-cell worm
-    /// still snaps to 24s, and `BookwormRenderer.snappedPointSize` is exactly
-    /// the `gridSize: 24` case of this function.
+    /// the whole generalization: a 16-cell icon snaps to 16s.
     static func snappedPointSize(_ pointSize: CGFloat, gridSize: Int) -> CGFloat {
         let g = CGFloat(max(1, gridSize))
         return max(g, g * (pointSize / g).rounded())
@@ -37,7 +28,7 @@ enum PixelRenderer {
 
     /// `0xRRGGBB` → opaque sRGB. Every palette in the app is authored as hex
     /// literals (they are art hues, deliberately mode-independent — see
-    /// `BookwormPalette`'s docstring), so this is the one conversion and no
+    /// `BookwormPalette`), so this is the one conversion and no
     /// caller writes the shift-and-divide by hand.
     static func nsColors(_ palette: [Character: UInt32]) -> [Character: NSColor] {
         palette.mapValues { hex in
@@ -49,9 +40,7 @@ enum PixelRenderer {
     }
 
     /// Render one grid at `pointSize` × `pointSize`. The grid is drawn as
-    /// given: `BookwormSprites.frames(for:)` already bakes every overlay
-    /// (badge, stage dots, nightcap — mascot ruling R2), so there is no merge
-    /// seam here either. A short or ragged grid is padded with transparent
+    /// given, including any code-drawn overlays. A short or ragged grid is padded with transparent
     /// cells rather than trapping, which is what lets a prop be authored
     /// incrementally without the app refusing to draw it.
     static func image(grid: PixelGrid, gridSize: Int, pointSize: CGFloat,
@@ -86,11 +75,11 @@ enum PixelRenderer {
     // MARK: - Scene cache (P13)
 
     /// A SECOND cache, deliberately not the mascot's. `BookwormRenderer`'s
-    /// cache wipes wholesale past 512 entries; feeding scene layers and stage
+    /// cache wipes wholesale past 1024 entries; feeding stage
     /// icons through it would make the always-animating worm collateral
     /// damage of every wipe — it would re-rasterize a frame per timer tick
     /// right after a page render. Keys are namespaced by their caller
-    /// (`"desk.window|lit|120"`, `"stage.read|32"`) because this cache has no
+    /// (`"stage.read|32"`) because this cache has no
     /// state enum to derive one from: whoever asks for an image owns its
     /// identity, and two callers sharing a key would share an image.
     ///

@@ -633,7 +633,9 @@ def _is_bank(memory_path: Path) -> bool:
     return (memory_path / "entities").is_dir() or (memory_path / "episodes").is_dir()
 
 
-def ensure_fresh(memory_path: Path, *, wait: bool = False, max_age_s: float | None = None) -> str:
+def ensure_fresh(
+    memory_path: Path, *, wait: bool = False, max_age_s: float | None = None, _raise: bool = False
+) -> str:
     """Bring the index up to date with the markdown; return its state.
 
     ``"ready"`` — the index matches the files (within ``max_age_s``);
@@ -644,7 +646,8 @@ def ensure_fresh(memory_path: Path, *, wait: bool = False, max_age_s: float | No
     raised: the index must never be the reason a request fails).
 
     ``wait=True`` (Sleep, the background worker, tests) does all the work
-    inline instead of deferring any of it.
+    inline instead of deferring any of it. ``_raise`` (for :func:`refresh`)
+    lets a failure propagate instead of reading as ``"unavailable"``.
     """
     memory_path = Path(memory_path)
     if not fts5_available() or not _is_bank(memory_path):
@@ -690,19 +693,43 @@ def ensure_fresh(memory_path: Path, *, wait: bool = False, max_age_s: float | No
             state.lock.release()
         return "ready"
     except Exception as exc:
+        if _raise:
+            raise
         logger.warning(f"search_index: freshness check failed ({type(exc).__name__}: {exc})")
         return "unavailable"
 
 
 def rebuild(memory_path: Path) -> int:
-    """Full rebuild — Sleep's call, beside the vector index. Raises on
-    failure so the cycle can record it as an index warning."""
+    """Full rebuild — the repair path (:func:`refresh` falls back to it, and
+    the tests and maintenance call it). Raises on failure."""
     memory_path = Path(memory_path)
     if not fts5_available() or not _is_bank(memory_path):
         return 0
     state = _state(memory_path)
     with state.lock:
         return _full_build(memory_path, state)
+
+
+def refresh(memory_path: Path) -> str:
+    """Sleep's call, beside the vector index: bring the file up to date
+    incrementally — only the documents whose ``(mtime, size)`` stamp moved are
+    re-indexed, the removed ones dropped — instead of rebuilding all of it.
+
+    A missing, unreadable or schema-mismatched file still gets a full build
+    (:func:`ensure_fresh`'s cold path), and a damaged one is discarded and
+    rebuilt: the index is derived and disposable. A locked file raises, like
+    :func:`rebuild`, so the cycle can record an index warning. Blocking — run
+    it off the event loop. Returns the state ``ensure_fresh`` reports.
+    """
+    memory_path = Path(memory_path)
+    try:
+        return ensure_fresh(memory_path, wait=True, max_age_s=0, _raise=True)
+    except sqlite3.OperationalError:
+        raise
+    except sqlite3.DatabaseError as exc:
+        logger.warning(f"search_index: refresh hit a damaged file ({exc}); rebuilding")
+        rebuild(memory_path)
+        return "ready"
 
 
 def _background(memory_path: Path) -> None:

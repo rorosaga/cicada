@@ -1,0 +1,17 @@
+{
+ "note": "G162 P10: what the Feed shows as a video — the Python twin of the app's FeedKind.of(item) == .video (a paper is never one; a page is one when its media type says so or its link resolves to a video provider). Shared by api/tests/test_video_state.py and the app's VideoKindTests.",
+ "cases": [
+  {"mediaType": "youtube", "url": "https://www.youtube.com/watch?v=abcdefghijk", "kind": null, "video": true},
+  {"mediaType": "url", "url": "https://vimeo.com/123456789", "kind": null, "video": true},
+  {"mediaType": "url", "url": "https://www.loom.com/share/0123456789abcdef", "kind": null, "video": true},
+  {"mediaType": "video", "url": "file:///Users/example/Movies/demo.mov", "kind": null, "video": true},
+  {"mediaType": "url", "url": "https://example.com/videos/demo.mp4", "kind": null, "video": true},
+  {"mediaType": "video", "url": "https://example.com/clip", "kind": null, "video": true},
+  {"mediaType": "url", "url": "https://www.twitch.tv/videos/123456789", "kind": null, "video": true},
+  {"mediaType": "url", "url": "https://example.com/articles/local-first", "kind": null, "video": false},
+  {"mediaType": "bookmark", "url": "https://example.com/blog/teardown", "kind": null, "video": false},
+  {"mediaType": "url", "url": "https://arxiv.org/abs/2303.04137", "kind": "paper", "video": false},
+  {"mediaType": "youtube", "url": "https://www.youtube.com/watch?v=abcdefghijk", "kind": "paper", "video": false},
+  {"mediaType": "url", "url": "https://x.com/example/status/1", "kind": null, "video": false}
+ ]
+}

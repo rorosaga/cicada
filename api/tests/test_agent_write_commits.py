@@ -70,6 +70,11 @@ def test_a_stdio_claim_written_mid_sleep_is_left_for_sleeps_own_commit(server, m
 
 @pytest.mark.parametrize("reply, running", [
     ('{"status": "running"}', True), ('{"status": "idle"}', False), ("not json", False),
+    # A person-started run holds `running` for hours, but only a batch's write window is `writing`
+    # (G177): between batches a stdio claim commits alone under its own harness.
+    ('{"status": "running", "writing": false, "drain": {"batch": 2, "batches": 5, "active": true}}', False),
+    ('{"status": "running", "writing": true, "drain": {"batch": 2, "batches": 5, "active": true}}', True),
+    ('{"status": "idle", "writing": false}', False),
 ])
 def test_the_sleep_probe_reads_the_status(monkeypatch, reply, running):
     from api.services import mcp_tools

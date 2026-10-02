@@ -16,7 +16,13 @@ brings back:
   summary span (``assistant``) and each excerpt's span (``media``) — each
   located inside its own line, so a quote the summary repeats still cites
   the video;
-* **chapters**, only when the page has none (a description's own win).
+* **chapters**, only when the page has none (a description's own win);
+* **how it was read** (G162): ``watch_basis`` (``transcript`` | ``frames`` |
+  ``both``) and ``watch_engine`` (a closed set) on the episode's frontmatter —
+  the agent's own word, never verified, so the app says "an agent recorded
+  that it watched", never "Cicada watched" (R-VU2). An unknown value is
+  dropped and the record is still written; and the video's length, kept on
+  the page only when it has none.
 
 Caps (Q-R8): the summary is one line of at most 1,500 characters — folded,
 so no line of it can pose as a turn marker; at most 12 excerpts of 240, each
@@ -33,6 +39,7 @@ from pathlib import Path
 
 from api.services import (
     agentic_write, bank_index, episode_ids, episode_scrub, markdown_parser, media_ingestor, video_chapters,
+    video_state,
 )
 from api.services import evidence as evidence_mod
 
@@ -119,21 +126,39 @@ def _chapters(raw) -> list[dict]:
     return sorted(out, key=lambda c: c["t"])
 
 
-def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dict) -> str:
+def _union_basis(old, new: str | None) -> str | None:
+    """The basis a repeated record leaves on the episode (§4.2): ``transcript`` +
+    ``frames`` is ``both``, and a stated basis replaces an unstated one. A
+    repeat that states none changes nothing — it never downgrades."""
+    if new is None:
+        return None
+    facts = (video_state.basis_facts({"watch_basis": old}) - {"U"}) | video_state.basis_facts({"watch_basis": new})
+    return video_state.basis_from_facts(facts)
+
+
+def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dict,
+                   *, basis: str | None = None, engine: str | None = None,
+                   at: str | None = None) -> tuple[str, bool]:
     """One episode per (page, body): a repeated call returns the same id, read
     back through ``bank_index``'s frontmatter cache — the same rule as
     ``media_ingestor.write_note_episode`` (Q-R10). Ids and timestamps go
-    through ``episode_ids`` (G114)."""
+    through ``episode_ids`` (G114). Returns ``(id, existed)``.
+
+    A repeat with a new ``basis`` or ``engine`` merges them into the existing
+    episode's frontmatter **in place** (G162 A2): the union of the bases, the
+    newest stated engine; ``content_hash`` and ``processed`` are untouched, so
+    Sleep does not re-read it and no second episode is minted."""
     content_hash = hashlib.sha256(f"{target.entity_id}\x00{body}".encode("utf-8")).hexdigest()[:12]
     for f in bank_index.files(memory_path, "episodes"):
         if f.frontmatter.get("content_hash") == content_hash:
-            return f.stem
+            _merge_how(f.path, basis, engine)
+            return f.stem, True
     episodes_dir = memory_path / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
-    episode_id = episode_ids.next_episode_id(episodes_dir, datetime.now().strftime("%Y-%m-%d"))
+    episode_id = episode_ids.next_episode_id(episodes_dir, (at or "")[:10] or datetime.now().strftime("%Y-%m-%d"))
     frontmatter = {
         "id": episode_id,
-        "timestamp": episode_ids.utc_now_iso(),
+        "timestamp": at or episode_ids.utc_now_iso(),
         "source": SOURCE,
         # G9's closed origin vocabulary: an agent's write through MCP.
         "origin": "mcp",
@@ -144,8 +169,33 @@ def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dic
         "media_entity_id": target.entity_id,
         **session_fm,
     }
+    if basis:
+        frontmatter["watch_basis"] = basis
+    if engine:
+        frontmatter["watch_engine"] = engine
     markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
-    return episode_id
+    return episode_id, False
+
+
+def _merge_how(path: Path, basis: str | None, engine: str | None) -> bool | None:
+    """Merge a repeat's basis/engine into the existing episode file. ``True``
+    when the file changed, ``False`` when nothing new was stated, ``None`` for
+    a repeat that stated neither (nothing read or written)."""
+    if not basis and not engine:
+        return None
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    before = (fm.get("watch_basis"), fm.get("watch_engine"))
+    if basis:
+        union = _union_basis(fm.get("watch_basis"), basis)
+        if union:
+            fm["watch_basis"] = union
+    if engine:
+        fm["watch_engine"] = engine
+    if (fm.get("watch_basis"), fm.get("watch_engine")) == before:
+        return False
+    markdown_parser.write(path, fm, parsed.body)
+    return True
 
 
 def _store_chapters(memory_path: Path, entity_id: str, chapters: list[dict]) -> bool:
@@ -156,6 +206,32 @@ def _store_chapters(memory_path: Path, entity_id: str, chapters: list[dict]) -> 
     if not isinstance(media, dict) or media.get("chapters"):
         return False
     media["chapters"] = chapters
+    markdown_parser.write(path, parsed.frontmatter, parsed.body)
+    return True
+
+
+def _duration(raw) -> int | None:
+    """The video's length in whole seconds, or ``None`` when unreadable, zero or
+    past a day (the same ceiling as a quote's time)."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    seconds = video_chapters.seconds(raw)
+    return seconds if seconds and 0 < seconds <= MAX_T_S else None
+
+
+def _store_duration(memory_path: Path, entity_id: str, seconds: int) -> bool:
+    """G162: an agent-reported length fills ``media.duration_s`` only when the
+    page has none — the same shape as ``_store_chapters``. A provider's own
+    figure (Vimeo, Loom) is never overwritten by an agent's."""
+    path = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    media = parsed.frontmatter.get("media")
+    if not isinstance(media, dict):
+        return False
+    existing = media.get("duration_s")
+    if isinstance(existing, int) and not isinstance(existing, bool) and existing > 0:
+        return False
+    media["duration_s"] = seconds
     markdown_parser.write(path, parsed.frontmatter, parsed.body)
     return True
 
@@ -172,10 +248,24 @@ def record(
     session_id: str | None = None,
     origin: str = ORIGIN,
     recorded_ts: str | None = None,
+    basis=None,
+    engine=None,
+    duration=None,
+    clock: str | None = None,
 ) -> dict:
     """Write the watch episode and the ``describes`` claim. Never raises on a
-    normal input; returns ``{error}`` or the ids, counts and ``paths`` to commit."""
+    normal input; returns ``{error}`` or the ids, counts and ``paths`` to commit.
+
+    ``basis``, ``engine`` and ``duration`` (G162) are the agent's own account of
+    how it read the video. An unrecognised ``basis`` or ``engine``, or an
+    unreadable ``duration``, is dropped (and reported in the result) — the
+    record is still written: provenance never blocks memory."""
     memory_path = Path(memory_path)
+    basis_given = basis not in (None, "")
+    engine_given = engine not in (None, "")
+    clean_basis = video_state.clean_basis(basis)
+    clean_engine = video_state.clean_engine(engine)
+    seconds = _duration(duration)
     # R-N3 / R-LS6: one scrub for every episode writer — the summary and each
     # quote are scrubbed before the body is built, so neither the episode nor
     # the `describes` claim (whose object is the summary) holds a secret.
@@ -194,7 +284,8 @@ def record(
     episode_scrub.record("mcp", scrubbed, bank=memory_path.name)
     video_lines = [f"{MARKER} [{video_chapters.stamp(t)}]: {quote}" for t, quote in kept]
     body = "\n".join([f"assistant: {summary}", *([""] + video_lines if video_lines else [])])
-    episode_id = _write_episode(memory_path, target, body, session_frontmatter or {})
+    episode_id, existed = _write_episode(memory_path, target, body, session_frontmatter or {},
+                                         basis=clean_basis, engine=clean_engine, at=clock)
     text = evidence_mod.source_text(memory_path, episode_id) or body
     # Each quote is located inside its OWN line's window: a quote the summary
     # repeats would otherwise land on the `assistant:` line first and cite the
@@ -218,13 +309,20 @@ def record(
         context="general", source_episode=episode_id, object_kind="literal",
         text=f"{target.title}: {summary}", session_id=session_id, origin=origin, evidence=cites,
         authored_by=author, recorded_ts=recorded_ts,
+        today=datetime.fromisoformat(clock).date() if clock else None,
     )
     paths = [f"episodes/{episode_id}.md"]
     if result.get("action") in ("error", "ambiguous_subject", "corrupt_claims_block"):
         return {"error": result.get("error") or result.get("action"), "episode_id": episode_id, "paths": paths}
     wanted = _chapters(chapters)
     chapters_stored = _store_chapters(memory_path, target.entity_id, wanted) if wanted else None
+    duration_stored = _store_duration(memory_path, target.entity_id, seconds) if seconds else None
     paths.append(result.get("path") or f"entities/{target.entity_id}.md")
     return {"entity_id": target.entity_id, "episode_id": episode_id, "claim_id": result.get("claim_id"),
             "evidence": result.get("evidence") or [], "excerpts": len(kept), "dropped": dropped,
-            "summary_clipped": clipped, "chapters": chapters_stored, "paths": paths}
+            "summary_clipped": clipped, "chapters": chapters_stored, "paths": paths,
+            "basis": clean_basis, "engine": clean_engine, "existed": existed,
+            "basis_dropped": basis_given and clean_basis is None,
+            "engine_dropped": engine_given and clean_engine is None,
+            "duration_dropped": duration not in (None, "") and seconds is None,
+            "duration": duration_stored}

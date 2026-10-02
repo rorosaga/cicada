@@ -15,6 +15,30 @@ struct EntitySource: Codable, Identifiable, Hashable {
     var accepted: Bool?
     /// The person's "Only I know" for this fact.
     var onlyMe: Bool?
+    /// G61 S3-a — a connection's own entry (`remote:<id>`); the app only ever compares it, never shows it.
+    var origin: String?
+    /// G61 S3-a — the page that knows more about this source ("its own memory node"). The server serves it only
+    /// while the page still exists, so a value here is a page to open.
+    var entity: String?
+    /// PR2's stamp — Cicada's own read confirmed the entry. Decoded now so the wire does not move twice.
+    var verified: Verified?
+    /// G61 S3-b — the access it needs as it is READ (stated, else inferred by the server).
+    var effectiveAccess: String?
+    /// Whether the card may lean on it: the person's, one they took, or one Cicada's own read confirmed. nil (an older
+    /// backend) reads as trusted, as every entry was.
+    var trusted: Bool?
+    /// A proposed site Cicada read and judged thin: "not confirmed yet" (`{at, outcome}`).
+    var checked: Verified?
+
+    var isOfficialSite: Bool { (predicate ?? "").lowercased() == "website" }
+    /// A proposed official site nobody vouched for: the card offers "Use this site".
+    var isUnconfirmedSite: Bool { isOfficialSite && trusted == false }
+
+    struct Verified: Codable, Hashable {
+        var at: String?
+        var how: String?
+        var outcome: String?
+    }
 
     /// Stable within one payload — the backend addresses sources by index. G61 phase 2 S1 keys an entry on
     /// `(ref, predicate)`, so one link can back two facts: the predicate is part of the row's identity, or

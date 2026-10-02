@@ -9,11 +9,11 @@ import XCTest
 @MainActor
 final class RoomFeedTests: XCTestCase {
 
-    private let scene = deskSceneLayout(pointSize: 120, uiScale: 1.0)
+    private let scene = deskSceneLayout(uiScale: 1.0)
     private var spots: [DeskHotspot: CGRect] { deskHotspots(scene) }
-    /// Top-left points (what `DropInfo.location` reports) at 5 pt cells.
-    private let overWorm = CGPoint(x: 200, y: 70)
-    private let overLamp = CGPoint(x: 20, y: 100)
+    /// Top-left points (what `DropInfo.location` reports) at 3 pt cells.
+    private var overWorm: CGPoint { let r = spots[.worm]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
+    private var overLamp: CGPoint { let r = spots[.lamp]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
 
     private var everyPhase: [FeedPhase] {
         let refusals: [FeedPhase] = FeedRefusal.allCases.map(FeedPhase.refused)
@@ -130,9 +130,9 @@ final class RoomFeedTests: XCTestCase {
         let room = RoomModel()
         room.dragMoved(to: overWorm, scene: scene, spots: spots, state: .sleeping(stage: 2))
         XCTAssertEqual(BookwormPose.eager.effective(for: .sleeping(stage: 2), reduceMotion: false), .idle,
-                       "no open mouth under the nightcap")
+                       "sleeping eyes stay shut")
         room.fed(.handedOver, state: .sleeping(stage: 2), reduceMotion: false)
-        XCTAssertNil(room.reaction, "no gulp — the nightcap stays on")
+        XCTAssertNil(room.reaction, "no gulp — sleeping eyes stay shut")
         XCTAssertEqual(room.feedResult, .handedOver, "…but the drop went through")
         let running = try JSONDecoder().decode(SleepStatusResponse.self, from: Data(#"{"status":"running","stage":0}"#.utf8))
         XCTAssertEqual(deriveSleepPageMood(status: running, debt: nil, justFinishedAt: nil, intakeInFlight: true),

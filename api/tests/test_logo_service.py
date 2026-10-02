@@ -41,43 +41,61 @@ def test_domain_for_prefers_explicit_logo_frontmatter():
     assert logo_service.domain_for(fm, "## Links\n- https://third.example/y\n") == "cdn.acme-corp.example"
 
 
-def test_domain_for_falls_back_to_the_first_url_kind_source():
-    fm = {"type": "tool", "name": "Widget",
-          "sources": [{"ref": "check my notes", "kind": "note"},
-                      {"ref": "https://widget.example/docs", "kind": "url"}]}
-    assert logo_service.domain_for(fm, "") == "widget.example"
+def test_domain_for_reads_a_trusted_website_source_and_only_that():
+    person = {"ref": "https://widget.example/docs", "kind": "url", "predicate": "website", "added_by": "user"}
+    taken = {"ref": "https://taken.example", "kind": "url", "predicate": "website", "added_by": "claude-code",
+             "accepted": True}
+    verified = {"ref": "https://checked.example", "kind": "url", "predicate": "website", "added_by": "cicada",
+                "verified": {"at": "2026-10-01", "how": "name+content"}}
+    for source, host in ((person, "widget.example"), (taken, "taken.example"), (verified, "checked.example")):
+        assert logo_service.domain_for({"type": "tool", "name": "Widget", "sources": [source]}, "") == host
+    # a person-added entry with no predicate is their site too
+    bare = {"ref": "https://bare.example", "kind": "url", "added_by": "user"}
+    assert logo_service.domain_for({"type": "tool", "name": "W", "sources": [bare]}, "") == "bare.example"
 
 
-def test_domain_for_falls_back_to_the_links_section():
-    body = "## Summary\n\nA thing.\n\n## Links\n- [Docs](https://links.example/docs)\n- https://second.example\n"
-    assert logo_service.domain_for({"type": "tool", "name": "Thing"}, body) == "links.example"
+def test_domain_for_ignores_an_unverified_or_other_fact_source():
+    model = {"ref": "https://model.example", "kind": "url", "predicate": "website", "added_by": "agent"}
+    cicada = {"ref": "https://found.example", "kind": "url", "predicate": "website", "added_by": "cicada"}
+    other = {"ref": "https://elsewhere.example", "kind": "url", "predicate": "works-at", "added_by": "user"}
+    note = {"ref": "check my notes", "kind": "note", "predicate": "website", "added_by": "user"}
+    fm = {"type": "tool", "name": "Widget", "sources": [model, cicada, other, note]}
+    assert logo_service.domain_for(fm, "") is None, "an unverified proposal draws no mark"
+    # ... and the best trusted one wins over an earlier unverified one
+    fm["sources"].append({"ref": "https://real.example", "kind": "url", "predicate": "website", "added_by": "user"})
+    assert logo_service.domain_for(fm, "") == "real.example"
 
 
-def test_domain_for_falls_back_to_media_url():
+def test_domain_for_never_guesses_from_the_name():
+    """The stranger's mark: a single-token name used to become `<name>.com`. Nothing does that now (the two owner
+    cases as placeholders: a small company and an AI provider named like a fireworks show)."""
+    for name in ("Fireworks", "MongoDB", "Acme", "Widget"):
+        for kind in ("company", "tool", "project"):
+            assert logo_service.domain_for({"type": kind, "name": name}, "") is None
+
+
+def test_domain_for_ignores_links_the_media_url_and_a_website_claim():
+    body = ("## Summary\n\nA thing.\n\n## Links\n- [Docs](https://links.example/docs)\n\n```claims\n"
+            '- {"id": "c1", "text": "x", "subject": "thing", "predicate": "website", "object": "https://www.thing.example/"}\n'
+            "```\n")
+    assert logo_service.domain_for({"type": "tool", "name": "Thing"}, body) is None
     fm = {"type": "media", "name": "A video", "media": {"url": "https://www.youtube.com/watch?v=abc"}}
-    assert logo_service.domain_for(fm, "") == "youtube.com"
+    assert logo_service.domain_for(fm, "") is None
+    assert logo_service.domain_for({"type": "tool", "name": "Thing", "media": {"url": "https://m.example"}}, "") is None
 
 
-def test_domain_for_uses_a_website_claim_before_guessing():
-    body = (
-        "## Summary\n\nx\n\n```claims\n"
-        '- {"id": "c1", "text": "MongoDB is at mongodb.com", "subject": "mongodb",'
-        ' "predicate": "website", "object": "https://www.mongodb.com/"}\n'
-        "```\n"
-    )
-    assert logo_service.domain_for({"type": "tool", "name": "Mongo DB"}, body) == "mongodb.com"
+def test_domain_for_refuses_platform_and_walled_hosts():
+    for host in ("https://github.com/acme/widget", "https://www.linkedin.com/company/acme", "https://x.com/acme",
+                 "https://en.wikipedia.org/wiki/Acme", "https://acme.medium.com", "https://huggingface.co/acme"):
+        source = {"ref": host, "kind": "url", "predicate": "website", "added_by": "user"}
+        assert logo_service.domain_for({"type": "company", "name": "Acme", "sources": [source]}, "") is None, host
 
 
-def test_domain_for_guesses_dot_com_only_for_a_single_token_name():
-    assert logo_service.domain_for({"type": "tool", "name": "MongoDB"}, "") == "mongodb.com"
-    assert logo_service.domain_for({"type": "company", "name": "Acme Holdings Ltd"}, "") is None
-
-
-def test_domain_for_never_guesses_for_a_person():
+def test_a_person_never_gets_a_logo_even_with_a_site_or_an_explicit_logo():
     assert logo_service.domain_for({"type": "person", "name": "Rodrigo"}, "") is None
-    # …but an explicit link on a person page is still honoured.
-    fm = {"type": "person", "name": "Rodrigo", "sources": [{"ref": "https://rodrigo.example", "kind": "url"}]}
-    assert logo_service.domain_for(fm, "") == "rodrigo.example"
+    site = {"ref": "https://rodrigo.example", "kind": "url", "predicate": "website", "added_by": "user"}
+    assert logo_service.domain_for({"type": "person", "name": "R", "sources": [site]}, "") is None
+    assert logo_service.domain_for({"type": "person", "name": "R", "logo": "https://r.example/x.png"}, "") is None
 
 
 def test_domain_for_returns_none_for_a_bare_concept():
@@ -206,7 +224,7 @@ def test_ensure_logo_second_call_is_served_from_cache(workspace):
 
 
 def test_ensure_logo_caches_a_miss_and_does_not_retry_within_the_ttl(workspace):
-    write_entity(workspace, "widget", ["name: Widget", "type: tool"])
+    write_entity(workspace, "widget", ["name: Widget", "type: tool", "logo: https://widget.example/x.png"])
     calls: list[str] = []
     fetcher = make_fetcher({}, calls)
     assert run(logo_service.ensure_logo(workspace, "widget", fetcher=fetcher)) is None
@@ -218,7 +236,7 @@ def test_ensure_logo_caches_a_miss_and_does_not_retry_within_the_ttl(workspace):
 
 
 def test_an_expired_entry_is_refetched(workspace):
-    write_entity(workspace, "widget", ["name: Widget", "type: tool"])
+    write_entity(workspace, "widget", ["name: Widget", "type: tool", "logo: https://widget.example/x.png"])
     calls: list[str] = []
     fetcher = make_fetcher({}, calls)
     run(logo_service.ensure_logo(workspace, "widget", fetcher=fetcher))
@@ -251,7 +269,7 @@ def test_ensure_logo_returns_none_without_a_domain_and_never_fetches(workspace):
 def test_cached_ids_reports_only_hits(workspace):
     write_entity(workspace, "mongodb",
                  ["name: MongoDB", "type: tool", "logo: https://mongodb.com/x.png"])
-    write_entity(workspace, "widget", ["name: Widget", "type: tool"])
+    write_entity(workspace, "widget", ["name: Widget", "type: tool", "logo: https://widget.example/x.png"])
     fetcher = make_fetcher({
         "https://mongodb.com/apple-touch-icon.png":
             logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
@@ -563,9 +581,9 @@ def test_a_page_edit_past_the_ttl_still_refetches_even_with_the_same_domain(work
     assert calls, "an expired entry must be refetched even when the domain is unchanged"
 
 
-def test_a_page_edit_that_drops_the_domain_falls_back_to_the_cache(workspace):
-    """M2: deleting `logo:`/`sources:`/`## Links` from a page must not turn a
-    live cache entry into a 404 that /graph's has_logo still advertises."""
+def test_a_page_edit_that_drops_the_domain_drops_the_stale_mark_and_records_a_miss(workspace):
+    """G61 S3-b (was M2's fallback): a mark drawn from something that is no longer on the page — a site source the
+    person removed, or a name guess an older rule cached — is not served; `/graph`'s has_logo and the endpoint agree."""
     page = write_entity(workspace, "acme-corp",
                         ["name: Acme Corp Tool", "type: tool",
                          "logo: https://acme.example/x.png"])
@@ -574,21 +592,44 @@ def test_a_page_edit_that_drops_the_domain_falls_back_to_the_cache(workspace):
             logo_service.FetchResult(200, png_bytes(180, 180), "image/png"),
     })
     cached = run(logo_service.ensure_logo(workspace, "acme-corp", fetcher=fetcher))
-    assert cached is not None
+    assert cached is not None and cached.exists()
 
-    # Multi-token name: dropping `logo:` leaves domain_for with nothing to
-    # resolve — no source, no links, no media, and no single-token slug guess.
     write_entity(workspace, "acme-corp", ["name: Acme Corp Tool", "type: tool"])
     _touch_after_fetch(page)
 
-    result = run(logo_service.ensure_logo(workspace, "acme-corp", fetcher=fetcher))
-    assert result == cached, (
-        "a page that no longer resolves any domain must fall back to the cache, "
-        "like the neighbouring exits"
-    )
-    assert "acme-corp" in logo_service.cached_ids("claude-chats"), (
-        "has_logo must still agree with what the endpoint actually serves"
-    )
+    assert run(logo_service.ensure_logo(workspace, "acme-corp", fetcher=fetcher)) is None
+    assert not cached.exists(), "the stale file goes"
+    assert "acme-corp" not in logo_service.cached_ids("claude-chats")
+    assert logo_service.read_meta("claude-chats")["acme-corp"]["miss"] is True
+
+
+def test_the_logo_rule_purges_an_older_cache_once_and_spares_the_sites_namespace(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    bank = "claude-chats"
+    root = tmp_path / "home" / "logos" / bank
+    (root / "sites").mkdir(parents=True)
+    (root / "mongodb.png").write_bytes(png_bytes(64, 64))
+    (root / "meta.json").write_text('{"mongodb": {"fetched_at": "%s", "domain": "mongodb.com", "miss": false, '
+                                    '"ext": "png"}}' % datetime.now(timezone.utc).isoformat())
+    (root / "sites" / "example.com.png").write_bytes(png_bytes(64, 64))
+    (root / "sites" / "meta.json").write_text('{"example.com": {"miss": false, "ext": "png"}}')
+    logo_service._ruled.discard(bank)
+    assert "mongodb" not in logo_service.cached_ids(bank), "an older-rule logo is gone before it is offered"
+    assert not (root / "mongodb.png").exists() and logo_service.read_meta(bank) == {}
+    assert (root / "sites" / "example.com.png").exists() and (root / "sites" / "meta.json").exists()
+    assert (root / ".rule").read_text().strip() == str(logo_service.LOGO_RULE)
+    # once: a logo cached under the new rule survives a second pass
+    (root / "widget.png").write_bytes(png_bytes(64, 64))
+    logo_service.write_meta(bank, {"widget": {"fetched_at": datetime.now(timezone.utc).isoformat(), "domain": "widget.example",
+                                              "miss": False, "ext": "png"}})
+    logo_service._ruled.discard(bank)
+    assert logo_service.ensure_rule(bank) == 0 and "widget" in logo_service.cached_ids(bank)
+
+
+def test_a_bank_made_now_is_born_under_the_current_rule(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    logo_service.logos_dir("fresh-bank")
+    assert (tmp_path / "home" / "logos" / "fresh-bank" / ".rule").read_text().strip() == str(logo_service.LOGO_RULE)
 
 
 def test_an_edited_page_keeps_its_cached_logo_when_fetching_is_gated_off(workspace, monkeypatch):

@@ -39,7 +39,10 @@ def client(tmp_path, monkeypatch):
     _git(memory, "config", "user.name", "Cicada Test")
     markdown_parser.write(memory / "entities" / "bob-example.md", {"name": "Bob Example", "type": "person"},
                           "## Summary\nRuns the lab.\n")
-    markdown_parser.write(memory / "entities" / "acme.md", {"name": "Acme", "type": "company"}, "## Summary\nA client.\n")
+    markdown_parser.write(memory / "entities" / "acme.md",
+                          {"name": "Acme", "type": "company",
+                           "sources": [{"ref": "https://acme.example", "kind": "url", "predicate": "website",
+                                        "added_by": "user"}]}, "## Summary\nA client.\n")
     _git(memory, "add", "-A")
     _git(memory, "commit", "-q", "-m", "seed")
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))

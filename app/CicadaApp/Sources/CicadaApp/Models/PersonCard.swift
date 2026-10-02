@@ -208,7 +208,7 @@ enum PersonMapLayout {
                                    pages: [String: GraphNode]) -> (order: [String], labels: [String: String]) {
         var order: [String] = []
         var labels: [String: String] = [:]
-        for edge in edges where edge.label != "member of" {
+        for edge in edges where edge.label != "member of" && !edge.isSourceLink {
             let other: String
             if edge.source == personId { other = edge.target } else if edge.target == personId { other = edge.source } else { continue }
             guard other != personId, pages[other] != nil, labels[other] == nil else { continue }

@@ -1,146 +1,177 @@
-import CoreGraphics
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// G125 v3 Task 3: the room is composed by ONE pure function on ONE cell
-/// lattice, so the whole picture can be argued about without standing up a
-/// view — the same way `bookPileLayout` and `studyRows` are tested.
-///
-/// The invariants here are the ones P12 and P10 name. P12: every prop renders
-/// at the SAME snapped point size as the worm and is positioned by an integer
-/// CELL count, because two pixel scales in one picture read as a bug at any
-/// zoom and would break G130 R6's single `snappedPointSize` call. P10: the
-/// page's one volume encoding is the REAL `BookPileView`, so the scene must
-/// reserve a column for it that no painted furniture reaches into — a
-/// decorative spine stack eighteen points from a real one would ask the
-/// reader to tell a chart from wallpaper by taste.
 final class DeskSceneLayoutTests: XCTestCase {
-
-    // MARK: - The lattice
-
-    /// At `uiScale == 1.0` the worm is 120 pt over 24 cells, so a cell is
-    /// exactly 5 pt and the scene box is the lattice times that. Pinned as a
-    /// number, not a formula, so a change to either constant is deliberate.
-    func testCellAndSizeAtUnitScale() {
-        let l = deskSceneLayout(pointSize: 120, uiScale: 1.0)
-        XCTAssertEqual(l.cell, 5)
-        XCTAssertEqual(l.size.width, CGFloat(DeskScene.cols) * 5)
-        XCTAssertEqual(l.size.height, CGFloat(DeskScene.rows) * 5)
-    }
-
-    /// G130 R6: the scene's point size is the worm's own snapped size, so the
-    /// two never disagree about how big a pixel is. 1.4 is the app's ceiling
-    /// (`ThemeStore.scaleRange`); 1.5 is included because the function is
-    /// pure and must not misbehave past it.
-    func testEveryScaleYieldsAWholeNumberOfPointsPerCell() {
-        for scale in [0.8, 1.0, 1.2, 1.4, 1.5] {
-            let l = deskSceneLayout(pointSize: 120, uiScale: scale)
-            XCTAssertEqual(l.cell, BookwormRenderer.snappedPointSize(120 * CGFloat(scale)) / 24,
-                           "uiScale \(scale): the scene's cell is the worm's snapped size over 24")
-            XCTAssertEqual(l.cell, l.cell.rounded(), "uiScale \(scale): a cell is a whole number of points")
+    func testEveryZoomStepUsesTheCellTableAndCanvas() {
+        for (step, cell) in zip(8...14, [2, 3, 3, 3, 4, 4, 4]) {
+            let layout = deskSceneLayout(uiScale: Double(step) / 10)
+            XCTAssertEqual(layout.cell, CGFloat(cell))
+            XCTAssertEqual(layout.size, CGSize(width: 160 * cell, height: 64 * cell))
+            for layer in layout.layers {
+                XCTAssertEqual((CGFloat(layer.cellX) * layout.cell).truncatingRemainder(dividingBy: layout.cell), 0)
+                XCTAssertEqual((CGFloat(layer.cellY) * layout.cell).truncatingRemainder(dividingBy: layout.cell), 0)
+                XCTAssertGreaterThanOrEqual(layer.cellX, 0)
+                XCTAssertGreaterThanOrEqual(layer.cellY, 0)
+                XCTAssertLessThanOrEqual(layer.cellX + layer.w, 160)
+                XCTAssertLessThanOrEqual(layer.cellY + layer.h, 64)
+            }
+            let scene = CGRect(origin: .zero, size: layout.size)
+            XCTAssertTrue(scene.contains(CGRect(origin: layout.wormOrigin, size: CGSize(width: 64 * layout.cell, height: 48 * layout.cell))))
+            XCTAssertTrue(scene.contains(layout.pileFrame))
+            XCTAssertEqual(layout.wormOrigin.x.truncatingRemainder(dividingBy: layout.cell), 0)
+            XCTAssertEqual(layout.wormOrigin.y.truncatingRemainder(dividingBy: layout.cell), 0)
         }
+        XCTAssertEqual(deskSceneLayout(uiScale: 1).cell, 3)
+        XCTAssertGreaterThanOrEqual(deskSceneLayout(uiScale: 1).pileFrame.width, 150)
     }
-
-    // MARK: - Layers
 
     func testEveryPropAppearsExactlyOnceInStrictlyAscendingZOrder() {
-        let l = deskSceneLayout()
-        XCTAssertEqual(Set(l.layers.map(\.prop)), Set(DeskProp.allCases))
-        XCTAssertEqual(l.layers.count, DeskProp.allCases.count)
-        XCTAssertEqual(l.layers.map(\.z), l.layers.map(\.z).sorted())
-        XCTAssertEqual(Set(l.layers.map(\.z)).count, l.layers.count, "z-order is strict, never a tie")
+        let layers = DeskScene.plan
+        XCTAssertEqual(Set(layers.map(\.prop)), Set(DeskProp.allCases))
+        XCTAssertEqual(layers.count, DeskProp.allCases.count)
+        XCTAssertEqual(layers.map(\.z), Array(0..<DeskProp.allCases.count))
     }
 
-    /// P12 in one assertion: an offset that is not an exact multiple of a
-    /// cell is a prop drawn half a pixel off its own lattice.
-    func testEveryOffsetIsAWholeNumberOfCells() {
-        for scale in [0.8, 1.0, 1.4] {
-            let l = deskSceneLayout(pointSize: 120, uiScale: scale)
-            for layer in l.layers {
-                XCTAssertEqual((CGFloat(layer.cellX) * l.cell).truncatingRemainder(dividingBy: l.cell), 0)
-                XCTAssertEqual((CGFloat(layer.cellY) * l.cell).truncatingRemainder(dividingBy: l.cell), 0)
-            }
-            XCTAssertEqual(l.wormOrigin.x.truncatingRemainder(dividingBy: l.cell), 0, "uiScale \(scale)")
-            XCTAssertEqual(l.wormOrigin.y.truncatingRemainder(dividingBy: l.cell), 0, "uiScale \(scale)")
-            XCTAssertEqual(l.pileFrame.minX.truncatingRemainder(dividingBy: l.cell), 0, "uiScale \(scale)")
+    func testPlanEqualsTheArtRunsData() throws {
+        struct Plan: Decodable {
+            struct Layer: Decodable { let prop, sheet: String; let x, y, w, h, z: Int }
+            struct Box: Decodable { let x, y, w, h: Int }
+            let cols, rows: Int
+            let origin: String
+            let layers: [Layer]
+            let worm, pile: Box
         }
-    }
-
-    /// Every 24×24 layer box — and the worm's, which is the same size —
-    /// stays inside the scene rect at every scale. The check is scale-free by
-    /// construction (everything is cells), which is exactly why it is worth
-    /// asserting at three scales: a future absolute-point offset would break
-    /// at two of them and pass at one.
-    func testNoLayerBoxEscapesTheSceneRect() {
-        for scale in [0.8, 1.0, 1.5] {
-            let l = deskSceneLayout(pointSize: 120, uiScale: scale)
-            for layer in l.layers {
-                XCTAssertGreaterThanOrEqual(layer.cellX, 0, "\(layer.prop.rawValue) @\(scale)")
-                XCTAssertGreaterThanOrEqual(layer.cellY, 0, "\(layer.prop.rawValue) @\(scale)")
-                XCTAssertLessThanOrEqual(layer.cellX + 24, DeskScene.cols, "\(layer.prop.rawValue) @\(scale)")
-                XCTAssertLessThanOrEqual(layer.cellY + 24, DeskScene.rows, "\(layer.prop.rawValue) @\(scale)")
-            }
-            let wormBox = CGRect(x: l.wormOrigin.x, y: l.wormOrigin.y, width: 24 * l.cell, height: 24 * l.cell)
-            let scene = CGRect(origin: .zero, size: l.size)
-            XCTAssertTrue(scene.contains(wormBox), "the worm @\(scale)")
-            XCTAssertTrue(scene.contains(l.pileFrame), "the pile @\(scale)")
+        let plan = try JSONDecoder().decode(Plan.self, from: SpriteTestAssets.artData("room-plan.json"))
+        XCTAssertEqual(plan.cols, 160); XCTAssertEqual(plan.rows, 64); XCTAssertEqual(plan.origin, "bottom-left")
+        XCTAssertEqual(plan.layers.count, DeskScene.plan.count)
+        for (art, layer) in zip(plan.layers, DeskScene.plan) {
+            XCTAssertEqual(art.prop, layer.prop.rawValue)
+            XCTAssertEqual(art.sheet, RoomArt.tag(layer.prop, lampLit: true, scenery: Self.scenery(.sunny, .night, overlay: .mist))?.sheet)
+            XCTAssertEqual([art.x, art.y, art.w, art.h, art.z], [layer.cellX, layer.cellY, layer.w, layer.h, layer.z])
         }
+        XCTAssertEqual([plan.worm.x, plan.worm.y, plan.worm.w, plan.worm.h],
+                       [DeskScene.wormCell.x, DeskScene.wormCell.y, 64, 48])
+        XCTAssertEqual([plan.pile.x, plan.pile.y, plan.pile.w, plan.pile.h],
+                       [DeskScene.pileCell.x, DeskScene.pileCell.y, DeskScene.pileCell.width, DeskScene.pileCell.height])
     }
 
-    /// R-A2 — the worm SITS on the cushion. The cushion's top ink row is the
-    /// worm's baseline; if either the cushion art or the placement moves, the
-    /// worm floats or sinks and only this assertion notices.
-    func testTheWormsBaselineIsTheCushionsTopCell() {
-        let l = deskSceneLayout(pointSize: 120, uiScale: 1.0)
-        guard let cushion = l.layers.first(where: { $0.prop == .cushion }),
-              let ink = DeskSceneSprites.inkBounds(DeskSceneSprites.grid(.cushion, lampLit: true)) else {
-            return XCTFail("no cushion layer")
-        }
-        // Grid row r of a layer at cellY sits at scene cell `cellY + 23 - r`.
-        let cushionTopCell = cushion.cellY + 23 - ink.rows.lowerBound
-        XCTAssertEqual(l.wormOrigin.y, CGFloat(cushionTopCell) * l.cell)
+    func testWormBaselineEqualsTheBeanbagSeatRow() throws {
+        let sheet = try SpriteTestAssets.sheet("room-beanbag")
+        let seat = try XCTUnwrap(sheet.slices["seat"])
+        let layer = try XCTUnwrap(DeskScene.plan.first { $0.prop == .beanbag })
+        XCTAssertEqual(seat.height, 1)
+        XCTAssertEqual(layer.cellY + layer.h - 1 - Int(seat.minY), DeskScene.wormCell.y)
     }
 
-    /// P10 — the reserved pile column touches no painted furniture. Asserted
-    /// against each prop's real INK box, not its 24×24 grid: the grids overlap
-    /// each other freely (that is what z-order is for), and it is the visible
-    /// paint that would collide with a real chart.
-    func testThePileColumnNeverOverlapsPaintedFurniture() {
-        let l = deskSceneLayout(pointSize: 120, uiScale: 1.0)
-        for layer in l.layers {
-            for lit in [true, false] {
-                guard let ink = DeskSceneSprites.inkBounds(DeskSceneSprites.grid(layer.prop, lampLit: lit)) else {
-                    continue
-                }
-                let box = CGRect(
-                    x: CGFloat(layer.cellX + ink.cols.lowerBound) * l.cell,
-                    y: CGFloat(layer.cellY + 23 - ink.rows.upperBound) * l.cell,
-                    width: CGFloat(ink.cols.count) * l.cell,
-                    height: CGFloat(ink.rows.count) * l.cell)
-                XCTAssertFalse(box.intersects(l.pileFrame),
-                               "\(layer.prop.rawValue) ink \(box) sits under the pile \(l.pileFrame)")
+    func testPaneEqualsTheWindowGlassInSceneCells() throws {
+        let sheet = try SpriteTestAssets.sheet("room-window")
+        let glass = try XCTUnwrap(sheet.slices["glass"])
+        XCTAssertEqual(glass, CGRect(x: 2, y: 2, width: 36, height: 32))
+        let frame = try XCTUnwrap(DeskScene.plan.first { $0.prop == .window })
+        let pane = try XCTUnwrap(DeskScene.plan.first { $0.prop == .pane })
+        XCTAssertLessThan(pane.z, frame.z)
+        XCTAssertEqual(pane.cellX, frame.cellX + Int(glass.minX))
+        XCTAssertEqual(pane.cellY, frame.cellY + frame.h - Int(glass.maxY))
+        XCTAssertEqual([pane.w, pane.h], [Int(glass.width), Int(glass.height)])
+    }
+
+    func testNoPropInkReachesThePileColumn() throws {
+        for layer in DeskScene.plan {
+            let name = try XCTUnwrap(RoomArt.tag(layer.prop, lampLit: true, scenery: Self.scenery(.sunny, .night, overlay: .mist))?.sheet)
+            let sheet = try SpriteTestAssets.sheet(name)
+            for frame in sheet.frameRects.indices {
+                let ink = try SpriteTestAssets.plane(sheet, frame: frame).ink
+                XCTAssertTrue(ink.allSatisfy { layer.cellX + $0.x < DeskScene.pileCell.x }, name)
             }
         }
     }
 
-    /// The pile is the REAL `BookPileView`, whose widest spine is the column
-    /// itself (`fitPile`, Z-B3) — at 1.0× the 150 pt the pile was authored
-    /// for. A reserved column narrower than that would push a full-width
-    /// spine out of the scene — the geometry reason the lattice is as wide as
-    /// it is, recorded as an assertion so nobody "tidies" the scene narrower.
-    func testThePileColumnFitsAFullWidthSpine() {
-        let l = deskSceneLayout(pointSize: 120, uiScale: 1.0)
-        XCTAssertGreaterThanOrEqual(l.pileFrame.width, 150)
+    static func scenery(_ base: WindowWeather, _ time: SkyPhase, overlay: SkyOverlay? = nil) -> Scenery {
+        Scenery(base: base, time: time, overlay: overlay, source: .chosen)
     }
 
-    /// Track Z §7.3 — the pane sits exactly in the window's glass and BEHIND
-    /// the frame, so the mullions occlude it for free (occlusion is the only
-    /// depth cue a pixel window has).
-    func testThePaneSitsInTheGlassBehindTheFrame() {
-        let pane = DeskScene.plan.first { $0.prop == .pane }!
-        let window = DeskScene.plan.first { $0.prop == .window }!
-        XCTAssertLessThan(pane.z, window.z)
-        XCTAssertEqual(pane.cellX, window.cellX + DeskSceneSprites.windowGlass.cols.lowerBound)
-        XCTAssertEqual(pane.cellY, window.cellY)
+    func testWormCrossfadeIdentityChangesOnlyWithItsLightingSheetSet() throws {
+        for mode in SceneryMode.allCases { for time in SkyPhase.allCases { for base in WindowWeather.all {
+            for mood in BookwormArt.states { for lit in [false, true] {
+                let scene = Scenery.resolve(mode: mode, clock: time, forecast: base, mood: mood,
+                                            manual: .init(time: time, base: base))
+                let identity = scene.lighting.suffix(lampLit: lit)
+                XCTAssertEqual(identity, scene.lighting == .day ? "" : (lit ? "-night-lit" : "-night-dark"))
+                let noOverlay = Scenery(base: scene.base, time: scene.time, overlay: nil, source: scene.source)
+                XCTAssertEqual(identity, noOverlay.lighting.suffix(lampLit: lit))
+                if scene.lighting == .day { XCTAssertEqual(identity, scene.lighting.suffix(lampLit: !lit)) }
+            } }
+        } } }
+        let source = try String(contentsOf: SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep/DeskScene.swift"), encoding: .utf8)
+        let body = try XCTUnwrap(source.range(of: "struct SceneryRoomArt")).lowerBound
+        let subtree = String(source[body...])
+        let roomID = try XCTUnwrap(subtree.range(of: ".id(appearance)"))
+        let worm = try XCTUnwrap(subtree.range(of: "worm().offset"))
+        XCTAssertLessThan(roomID.lowerBound, worm.lowerBound, "worm must be a sibling after the room identity, never inside it")
+        XCTAssertTrue(subtree.contains(".id(wormLighting)"))
+        XCTAssertTrue(subtree.contains("value: wormLighting"))
+        XCTAssertTrue(subtree.contains("scenery.lighting.suffix(lampLit: lampLit)"))
+    }
+
+    @MainActor
+    func testErrorToSleepingLightingSwapDoesNotFadeTheYawn() throws {
+        for mode in [SceneryMode.sleep, .localWeather] { for clock in [SkyPhase.day, .dusk] { for lit in [false, true] {
+            let before = Scenery.resolve(mode: mode, clock: clock, forecast: nil, mood: .error, manual: .init())
+            let mood = BookwormState.sleeping(stage: 1)
+            let after = Scenery.resolve(mode: mode, clock: clock, forecast: nil, mood: mood, manual: .init())
+            XCTAssertEqual(before.base, .rainy)
+            XCTAssertEqual(after.base, .sunny)
+            XCTAssertEqual(after.overlay, .mist)
+            XCTAssertEqual(before.lighting.suffix(lampLit: lit), lit ? "-night-lit" : "-night-dark")
+            XCTAssertEqual(after.lighting.suffix(lampLit: lit), "")
+            XCTAssertNotEqual(before.lighting.suffix(lampLit: lit), after.lighting.suffix(lampLit: lit))
+
+            let room = RoomModel()
+            room.moodChanged(from: "error", to: mood, now: SpriteClock.origin, reduceMotion: false)
+            XCTAssertEqual(room.transition?.kind, .yawn)
+            let art = SceneryRoomArt(lampLit: lit, scenery: after, cell: 3,
+                                     suppressWormCrossfade: room.transition != nil || room.reaction != nil) { EmptyView() }
+            XCTAssertNil(art.wormLightingAnimation(reduceMotion: false), "the new day-sheet yawn must start fully visible")
+            XCTAssertNotNil(SleepMotion.weather(reduceMotion: false), "room layers still crossfade")
+        } } }
+        let root = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep")
+        let host = try String(contentsOf: root.appendingPathComponent("StudyRoom.swift"), encoding: .utf8)
+        XCTAssertTrue(host.contains("suppressWormCrossfade: room.transition != nil || room.reaction != nil"))
+        let art = try String(contentsOf: root.appendingPathComponent("DeskScene.swift"), encoding: .utf8)
+        XCTAssertTrue(art.contains(".animation(wormLightingAnimation(reduceMotion: reduceMotion), value: wormLighting)"))
+        XCTAssertTrue(art.contains(".animation(SleepMotion.weather(reduceMotion: reduceMotion), value: appearance)"))
+    }
+
+    @MainActor
+    func testLightingCrossfadeRemainsForPassiveSwapsButIsSuppressedForABeat() {
+        let scene = Self.scenery(.sunny, .night)
+        let passive = SceneryRoomArt(lampLit: true, scenery: scene, cell: 3) { EmptyView() }
+        XCTAssertNotNil(passive.wormLightingAnimation(reduceMotion: false))
+        XCTAssertNil(passive.wormLightingAnimation(reduceMotion: true))
+        let room = RoomModel()
+        XCTAssertTrue(room.play(.cheer, state: .digesting, now: SpriteClock.origin, reduceMotion: false))
+        XCTAssertEqual(room.reaction?.kind, .cheer)
+        XCTAssertNil(room.transition)
+        let reacting = SceneryRoomArt(lampLit: true, scenery: scene, cell: 3,
+                                      suppressWormCrossfade: room.transition != nil || room.reaction != nil) { EmptyView() }
+        XCTAssertNil(reacting.wormLightingAnimation(reduceMotion: false))
+    }
+
+    func testLightingAndScheduleSelectTheExactTags() {
+        for base in WindowWeather.all { for time in SkyPhase.allCases { for lit in [false, true] {
+            let scenery = Self.scenery(base, time, overlay: .mist)
+            let dark = time == .night || base == .rainy
+            XCTAssertEqual(RoomArt.tag(.lamp, lampLit: lit, scenery: scenery)?.tag,
+                           (dark ? "night-" : "") + (lit ? "lit" : "dark"))
+            for prop in [DeskProp.window, .plant, .beanbag, .mug] {
+                XCTAssertEqual(RoomArt.tag(prop, lampLit: lit, scenery: scenery)?.tag,
+                               dark ? "night-\(lit ? "lit" : "dark")" : "idle")
+            }
+            XCTAssertEqual(RoomArt.tag(.pane, lampLit: lit, scenery: scenery)?.tag, "\(base.rawValue)-\(time.tag)")
+            XCTAssertEqual(RoomArt.tag(.skyfx, lampLit: lit, scenery: scenery)?.tag, "mist-\(time.tag)")
+            XCTAssertEqual(RoomArt.tag(.fly, lampLit: lit, scenery: scenery)?.tag, lit ? "buzz" : nil)
+        } } }
+        XCTAssertNil(RoomArt.tag(.skyfx, lampLit: true, scenery: Self.scenery(.sunny, .day)))
     }
 }

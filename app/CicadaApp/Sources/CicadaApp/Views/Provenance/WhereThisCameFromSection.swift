@@ -229,7 +229,8 @@ struct WhereThisCameFromSection: View {
         return QuoteBlock(before: parts.before, span: parts.span, after: parts.after, kind: best.displayKind,
                           label: EvidenceLabel.speaker(kind: best.displayKind,
                                                        agent: EvidenceSpeaker.agentName(harness: row.harness,
-                                                                                         origin: row.origin)),
+                                                                                         origin: row.origin),
+                                                       source: row.source),
                           caption: caption, style: style, lineLimit: 4)
     }
 

@@ -31,7 +31,7 @@ from typing import Callable
 
 from api.services import (calendar_local, decay_policy, demo_pictures, entity_body, entity_picture, episode_ids,
                           episode_scrub, episode_staging, git_service, markdown_parser, media_ingestor, owner_identity,
-                          paper_metadata, papers, sync_state, tab_groups)
+                          paper_metadata, papers, sync_state, tab_groups, watch_record)
 from api.services.agentic_write import write_claim
 
 Commit = Callable[[Path, str, list[str]], None]
@@ -135,6 +135,29 @@ _MEDIA = (
      None, None, "safari-bookmark", "Favorites", -20, "14:00", ""),
 )
 
+#: G162: two more saved videos so the Feed's Videos view has a state of each kind — the NASA video above plus a
+#: local-style recording and a walkthrough. Direct example.com files (`video_urls` classifies a `.mp4` as a video,
+#: `media_type: video`), so no new public URL joins `PUBLIC_URLS`. Same tuple shape as `_MEDIA`.
+GRIPPER_VIDEO_ID = "media-gripper-grasp-demo"
+LAB_VIDEO_ID = "media-lab-walkthrough"
+_MEDIA_VIDEOS = (
+    (GRIPPER_VIDEO_ID, "Gripper grasp demo", "https://example.com/videos/gripper-grasp-demo.mp4", "video",
+     "example.com", "Alpha Robotics Lab", None, "direct", "chrome-bookmark", "Robotics", -1, "16:20",
+     "A bench recording of the gripper closing on three test objects."),
+    (LAB_VIDEO_ID, "Lab walkthrough", "https://example.com/videos/lab-walkthrough.mp4", "video", "example.com",
+     "Alpha Robotics Lab", None, "direct", "safari-bookmark", "Reading List", -2, "11:10",
+     "A slow walk through the robotics lab, bench by bench."),
+)
+#: What an agent recorded about the first two (`cicada_record_watch`'s shape): the NASA video as a summary read from
+#: its captions (state `transcript`), the gripper recording from frames and captions (`watched_and_transcript`); the
+#: walkthrough stays `none`. The NASA record carries no quote: the demo never puts words in a real video's mouth.
+_WATCH_NASA = ("An account of the descent and touchdown sequence, from atmospheric entry to the landing.", "transcript",
+               "captions", "10:05:20")
+_WATCH_GRIPPER = ("A short bench recording: the gripper closes on a block, a cup and a sponge, and adjusts its grip "
+                  "on the sponge.", "both", "local_frames", "10:05:25",
+                  ({"t": "0:12", "quote": "the fingers close on the block"},
+                   {"t": "0:41", "quote": "the sponge needs a softer grip"}))
+
 # The paper's arXiv details as the export API returned them on 2026-09-24 (CC0 metadata; `parse_arxiv_atom`'s shape).
 _PAPER_META = {
     "title": "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion",
@@ -202,6 +225,17 @@ def write(bank_dir: Path, today: date, *, commit: Commit) -> None:
         lines += [f"{p}: added (trigger: {entity_picture.TRIGGER})" for p in write_.added]
         commit(bank_dir, git_service.build_commit_message(f"{write_.subject} {day}", lines, authors=["user"]),
                [write_.page, *write_.added])
+    # G162 — last, so nothing above moves: two more saved videos, then an agent's record of two of them.
+    videos = _write_video_saves(bank_dir, today)
+    commit(bank_dir, git_service.build_commit_message(
+        f"Sources ingest {day} (videos)",
+        ["sources/url_index.json: updated (trigger: user/media_save)",
+         f"{len(_MEDIA_VIDEOS)} media item(s) saved (trigger: user/media_save)"],
+        authors=["user"]), ["sources/url_index.json", *videos])
+    watched = _write_watch_records(bank_dir, today)
+    commit(bank_dir, git_service.build_commit_message(
+        f"Agent write {day} (videos)", [f"{p}: updated (trigger: mcp/claude-code)" for p in watched],
+        authors=["claude-code"], sessions=[SESSION]), watched)
 
 
 # --- Saved things: a video, an article, a bookmark, a paper (the Feed; R-DL18's guide too) -------------------------
@@ -212,9 +246,17 @@ def _write_media(bank_dir: Path, today: date) -> list[str]:
     `write_media_entity` writes, the `url_index.json` row `ingest_one` adds — with `today` in place of its clock
     (R-PJB7), and `enrichment_attempted` set so no Sleep pass ever fetches a demo link. Returns the paths to commit."""
     idx = media_ingestor.load_url_index(bank_dir)
+    paths = _write_media_rows(bank_dir, today, _MEDIA, idx)
+    paths += _write_paper_page(bank_dir, today, idx)
+    _index_saved_pages(bank_dir, idx)
+    media_ingestor.save_url_index(bank_dir, idx)
+    return paths
+
+
+def _write_media_rows(bank_dir: Path, today: date, rows, idx: dict) -> list[str]:
     paths: list[str] = []
     for (eid, title, url, media_type, site, channel, thumb, provider, origin, folder, offset, hhmm,
-         description) in _MEDIA:
+         description) in rows:
         day = str(today + timedelta(days=offset))
         at = f"{day}T{hhmm}:00+00:00"
         ep = _media_episode(bank_dir, eid, title, url, media_type, site, channel, origin, folder, day, at, description,
@@ -234,10 +276,37 @@ def _write_media(bank_dir: Path, today: date) -> list[str]:
         idx[media_ingestor.url_hash(url)] = {"media_entity_id": eid, "episode_id": ep, "url": url, "title": title,
                                              "media_type": media_type, "thumbnail": thumb, "saved_at": at}
         paths += [f"entities/{eid}.md", f"episodes/{ep}.md"]
-    paths += _write_paper_page(bank_dir, today, idx)
-    _index_saved_pages(bank_dir, idx)
+    return paths
+
+
+def _write_video_saves(bank_dir: Path, today: date) -> list[str]:
+    """G162: the two extra videos, saved after everything else so no episode id the rest of the demo pins moves."""
+    idx = media_ingestor.load_url_index(bank_dir)
+    paths = _write_media_rows(bank_dir, today, _MEDIA_VIDEOS, idx)
     media_ingestor.save_url_index(bank_dir, idx)
     return paths
+
+
+def _write_watch_records(bank_dir: Path, today: date) -> list[str]:
+    """G162: what an agent recorded about two saved videos, through `watch_record.record` itself — the episode, the
+    `describes` claim, the basis and engine — with the clock pinned. The write lands inside the Leo session's reply, so
+    `turn_authorship` joins the card's "Claude Code · Opus 5.5 · high effort". The NASA record is then read by Sleep,
+    as a nightly cycle would have (frontmatter only; the hash is untouched)."""
+    paths: list[str] = []
+    for url, (summary, basis, engine, hms, *rest) in ((VIDEO_URL, _WATCH_NASA), (_MEDIA_VIDEOS[0][2], _WATCH_GRIPPER)):
+        target = watch_record.resolve(bank_dir, url)
+        result = watch_record.record(
+            bank_dir, target, summary=summary, excerpts=(rest[0] if rest else None),
+            session_frontmatter={"session_id": SESSION, "harness": "claude-code"}, author="claude-code",
+            session_id=SESSION, recorded_ts=f"{today}T{hms}Z", basis=basis, engine=engine,
+            clock=f"{today}T{hms}+00:00")
+        paths += result["paths"]
+        if url == VIDEO_URL:
+            path = bank_dir / "episodes" / f"{result['episode_id']}.md"
+            parsed = markdown_parser.parse(path)
+            markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"},
+                                  parsed.body)
+    return sorted(set(paths))
 
 
 def _media_episode(bank_dir: Path, eid: str, title: str, url: str, media_type: str, site: str, channel: str | None,

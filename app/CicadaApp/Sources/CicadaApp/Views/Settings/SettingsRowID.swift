@@ -28,6 +28,11 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let sleepTime = SettingsRowID("sleepTime")
     static let sleepInterval = SettingsRowID("sleepInterval")
     static let sleepEngine = SettingsRowID("sleepEngine")
+    static let scenerySource = SettingsRowID("scenerySource")
+    static let sceneryTime = SettingsRowID("sceneryTime")
+    static let sceneryWeather = SettingsRowID("sceneryWeather")
+    static let sceneryPreview = SettingsRowID("sceneryPreview")
+    static let mascot = SettingsRowID("mascot")
     // Engines (Task 2)
     static let engineChoice = SettingsRowID("engineChoice")
     static let engineModel = SettingsRowID("engineModel")
@@ -44,8 +49,17 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let agentsCloud = SettingsRowID("agentsCloud")
     // Agents' pointer to Skills (Task 8)
     static let agentsSkill = SettingsRowID("agentsSkill")
+    /// G166 — the pointer from Agents to Reading the web (the reading switch left this page for its own).
+    static let agentsReading = SettingsRowID("agentsReading")
     // Agents' Remembers automatically (G149)
     static let agentsAutoRecall = SettingsRowID("agentsAutoRecall")
+    // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser
+    static let readingAgent = SettingsRowID("readingAgent")
+    static let readingPrompt = SettingsRowID("reading:prompt")
+    static let readingMethods = SettingsRowID("readingMethods")
+    static let watchingMethods = SettingsRowID("watchingMethods")
+    static let readingSites = SettingsRowID("readingSites")
+    static let readingSitesEmpty = SettingsRowID("reading:sitesEmpty")
     static let remoteSwitch = SettingsRowID("remoteSwitch")
     static let remoteReach = SettingsRowID("remoteReach")
     static let remoteNew = SettingsRowID("remoteNew")
@@ -85,6 +99,11 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static func agent(_ id: String) -> SettingsRowID { SettingsRowID("agent:\(id)") }
     static func skill(_ id: String) -> SettingsRowID { SettingsRowID("skill:\(id)") }
     static func autoRecall(_ id: String) -> SettingsRowID { SettingsRowID("autoRecall:\(id)") }
+    /// G166 — one switch per site Cicada's own reader could not read (a site is listed only once one of its pages hit
+    /// a wall), and one radio per way the person's agent may read.
+    static func readingSite(_ key: String) -> SettingsRowID { SettingsRowID("readingSite:\(key)") }
+    static func readingMethod(_ id: String) -> SettingsRowID { SettingsRowID("readingMethod:\(id)") }
+    static func watchingMethod(_ id: String) -> SettingsRowID { SettingsRowID("watchingMethod:\(id)") }
     /// G147 — one row per kind of page under "How things fade" (a suggestion or a chosen pace).
     static func fadeType(_ type: String) -> SettingsRowID { SettingsRowID("fadeType:\(type)") }
 

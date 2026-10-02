@@ -127,7 +127,7 @@ enum StagePip: Equatable {
 /// precedence `deriveSleepPageMood` gives `.error`), and both outrank the idle
 /// reading below them.
 func stageStripState(stage: Int, isRunning: Bool, cancelled: Bool, error: Bool,
-                     read: Int, total: Int) -> [StagePip] {
+                     read: Int, total: Int, stages: [SleepDrainInfo.Stage]? = nil) -> [StagePip] {
     // A backend that reports a stage outside 0…5 is a bug; clamp rather than
     // index out of range, so a bad number degrades to a plausible strip.
     let done = max(0, min(SleepStages.all.count, stage))
@@ -142,7 +142,12 @@ func stageStripState(stage: Int, isRunning: Bool, cancelled: Bool, error: Bool,
         if cancelled { return .skipped }
         guard isRunning else { return .pending }
         guard index == activeStage(completed: stage) - 1 else { return .pending }
-        // Only Read carries a fill, and only once the cycle knows its totals.
+        // Read, Sort and Decide carry a fill — only from finished work over a total fixed when the stage began
+        // (P15 as amended, Sleep page v5); Notice and File never do.
+        if index == 1 || index == 2, let counted = stages?.first(where: { $0.id == (index == 1 ? "sort" : "decide") }),
+           let stageTotal = counted.total, stageTotal > 0 {
+            return .active(fill: Double(min(counted.done, stageTotal)) / Double(stageTotal))
+        }
         let isRead = index == 0
         guard isRead, total > 0 else { return .active(fill: nil) }
         return .active(fill: Double(read) / Double(total))
@@ -159,8 +164,8 @@ func stageStripIsVisible(isRunning: Bool, cancelled: Bool, failed: Bool) -> Bool
 
 // MARK: - The motion budget (R-A13)
 
-/// The active pip's breath, as a pure function of the clock — the same shape
-/// `BookwormView.frameIndex(at:…)` uses, and for the same reasons: no `Timer`
+/// The active pip's breath, as a pure function of the clock — like
+/// `SpriteClip.loopStep`, and for the same reasons: no `Timer`
 /// to leak, no `@State` to reset on a state change, and two strips on one
 /// screen breathe in step.
 ///

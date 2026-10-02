@@ -109,20 +109,6 @@ def _no_real_agent_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_real_browser_files(tmp_path, monkeypatch):
-    """Round 4 phase A final review, finding 5: a body-less
-    `POST /sources/sync-bookmarks` falls back to `sync_from_local_files`, which
-    reads THIS machine's Chrome and Safari bookmark files. Task 1's red run did
-    exactly that into pytest tmp banks. Every test gets absent paths; the two
-    `sync_from_local_files` tests that point these at fixture files override
-    them on top."""
-    from api.services import bookmark_sync
-
-    monkeypatch.setattr(bookmark_sync, "chrome_bookmarks_path", lambda: tmp_path / "_absent-chrome-bookmarks")
-    monkeypatch.setattr(bookmark_sync, "safari_bookmarks_path", lambda: tmp_path / "_absent-safari-bookmarks.plist")
-
-
-@pytest.fixture(autouse=True)
 def _no_live_sleep_probe(monkeypatch):
     """G135 final review: a stdio `cicada_write_claim` asks the backend's
     `GET /sleep/status` before committing. Unpinned, every such test would hit
@@ -515,3 +501,15 @@ def _reset_agent_engine_state():
     yield
     agent_engine._BREAKER.clear()
     agent_engine.reset_models_used()
+
+
+@pytest.fixture(autouse=True)
+def _sleep_drain_state_never_leaks():
+    """A test that reserves a person-started run (or fakes one) must not leave
+    ``drain_run`` set — the bank routes answer 409 while it is, which would fail
+    every later bank test with no trace of why."""
+    from api.services import sleep_cycle
+
+    yield
+    sleep_cycle._state.drain = None
+    sleep_cycle._state.drain_run = False

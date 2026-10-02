@@ -77,6 +77,12 @@ struct ChannelSourceView: View {
                                 .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)
                         }
                     }
+                    // G161 — the groups Cicada brought in (each a snapshot the Reader opens), under what is open now.
+                    if let id = source.channelId { CapturedItemsList(channel: id) }
+                } else if items.isEmpty, let id = source.channelId {
+                    // G161 — a source whose items are not saved links (Notes, Calendar, a folder, Wispr Flow): what
+                    // came in, by name, is this page's content.
+                    CapturedItemsList(channel: id, style: .open)
                 } else if items.isEmpty {
                     Text("No saved items from this source yet.")
                         .font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textTertiary)

@@ -42,6 +42,10 @@ GATED = {
     ("POST", "/sources/connectors/{connector_id}/sync"): "/sources/connectors/no-such-connector/sync",
     ("POST", "/capture/local-source/wispr-flow"): "/capture/local-source/wispr-flow",
     ("PUT", "/capture/local-source/wispr-flow/settings"): "/capture/local-source/wispr-flow/settings",
+    # G166: "Ask an agent" can save a page (without a fetch), so it is gated like a save.
+    ("POST", "/reading/asks"): "/reading/asks",
+    # G166: "Add to your graph" writes a skill page into the bank.
+    ("POST", "/agent-methods/skills/{skill}/page"): "/agent-methods/skills/browser-harness/page",
 }
 #: The rest of the prefixes, each with the reason it is not the dependency's.
 HANDLED_ELSEWHERE = {
@@ -55,23 +59,12 @@ HANDLED_ELSEWHERE = {
     ("PUT", "/sources/connectors/{connector_id}/credentials"):
         "stores the secret in ~/.cicada/secrets.env; only restamps the bank's sync_state.json, no content",
     ("POST", "/sources/connectors/{connector_id}/authorize"): "returns a sign-in link, takes nothing in",
+    ("PUT", "/reading/settings"): "a machine-wide setting (~/.cicada/reading.json); writes no bank",
+    ("PUT", "/agent-methods"):
+        "a machine-wide choice (~/.cicada/agent_methods.json); the skill page beside it is guarded by "
+        "demo_guard inside skill_pages.ensure and reports `demo` without writing (test_agent_methods_rest.py)",
 }
-PREFIXES = ("/capture/", "/sources/", "/intake/")
-
-
-@pytest.fixture(autouse=True)
-def _no_local_reader(monkeypatch):
-    """With no body, `/sources/sync-bookmarks` and `/sources/sync-notes` fall
-    back to THIS machine's bookmark files and Notes.app (`sources.py:428,883`).
-    A bodiless call that reaches a handler (this file's red phase, or a gate
-    removed on purpose to prove the lint) must fail loudly, never read them."""
-    from api.services import bookmark_sync, notes_sync
-
-    def _refuse(*_a, **_k):
-        raise AssertionError("a demo-gate test reached a local reader; the gate is missing")
-
-    monkeypatch.setattr(bookmark_sync, "sync_from_local_files", _refuse)
-    monkeypatch.setattr(notes_sync, "sync_from_local_notes", _refuse)
+PREFIXES = ("/capture/", "/sources/", "/intake/", "/reading/", "/agent-methods")
 
 
 def _routes() -> dict[tuple[str, str], APIRoute]:

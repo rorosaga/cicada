@@ -17,6 +17,10 @@ struct VersionVector: Codable, Equatable {
         // `sync_state.json` (see `sync_service.components`), so the feed,
         // calendar and capture-channel lists all ride it.
         "sources": [.sources, .feeds, .calendars, .channels, .sourcesOverview], "git_head": [.contributors], "sleep": [.status],
+        // G166: the reading asks (`$CICADA_HOME/reading_asks/<bank>.json`) and the person's reading settings sit
+        // outside every bank, so an agent's `needs_login` moves no other component; `GET /sources` folds this one
+        // into its ETag and its `read` block, so the Feed refreshes over SSE with no bank write.
+        "reading": [.sources],
         // The logo cache sits outside the bank; a Sleep warm-up or an on-demand
         // fetch changes `/graph`'s `hasLogo` and nothing else, so it needs its
         // own key or the node keeps painting a monogram.

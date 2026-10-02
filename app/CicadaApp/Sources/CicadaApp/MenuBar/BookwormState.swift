@@ -25,8 +25,9 @@ enum BookwormState: Equatable {
     /// `deriveBookwormState` (menu bar) is byte-for-byte unchanged and
     /// `.curious` keeps meaning "inbox items" there (G125 R2).
     case reading
-    /// The last Sleep cycle failed (`/status.sleep.error` is set). Red pupils
-    /// and a glitch frame. Outranks everything but a running cycle (R6): the
+    /// The last Sleep cycle failed (`/status.sleep.error` is set). Black X eyes
+    /// and the sweat drop (owner 2026-10-01; never red pupils).
+    /// Outranks everything but a running cycle (R6): the
     /// Store stamps `justFinishedAt` on ANY running→idle edge, so without
     /// this order a failed cycle would chew for six seconds first. Clears when
     /// the backend clears the error, i.e. when the next cycle starts.

@@ -13,7 +13,7 @@
 A change is not done when it compiles. It is done when **every one of these is true**, and the same
 list is what a reviewer checks:
 
-1. **A plan exists before code.** One markdown plan per track under `docs/superpowers/plans/`,
+1. **A plan exists before code.** One markdown plan per track under `docs/plans/`,
    committed. It carries Global Constraints, numbered **Rulings** (decisions with their reason), a
    file map, and per-task Files / Interfaces / Steps with the *exact* code and the *exact* commands.
    No placeholders — "add appropriate error handling" is a plan defect, not a shortcut.
@@ -28,8 +28,11 @@ list is what a reviewer checks:
    fix pass and a scoped re-review.
 6. **The orchestrator verifies again** before merging: both suites, by hand, with the real numbers
    quoted in the PR.
-7. **Docs move with the code.** CLAUDE.md for architecture and rails, the `G` row marked shipped with
-   what stays open, `TODO.md` for state. A stale handoff is worse than none, because it is trusted.
+7. **Docs move with the code.** The area's doc in `docs/architecture/` for how a subsystem works (updated in the
+   same PR that makes it wrong), `CLAUDE.md` only when a *rail* changes — one or two lines pointing at the doc; it is
+   loaded into every session and `test_claude_md_size.py` fails above 60,000 characters (2026-10-01: it had grown to
+   203,000 by carrying every feature's detail) — the `G` row marked shipped with what stays open, `TODO.md` for state.
+   A stale handoff is worse than none, because it is trusted.
 
 ### Test baselines (memorise these, they are not failures)
 
@@ -124,7 +127,7 @@ afterwards — it is a half-written task the resumed agent redoes from scratch.
 ### Landing a track
 
 Verify both suites yourself → `git merge --no-edit origin/dev` in the worktree and resolve conflicts
-(they are almost always `CLAUDE.md`, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
+(they are almost always a `docs/architecture/` doc, `TODO.md`, `memory-evolution.md`, and the telemetry kind tuples
 where two tracks each added a kind — take the **union**) → push → `gh pr create --base dev` →
 `gh pr merge --merge` → pull `dev` → replace `PR #88` in the docs → restart the backend
 (`launchctl kickstart -k gui/$(id -u)/com.cicada.backend`) → `make dev` if Swift changed →
@@ -209,7 +212,7 @@ here.
    `/ask` is still open.
 8. **G141 — project timelines** (owner 2026-09-23: track projects with clusters of knowledge and dated
    ongoing things, "see graphically me today and progress throughout the timeline"). Spec
-   `docs/superpowers/specs/2026-09-23-g141-project-timelines-design.md`. *Why this order inside it:*
+   `docs/specs/2026-09-23-g141-project-timelines-design.md`. *Why this order inside it:*
    derive, write, spend. PJ-1's read model is truthful on every existing bank at $0, because the dated data
    (G17 `due`, G140 `expected_end`, supersede chains, G118 spans) already exists and is simply never drawn
    together. PJ-3's writers cost nothing either: an agent in the conversation records the owner's own
@@ -223,7 +226,7 @@ here.
    then app (PJ-5 after DS). Every slice runs the §1 bar; PJ-3's merge bar also includes the grep-gate test (every module that
    iterates closed claims calls `is_record` or `is_event`).
 9. **G61 phase 2 — check the source before asking the person** (owner 2026-09-23; spec
-   `docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md`). An inbox question
+   `docs/specs/2026-09-23-g61-agent-first-clarification-design.md`). An inbox question
    climbs an escalation ladder — Cicada's own public fetch, then an agent the person runs (browser
    harness, computer use, an app) reporting through `cicada_record_check`, then the person — and only
    what a source cannot settle reaches them, pre-answered. *Why this order:* S0 fixes a live rail breach
@@ -296,8 +299,10 @@ lints in `SettingsEntryPointTests`, because neither failure mode is unit testabl
   reasoning is citable; the prompt that caused a write is part of the record. G118 is the spine.
 - **World facts are a cache** (G121). A page is anchored on why it matters to the person; encyclopedia
   facts are dated, low-trust context an agent re-verifies. Not yet built.
-- **No prices or tokens in the app** (G124, owner 2026-09-03). The `/consumption/*` endpoints and the
-  ledger stay for later; the UI shows counts.
+- **No prices or tokens in the app, except on the Sleep page's Details and its engine menu** (G124, owner
+  2026-09-03; narrowed by TODO ruling 12, 2026-09-28). Nowhere else: every other surface shows counts. There,
+  a figure is measured or a list price and states its basis in words. The `/consumption/*` endpoints and
+  the ledger are unchanged.
 - **Capture is deterministic, not agent-judgment** (G105). The hook fires at session end; what is kept
   is a parser decision.
 - **The inbox asks like Claude Code asks** (G115). One question object per item, the cause on the card,

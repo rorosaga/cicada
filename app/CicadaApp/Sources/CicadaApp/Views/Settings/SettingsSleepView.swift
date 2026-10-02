@@ -74,6 +74,10 @@ struct SettingsSleepView: View {
                     }
                 }
             }
+            ScenerySettings(mood: deriveSleepPageMood(status: sleepVM.status,
+                                                    debt: resolveSleepDebt(sse: nil, status: sleepVM.status),
+                                                    justFinishedAt: nil), lampLit: sleepVM.schedule.enabled)
+            MascotSettings()
             SettingsGroupCard(header: Copy.sleepEngineGroup) {
                 SettingsRow(.sleepEngine, title: Copy.sleepEngineRowTitle,
                             control: { SettingsInlineLink(section: .engines, label: Copy.changeInEngines) },

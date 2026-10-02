@@ -34,11 +34,12 @@ G102 cheap slice (2026-09-02): the in-cycle pass above only ever sees the 20
 most recent pages of a cycle that had episodes. ``backfill`` (bottom of this
 module) is the whole-bank, oldest-first driver that closes that gap on the
 engine-independent Sleep tail and on demand; its rulings (R1-R9) are in
-``docs/superpowers/plans/2026-09-02-link-summaries-backfill.md``.
+``docs/plans/2026-09-02-link-summaries-backfill.md``.
 """
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import re
@@ -262,9 +263,16 @@ def _excluded_media(url: str, mtype: str) -> bool:
     Paper links and arxiv.org pages too (``papers.never_scraped``, L final
     review finding 4): a bookmarked arXiv link that no folder made a paper page
     was still a backfill candidate."""
+    from api.services import reading_hosts
     from api.services.papers import never_scraped
 
     if never_scraped(url):
+        return True
+    # R-RW4 (G166): the one closed set of login-walled hosts (X, Facebook, TikTok
+    # and Reddit join LinkedIn and Instagram, matched on a dot boundary). It is
+    # shared with `fact_sources.is_refused_host` and `link_recon`, so a source
+    # on such a host reads as needing the person's login there too.
+    if reading_hosts.is_walled(url):
         return True
     url = (url or "").lower()
     mtype = (mtype or "").lower()
@@ -273,16 +281,27 @@ def _excluded_media(url: str, mtype: str) -> bool:
     return "instagram.com" in url or "linkedin.com" in url
 
 
-def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
+def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
+                scour_floor: int = 0, retry_days: int = 30) -> list[Path]:
     """Media pages needing IN-CYCLE enrichment: type==media, not an excluded
     host (``_excluded_media``), not junk (``classify_page`` — G86: a cookie
-    banner must never be summarized), not already attempted. Capped at
+    banner must never be summarized), not already attempted, and — for a page
+    that would need a fetch — not inside the ``retry_days`` backoff a failed or
+    blocked fetch stamped (the tail backfill stamps ``fetch_status`` only, so
+    the ``enrichment_attempted`` gate alone never sees it). Capped at
     ``max_per_cycle`` (most recent first). The whole-bank, oldest-first pass
-    over pages this one never reaches is ``backfill`` below."""
+    over pages this one never reaches is ``backfill`` below.
+
+    The cap is one budget over two kinds of page: *reuse* (a substantive
+    description already on the page, no LLM) and *scour* (needs a summary). Most
+    recent first across both would let 20 reuse pages starve every scour page,
+    so ``scour_floor`` slots are reserved for scour pages that exist (Track C,
+    the same rule as ``backfill``'s ``fetch_floor``); unused ones go back to
+    reuse. ``0`` (the default) keeps the plain most-recent-first cut."""
     entities_dir = memory_path / "entities"
     if not entities_dir.exists():
         return []
-    out: list[tuple[str, Path]] = []
+    out: list[tuple[str, Path, bool]] = []
     for fp in entities_dir.glob("media-*.md"):
         try:
             parsed = markdown_parser.parse(fp)
@@ -304,9 +323,20 @@ def _candidates(memory_path: Path, max_per_cycle: int) -> list[Path]:
             continue
         if classify_page(str(fm.get("name") or ""), url) is not None:
             continue
-        out.append((str(fm.get("last_referenced", "") or ""), fp))
+        reuse = _is_substantive(_claim_description(_extract_description_section(parsed.body), min_len), min_len)
+        # A reuse page needs no network; a page that would be fetched honours the 30-day backoff.
+        if not reuse and _in_fetch_backoff(fm, date.today(), retry_days):
+            continue
+        out.append((str(fm.get("last_referenced", "") or ""), fp, reuse))
     out.sort(key=lambda t: t[0], reverse=True)
-    return [fp for _, fp in out[:max_per_cycle]]
+    if scour_floor <= 0:
+        return [fp for _, fp, _ in out[:max_per_cycle]]
+    scour = [t for t in out if not t[2]]
+    reserved = min(len(scour), scour_floor, max_per_cycle)
+    reuse_taken = [t for t in out if t[2]][: max_per_cycle - reserved]
+    picked = reuse_taken + scour[: max_per_cycle - len(reuse_taken)]
+    picked.sort(key=lambda t: t[0], reverse=True)
+    return [fp for _, fp, _ in picked]
 
 
 def _episode_persons(memory_path: Path, changes: list[dict]) -> dict[str, list[str]]:
@@ -335,6 +365,13 @@ def _episode_persons(memory_path: Path, changes: list[dict]) -> dict[str, list[s
     return out
 
 
+#: The last ``FetchResult`` status ``default_summarize`` saw, in the caller's own
+#: task context (a coroutine awaited directly shares it). ``enrich_media_links``
+#: reads and clears it so a wall the in-cycle pass hit is stamped on the page
+#: (G166): the summarizer's contract is a string, and a wall is not one.
+_LAST_FETCH_STATUS: "contextvars.ContextVar[str | None]" = contextvars.ContextVar("link_fetch_status", default=None)
+
+
 async def default_summarize(title: str, url: str, settings) -> str | None:
     """The live §2b summarizer for Stage 5.57: the rail's own read of the page,
     then one bounded mini-model call. ``None`` unless the page came back ``ok``.
@@ -353,6 +390,7 @@ async def default_summarize(title: str, url: str, settings) -> str | None:
     summarizer that is explicitly passed in.
     """
     result = await default_fetch(url, settings)
+    _LAST_FETCH_STATUS.set(result.status)
     if result.status != "ok" or not result.text:
         return None
     return await _summarize_excerpt(title, result.text, url, settings)
@@ -442,7 +480,11 @@ async def enrich_media_links(
     model = getattr(settings, "litellm_model", "") or "unknown"
     today = str(date.today())
 
-    candidates = _candidates(memory_path, cap)
+    # Track C: with a summarizer wired, scour pages keep a floor of the cycle's
+    # cap so a run of reuse-ready pages never starves reading the rest.
+    retry_days = int(getattr(settings, "link_enrich_fetch_retry_days", 30) or 30)
+    candidates = _candidates(memory_path, cap, min_len=min_len, retry_days=retry_days,
+                             scour_floor=fetch_floor(settings, cap) if summarize_fn is not None else 0)
     if not candidates:
         return 0
 
@@ -468,11 +510,18 @@ async def enrich_media_links(
         elif summarize_fn is not None:
             # §2b scour path (injected/hermetic in tests; default does the real
             # fetch+LLM). Offline-safe: a None/short return writes no claim.
+            _LAST_FETCH_STATUS.set(None)
             try:
                 summary = await summarize_fn(title, url, settings)
             except Exception as e:
                 logger.warning(f"link summarize failed for {media_id}: {type(e).__name__}: {e}")
                 summary = None
+            walled = _LAST_FETCH_STATUS.get()
+            _LAST_FETCH_STATUS.set(None)
+            if walled in ("blocked", "interstitial"):
+                # G166: the in-cycle read hit a wall — say so on the page, in the backfill's
+                # own keys, so the site surfaces now and the 30-day backoff holds.
+                _stamp(media_fp, fetch_status=walled, fetch_attempted_at=today)
             if summary and len(summary.strip()) >= 20:
                 description = summary.strip()
 
@@ -627,23 +676,71 @@ def _html_title(html: str) -> str:
         return ""
 
 
-async def default_fetch(url: str, settings) -> FetchResult:
-    """The live page fetch for the backfill's §2b tier — robots-lite (R8).
+@dataclass
+class PageIdentity:
+    """What a site says about itself, for :func:`fetch_identity` — never stored, only judged
+    (``site_sources.judge``). ``status`` is a :class:`FetchResult` status; ``cross_site`` says the final host is a
+    different site from the one asked for (a redirect to somebody else's domain)."""
 
-    Fresh client per call, no cookies, no proxy env (``trust_env=False``),
-    Cicada's own User-Agent, 4 s, ≤ 5 redirects, body streamed and cut at
-    512 KB, HTML/text only. 401/403/407/451 — or a redirect that lands on a
-    consent/login host — is ``blocked`` and is never retried with different
-    headers: G102's rail is "no scraping behind auth, no circumventing a
-    block", the same line drawn for LinkedIn and X. A fetched page whose
-    title is an interstitial is ``interstitial`` (G86). Never raises.
-    """
+    status: str
+    final_url: str = ""
+    title: str = ""
+    site_name: str = ""
+    meta_description: str = ""
+    excerpt: str = ""
+    cross_site: bool = False
+
+
+def _meta_content(soup, *keys: tuple[str, str]) -> str:
+    for attr, value in keys:
+        tag = soup.find("meta", attrs={attr: value})
+        if tag is not None and str(tag.get("content") or "").strip():
+            return " ".join(str(tag["content"]).split())
+    return ""
+
+
+async def fetch_identity(url: str, settings=None) -> PageIdentity:
+    """Read ONE page as Cicada's own rail does (:func:`_stream_html`: 4 s, ≤ 512 KB, no cookies, ``net_guard``, a block
+    never retried) and return what it says about itself: title, ``og:site_name``, meta description and a short visible-
+    text excerpt. A walled host is never asked (``reading_hosts.is_walled``), so the caller need not remember to
+    check. Never raises."""
+    from api.services import reading_hosts
+
+    if not url or reading_hosts.is_walled(url):
+        return PageIdentity("blocked")
+    status, html, final = await _stream_html(url)
+    if status != "ok":
+        return PageIdentity(status)
+    if classify_page(_html_title(html), "") == "interstitial":
+        return PageIdentity("interstitial")
+    try:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, "html.parser")
+        site_name = _meta_content(soup, ("property", "og:site_name"), ("name", "application-name"))
+        description = _meta_content(soup, ("name", "description"), ("property", "og:description"))
+    except Exception:
+        site_name = description = ""
+    excerpt = _extract_visible_text(html, int(getattr(settings, "link_enrich_excerpt_chars", 2000) or 2000))
+    return PageIdentity(
+        "ok", final_url=final, title=_html_title(html), site_name=site_name, meta_description=description,
+        excerpt=excerpt,
+        cross_site=bool(final) and reading_hosts.site_of(final) != reading_hosts.site_of(url))
+
+
+async def _stream_html(url: str) -> tuple[str, str, str]:
+    """``(status, html, final_url)`` — the ONE transport of every page Cicada reads on its own rail: fresh client per
+    call, no cookies, no proxy env, Cicada's own User-Agent, 4 s, ≤ 5 redirects, the body streamed and cut at 512 KB,
+    HTML/text only, every hop through ``net_guard``. 401/403/407/451 — or a redirect that lands on a consent/login
+    host — is ``blocked`` and is never retried with different headers. ``status`` is ``ok`` or a ``FetchResult`` status
+    (``blocked`` | ``failed:<reason>``); ``html`` and ``final_url`` are empty unless ``ok``. Never raises.
+    Shared by :func:`default_fetch` and :func:`fetch_identity` (G61 S3-b), so a site check is exactly a link read."""
     if not url:
-        return FetchResult("failed:no_url")
+        return "failed:no_url", "", ""
     from api.services import net_guard  # G135 R-R10
 
     if not await net_guard.is_fetchable_url_async(url):
-        return FetchResult("failed:private_host")
+        return "failed:private_host", "", ""
     try:
         import httpx
 
@@ -656,14 +753,14 @@ async def default_fetch(url: str, settings) -> FetchResult:
         ) as client:
             async with client.stream("GET", url) as resp:
                 if resp.status_code in (401, 403, 407, 451):
-                    return FetchResult("blocked")
+                    return "blocked", "", ""
                 if resp.status_code >= 400:
-                    return FetchResult(f"failed:http_{resp.status_code}")
+                    return f"failed:http_{resp.status_code}", "", ""
                 if _redirected_to_wall(url, str(resp.url)):
-                    return FetchResult("blocked")
+                    return "blocked", "", ""
                 ctype = (resp.headers.get("content-type") or "").lower()
                 if "html" not in ctype and "text" not in ctype:
-                    return FetchResult("failed:content_type")
+                    return "failed:content_type", "", ""
                 chunks: list[bytes] = []
                 size = 0
                 async for chunk in resp.aiter_bytes():
@@ -672,13 +769,21 @@ async def default_fetch(url: str, settings) -> FetchResult:
                     if size >= FETCH_MAX_BYTES:
                         break
                 raw = b"".join(chunks)[:FETCH_MAX_BYTES]
-                html = raw.decode(resp.encoding or "utf-8", errors="replace")
+                return "ok", raw.decode(resp.encoding or "utf-8", errors="replace"), str(resp.url)
     except net_guard.UnsafeURL:
         # A public page redirected inward (the request hook refused the hop).
-        return FetchResult("failed:private_host")
+        return "failed:private_host", "", ""
     except Exception as e:
         logger.warning(f"link fetch failed for {url}: {type(e).__name__}")
-        return FetchResult(f"failed:{type(e).__name__}")
+        return f"failed:{type(e).__name__}", "", ""
+
+
+async def default_fetch(url: str, settings) -> FetchResult:
+    """The live page fetch for the backfill's §2b tier — robots-lite (R8), over :func:`_stream_html`. A fetched page
+    whose title is an interstitial is ``interstitial`` (G86). Never raises."""
+    status, html, _final = await _stream_html(url)
+    if status != "ok":
+        return FetchResult(status)
     if classify_page(_html_title(html), "") == "interstitial":
         return FetchResult("interstitial")
     excerpt = _extract_visible_text(
@@ -724,6 +829,23 @@ def _in_fetch_backoff(fm: dict, today: date, retry_days: int) -> bool:
     except ValueError:
         return False
     return (today - attempted).days < retry_days
+
+
+def fetch_floor(settings, cap: int) -> int:
+    """How much of a cycle's ``cap`` reading NEW pages is guaranteed.
+
+    Reuse (a description the page already carries -> claim) is zero-network and
+    zero-LLM; a fetch costs a page read plus a summary. They used to share one
+    budget with reuse spent first, so a night with >= ``cap`` reuse candidates
+    fetched nothing and a bank never past its reuse queue never read a new page
+    (Track C). The floor is ``link_enrich_fetch_min_per_cycle`` when set, else
+    half the cap (rounded up), clamped to ``[0, cap]``. It only ever *reserves*
+    fetch slots that fetch candidates exist for — an idle fetch tier hands its
+    slots back to reuse, so the total per night stays ``cap``.
+    """
+    raw = getattr(settings, "link_enrich_fetch_min_per_cycle", None)
+    floor = (cap + 1) // 2 if raw is None else int(raw)
+    return max(0, min(floor, cap))
 
 
 def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> _Scan:
@@ -1001,14 +1123,19 @@ async def backfill(
     # §2a reuse — zero LLM. R3: no model touched it, so the claim is authored
     # ``cicada`` (the in-cycle pass stamps ``litellm_model`` on a zero-LLM
     # reuse; the backfill does not repeat that inaccuracy).
-    for cand in scan.reuse[:cap]:
+    # Fetch keeps its floor when the tier can run at all (Track C): reuse is the
+    # cheap side, so it yields the slots a waiting fetch candidate is owed.
+    fetch_enabled = summarize_fn is not None and fetch_fn is not None
+    reserved = min(len(scan.fetch), fetch_floor(settings, cap)) if fetch_enabled else 0
+    for cand in scan.reuse[: max(0, cap - reserved)]:
         report.selected += 1
         if _describe(cand, cand.description, "cicada"):
             report.reused += 1
         else:
             report.failed += 1
 
-    # §2b fetch + summarize — bounded by what is left of the cap.
+    # §2b fetch + summarize — bounded by what is left of the cap, which reuse
+    # cannot have taken below the floor above.
     model = str(getattr(settings, "litellm_model", "") or "unknown")
     if engine in engine_select.PLAN_ENGINES:
         model = engine_select.author_model(settings)

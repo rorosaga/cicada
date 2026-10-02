@@ -186,6 +186,9 @@ final class ReaderTurnsTests: XCTestCase {
         XCTAssertEqual(speaker("speaker", name: "assistant"), Copy.Provenance.someoneElse)
         XCTAssertEqual(speaker("speaker"), Copy.Provenance.someoneElse, "R-N2 — never \"You\"")
         XCTAssertEqual(speaker("page"), "")
+        XCTAssertEqual(speaker("page", marker: "attachment [alpha-plan.pdf]"), Copy.Provenance.attached("alpha-plan.pdf"),
+                       "an uploaded file's text is named by its file, never the person")
+        XCTAssertEqual(speaker("page", marker: "attachment []"), "")
 
         // The mark beside a named agent follows the SAME precedence as its name.
         XCTAssertEqual(EvidenceSpeaker.agentOrigin(harness: "codex", origin: "codex"), "codex")

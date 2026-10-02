@@ -118,12 +118,14 @@ enum FeedWhy {
     }
 }
 
-/// A row's second line: "Link · example.com · saved Sep 13" — a paper shows its byline where a link shows its site, and
-/// a video its duration when the provider reported one ("Video · vimeo.com · 3:12 · saved Sep 13"; R17 — never an
+/// A row's second line: "Link · example.com · saved Sep 13" — a paper shows its byline where a link shows its site; a
+/// video reads "channel · vimeo.com · 3:12 · saved Sep 13" (G162: no "Video ·", its thumbnail says so; R17 — never an
 /// estimate, so no duration means no duration). The retired `FeedRow` drew that duration as a pill.
 enum FeedRowText {
     static func detail(_ item: MediaFeedItem, locale: Locale = .autoupdatingCurrent,
                        timeZone: TimeZone = .autoupdatingCurrent) -> String {
+        // G162 — a video reads "channel · site · length · saved day": the thumbnail already says it is a video.
+        if FeedKind.of(item) == .video { return VideoWords.detailLine(item, locale: locale, timeZone: timeZone) }
         var parts = [FeedKind.of(item).singular]
         if let byline = item.paper.flatMap(PaperCardText.feedLine) {
             parts.append(byline)
@@ -131,6 +133,8 @@ enum FeedRowText {
             parts.append(site)
         }
         if let duration = VideoRef.durationLabel(item.durationS) { parts.append(duration) }
+        // G166 — a login wall an agent hit is visible from the list, not only inside the open item.
+        if let flag = ReadWords.rowFlag(item.read) { parts.append(flag) }
         if let day = FeedDates.day(item, locale: locale, timeZone: timeZone) { parts.append(Copy.Lists.savedRow(day)) }
         return parts.joined(separator: " · ")
     }

@@ -65,7 +65,7 @@ struct SettingsDemoTourGroup: View {
         Task {
             let outcome = await DemoMode.leave(DemoMode.liveExit(store: store, router: router, graph: graphVM),
                                                openSetup: false)
-            if case .failed = outcome { store.toast = Copy.Demo.leaveFailed }
+            if let why = DemoMode.leaveToast(outcome) { store.toast = why }
             busy = false
         }
     }

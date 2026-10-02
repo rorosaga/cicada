@@ -18,8 +18,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
-from dataclasses import dataclass, field
+import tempfile
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -106,6 +108,13 @@ class RawItem:
     # words about the page, not the person's — so it is never a `note` — and it
     # stands in as the description only when enrichment found none.
     preview: str | None = None
+    # G166 (a subset of the reading spec's S3 change, same name): skip the
+    # network read and build the page from the URL alone — the URL-derived
+    # fallback title and provider. The person's "Ask an agent" on a link that
+    # is not saved yet mints its page this way, so asking never fetches (a
+    # walled host is never requested by the backend, and even a public one
+    # should not be read just because the person asked an agent to).
+    defer_enrich: bool = False
 
 
 @dataclass
@@ -129,6 +138,14 @@ class MediaMeta:
     # G140 Q-R12 — chapters parsed from the provider's own description
     # (`video_chapters.parse`), never inferred; `None` when there is no list.
     chapters: list[dict] | None = None
+    # G166 (ruling 14 amended): what the one save-time page request returned when
+    # it was a WALL — ``blocked`` (401/403/407/451, or a redirect onto a login or
+    # consent host) or ``interstitial`` (a consent page). Recorded in the page's
+    # own ``fetch_status`` beside ``fetch_attempted_at``, the backfill's
+    # vocabulary, so the site surfaces at once and the backfill's 30-day backoff
+    # does not re-request it. A failure (a 500, a timeout) is deliberately NOT
+    # stamped here: the backfill retries those sooner than a wall.
+    fetch_status: str | None = None
 
 
 @dataclass
@@ -313,6 +330,16 @@ async def enrich(url: str, client, from_bookmark_file: bool = False) -> MediaMet
             # ``from_bookmark_file=False``, so every one of them used to fall
             # to ``_enrich_opengraph`` and land on TikTok's consent wall.
             return await _enrich_oembed(ref.provider, url, client, fallback)
+        from api.services import reading_hosts
+
+        if reading_hosts.is_walled(url):
+            # R-RW4 (G166): one closed set of login-walled hosts — X, Facebook,
+            # Reddit and `t.co` join LinkedIn and Instagram above, so the
+            # backend never requests such a page (X was the gap: it fell
+            # through to the OpenGraph fetch). A person's own agent may read
+            # one, only when asked (`cicada_reading_queue`). TikTok keeps its
+            # provider oEmbed branch above, which never loads the page.
+            return fallback
         return await _enrich_opengraph(url, client, fallback)
     except Exception as e:
         logger.debug(f"Enrichment failed for {url}: {type(e).__name__}: {e}")
@@ -422,6 +449,13 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
         break
     else:
         return fallback
+    from api.services import link_enrichment  # lazy: it imports this module's neighbours
+
+    if getattr(resp, "status_code", 200) in (401, 403, 407, 451) or (
+            current != url and link_enrichment._redirected_to_wall(url, current)):
+        # A wall, recorded rather than swallowed: the one request already made is
+        # all that is read (no header change, no retry — the ToS rail).
+        return replace(fallback, fetch_status="blocked")
     resp.raise_for_status()
 
     # R13 / R-V7: mirror ``link_enrichment.default_fetch``'s guard
@@ -440,6 +474,8 @@ async def _enrich_opengraph(url: str, client, fallback: MediaMeta) -> MediaMeta:
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
+    if link_enrichment.classify_page(link_enrichment._html_title(html), "") == "interstitial":
+        return replace(fallback, fetch_status="interstitial")
 
     def meta(*selectors: tuple[str, str]) -> str | None:
         for attr, value in selectors:
@@ -575,23 +611,6 @@ def parse_safari_bookmarks(data: bytes) -> list[RawItem]:
 
     walk(root, ())
     return items
-
-
-def read_live_safari_bookmarks() -> list[RawItem]:
-    """Read the current user's real ``~/Library/Safari/Bookmarks.plist``, if present.
-
-    Convenience for a future "Import from Safari" button — not exercised by
-    tests (hermetic tests never touch the live filesystem). Missing file or
-    any read/parse error degrades to ``[]``, same as ``parse_safari_bookmarks``.
-    """
-    from pathlib import Path as _Path
-
-    plist_path = _Path.home() / "Library" / "Safari" / "Bookmarks.plist"
-    try:
-        data = plist_path.read_bytes()
-    except OSError:
-        return []
-    return parse_safari_bookmarks(data)
 
 
 def parse_chrome_bookmarks_json(data: dict) -> list[RawItem]:
@@ -1660,19 +1679,55 @@ def _truncate_utf8(s: str, max_bytes: int) -> tuple[str, bool]:
     return "", True
 
 
-def _media_entity_id(meta: MediaMeta, item: RawItem) -> str:
+def _page_url_hash(fm: dict) -> str | None:
+    """The URL hash a media page was written for: its ``media.url_hash``, else
+    the hash of its ``media.url`` (a page from before the key existed). ``None``
+    when the page names neither — treated as someone else's page."""
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    stored = str(media.get("url_hash") or "")
+    if stored:
+        return stored
+    url = str(media.get("url") or "")
+    return url_hash(url) if url else None
+
+
+def _media_entity_id(meta: MediaMeta, item: RawItem, entities_dir: Path | None = None) -> str:
+    """The page id for a link about to be written: ``media-<title slug>``.
+
+    Two different links can share a title (a site's "Home", a docs page and its
+    mirror), and ``write_media_entity`` overwrites, so the second save used to
+    replace the first's page and orphan its ``url_index`` row. The URL-hash
+    suffix a truncated slug always carried is therefore also added when the page
+    the plain id names already exists for a *different* URL. Given
+    ``entities_dir`` only: without it the id is a pure function of the title, as
+    before.
+
+    Ids are never renamed: a URL already in the index returns ``duplicate``
+    before this runs, so an existing page keeps its id, and a page for the same
+    URL (index lost) keeps the plain id and is rewritten in place. Only a new
+    link that would land on someone else's file moves to the suffixed id — and
+    it is deterministic (the URL's hash), so a re-save finds it again.
+    """
     slug = sanitize_id(meta.title) if meta.title else ""
     if not slug or slug == "unnamed":
         slug = sanitize_id(_fallback_title(item.url))
 
     slug, truncated = _truncate_utf8(slug, _MAX_SLUG_BYTES)
     slug = slug.strip("-") or "unnamed"
+    suffix = hashlib.sha256(normalize_url(item.url).encode("utf-8")).hexdigest()[:8]
     if truncated:
         # A stable suffix derived from the URL so two different long titles
         # that truncate to the same prefix never collide on the same filename.
-        suffix = hashlib.sha256(normalize_url(item.url).encode("utf-8")).hexdigest()[:8]
-        slug = f"{slug}-{suffix}"
-    return f"media-{slug}"
+        return f"media-{slug}-{suffix}"
+    plain = f"media-{slug}"
+    if entities_dir is not None and (entities_dir / f"{plain}.md").exists():
+        try:
+            owner = _page_url_hash(markdown_parser.parse(entities_dir / f"{plain}.md").frontmatter or {})
+        except Exception:
+            owner = None
+        if owner != url_hash(item.url):
+            return f"{plain}-{suffix}"
+    return plain
 
 
 def write_media_entity(
@@ -1749,6 +1804,10 @@ def write_media_entity(
     # real chapter list, so every other page stays byte-identical.
     if meta.chapters:
         frontmatter["media"]["chapters"] = [dict(c) for c in meta.chapters]
+    if meta.fetch_status:
+        # G166: the wall the save-time request hit, in the backfill's own keys.
+        frontmatter["fetch_status"] = meta.fetch_status
+        frontmatter["fetch_attempted_at"] = today.strftime("%Y-%m-%d")
     body = _entity_body(meta, item.note)
     markdown_parser.write(entities_dir / f"{entity_id}.md", frontmatter, body)
 
@@ -1769,9 +1828,22 @@ def load_url_index(memory_path: Path) -> dict:
 def save_url_index(memory_path: Path, idx: dict) -> None:
     sources_dir = memory_path / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
-    (sources_dir / "url_index.json").write_text(
-        json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    # Atomic: a reader (the video queue's orphan check among them) must never see a
+    # truncated index, so write beside it and rename over it.
+    # A unique name per call (two threads of one process share a pid), and the temp file is
+    # unlinked on any failure so it can never sit in the bank's tree for a `git add -A` writer.
+    target = sources_dir / "url_index.json"
+    fd, tmp = tempfile.mkstemp(prefix=".url_index.", suffix=".tmp", dir=str(sources_dir))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(idx, indent=2, ensure_ascii=False))
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult) -> tuple[str, bool] | None:
@@ -1890,7 +1962,15 @@ async def ingest_one(
             url=item.url,
         )
 
-    meta = await enrich(item.url, client, from_bookmark_file=from_bookmark_file)
+    if item.defer_enrich:
+        ref = video_urls.resolve(item.url)
+        meta = MediaMeta(
+            title=_fallback_title(item.url), description="", site=_site_of(item.url),
+            media_type=_classify(item.url, from_bookmark_file=from_bookmark_file),
+            provider=(ref.provider if ref else None),
+        )
+    else:
+        meta = await enrich(item.url, client, from_bookmark_file=from_bookmark_file)
     # Prefer an explicit title from the parser (Takeout/bookmark name) when
     # enrichment fell back to a URL slug.
     if item.title and meta.title == _fallback_title(item.url):
@@ -1902,7 +1982,7 @@ async def ingest_one(
     if item.preview and not (meta.description or "").strip():
         meta.description = item.preview
 
-    entity_id = _media_entity_id(meta, item)
+    entity_id = _media_entity_id(meta, item, memory_path / "entities")
     episode_id = write_media_episode(
         memory_path / "episodes", item, meta, entity_id
     )

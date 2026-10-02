@@ -9,12 +9,12 @@ Covers:
 - a Safari plist fixture flowing through ``sync_bookmarks`` via the existing
   ``parse_safari_bookmarks``;
 - the ``POST /sources/sync-bookmarks`` endpoint via ``TestClient`` with
-  inline base64 data (no real bookmark files touched).
+  inline base64 data, and a 422 without any;
+- the backend never reading a browser's file itself (the ``~/Library`` rail).
 
-No live network, no live filesystem (the real
-``~/Library/.../Bookmarks``/``Bookmarks.plist`` are never read — every test
-either calls ``read_chrome_bookmarks``/``sync_bookmarks`` directly with
-in-memory bytes, or hits the endpoint with inline base64).
+No live network, no live filesystem: every test either calls
+``read_chrome_bookmarks``/``sync_bookmarks`` directly with in-memory bytes, or
+hits the endpoint with inline base64.
 """
 
 from __future__ import annotations
@@ -232,40 +232,23 @@ def test_sync_bookmarks_both_sources_aggregate(tmp_path):
     assert origins == {"chrome-bookmark", "safari-bookmark"}
 
 
-# --- sync_from_local_files: never touches real files in tests ---------------
+# --- The backend never reads a browser's file --------------------------------
 
 
-def test_sync_from_local_files_missing_files_returns_zero(tmp_path, monkeypatch):
-    # Point both "standard locations" at nonexistent paths so this stays
-    # hermetic even if it somehow ran on a machine with real bookmark files.
-    monkeypatch.setattr(
-        bookmark_sync, "chrome_bookmarks_path", lambda: tmp_path / "no-chrome-bookmarks"
-    )
-    monkeypatch.setattr(
-        bookmark_sync, "safari_bookmarks_path", lambda: tmp_path / "no-safari-bookmarks.plist"
-    )
+def test_the_backend_never_reads_a_browser_bookmark_file():
+    """The app reads ``~/Library`` and posts the bytes; the launchd backend
+    has no Full Disk Access and must never open a browser's file itself."""
+    import inspect
 
-    result = run(bookmark_sync.sync_from_local_files(tmp_path / "memory"))
-    assert result == {"new": 0, "skipped": 0, "sources": []}
+    from api.services import media_ingestor
 
-
-def test_sync_from_local_files_reads_present_fixture_files(tmp_path, monkeypatch):
-    chrome_path = tmp_path / "Bookmarks"
-    chrome_path.write_bytes(json.dumps(CHROME_BOOKMARKS_JSON).encode("utf-8"))
-    safari_path = tmp_path / "Bookmarks.plist"
-    safari_path.write_bytes(b"\x00\x01 not a real plist")  # degrades to [] safely
-
-    monkeypatch.setattr(bookmark_sync, "chrome_bookmarks_path", lambda: chrome_path)
-    monkeypatch.setattr(bookmark_sync, "safari_bookmarks_path", lambda: safari_path)
-
-    async def fake_ingest_batch(items, memory_path, from_bookmark_file=False, **kwargs):
-        return len(items), 0
-
-    monkeypatch.setattr(bookmark_sync.media_ingestor, "ingest_batch", fake_ingest_batch)
-
-    result = run(bookmark_sync.sync_from_local_files(tmp_path / "memory"))
-    assert result["new"] == 2  # 2 chrome urls; safari plist is malformed -> [] items, 0 found
-    assert any(s["origin"] == "chrome-bookmark" for s in result["sources"])
+    source = inspect.getsource(bookmark_sync)
+    assert "Path.home" not in source
+    assert "read_bytes" not in source
+    assert not hasattr(bookmark_sync, "sync_from_local_files")
+    assert not hasattr(bookmark_sync, "chrome_bookmarks_path")
+    assert not hasattr(bookmark_sync, "safari_bookmarks_path")
+    assert not hasattr(media_ingestor, "read_live_safari_bookmarks")
 
 
 # --- POST /sources/sync-bookmarks endpoint -----------------------------------
@@ -282,8 +265,6 @@ def _make_client(tmp_path, monkeypatch):
 
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
-    # Real bookmark files are never read: conftest's `_no_real_browser_files`
-    # points both paths at absent tmp files for every test (final review, finding 5).
     return TestClient(main.app), memory
 
 
@@ -355,25 +336,16 @@ def test_sync_bookmarks_endpoint_inline_safari_data(tmp_path, monkeypatch):
     assert body["sources"][0]["origin"] == "safari-bookmark"
 
 
-def test_sync_bookmarks_endpoint_no_body_reads_local_files_best_effort(tmp_path, monkeypatch):
-    """No body -> falls back to sync_from_local_files, which must never touch
-    the real filesystem or raise in this hermetic environment (missing files
-    on the test machine simply yield an empty sync)."""
+def test_sync_bookmarks_endpoint_without_a_body_is_refused_unread(tmp_path, monkeypatch):
+    """No body -> 422: the backend has no local read to fall back to, and
+    nothing is written."""
     _offline_enrich(monkeypatch)
     client, memory = _make_client(tmp_path, monkeypatch)
 
-    from api.services import bookmark_sync as bs
-
-    monkeypatch.setattr(bs, "chrome_bookmarks_path", lambda: tmp_path / "absent-chrome")
-    monkeypatch.setattr(bs, "safari_bookmarks_path", lambda: tmp_path / "absent-safari.plist")
-
-    resp = client.post("/sources/sync-bookmarks")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body == {
-        "new": 0, "skipped": 0, "sources": [],
-        "removalsProposed": 0, "removalsSkipped": None,
-    }
+    assert client.post("/sources/sync-bookmarks").status_code == 422
+    assert client.post("/sources/sync-bookmarks?preview=true").status_code == 422
+    assert not (memory / "episodes").exists() or not any((memory / "episodes").iterdir())
+    assert not (memory / "sources").exists() or not any((memory / "sources").iterdir())
 
 
 def test_sync_bookmarks_endpoint_invalid_base64_rejected(tmp_path, monkeypatch):
@@ -729,16 +701,12 @@ def test_safari_parts_ride_sync_state_to_the_channel_row(tmp_path, monkeypatch):
 # --- round 4 phase A final review: findings 2 and 3 --------------------------
 
 
-def test_a_body_with_no_bookmark_data_is_a_422_never_the_local_file_fallback(tmp_path, monkeypatch):
+def test_a_body_with_no_bookmark_data_is_a_422(tmp_path, monkeypatch):
     """Finding 3: a pre-round-4 route dropped `chromium`, saw no data and read
     the Chrome file nobody turned on. A body is now data or a 422."""
     _offline_enrich(monkeypatch)
     client, _ = _make_client(tmp_path, monkeypatch)
 
-    def _refuse(*_a, **_k):
-        raise AssertionError("a body reached the local-file fallback")
-
-    monkeypatch.setattr(bookmark_sync, "sync_from_local_files", _refuse)
     assert client.post("/sources/sync-bookmarks", json={}).status_code == 422
     assert client.post("/sources/sync-bookmarks", json={"folders": ["Bar"]}).status_code == 422
     assert client.post("/sources/sync-bookmarks", json={"chromium": []}).status_code == 422

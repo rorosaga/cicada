@@ -1,23 +1,18 @@
 """Hermetic tests for the keyless Apple Notes one-way import connector.
 
 Covers:
-- ``parse_notes_dump`` — the delimited osascript dump format (multiple
+- ``parse_notes_dump`` — the delimited dump format the app's AppleScript emits (multiple
   records, malformed records skipped, empty input);
 - ``sync_notes`` — new note -> episode, unchanged note -> skipped, modified
   note (changed ``modified`` timestamp) -> re-emitted as an updated episode,
   dedup index persistence across calls;
 - note-id fallback (hash of name+creation-date) when a record has no id;
 - plaintext truncation for an oversized note body;
-- ``sync_from_local_notes`` degrading to an empty sync when ``_run_osascript``
-  raises (no Notes.app / automation denied / not macOS) — never touches real
-  ``osascript``;
+- the backend never running ``osascript`` itself (the ``~/Library`` rail);
 - the ``POST /sources/sync-notes`` endpoint via ``TestClient`` with an inline
-  ``notesDump`` payload.
+  ``notesDump`` payload, and a 422 without one.
 
-REAL ``osascript`` IS NEVER INVOKED: every test either calls
-``parse_notes_dump``/``sync_notes`` directly with an in-memory dump string, or
-monkeypatches ``notes_sync._run_osascript`` before touching
-``sync_from_local_notes``/the endpoint's no-body path.
+Every test passes an in-memory dump string; nothing here reads Notes.app.
 """
 
 from __future__ import annotations
@@ -237,25 +232,18 @@ def test_sync_notes_short_body_not_truncated(tmp_path):
     assert "Milk, eggs, bread" in body
 
 
-# --- sync_from_local_notes: never touches real osascript ---------------------
+# --- The backend never reads Notes itself --------------------------------------
 
 
-def test_sync_from_local_notes_osascript_failure_returns_empty(tmp_path, monkeypatch):
-    def boom():
-        raise RuntimeError("osascript failed: not authorized")
+def test_the_backend_never_runs_osascript():
+    """Run from the launchd backend, macOS asked whether "python3.12" may
+    control Notes. The app reads Notes; this module only parses the dump."""
+    import inspect
 
-    monkeypatch.setattr(notes_sync, "_run_osascript", boom)
-
-    result = run(notes_sync.sync_from_local_notes(tmp_path / "memory"))
-    assert result == {"new": 0, "updated": 0, "skipped": 0, "total": 0, "excluded": 0}
-
-
-def test_sync_from_local_notes_uses_injected_dump(tmp_path, monkeypatch):
-    memory = _memory(tmp_path)
-    monkeypatch.setattr(notes_sync, "_run_osascript", lambda: _dump(NOTE_1, NOTE_2))
-
-    result = run(notes_sync.sync_from_local_notes(memory))
-    assert result["new"] == 2
+    source = inspect.getsource(notes_sync)
+    assert "subprocess" not in source
+    assert "tell application" not in source
+    assert not hasattr(notes_sync, "sync_from_local_notes")
 
 
 # --- POST /sources/sync-notes endpoint ---------------------------------------
@@ -290,19 +278,13 @@ def test_sync_notes_endpoint_inline_dump(tmp_path, monkeypatch):
     assert body2["skipped"] == 2
 
 
-def test_sync_notes_endpoint_no_body_falls_back_to_local_osascript(tmp_path, monkeypatch):
-    """No body -> falls back to sync_from_local_notes; monkeypatch the one
-    real I/O seam so this stays hermetic and never touches real osascript."""
+def test_sync_notes_endpoint_without_a_dump_is_refused_unread(tmp_path, monkeypatch):
+    """No dump -> 422: the backend has no local read to fall back to."""
     client, memory = _make_client(tmp_path, monkeypatch)
 
-    from api.services import notes_sync as ns
-
-    monkeypatch.setattr(ns, "_run_osascript", lambda: _dump(NOTE_1))
-
-    resp = client.post("/sources/sync-notes")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["new"] == 1
+    assert client.post("/sources/sync-notes").status_code == 422
+    assert client.post("/sources/sync-notes", json={}).status_code == 422
+    assert not (memory / "episodes").exists() or not any((memory / "episodes").iterdir())
 
 
 def test_sync_notes_endpoint_empty_dump(tmp_path, monkeypatch):

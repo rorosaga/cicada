@@ -48,6 +48,12 @@ struct SleepPageModel: Equatable {
     var cycleError: String?
     var cancelled: Bool
     var capped: Bool
+    /// G163 — the person-started run's measured progress, `nil` when the last cycle was not one.
+    var drain: SleepDrainInfo?
+    /// `cancelled`, or a finished run that stopped at a plan limit: the strip freezes and nothing cheers.
+    var stoppedEarly: Bool
+    /// The plan pause's reset time has passed (`SleepDrainInfo.Stop.planPauseLapsed`): its tail and row retire.
+    var planPauseLapsed: Bool
     var indexWarning: String?
     var queueLoad: StudyListCard.LoadState
     /// Z-P3 — the newest `kind == "sleep"` commit.
@@ -66,6 +72,27 @@ struct SleepPageModel: Equatable {
     var cycleCreated: Int
     var cycleUpdated: Int
 
+    // MARK: Sleep page v5 (G163; rulings 13, 15, 16)
+
+    /// The paused run (Pause, a plan limit, the reserve, the engine, a restart) — `nil` while reading or when
+    /// nothing is paused. A paused run is `idle`: it holds nothing, and only this page's Continue resumes it.
+    var paused: SleepPausedRun? = nil
+    /// How often a run saves (Reading options, else the configured batch size).
+    var batchSize: Int = 25
+    /// What a Consolidate would read now (waiting minus parked, M7).
+    var readable: Int? = nil
+    /// Conversations parked after failing twice for their own reasons.
+    var parkedCount: Int = 0
+    /// The paused run's reset time in words ("after 3:40 PM", "Tue 2:00 PM") — one locale-aware formatter (L2),
+    /// resolved here so the sentence stays clock-free.
+    var resetWhen: String? = nil
+    /// When an armed automatic continue fires, in the same words; `nil` unless armed (ruling 15).
+    var autoContinueWhen: String? = nil
+    /// Continue cannot help yet: a weekly plan limit whose reset is still ahead (the board's disabled Continue).
+    var continueWaitsForReset: Bool = false
+    /// The Pause was asked for and the run has not stopped yet.
+    var pausing: Bool = false
+
     static func resolve(
         status: SleepStatusResponse?,
         sse: SleepEventPayload?,
@@ -77,13 +104,17 @@ struct SleepPageModel: Equatable {
         queueLoad: StudyListCard.LoadState,
         justFinishedAt: Date?,
         intakeInFlight: Bool,
+        paused: SleepPausedRun? = nil,
+        batchSize: Int? = nil,
+        pausing: Bool = false,
         now: Date = .now,
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> SleepPageModel {
         let debt = resolveSleepDebt(sse: sse, status: status)
+        let isPaused = paused != nil && status?.status != "running"
         let mood = deriveSleepPageMood(status: status, debt: debt, justFinishedAt: justFinishedAt,
-                                       intakeInFlight: intakeInFlight, now: now)
+                                       intakeInFlight: intakeInFlight, paused: isPaused, now: now)
         let origins = resolveOriginCounts(sse: sse, status: status)
         let isRunning = status?.status == "running"
         let read = origins.readByOrigin.values.reduce(0, +)
@@ -92,8 +123,22 @@ struct SleepPageModel: Equatable {
                              readByOrigin: origins.readByOrigin, running: isRunning, now: now)
         let error = status?.error.flatMap { $0.isEmpty ? nil : $0 }
         let cancelled = status?.cancelled == true
+        let drain = resolveDrain(sse: sse, status: status)
+        // A run that ended early on purpose or by a limit: the strip freezes where it stopped and nothing
+        // cheers. A cancel already says so; a plan limit is the same in every way but the flag (G163).
+        // The backend keeps `drain.stop` until the next run, so a stop cannot hold the strip forever: a cancel
+        // follows `cancelled` (the backend's own five-minute window), and a plan pause ends at its reset time.
+        let planPauseLapsed = drain?.stop?.planPauseLapsed(now: now) ?? false
+        let stoppedEarly = cancelled || (!isRunning && drain?.stop.map {
+            $0.reason != "cancelled" && !($0.reason == "plan_limit" && planPauseLapsed) } == true)
         let nextSleepAt = storeStatus?.nextSleepAt
-        return SleepPageModel(
+        let shownPause = isPaused ? paused : nil
+        let resetDate = shownPause?.resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let autoAt = shownPause?.autoContinue.flatMap { $0.armed ? $0.at : nil }
+            .map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        let parked = sse?.parkedCount ?? status?.debt.parkedCount ?? 0
+        let readable = sse?.readableCount ?? status?.debt.readableCount ?? status.map { $0.debt.readable }
+        var model = SleepPageModel(
             mood: mood,
             debt: debt,
             isRunning: isRunning,
@@ -103,8 +148,11 @@ struct SleepPageModel: Equatable {
             rows: rows,
             books: bookPileLayout(originVolumes(queued: queued, queueByOrigin: origins.queueByOrigin,
                                                 readByOrigin: origins.readByOrigin, running: isRunning)),
-            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: cancelled,
-                                  error: error != nil, read: read, total: total),
+            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: stoppedEarly,
+                                  error: error != nil,
+                                  read: drain.flatMap { $0.active ? $0.batchState?.read : nil } ?? read,
+                                  total: drain.flatMap { $0.active ? $0.batchState?.total : nil } ?? total,
+                                  stages: drain?.stages),
             schedule: schedule,
             lampLit: schedule.enabled,
             scheduleText: scheduleSentence(schedule),
@@ -117,7 +165,11 @@ struct SleepPageModel: Equatable {
             consolidateEnabled: status != nil && !isRunning && !queued.isEmpty,
             cycleError: error,
             cancelled: cancelled,
-            capped: (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            // A drain reads everything it froze; "queued > attempted" means "not yet" there, never "capped".
+            capped: drain == nil && (status?.episodesQueued ?? 0) > (status?.episodesTotal ?? 0),
+            drain: drain,
+            stoppedEarly: stoppedEarly,
+            planPauseLapsed: planPauseLapsed,
             indexWarning: status?.indexWarning.flatMap { $0.isEmpty ? nil : $0 },
             queueLoad: queueLoad,
             lastCycle: lastCycleEntry(history),
@@ -130,7 +182,34 @@ struct SleepPageModel: Equatable {
             cycleCreated: status?.entitiesCreated ?? 0,
             cycleUpdated: status?.entitiesUpdated ?? 0
         )
+        model.paused = shownPause
+        model.batchSize = batchSize ?? (status.map { $0.batchSize > 0 ? $0.batchSize : 25 } ?? 25)
+        model.readable = readable
+        model.parkedCount = parked
+        model.resetWhen = resetDate.map { sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: true) }
+        model.autoContinueWhen = autoAt.map { sleepClockWords($0, now: now, locale: locale, timeZone: timeZone, afterToday: false) }
+        model.continueWaitsForReset = shownPause?.reason == "plan_weekly" && (resetDate.map { $0 > now } ?? false)
+        model.pausing = pausing && isRunning
+        // A paused run is continued, not consolidated afresh: the one primary is Continue (A4, DR-40).
+        if shownPause != nil { model.consolidateEnabled = false }
+        return model
     }
+}
+
+/// One locale-aware way to say a reset or a continue time (L2): today reads "after 3:40 PM" (or "3:40 PM" when the
+/// sentence already says "after"), another day "Tue 2:00 PM". Pure: the page passes its own `now`, locale and zone.
+func sleepClockWords(_ date: Date, now: Date, locale: Locale, timeZone: TimeZone, afterToday: Bool) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let f = DateFormatter()
+    f.locale = locale
+    f.timeZone = timeZone
+    if calendar.isDate(date, inSameDayAs: now) {
+        f.setLocalizedDateFormatFromTemplate("jmm")
+        return afterToday ? "after \(f.string(from: date))" : f.string(from: date)
+    }
+    f.setLocalizedDateFormatFromTemplate("EEEjmm")
+    return f.string(from: date)
 }
 
 /// The newest real consolidation in `history` (Z-P3). `/sleep/history` also
@@ -144,8 +223,9 @@ func lastCycleEntry(_ history: [SleepHistoryEntry]) -> SleepHistoryEntry? {
 /// I17 vs I18 — the one running → idle edge that earns a cheer: not a cancel
 /// (it filed nothing) and not a failure (that is news, told in danger). A
 /// first observation (`old == nil`) is a page load, not an edge.
-func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?) -> Bool {
-    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty
+func isRealCompletion(old: String?, new: String?, cancelled: Bool, error: String?,
+                      drainStop: String? = nil) -> Bool {
+    old == "running" && new == "idle" && !cancelled && (error ?? "").isEmpty && drainStop == nil
 }
 
 /// The commit a completion produced, once history has it: the newest sleep
@@ -169,7 +249,7 @@ extension SleepPageModel {
     func roomContext(recentCycleCommit: String? = nil, locale: Locale = .autoupdatingCurrent) -> RoomContext {
         var context = RoomContext(mood: mood, debt: debt, queueLoad: queueLoad, activeStage: runningStage,
                                   read: read, total: total, cycleError: cycleError, cancelled: cancelled,
-                                  capped: capped, indexWarning: indexWarning, scheduleMode: schedule.mode,
+                                  capped: capped, drain: drain, planPauseLapsed: planPauseLapsed, indexWarning: indexWarning, scheduleMode: schedule.mode,
                                   topOriginLabel: topOriginLabel, topOrigin: topOrigin, locale: locale)
         context.oldestWait = oldestWait
         context.lampLit = lampLit
@@ -184,6 +264,11 @@ extension SleepPageModel {
         context.engineDetail = engineDetail
         context.inboxTotal = inboxTotal
         context.recentCycleCommit = recentCycleCommit
+        context.paused = paused
+        context.batchSize = batchSize
+        context.resetWhen = resetWhen
+        context.autoContinueWhen = autoContinueWhen
+        context.pausing = pausing
         return context
     }
 }

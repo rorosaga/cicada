@@ -74,17 +74,22 @@ def test_the_logo_rung_is_for_brands_and_pages_that_name_one():
 
 
 def test_a_logo_is_available_when_cached_or_not_yet_known_to_miss():
-    fm = {"type": "company", "name": "Acme"}   # a single-token company: `acme.com` is guessable (G59)
+    site = [{"ref": "https://acme.example", "kind": "url", "predicate": "website", "added_by": "user"}]
+    fm = {"type": "company", "name": "Acme", "sources": site}   # a trusted site to draw from (G61 S3-b)
     kw = {"page_mtime": 1000.0}
     assert entity_picture.logo_available("acme", fm, "", cached={"acme"}, missed={}, **kw)
     assert entity_picture.logo_available("acme", fm, "", cached=set(), missed={}, **kw), "never asked: the card may ask"
     assert not entity_picture.logo_available("acme", fm, "", cached=set(), missed={"acme": 2000.0}, **kw)
     assert entity_picture.logo_available("acme", fm, "", cached=set(), missed={"acme": 500.0}, **kw), \
         "a page edited after its miss is re-resolved (page_edited_since_fetch's rule)"
-    two_words = {"type": "company", "name": "Acme Example"}
-    assert not entity_picture.logo_available("acme-example", two_words, "", cached=set(), missed={}, **kw), \
-        "nothing to fetch"
-    person = {"type": "person", "name": "Bob"}
+    # G61 S3-b: no name guess. A company with no trusted site has nothing to draw from, cached or not — a stranger's
+    # mark an older rule cached is not offered.
+    bare = {"type": "company", "name": "Acme"}
+    assert not entity_picture.logo_available("acme", bare, "", cached=set(), missed={}, **kw)
+    assert not entity_picture.logo_available("acme", bare, "", cached={"acme"}, missed={}, **kw)
+    proposed = {"type": "company", "name": "Acme", "sources": [{**site[0], "added_by": "agent"}]}
+    assert not entity_picture.logo_available("acme", proposed, "", cached={"acme"}, missed={}, **kw), "unverified"
+    person = {"type": "person", "name": "Bob", "sources": site}
     assert not entity_picture.logo_available("bob", person, "", cached={"bob"}, missed={}, **kw)
 
 

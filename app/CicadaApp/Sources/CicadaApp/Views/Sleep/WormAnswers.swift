@@ -29,6 +29,17 @@ struct LastCycleFacts: Equatable {
 /// than truncated — a cut answer is not a true one.
 func wormAnswers(_ ctx: RoomContext) -> [SentenceLine] {
     let rungs: [SentenceLine?]
+    // Sleep page v5 — a paused run answers with why it paused and what is filed first: the room's state is the pause.
+    if ctx.paused != nil {
+        let status = roomSentence(ctx)
+        return [SentenceLine(lead: status.lead, tone: status.tone, tail: status.tail, tailTone: status.tailTone,
+                             action: status.action),
+                ctx.autoContinueWhen.map { SentenceLine(lead: Copy.SleepV5.continueRun + ".",
+                                                        tail: Copy.SleepV5.willContinueBySelf($0)) },
+                engineRung(ctx, verb: "It ran on"), inboxRung(ctx)]
+            .compactMap { $0 }
+            .filter { $0.lead.count <= SentenceLine.maxLead && ($0.tail?.count ?? 0) <= SentenceLine.maxTail }
+    }
     switch ctx.mood {
     case .reading, .hungry, .curious:
         rungs = [SentenceLine(lead: "Waiting for a night.", tail: ctx.oldestWait.map { "The oldest has waited \($0)." }),

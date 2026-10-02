@@ -13,6 +13,9 @@ enum EvidenceSpeaker {
     /// these is a role, not a name, and must never print as "user said".
     static let markerWords: Set<String> = ["user", "human", "assistant", "ai", "system", "unknown"]
 
+    /// The episode `source` of an agent's report from a page (`page_read.SOURCE`).
+    static let pageReadSource = "page-read"
+
     /// A product name for the agent in a conversation, or nil when nothing
     /// says which agent it was. The harness wins (a Stop-hook or MCP episode
     /// stamps it); an imported export names its vendor; `mcp`/`unknown` name
@@ -59,7 +62,22 @@ enum EvidenceSpeaker {
     /// Reader is allowed to be more precise about what the line actually was.
     /// A meeting speaker is never "You" (R-N2): with no confirmed name it is
     /// "Someone else".
-    static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?) -> String {
+    /// The file name inside an `attachment [<name>]` marker (the server sends the marker as written, as it does a
+    /// `speaker:<label>`); nil for any other marker.
+    static func attachmentName(_ marker: String?) -> String? {
+        guard let marker, marker.lowercased().hasPrefix("attachment"),
+              let open = marker.firstIndex(of: "["), let close = marker.lastIndex(of: "]"), open < close else { return nil }
+        let name = marker[marker.index(after: open)..<close].trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
+    /// A media turn's place in the video ("4:05", "0:00" at the very start); nil when the line carried none.
+    static func mediaTime(_ t: Int?) -> String? {
+        guard let t, t >= 0 else { return nil }
+        return t == 0 ? "0:00" : VideoRef.durationLabel(t)
+    }
+
+    static func turnSpeaker(_ turn: EpisodeTurn, harness: String?, origin: String?, source: String? = nil) -> String {
         switch turn.role {
         case "assistant":
             // R-FA14 — the turn's own model when capture recorded one (C4).
@@ -69,7 +87,12 @@ enum EvidenceSpeaker {
                                         harness: nil, model: turn.model, effort: turn.effort)
                 ?? Copy.Provenance.theAgent
         case "page":
-            return ""
+            // What an agent reported from a page is that agent's reading, not a file the person attached.
+            if source == pageReadSource { return Copy.Provenance.fromThePageAsRead(by: agentName(harness: harness, origin: origin)) }
+            return attachmentName(turn.marker).map(Copy.Provenance.attached) ?? ""
+        case "media":
+            // G162 — "From the video · 4:05 · approximate wording": what the video said, never the person's words.
+            return Copy.Videos.mediaTurnMeta(time: mediaTime(turn.t), fidelity: turn.fidelity)
         case "speaker":
             return named(turn.speaker) ?? Copy.Provenance.someoneElse
         default:
@@ -254,7 +277,7 @@ enum ReaderLayout {
         doc.turns.flatMap { turn -> [ReaderBlock] in
             let content = scalars.clamped(turn.contentStart, turn.end)
             guard content.upperBound > content.lowerBound || turn.role == "page" else { return [] }
-            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin)
+            let speaker = EvidenceSpeaker.turnSpeaker(turn, harness: doc.harness, origin: doc.origin, source: doc.source)
             let mark = turn.role == "assistant"
                 ? EvidenceSpeaker.agentOrigin(harness: doc.harness, origin: doc.origin) : nil
             let time = ReaderTime.label(turn.ts, locale: locale, timeZone: timeZone)
@@ -389,6 +412,8 @@ enum ReaderHeader {
     /// it was; anything else says nothing rather than guess.
     static func captureLine(_ doc: EpisodeText) -> String? {
         if doc.isPage { return nil }
+        // G162 — a watch record says how the agent said it read the video, and that Cicada saw no frames itself.
+        if let watch = doc.watch { return Copy.Videos.watchRecord(basis: watch.basis, engine: watch.engine) }
         if doc.captureKind == hookCaptureKind { return Copy.Provenance.captureHonesty }
         if let origin = doc.origin, origin.hasSuffix("-export"),
            let vendor = EvidenceSpeaker.agentName(harness: nil, origin: origin) {
@@ -405,7 +430,8 @@ enum ReaderHeader {
             parts.append(Copy.Provenance.fromThePage)
         } else if let line = ModelNames.agentLine(
             agent: EvidenceSpeaker.agentName(harness: doc.harness, origin: doc.origin),
-            harness: doc.harness, model: doc.agent?.model, effort: doc.agent?.effort) {
+            harness: doc.harness, model: doc.watch?.authorModel ?? doc.agent?.model,
+            effort: doc.watch?.authorModel != nil ? doc.watch?.authorEffort : doc.agent?.effort) {
             // R-FA14 (C4) — "Claude Code · Opus 5.5 · high effort"; an app with
             // no capture says its model is not shared; a pre-D1 capture adds nothing.
             parts.append(line)

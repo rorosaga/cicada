@@ -109,44 +109,97 @@ def test_size_cap_trims_deterministically(tmp_path):
     assert all(len(c["title"]) <= state_dictionary.TITLE_LIMIT for c in fm["conversations"])
 
 
-def test_repo_budget_degrades_to_unavailable(tmp_path):
+def _observe(memory, path, *, branch="feat/x", when=NOW, device=None, status="ok", dirty=2, ahead=1, behind=0):
+    from api.services import local_refs, repo_observations
+
+    repo_observations.record(memory, [{"path": path, "device": device or local_refs.current_device_id(),
+                                       "status": status, "current_branch": branch, "dirty_files": dirty,
+                                       "ahead": ahead, "behind": behind}], now=when)
+
+
+def test_the_default_resolver_reads_the_apps_last_look_and_never_runs_git(tmp_path, monkeypatch):
+    """The backend never runs git in a declared folder: the block is the app's
+    last observation (`repo_observations`), and a repo never observed is
+    `unavailable`."""
+    import subprocess
+
+    from api.services import repo_context
+
     memory = _bank(tmp_path)
-    # Must outrank alpha-project (0.99 vs 0.9 / (1 + 1/30) ≈ 0.871): repos are
-    # probed in ranking order, and alpha's own declared repo would otherwise
-    # spend the whole budget before `~/src/a` is reached.
     _entity(memory, "eps-project", type="project", confidence=0.99, last_referenced="2026-09-03",
-            repos=[{"path": "~/src/a"}, {"path": "~/src/b"}, {"path": "~/src/c"}])
-    calls: list[float] = []
+            repos=[{"path": "~/src/a"}, {"path": "~/src/b"}, {"path": "~/src/c", "device": "another-mac"}])
+    _observe(memory, "~/src/a", when=NOW.replace(hour=8))
+    _observe(memory, "~/src/alpha-project", branch="main", when=NOW.replace(hour=9), dirty=0)
+    real_run = subprocess.run
 
-    def slow(decl, *, timeout_s=2.0):
-        calls.append(timeout_s)
-        # spend the whole allowance the caller gave this probe
-        state_dictionary._sleep_for_tests(timeout_s)
-        return {"path": decl["path"], "status": "timeout"}
+    def only_the_bank(argv, *a, **k):
+        assert "-C" not in argv, "no git -C into a declared repo"
+        assert str(k.get("cwd") or "") == str(memory), "git runs in the bank and nowhere else"
+        return real_run(argv, *a, **k)
 
-    fm, _ = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW,
-                                   repo_resolver=slow, repo_budget_s=0.3)
-    repos = {r["path"]: r["state"] for p in fm["projects"] for r in p["repos"]}
-    assert repos["~/src/a"] == "timeout"
-    assert repos["~/src/c"] == "unavailable", "a repo past the budget is never probed"
-    assert all(t <= 0.3 for t in calls) and sum(calls) <= 0.31
+    monkeypatch.setattr(subprocess, "run", only_the_bank)
+    monkeypatch.setattr(repo_context, "run_repo_commands", lambda *a, **k: pytest.fail("the MCP runner ran"))
+    fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW)
+    repos = {r["path"]: r for p in fm["projects"] for r in p["repos"]}
+    assert repos["~/src/a"] == {"path": "~/src/a", "branch": "feat/x", "dirty": 2, "ahead_behind": "1/0", "state": "ok"}
+    assert repos["~/src/b"]["state"] == "unavailable" and repos["~/src/b"]["branch"] is None
+    assert repos["~/src/c"]["state"] == "other_device"
+    assert repos["~/src/alpha-project"]["branch"] == "main"
+    assert fm["repos_probed_at"] == NOW.replace(hour=8).isoformat(), "the OLDEST rendered observation"
+    assert "~/src/a@feat/x (dirty 2)" in body
 
 
-def test_probe_repos_false_carries_previous_blocks_over(tmp_path):
+def test_an_observation_older_than_a_week_is_stale(tmp_path):
+    from datetime import timedelta
+
+    memory = _bank(tmp_path)
+    _observe(memory, "~/src/alpha-project", when=NOW - timedelta(days=8))
+    fm, body = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW)
+    block = fm["projects"][0]["repos"][0]
+    assert block == {"path": "~/src/alpha-project", "branch": "feat/x", "dirty": 2, "ahead_behind": "1/0",
+                     "state": "stale"}
+    assert "~/src/alpha-project@feat/x (stale)" in body
+    assert fm["repos_probed_at"] == (NOW - timedelta(days=8)).isoformat()
+    _observe(memory, "~/src/alpha-project", when=NOW - timedelta(days=6))
+    fm, _ = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW)
+    assert fm["projects"][0]["repos"][0]["state"] == "ok"
+
+
+def test_a_newer_look_at_the_same_branch_writes_nothing(tmp_path):
+    """R1: no timestamp sits inside a block, and `repos_probed_at` is masked, so
+    the app looking again changes nothing a forced rebuild compares."""
+    from datetime import timedelta
+
     memory = _bank(tmp_path)
     settings = _settings(memory)
-    state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW, repo_resolver=_ok_repo)
+    _observe(memory, "~/src/alpha-project", when=NOW - timedelta(hours=2))
+    assert state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW)["written"] is True
+    before = (memory / "_state.md").read_bytes()
+    _observe(memory, "~/src/alpha-project", when=NOW - timedelta(hours=1))
+    again = state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW + timedelta(days=1))
+    assert again["written"] is False and (memory / "_state.md").read_bytes() == before
+    _observe(memory, "~/src/alpha-project", branch="feat/y", when=NOW)
+    moved = state_dictionary.refresh(memory, settings, force=True, today=TODAY, now=NOW + timedelta(days=1))
+    assert moved["written"] is True
+    assert state_dictionary.read_state(memory)["projects"][0]["repos"][0]["branch"] == "feat/y"
 
-    def boom(decl, *, timeout_s=2.0):
-        raise AssertionError("must not probe")
 
-    (memory / "inbox" / "inbox-001.md").unlink()
-    out = state_dictionary.refresh(memory, settings, force=False, probe_repos=False, today=TODAY, now=NOW,
-                                   repo_resolver=boom)
-    assert out["written"] is True
-    state = state_dictionary.read_state(memory)
-    assert state["projects"][0]["repos"][0]["branch"] == "feat/x"
-    assert state["repos_probed_at"] == NOW.isoformat()
+def test_no_observation_means_no_probe_time(tmp_path):
+    memory = _bank(tmp_path)
+    fm, _ = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW)
+    assert fm["projects"][0]["repos"][0]["state"] == "unavailable"
+    assert fm["repos_probed_at"] is None
+
+
+def test_a_resolver_that_raises_degrades_one_block(tmp_path):
+    memory = _bank(tmp_path)
+
+    def boom(decl, **_):
+        raise RuntimeError("x")
+
+    fm, _ = state_dictionary.build(memory, _settings(memory), today=TODAY, now=NOW, repo_resolver=boom)
+    assert fm["projects"][0]["repos"] == [{"path": "~/src/alpha-project", "branch": None, "dirty": None,
+                                           "ahead_behind": None, "state": "unavailable"}]
 
 
 def test_no_git_and_no_settings_still_builds(tmp_path):

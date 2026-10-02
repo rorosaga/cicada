@@ -360,8 +360,8 @@ struct ContributorCommitsResponse: Codable {
 
 // MARK: - Location listing (issue #7)
 
-/// One immediate child of a location entity's declared directory path. The
-/// backend returns names + is-dir + size ONLY — never file contents.
+/// One immediate child of a location entity's declared directory path.
+/// `LocationLister` reads names + is-dir + size ONLY — never file contents.
 struct LocationEntry: Codable, Identifiable, Hashable {
     let name: String
     let isDir: Bool
@@ -371,6 +371,12 @@ struct LocationEntry: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey { case name, isDir, size }
 
+    init(name: String, isDir: Bool, size: Int) {
+        self.name = name
+        self.isDir = isDir
+        self.size = size
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = try c.decode(String.self, forKey: .name)
@@ -379,10 +385,12 @@ struct LocationEntry: Codable, Identifiable, Hashable {
     }
 }
 
-/// `GET /entities/{id}/location` — the directory a location entity references,
-/// plus a bounded listing of its immediate children. `exists`/`accessible`
-/// degrade gracefully (path missing or permission denied → empty entries).
-struct LocationListing: Codable {
+/// The directory a location entity references, plus a bounded listing of its
+/// immediate children. `GET /entities/{id}/location` fills only `path` — the
+/// backend never touches the folder — and `LocationLister` fills the rest on
+/// this Mac. `exists`/`accessible` degrade gracefully (path missing or
+/// permission denied → empty entries).
+struct LocationListing: Codable, Equatable {
     let path: String?
     let exists: Bool
     let accessible: Bool
@@ -391,6 +399,14 @@ struct LocationListing: Codable {
 
     enum CodingKeys: String, CodingKey {
         case path, exists, accessible, truncated, entries
+    }
+
+    init(path: String?, exists: Bool, accessible: Bool, truncated: Bool, entries: [LocationEntry]) {
+        self.path = path
+        self.exists = exists
+        self.accessible = accessible
+        self.truncated = truncated
+        self.entries = entries
     }
 
     init(from decoder: Decoder) throws {
@@ -405,13 +421,12 @@ struct LocationListing: Codable {
 
 // MARK: - Project repository context (G9 companion)
 //
-// `GET /entities/{id}/repos` surfaces the git-repo context declared under a
-// project/directory entity's `repos:` frontmatter — local checkout status,
-// branch, ahead/behind, worktrees, last commit — so the companion app can
-// show "what's the state of this repo on disk" without the user opening a
-// terminal. NOT INTEGRATION-TESTED against a live backend (built in parallel
-// by another agent) — this matches the shared API contract exactly and is
-// compile-verified only.
+// `GET /entities/{id}/repos` names the repos a project/directory entity's
+// `repos:` frontmatter declares; `GitRunner` runs git in the ones on this Mac
+// and `POST /entities/{id}/repos/observed` answers the parsed context — local
+// checkout status, branch, ahead/behind, worktrees, last commit — so the
+// companion app can show "what's the state of this repo on disk" without the
+// user opening a terminal, and without the backend ever opening the folder.
 //
 // Unlike the rest of this file's endpoints (which ride the app-wide camelCase
 // wire convention — see `api/models/schemas.py::to_camel`), this endpoint is
@@ -487,7 +502,7 @@ struct RepoLastCommit: Codable, Hashable {
 struct RepoContext: Codable, Identifiable {
     let path: String
     let device: String?
-    /// `ok | other_device | missing | not_a_repo | git_unavailable | timeout`
+    /// `ok | other_device | missing | not_a_repo | denied | git_unavailable | timeout`
     let status: String
     let exists: Bool
     let isGitRepo: Bool
@@ -538,7 +553,69 @@ struct RepoContext: Codable, Identifiable {
     }
 }
 
-/// `GET /entities/{id}/repos` response envelope.
+/// One `repos:` entry as the page declares it (`GET /entities/{id}/repos`): `path` exactly as written — the key
+/// `POST …/repos/observed` is answered by. The backend never looks at the folder; `GitRunner` does.
+struct RepoDeclaration: Codable, Equatable, Sendable {
+    let path: String
+    let device: String?
+    /// The backend's answer (`local_refs.is_this_device`): a friendly `device: Mac` or this Mac's computer name is
+    /// this Mac too. Nil from an older backend, which then falls back to comparing with `this_device`.
+    let onThisDevice: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case path, device
+        case onThisDevice = "on_this_device"
+    }
+
+    init(path: String, device: String?, onThisDevice: Bool? = nil) {
+        self.path = path
+        self.device = device
+        self.onThisDevice = onThisDevice
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? ""
+        device = try c.decodeIfPresent(String.self, forKey: .device)
+        onThisDevice = try c.decodeIfPresent(Bool.self, forKey: .onThisDevice)
+    }
+
+    /// Whether git runs here for this repo — never decided by comparing names in the app.
+    func isOnThisMac(thisDevice: String) -> Bool {
+        if let onThisDevice { return onThisDevice }
+        guard let device, !device.isEmpty else { return true }
+        return device == thisDevice
+    }
+}
+
+/// `GET /entities/{id}/repos` — the declarations and which device this Mac is (`this_device`, snake_case like the
+/// rest of this contract).
+struct RepoDeclarationList: Codable, Equatable, Sendable {
+    let entityId: String
+    let thisDevice: String
+    let repos: [RepoDeclaration]
+
+    enum CodingKeys: String, CodingKey {
+        case entityId = "entity_id"
+        case thisDevice = "this_device"
+        case repos
+    }
+
+    init(entityId: String, thisDevice: String, repos: [RepoDeclaration]) {
+        self.entityId = entityId
+        self.thisDevice = thisDevice
+        self.repos = repos
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entityId = try c.decodeIfPresent(String.self, forKey: .entityId) ?? ""
+        thisDevice = try c.decodeIfPresent(String.self, forKey: .thisDevice) ?? ""
+        repos = (try c.decodeIfPresent([RepoDeclaration].self, forKey: .repos) ?? []).filter { !$0.path.isEmpty }
+    }
+}
+
+/// `POST /entities/{id}/repos/observed` response envelope.
 struct RepoContextList: Codable {
     let entityId: String
     let repos: [RepoContext]
@@ -868,9 +945,14 @@ struct GraphEdge: Codable, Sendable {
     // `claimId` ties the edge back to the claim that asserts it.
     let context: String?
     let claimId: String?
+    /// G61 S3-a — `"source"` marks a read-time edge from a source's `entity:` link: where to look a fact up, not a
+    /// relationship, so the person map and "What's happening" skip it.
+    let kind: String?
+
+    var isSourceLink: Bool { kind == "source" }
 
     enum CodingKeys: String, CodingKey {
-        case source, target, label, context, claimId
+        case source, target, label, context, claimId, kind
     }
 
     init(from decoder: Decoder) throws {
@@ -880,10 +962,12 @@ struct GraphEdge: Codable, Sendable {
         label = try c.decodeIfPresent(String.self, forKey: .label) ?? ""
         context = try c.decodeIfPresent(String.self, forKey: .context)
         claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
     }
 
     init(source: String, target: String, label: String,
-         context: String? = nil, claimId: String? = nil) {
+         context: String? = nil, claimId: String? = nil, kind: String? = nil) {
+        self.kind = kind
         self.source = source
         self.target = target
         self.label = label

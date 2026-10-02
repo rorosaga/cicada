@@ -117,6 +117,39 @@ def claude_zip(n: int = 2) -> bytes:
                                             "email_address": "bob@example.com"}])})
 
 
+def claude_project_files() -> dict[str, str]:
+    """The newer export's layout: one object per project under ``projects/``."""
+    def one(uuid, name, description, prompt_template, *, starter=False):
+        return json.dumps({"uuid": uuid, "name": name, "description": description,
+                           "prompt_template": prompt_template, "is_private": True,
+                           "is_starter_project": starter, "created_at": "2026-01-10T08:00:00Z",
+                           "updated_at": "2026-01-11T08:00:00Z", "creator": {"uuid": "u-1"}, "docs": []})
+    return {"projects/alpha-project.json": one("p-1", "alpha-project", "A synthetic project.", ""),
+            "projects/bob-example-rules.json": one("p-2", "bob-example rules", "", "Answer briefly."),
+            "projects/starter.json": one("p-3", "Starter", "Learn the basics.", "", starter=True)}
+
+
+def claude_split_export() -> dict[str, bytes]:
+    """The newer export's five zips (placeholder values): memories as one object
+    with Claude's memory-tool files, artifacts in `frames`, account data alone."""
+    memories = {"account_uuid": "acct-1", "conversations_memory": "bob-example works on alpha-project.",
+                "project_memories": {"p-0123456789": "alpha-project stores vectors in sqlite-vec."},
+                "memory_files": [{"path": "/memories/alpha-project.md", "content": "Ships on Friday.",
+                                  "updated_at": "2026-03-02T09:00:00.000000+00:00"},
+                                 {"path": "/memories/empty.md", "content": "  ",
+                                  "updated_at": "2026-03-02T09:00:00.000000+00:00"}]}
+    return {
+        "conversations-000.zip": _zip({"conversations.json": json.dumps(claude_conversations(1))}),
+        "projects-000.zip": _zip(claude_project_files()),
+        "memories-000.zip": _zip({"memories/acct-1.json": json.dumps(memories)}),
+        "frames-000.zip": _zip({"artifacts/a-1/artifact.json": json.dumps({"id": "a-1", "kind": "html"}),
+                                "artifacts/a-1/versions/1-aa.html": "<html><a href='https://example.com'>x</a></html>",
+                                "artifacts/a-2/artifact.json": json.dumps({"id": "a-2", "kind": "html"})}),
+        "light_metadata-000.zip": _zip({"users.json": json.dumps([{"uuid": "u-1"}]),
+                                        "login_history.json": json.dumps({"login_events": []})}),
+    }
+
+
 def chatgpt_loose_files(n: int = 2) -> dict[str, bytes | str]:
     return {"conversations.json": json.dumps(chatgpt_conversations(n)),
             "chat.html": CHAT_HTML,
@@ -125,6 +158,21 @@ def chatgpt_loose_files(n: int = 2) -> dict[str, bytes | str]:
             "model_comparisons.json": "[]",
             "shared_conversations.json": json.dumps([{"id": "s-1", "conversation_id": "gpt-0", "title": "x"}]),
             "file-0001.png": b"\x89PNG\r\n"}
+
+
+CHATGPT_EXTRA_FILES = ("ads.json", "conversation_asset_file_names.json", "library_files.json",
+                       "user_settings.json", "export_manifest.json")
+
+
+def chatgpt_split_export(n: int = 2) -> dict[str, bytes | str]:
+    """The newer folder export: numbered conversation shards plus extra index files."""
+    files: dict[str, bytes | str] = {
+        "conversations-000.json": json.dumps(chatgpt_conversations(n)),
+        "sites/export_manifest.json": "{}",
+    }
+    for name in CHATGPT_EXTRA_FILES:
+        files[name] = "{}"
+    return files
 
 
 def chatgpt_zip(n: int = 2) -> bytes:

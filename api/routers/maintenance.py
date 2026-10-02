@@ -100,7 +100,7 @@ async def run_enrich_links(
 
     if _enrich_lock.locked():
         raise HTTPException(409, "a link backfill is already running — retry when it finishes")
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(
             409,
             "a Sleep cycle is running and writes the same media pages — retry when it finishes",
@@ -125,6 +125,97 @@ async def run_enrich_links(
                 engine=engine,
             )
     return MaintenanceEnrichLinksResponse(**report.as_dict(), engine=engine, engine_detail=why)
+
+
+# --- Sources linked to their own page (G61 S3-a, D8) ---------------------------------------------------------
+
+_links_lock = asyncio.Lock()
+
+
+@router.post("/maintenance/link-sources")
+async def link_sources(settings: Settings = Depends(get_settings)):
+    """Link every source that is EXACTLY a saved page (its URL) or a directory page (its path) to that page —
+    engine-free, exact matches only, an empty ``entity:`` only, never a page created. The on-demand twin of the
+    Sleep tail's step; one `cicada` commit (``Source links <date>``, trigger ``maintenance/source-links``). 409
+    while Sleep runs or another call runs. Counts only in the body."""
+    from datetime import date
+
+    from api.services import git_service, sleep_cycle, source_links
+
+    if _links_lock.locked():
+        raise HTTPException(409, "a source-link pass is already running — retry when it finishes")
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+    async with _links_lock:
+        memory_path = settings.memory_path
+        skip: frozenset[str] = frozenset()
+        if (memory_path / ".git").exists():
+            skip = await sleep_cycle._dirty_paths(memory_path)
+        report = await asyncio.to_thread(source_links.backfill, memory_path, skip)
+        if report.paths and (memory_path / ".git").exists():
+            try:
+                await git_service.commit_paths(
+                    memory_path,
+                    source_links.commit_message(report, date.today(), "maintenance/source-links"), report.paths)
+            except Exception:
+                await asyncio.to_thread(source_links.restore, memory_path, report)
+                raise HTTPException(500, "the links could not be committed; nothing was changed")
+    return {"linked": report.linked, "pages": len(report.paths)}
+
+
+# --- Official sites, confirmed on Cicada's own rail (G61 S3-b) ---------------------------------------------------
+
+_sites_lock = asyncio.Lock()
+# One request holds a connection open for every fetch it makes (each ≤ 4 s, sequential), so the route's work is capped;
+# `deferred` in the answer says how many were left for the next click or night.
+ROUTE_BUDGET_DEFAULT = 40
+
+
+@router.post("/maintenance/verify-sites")
+async def verify_sites(
+    budget: int = Query(ROUTE_BUDGET_DEFAULT, ge=1, le=ROUTE_BUDGET_DEFAULT),
+    settings: Settings = Depends(get_settings),
+):
+    """Propose and confirm official sites now — the person's click, so (like `enrich-links`) it is ungated:
+    `CICADA_ALLOW_CONNECTOR_FETCH` gates only the unattended nightly step. Same rail as the tail: at most `budget`
+    fetches (40, the cap — `deferred` counts what waits for the next click), one per site, never a walled or platform
+    host, Cicada's own read (4 s, ≤ 512 KB, no cookies). 409 while Sleep runs, another call runs, or the bank is the demo
+    (a made-up bank's sites are not Cicada's to read). One `cicada` commit (`Site check <date>`, trigger `user/companion_app`). Counts
+    only in the body: never a host, a page or a reason."""
+    from datetime import date
+
+    from api.services import demo_guard, git_service, sleep_cycle, site_sources
+
+    if demo_guard.is_demo(settings.memory_path):
+        raise HTTPException(409, "this is the demo memory, made up for the tour — there are no real sites to check")
+    if _sites_lock.locked():
+        raise HTTPException(409, "a site check is already running — retry when it finishes")
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+    async with _sites_lock:
+        memory_path = settings.memory_path
+        skip: frozenset[str] = frozenset()
+        if (memory_path / ".git").exists():
+            skip = await sleep_cycle._dirty_paths(memory_path)
+        report = site_sources.Report()
+        try:
+            await asyncio.to_thread(site_sources.propose, memory_path, skip, report)
+            await site_sources.verify(memory_path, budget=budget, skip=skip, settings=settings, report=report)
+        except Exception:
+            # A page written before the failure must not ride the next `git add -A` writer's commit (the G85 smear).
+            await asyncio.to_thread(site_sources.restore, memory_path, report)
+            raise HTTPException(500, "the site check stopped part-way; nothing was changed")
+        if report.paths and (memory_path / ".git").exists():
+            try:
+                await git_service.commit_paths(
+                    memory_path,
+                    site_sources.commit_message(report, date.today(), site_sources.ROUTE_TRIGGER), report.paths)
+            except Exception:
+                await asyncio.to_thread(site_sources.restore, memory_path, report)
+                raise HTTPException(500, "the site check could not be committed; nothing was changed")
+    return {"pages": len(report.paths), **{k: report.counts.get(k, 0) for k in (
+        "proposed", "fetched", "verified", "unconfirmed", "mismatch", "platform", "unreachable", "deferred")},
+            "budget": budget}
 
 
 # --- Search index (G139, Settings → Memory) ----------------------------------
@@ -160,7 +251,7 @@ async def rebuild_search_index(settings: Settings = Depends(get_settings)):
 
     if _index_lock.locked():
         raise HTTPException(409, "A rebuild is already running.")
-    if sleep_cycle.get_sleep_state().status == "running":
+    if sleep_cycle.is_writing():
         raise HTTPException(409, "A Sleep cycle is running and rebuilds the index itself.")
     # Resolved once: a bank switch mid-rebuild must not make the status below
     # describe a different bank than the one just rebuilt (the split-brain rule).

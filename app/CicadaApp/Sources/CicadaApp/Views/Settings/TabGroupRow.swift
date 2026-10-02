@@ -29,6 +29,11 @@ struct TabGroupRow: View {
                 }
                 .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
             }
+            // G161 — the groups Cicada brought in, by name, each opening its snapshot in the Reader.
+            if watcher.enabled, channel?.connected == true {
+                CapturedItemsList(channel: TabGroupWatcher.channel)
+                    .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize + 22))
+            }
         }
         .padding(.leading, CicadaTheme.scaled(SourceRow<EmptyView>.markSize))
         .settingsRow(.channel(TabGroupWatcher.channel))

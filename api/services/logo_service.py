@@ -1,14 +1,12 @@
 """Entity logos (G59) — keyless resolution, fetch, and an on-disk cache.
 
-The ladder, cheapest first, never guessing where a guess would be wrong:
+The ladder, from a source and never a guess (G61 S3-b):
 
 1. explicit ``logo:`` frontmatter (a URL) — the user said so, stop here;
-2. the first ``kind: url`` entry in the page's ``sources:`` list (G61);
-3. the first URL in the body's ``## Links`` section;
-4. ``media.url`` (a saved link's own site);
-5. a heuristic, and **only** for ``company``/``tool`` pages: a ``website``
-   claim's host if one exists, else ``<slug>.com`` when the name is a single
-   token. Never for a ``person`` — a surname is not a domain.
+2. the first TRUSTED ``website`` source in the page's ``sources:`` (the person's, one they took, or one Cicada's own
+   read confirmed — ``fact_sources.trusted``);
+3. nothing: the page keeps its monogram. No ``## Links`` fallback, no saved link's site, no ``website`` claim, and no
+   ``<name>.com`` guess; never for a ``person`` or a ``media`` page.
 
 Fetching is keyless (apple-touch-icon → the homepage's ``<link rel=icon>`` →
 DuckDuckGo's icon service) behind an injectable ``fetcher`` so tests never
@@ -39,6 +37,7 @@ payload that sniffs as SVG regardless of the header the site sent.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fcntl
 import ipaddress
 import json
@@ -54,9 +53,8 @@ from urllib.parse import urljoin, urlparse
 
 from loguru import logger
 
-from api.services import entity_body, markdown_parser, net_guard
+from api.services import markdown_parser, net_guard
 from api.services.auth import cicada_home
-from api.services.claims import parse_claims
 
 CACHE_DIR_NAME = "logos"
 META_FILENAME = "meta.json"
@@ -64,15 +62,21 @@ META_FILENAME = "meta.json"
 # it can never be mistaken for one of `write_meta`'s `meta.json.<pid>.tmp`).
 LOCK_FILENAME = "meta.lock"
 HIT_TTL = timedelta(days=30)
+#: The one place an icon is looked up when the site itself must not be contacted.
+SERVICE_URL = "https://icons.duckduckgo.com/ip3/{domain}.ico"
+#: A bank's site-icon namespace inside its own logo folder (G166): ``logos/<bank>/sites/``, with its
+#: own ``meta.json``. Entity ids cannot contain ``/``, so a site key can never collide with an entity id
+#: and ``cached_ids`` (which feeds ``/graph``'s ``has_logo``) never sees a site.
+SITES_DIR = "sites"
 MISS_TTL = timedelta(days=7)
 MAX_BYTES = 512 * 1024
 TIMEOUT_SECONDS = 4.0
 MIN_PIXELS = 16
 USER_AGENT = "Mozilla/5.0 (CicadaBot)"
-# Only these page types plausibly have a brand mark worth guessing at.
+# The page types whose own site draws a brand mark (`entity_picture.LOGO_TYPES` derives from it). Not a licence to
+# guess a domain: nothing guesses one any more.
 GUESSABLE_TYPES = {"company", "tool"}
 
-_URL_RE = re.compile(r"https?://[^\s<>\")\]]+")
 _ICON_LINK_RE = re.compile(
     r"""<link\b[^>]*\brel\s*=\s*["']?[^"'>]*\b(?:apple-touch-icon|icon)\b[^"'>]*["']?[^>]*>""",
     re.IGNORECASE,
@@ -119,11 +123,90 @@ def fetch_allowed() -> bool:
     return os.environ.get("CICADA_ALLOW_LOGO_FETCH", "on").strip().lower() not in {"off", "0", "false"}
 
 
+#: G61 S3-b — the logo RULE. Version 2: a picture is drawn from a trusted ``website`` source and never from a guess. A
+#: bank's entity logos cached under an older rule (a name-guessed domain, a ``## Links`` article's site) are purged ONCE;
+#: the marker ``logos/<bank>/.rule`` records the rule a bank's cache was written under. The cache is derived and
+#: disposable (TODO ruling 3), so this costs a few fetches and never a fact. The ``sites/`` namespace (G166's site
+#: icons) is not entity logos and is never touched.
+LOGO_RULE = 2
+RULE_FILENAME = ".rule"
+_ruled: set[str] = set()
+
+
 def logos_dir(bank: str) -> Path:
-    """``$CICADA_HOME/logos/<bank>/`` — machine-global, never inside a bank."""
+    """``$CICADA_HOME/logos/<bank>/`` — machine-global, never inside a bank. A folder made now was made under the
+    current rule, so its marker is written with it; one that predates the rule has none and is purged once
+    (:func:`ensure_rule`)."""
     path = cicada_home() / CACHE_DIR_NAME / (bank or "default")
+    root = cicada_home() / CACHE_DIR_NAME / (bank or "default").split("/")[0]
+    fresh = not root.exists()
     path.mkdir(parents=True, exist_ok=True)
+    if fresh:
+        try:
+            (root / RULE_FILENAME).write_text(str(LOGO_RULE), encoding="utf-8")
+        except OSError:
+            pass
     return path
+
+
+@contextlib.contextmanager
+def _meta_flock(bank: str):
+    """The bank's exclusive ``fcntl`` lock on ``meta.lock`` (degrading to no lock where a filesystem has none)."""
+    try:
+        handle = open(logos_dir(bank) / LOCK_FILENAME, "a+")
+    except OSError:
+        yield
+        return
+    with handle:
+        locked = True
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        except OSError:
+            locked = False
+        try:
+            yield
+        finally:
+            if locked:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+
+
+def ensure_rule(bank: str) -> int:
+    """Purge a bank's entity logos cached under an older rule, once (marker ``.rule``); a no-op afterwards and for the
+    rest of the process. Returns how many cached files it removed. Deletes only the bank's own top-level logo files and
+    its ``meta.json`` entries — never ``sites/``, never a page in a bank."""
+    if bank in _ruled:
+        return 0
+    directory = logos_dir(bank)
+    marker = directory / RULE_FILENAME
+    try:
+        current = int(marker.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        current = 0
+    purged = 0
+    if current < LOGO_RULE:
+        keep = {META_FILENAME, LOCK_FILENAME, RULE_FILENAME}
+        # Under the same cross-process lock `_record_meta_sync` takes, so a fetch finishing in another process cannot
+        # write an entry between the purge and the emptied index.
+        with _meta_flock(bank):
+            for entry in directory.iterdir():
+                if entry.is_file() and entry.name not in keep:
+                    try:
+                        entry.unlink()
+                        purged += 1
+                    except OSError:
+                        pass
+            try:
+                write_meta(bank, {})
+                marker.write_text(str(LOGO_RULE), encoding="utf-8")
+            except OSError as exc:
+                logger.warning(f"logo rule purge could not finish for {bank}: {type(exc).__name__}")
+                return purged
+        logger.info(f"logo cache for {bank} moved to rule {LOGO_RULE}: {purged} cached file(s) dropped")
+    _ruled.add(bank)
+    return purged
 
 
 def bank_name(memory_path: Path) -> str:
@@ -196,98 +279,62 @@ def _host(raw: str | None) -> str | None:
     return host or None
 
 
-def _first_source_url(frontmatter: dict) -> str | None:
-    """The first ``url`` source the PERSON named (or accepted) — never a model's.
+def _trusted_website_host(frontmatter: dict) -> str | None:
+    """The host of the FIRST trusted ``website`` source, best first (``fact_sources.rank``) — and nothing else.
 
-    G61 S1's Stage 5.56 attaches cited links (``fact_sources.attach_cited_urls``)
-    as ``url`` sources added by the extractor. Read as the page's own domain,
-    one Sleep over a sentence with a URL re-branded a tool and gave a person a
-    site's favicon as an avatar — and started an unattended favicon fetch to a
-    host taken from conversation text (G61 final review, finding 1). A source
-    with no ``added_by`` is the person's, as ``EntitySource.added_by`` defaults.
-    """
+    A page's picture is drawn from its own site, and only from one somebody vouched for: the person's own entry, one
+    they took ("Use this site"), or one Cicada's own read confirmed (``verified``). A model's proposal is not trusted
+    until then (``fact_sources.trusted``), so a wrong guess draws no mark. The role is the ``website`` predicate (or an
+    entry the person added with none). A walled or platform host is skipped: a profile page or a code host is not the
+    entity's own mark (``site_sources.is_platform``). A hand-edited scalar (``sources: 5``) is no list of sources
+    (r4-people final review, finding 2)."""
+    from api.services import fact_sources, site_sources
+
     sources = frontmatter.get("sources")
-    # A hand-edited scalar (`sources: 5`) is not a list of sources; iterating it 500'd all of `GET /graph` once the
-    # picture resolver started asking for a domain (r4-people final review, finding 2).
     if not isinstance(sources, list):
         return None
-    for entry in sources:
-        if not isinstance(entry, dict):
+
+    def serves(source: dict, _predicate) -> bool:
+        who = str(source.get("added_by") or fact_sources.USER).strip() or fact_sources.USER
+        wanted = fact_sources.same_predicate(source.get("predicate"), fact_sources.WEBSITE) or (
+            not str(source.get("predicate") or "").strip() and who == fact_sources.USER)
+        return wanted and str(source.get("kind") or "").strip().lower() == "url"
+
+    # An explicit `website` entry outranks a bare one the person typed (a verified site must not lose to a link with no
+    # role), then `rank` orders each group: the person's, one they took, a verified one.
+    ranked = fact_sources.rank(sources, fact_sources.WEBSITE, match=serves)
+    explicit = [s for s in ranked if fact_sources.same_predicate(s.get("predicate"), fact_sources.WEBSITE)]
+    bare = [s for s in ranked if s not in explicit]
+    for source in explicit + bare:
+        if not fact_sources.trusted(source):
             continue
-        added_by = str(entry.get("added_by") or "user").strip() or "user"
-        if added_by != "user" and not entry.get("accepted"):
-            continue
-        if str(entry.get("kind") or "").strip().lower() != "url":
-            continue
-        ref = entry.get("ref")
+        ref = source.get("ref")
         if isinstance(ref, str) and ref.strip():
-            return ref
+            host = _host(ref)
+            if host and not site_sources.is_platform(host):
+                return host
     return None
 
 
-def _first_links_url(body: str) -> str | None:
-    links = entity_body.parse_sections(body or "").get("Links", "")
-    match = _URL_RE.search(links)
-    return match.group(0).rstrip(").,") if match else None
+def domain_for(frontmatter: dict, body: str = "") -> str | None:
+    """Resolve an entity page to the domain whose icon should represent it — from a source, never from a guess.
 
+    1. an explicit ``logo:`` (the person said so);
+    2. the first TRUSTED ``website`` source (:func:`_trusted_website_host`);
+    3. nothing.
 
-def _website_claim_host(body: str) -> str | None:
-    try:
-        claims = parse_claims(body or "")
-    except Exception:
-        return None
-    for claim in claims:
-        if claim.valid_to is not None or claim.superseded_by:
-            continue
-        if (claim.predicate or "").strip().lower() != "website":
-            continue
-        host = _host(claim.object)
-        if host:
-            return host
-    return None
-
-
-def _slug_guess(name: str) -> str | None:
-    """``MongoDB`` -> ``mongodb.com``. Only for a single-token name: a
-    multi-word name maps to a domain far too unreliably to be worth a fetch."""
-    cleaned = (name or "").strip()
-    if not cleaned or any(c.isspace() for c in cleaned):
-        return None
-    slug = re.sub(r"[^a-z0-9-]", "", cleaned.lower())
-    return f"{slug}.com" if len(slug) >= 2 else None
-
-
-def domain_for(frontmatter: dict, body: str) -> str | None:
-    """Resolve an entity page to the domain whose icon should represent it."""
+    Removed with G61 S3-b: the first ``## Links`` URL (an article about a company drew the article site's icon), a saved
+    link's ``media.url``, a ``website`` *claim* (a model's word, unverified) and ``<name>.com`` for a single-token name
+    (the "stranger's mark": a small company got a stranger's icon and an AI provider a fireworks show's). A page with no
+    trusted site keeps its ring monogram (G146). A person (or a media page) never gets a logo at all: no service is sent
+    a person's name (G146/G159)."""
     fm = frontmatter or {}
-
+    if str(fm.get("type") or "").strip().lower() in ("person", "media"):
+        return None
     explicit = _host(fm.get("logo") if isinstance(fm.get("logo"), str) else None)
     if explicit:
         return explicit
-
-    from_source = _host(_first_source_url(fm))
-    if from_source:
-        return from_source
-
-    from_links = _host(_first_links_url(body))
-    if from_links:
-        return from_links
-
-    media = fm.get("media")
-    if isinstance(media, dict):
-        from_media = _host(media.get("url") if isinstance(media.get("url"), str) else None)
-        if from_media:
-            return from_media
-
-    entity_type = str(fm.get("type") or "").strip().lower()
-    if entity_type not in GUESSABLE_TYPES:
-        return None
-
-    claimed = _website_claim_host(body)
-    if claimed:
-        return claimed
-
-    return _slug_guess(str(fm.get("name") or ""))
+    return _trusted_website_host(fm)
 
 
 # --- image sniffing ---------------------------------------------------------
@@ -422,6 +469,36 @@ async def _get_safely(url: str, *, fetcher: Fetcher, resolver: Resolver) -> Fetc
     return None
 
 
+async def fetch_via_icon_service(
+    domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """The last rung on its own: one GET of the icon service for ``domain``, then the
+    same accept rules as any logo (a 404 placeholder is a miss; an SVG or an
+    oversize file is refused). ``fetch_logo`` and the walled-site icons share
+    this one URL builder — the service is the ONLY thing a walled site's icon
+    ever asks (R-RW4: the site itself is never contacted)."""
+    if fetcher is None:
+        if not fetch_allowed():
+            return None
+        fetcher = _http_get
+    resolver = resolver or _resolve_host
+    result = await _get_safely(SERVICE_URL.format(domain=domain), fetcher=fetcher, resolver=resolver)
+    return _accept(result) if result is not None else None
+
+
+async def fetch_site_icon(
+    domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
+) -> tuple[bytes, str, str | None] | None:
+    """A site's icon from the icon service, retrying once with ``www.`` prepended
+    when the bare domain has none (the service answers 404 for a bare
+    ``instagram.com`` and 200 for the ``www.`` form). Both requests go to the
+    service only; the miss is the caller's to cache once both fail."""
+    got = await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver)
+    if got is None and not domain.startswith("www."):
+        got = await fetch_via_icon_service("www." + domain, fetcher=fetcher, resolver=resolver)
+    return got
+
+
 async def fetch_logo(
     domain: str, *, fetcher: Fetcher | None = None, resolver: Resolver | None = None
 ) -> tuple[bytes, str, str | None] | None:
@@ -433,6 +510,10 @@ async def fetch_logo(
     each rung and any redirect it follows — passes the SSRF host check in
     ``_get_safely``/``_is_safe_url``; an injected ``resolver`` lets tests
     simulate DNS without touching the network.
+
+    A login-walled host (``reading_hosts.is_walled``, R-RW4) is never contacted:
+    its first two rungs (its own ``apple-touch-icon`` and homepage) are skipped
+    and only the icon service is asked.
     """
     if fetcher is None:
         if not fetch_allowed():
@@ -440,28 +521,28 @@ async def fetch_logo(
         fetcher = _http_get
     resolver = resolver or _resolve_host
 
-    homepage = f"https://{domain}/"
-    candidates = [f"https://{domain}/apple-touch-icon.png"]
+    from api.services import reading_hosts
 
-    for url in candidates:
-        result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
-        accepted = _accept(result) if result is not None else None
-        if accepted:
-            return accepted
+    if not reading_hosts.is_walled(f"https://{domain}/"):
+        homepage = f"https://{domain}/"
+        candidates = [f"https://{domain}/apple-touch-icon.png"]
 
-    page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
-    if page is not None and page.status == 200 and page.body:
-        href = _icon_href(page.body, homepage)
-        if href:
-            result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
+        for url in candidates:
+            result = await _get_safely(url, fetcher=fetcher, resolver=resolver)
             accepted = _accept(result) if result is not None else None
             if accepted:
                 return accepted
 
-    ddg_result = await _get_safely(
-        f"https://icons.duckduckgo.com/ip3/{domain}.ico", fetcher=fetcher, resolver=resolver
-    )
-    return _accept(ddg_result) if ddg_result is not None else None
+        page = await _get_safely(homepage, fetcher=fetcher, resolver=resolver)
+        if page is not None and page.status == 200 and page.body:
+            href = _icon_href(page.body, homepage)
+            if href:
+                result = await _get_safely(href, fetcher=fetcher, resolver=resolver)
+                accepted = _accept(result) if result is not None else None
+                if accepted:
+                    return accepted
+
+    return await fetch_via_icon_service(domain, fetcher=fetcher, resolver=resolver)
 
 
 # --- cache ------------------------------------------------------------------
@@ -594,6 +675,7 @@ def cached_path(bank: str, entity_id: str) -> Path | None:
 def cached_ids(bank: str) -> set[str]:
     """Every entity id with a fresh cached logo. Read-only, no network — this
     is what ``GET /graph`` uses to fill ``has_logo``."""
+    ensure_rule(bank)
     meta = read_meta(bank)
     directory = logos_dir(bank)
     return {
@@ -607,6 +689,7 @@ def missed_ids(bank: str) -> dict[str, float]:
     """Every entity id with a FRESH recorded miss, mapped to when it was recorded (epoch seconds). Read-only, no
     network — the picture precedence's logo rung is "cached, or not yet known to miss" (G146 plan R-PE9), and a page
     edited after its miss is re-resolved exactly as `page_edited_since_fetch` re-resolves it for the logo endpoint."""
+    ensure_rule(bank)
     out: dict[str, float] = {}
     for eid, entry in read_meta(bank).items():
         if isinstance(entry, dict) and entry.get("miss") and is_fresh(entry):
@@ -667,6 +750,7 @@ async def _ensure_logo_locked(
     memory_path: Path, bank: str, entity_id: str, *, fetcher: Fetcher | None = None
 ) -> Path | None:
     entity_file = memory_path / "entities" / f"{entity_id}.md"
+    ensure_rule(bank)
     entry = read_meta(bank).get(entity_id)
     cached_ok = bool(entry) and is_fresh(entry)
     # An edit to the page can change which domain this entity resolves to, so a
@@ -696,10 +780,22 @@ async def _ensure_logo_locked(
         return cached_path(bank, entity_id)
 
     if not domain:
-        # No domain resolves anymore (e.g. `logo:`/`sources:`/`## Links` were
-        # edited away): fall back to a still-valid cache, like the neighbouring
-        # exits already do, so `/graph`'s `has_logo` and this endpoint agree.
-        return cached_path(bank, entity_id) if cached_ok else None
+        # No domain resolves (no trusted website source, or the page is not a brand): a cached mark is a mark drawn
+        # from something that is no longer there — a stranger's, once a name guess put it there — so it goes, and the
+        # miss is recorded (G61 S3-b). The page keeps its monogram until it has a site somebody vouched for.
+        if entry and not entry.get("miss"):
+            for old in (logos_dir(bank).glob(f"{entity_id}.*")):
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        if not (entry and entry.get("miss") and cached_ok):
+            await _record_meta(
+                bank, entity_id,
+                {"fetched_at": datetime.now(timezone.utc).isoformat(), "domain": None, "miss": True, "etag": None,
+                 "ext": None},
+            )
+        return None
 
     if fetcher is None and not fetch_allowed():
         # Not a miss: we never asked. Caching one would suppress the real fetch
@@ -801,6 +897,7 @@ async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | N
     memory_path = Path(memory_path)
     if fetcher is None and not fetch_allowed():
         return 0
+    ensure_rule(bank_name(memory_path))
 
     candidates: list[tuple[int, str]] = []
     for f in bank_index.files(memory_path, "entities"):
@@ -820,3 +917,46 @@ async def warm_logos(memory_path: Path, *, limit: int = 50, fetcher: Fetcher | N
         except Exception as exc:
             logger.debug(f"warm_logos: {entity_id} failed: {type(exc).__name__}: {exc}")
     return warmed
+
+
+# --- site icons (G166) --------------------------------------------------------------------------------------
+
+
+def site_bank(bank: str) -> str:
+    """The cache namespace of a bank's site icons: ``<bank>/sites`` — the same helpers
+    (``logos_dir``, ``read_meta``, ``_record_meta``, the flock, the TTLs) run over it."""
+    return f"{bank or 'default'}/{SITES_DIR}"
+
+
+async def ensure_site_icon(
+    memory_path: Path, site: str, domain: str, *, fetcher: Fetcher | None = None
+) -> Path | None:
+    """Resolve -> cache-check -> ONE icon-service lookup (with the ``www.`` retry) -> store.
+
+    ``site`` is the key (``reading_hosts.site_of``) the cache is filed under;
+    ``domain`` is the name the icon service is told (``reading_hosts.icon_host``).
+    The site itself is never contacted. Gated by ``CICADA_ALLOW_LOGO_FETCH``
+    exactly as ``ensure_logo`` is, and never caches a "never asked" as a miss.
+    A hit lasts 30 days, a miss 7."""
+    bank = site_bank(bank_name(Path(memory_path)))
+    async with _lock(f"site:{bank}/{site}"):
+        entry = read_meta(bank).get(site)
+        cached_ok = bool(entry) and is_fresh(entry)
+        if cached_ok:
+            return cached_path(bank, site)
+        if fetcher is None and not fetch_allowed():
+            return None
+        result = await fetch_site_icon(domain, fetcher=fetcher)
+        now = datetime.now(timezone.utc).isoformat()
+        if result is None:
+            await _record_meta(bank, site, {"fetched_at": now, "domain": domain, "miss": True, "etag": None, "ext": None})
+            return None
+        body, ext, etag = result
+        path = logos_dir(bank) / f"{site}.{ext}"
+        try:
+            path.write_bytes(body)
+        except OSError as exc:
+            logger.warning(f"Could not cache a site icon: {type(exc).__name__}: {exc}")
+            return None
+        await _record_meta(bank, site, {"fetched_at": now, "domain": domain, "miss": False, "etag": etag, "ext": ext})
+        return path

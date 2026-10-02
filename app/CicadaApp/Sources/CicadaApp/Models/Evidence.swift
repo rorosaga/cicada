@@ -168,12 +168,17 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
     /// recorded for it; nil for every other role and before D1.
     let model: String?
     let effort: String?
+    /// G140 — a `media` turn's position in the video, in seconds (a timed `video [m:ss]:` line); nil otherwise.
+    let t: Int?
+    /// G162 — on a `media` turn only: `verbatim` (captions) or `approximate` (a model's reading, or a record that
+    /// never said). Nil against an older backend and on every other role.
+    let fidelity: VideoFidelity?
 
     var id: Int { index }
 
     init(index: Int, start: Int, contentStart: Int, end: Int, role: String = "user",
          marker: String? = nil, speaker: String? = nil, ts: String? = nil,
-         model: String? = nil, effort: String? = nil) {
+         model: String? = nil, effort: String? = nil, t: Int? = nil, fidelity: VideoFidelity? = nil) {
         self.index = index
         self.start = start
         self.contentStart = contentStart
@@ -184,9 +189,11 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         self.ts = ts
         self.model = model
         self.effort = effort
+        self.t = t
+        self.fidelity = fidelity
     }
 
-    enum CodingKeys: String, CodingKey { case index, start, contentStart, end, role, marker, speaker, ts, model, effort }
+    enum CodingKeys: String, CodingKey { case index, start, contentStart, end, role, marker, speaker, ts, model, effort, t, fidelity }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -200,6 +207,8 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         ts = try c.decodeIfPresent(String.self, forKey: .ts)
         model = (try? c.decodeIfPresent(String.self, forKey: .model)) ?? nil
         effort = (try? c.decodeIfPresent(String.self, forKey: .effort)) ?? nil
+        t = (try? c.decodeIfPresent(Int.self, forKey: .t)) ?? nil
+        fidelity = ((try? c.decodeIfPresent(String.self, forKey: .fidelity)) ?? nil).flatMap(VideoFidelity.init(rawValue:))
     }
 }
 
@@ -263,6 +272,48 @@ struct EpisodeAgent: Codable, Hashable {
     }
 }
 
+/// G162 — how a video-watch record says it was read. `basis` and `engine` are the agent's own word (R-VU2), absent
+/// for a record made before Cicada asked; `fidelity` is derived on the server; `authorModel`/`authorEffort` are the
+/// turn join for the `describes` claim this record backs — nil when no captured turn maps (the block then says the
+/// model was not shared, never a guess). Every value decodes leniently.
+struct EpisodeWatch: Codable, Hashable {
+    let basis: VideoBasis?
+    let engine: VideoEngine?
+    let fidelity: VideoFidelity
+    let authorModel: String?
+    let authorEffort: String?
+
+    init(basis: VideoBasis? = nil, engine: VideoEngine? = nil, fidelity: VideoFidelity = .approximate,
+         authorModel: String? = nil, authorEffort: String? = nil) {
+        self.basis = basis
+        self.engine = engine
+        self.fidelity = fidelity
+        self.authorModel = authorModel
+        self.authorEffort = authorEffort
+    }
+
+    enum CodingKeys: String, CodingKey { case basis, engine, fidelity, authorModel, authorEffort }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func word(_ key: CodingKeys) -> String? { (try? c.decodeIfPresent(String.self, forKey: key)) ?? nil }
+        basis = word(.basis).flatMap(VideoBasis.init(rawValue:))
+        engine = word(.engine).flatMap(VideoEngine.init(rawValue:))
+        fidelity = word(.fidelity).flatMap(VideoFidelity.init(rawValue:)) ?? .approximate
+        authorModel = word(.authorModel)
+        authorEffort = word(.authorEffort)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(basis?.rawValue, forKey: .basis)
+        try c.encodeIfPresent(engine?.rawValue, forKey: .engine)
+        try c.encode(fidelity.rawValue, forKey: .fidelity)
+        try c.encodeIfPresent(authorModel, forKey: .authorModel)
+        try c.encodeIfPresent(authorEffort, forKey: .authorEffort)
+    }
+}
+
 /// `EpisodeText` — a whole stored document for the Reader. `text` is capped
 /// at 400,000 characters server-side (`truncated`, R-PB5); `length` and
 /// `hash` always describe the WHOLE text. `conversationId` is the stamped
@@ -287,13 +338,22 @@ struct EpisodeText: Codable, Hashable {
     /// Round-4 C4 — nil against a backend before D1 and for a harness that never
     /// tells its model.
     let agent: EpisodeAgent?
+    /// G162 — only on a video-watch record.
+    let watch: EpisodeWatch?
+    /// The episode's `source`. `page-read` is what an agent reported from a page: Cicada never had the page, so its
+    /// quotes read "From the page, as <agent> read it" (G166, spec 8.5), never a bare "From the page".
+    let source: String?
 
     var isPage: Bool { kind == "page" }
+    var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
 
     init(episode: String, kind: String = "episode", text: String, length: Int? = nil, hash: String = "",
          truncated: Bool = false, title: String = "", timestamp: String? = nil, harness: String? = nil,
          origin: String? = nil, conversationId: String? = nil, captureKind: String? = nil,
-         turns: [EpisodeTurn] = [], focus: EpisodeFocus? = nil, agent: EpisodeAgent? = nil) {
+         turns: [EpisodeTurn] = [], focus: EpisodeFocus? = nil, agent: EpisodeAgent? = nil,
+         watch: EpisodeWatch? = nil,
+         source: String? = nil) {
+        self.source = source
         self.episode = episode
         self.kind = kind
         self.text = text
@@ -309,15 +369,17 @@ struct EpisodeText: Codable, Hashable {
         self.turns = turns
         self.focus = focus
         self.agent = agent
+        self.watch = watch
     }
 
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
-        case conversationId, captureKind, turns, focus, agent
+        case conversationId, captureKind, turns, focus, agent, watch, source
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        source = try? c.decodeIfPresent(String.self, forKey: .source)
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
@@ -333,5 +395,6 @@ struct EpisodeText: Codable, Hashable {
         turns = try c.decodeIfPresent([EpisodeTurn].self, forKey: .turns) ?? []
         focus = try c.decodeIfPresent(EpisodeFocus.self, forKey: .focus)
         agent = (try? c.decodeIfPresent(EpisodeAgent.self, forKey: .agent)) ?? nil
+        watch = (try? c.decodeIfPresent(EpisodeWatch.self, forKey: .watch)) ?? nil
     }
 }

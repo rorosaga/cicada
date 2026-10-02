@@ -157,6 +157,8 @@ def _reinforce(existing: Claim, incoming: Claim) -> None:
             existing.source_episodes.append(ep)
     if incoming.recorded_at:
         existing.recorded_at = incoming.recorded_at
+    # A restatement restarts the silence clock (never backwards).
+    existing.decayed_through = _max_date(existing.decayed_through, incoming.decayed_through)
     # PR #20 round-2 review fix — "repeated facts lose later conversations":
     # a scalar `session_id` can only ever remember the FIRST writer, so a
     # later conversation restating the same fact would silently vanish from
@@ -539,8 +541,12 @@ def reconcile_stage3(
     now_date: str | None = None,
     decay_class_fn: DecayClassFn | None = None,
     subject_fn: SubjectFn | None = None,
+    decay: bool = True,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
+
+    ``decay=False`` skips ``_decay_claims`` only (a drain's batches before the
+    last; see ``sleep_drain``).
 
     Args:
         incoming_claims: Stage 1+2 output — fully routed (subject-id, normalized
@@ -594,6 +600,13 @@ def reconcile_stage3(
     for new in incoming_claims:
         sub = new.subject
         referenced_subjects.add(sub)
+        # An import is not the person going silent: a claim minted this pass from
+        # a months-old episode keeps that `valid_from`, but its silence is measured
+        # from when Cicada learned it (mirrors the entity engine's stamp in
+        # `conflict_resolver.resolve_and_prune`). Set before any branch, so every
+        # path that stores `new` — including SUPERSEDE, which skips `_stamp_new` —
+        # carries it, and `_reinforce` hands it to the claim it merges into.
+        new.decayed_through = _max_date(new.decayed_through, today)
         slot = reconciled.setdefault(sub, [])
 
         if is_event(new):
@@ -652,7 +665,8 @@ def reconcile_stage3(
         elif action == "KEEP_BOTH":
             slot.append(_stamp_new(new, settings, today=today))
 
-    _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
+    if decay:
+        _decay_claims(reconciled, referenced_subjects, settings, nudges, today, decay_class_fn, subject_fn)
     return reconciled, nudges, audit
 
 

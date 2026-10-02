@@ -75,6 +75,11 @@ enum Copy {
     /// The worm's named action while T7's "See what changed ›" link lives.
     static let whatChanged = "What changed"
 
+    /// Ruling 16 (2026-09-30): a scheduled run reads everything waiting too, on the scheduled engine (never a plan,
+    /// ruling 4), and how it spends is said from `preview.scheduled.billing` — never a provider's name.
+    static func scheduledReadsAll(engine: String, billing: String?) -> String {
+        SleepV5.scheduledReadsAll(engine: engineLabel(engine), billing: billing)
+    }
     /// The queue card's footer line, shown ONLY when `preview.manual` and
     /// `preview.scheduled` name different engines (R-A9). The standing ruling
     /// — a scheduled cycle never spends plan quota — makes that difference
@@ -107,8 +112,8 @@ enum Copy {
         "If you light it, scheduled runs would use \(engineLabel(engine))"
     }
     // Track Z §7.3 — the window's weather and its legend (the text twin).
-    static let windowLegendHeader = "The window shows how Sleep is doing, not the time of day."
-    static let windowLegendPointer = "The window in the room shows how Sleep is doing — click it to see what each sky means."
+    static let windowLegendHeader = "The window shows the time and the scenery you chose."
+    static let windowLegendPointer = "Click the window for its scenery and Sleep moments; change the scenery in Settings → Sleep."
     static let windowHint = "Shows what the sky means"
     // MARK: The `?` popover (Track P)
     //
@@ -227,8 +232,8 @@ enum Copy {
     static let keepGoingOnExtraUsageExplainer =
         "Off: when your Claude plan's included usage runs out, Sleep stops and waits. "
         + "On: Sleep keeps going on extra usage, which Anthropic bills separately."
-    static let scheduledNeverSpendsPlans =
-        "Scheduled cycles never use your Claude or ChatGPT plan — only a cycle you start yourself does."
+    /// Ruling 4 in words, provider-neutral (owner, 2026-09-30): "a plan you signed in to", never a vendor's name.
+    static let scheduledNeverSpendsPlans = SleepV5.scheduledNeverSpendsPlans
 
     // MARK: Sleep control (cancel + episode cap)
 
@@ -254,6 +259,18 @@ enum Copy {
     /// The control row's one-line caption while a cycle runs (Track Z §4.1
     /// sketch B); the long explainer stays the button's tooltip.
     static let cancelCaption = "Stops at the next safe point — nothing is lost."
+    /// The same two lines for a person-started run that reads everything waiting, in batches (G163).
+    /// Cancel does NOT stop "after this batch": a batch that has not begun filing is dropped and its
+    /// reads are paid again, so the copy says what is kept (earlier batches) and what is not (the batch
+    /// still reading), never "nothing is lost".
+    static let cancelDrainCaption = "Earlier batches stay filed; the one still reading is dropped."
+    static let cancelDrainExplainer =
+        "Stops at the next safe point — never mid-write. Batches already filed stay filed and the rest stay "
+        + "queued for the next Consolidate. A batch that has not started filing is dropped, so its reading "
+        + "is done again next time."
+    /// A bank switch is refused while Consolidate reads: the run is pinned to its bank. The server's own
+    /// sentence is shown when it sent one; this is the fallback (`BankSwitchFailure`).
+    static let bankSwitchWhileReading = "Cicada is reading — stop it first, or wait for it to finish, then switch."
     /// The whisper line's hover reason when the next run is "—" (R-A14: a dash
     /// is a value with a reason).
     static let nextRunUnknownReason = "Cicada hasn't worked out the next run yet."

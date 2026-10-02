@@ -69,13 +69,7 @@ final class PixelRendererTests: XCTestCase {
 
     /// The facade must not have drifted: the worm's own entry point is the
     /// 24-cell case of the same function.
-    func testBookwormSnapIsTheTwentyFourCellCase() {
-        for pt in stride(from: CGFloat(1), through: 300, by: 7) {
-            XCTAssertEqual(BookwormRenderer.snappedPointSize(pt),
-                           PixelRenderer.snappedPointSize(pt, gridSize: BookwormRenderer.gridSize),
-                           "pointSize \(pt)")
-        }
-    }
+
 
     // MARK: - image
 
@@ -126,12 +120,12 @@ final class PixelRendererTests: XCTestCase {
     /// mascot re-rasterize on every wipe. 600 scene keys is past that bound
     /// by construction; the worm's frame must survive it.
     func testSceneRendersNeverEvictTheWormsFrames() {
-        let worm = BookwormRenderer.cachedImage(state: .happy, frameIndex: 0, pointSize: 264)
+        let worm = BookwormRenderer.smallImage(state: .happy, frameStep: 0, pointSize: 18)
         for i in 0..<600 {
             _ = PixelRenderer.cachedImage(key: "test.flood|\(i)|8", grid: Self.dotGrid(size: 4),
                                           gridSize: 4, pointSize: 8, palette: Self.ink)
         }
-        XCTAssertTrue(worm === BookwormRenderer.cachedImage(state: .happy, frameIndex: 0, pointSize: 264),
+        XCTAssertTrue(worm === BookwormRenderer.smallImage(state: .happy, frameStep: 0, pointSize: 18),
                       "a scene flood must not evict the mascot's cached frame")
     }
 

@@ -175,6 +175,6 @@ final class SetupRunner {
     }
 
     static func describe(_ error: Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        BankSwitchFailure.words(error)
     }
 }

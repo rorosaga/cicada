@@ -1,6 +1,6 @@
 """G61 phase 2 S0 — truthful hints and three small truths.
 
-Spec: docs/superpowers/specs/2026-09-23-g61-agent-first-clarification-design.md
+Spec: docs/specs/2026-09-23-g61-agent-first-clarification-design.md
 §2 (the pre-existing defects), §5.5 (the derived, voiced hint), §12
 (`test_fact_sources_v2.py`); plan R-AC20…R-AC26. Synthetic names only
 (bob-example, company-a, company-b, example.com); nothing reads a real bank or
@@ -193,11 +193,15 @@ def test_the_sleep_writers_no_longer_store_a_hint(tmp_path):
     assert served["works-at"] == served["description"] == f"You said {TEAM} is where to check this"
 
 
-def test_logo_service_still_reads_the_first_url_source():
-    fm = {"sources": [{"ref": "ask me", "kind": "note"},
-                      {"ref": TEAM, "kind": "url", "predicate": "works-at"},
-                      {"ref": TEAM, "kind": "url", "predicate": "located-in"}]}
-    assert logo_service._first_source_url(fm) == TEAM
+def test_logo_service_reads_a_trusted_website_source_never_another_facts():
+    """G61 S3-b: was "the first url source" — a works-at source on a company drew that site's icon."""
+    fm = {"type": "company", "sources": [
+        {"ref": "ask me", "kind": "note"},
+        {"ref": TEAM, "kind": "url", "predicate": "works-at", "added_by": "user"},
+        {"ref": "https://site-one.io", "kind": "url", "predicate": "website", "added_by": "user"}]}
+    assert logo_service.domain_for(fm, "") == "site-one.io"
+    fm["sources"].pop()
+    assert logo_service.domain_for(fm, "") is None
 
 
 # ---------- _conflict_nudge cites the freshest episode — R-AC24 ----------

@@ -321,8 +321,8 @@ struct GettingStartedCard: View {
             switch step.action {
             case .readNow?:
                 trigger(Copy.intakeReadNow, readiness: readiness)
-            case .readNext(let n)?:
-                trigger(Copy.gsReadNext(n), readiness: readiness)
+            case .keepReading?:
+                trigger(Copy.gsKeepReading, readiness: readiness)
             case .tryAgain?:
                 trigger(Copy.gsTryAgain, readiness: readiness)
                 // The needs-choice case already shows the chooser above.
@@ -353,6 +353,20 @@ struct GettingStartedCard: View {
     /// and disabled, saying why, until someone can read (`EngineReadiness`).
     @ViewBuilder
     private func trigger(_ title: String, readiness: EngineReadiness) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            triggerRow(title, readiness: readiness)
+            // Sleep page v5 — the same caption as the intake card's Read now: it reads everything waiting, saving as it
+            // goes, or (while a run is paused) it opens the Sleep page, where Continue is.
+            if readiness != .needsChoice, let caption = sleepVM.door.readNowCaption {
+                Text(caption)
+                    .font(CicadaTheme.captionFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func triggerRow(_ title: String, readiness: EngineReadiness) -> some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             MeadowPill(title: title) { read() }
                 .disabled(readiness == .needsChoice)

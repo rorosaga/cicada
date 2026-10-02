@@ -76,8 +76,11 @@ enum SettingsIndex {
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
+        .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
+        .mascot,
         .calendarApp, .contactsApp,
-        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall,
+        .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsReading,
+        .readingAgent, .readingMethods, .watchingMethods, .readingSites,
         // Cicada's own skills — per-item ids (a `:`), so outside the bare-name lint
         .skill(CicadaSkillBundle.cicada.rawValue), .skill(CicadaSkillBundle.cicadaLibrarian.rawValue),
         .remoteSwitch, .remoteReach, .remoteNew,
@@ -86,6 +89,12 @@ enum SettingsIndex {
     ]
 
     static let staticEntries: [SettingsEntry] = [
+        SettingsEntry(.mascot, .sleep, Copy.Mascot.title,
+                      keywords: ["character", "avatar"] + MascotRegistry.all.map(\.displayName)),
+        SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"], detail: Copy.Scenery.disclosure),
+        SettingsEntry(.sceneryTime, .sleep, Copy.Scenery.time, keywords: ["scenery", "day", "dusk", "night"], anchor: .scenerySource),
+        SettingsEntry(.sceneryWeather, .sleep, Copy.Scenery.weather, keywords: ["scenery", "sunny", "cloudy", "windy", "rainy", "curtains"], anchor: .scenerySource),
+        SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
         SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),
@@ -137,6 +146,24 @@ enum SettingsIndex {
         SettingsEntry(.agentsAutoRecall, .agents, Copy.autoRecallTitle,
                       keywords: ["remember", "recall", "automatic", "hooks", "context", "claude code", "codex"],
                       detail: Copy.autoRecallDetail),
+        SettingsEntry(.agentsReading, .agents, Copy.Reading.agentsRowTitle,
+                      keywords: ["read", "pages", "browser", "sites"], detail: Copy.Reading.agentsRowDetail),
+        // Reading the web (G166)
+        SettingsEntry(.readingAgent, .reading, Copy.Reading.switchTitle,
+                      keywords: ["read", "pages", "links", "browser", "linkedin", "sign in", "login", "ask an agent",
+                                 "reading", "web"],
+                      detail: Copy.Reading.switchDetail),
+        SettingsEntry(.readingMethods, .reading, Copy.Reading.methodsGroup,
+                      keywords: ["skill", "tool", "browser", "computer", "how", "reads", "own tools", "let my agent choose",
+                                 "agent"],
+                      detail: Copy.Reading.methodsDetail),
+        SettingsEntry(.watchingMethods, .reading, Copy.Reading.watchMethodsGroup,
+                      keywords: ["skill", "tool", "video", "videos", "watch", "watches", "watching", "browser",
+                                 "computer", "mac", "own tools", "let my agent choose", "agent"],
+                      detail: Copy.Reading.watchMethodsDetail),
+        SettingsEntry(.readingSites, .reading, Copy.Reading.sitesGroup,
+                      keywords: ["sites", "wall", "sign in", "login", "consent", "favicon", "icon", "allow"],
+                      detail: Copy.Reading.sitesIntro),
         // Cicada's own skills (G138) — per-item ids, so outside the bare-name lint
         SettingsEntry(.skill(CicadaSkillBundle.cicada.rawValue), .skills, CicadaSkillBundle.cicada.title,
                       keywords: ["cicada skill", "recall", "save"], detail: CicadaSkillBundle.cicada.summary),

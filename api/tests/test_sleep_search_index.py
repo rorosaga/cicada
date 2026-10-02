@@ -61,15 +61,15 @@ def test_a_sleep_cycle_leaves_the_search_index_fresh(tmp_path, monkeypatch):
     assert sleep_cycle._state.index_warning is None
 
 
-def test_a_failed_search_index_rebuild_is_a_warning_not_a_failed_cycle(tmp_path, monkeypatch):
+def test_a_failed_search_index_refresh_is_a_warning_not_a_failed_cycle(tmp_path, monkeypatch):
     def boom(_memory_path):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(search_index, "rebuild", boom)
+    monkeypatch.setattr(search_index, "refresh", boom)
     memory = _run(tmp_path, monkeypatch)
     assert (memory / "entities" / "cicada.md").exists(), "the cycle still wrote memory"
     assert sleep_cycle._state.error is None
-    assert "search index rebuild failed: RuntimeError: boom" in (sleep_cycle._state.index_warning or "")
+    assert "search index refresh failed: RuntimeError: boom" in (sleep_cycle._state.index_warning or "")
 
 
 def test_warm_in_background_builds_and_never_raises(tmp_path):

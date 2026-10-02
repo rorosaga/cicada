@@ -72,18 +72,18 @@ func bookPileLayout(_ buckets: [OriginVolume], maxBooks: Int = PileFitting.maxBo
 /// each spine, its tooltip, its popover and Details › What's waiting.
 enum PileFitting {
     /// The cell `bookPileLayout`'s 8–40 pt heights were authored at
-    /// (`deskSceneLayout(pointSize: 120, uiScale: 1.0).cell`, pinned by
+    /// (`RoomLattice.cell(uiScale: 1.0)`, pinned by
     /// `PileFitTests`). The pile scales with the lattice it stands on, not with
-    /// the font: at 1.1× the room snaps to 6 pt cells, and a pile sized by
+    /// the font: at 1.2× the room snaps to 4 pt cells, and a pile sized by
     /// uiScale alone would be a second scale in one picture (P12, Z-B2).
-    static let referenceCell: CGFloat = 5
+    static let referenceCell: CGFloat = 3
     /// The shortest spine that carries its count in `captionFont` — the old
     /// `spec.height >= 14` rule, now scaled with the font it guards (Z-B2).
     static let labelMinPoints: CGFloat = 14
     /// The most spines the column holds with every spine that deserves a count
     /// still tall enough to show it, at EVERY zoom step: 8 × (floor + gap) is
-    /// 102.4 of 104 pt at 0.8× and 153.6 of 156 pt at 1.2×; nine would need
-    /// 144 pt of the 130 pt column at 1.0×. Measured per step by `PileFitTests`.
+    /// 100.3 of 104 pt at 0.8× and 139.2 of 156 pt at 1.1×; nine would need
+    /// 112.8 and 156.6. Measured per step by `PileFitTests`.
     static let maxSpines = 8
     /// Real books before the fold — the "+more" remainder is the eighth spine.
     static let maxBooks = maxSpines - 1
@@ -242,7 +242,7 @@ struct BookPileView: View {
                 if spec.widthFraction > 0 {
                     SpineButton(spec: spec, row: byOrigin[spec.origin], episodes: episodes, room: room,
                                 onOpenDetails: onOpenDetails, height: fit.height(spec), gap: fit.gap,
-                                width: fit.maxWidth * spec.widthFraction, showsLabel: fit.showsLabel(spec))
+                                width: fit.maxWidth * spec.widthFraction, showsLabel: fit.showsLabel(spec), cell: layout.cell)
                         // Inside the pile's own container: largest first (§11),
                         // whatever the bottom-up display order.
                         .accessibilitySortPriority(-Double(books.firstIndex(of: spec) ?? 0))
@@ -282,6 +282,7 @@ struct SpineButton: View {
     let gap: CGFloat
     let width: CGFloat
     let showsLabel: Bool
+    var cell: CGFloat = RoomLattice.cell(uiScale: CicadaTheme.uiScale)
 
     @State private var hovering = false
     @State private var showPopover = false
@@ -317,9 +318,8 @@ struct SpineButton: View {
     private func shape(lifted: Bool) -> some View {
         let color = spec.isRemainder ? CicadaTheme.textTertiary.opacity(0.4) : OriginIconography.color(for: spec.origin)
         return ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(color)
-                .frame(width: width, height: height)
+            SpineTexture(kind: spec.isRemainder ? .other : spineKind(for: spec.origin), color: color,
+                         cell: cell, size: CGSize(width: width, height: height))
             if showsLabel {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     // Z-B2 — scales with the floor it sits in: a fixed 12 pt

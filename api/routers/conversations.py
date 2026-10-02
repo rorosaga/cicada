@@ -161,6 +161,11 @@ async def resume_conversation(
 
     No transcript is opened. Nothing about the transcript beyond "it exists"
     influences the response.
+
+    ``cwd`` is the conversation's recorded folder when it is absolute (or
+    ``~``-rooted) and passes ``CWD_SAFE_RE``; the backend never stats it. The
+    app's terminal enters it, so macOS names the terminal, and a folder that
+    has since vanished fails visibly there.
     """
     conversation_id = (conversation_id or "").strip()
     if not session_stats.is_uuid(conversation_id):
@@ -181,7 +186,6 @@ async def resume_conversation(
         project_dir
         and (project_dir.startswith("/") or project_dir.startswith("~"))
         and CWD_SAFE_RE.match(project_dir)
-        and Path(project_dir).expanduser().is_dir()
     ):
         cwd = project_dir
 
@@ -206,7 +210,7 @@ def detect_source(data, filename: str = "") -> str:
     if not (isinstance(data, list) and data and isinstance(data[0], dict)):
         return "unknown"
     first = data[0]
-    if "conversations_memory" in first:
+    if "conversations_memory" in first or "memory_files" in first:
         return "anthropic_memories"
     if "prompt_template" in first:
         return "anthropic_projects"
@@ -218,6 +222,34 @@ def detect_source(data, filename: str = "") -> str:
 
 
 # --- Anthropic / Claude Export ---
+
+
+#: Per attached file, like ``notes_sync.MAX_NOTE_BODY_CHARS``: an episode is a
+#: staging chunk, and Sleep needs what the document is about, not all of it.
+MAX_ATTACHMENT_CHARS = 20_000
+
+
+def _attachment_turns(msg: dict) -> list[dict]:
+    """The text Claude extracted from each file uploaded with ``msg``
+    (``attachments[].extracted_content``), one ``attachment [<name>]`` turn per
+    file — ``page`` evidence (``evidence._ATTACHMENT_RE``), never the person's
+    words. Every line is quoted so the document can never forge a ``user:`` or
+    ``assistant:`` turn. Images carry no text in the export (``files[]`` holds
+    names only) and are skipped."""
+    turns: list[dict] = []
+    for attachment in msg.get("attachments") or []:
+        if not isinstance(attachment, dict):
+            continue
+        text = attachment.get("extracted_content")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        name = re.sub(r"[\[\]\r\n]+", " ", str(attachment.get("file_name") or "")).strip()[:128] or "attachment"
+        body = text.strip()
+        if len(body) > MAX_ATTACHMENT_CHARS:
+            body = body[:MAX_ATTACHMENT_CHARS].rstrip() + "\n[truncated]"
+        quoted = "\n".join(f"> {line}" if line.strip() else ">" for line in body.splitlines())
+        turns.append({"role": f"attachment [{name}]", "text": "\n" + quoted, "timestamp": None})
+    return turns
 
 
 def parse_anthropic_conversations(data: list) -> list[dict]:
@@ -251,14 +283,17 @@ def parse_anthropic_conversations(data: list) -> list[dict]:
                     if block.get("type") == "text" and block.get("text"):
                         text = block["text"]
                         break
-            if not text or not text.strip():
+            attached = _attachment_turns(msg) if role == "user" else []
+            if (not text or not text.strip()) and not attached:
                 continue
 
-            parsed_msgs.append({
-                "role": role,
-                "text": text.strip(),
-                "timestamp": msg.get("created_at"),
-            })
+            if text and text.strip():
+                parsed_msgs.append({
+                    "role": role,
+                    "text": text.strip(),
+                    "timestamp": msg.get("created_at"),
+                })
+            parsed_msgs.extend(attached)
 
         if not parsed_msgs:
             continue
@@ -288,7 +323,10 @@ def parse_anthropic_memories(data: list) -> list[dict]:
     """Parse Anthropic memories.json as a bootstrapping source.
 
     Contains Claude's existing memory about the user — free entity seed data.
-    Structure: [{conversations_memory: str, project_memories: {uuid: str, ...}}]
+    Structure: [{conversations_memory: str, project_memories: {uuid: str, ...},
+    memory_files?: [{path, content, updated_at}], account_uuid?}] — the newer
+    export adds ``memory_files``, the files Claude's memory tool keeps. Each is
+    keyed by its path, so a file Claude later edits updates in place (G20).
     """
     episodes: list[dict] = []
 
@@ -325,6 +363,30 @@ def parse_anthropic_memories(data: list) -> list[dict]:
                         "original_date": entry_date,
                     })
 
+        account = entry.get("account_uuid") or ""
+        for memory_file in entry.get("memory_files") or []:
+            if not isinstance(memory_file, dict):
+                continue
+            path = str(memory_file.get("path") or "").strip()
+            content = memory_file.get("content") or ""
+            if not path or not isinstance(content, str) or not content.strip():
+                continue
+            file_ts = _export_entry_timestamp(memory_file) or entry_ts
+            episodes.append({
+                "title": f"Claude Memory — {path}",
+                "source": "claude_memory",
+                "source_id": f"claude-memory:{account}:{path}",
+                "source_updated_at": memory_file.get("updated_at"),
+                "messages": [{"role": "system", "text": content, "timestamp": file_ts}],
+                "timestamp": file_ts,
+                "original_date": _extract_date(file_ts),
+            })
+
+    # The messages are written `system:` (there is no user turn), which R4 would
+    # read as the person's side. A memory is Claude's own summary about the person,
+    # so the episode declares it once (R-LS7's episode-level override).
+    for ep in episodes:
+        ep["evidence_kind"] = "assistant"
     return episodes
 
 
@@ -359,8 +421,12 @@ def parse_anthropic_projects(data: list) -> list[dict]:
         description = project.get("description", "") or ""
         prompt_template = project.get("prompt_template", "") or ""
 
-        # Skip empty or default projects
-        if not description.strip() or name == "How to use Claude":
+        # Skip Claude's starter project and a project with neither a description
+        # nor instructions — one with instructions alone still says how the
+        # person works.
+        if project.get("is_starter_project") or name == "How to use Claude":
+            continue
+        if not description.strip() and not prompt_template.strip():
             continue
 
         content_parts = [f"Project: {name}"]

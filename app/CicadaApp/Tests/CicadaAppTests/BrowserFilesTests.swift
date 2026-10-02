@@ -120,4 +120,26 @@ final class BrowserFilesTests: XCTestCase {
             .chromeBookmarks, candidates: [dir.appendingPathComponent("missing"), real])
         XCTAssertEqual(String(decoding: data, as: UTF8.self), "synthetic")
     }
+
+    /// The backend never reads a browser's file, so a sync with no bytes has
+    /// nothing to send: it throws before any request leaves the app.
+    func testABookmarkSyncWithNoFileSendsNothing() async {
+        var sent = 0
+        MockURLProtocol.handler = { request in
+            sent += 1
+            return (HTTPURLResponse(url: request.url!, statusCode: 422, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        defer { MockURLProtocol.handler = nil }
+        let api = APIClient(session: MockURLProtocol.makeSession())
+        let empty: [(Data?, Data?)] = [(nil, nil), (Data(), nil), (nil, Data())]
+        for (chrome, safari) in empty {
+            do {
+                _ = try await api.syncBookmarks(chromeData: chrome, safariData: safari, folders: ["Bar"])
+                XCTFail("a bookmark sync with no bytes was sent")
+            } catch {
+                XCTAssertEqual(error as? BookmarkSyncError, .noData)
+            }
+        }
+        XCTAssertEqual(sent, 0)
+    }
 }

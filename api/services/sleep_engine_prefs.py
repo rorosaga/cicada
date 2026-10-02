@@ -9,12 +9,15 @@ docstring: "``resolve_llm_fn`` is synchronous ... can never probe the
 connections registry") — this file is the opposite shape: an on-demand,
 fully-probing read for one settings page, never called from a Sleep cycle.
 
-G124 rail: nothing here ever reports a price or a token count — a candidate
-only carries enough to render a segmented control and, once selected, a
-model list.
+A candidate carries enough to render a segmented control and, once selected,
+a model list. Since the 2026-09-28 ruling (Sleep page only) it may also carry
+one ``usage`` caption source: a plan window's state, or a model's list price
+with the last cycle's charged cost — each with its basis, none of it estimated
+by this module.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 
 from fastapi import HTTPException
@@ -23,12 +26,16 @@ from api.config import Settings
 from api.models.schemas import (
     SleepEngineCandidate,
     SleepEngineChoice,
+    SleepEngineModelPrice,
+    SleepEngineUsage,
     SleepEnginePreview,
     SleepEnginePreviews,
     SleepEngineProvider,
     SleepEngineResponse,
+    SleepReserveStatus,
+    SleepReserveWindow,
 )
-from api.services import agent_engine, codex_app_server, codex_engine, engine_select
+from api.services import agent_engine, codex_app_server, codex_engine, cycle_usage, engine_select, telemetry
 from api.services.connections import byok, secrets
 from api.services.connections import registry as registry_module
 
@@ -54,6 +61,17 @@ def selected_card(mode: str, model: str | None) -> str:
     """R-AG12: the card a choice belongs to. OpenRouter is `byok` with an
     `openrouter/` model; every other card is its own mode."""
     return "openrouter" if mode == "byok" and (model or "").startswith("openrouter/") else mode
+
+
+def env_pin_sentence(mode: str) -> str:
+    """What the app and a 409 say when ``CICADA_LLM_MODE`` pins the engine."""
+    return (f"CICADA_LLM_MODE={mode} in Cicada's environment (api/.env) sets the engine, so a choice here "
+            "changes nothing. Remove that line and restart Cicada to choose here.")
+
+
+def configured_choice(settings: Settings, reg) -> tuple[str, str]:
+    """Public name of :func:`_configured_choice` — the PUT's env-pin check reads it."""
+    return _configured_choice(settings, reg)
 
 
 def _configured_choice(settings: Settings, reg) -> tuple[str, str]:
@@ -130,6 +148,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
     # own `model/list` says today (default first), plus a configured choice
     # so an existing pick never disappears from the list.
     codex_models: list[str] = []
+    snap = None
     if chatgpt and chatgpt.connected:
         snap = await codex_app_server.snapshot()
         codex_models = list(snap.models) if snap else []
@@ -161,7 +180,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
         with_key = [p for p in byok.PICKER if secrets.has_secret(p.env)]
         key_models = [(with_key or list(byok.PICKER))[0].default_model]
 
-    return [
+    cards = [
         SleepEngineCandidate(
             id="auto", label="Auto", available=True,
             detail=("Your Claude plan if it's signed in, else your ChatGPT plan, else Ollama if "
@@ -194,6 +213,51 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
             detail="Your own key from Anthropic, OpenAI, Gemini, xAI, Groq or Mistral.",
         ),
     ]
+    key_model = (model if mode == "byok" and model and selected_card(mode, model) != "openrouter" else None) \
+        or (key_models[0] if key_models else None) or settings.litellm_model
+    await _attach_usage(cards, snap, or_models=or_models, key_model=key_model,
+                        bank=telemetry.bank_name(settings))
+    return cards
+
+
+def _plan_window_usage(snap) -> SleepEngineUsage | None:
+    """The ChatGPT plan's fullest window from the app-server snapshot."""
+    if snap is None or not getattr(snap, "windows", ()):
+        return None
+    name, pct, resets = max(snap.windows, key=lambda w: w[1])
+    return SleepEngineUsage(kind="plan-window", window=name, used_fraction=pct / 100.0,
+                            resets_at=resets, as_of=snap.as_of, source="codex-snapshot")
+
+
+async def _attach_usage(cards, snap, *, or_models: list[str], key_model: str, bank: str | None = None) -> None:
+    """Fill each card's caption source. The ledger read and litellm's price
+    table are off the event loop (the table's import is slow and cached)."""
+    by_id = {c.id: c for c in cards}
+    last = await asyncio.to_thread(cycle_usage.last_cycles, None, bank)
+    wanted = list(dict.fromkeys([*or_models, key_model]))
+    prices = await asyncio.to_thread(lambda: {m: cycle_usage.list_price_per_million(m) for m in wanted})
+
+    def _price(m: str) -> SleepEngineModelPrice:
+        i, o = prices[m]
+        return SleepEngineModelPrice(input_per_million_usd=i, output_per_million_usd=o)
+
+    if (c := by_id.get("codex")) is not None:
+        c.usage = _plan_window_usage(snap)
+    if (c := by_id.get("agent")) is not None and last.get("claude-plan"):
+        w = last["claude-plan"]
+        c.usage = SleepEngineUsage(kind="plan-window", window=w["window"], used_fraction=w["used_fraction"],
+                                   resets_at=w["resets_at"], as_of=w["as_of"], source="last-cycle")
+    for card_id, model_id, models in (("openrouter", or_models[0] if or_models else None, or_models),
+                                      ("byok", key_model, [key_model])):
+        card = by_id.get(card_id)
+        if card is None or not model_id:
+            continue
+        i, o = prices[model_id]
+        card.model_prices = {m: _price(m) for m in models if prices[m] != (None, None)}
+        cost = (last.get(card_id) or {}).get("cost_usd")
+        if i is not None or o is not None or cost is not None:
+            card.usage = SleepEngineUsage(kind="list-price", model=model_id, input_per_million_usd=i,
+                                          output_per_million_usd=o, last_cycle_cost_usd=cost)
 
 
 def _preview(resolved: Settings, why: str) -> SleepEnginePreview:
@@ -212,7 +276,34 @@ def _preview(resolved: Settings, why: str) -> SleepEnginePreview:
         model = resolved.ollama_model
     else:
         model = resolved.litellm_model
-    return SleepEnginePreview(engine=engine, model=model, why=why)
+    return SleepEnginePreview(engine=engine, model=model, why=why, billing=billing_for(engine))
+
+
+#: How a run on an engine is billed, from its id alone (Sleep page v5). No provider is named:
+#: the app words it from this enum and the engine label the person already chose.
+_BILLING = {"claude-cli": "plan", "codex-cli": "plan", "litellm": "charged", "ollama": "local"}
+
+
+def billing_for(engine: str | None) -> str:
+    return _BILLING.get(engine or "", "unknown")
+
+
+def _reserve_status(settings: Settings, reg, manual_engine: str) -> SleepReserveStatus:
+    """The reserve line ("Leave room in my plan"): what is set, whether it applies to the
+    engine a run you start would use, and which windows the last run saw the engine report."""
+    from api.services import sleep_cycle, sleep_run_prefs
+
+    opts = sleep_run_prefs.load(reg)
+    applies = manual_engine in engine_select.PLAN_ENGINES
+    windows: list[SleepReserveWindow] = []
+    ds = getattr(sleep_cycle.get_sleep_state(), "drain", None)
+    guard = getattr(ds, "guard", None) if ds is not None else None
+    if guard is not None and getattr(ds, "memory_path", None) in (None, settings.memory_path):
+        windows = [SleepReserveWindow(**w) for w in guard.wire()["windows"]]
+    elif applies and manual_engine == "claude-cli":
+        windows = [SleepReserveWindow(window="five_hour"), SleepReserveWindow(window="seven_day")]
+    return SleepReserveStatus(pct=opts.reserve_pct, choices=list(sleep_run_prefs.RESERVE_CHOICES),
+                              applies=applies, windows=windows)
 
 
 async def build_response(settings: Settings, reg) -> SleepEngineResponse:
@@ -259,6 +350,7 @@ async def build_response(settings: Settings, reg) -> SleepEngineResponse:
         mode=mode, model=model, disambiguation_model=disambiguation_model,
         source=source, candidates=candidates, preview=preview, allow_overage=allow_overage,
         selected=selected_card(mode, model), provider=provider, providers=providers,
+        reserve=_reserve_status(settings, reg, preview.manual.engine),
     )
 
 

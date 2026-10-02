@@ -15,7 +15,8 @@ from pathlib import Path
 
 from fastapi import Request, Response
 
-from api.services import backlog, bank_index, logo_service, markdown_parser, telemetry
+from api.services import (backlog, bank_index, logo_service, markdown_parser, reading_asks, reading_settings,
+                              telemetry, video_queue)
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
@@ -136,6 +137,31 @@ def _logos_component(mp: Path) -> str:
     return f"{mtime:.6f}:{expired}"
 
 
+# Per-bank memo for :func:`_reading_component`, the same shape as the logos one:
+# (asks mtime, expired count, epoch of the next expiry).
+_READING_TTL_CACHE: dict[str, tuple[float, int, float | None]] = {}
+
+
+def _reading_component(mp: Path) -> str:
+    """``<asks mtime>:<expired asks>:<settings mtime>``. An ask row expires in memory
+    at read time and nothing is written, so without the expired count a site's
+    ``needs_login`` pause that aged out would keep serving from every ETag built
+    on this component (``/reading/sites``, ``/reading/asks``, ``/sources``)."""
+    mtime = reading_asks.mtime(mp)
+    key = str(mp)
+    cached = _READING_TTL_CACHE.get(key)
+    if (
+        cached is None
+        or cached[0] != mtime
+        or (cached[2] is not None and time.time() >= cached[2])
+    ):
+        expired, next_expiry = reading_asks.expiry_state(mp)
+        _READING_TTL_CACHE[key] = (mtime, expired, next_expiry)
+    else:
+        expired = cached[1]
+    return f"{mtime:.6f}:{expired}:{reading_settings.mtime():.6f}"
+
+
 def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
     mp = Path(memory_path)
     ep_count, ep_max = bank_index.dir_stamp(mp, "episodes")
@@ -183,6 +209,21 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # (The other direction — an entry aging out of its TTL, which writes
         # nothing — rides the expired count; see `_logos_component`.)
         "logos": _logos_component(mp),
+        # G162: the person's video queue lives at `$CICADA_HOME/video_queue/<bank>.json`,
+        # OUTSIDE the bank, so a queued video, an agent's lease or a hand-back moves nothing
+        # above. `stamp` is the file's mtime plus how many leases, failed rows and finished
+        # batches have come DUE with nothing written (a lease lapsing writes nothing, yet it
+        # changes what /videos/state says). The app revalidates its VideoStateCache on this
+        # component (VideoRefresh); it is NOT a Store domain and NOT in `_state.md`'s digest.
+        "videoQueue": video_queue.stamp(mp),
+        # G166: the reading asks live at `$CICADA_HOME/reading_asks/<bank>.json`
+        # and the person's reading settings at `$CICADA_HOME/reading.json` —
+        # both OUTSIDE the bank, so nothing above notices a "needs you to sign
+        # in" outcome, an ask, or a per-site switch. The app maps this
+        # component onto `.sources` (the Feed's read state rides `/sources`),
+        # so the outcome shows over SSE within a second, with no bank write. A row
+        # aging out writes nothing and rides the expired count (`_reading_component`).
+        "reading": _reading_component(mp),
         # The consumption ledger lives at `$CICADA_HOME/telemetry/events-YYYY-MM.jsonl`,
         # *outside* the memory bank (it's machine-global, not per-bank), so no other
         # component notices a new usage event landing. Modelled on "logos" above for
@@ -202,8 +243,21 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         ),
         "git_head": git_head(mp),
         "bank": mp.name,
-        "sleep": f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}",
+        # A paused run (Sleep page v5) is not a status: it lives in a machine-local sidecar, so
+        # Pause, Continue, End, a restart and an armed auto-continue move this on their own.
+        "sleep": (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
+                  f"{_paused_token(mp)}"),
     }
+
+
+def _paused_token(mp: Path) -> str:
+    try:
+        from api.services import sleep_paused
+
+        token = sleep_paused.sync_token(mp)
+    except Exception:  # noqa: BLE001 - a version read must never fail
+        token = ""
+    return f":{token}" if token else ""
 
 
 def _digest(parts: dict) -> str:

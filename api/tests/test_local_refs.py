@@ -1,23 +1,19 @@
-"""Hermetic tests for device-aware local file/folder references (backlog G27).
+"""Hermetic tests for the device id (backlog G27) and the rail around it.
 
 Covers:
-- ``resolve_local_ref``: present file, missing file, present dir (``is_dir``),
-  an "other device" reference (not stat'd, always ``exists=False``);
-- ``extract_local_refs``: parses both documented syntaxes
-  (``![[file:...|device:...]]`` and ``[label](file://...)``) out of an entity
-  markdown body;
-- the ``GET /local-ref`` router via FastAPI TestClient: present, missing,
-  other-device.
+- ``current_device_id``: always a non-empty string;
+- ``local_refs`` stays a device-id module: the existence oracle
+  (``resolve_local_ref``) and the body parser (``extract_local_refs``) had no
+  caller and are gone, so nothing here can stat a declared path;
+- ``GET /local-ref`` staying unmounted (no route stats a path the request
+  names).
 
-No real user paths — every filesystem check runs against ``tmp_path``. No
-network, no live ``memory/``.
+No real user paths. No network, no live ``memory/``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from api import config, main
@@ -33,167 +29,70 @@ def test_current_device_id_is_nonempty_string():
     assert device
 
 
-# --- resolve_local_ref --------------------------------------------------------
+def test_the_existence_oracle_is_gone():
+    """The backend never stats a folder the person declared; the app does."""
+    assert not hasattr(local_refs, "resolve_local_ref")
+    assert not hasattr(local_refs, "extract_local_refs")
 
 
-def test_resolve_present_file(tmp_path):
-    f = tmp_path / "notes.txt"
-    f.write_text("hello", encoding="utf-8")
-
-    result = local_refs.resolve_local_ref(str(f), None)
-
-    assert result["path"] == str(f)
-    assert result["exists"] is True
-    assert result["is_dir"] is False
-    assert result["status"] == "present"
-    assert result["resolved_path"] == str(f)
-    assert result["device"] == local_refs.current_device_id()
+# --- no route stats a path the request names -------------------------------
 
 
-def test_resolve_missing_file(tmp_path):
-    ghost = tmp_path / "does-not-exist.txt"
-
-    result = local_refs.resolve_local_ref(str(ghost), None)
-
-    assert result["exists"] is False
-    assert result["is_dir"] is False
-    assert result["status"] == "moved_or_missing"
-    assert result["resolved_path"] is None
-
-
-def test_resolve_present_directory(tmp_path):
-    d = tmp_path / "some_folder"
-    d.mkdir()
-
-    result = local_refs.resolve_local_ref(str(d), None)
-
-    assert result["exists"] is True
-    assert result["is_dir"] is True
-    assert result["status"] == "present"
-
-
-def test_resolve_matching_device_is_stat_checked(tmp_path):
-    f = tmp_path / "on-this-machine.txt"
-    f.write_text("hi", encoding="utf-8")
-    current = local_refs.current_device_id()
-
-    result = local_refs.resolve_local_ref(str(f), current)
-
-    assert result["status"] == "present"
-    assert result["device"] == current
-
-
-def test_resolve_other_device_not_stat_checked(tmp_path):
-    # Even a real, existing path must NOT be reported as present when it's
-    # tagged for a different device — we have no business stat'ing it.
-    f = tmp_path / "exists-but-elsewhere.txt"
-    f.write_text("hi", encoding="utf-8")
-
-    result = local_refs.resolve_local_ref(str(f), "some-other-machine")
-
-    assert result["status"] == "other_device"
-    assert result["exists"] is False
-    assert result["is_dir"] is False
-    assert result["resolved_path"] is None
-    assert result["device"] == "some-other-machine"
-
-
-# --- extract_local_refs -------------------------------------------------------
-
-
-def test_extract_wikilink_with_device():
-    body = "See the writeup: ![[file:/Users/alice/thesis.pdf|device:alices-mbp]]"
-
-    refs = local_refs.extract_local_refs(body)
-
-    assert refs == [{"path": "/Users/alice/thesis.pdf", "device": "alices-mbp"}]
-
-
-def test_extract_wikilink_without_device():
-    body = "Local copy: ![[file:/Users/bob/notes.md]]"
-
-    refs = local_refs.extract_local_refs(body)
-
-    assert refs == [{"path": "/Users/bob/notes.md", "device": None}]
-
-
-def test_extract_markdown_file_url_link():
-    body = "The [PDF](file:///Users/carol/report.pdf) has details."
-
-    refs = local_refs.extract_local_refs(body)
-
-    assert refs == [{"path": "/Users/carol/report.pdf", "device": None}]
-
-
-def test_extract_multiple_mixed_refs():
-    body = (
-        "First: ![[file:/a/b.txt|device:desktop]]\n"
-        "Second: [link](file:///c/d.txt)\n"
-        "Third: ![[file:/e/f.txt]]\n"
-    )
-
-    refs = local_refs.extract_local_refs(body)
-
-    assert refs == [
-        {"path": "/a/b.txt", "device": "desktop"},
-        {"path": "/e/f.txt", "device": None},
-        {"path": "/c/d.txt", "device": None},
-    ]
-
-
-def test_extract_no_refs_returns_empty_list():
-    assert local_refs.extract_local_refs("Just a plain note, nothing local here.") == []
-
-
-# --- router: GET /local-ref ----------------------------------------------------
-
-
-def _make_client(tmp_path: Path, monkeypatch) -> TestClient:
+def test_no_route_stats_a_path_the_request_names(tmp_path, monkeypatch):
+    """`GET /local-ref?path=` stat'd any path a caller supplied and had no
+    caller in the app; it is gone. Only the app reads the person's Mac."""
     memory = tmp_path / "memory"
     (memory / "entities").mkdir(parents=True, exist_ok=True)
-    (memory / "episodes").mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     config.get_settings.cache_clear()
-    return TestClient(main.app)
-
-
-def test_router_present_file(tmp_path, monkeypatch):
-    client = _make_client(tmp_path, monkeypatch)
     f = tmp_path / "present.txt"
     f.write_text("hi", encoding="utf-8")
 
-    resp = client.get("/local-ref", params={"path": str(f)})
+    resp = TestClient(main.app).get("/local-ref", params={"path": str(f)})
 
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "present"
-    assert data["exists"] is True
-    assert data["is_dir"] is False
+    assert resp.status_code == 404
 
 
-def test_router_missing_file(tmp_path, monkeypatch):
-    client = _make_client(tmp_path, monkeypatch)
-    ghost = tmp_path / "gone.txt"
-
-    resp = client.get("/local-ref", params={"path": str(ghost)})
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "moved_or_missing"
-    assert data["exists"] is False
+# --- Which Mac a declared device names (the one rule) ------------------------
 
 
-def test_router_other_device(tmp_path, monkeypatch):
-    client = _make_client(tmp_path, monkeypatch)
-    f = tmp_path / "elsewhere.txt"
-    f.write_text("hi", encoding="utf-8")
+def test_a_device_name_folds_case_dot_local_and_punctuation():
+    from api.services.local_refs import fold_device
 
-    resp = client.get(
-        "/local-ref", params={"path": str(f), "device": "some-other-machine"}
-    )
+    assert fold_device("alex-mbp.local") == fold_device("Alex-MBP") == "alexmbp"
+    assert fold_device("Alex’s MacBook Pro") == fold_device("Alexs-MacBook-Pro") == "alexsmacbookpro"
+    assert fold_device(None) == fold_device("  ") == ""
 
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["status"] == "other_device"
-    assert data["exists"] is False
-    assert data["device"] == "some-other-machine"
+
+def test_no_device_or_a_generic_word_is_this_mac(monkeypatch):
+    from api.services import local_refs
+
+    monkeypatch.setattr(local_refs, "this_device_names", lambda: frozenset({"alexmbp"}))
+    for device in (None, "", "Mac", "this Mac", "my-mac", "localhost", "Laptop"):
+        assert local_refs.is_this_device(device), device
+
+
+def test_any_of_this_macs_names_matches_and_another_mac_does_not(monkeypatch):
+    from api.services import local_refs
+
+    monkeypatch.setattr(local_refs, "this_device_names", lambda: frozenset({"alexmbp", "alexsmacbookpro"}))
+    assert local_refs.is_this_device("alex-mbp.local")
+    assert local_refs.is_this_device("Alex’s MacBook Pro"), "the computer name, not only the host name"
+    assert not local_refs.is_this_device("bob-example-mini")
+
+
+def test_a_pinned_device_is_honoured_and_the_real_one_keeps_its_other_names(monkeypatch):
+    from api.services import local_refs
+
+    monkeypatch.setattr(local_refs, "current_device_id", lambda: "alex-mbp.local")
+    monkeypatch.setattr(local_refs, "this_device_names", lambda: frozenset({"alexmbp", "alexsmacbookpro"}))
+    assert local_refs.is_this_device("fake-host", "fake-host")
+    assert not local_refs.is_this_device("alex-mbp", "fake-host"), "a test's pinned host is the only name"
+    assert local_refs.is_this_device("Alex's MacBook Pro", "alex-mbp.local")
+
+
+def test_same_device_compares_stamped_names_folded():
+    from api.services.local_refs import same_device
+
+    assert same_device("alex-mbp.local", "Alex-MBP")
+    assert not same_device("alex-mbp", "bob-example-mini")

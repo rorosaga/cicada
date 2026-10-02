@@ -10,8 +10,8 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from _intake_fixtures import (BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
-                              claude_zip, gemini_activity_html, gemini_takeout_zip)
+from _intake_fixtures import (CHATGPT_EXTRA_FILES, chatgpt_split_export, BOOKMARKS_HTML, CHAT_HTML, _zip, chatgpt_zip, claude_conversations,
+                              claude_project_files, claude_split_export, claude_zip, gemini_activity_html, gemini_takeout_zip)
 from api import config
 from api.routers import conversations as conv
 from api.routers import intake
@@ -50,6 +50,49 @@ def test_a_claude_zip_parses_every_member_and_names_the_account_file():
     assert parsed.counts == {"conversations": 2, "memories": 2, "projects": 1}
     assert parsed.vendor == "claude" and parsed.format == "claude"
     assert {e["origin"] for e in parsed.episodes} == {"claude-export"}, "D2: every path stamps"
+
+
+def test_a_zip_with_one_file_per_project_imports_every_project():
+    parsed = intake.parse_export(_zip({"conversations.json": json.dumps(claude_conversations(1)),
+                                       **claude_project_files()}), "projects-000.zip")
+    assert parsed.counts == {"conversations": 1, "projects": 2}, "the starter project is skipped"
+    assert parsed.warnings == [], "a project file is never counted as an attachment"
+    titles = sorted(e["title"] for e in parsed.episodes if e["source"] == "claude_project")
+    assert titles == ["Claude Project — alpha-project", "Claude Project — bob-example rules"]
+    rules = next(e for e in parsed.episodes if e["title"].endswith("bob-example rules"))
+    assert "Prompt template: Answer briefly." in rules["messages"][0]["text"]
+
+
+def test_a_single_project_file_parses_on_its_own():
+    name, body = next(iter(claude_project_files().items()))
+    parsed = intake.parse_export(body.encode(), name)
+    assert parsed.counts == {"projects": 1} and parsed.vendor == "claude"
+
+
+def test_the_split_export_imports_memories_and_names_what_it_skips():
+    zips = claude_split_export()
+    memories = intake.parse_export(zips["memories-000.zip"], "memories-000.zip")
+    titles = sorted(e["title"] for e in memories.episodes)
+    assert titles == ["Claude Memory — /memories/alpha-project.md", "Claude Memory — Conversation Context",
+                      "Claude Memory — Project p-012345"], "an empty memory file is skipped"
+    tool_file = next(e for e in memories.episodes if e["title"].endswith("alpha-project.md"))
+    assert tool_file["source_id"] == "claude-memory:acct-1:/memories/alpha-project.md", "G20: edits land in place"
+    assert tool_file["original_date"] == "2026-03-02"
+
+    frames = intake.parse_export(zips["frames-000.zip"], "frames-000.zip")
+    assert frames.episodes == [] and frames.warnings == []
+    assert [i["name"] for i in frames.ignored] == ["artifacts"] and "2 Claude artifacts" in frames.ignored[0]["reason"]
+
+    account = intake.parse_export(zips["light_metadata-000.zip"], "light_metadata-000.zip")
+    assert sorted(i["name"] for i in account.ignored) == ["login_history.json", "users.json"]
+
+
+def test_a_zip_with_nothing_but_artifacts_is_named_skipped_never_saved_links(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    config.get_settings.cache_clear()
+    sniff = intake.sniff_bytes(claude_split_export()["frames-000.zip"], "frames-000.zip", config.get_settings(), None)
+    assert not sniff.recognized and sniff.kind != "saved"
+    assert [i.name for i in sniff.ignored] == ["artifacts"]
 
 
 def test_a_chatgpt_zip_skips_its_known_extras_by_name_and_counts_the_rest():
@@ -354,4 +397,31 @@ def test_the_banks_import_shim_keeps_its_shape_and_adds_vendor_and_origin(tmp_pa
     body = _post(client, "/banks/imports/import", "export.zip", claude_zip()).json()
     assert body["format"] == "claude" and body["episodesStaged"] == 5 and body["active"] is False
     assert body["vendor"] == "claude" and body["origin"] == "claude-export"
+    config.get_settings.cache_clear()
+
+
+@pytest.mark.parametrize("name", CHATGPT_EXTRA_FILES)
+def test_a_lone_chatgpt_extra_file_is_a_named_skip(name):
+    for path in (name, f"sites/{name}"):
+        parsed = intake.parse_export(b"{}", path)
+        assert parsed.episodes == []
+        assert parsed.ignored == [{"name": name, "reason": intake.SKIPPED_MEMBERS[name]}]
+        assert "not conversations" in parsed.ignored[0]["reason"]
+
+
+def test_a_chatgpt_split_export_names_extras_and_keeps_the_shards():
+    files = chatgpt_split_export()
+    parsed = intake.parse_export(files["conversations-000.json"].encode(), "conversations-000.json")
+    assert len(parsed.episodes) == 2
+    zipped = intake.parse_export(_zip(files), "export.zip")
+    assert len(zipped.episodes) == 2
+    assert sorted(i["name"] for i in zipped.ignored) == sorted(
+        ["export_manifest.json", *[n for n in CHATGPT_EXTRA_FILES]])
+
+
+def test_a_lone_chatgpt_extra_file_sniffs_as_a_quiet_skip(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    body = _post(client, "/intake/sniff", "ads.json", "{}").json()
+    assert body["recognized"] is False and body["reason"] is None
+    assert body["ignored"] == [{"name": "ads.json", "reason": intake.SKIPPED_MEMBERS["ads.json"]}]
     config.get_settings.cache_clear()

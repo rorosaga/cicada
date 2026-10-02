@@ -18,6 +18,12 @@ struct FeedPage: View {
     @State private var findOpen = false
     @State private var landingToken = 0
     @FocusState private var focus: ListFocus?
+    /// G162 — the watch run: the picker and its card take the list and the detail while it is on.
+    @State private var run = VideoRunModel()
+    @Environment(VideoStateCache.self) private var videoCache
+
+    private var inRun: Bool { run.mode != .browse }
+    private var videoRows: [VideoRow] { VideoRunModel.rows(items: viewModel.items, states: videoCache.items) }
 
     private var searching: Bool { findOpen && !QuickMatch.tokens(viewModel.searchText).isEmpty }
 
@@ -31,46 +37,34 @@ struct FeedPage: View {
     }
 
     var body: some View {
-        ProgressiveColumns(hasDetail: viewModel.openItem != nil, hasTrailing: provenance.isPresented,
-                           navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
-            EyebrowRow(eyebrow: viewModel.eyebrow(searching: searching),
-                       horizontalPadding: viewModel.openItem == nil && !provenance.isPresented
-                           ? plan.gutter : CicadaTheme.spacingXL) {
-                HStack(spacing: CicadaTheme.spacingXS) {
-                    // R-DL13 — one sort is always on: re-tapping the active one keeps it.
-                    TextTabs(tabs: [TextTab(id: FeedViewModel.SortMode.relevance, label: Copy.Lists.relevance),
-                                    TextTab(id: FeedViewModel.SortMode.recent, label: Copy.Lists.recent)],
-                             selection: Binding(get: { viewModel.sort }, set: { viewModel.sort = $0 ?? viewModel.sort }))
-                        .accessibilityLabel(Copy.Lists.sortFeed)
-                    AdaptiveTextTabs(tabs: viewModel.kindTabs, selection: kindSelection, menuTitle: Copy.Lists.kind)
-                        .padding(.leading, CicadaTheme.scaled(14))
-                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
-                    // R-DL14 — the one-shot import's door (G126), a plain icon in the eyebrow, and ⌘N's only home.
-                    IconButton(systemName: "plus", help: Copy.Lists.addSourceShortcut,
-                               accessibilityLabel: Copy.addASource,
-                               shortcut: KeyboardShortcut("n", modifiers: .command)) { openSheet(nil) }
-                }
-            }
+        ProgressiveColumns(hasDetail: viewModel.openItem != nil || inRun, hasTrailing: provenance.isPresented,
+                           navWidth: ShellMetrics.navWidth(labelled: labelledSidebar),
+                           wideTriage: inRun ? VideoRunLayout.pickerWidth : nil) { plan in
+            if inRun { runEyebrow(plan) } else { browseEyebrow(plan) }
         } list: { plan in
-            FeedListColumn(style: plan.listStyle, findOpen: $findOpen, searching: searching, landingToken: landingToken,
-                           open: { open($0) }, move: { move($0) }, focusDetail: { focus = .detail },
-                           escape: { escape() }, openSheet: { openSheet($0) })
-                .focused($focus, equals: .list)
+            if inRun {
+                VideoRunList(model: run, rows: videoRows, style: plan.listStyle, escape: { escape() })
+                    .focused($focus, equals: .list)
+            } else {
+                FeedListColumn(style: plan.listStyle, findOpen: $findOpen, searching: searching, landingToken: landingToken,
+                               open: { open($0) }, move: { move($0) }, focusDetail: { focus = .detail },
+                               escape: { escape() }, openSheet: { openSheet($0) }, chooseVideos: { beginRun() })
+                    .focused($focus, equals: .list)
+            }
         } detail: { plan in
-            if let item = viewModel.openItem {
-                ScrollView {
-                    FeedItemDetail(item: item, padding: plan.cardPadding,
-                                   hiddenListCount: plan.listHidden ? viewModel.visible.count : nil,
-                                   onShowList: { showList() }, onClose: { closeItem() })
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, plan.gutter)
-                        .padding(.bottom, CicadaTheme.scaled(72))
-                }
-                .id(item.id)
+            if inRun {
+                // Not in a ScrollView: the card scrolls its own body and keeps its footer pinned (VideoRunLarge).
+                VideoRunCard(model: run, rows: videoRows, padding: plan.cardPadding, onLeave: { leaveRun() })
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, plan.gutter)
+                    .padding(.bottom, CicadaTheme.scaled(72))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .focusable()
                 .focusEffectDisabled()
                 .onExitCommand { escape() }
                 .focused($focus, equals: .detail)
+            } else if let item = viewModel.openItem {
+                itemDetail(item, plan: plan)
             }
         } trailing: { _ in
             ReaderColumn().focused($focus, equals: .reader)
@@ -90,11 +84,98 @@ struct FeedPage: View {
         // blank (§5.5). Clear it on the way in (DS-3c final review).
         .onAppear {
             viewModel.searchText = ""
-            consumePendingAddSource(); consumeLanding(); viewModel.reconcile(); arrive()
+            consumePendingAddSource(); consumeLanding(); consumeVideoChooser(); viewModel.reconcile(); arrive()
         }
+        // G162 — the video states the rows, the strip and the run read (a 304 costs nothing).
+        .task { await videoCache.refresh() }
         .onChange(of: router.pendingAddSource) { _, _ in consumePendingAddSource() }
         .onChange(of: router.pendingFeedItem) { _, _ in consumeLanding() }
+        .onChange(of: router.pendingVideoChooser) { _, _ in consumeVideoChooser() }
         .onChange(of: viewModel.items.map(\.id)) { _, _ in viewModel.reconcile() }
+        .onChange(of: videoRows.map(\.id)) { _, ids in run.reconcile(present: Set(ids)) }
+    }
+
+    private func browseEyebrow(_ plan: ColumnPlan) -> some View {
+            EyebrowRow(eyebrow: viewModel.eyebrow(searching: searching),
+                       horizontalPadding: viewModel.openItem == nil && !provenance.isPresented
+                           ? plan.gutter : CicadaTheme.spacingXL) {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    // R-DL13 — one sort is always on: re-tapping the active one keeps it.
+                    TextTabs(tabs: [TextTab(id: FeedViewModel.SortMode.relevance, label: Copy.Lists.relevance),
+                                    TextTab(id: FeedViewModel.SortMode.recent, label: Copy.Lists.recent)],
+                             selection: Binding(get: { viewModel.sort }, set: { viewModel.sort = $0 ?? viewModel.sort }))
+                        .accessibilityLabel(Copy.Lists.sortFeed)
+                    AdaptiveTextTabs(tabs: viewModel.kindTabs, selection: kindSelection, menuTitle: Copy.Lists.kind)
+                        .padding(.leading, CicadaTheme.scaled(14))
+                    PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
+                    // R-DL14 — the one-shot import's door (G126), a plain icon in the eyebrow, and ⌘N's only home.
+                    IconButton(systemName: "plus", help: Copy.Lists.addSourceShortcut,
+                               accessibilityLabel: Copy.addASource,
+                               shortcut: KeyboardShortcut("n", modifiers: .command)) { openSheet(nil) }
+                }
+            }
+    }
+
+    /// G162 — the run's eyebrow: "Feed · Videos · Choosing · 5 selected" or "… · Watch run · 2 of 5 recorded", the
+    /// picker's tabs (the sort and kind groups give way — never three tab groups), find, and one ×.
+    private func runEyebrow(_ plan: ColumnPlan) -> some View {
+        EyebrowRow(eyebrow: run.eyebrow(summary: videoCache.summary), horizontalPadding: CicadaTheme.spacingXL) {
+            HStack(spacing: CicadaTheme.spacingXS) {
+                TextTabs(tabs: run.tabs(videoRows),
+                         selection: Binding(get: { run.mode == .choosing ? run.tab : nil },
+                                            set: { tab in Instant.run { run.chooseTab(tab ?? run.tab) } }))
+                    .accessibilityLabel(Copy.Videos.tabsLabel)
+                IconButton(systemName: "xmark", help: Copy.Videos.leaveChoosing) { leaveRun() }
+                    .padding(.leading, CicadaTheme.spacingSM)
+            }
+        }
+    }
+
+    private func itemDetail(_ item: MediaFeedItem, plan: ColumnPlan) -> some View {
+        ScrollView {
+            FeedItemDetail(item: item, padding: plan.cardPadding,
+                           hiddenListCount: plan.listHidden ? viewModel.visible.count : nil,
+                           onShowList: { showList() }, onClose: { closeItem() })
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, plan.gutter)
+                .padding(.bottom, CicadaTheme.scaled(72))
+        }
+        .id(item.id)
+        .focusable()
+        .focusEffectDisabled()
+        .onExitCommand { escape() }
+        .focused($focus, equals: .detail)
+    }
+
+    // MARK: - The watch run (G162)
+
+    /// The strip's *Choose videos…*: the picker, or the run's progress while a hand-off still has videos to record.
+    private func beginRun() {
+        Instant.run {
+            if provenance.isPresented { provenance.close() }
+            viewModel.columns.close()
+            findOpen = false
+            run.begin(summary: videoCache.summary)
+        }
+        focus = .list
+    }
+
+    private func leaveRun() {
+        Instant.run { run.leave() }
+        focus = .list
+    }
+
+    /// The Sleep row's "Choose videos ›": the Videos tab with the picker open.
+    private func consumeVideoChooser() {
+        guard router.consumeVideoChooser() else { return }
+        Instant.run {
+            viewModel.setKind(.video)
+            if provenance.isPresented { provenance.close() }
+            viewModel.columns.close()
+            findOpen = false
+            run.beginChoosing()
+        }
+        Task { await videoCache.refresh() }
     }
 
     // MARK: - Paths (R-DL8)
@@ -121,6 +202,12 @@ struct FeedPage: View {
     }
 
     private func escape() {
+        // DR-28 — in the run: the Reader first, then leave the run.
+        if inRun {
+            Instant.run { if provenance.isPresented { provenance.close() } else { run.leave() } }
+            focus = .list
+            return
+        }
         Instant.run {
             switch viewModel.columns.escape(readerOpen: provenance.isPresented) {
             case .closeReader: provenance.close()

@@ -51,6 +51,24 @@ struct CalendarRow: View {
     static let privacyURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            row
+            // G161 — the events Cicada brought in, by title and day.
+            if channel?.connected == true {
+                CapturedItemsList(channel: Self.channelId)
+                    .padding(.leading, CicadaTheme.spacingMD + CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+            }
+        }
+        .settingsRow(.calendarApp)
+        .confirmationDialog(Copy.calendarStopTitle, isPresented: $confirmStop) {
+            Button(Copy.calendarStop, role: .destructive) { reader.disconnect() }
+            Button(Copy.cancelAction, role: .cancel) {}
+        } message: {
+            Text(Copy.calendarStopDetail)
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
             LogoImage.platformTile(name: "",
                                    bundleId: OriginIconography.appBundleId(for: "calendar-local"),
@@ -71,13 +89,6 @@ struct CalendarRow: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
-        .settingsRow(.calendarApp)
-        .confirmationDialog(Copy.calendarStopTitle, isPresented: $confirmStop) {
-            Button(Copy.calendarStop, role: .destructive) { reader.disconnect() }
-            Button(Copy.cancelAction, role: .cancel) {}
-        } message: {
-            Text(Copy.calendarStopDetail)
-        }
     }
 
     @ViewBuilder

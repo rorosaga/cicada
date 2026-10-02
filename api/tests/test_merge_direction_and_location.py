@@ -6,10 +6,9 @@
     target" behavior verbatim; survivor == the cleaner mention renames the
     surviving file to the cleaner slug.
 
-#7 — Location dir-listing: a safe ``GET /entities/{id}/location`` reads a path
-    from the location entity's frontmatter ONLY (never the request), lists the
-    immediate children (name / isDir / size, bounded, no file reads), and
-    degrades gracefully on missing / permission-denied / non-location.
+#7 — Location path: ``GET /entities/{id}/location`` reads a path from the
+    location entity's frontmatter ONLY (never the request) and returns it
+    without touching the folder — the app lists it (``LocationLister``).
 
 Every test builds a throwaway git-backed memory workspace in a tmp dir; the live
 ``memory/`` is never touched.
@@ -228,12 +227,12 @@ def test_merge_survivor_into_existing_survivor_file_appends_no_overwrite(tmp_pat
 # --- #7 location dir-listing ------------------------------------------------
 
 
-def test_location_listing_lists_immediate_children(tmp_path):
+def test_location_returns_the_declared_path_only(tmp_path):
+    """The backend fills `path` and nothing else; the app lists the folder."""
     repo = _init_memory(tmp_path)
     target = tmp_path / "project_dir"
     (target / "subdir").mkdir(parents=True)
     (target / "a.txt").write_text("hello", encoding="utf-8")
-    (target / "b.md").write_text("x" * 42, encoding="utf-8")
 
     _write_entity(
         repo, "src",
@@ -245,24 +244,30 @@ def test_location_listing_lists_immediate_children(tmp_path):
 
     resp = run(entities_router.get_entity_location("src", settings=_Settings(repo)))
     assert resp.path == str(target)
-    assert resp.exists is True
+    # The envelope's listing fields stay at their defaults: the app fills them.
+    assert resp.exists is False
     assert resp.accessible is True
-    names = {e.name: e for e in resp.entries}
-    assert set(names) == {"subdir", "a.txt", "b.md"}
-    assert names["subdir"].is_dir is True
-    assert names["a.txt"].is_dir is False
-    assert names["a.txt"].size == 5
-    assert names["b.md"].size == 42
-    # dirs sorted first
-    assert resp.entries[0].is_dir is True
     assert resp.truncated is False
+    assert resp.entries == []
 
 
-def test_location_listing_path_in_body_when_no_frontmatter_path(tmp_path):
+def test_location_accepts_a_directory_page(tmp_path):
+    repo = _init_memory(tmp_path)
+    _write_entity(
+        repo, "alpha-project-dir",
+        {"name": "alpha-project", "type": "directory", "path": "~/src/alpha-project"},
+        "A checkout.",
+    )
+    from api.routers import entities as entities_router
+
+    resp = run(entities_router.get_entity_location("alpha-project-dir", settings=_Settings(repo)))
+    # Un-expanded, exactly as declared.
+    assert resp.path == "~/src/alpha-project"
+
+
+def test_location_path_in_body_when_no_frontmatter_path(tmp_path):
     repo = _init_memory(tmp_path)
     target = tmp_path / "from_body"
-    target.mkdir()
-    (target / "f.txt").write_text("y", encoding="utf-8")
 
     _write_entity(
         repo, "webapp-frontend",
@@ -274,25 +279,25 @@ def test_location_listing_path_in_body_when_no_frontmatter_path(tmp_path):
 
     resp = run(entities_router.get_entity_location("webapp-frontend", settings=_Settings(repo)))
     assert resp.path == str(target)
-    assert resp.exists is True
-    assert {e.name for e in resp.entries} == {"f.txt"}
+    assert resp.entries == []
 
 
-def test_location_listing_missing_path(tmp_path):
+def test_location_a_missing_folder_still_returns_its_path(tmp_path):
     repo = _init_memory(tmp_path)
+    gone = str(tmp_path / "does_not_exist")
     _write_entity(
         repo, "gone",
-        {"name": "gone", "type": "location", "path": str(tmp_path / "does_not_exist")},
+        {"name": "gone", "type": "location", "path": gone},
         "Vanished.",
     )
     from api.routers import entities as entities_router
 
     resp = run(entities_router.get_entity_location("gone", settings=_Settings(repo)))
-    assert resp.exists is False
+    assert resp.path == gone
     assert resp.entries == []
 
 
-def test_location_listing_no_path_declared(tmp_path):
+def test_location_no_path_declared(tmp_path):
     repo = _init_memory(tmp_path)
     _write_entity(
         repo, "abstract",
@@ -307,7 +312,7 @@ def test_location_listing_no_path_declared(tmp_path):
     assert resp.entries == []
 
 
-def test_location_listing_rejects_non_location(tmp_path):
+def test_location_rejects_non_location(tmp_path):
     repo = _init_memory(tmp_path)
     _write_entity(
         repo, "fastapi",
@@ -322,7 +327,7 @@ def test_location_listing_rejects_non_location(tmp_path):
     assert exc.value.status_code == 400
 
 
-def test_location_listing_404_when_entity_missing(tmp_path):
+def test_location_404_when_entity_missing(tmp_path):
     repo = _init_memory(tmp_path)
     from api.routers import entities as entities_router
     from fastapi import HTTPException
@@ -332,39 +337,76 @@ def test_location_listing_404_when_entity_missing(tmp_path):
     assert exc.value.status_code == 404
 
 
-def test_location_listing_is_bounded(tmp_path):
+def test_location_route_never_touches_the_declared_folder(tmp_path, monkeypatch):
+    """Under launchd a stat of the person's folder made macOS ask whether
+    "python3.12" may read it. The route must answer without any filesystem
+    call on the declared path: every probe on it raises here."""
+    import os
+
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
     repo = _init_memory(tmp_path)
-    target = tmp_path / "many"
-    target.mkdir()
-    for i in range(250):
-        (target / f"f{i:03d}.txt").write_text("z", encoding="utf-8")
+    folder = tmp_path / "declared" / "alpha-project"
+    folder.mkdir(parents=True)
+    (folder / "a.txt").write_text("x", encoding="utf-8")
     _write_entity(
-        repo, "big",
-        {"name": "big", "type": "location", "path": str(target)},
-        "Lots of files.",
+        repo, "alpha",
+        {"name": "alpha", "type": "directory", "path": str(folder)},
+        "A folder.",
     )
-    from api.routers import entities as entities_router
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(repo))
+    config.get_settings.cache_clear()
+    client = TestClient(main.app)
 
-    resp = run(entities_router.get_entity_location("big", settings=_Settings(repo)))
-    assert len(resp.entries) <= 200
-    assert resp.truncated is True
+    declared = str(tmp_path / "declared")
 
+    def _is_declared(p) -> bool:
+        return str(p).startswith(declared)
 
-def test_location_listing_path_must_be_directory_not_file(tmp_path):
-    repo = _init_memory(tmp_path)
-    afile = tmp_path / "single.txt"
-    afile.write_text("hi", encoding="utf-8")
-    _write_entity(
-        repo, "afilepath",
-        {"name": "a file", "type": "location", "path": str(afile)},
-        "Points at a file, not a dir.",
-    )
-    from api.routers import entities as entities_router
+    probes = ("is_dir", "exists", "resolve", "stat", "iterdir")
+    real = {name: getattr(Path, name) for name in probes}
 
-    resp = run(entities_router.get_entity_location("afilepath", settings=_Settings(repo)))
-    # A file is not a listable directory -> exists False, no entries.
-    assert resp.exists is False
-    assert resp.entries == []
+    def _guard(name):
+        def probe(self, *args, **kwargs):
+            if _is_declared(self):
+                raise AssertionError(f"the backend touched a declared folder: Path.{name}")
+            return real[name](self, *args, **kwargs)
+        return probe
+
+    for name in probes:
+        monkeypatch.setattr(Path, name, _guard(name))
+
+    real_scandir, real_listdir, real_stat = os.scandir, os.listdir, os.stat
+
+    def _scandir(p=".", *a, **k):
+        if _is_declared(p):
+            raise AssertionError("the backend listed a declared folder: os.scandir")
+        return real_scandir(p, *a, **k)
+
+    def _listdir(p=".", *a, **k):
+        if _is_declared(p):
+            raise AssertionError("the backend listed a declared folder: os.listdir")
+        return real_listdir(p, *a, **k)
+
+    def _stat(p, *a, **k):
+        if _is_declared(p):
+            raise AssertionError("the backend stat'd a declared folder: os.stat")
+        return real_stat(p, *a, **k)
+
+    monkeypatch.setattr(os, "scandir", _scandir)
+    monkeypatch.setattr(os, "listdir", _listdir)
+    monkeypatch.setattr(os, "stat", _stat)
+    try:
+        resp = client.get("/entities/alpha/location")
+    finally:
+        config.get_settings.cache_clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["path"] == str(folder)
+    assert body["entries"] == []
 
 
 # --- H4: `resolve` is a valid verb on non-conflict kinds --------------------

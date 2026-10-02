@@ -129,7 +129,9 @@ async def summary(memory_path: Path, *, range_: str, today: date) -> dict:
         "tokens": sum(e.tokens for e in events),
         "memory_writes": sum(writes.values()),
         "sleep_runs": sum(1 for e in events if e.kind == "sleep_run"),
-        "agentic_writes": sum(1 for e in events if e.kind == "agentic_write"),
+        # G61 S3-a: a source write files as `agentic_write` too (ids and enums only) but is not a claim write.
+        "agentic_writes": sum(1 for e in events if e.kind == "agentic_write"
+                              and not str((e.refs or {}).get("action") or "").startswith("source_")),
         "streak_current": cur,
         "streak_best": best,
         "range": range_,
@@ -251,7 +253,8 @@ def _group(events: list[UsageEvent], key: str, label: str) -> list[dict]:
 #: per prompt (G149's `hook_recall`). Counting them charts the person's chat
 #: cadence, not Cicada's work (G105 final review F1), and `read_events` reads
 #: the sibling file `hook_recall` is filed in, so filing it apart is not enough.
-PER_TURN_KINDS = frozenset({"capture", telemetry.HOOK_RECALL_KIND})
+PER_TURN_KINDS = frozenset({"capture", telemetry.HOOK_RECALL_KIND, telemetry.READ_AGENT_KIND,
+                            telemetry.VIDEO_QUEUE_KIND, telemetry.CHECK_AGENT_KIND})
 
 
 def _activity(events: list[UsageEvent]) -> list[UsageEvent]:

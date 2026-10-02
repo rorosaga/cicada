@@ -1,0 +1,163 @@
+{
+  "batches": [
+    {
+      "calls": 4,
+      "commit": "0000000000000000000000000000000000000000",
+      "filed": 3,
+      "index": 1,
+      "notFiled": 0,
+      "tookMs": 660000,
+      "ts": "2026-09-30T10:30:00.000Z",
+      "windows": [
+        {
+          "after": 0.3,
+          "before": 0.3,
+          "beforeIsFirstSeen": true,
+          "resetsAt": 1790000000,
+          "window": "five_hour"
+        }
+      ]
+    },
+    {
+      "calls": 3,
+      "commit": "0000000000000000000000000000000000000000",
+      "filed": 3,
+      "index": 2,
+      "notFiled": 0,
+      "tookMs": 660000,
+      "ts": "2026-09-30T10:30:00.000Z",
+      "windows": [
+        {
+          "after": 0.35000000000000003,
+          "before": 0.35000000000000003,
+          "beforeIsFirstSeen": true,
+          "resetsAt": 1790020000,
+          "window": "five_hour"
+        }
+      ]
+    },
+    {
+      "calls": 3,
+      "commit": "0000000000000000000000000000000000000000",
+      "filed": 3,
+      "index": 3,
+      "notFiled": 0,
+      "tookMs": 660000,
+      "ts": "2026-09-30T10:30:00.000Z",
+      "windows": [
+        {
+          "after": 0.45,
+          "before": 0.45,
+          "beforeIsFirstSeen": true,
+          "resetsAt": 1790020000,
+          "window": "five_hour"
+        }
+      ]
+    }
+  ],
+  "calls": 0,
+  "filed": 9,
+  "finishedAt": "2026-09-30T17:05:00+00:00",
+  "frozen": 9,
+  "id": "sleep_leg1",
+  "models": [
+    {
+      "basis": "list",
+      "calls": 9,
+      "costUsd": null,
+      "engine": "claude-cli",
+      "equivCostUsd": 0.09,
+      "failedCalls": 0,
+      "inputTokens": 900,
+      "model": "model-a",
+      "outputTokens": 180,
+      "stages": [
+        "extraction"
+      ]
+    },
+    {
+      "basis": "list",
+      "calls": 6,
+      "costUsd": null,
+      "engine": "claude-cli",
+      "equivCostUsd": 0.06,
+      "failedCalls": 0,
+      "inputTokens": 600,
+      "model": "model-b",
+      "outputTokens": 120,
+      "stages": [
+        "disambiguation"
+      ]
+    }
+  ],
+  "owner": null,
+  "pages": {
+    "created": 9,
+    "first": [
+      "page-0",
+      "page-1",
+      "page-2",
+      "page-3",
+      "page-4",
+      "page-5",
+      "page-6",
+      "page-7"
+    ],
+    "ownerTouched": null
+  },
+  "parked": 0,
+  "pausedMs": 16620000,
+  "pauses": [
+    {
+      "endedAt": "2026-09-30T15:41:00+00:00",
+      "reason": "user",
+      "resetsAt": null,
+      "startedAt": "2026-09-30T11:04:00+00:00"
+    }
+  ],
+  "questionsRaised": 0,
+  "readMs": 8040000,
+  "skipped": 0,
+  "startedAt": "2026-09-30T10:14:00+00:00",
+  "startedBy": "user",
+  "state": "finished",
+  "usage": {
+    "basis": "list",
+    "connection": "claude-plan",
+    "engine": "claude-cli",
+    "models": [
+      {
+        "basis": "list",
+        "calls": 9,
+        "costUsd": null,
+        "engine": "claude-cli",
+        "equivCostUsd": 0.09,
+        "failedCalls": 0,
+        "inputTokens": 900,
+        "model": "model-a",
+        "outputTokens": 180,
+        "stages": [
+          "extraction"
+        ]
+      },
+      {
+        "basis": "list",
+        "calls": 6,
+        "costUsd": null,
+        "engine": "claude-cli",
+        "equivCostUsd": 0.06,
+        "failedCalls": 0,
+        "inputTokens": 600,
+        "model": "model-b",
+        "outputTokens": 120,
+        "stages": [
+          "disambiguation"
+        ]
+      }
+    ],
+    "plan": null,
+    "recorded": true,
+    "totalCostUsd": null,
+    "totalEquivUsd": 0.15
+  }
+}

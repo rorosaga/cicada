@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.models.schemas import DecayClass
-from api.services import decay_policy, decay_tuning, engine_errors, entity_body, json_parse, markdown_parser
+from api.services import decay_policy, decay_tuning, engine_errors, entity_body, fact_sources, json_parse, markdown_parser
 from api.services.providers import resolve_llm_fn
 
 # Confidence floor a decaying/archived entity is restored to when it is
@@ -40,8 +40,23 @@ async def resolve_and_prune(
     *,
     now: datetime | None = None,
     tuning: dict[str, float] | None = None,
+    decay: bool = True,
+    cancel_check=None,
+    progress_callback=None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``cancel_check`` (Sleep page v5, a pause must be able to land here): polled before
+    each page's synthesis and contradiction calls — the long, paid part of this stage,
+    a loop of engine calls. Once it says stop, no further page is asked about and the
+    partial ``changes`` come back for the caller to discard, as Stage 2 does; nothing
+    is on disk before Stage 5. ``progress_callback(done, total)`` counts the pages to
+    update, fixed when the loop starts.
+
+    ``decay``: ``False`` skips the unreferenced-entity decay loop only — a drain
+    (``sleep_drain``) charges decay once, in the batch that empties its queue,
+    where a plain cycle charges it every time (TODO ruling 1). The
+    ``decayed_through`` stamp on created and referenced pages stays either way.
 
     ``now``: decay reference time; defaults to ``datetime.now()``. Mirrors
     ``claim_reconciler.reconcile_stage3``'s ``now_date`` — injectable so a test
@@ -69,7 +84,13 @@ async def resolve_and_prune(
         disable=len(update_changes) == 0,
     )
     conflicts_found = 0
-    for change in update_changes:
+    if progress_callback is not None:
+        progress_callback(0, len(update_changes))
+    for done_pages, change in enumerate(update_changes):
+        if cancel_check is not None and cancel_check():
+            break
+        if progress_callback is not None and done_pages:
+            progress_callback(done_pages, len(update_changes))
         progress.update(1)
         if change.get("action") != "update":
             continue
@@ -148,6 +169,8 @@ async def resolve_and_prune(
             })
 
     progress.close()
+    if progress_callback is not None and not (cancel_check is not None and cancel_check()):
+        progress_callback(len(update_changes), len(update_changes))
 
     # Temporal decay for unreferenced entities (G147). The weekly rate is
     # `decay_policy.effective`: the class's (or explicit) rate x the spacing
@@ -155,6 +178,18 @@ async def resolve_and_prune(
     # the SAME function `GET /entities/{id}` serves, so the card's pace is the
     # pace charged. Evergreen entities are skipped.
     now = now or datetime.now()
+    # An import is not the person going silent: a page this cycle creates or
+    # references from months-old episodes keeps that old date as its true content
+    # date (`last_referenced`), but silence is measured from when Cicada learned
+    # it. Stamp the watermark here, with the SAME reference date the decay pass
+    # below uses; `apply_changes` writes it. Otherwise every following cycle of a
+    # multi-cycle drain charges a week against the old date and archives a
+    # once-mentioned topic (TODO ruling 1: decay charges once, never for a gap
+    # that is not the person's).
+    learned_on = now.date().isoformat()
+    for change in resolved:
+        if change.get("action") in ("create", "update"):
+            change["decayed_through"] = learned_on
     alpha, floor = decay_policy.spacing_params(settings)
     if tuning is None:
         # G147: the per-type pace the person approved in Settings → Memory. One
@@ -162,7 +197,7 @@ async def resolve_and_prune(
         # bank path has none.
         memory_path = getattr(settings, "memory_path", None)
         tuning = decay_tuning.load(memory_path) if memory_path else {}
-    decay_candidates = [e for e in existing if e["id"] not in referenced_ids]
+    decay_candidates = [e for e in existing if e["id"] not in referenced_ids] if decay else []
     decay_progress = tqdm(
         total=len(decay_candidates),
         desc="Stage 3: decay",
@@ -172,7 +207,7 @@ async def resolve_and_prune(
         leave=True,
         disable=len(decay_candidates) == 0,
     )
-    for entity_data in existing:
+    for entity_data in (existing if decay else ()):
         entity_id = entity_data["id"]
         if entity_id in referenced_ids:
             continue
@@ -292,6 +327,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "confidence": entity.get("confidence", 0.5),
                 "created": created_date,
                 "last_referenced": last_referenced,
+                # Silence counts from when Cicada learned it, not from the
+                # (possibly months-old) episode date — see `resolve_and_prune`.
+                "decayed_through": change.get("decayed_through") or str(date.today()),
                 **decay_policy.frontmatter_fields(decay_class),
                 "source_episodes": _change_source_episodes(change),
                 "tags": entity.get("tags", []) or [],
@@ -300,6 +338,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "version": 1,
                 "layout_version": 2,
             }
+            # G61 S3-b: Stage 1's optional official site is stored UNVERIFIED (`fact_sources.propose_site`: pure, no
+            # network, never over a tombstone or an existing `website`); Cicada's own read confirms it later and only
+            # a trusted site ever draws a picture. `added_by: agent` — this seam is not handed the engine's model id
+            # (the commit's `Cicada-Author` still names it).
+            if entity.get("website") and str(entity_type).lower() in ("company", "tool", "project"):
+                fact_sources.propose_site(frontmatter, str(entity["website"]), added_by="agent")
             body = entity_body.compose_body_v2(
                 summary=_entity_summary(entity),
                 key_facts=entity.get("key_facts", []) or [],
@@ -317,6 +361,12 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 _latest_change_date(change),
             ) or str(date.today())
             parsed.frontmatter["version"] = parsed.frontmatter.get("version", 1) + 1
+            # A re-mention (even of old episodes) restarts the silence clock at
+            # this cycle; never moved backwards.
+            parsed.frontmatter["decayed_through"] = _max_date(
+                _extract_date_string(parsed.frontmatter.get("decayed_through")),
+                change.get("decayed_through") or str(date.today()),
+            )
 
             # Recovery (G66 §1.6): a re-mention is the counter-signal to decay.
             # CLAUDE.md has always promised "if mentioned again: promoted back,

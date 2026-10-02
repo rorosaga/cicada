@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from api.config import get_settings
 from api.routers import (
+    agent_methods,
     agents,
     ask,
     backlog,
@@ -28,17 +29,18 @@ from api.routers import (
     graph,
     inbox,
     intake,
-    local_refs,
     local_sources,
     maintenance,
     memory,
     nudges,
     origins,
     projects,
+    reading,
     remote,
     search,
     settings as settings_router,
     skills,
+    videos,
     sleep,
     sources,
     state,
@@ -143,6 +145,14 @@ async def lifespan(app: FastAPI):
     # migrated too — see api/services/bank_migrations.py.
     run_bank_migrations(settings.memory_path)
 
+    # The first-boot default bank is scaffolded here, never through ``create_bank``,
+    # so it gets the owner page every new bank starts with. The app's first-run gate
+    # and empty states read an owner-only graph as empty, so this does not hide the
+    # Welcome. Never raises.
+    from api.services import owner_identity
+
+    owner_identity.seed_owner_if_brand_new(settings.memory_path)
+
     # G136: build or catch up the derived search index in the background, so
     # the first keystroke after launch finds it warm. Never blocks startup,
     # never raises (a cold build takes a few seconds; until it lands, /search
@@ -161,6 +171,12 @@ async def lifespan(app: FastAPI):
     cfg = sleep_scheduler.load_schedule(settings.memory_path)
     sleep_scheduler.register_job(scheduler, settings, cfg)
     app.state.scheduler = scheduler
+    # Sleep page v5: the opt-in continue-after-reset (TODO ruling 15) needs the scheduler, and a
+    # paused run that had armed it re-arms after a restart (its sidecar says when).
+    from api.services import sleep_autocontinue
+
+    sleep_autocontinue.bind(scheduler)
+    sleep_autocontinue.rearm_after_restart(settings.memory_path)
 
     # G135 — the remote connector's own listener (127.0.0.1:8765), started only
     # when the person turned "From anywhere" on. Never raises into boot (R-R21).
@@ -217,11 +233,11 @@ app.include_router(sleep.router, tags=["sleep"])
 app.include_router(conversations.router, tags=["conversations"])
 app.include_router(intake.router, tags=["intake"])
 app.include_router(agents.router, tags=["agents"])
+app.include_router(agent_methods.router, tags=["agent-methods"])
 app.include_router(sources.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(settings_router.router, tags=["settings"])
-app.include_router(local_refs.router, tags=["local-refs"])
 app.include_router(local_sources.router, tags=["local-sources"])
 app.include_router(capture.router, tags=["capture"])
 app.include_router(connectors.router, tags=["connectors"])
@@ -230,5 +246,7 @@ app.include_router(memory.router, tags=["memory"])
 app.include_router(connections.router, tags=["connections"])
 app.include_router(sync.router, tags=["sync"])
 app.include_router(consumption.router, tags=["consumption"])
+app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
+app.include_router(videos.router, tags=["videos"])

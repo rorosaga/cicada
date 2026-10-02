@@ -360,8 +360,38 @@ def resolve_llm_fn(
         connection, billing = telemetry.connection_for_model(resolved_model)
         argv_model = resolved_model
 
+    def agent_engine_cycle_id() -> str | None:
+        from api.services import agent_engine
+
+        return agent_engine.cycle_id_from_scope(scope or agent_engine.current_scope())
+
+    def _with_cycle(refs: dict | None) -> dict:
+        """Tag a call with the Sleep cycle whose scope it runs in (contextvar,
+        so it survives `to_thread`/`gather`); calls outside a cycle stay untagged."""
+        from api.services import agent_engine
+
+        from api.services import sleep_drain
+
+        out = dict(refs or {})
+        cycle_id = agent_engine.cycle_id_from_scope(scope or agent_engine.current_scope())
+        if cycle_id:
+            out["cycle_id"] = cycle_id
+            # A batch of a drain: the id that groups its calls (paused and discarded
+            # batches included) into one run at read (`cycle_usage.usage_for_drain`).
+            drain_id = sleep_drain.drain_id_for(cycle_id)
+            if drain_id:
+                out["drain_id"] = drain_id
+        return out
+
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
               equiv_override: float | None = None, refs: dict | None = None) -> None:
+        try:
+            # One call that spawned, for a drain's "N calls made" (never decreases).
+            from api.services import sleep_drain
+
+            sleep_drain.note_call(agent_engine_cycle_id())
+        except Exception:  # a counter must never break an LLM call
+            pass
         try:
             usage = telemetry.usage_from_response(resp) if ok else telemetry.usage_from_response(None)
             event_model = model_used or (argv_model if is_cli else resolved_model)
@@ -391,7 +421,7 @@ def resolve_llm_fn(
                 cache_write_tokens=usage["cache_write_tokens"],
                 cost_usd=cost, equiv_cost_usd=equiv,
                 duration_ms=int((time.perf_counter() - started) * 1000), ok=ok,
-                refs=refs or {},
+                refs=_with_cycle(refs),
             ))
         except Exception as exc:  # a sink must never break an LLM call
             logger.warning(f"telemetry sink failed: {exc}")
@@ -482,11 +512,14 @@ def resolve_llm_fn(
                 refs = {"warnings": len(parsed.warnings)} if parsed.warnings else {}
             agent_engine.record_model_used(used)
         except (engine_errors.EngineThrottled, engine_errors.EngineExhausted) as exc:
+            _note_plan_signals(mode, resolved_scope, seen)
             # R-E12: a throttle trips in any scope (unchanged). An exhaustion
             # trips only inside a workload scope. Trip BEFORE emitting so a
             # concurrent caller cannot also trip.
             trips = isinstance(exc, engine_errors.EngineThrottled) or in_workload
-            newly_tripped = agent_engine.trip_breaker(str(exc), scope=resolved_scope) if trips else False
+            newly_tripped = agent_engine.trip_breaker(
+                str(exc), scope=resolved_scope, resets_at=getattr(exc, "resets_at", None),
+                kind=agent_engine.limit_kind_of(exc)) if trips else False
             # Fix round 1, L1: a fail-fast call (the breaker was ALREADY
             # tripped before this call — `agent_engine.complete` tags it
             # `.spawned = False`) never touched the runner, so it is not a
@@ -502,14 +535,32 @@ def resolve_llm_fn(
                 _emit_throttle(str(exc), seen.get("stream"))
             raise
         except Exception:
+            _note_plan_signals(mode, resolved_scope, seen)
             _emit(None, started, ok=False)
             raise
         _emit(resp, started, ok=True, model_used=used, equiv_override=equiv, refs=refs)
+        _note_plan_signals(mode, resolved_scope, seen)
         stop = seen.get("stop")
         if (stop is not None and in_workload
-                and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope)):
+                and agent_engine.trip_breaker(stop.sentence, scope=resolved_scope, resets_at=stop.resets_at,
+                                              kind=agent_engine.limit_kind_of(None, stop.limit_type))):
             _emit_throttle(stop.sentence, seen.get("stream"))
         return resp
+
+    def _note_plan_signals(mode_: str, scope_: str, seen_: dict) -> None:
+        # A cycle that ends on a rate limit is the one whose final window matters most.
+        if mode_ == "agent" and seen_.get("stream") is not None:
+            from api.services import cycle_usage
+
+            cid = agent_engine.cycle_id_from_scope(scope_)
+            cycle_usage.note_signals(cid, seen_["stream"].rate_limits)
+            # The reserve line (Sleep page v5): this drain's guard sees every window the call reported.
+            from api.services import sleep_drain
+
+            ds = sleep_drain.drain_for(cid)
+            guard = getattr(ds, "guard", None) if ds is not None else None
+            if guard is not None:
+                guard.observe_signals(seen_["stream"].rate_limits)
 
     def _agent_invoke_sync(messages, response_format, timeout: float, reasoning_off: bool = False):
         with _agent_semaphore(getattr(settings, "agent_max_concurrency", 3)):

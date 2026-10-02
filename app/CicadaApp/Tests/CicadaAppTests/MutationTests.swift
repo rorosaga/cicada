@@ -233,6 +233,18 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.toast, "Couldn't switch project — reverted")
     }
 
+    /// While Consolidate reads, the server refuses a switch with a sentence written for the person (G163);
+    /// the toast carries it and the previous bank comes back.
+    func testActivateBankRefusedWhileReadingToastsTheServersSentence() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        let sentence = "Cicada is reading — stop it first, or wait for it to finish, then switch."
+        api.writeError = APIError.httpError(409, #"{"detail":"\#(sentence)"}"#)
+        let ok = await store.perform(ActivateBank(name: "B"))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.toast, sentence)
+    }
+
     // MARK: - Sleep
 
     func testTriggerSleepFlipsStatusRunningAndRollsBack() async throws {
@@ -258,6 +270,28 @@ final class MutationTests: XCTestCase {
         XCTAssertFalse(ok)
         XCTAssertEqual(store.status.value?.sleep.status, "idle", "a failed trigger restores the status")
         XCTAssertEqual(store.toast, "Couldn't start the sleep cycle — reverted")
+    }
+
+    /// Sleep page v5 — Continue reaches the continue call and never the fresh trigger (which clears the pause on the
+    /// server), and a plain trigger never continues.
+    func testContinueRunCallsContinueNotTrigger() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        let ok = await store.perform(TriggerSleep(continueRun: true))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.writes.filter { $0 == "continueSleepRun" }.count, 1)
+        XCTAssertFalse(api.writes.contains("triggerSleep"), "Continue must never start a fresh run")
+    }
+
+    func testPlainTriggerNeverContinues() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.status] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        let ok = await store.perform(TriggerSleep())
+        XCTAssertTrue(ok)
+        XCTAssertEqual(api.writes.filter { $0 == "triggerSleep" }.count, 1)
+        XCTAssertFalse(api.writes.contains("continueSleepRun"))
     }
 
     // MARK: - Review fixes

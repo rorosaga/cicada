@@ -1,0 +1,27 @@
+{
+ "note": "G162 A1: the state a video reads from the watch episodes that name it (spec 4.2's set union). `episodes` lists each episode's watch_basis (null = absent, i.e. legacy or an agent that omitted it). Shared by api/tests/test_video_state.py and the app's VideoStateDecodeTests.",
+ "cases": [
+  {"name": "no episode", "episodes": [], "state": "none"},
+  {"name": "transcript", "episodes": ["transcript"], "state": "transcript"},
+  {"name": "frames", "episodes": ["frames"], "state": "watched"},
+  {"name": "both", "episodes": ["both"], "state": "watched_and_transcript"},
+  {"name": "transcript then frames", "episodes": ["transcript", "frames"], "state": "watched_and_transcript"},
+  {"name": "legacy alone", "episodes": [null], "state": "recorded"},
+  {"name": "legacy beside transcript", "episodes": [null, "transcript"], "state": "transcript"},
+  {"name": "legacy beside frames", "episodes": [null, "frames"], "state": "watched"},
+  {"name": "legacy beside both", "episodes": [null, "both"], "state": "watched_and_transcript"},
+  {"name": "unrecognised basis", "episodes": ["telepathy"], "state": "recorded"},
+  {"name": "unrecognised beside transcript", "episodes": ["telepathy", "transcript"], "state": "transcript"},
+  {"name": "two transcripts", "episodes": ["transcript", "transcript"], "state": "transcript"}
+ ],
+ "fidelity": [
+  {"engine": "captions", "fidelity": "verbatim"},
+  {"engine": "local_frames", "fidelity": "verbatim"},
+  {"engine": "speech_to_text", "fidelity": "verbatim"},
+  {"engine": "browser", "fidelity": "verbatim"},
+  {"engine": "video_link", "fidelity": "approximate"},
+  {"engine": "other", "fidelity": "approximate"},
+  {"engine": null, "fidelity": "approximate"},
+  {"engine": "gemini_url", "fidelity": "approximate"}
+ ]
+}

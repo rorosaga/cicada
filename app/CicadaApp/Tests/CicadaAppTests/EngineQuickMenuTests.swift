@@ -38,6 +38,19 @@ final class EngineQuickMenuTests: XCTestCase {
                                                                        why: "ruling 4")))
     }
 
+    /// `CICADA_LLM_MODE` pins the engine (`source == "env"`): the menu says where, and no row chooses anything —
+    /// a tap would answer 200 and change nothing (the owner's "clicking ChatGPT plan does nothing").
+    func testAnEnvironmentPinIsSaidAndNoRowChooses() {
+        let pinned = response(mode: "auto")
+        let env = SleepEngineResponse(mode: pinned.mode, model: pinned.model, disambiguationModel: "", source: "env",
+                                      candidates: pinned.candidates, preview: pinned.preview)
+        let model = EngineQuickMenuModel.from(env)
+        XCTAssertEqual(model.pinnedNote, Copy.EngineMenu.pinnedByEnvironment("auto"))
+        XCTAssertTrue(model.rows.allSatisfy { !$0.isSelectable })
+        XCTAssertNil(EngineQuickMenuModel.from(pinned).pinnedNote)
+        XCTAssertTrue(EngineQuickMenuModel.from(pinned).rows.contains { $0.isSelectable })
+    }
+
     // MARK: The button (R-HS8)
 
     func testTheButtonNamesWhatACycleYouStartWouldRun() {
@@ -178,9 +191,9 @@ final class EngineQuickMenuTests: XCTestCase {
         XCTAssertEqual(EngineMark.source(for: "litellm"), .symbol("key"))
     }
 
-    // MARK: No price, ever (2026-09-03)
+    // MARK: No price without usage (2026-09-03, narrowed 2026-09-28 — see CycleUsageTextTests)
 
-    func testNoPriceOrTokenAnywhereInTheMenu() {
+    func testNoPriceOrTokenInTheMenuWhenTheWireCarriesNoUsage() {
         for r in [response(mode: "auto"), response(mode: "agent", codexSignedIn: false),
                   response(mode: "byok", manual: ("litellm", "example-model")), response(mode: "local")] {
             let m = EngineQuickMenuModel.from(r)

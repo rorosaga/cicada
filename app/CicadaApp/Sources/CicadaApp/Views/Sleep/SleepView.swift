@@ -133,32 +133,27 @@ func sleepLiveness(isConnected: Bool,
 
 // MARK: - Sleep Dashboard — the study desk (G125)
 
-/// **The motion budget (G125 v3 Task 8, spec R-A13).** Four rules, and every
-/// one of them has a test or a lint behind it — a budget that lives only in a
-/// comment is a budget that drifts:
+/// **The motion budget (G125, TODO ruling 18).** State art may loop; chrome
+/// settles within 400 ms and the active stage pulse stays capped at 1.2 s.
+/// Sprite frames stay inside `CicadaMotion`'s caps: beats within 800 ms, the
+/// perk within 400 ms, and yawn/stretch within 1.6 s. Sheet tests check every
+/// frame and tag; each layer redraws only at its frame boundaries.
 ///
-/// 1. **Idle is still.** Nothing on a settled page moves except the worm's own
-///    frame loop. `DeskSceneView` has no `TimelineView` (its docstring says
-///    so), and `SleepStageStrip` starts one *only* while a pip is actually
-///    active — an idle page costs zero redraws.
-/// 2. **Nothing animates longer than 400 ms**, except the stage pulse, which
-///    is capped separately at 1.2 s (`SleepStages.pulsePeriod`) because a
-///    breath is a state indicator, not a transition. Every duration on this
-///    page is a named constant on `SleepMotion`, and
-///    `SleepNumbersLintTests.testTheSleepFolderDeclaresNoLiteralAnimationDuration`
-///    fails the build on a literal `duration:` anywhere else under
-///    `Views/Sleep/`.
-/// 3. **Reduce Motion holds every animation at its terminal frame.** The worm
-///    through `BookwormView.frameIndex(…reduceMotion:)`, the pulse through
-///    `stagePulse(at:reduceMotion:)`, and every value-driven settle through
-///    `SleepMotion.settle/pile/disclosure(reduceMotion:)`, which return `nil`
-///    — SwiftUI for "jump to the new value".
-/// 4. **No spinner where a real count exists.** A `ProgressView` on this page
+/// Reduce Motion holds sprites at their key frame, suppresses beats and
+/// transitions, and jumps the weather and value-driven settles. Low Power
+/// plays every frame at half speed; unseen or host-paused sprites do not tick.
+/// `SleepNumbersLintTests` retains the no-transform and literal-duration rails.
+///
+/// **No spinner where a real count exists.** A `ProgressView` on this page
 ///    appears only where there is genuinely nothing to count yet: the queue
 ///    before its first fetch, a history row's detail mid-load, and the
 ///    Consolidate/Cancel buttons' own in-flight state. The queue's rows lost
 ///    theirs in Task 6 — they have `read of total`.
 struct SleepView: View {
+    @AppStorage(SceneryMode.defaultsKey) private var scenerySourceRaw = SceneryMode.localWeather.rawValue
+    @AppStorage(ManualScenery.timeKey) private var sceneryTimeRaw = "day"
+    @AppStorage(ManualScenery.baseKey) private var sceneryWeatherRaw = "sunny"
+
     @Binding var selectedTab: AppTab
     /// Entity chips inside the consolidation history's expanded detail land
     /// here (mirrors `SourcesPageView`'s own closure at `ContentView.swift`)
@@ -222,7 +217,10 @@ struct SleepView: View {
             // `SkyBand.ships` is the one switch (Z-B16).
             if SkyBand.isDrawn(contrast: contrast) {
                 VStack(spacing: 0) {
-                    SleepSkyBand(weather: windowWeather(for: page.mood))
+                    SleepSkyBand(scenery: Scenery.resolve(mode: SceneryMode.stored(scenerySourceRaw),
+                        clock: SceneStore.shared.phase,
+                        forecast: LocalWeatherReader.shared.base(for: SceneStore.shared.timeZoneIdentifier),
+                        mood: page.mood, manual: ManualScenery(timeRaw: sceneryTimeRaw, baseRaw: sceneryWeatherRaw)))
                     Spacer(minLength: 0)
                 }
             }
@@ -247,7 +245,22 @@ struct SleepView: View {
                                          status: sleepVM.status, episodes: sleepVM.queuedEpisodes,
                                          history: sleepVM.history, details: sleepVM.details,
                                          expanded: sleepVM.expanded, onToggleHistory: toggleHistory,
-                                         onSelectEntity: onSelectEntity, room: room)
+                                         onSelectEntity: onSelectEntity, room: room,
+                                         runRows: runRows(page), queue: sleepVM.queue,
+                                         showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
+                                         ownerReady: ownerReady(page),
+                                         onRetryParked: { ids in
+                                             Task { @MainActor in
+                                                 await sleepVM.retryParked(ids: ids)
+                                                 await store.refresh([.status])
+                                             }
+                                         },
+                                         onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } },
+                                         runDetails: sleepVM.runDetails, expandedRun: sleepVM.expandedRun,
+                                         onToggleRun: { id in
+                                             sleepVM.expandedRun = sleepVM.expandedRun == id ? nil : id
+                                             Task { @MainActor in await sleepVM.loadRunDetail(id) }
+                                         })
                         }
                     }
                     .padding(CicadaTheme.spacingXL)
@@ -304,12 +317,37 @@ struct SleepView: View {
             if oldValue == "running" && newValue != "running" {
                 let real = isRealCompletion(old: oldValue, new: newValue,
                                             cancelled: sleepVM.status?.cancelled == true,
-                                            error: sleepVM.status?.error)
+                                            error: sleepVM.status?.error,
+                                            drainStop: sleepVM.status?.drain?.stop?.reason)
                 if room.cycleEnded(real: real, edgeBaseline: lastCycleEntry(sleepVM.history)?.commitHash,
                                    history: sleepVM.history) != nil {
                     celebrateCompletion()
                 }
             }
+        }
+        // Sleep page v5 — a pause appears, is armed or is cleared with no status change (H3): refetch the whole
+        // record, announce a pause (A11), and keep What's waiting's rows in step with the run's counts (M3).
+        // The status refetch itself is app-wide (`Store.onSleepPausedChanged`, wired in `CicadaApp`), so the doors
+        // outside this page read the whole record too; the page only announces a pause (A11).
+        .onChange(of: store.sleepEvent?.paused) { old, new in
+            if old == nil, new != nil { AccessibilityNotification.Announcement(Copy.SleepV5.pausedAnnouncement).post() }
+        }
+        .onChange(of: queueKey) { _, _ in
+            guard detailsOpen else { return }
+            Task { @MainActor in await sleepVM.loadQueue() }
+        }
+        .onChange(of: detailsOpen) { _, open in
+            guard open else { return }
+            Task { @MainActor in
+                await sleepVM.loadQueue()
+                if let id = detailRunId { await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
+            }
+        }
+        // A run's detail follows the run: a new run, more filed, a pause, a Continue or the end refetches it, so a
+        // detail read while paused never outlives the pause (and the finished-only rows appear once it ends).
+        .onChange(of: detailRunId.map { $0 + "#" + detailRunFreshness }) { _, _ in
+            guard detailsOpen, let id = detailRunId else { return }
+            Task { @MainActor in await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
         }
         .onChange(of: sleepVM.history) { _, history in
             if room.resolveCompletion(history: history) != nil { celebrateCompletion() }
@@ -340,6 +378,14 @@ struct SleepView: View {
     /// controls cannot disagree about which reading they show (H1, now
     /// structural). `now` is the body's own clock read — `studyRows` ages and
     /// the 6 s digest window already depended on it.
+    /// What moves What's waiting's per-conversation rows: the batch, what is filed and parked, and the paused run —
+    /// never a tick (M3).
+    private var queueKey: String {
+        let drain = sleepVM.status?.drain
+        return [drain?.id ?? "", "\(drain?.batch ?? 0)", "\(drain?.filed ?? 0)", "\(drain?.parked ?? 0)",
+                "\(store.sleepEvent?.parkedCount ?? 0)", sleepVM.pausedRun?.runId ?? ""].joined(separator: "|")
+    }
+
     private func resolvePage(now: Date = .now) -> SleepPageModel {
         SleepPageModel.resolve(
             status: sleepVM.status, sse: store.sleepEvent, queued: sleepVM.queuedEpisodes,
@@ -350,7 +396,8 @@ struct SleepView: View {
             queueLoad: StudyListCard.loadState(status: store.status.value,
                                                isLoading: store.status.isEmpty && store.status.isRefreshing,
                                                error: store.domainErrors[.status]),
-            justFinishedAt: justFinishedAt, intakeInFlight: store.intakeInFlight, now: now)
+            justFinishedAt: justFinishedAt, intakeInFlight: store.intakeInFlight,
+            paused: sleepVM.pausedRun, batchSize: sleepVM.batchSize, pausing: sleepVM.isCancelling, now: now)
     }
 
     /// The one error the page has to tell, if there is one — `lastError`
@@ -441,12 +488,6 @@ struct SleepView: View {
     /// Reconcile retry policy, pulled out as pure functions (mirrors
     /// `queueCount`/`queueNeedsReconcile` above) so the bound and the backoff
     /// curve are unit-testable without standing up a view or a live Task loop.
-    /// The one requested point size for the whole hero. `BookwormView` and
-    /// `deskSceneLayout` each snap it the same way (G130 R6), so passing this
-    /// single number to both is what puts the room and the character on one
-    /// lattice — P12: two pixel scales in one picture read as a bug.
-    static let wormPointSize: CGFloat = 120
-
     static let maxReconcileAttempts = 3
 
     static func shouldRetryReconcile(attempt: Int, stillNeedsReconcile: Bool) -> Bool {
@@ -628,17 +669,28 @@ struct SleepView: View {
                                  }
                              })
             SleepControlRow(consolidateEnabled: page.consolidateEnabled,
-                            queuedCount: page.queuedCount)
+                            queuedCount: page.queuedCount, page: page)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
+            runNotes(page)
             whisperRow(page)
                 .accessibilitySortPriority(RoomA11yOrder.whisper)
 
             // R-A8 / R-Z6 — the five-stage strip, only while a cycle runs or
             // after one was cancelled or failed (its frozen record, P15).
-            if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.cancelled,
+            if stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly,
                                    failed: page.cycleError != nil) {
                 SleepStageStrip(pips: page.pips)
+                // Sleep page v5 (A3) — what the running stage is doing, in words, and a failure beside a glyph.
+                if let caption = stageCaption(drain: page.drain, activeStage: page.runningStage) {
+                    StageCaptionLine(text: caption.text, failed: caption.failed)
+                }
+            }
+            // Sleep page v5 (A3) — the run's counts: while it reads, while it waits paused, and in the moment it
+            // finished (the "See what changed" window). Never a remaining time.
+            if let progress = RunProgress.from(page.drain),
+               page.isRunning || page.paused != nil || room.recentCycleCommit != nil {
+                RunProgressBar(progress: progress)
             }
         }
         .accessibilityElement(children: .contain)
@@ -654,6 +706,81 @@ struct SleepView: View {
     /// left with that step — the popover carries both, and its engine line
     /// shows the scheduled engine ALWAYS, not only when it differs, so ruling
     /// 4 is on screen at the moment someone chooses to schedule.
+    /// Sleep page v5 — the lines under the controls: the first save's link to the person's own page, the automatic
+    /// continue's promise (ruling 15, in words), and a finished run's parked conversations.
+    @ViewBuilder
+    private func runNotes(_ page: SleepPageModel) -> some View {
+        if page.isRunning, let drain = page.drain, drain.firstRun == true, drain.committedBatches == 1,
+           drain.ownerPage != nil, let owner = ownerEntityId {
+            InlineLink(title: Copy.SleepV5.seeYourPage) { onSelectEntity?(owner) }
+        }
+        if let when = page.autoContinueWhen, page.paused != nil {
+            Text(Copy.SleepV5.willContinueBySelf(when))
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+        }
+        if !page.isRunning, page.paused == nil, page.parkedCount > 0 {
+            Button { openDetails(.waiting) } label: {
+                HStack(spacing: CicadaTheme.spacingXS) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(CicadaTheme.warning)
+                        .accessibilityHidden(true)
+                    Text(Copy.SleepV5.parkedLine(page.parkedCount))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                }
+                .font(CicadaTheme.captionFont)
+            }
+            .buttonStyle(.cicadaPlain)
+        }
+    }
+
+    /// Sleep page v5 (A7) — the run whose detail Details reads: the running or finished drain, else the paused run.
+    private var detailRunId: String? {
+        if let drain = sleepVM.status?.drain, !drain.active, drain.byOrigin != nil { return drain.id }
+        return sleepVM.pausedRun?.runId
+    }
+
+    /// What moves when the detail run's numbers do (`SleepViewModel.runDetailFreshness`).
+    private var detailRunFreshness: String {
+        SleepViewModel.runDetailFreshness(drain: sleepVM.status?.drain, paused: sleepVM.pausedRun)
+    }
+
+    /// Last cycle's run rows (`LastCycleRow.runRows`): the drain, the paused run, the run's own numbers from history
+    /// and its detail, parked conversations, a scheduled run's spend words, and the reserve's figure (Details is one
+    /// of ruling 12's two homes for it).
+    private func runRows(_ page: SleepPageModel) -> [LastCycleRow] {
+        let drain = page.drain
+        let runId = drain?.id ?? page.paused?.runId
+        let run = runId.flatMap { id in sleepVM.history.first { $0.drainId == id }?.run }
+        let preview = SleepEnginePreviewSource.current(chooser: engineVM.response, page: sleepVM.enginePreview)
+        let reserve = EngineQuickMenuModel.Reserve.from(engineVM.response?.reserve, billing: preview?.manual.billing)
+        let detail = runId.flatMap { sleepVM.runDetails[$0] }
+        let summary = runId.flatMap { id in sleepVM.history.first { $0.drainId == id }?.usageSummary }
+        // How THIS run was billed, from its own usage; only a run still reading, with nothing measured yet, reads
+        // the scheduled preview — the engine it is running on right now.
+        let billing = LastCycleRow.runBilling(usage: detail?.usage, summary: summary)
+            ?? (drain?.active == true ? preview?.scheduled.billing : nil)
+        return LastCycleRow.runRows(drain: drain, paused: page.paused, run: run, detail: detail,
+                                    parkedCount: page.parkedCount, runBilling: billing,
+                                    reserveValue: reserve?.pct != nil ? reserve?.value : nil)
+    }
+
+    /// The run's part of What's waiting shows while a run reads in batches or waits paused.
+    private func showsRunBlock(_ page: SleepPageModel) -> Bool {
+        guard page.drain?.byOrigin != nil else { return false }
+        return (page.isRunning && page.drain?.active == true) || page.paused != nil
+    }
+
+    /// "Your own page is ready" — a memory never consolidated, whose owner page the graph already holds (A10).
+    private func ownerReady(_ page: SleepPageModel) -> Bool {
+        page.debt?.hasRunBefore == false && !page.isRunning && ownerEntityId != nil
+    }
+
+    /// The owner's page (G117), from the graph snapshot — `nil` until it has loaded (never a guess).
+    private var ownerEntityId: String? {
+        store.graph.value?.nodes.first { $0.isOwner }?.id
+    }
+
     private func whisperRow(_ page: SleepPageModel) -> some View {
         Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {

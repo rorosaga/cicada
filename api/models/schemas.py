@@ -624,14 +624,14 @@ class LocationEntry(CamelModel):
 
 
 class LocationListing(CamelModel):
-    """Safe immediate-children listing for a ``type: location`` entity.
+    """The folder a ``directory``/``location`` entity declares.
 
     The ``path`` is read from the entity itself (frontmatter ``path:`` if present,
-    else a path detected in the body) — never from the request — so there is no
-    arbitrary-path traversal. ``exists``/``accessible`` degrade gracefully:
-    a missing path → ``exists=False``; a permission error → ``accessible=False``;
-    both still 200 with empty ``entries``. ``truncated`` is set when the child
-    count exceeds the bound and the list was clipped.
+    else a path detected in the body) — never from the request. The backend fills
+    ``path`` only and never touches the folder; the app lists it
+    (``LocationLister``) into this same shape: a missing path → ``exists=False``;
+    a permission error → ``accessible=False``; ``truncated`` when the child count
+    exceeds the bound and the list was clipped.
     """
 
     path: Optional[str] = None
@@ -663,6 +663,18 @@ class EntitySource(CamelModel):
     added_at: str = ""
     accepted: bool = False
     only_me: bool = False
+    # G61 S3-a: a connection's own entry (`remote:<id>`), and the page that knows more about this source. The link is
+    # served as stored; a stale id reads as no link app-side (the card resolves it against the graph's pages).
+    origin: Optional[str] = None
+    entity: Optional[str] = None
+    # G61 S3-b: Cicada's own read confirmed the entry (`{at, how}`), the access it needs as it is READ (stated, else
+    # inferred — `fact_sources.effective_access`), whether the card may lean on it (`fact_sources.trusted`: the person's,
+    # one they took, or a verified one) and — for a proposed site that was read and judged thin — that it is "not
+    # confirmed yet" (`checked`).
+    verified: Optional[dict] = None
+    effective_access: Optional[str] = None
+    trusted: bool = True
+    checked: Optional[dict] = None
 
 
 class EntitySourceCreate(CamelModel):
@@ -675,6 +687,24 @@ class EntitySourceCreate(CamelModel):
     kind: Optional[str] = None
     predicate: Optional[str] = None
     access: Optional[str] = None
+    accepted: Optional[bool] = None
+    only_me: Optional[bool] = None
+    entity: Optional[str] = None   # G61 S3-a: link the source to a page that knows more about it
+
+
+class EntitySourceChange(CamelModel):
+    """``POST /entities/{id}/sources/change`` (G61 S3-a): one source, keyed ``(ref, predicate)`` — not by index.
+    ``update`` changes ``access``/``entity`` in place (an explicit ``entity: null`` clears the link) and a
+    ``newRef``/``newPredicate`` replaces the entry; ``remove`` drops it and leaves a tombstone."""
+
+    ref: str
+    predicate: Optional[str] = None
+    action: str = "update"        # update | remove
+    reason: Optional[str] = None
+    new_ref: Optional[str] = None
+    new_predicate: Optional[str] = None
+    access: Optional[str] = None
+    entity: Optional[str] = None
     accepted: Optional[bool] = None
     only_me: Optional[bool] = None
 
@@ -715,10 +745,11 @@ class RepoLastCommit(BaseModel):
 
 
 class RepoContext(BaseModel):
-    """Live git snapshot for one declared ``repos:`` entry on an entity.
+    """Git snapshot for one declared ``repos:`` entry on an entity, parsed by
+    ``repo_context.parse_snapshot`` from outputs the app (or the MCP tool) ran.
 
     ``status`` is one of ``ok`` | ``other_device`` | ``missing`` |
-    ``not_a_repo`` | ``git_unavailable`` | ``timeout`` — only ``ok`` carries
+    ``not_a_repo`` | ``denied`` | ``git_unavailable`` | ``timeout`` — only ``ok`` carries
     live data; every other status degrades the rest of the fields to
     ``None``/``[]`` rather than raising. ``stale_hint`` is populated only when
     a declared value contradicts what git actually observes (e.g. a declared
@@ -743,7 +774,7 @@ class RepoContext(BaseModel):
 
 
 class RepoContextList(BaseModel):
-    """``GET /entities/{id}/repos`` response — [] when the entity has no ``repos:`` key."""
+    """``POST /entities/{id}/repos/observed`` response — one context per posted repo."""
 
     entity_id: str
     repos: list[RepoContext] = []
@@ -769,6 +800,68 @@ class RepoUpdateRequest(BaseModel):
     """``repos: []`` removes the frontmatter key entirely (not written as an empty list)."""
 
     repos: list[RepoInput] = []
+
+
+class RepoDeclaration(BaseModel):
+    """One ``repos:`` entry as the page declares it — ``path`` exactly as written.
+
+    ``GET /entities/{id}/repos`` serves only these: the backend never looks at
+    the folder. The app runs git there and posts the outputs back.
+    """
+
+    path: str
+    device: Optional[str] = None
+    remote: Optional[str] = None
+    default_branch: Optional[str] = None
+    worktrees: list[RepoWorktreeInput] = []
+    #: Whether ``device`` is this Mac (``local_refs.is_this_device`` — the one rule,
+    #: so the app never compares names itself): no device, a word like ``Mac``, or
+    #: any of this Mac's host, local host or computer names.
+    on_this_device: bool = True
+
+
+class RepoDeclarationList(BaseModel):
+    """``GET``/``PATCH /entities/{id}/repos`` — declarations plus which device this Mac is."""
+
+    entity_id: str
+    this_device: str
+    repos: list[RepoDeclaration] = []
+
+
+#: One command's stdout cap — ~1,500 porcelain lines; past it a dirty count is a floor.
+REPO_OUTPUT_MAX = 64 * 1024
+#: Only the first command's refusal is read, so its stderr is short.
+REPO_STDERR_MAX = 4 * 1024
+#: The most repos one ``POST /entities/{id}/repos/observed`` may carry.
+REPO_OBSERVED_MAX = 50
+
+
+class RepoCommandOutput(BaseModel):
+    """What one command of ``repo_context.REPO_COMMANDS`` printed, as the app ran it."""
+
+    rc: int
+    stdout: str = Field("", max_length=REPO_OUTPUT_MAX)
+    stderr: str = Field("", max_length=REPO_STDERR_MAX)
+
+
+class RepoObservation(BaseModel):
+    """One declared repo as the app observed it: ``path`` exactly as the page declares it.
+
+    ``outputs`` is keyed by ``repo_context.REPO_COMMANDS``; ``error`` says why
+    there is nothing to parse (no git on this Mac, the first command timed out,
+    or a path that names no folder here).
+    """
+
+    path: str = Field(..., min_length=1, max_length=4096)
+    device: Optional[str] = Field(None, max_length=255)
+    outputs: dict[str, RepoCommandOutput] = Field(default_factory=dict)
+    error: Optional[Literal["git_unavailable", "timeout", "missing"]] = None
+
+
+class RepoObservedRequest(BaseModel):
+    """``POST /entities/{id}/repos/observed``."""
+
+    repos: list[RepoObservation] = Field(default_factory=list, max_length=REPO_OBSERVED_MAX)
 
 
 # --- Claims (M5b — the CPCG belief atom on the wire) ---
@@ -939,6 +1032,10 @@ class EpisodeTurn(CamelModel):
     # `turns` sidecar entry at exactly this turn's start; null otherwise.
     model: Optional[str] = None
     effort: Optional[str] = None
+    # G162: how faithful a video turn's words are — `verbatim` (captions) or
+    # `approximate` (a model's reading of the link, or a record that never said);
+    # only on a `media` turn.
+    fidelity: Optional[str] = None
 
 
 class EpisodeFocus(CamelModel):
@@ -965,6 +1062,20 @@ class EpisodeAgent(CamelModel):
     effort: Optional[str] = None
 
 
+class EpisodeWatch(CamelModel):
+    """G162: how a video-watch episode says it was read. ``basis`` and ``engine`` are
+    the agent's own word (R-VU2), absent for a record made before Cicada asked;
+    ``fidelity`` is derived (``approximate`` unless the engine is a verbatim one);
+    ``author_model`` / ``author_effort`` are the turn join for the ``describes``
+    claim this episode backs (round 4 D1) — null when no captured turn maps."""
+
+    basis: Optional[str] = None
+    engine: Optional[str] = None
+    fidelity: str = "approximate"
+    author_model: Optional[str] = None
+    author_effort: Optional[str] = None
+
+
 class EpisodeText(CamelModel):
     """``GET /episodes/{id}/text`` — a whole stored document for the Reader
     (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
@@ -985,11 +1096,15 @@ class EpisodeText(CamelModel):
     timestamp: Optional[str] = None
     harness: Optional[str] = None
     origin: Optional[str] = None
+    #: The episode's ``source`` (G166: ``page-read`` is what an agent reported from a page — the
+    #: app labels its quotes "From the page, as <agent> read it").
+    source: Optional[str] = None
     conversation_id: Optional[str] = None
     capture_kind: Optional[str] = None
     turns: list[EpisodeTurn] = []
     focus: Optional[EpisodeFocus] = None
     agent: Optional[EpisodeAgent] = None
+    watch: Optional[EpisodeWatch] = None
 
 
 class ProvenanceSpan(CamelModel):
@@ -1051,6 +1166,7 @@ class ProvenanceConversation(CamelModel):
     title: str = ""
     harness: Optional[str] = None
     origin: Optional[str] = None
+    source: Optional[str] = None
     timestamp: Optional[str] = None
     claim_count: int = 0
     available: bool = True
@@ -1118,6 +1234,8 @@ class EpisodeCitation(CamelModel):
     # false only when something replaced it, never for a born-closed done one.
     event_status: Optional[str] = None
     event_day: Optional[str] = None
+    # G162: on a `media` row only — how faithful the video's words are.
+    fidelity: Optional[str] = None
 
 
 class EpisodeCitationEntity(CamelModel):
@@ -1544,6 +1662,9 @@ class GraphLink(CamelModel):
     # M5b: context-colored edges + click-through to a claim (additive/optional).
     context: Optional[str] = None
     claim_id: Optional[str] = None
+    # G61 S3-a: "source" marks a read-time edge from a source's `entity:` link — a source is where to look a fact up,
+    # not a relationship, so a client that lists a page's relationships skips it. Omitted (null) for every other edge.
+    kind: Optional[str] = None
 
 
 class GraphResponse(CamelModel):
@@ -1828,6 +1949,24 @@ class InboxCheckTarget(CamelModel):
     accepted: bool = False
     rungs: list[str] = []
     own_session_only: bool = False
+    verified: bool = False
+    entity: Optional[str] = None   # G61 S3: the page that knows more about this source (raw `entity:`)
+
+
+class InboxCheckFinding(CamelModel):
+    """What an agent reported after looking at a source for this item (G61 S3, shadow: a finding settles nothing, holds
+    nothing and reorders nothing). ``quote`` is the page's words as the agent reported them — served where the item's
+    Cause is, never to a remote connection without ``sources``. ``checker`` is the harness label, never a model."""
+
+    at: str
+    checker: str
+    checker_kind: str = "agent"     # agent | remote
+    host: str = ""
+    ref: Optional[str] = None       # the source that was looked at, as listed
+    outcome: str                    # supports | proposes | unclear | contradicts_all
+    option_key: Optional[str] = None
+    proposed_value: Optional[str] = None
+    quote: Optional[str] = None
 
 
 class InboxCheck(CamelModel):
@@ -1843,6 +1982,9 @@ class InboxCheck(CamelModel):
 
 
 class InboxItem(CamelModel):
+    # G61 S3 (shadow): what agents reported from a source for this item, newest first. Additive; nothing reads it to act.
+    checks: list[InboxCheckFinding] = []
+    last_checked_at: Optional[str] = None
     id: str
     kind: InboxKind
     required_input: RequiredInput
@@ -2034,6 +2176,145 @@ class SleepDebtResponse(CamelModel):
     # — no baseline to call "rested". Every other state gets an honest
     # number (see `sleep_debt.rested_pct_from_components`).
     rested_pct: Optional[int] = None
+    # Conversations parked after failing twice for their own reasons (Sleep page v5):
+    # still waiting (they are in ``unprocessed_count``) but a run's freeze skips them.
+    # ``readable_count`` is what a run would read now — every "reads all N" string uses it.
+    parked_count: int = 0
+    readable_count: Optional[int] = None
+
+
+class SleepDrainStop(CamelModel):
+    """Why a person-started run stopped before it read everything it froze.
+    ``reason``: ``cancelled | plan_limit | engine | bank_switched | error``.
+    ``sentence`` is a plain sentence (the vendor's own for a plan limit) and
+    ``resets_at`` the vendor's unix reset time when one was measured — never
+    estimated (G107)."""
+    reason: str
+    sentence: Optional[str] = None
+    resets_at: Optional[int] = None
+    # Which limit a plan stop was (Sleep page v5): ``five_hour | seven_day | overage | unknown``.
+    limit: Optional[str] = None
+
+
+class SleepDrainStage(CamelModel):
+    """One stage of the running batch. A stage carries a fill only when it counts
+    something that finished (Read, Sort, Decide); Notice and File carry no number.
+    A stage starts over each batch — ``batch_state.index`` says which one."""
+    id: str
+    unit: Optional[str] = None
+    done: int = 0
+    total: Optional[int] = None
+    failed: int = 0
+    state: str = "pending"
+
+
+class SleepDrainBatchState(CamelModel):
+    index: int
+    of: int
+    total: int
+    read: int = 0
+    reading: int = 0
+    failed: int = 0
+
+
+class SleepDrainOrigin(CamelModel):
+    """Per source: ``frozen = filed + read + waiting + could_not_be_read + parked + skipped``
+    at every step. ``read`` is read in the running batch and not yet filed."""
+    frozen: int = 0
+    filed: int = 0
+    read: int = 0
+    waiting: int = 0
+    could_not_be_read: int = 0
+    parked: int = 0
+    skipped: int = 0
+    new_since: int = 0
+
+
+class SleepDrainOwnerPage(CamelModel):
+    beliefs: int
+    at_start: Optional[int] = None
+    after_first_batch: Optional[int] = None
+
+
+class SleepReserveWindow(CamelModel):
+    window: str
+    enforced: Optional[bool] = None
+    reason: Optional[str] = None
+
+
+class SleepReserve(CamelModel):
+    """The reserve line ("Leave room in my plan") and which windows it can enforce.
+    ``enforced`` is true only for a window the engine reported, false for one that
+    should have been reported and was not, null before anything could tell."""
+    pct: Optional[int] = None
+    windows: list[SleepReserveWindow] = Field(default_factory=list)
+
+
+class SleepDrain(CamelModel):
+    """A person-started run ("Consolidate reads everything", 2026-09-29): the
+    queue that was waiting when it began, read in batches of ``batch_size`` (the
+    ``sleep_max_episodes_per_cycle`` setting, now "how often progress is saved"),
+    each filed and committed before the next. Measured counts only, never an
+    estimate. ``batches`` is what the run has done plus what is still to do, so
+    an episode read elsewhere shrinks it. ``skipped`` are frozen episodes
+    something else marked processed first; ``requeued`` failed extraction and
+    wait for the next run; ``arrived_since`` (set when the run ends) counts
+    episodes captured after it began, which also wait."""
+    id: str
+    frozen: int
+    batch_size: int
+    batch: int
+    batches: int
+    filed: int
+    requeued: int = 0
+    skipped: int = 0
+    active: bool = True
+    finished: bool = False
+    stop: Optional[SleepDrainStop] = None
+    arrived_since: Optional[int] = None
+    # --- Sleep page v5. Every key is optional so an older client reads no news. ---
+    started_by: Optional[str] = None            # user | schedule
+    first_run: Optional[bool] = None            # no earlier Sleep commit in this bank
+    committed_batches: Optional[int] = None
+    calls: Optional[int] = None                 # engine calls made in this run; never decreases
+    elapsed_ms: Optional[int] = None            # measured, never a prediction (G107)
+    paused_ms: Optional[int] = None
+    batch_state: Optional[SleepDrainBatchState] = None
+    stages: Optional[list[SleepDrainStage]] = None
+    by_origin: Optional[dict[str, SleepDrainOrigin]] = None
+    parked: Optional[int] = None                # conversations parked in this run
+    owner_page: Optional[SleepDrainOwnerPage] = None
+    reserve: Optional[SleepReserve] = None
+    resumed: Optional[bool] = None
+
+
+class SleepPausedAutoContinue(CamelModel):
+    armed: bool = False
+    at: Optional[int] = None
+    left: Optional[int] = None
+    blocked: Optional[str] = None
+
+
+class SleepPaused(CamelModel):
+    """A run that stopped with conversations still waiting and can be continued. Paused
+    is a fact about a run, not a state of Sleep: ``status`` stays ``idle`` and nothing is
+    held. ``reason``: ``user | plan_window | plan_weekly | reserve | overage | engine |
+    restart``; ``sentence`` is the vendor's own for a plan stop; ``resets_at`` is the
+    vendor's, ``null`` when none was given — never guessed."""
+    run_id: str
+    started_by: str = "user"
+    reason: str
+    sentence: Optional[str] = None
+    resets_at: Optional[int] = None
+    limit: Optional[str] = None
+    filed: int = 0
+    frozen: int = 0
+    calls: int = 0
+    committed_batches: int = 0
+    paused_at: Optional[str] = None
+    can_continue: bool = True
+    engine_label: Optional[str] = None
+    auto_continue: Optional[SleepPausedAutoContinue] = None
 
 
 class SleepStatusResponse(CamelModel):
@@ -2075,6 +2356,10 @@ class SleepStatusResponse(CamelModel):
     # cycle and the rest stayed queued for the next one.
     episode_cap: int = 0
     episodes_queued: int = 0
+    # The configured batch size (``Settings.sleep_max_episodes_per_cycle``), served whether
+    # or not a run has set ``episode_cap`` — a fresh process and an empty-queue run reset the
+    # latter to 0, and the lamp's "a scheduled run reads one batch of N" line needs N always.
+    batch_size: int = 0
     # Sleep control — cooperative cancellation. ``cancel_requested`` is true
     # from the moment ``POST /sleep/cancel`` is accepted for the currently
     # running cycle until it reaches its next safe point (as opposed to a
@@ -2093,6 +2378,11 @@ class SleepStatusResponse(CamelModel):
     # ever implemented).
     cancel_requested: bool = False
     cancelled: bool = False
+    # G177 — Sleep is holding the bank's pages right now (`sleep_cycle.is_writing`):
+    # the whole of a plain cycle, but only a drain batch's write window. The
+    # app's writes and an agent's claim are refused / left uncommitted only while
+    # this is true; `status == "running"` alone no longer means it.
+    writing: bool = False
     # Sleep debt (G106) — always present, computed fresh from the current
     # queue + git log on every response. See `api/services/sleep_debt.py`
     # for the formula and full field contract.
@@ -2107,6 +2397,86 @@ class SleepStatusResponse(CamelModel):
     # Stage 1 has finished (R3). Empty when idle.
     queue_by_origin: dict[str, int] = Field(default_factory=dict)
     read_by_origin: dict[str, int] = Field(default_factory=dict)
+    # A person-started run's progress (``None`` for a plain or scheduled cycle).
+    # During one, the fields above mean: ``episodes_queued`` the frozen total,
+    # ``episode_cap`` the batch size, ``episodes_total`` what the run has
+    # attempted so far (so ``queued > total`` only after an early stop),
+    # ``queue_by_origin`` the frozen list by source, ``read_by_origin`` the
+    # cumulative read, ``stage`` / ``progress`` the current batch's, and the
+    # counters (entities_created … organic_resolutions) the run's running sums.
+    drain: Optional[SleepDrain] = None
+    # A run that stopped with conversations still waiting (Sleep page v5), read from its
+    # machine-local sidecar for the active bank; ``None`` while a run is reading.
+    paused: Optional[SleepPaused] = None
+
+
+class CycleUsageModel(CamelModel):
+    """One ``(engine, model)`` a cycle called (2026-09-28 ruling: the Sleep
+    page shows cost). ``basis`` says what the money figure IS: ``charged`` (the
+    provider's own bill — API key/OpenRouter), ``list`` (a list-price estimate,
+    never a charge — the Claude plan's metering or the price table), ``plan``
+    (a plan call with no tokens or cost to show — the ChatGPT plan) or
+    ``free`` (a local model). Null figures are unknown, never zero."""
+    model: Optional[str] = None
+    engine: Optional[str] = None
+    calls: int = 0
+    failed_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
+    basis: Optional[str] = None
+    # The ledger's own stage names this model was called for (``extraction``, ``disambiguation``…):
+    # data from the ledger, never a claim written into copy that a smaller model "reads".
+    stages: list[str] = Field(default_factory=list)
+
+
+class CycleUsagePlanWindow(CamelModel):
+    """One plan window's share used across the cycle — fractions 0.0-1.0.
+    ``before_is_first_seen``: Claude only reports a window after a call, so its
+    ``before`` is the value after the cycle's first call."""
+    window: str
+    before: float
+    after: float
+    resets_at: Optional[int] = None
+    before_is_first_seen: bool = False
+
+
+class CycleUsagePlan(CamelModel):
+    connection: Optional[str] = None
+    windows: list[CycleUsagePlanWindow] = Field(default_factory=list)
+
+
+class CycleUsage(CamelModel):
+    """``GET /sleep/history/{commit}`` ``usage`` — derived at read from the
+    ledger; ``null`` on the wire means "not recorded" (a cycle from before
+    this shipped, no ``sleep_run``, or an inbox/decay commit)."""
+    recorded: bool = True
+    engine: Optional[str] = None
+    connection: Optional[str] = None
+    models: list[CycleUsageModel] = Field(default_factory=list)
+    total_cost_usd: Optional[float] = None
+    total_equiv_usd: Optional[float] = None
+    # charged | list | plan | free | mixed; null when no model was called.
+    basis: Optional[str] = None
+    plan: Optional[CycleUsagePlan] = None
+
+
+class CycleUsageSummaryPlan(CamelModel):
+    window: str
+    before: float
+    after: float
+
+
+class CycleUsageSummary(CamelModel):
+    """``SleepHistoryEntry.usageSummary`` — flat and small on purpose (the M1
+    lesson); the app words it, the server never sends a sentence."""
+    basis: Optional[str] = None
+    cost_usd: Optional[float] = None
+    equiv_cost_usd: Optional[float] = None
+    engine: Optional[str] = None
+    connection: Optional[str] = None
+    plan: Optional[CycleUsageSummaryPlan] = None
 
 
 class SleepHistoryEntry(CamelModel):
@@ -2136,6 +2506,81 @@ class SleepHistoryEntry(CamelModel):
     sessions: int = 0
     authors: list[str] = Field(default_factory=list)
     duration_ms: Optional[int] = None
+    # 2026-09-28 ruling: what the cycle cost, joined from the ledger at read
+    # (never cached with the git-derived entry). None = not recorded.
+    usage_summary: Optional[CycleUsageSummary] = None
+    # Sleep page v5 — the run this commit was a batch of (from the ledger row's refs) and the
+    # run's own numbers (from its machine-local summary, never summed from the visible page of
+    # history: a long run alone can fill it). ``None`` for a plain cycle, an older commit, or
+    # when telemetry is off (batches then read ungrouped).
+    drain_id: Optional[str] = None
+    batch: Optional[int] = None
+    batches: Optional[int] = None
+    run: Optional["SleepRunRef"] = None
+
+
+class SleepRunRef(CamelModel):
+    id: str
+    batches: int = 0
+    filed: int = 0
+    parked: int = 0
+    frozen: int = 0
+    pauses: int = 0
+    read_ms: int = 0
+    paused_ms: int = 0
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    state: Optional[str] = None            # running | paused | finished | failed | ended
+    started_by: str = "user"
+
+
+class SleepRunPause(CamelModel):
+    started_at: str
+    ended_at: Optional[str] = None
+    reason: str
+    resets_at: Optional[int] = None
+
+
+class SleepRunBatch(CamelModel):
+    index: int
+    commit: Optional[str] = None
+    ts: Optional[str] = None
+    filed: int = 0
+    not_filed: int = 0             # read but not filed, or not started: failed, or stopped by the reserve line
+    took_ms: Optional[int] = None
+    calls: int = 0
+    windows: list["CycleUsagePlanWindow"] = Field(default_factory=list)
+
+
+class SleepRunPages(CamelModel):
+    created: int = 0
+    owner_touched: Optional[bool] = None
+    first: list[str] = Field(default_factory=list)   # page ids (at most 8) the run created first
+
+
+class SleepRunDetail(CamelModel):
+    """``GET /sleep/runs/{id}`` — one whole run, engine-free (ids, counts and enums; never a
+    title or a line of text). Unknown is ``null``, never zero. Plan windows are per batch:
+    a reset between two batches is visible there and never averaged away."""
+    id: str
+    started_by: str = "user"
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    state: Optional[str] = None
+    filed: int = 0
+    frozen: int = 0
+    parked: int = 0
+    skipped: int = 0
+    calls: Optional[int] = None
+    read_ms: Optional[int] = None
+    paused_ms: Optional[int] = None
+    pauses: list[SleepRunPause] = Field(default_factory=list)
+    questions_raised: Optional[int] = None
+    owner: Optional[SleepDrainOwnerPage] = None
+    batches: list[SleepRunBatch] = Field(default_factory=list)
+    models: list["CycleUsageModel"] = Field(default_factory=list)
+    usage: Optional["CycleUsage"] = None
+    pages: Optional[SleepRunPages] = None
 
 
 class SleepCycleEntity(CamelModel):
@@ -2151,6 +2596,7 @@ class SleepCycleDetail(SleepHistoryEntry):
     truncated: bool = False
     episodes_by_origin: dict[str, int] = Field(default_factory=dict)
     inbox_changes: int = 0
+    usage: Optional[CycleUsage] = None
 
 
 class EpisodeQueueItem(CamelModel):
@@ -2216,9 +2662,10 @@ class ScheduleConfig(CamelModel):
 class SleepEngineCandidate(CamelModel):
     """One row of the picker's segmented control. Deliberately NOT a reuse of
     ``ConnectionStatus`` (that schema carries login/billing/price fields no
-    candidate needs, and G124 bans price/token fields from this surface
-    entirely) — a candidate only needs enough to render a segment and, once
-    selected, a model list."""
+    candidate needs) — a candidate needs enough to render a segment and, once
+    selected, a model list. Since the 2026-09-28 ruling it may carry one
+    ``usage`` caption source (a plan window, or a model's list price) and the
+    picker's per-model list prices; the ruling covers the Sleep page only."""
     id: str
     label: str
     available: bool = False
@@ -2228,11 +2675,38 @@ class SleepEngineCandidate(CamelModel):
     # R-AG12: what a tap writes, when it is not the card's own id — the
     # OpenRouter card is `byok` under the hood, so ruling 4 never sees a new mode.
     mode: Optional[str] = None
+    usage: Optional["SleepEngineUsage"] = None
+    # model id -> list price per million tokens, for the model picker. A
+    # parallel map, so `models` keeps its element type for an older app.
+    model_prices: dict[str, "SleepEngineModelPrice"] = Field(default_factory=dict)
+
+
+class SleepEngineModelPrice(CamelModel):
+    input_per_million_usd: Optional[float] = None
+    output_per_million_usd: Optional[float] = None
+
+
+class SleepEngineUsage(CamelModel):
+    """A candidate's caption source. ``kind``: ``plan-window`` (a window's
+    used fraction 0.0-1.0, ``resets_at`` unix seconds, ``as_of`` the ISO time
+    of the reading, ``source`` = ``codex-snapshot`` | ``last-cycle``) or
+    ``list-price`` (a model's list price per million tokens and the last
+    cycle's charged cost). The app derives every relative word from these."""
+    kind: str
+    window: Optional[str] = None
+    used_fraction: Optional[float] = None
+    resets_at: Optional[int] = None
+    as_of: Optional[str] = None
+    source: Optional[str] = None
+    model: Optional[str] = None
+    input_per_million_usd: Optional[float] = None
+    output_per_million_usd: Optional[float] = None
+    last_cycle_cost_usd: Optional[float] = None
 
 
 class SleepEngineProvider(CamelModel):
     """One row of the API-key card's provider picker (R-AG11). Names and ids
-    only; ``has_key`` is presence, never a value; no price (G124)."""
+    only; ``has_key`` is presence, never a value."""
     id: str
     label: str
     connection_id: str
@@ -2250,6 +2724,10 @@ class SleepEnginePreview(CamelModel):
     engine: str
     model: str
     why: str
+    # How a run on this engine is billed (Sleep page v5), from the engine id alone —
+    # no provider name: ``plan`` (a plan you signed in to), ``charged`` (per use, on a key),
+    # ``local`` (this Mac) or ``unknown``. A scheduled preview is never ``plan`` (ruling 4).
+    billing: Optional[str] = None
 
 
 class SleepEnginePreviews(CamelModel):
@@ -2266,8 +2744,9 @@ class SleepEngineResponse(CamelModel):
     ``mode`` is what it is — ``"env"`` (an explicit ``CICADA_LLM_MODE``),
     ``"prefs"`` (this endpoint's own pref, G122), or ``"default"`` (nobody
     chose, today's shipped behaviour) — mirroring ``ConnectionStatus.how``'s
-    own "explain the state next to what decided it" shape. No price, no
-    token count, anywhere on this schema (G124)."""
+    own "explain the state next to what decided it" shape. Prices and plan
+    usage ride only on a candidate's ``usage`` (2026-09-28 ruling, Sleep page
+    only)."""
     mode: str
     model: str
     disambiguation_model: str
@@ -2285,6 +2764,68 @@ class SleepEngineResponse(CamelModel):
     selected: str = ""
     provider: Optional[str] = None
     providers: list[SleepEngineProvider] = Field(default_factory=list)
+    # "Leave room in my plan" (Sleep page v5): the line, the choices, whether it applies to
+    # the engine a run you start would use, and which windows are enforced (from the last
+    # run's observations; ``null`` = nothing could tell yet).
+    reserve: Optional["SleepReserveStatus"] = None
+
+
+class SleepReserveStatus(CamelModel):
+    pct: Optional[int] = None
+    choices: list[int] = Field(default_factory=list)
+    applies: bool = False
+    windows: list[SleepReserveWindow] = Field(default_factory=list)
+
+
+class SleepRunOptions(CamelModel):
+    """Reading options: how often progress is saved, whether a run you start may continue
+    itself after its plan window resets (TODO ruling 15; off), and the reserve line
+    (off). A run snapshots them when it starts."""
+    batch_size: int
+    batch_size_choices: list[int] = Field(default_factory=list)
+    continue_after_reset: bool = False
+    reserve_pct: Optional[int] = None
+    reserve_choices: list[int] = Field(default_factory=list)
+
+
+class SleepRunOptionsUpdate(CamelModel):
+    """A PUT body; omitted fields are left alone (``reservePct: null`` clears it)."""
+    batch_size: Optional[int] = None
+    continue_after_reset: Optional[bool] = None
+    reserve_pct: Optional[int] = None
+
+
+class SleepTriggerBody(BaseModel):
+    """``POST /sleep/trigger``'s optional body. ``continue: true`` resumes the paused run;
+    with no paused run, or no body at all, it is a fresh run (the documented curl stays)."""
+    model_config = ConfigDict(populate_by_name=True)
+    continue_run: bool = Field(False, alias="continue")
+
+
+class SleepParkedRetryBody(CamelModel):
+    ids: Optional[list[str]] = None
+
+
+class SleepEndRunResponse(CamelModel):
+    status: str
+    message: str
+
+
+class SleepQueueItem(CamelModel):
+    id: str
+    timestamp: str = ""
+    origin: str = "unknown"
+    title: Optional[str] = None
+    state: str = "waiting"          # waiting | reading | read | filed | could_not_be_read | parked
+    reason: Optional[str] = None    # empty_answer | timed_out | unparseable | refused | other
+    attempts: int = 0
+    batch: Optional[int] = None
+
+
+class SleepQueueResponse(CamelModel):
+    total: int
+    offset: int = 0
+    items: list[SleepQueueItem] = Field(default_factory=list)
 
 
 class SleepEngineChoice(CamelModel):
@@ -2669,6 +3210,42 @@ class SourceRssRequest(CamelModel):
     tags: list[str] = []
 
 
+class ReadState(CamelModel):
+    """G166: how a saved link was read, and whether an agent may be asked to.
+
+    ``status`` is ``none`` (never read, and no ask), ``waiting`` (the person asked
+    an agent), ``ok`` (an agent read it), or the agent's outcome ``needs_login`` |
+    ``blocked`` | ``not_found`` | ``failed``. ``by``/``tier`` are ``agent`` only
+    when an agent read it. ``via`` is what the agent SAID it read with —
+    self-reported, never proof; ``harness`` is the connection's label.
+    ``askable``/``reason`` let the app decide "Ask an agent" without a host table
+    of its own: ``askable`` false carries the plain sentence why (agent reading
+    off, a video, a secret-bearing link) — never a site, because "Ask an agent" on
+    one page is the person's own consent for it. ``wall`` (``walled`` | ``login`` |
+    ``consent`` | ``refused``) is present when Cicada's own reader could not read
+    the page and it holds no words; ``siteKey``/``siteLabel``/``siteAllowed`` name
+    the site the person can let an agent read, and ``queuedBy: site`` marks a
+    ``waiting`` that comes from that permission rather than from an ask."""
+
+    by: Optional[str] = None
+    status: str = "none"
+    tier: Optional[str] = None
+    at: Optional[str] = None
+    asked_at: Optional[str] = None
+    via: Optional[str] = None
+    harness: Optional[str] = None
+    note: Optional[str] = None
+    host: Optional[str] = None
+    wall: Optional[str] = None
+    site_key: Optional[str] = None
+    site_label: Optional[str] = None
+    site_allowed: Optional[bool] = None
+    site_icon_host: Optional[str] = None
+    queued_by: Optional[str] = None
+    askable: bool = False
+    reason: Optional[str] = None
+
+
 class MediaSourceItem(CamelModel):
     media_entity_id: str
     url: str
@@ -2720,6 +3297,10 @@ class MediaSourceItem(CamelModel):
     # shows and searches; both absent for every other media row.
     kind: Optional[str] = None
     paper: Optional[PaperSummary] = None
+    # G166 — additive and defaulted: an older client and every older ETag body
+    # decode unchanged. `None` for a video or a paper (not read here); otherwise
+    # the read state and whether "Ask an agent" is on offer.
+    read: Optional[ReadState] = None
 
 
 class SourceListResponse(CamelModel):
@@ -2737,11 +3318,12 @@ class ChromiumBookmarksFile(CamelModel):
 
 
 class BookmarkSyncRequest(CamelModel):
-    # Both optional + base64-encoded so the same endpoint works for an inline
-    # hermetic test payload and (when omitted entirely) a local-file sync.
+    # The bookmark files the companion app read, base64-encoded. Each field is
+    # optional, but the route answers 422 unless at least one carries data:
+    # the backend never reads a browser's file itself (the `~/Library` rail).
     # `forbid` (round 4 phase A final review, finding 3): an unknown field is
-    # a 422, never silently dropped into the no-data local-file fallback —
-    # that is how a pre-round-4 route read Chrome for a `chromium`-only body.
+    # a 422, never silently dropped — that is how a pre-round-4 route saw no
+    # data in a `chromium`-only body and read Chrome's file instead.
     model_config = ConfigDict(extra="forbid")
     chrome_data_b64: Optional[str] = None
     safari_data_b64: Optional[str] = None
@@ -2903,10 +3485,9 @@ class MaintenanceEnrichLinksResponse(CamelModel):
 
 
 class NotesSyncRequest(CamelModel):
-    # The raw delimited osascript dump (what tests and a future companion-app
-    # path use), mirroring BookmarkSyncRequest's inline-data shape. Omitted
-    # entirely -> the endpoint falls back to a real local osascript enumeration.
-    notes_dump: Optional[str] = None
+    # The raw delimited dump the companion app read from Notes.app
+    # (`AppleNotesReader.swift`). Required: the backend never runs osascript.
+    notes_dump: str
 
 
 class NotesSyncResponse(CamelModel):

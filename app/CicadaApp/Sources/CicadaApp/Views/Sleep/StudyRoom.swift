@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// VoiceOver's order through the default view (Track Z §11): the sentence,
-/// the worm, the window, the lamp, the spines (largest first), the control,
+/// the worm, the window, the wall clock, the lamp, the spines (largest first), the control,
 /// the whisper line, then Details. One table, read by every element that
 /// sets a priority, so the order can be reviewed in one place.
 ///
@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// accessibility container.** The room card is a `.contain` container
 /// (sentence → room → control → whisper; the strip, when shown, keeps the
 /// default 0 and reads last). The room is its own `.contain` container inside
-/// it (worm → window → lamp → the pile's container, whose spines order
+/// it (worm → window → clock → lamp → the pile's container, whose spines order
 /// themselves largest first). Details sits **outside** the card and carries
 /// no priority, so it follows in document order. A priority of 1 on it would
 /// sort it ahead of the page title and the whole card, because the page's
@@ -28,6 +28,7 @@ enum RoomA11yOrder {
     // Inside the room.
     static let worm: Double = 4
     static let window: Double = 3
+    static let clock: Double = 2.5
     static let lamp: Double = 2
     static let spines: Double = 1
 }
@@ -98,20 +99,35 @@ struct StudyRoom: View {
     var reachable: Bool = true
 
     @Environment(IntakeRouter.self) private var intake
+    @Environment(AppRouter.self) private var appRouter: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePaused) private var hostPaused
+    @AppStorage(SceneryMode.defaultsKey) private var sceneryRaw = SceneryMode.localWeather.rawValue
+    @AppStorage(ManualScenery.timeKey) private var timeRaw = "day"
+    @AppStorage(ManualScenery.baseKey) private var baseRaw = "sunny"
+    @State private var windowVisible = false
 
     var body: some View {
-        let scene = deskSceneLayout(pointSize: SleepView.wormPointSize)
+        let scene = deskSceneLayout()
         let spots = deskHotspots(scene)
+        let mode = SceneryMode.stored(sceneryRaw)
+        let zoneID = SceneStore.shared.timeZoneIdentifier
+        let onScreen = windowVisible && !hostPaused && appRouter?.settingsOpen != true
+        let scenery = Scenery.resolve(mode: mode, clock: SceneStore.shared.phase,
+                                      forecast: LocalWeatherReader.shared.base(for: zoneID, refreshWhenVisible: onScreen && mode == .localWeather), mood: page.mood,
+                                      manual: ManualScenery(timeRaw: timeRaw, baseRaw: baseRaw))
         ZStack(alignment: .bottomLeading) {
-            // R-A3: lit exactly when Sleep is scheduled — the lamp and the
-            // whisper line read the same field, so the art never disagrees
-            // with the words. R-Z11: the window's sky is the mood alone —
-            // the same `page.mood` the sentence and the worm read.
-            DeskSceneView(pointSize: SleepView.wormPointSize, lampLit: page.lampLit,
-                          weather: windowWeather(for: page.mood))
-            WormStage(mood: page.mood, room: room, pointSize: SleepView.wormPointSize)
-                .offset(x: scene.wormOrigin.x, y: -scene.wormOrigin.y)   // R-Z4: the lattice placement, whole cells
+            // The lamp still means schedule; the worm still means Sleep. Environment is independent.
+            SceneryRoomArt(lampLit: page.lampLit, scenery: scenery, cell: scene.cell, includesClock: false,
+                          suppressWormCrossfade: room.transition != nil || room.reaction != nil) {
+                WormStage(mood: page.mood, room: room, cell: scene.cell,
+                          lighting: scenery.lighting, lampLit: page.lampLit)
+            }
+            .environment(\.scenePaused, !onScreen)
+            if let clock = scene.layers.first(where: { $0.prop == .clock }) {
+                RoomClock(lighting: scenery.lighting, cell: scene.cell, onScreen: onScreen)
+                    .offset(x: CGFloat(clock.cellX) * scene.cell, y: -CGFloat(clock.cellY) * scene.cell)
+            }
             // The REAL pile, in the column the layout reserves for it —
             // never a painted stack (P10).
             BookPileView(books: page.books, rows: page.rows, episodes: episodes, room: room,
@@ -136,18 +152,17 @@ struct StudyRoom: View {
                     .offset(x: lamp.minX, y: -lamp.minY)
             }
             if let window = spots[.window] {
-                let weather = windowWeather(for: page.mood)
                 // I11 — the window opens its legend: the weather's text twin.
                 Button { room.legendShown = true } label: { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(.cicadaPlain)
                     .frame(width: window.width, height: window.height)
                     .roomLinkCursor()
-                    .help("\(weather.title): \(weather.meaning)")
-                    .accessibilityLabel("Window, \(weather.title): \(weather.meaning)")
+                    .help(scenery.text)
+                    .accessibilityLabel("Window, \(scenery.text)")
                     .accessibilityHint(Copy.windowHint)
                     .accessibilitySortPriority(RoomA11yOrder.window)
                     .popover(isPresented: Binding(get: { room.legendShown }, set: { room.legendShown = $0 }),
-                             arrowEdge: .top) { WindowLegend(current: weather) }
+                             arrowEdge: .top) { WindowLegend(current: scenery) }
                     .offset(x: window.minX, y: -window.minY)
             }
             if let worm = spots[.worm] {
@@ -184,6 +199,17 @@ struct StudyRoom: View {
         // Z-B8 — a claim never outlives the room: a page torn down mid-drag
         // (a tab switch) would otherwise keep the window's veil hidden.
         .onDisappear { intake.releaseDrop(.sleepRoom) }
+        .background(WindowVisibilityReader { windowVisible = $0 })
+        .task(id: WeatherWatchKey(onScreen: onScreen, mode: mode, zone: zoneID)) {
+            await LocalWeatherReader.shared.watch(onScreen: onScreen, mode: mode,
+                                                   zone: TimeZone(identifier: zoneID) ?? .autoupdatingCurrent)
+        }
+        .onChange(of: page.mood.caseName) { old, _ in
+            room.moodChanged(from: old, to: page.mood, reduceMotion: reduceMotion)
+        }
+        // Only a lighting sheet swap re-identifies the worm; beat lifetimes belong to the stable room.
+        .task(id: room.reaction?.id) { await room.settleReaction() }
+        .task(id: room.transition?.id) { await room.settleTransition() }
         .accessibilityElement(children: .contain)
     }
 
@@ -228,15 +254,16 @@ private struct DropOutline: View {
 struct WormStage: View {
     let mood: BookwormState
     let room: RoomModel
-    let pointSize: CGFloat
+    let cell: CGFloat
+    var lighting: RoomLighting = .day
+    var lampLit: Bool = false
 
     var body: some View {
-        BookwormView(state: mood, pointSize: pointSize, caption: nil,
+        BookwormView(state: mood, latticeCell: cell, caption: nil,
                      pose: Self.pose(drag: room.drag, pointerInRoom: room.pointerInRoom, gaze: room.gaze),
-                     reaction: room.reaction)
+                     reaction: room.reaction, transition: room.transition, lighting: lighting, lampLit: lampLit)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
-            .task(id: room.reaction?.id) { await room.settleReaction() }
     }
 
     /// A drag outranks the pointer (§6.1): the armed pose is the drop cue.
@@ -269,7 +296,9 @@ struct WormHotspot: View {
         Color.clear
             .contentShape(Rectangle())
             .onTapGesture { poke() }
-            .focusable()
+            // Owner 2026-10-02: a click must not leave a blue focus ring around the worm. Activate-only focus keeps it
+            // a keyboard and VoiceOver stop (Full Keyboard Access) while a pointer click never takes focus.
+            .focusable(interactions: .activate)
             .onKeyPress(.space) { poke(); return .handled }
             .onKeyPress(.return) { poke(); return .handled }
             .onKeyPress(.escape) {

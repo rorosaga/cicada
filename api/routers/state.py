@@ -13,9 +13,9 @@ the schedule is expressed in, exactly as ``/status`` does) and ``stale``
 (the file's ``inputs_version`` no longer matches the bank).
 
 Reads regenerate lazily (R4): an inbox resolution or an agentic write
-changed an input, so the first read afterwards rebuilds — cheaply, carrying
-the previous repo blocks over. ``?refresh=true`` forces a rebuild with live
-repo probes (bounded, ``state_dictionary.REPO_BUDGET_S``). A read that
+changed an input, so the first read afterwards rebuilds — cheaply. Repo
+blocks are the app's last observation (``repo_observations``), never a git
+run in a declared folder. ``?refresh=true`` forces a rebuild. A read that
 rewrote the file COMMITS it, alone, as ``cicada`` — through the same
 ``state_dictionary.refresh_and_commit`` Sleep's tail uses (final review,
 2026-09-03: a projection left dirty was reproduced riding in the next
@@ -45,12 +45,8 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.services import sleep_debt, sleep_scheduler, state_dictionary, sync_service
-from api.services.repo_context import resolve_repo_context
 
 router = APIRouter()
-
-# Injectable seam (tests): the live git prober behind `?refresh=true`.
-repo_resolver = resolve_repo_context
 
 
 def _state_mtime_ns(settings: Settings) -> int:
@@ -72,10 +68,7 @@ async def get_state(
     # the same helper Sleep's tail uses, so a read never rewrites the file
     # just because the two writers named different connection lists. The
     # helper commits only when it wrote, and never raises on a normal bank.
-    await state_dictionary.refresh_and_commit(
-        memory_path, settings,
-        force=refresh, probe_repos=refresh, repo_resolver=repo_resolver if refresh else None,
-    )
+    await state_dictionary.refresh_and_commit(memory_path, settings, force=refresh)
     etag = sync_service.etag_for(
         memory_path, "entities", "inbox", "episodes", "git_head", extra=f"state={_state_mtime_ns(settings)}"
     )

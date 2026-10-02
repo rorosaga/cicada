@@ -91,6 +91,11 @@ struct FolderChannelRow: View {
                     .foregroundStyle(CicadaTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // G161 — the notes the folder brought in, one row per file.
+            if channel.connected {
+                CapturedItemsList(channel: channel.id)
+                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
+            }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.spacingSM)
@@ -485,6 +490,11 @@ struct WisprFlowRow: View {
             }
             if let error = localSources.wisprError, case .notReadable = error {
                 FullDiskAccessHint(error: error)
+            }
+            // G161 — the meetings and notes Wispr Flow brought in, by title.
+            if channel?.connected == true {
+                CapturedItemsList(channel: LocalSourceWatcher.wisprChannel)
+                    .padding(.leading, CicadaTheme.scaled(28) + CicadaTheme.spacingMD)
             }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)

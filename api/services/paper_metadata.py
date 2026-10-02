@@ -271,7 +271,10 @@ def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today:
     alias = None
     if learned:
         alias = papers.PaperKey(arxiv_id=paper.get("arxiv_id"), doi=learned)
-        fact_sources.add_source(memory_path, entity_id, f"https://doi.org/{learned}", kind="url", added_by="cicada")
+        try:
+            fact_sources.add_source(memory_path, entity_id, f"https://doi.org/{learned}", kind="url", added_by="cicada")
+        except fact_sources.InvalidSource:
+            pass   # a removed DOI link, or a full page: the details already written stand (provenance never blocks)
     return _IndexOp(entity_id, alias=alias, title=new_title) if (alias or new_title) else None
 
 
@@ -308,7 +311,7 @@ def _replay_index(memory_path: Path, ops: list[_IndexOp]) -> bool:
 def _sleep_running() -> bool:
     from api.services import sleep_cycle
 
-    return sleep_cycle.get_sleep_state().status == "running"
+    return sleep_cycle.is_writing()
 
 
 def _write_guarded(memory_path: Path, entity_id: str, report: dict, paths: set[str], ops: list[_IndexOp],
@@ -498,7 +501,7 @@ async def resolve_in_background(memory_path: Path) -> None:
     try:
         from api.services import sleep_cycle
 
-        if sleep_cycle.get_sleep_state().status == "running":
+        if sleep_cycle.is_writing():
             return
         await run_locked(memory_path, stop_if_sleeping=True)
     except Exception as e:  # noqa: BLE001 - a background run never surfaces as a 500

@@ -25,7 +25,7 @@ from loguru import logger
 from api.services.decay_migration import backfill_decay_classes
 from api.services.decay_watermark_migration import backfill_decay_watermarks
 from api.services.export_origin_migration import backfill_export_origins
-from api.services.inbox_migration import dedup_open_items, migrate_to_inbox
+from api.services.inbox_migration import dedup_decay_items, dedup_open_items, migrate_to_inbox
 from api.services.paper_claim_text_migration import repair_paper_claim_text
 from api.services.paper_context_migration import repair_paper_contexts
 from api.services.placeholder_summary_migration import rewrite_placeholder_summaries
@@ -54,6 +54,14 @@ def run_bank_migrations(memory_path) -> dict:
     deduped = dedup_open_items(memory_path)
     if deduped:
         logger.info(f"Collapsed {deduped} duplicate open inbox item(s)")
+
+    # Track B: the same collapse for the "Still tracking X?" copies a long drain
+    # wrote before a decay question was asked once (its own marker — the
+    # dedup above never looked at decay).
+    deduped_decay = dedup_decay_items(memory_path)
+    if deduped_decay:
+        logger.info(f"Collapsed {deduped_decay} duplicate open decay item(s)")
+    deduped += deduped_decay
 
     # G66: one-time backfill of `decay_class` for pages written before the
     # class vocabulary existed (media -> evergreen, skills -> durable),
@@ -107,6 +115,20 @@ def run_bank_migrations(memory_path) -> dict:
             f"Repaired the words of {paper_claim_text['claims']} paper claim(s) on "
             f"{paper_claim_text['pages']} page(s)"
         )
+
+    # Sleep page v5: a run's sidecar that says it was still reading belongs to a process that is
+    # gone (a run pins its bank, so nothing can be reading in a bank being activated or booted):
+    # it becomes a paused run, or is deleted when everything it froze is filed. Machine-local, so
+    # it leaves the bank untouched, and it is not part of the returned summary.
+    from api.services import sleep_paused
+
+    sleep_paused.recover_after_restart(memory_path)
+    # Its armed continue-after-reset (TODO ruling 15) is per bank: re-arm it here too, so a bank
+    # activated after boot keeps the promise its sidecar makes (a no-op without a scheduler bound
+    # beyond marking the record not armed, and never raises).
+    from api.services import sleep_autocontinue
+
+    sleep_autocontinue.rearm_after_restart(memory_path)
 
     return {
         "moved": moved,

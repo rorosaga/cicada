@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from api.config import Settings
-from api.models.schemas import InboxCause, InboxCheck, InboxItem, InboxOption, InboxResolveRequest
+from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
     decay_policy,
     fact_sources,
@@ -162,7 +162,9 @@ def _item_from_file(
             )
         )
 
+    findings = _check_findings(fm)
     return InboxItem(
+        checks=findings, last_checked_at=findings[0].at if findings else None,
         id=filepath.stem,
         kind=kind,
         required_input=required_input,
@@ -191,6 +193,21 @@ def _item_from_file(
         claim_id=_opt_str(fm.get("claim_id")),
         **extra,
     )
+
+
+def _check_findings(fm: dict) -> list[InboxCheckFinding]:
+    """The item's ``checks:`` list as served (G61 S3): newest first, a malformed row skipped, never a hidden card."""
+    out: list[InboxCheckFinding] = []
+    for row in fm.get("checks") or []:
+        if not isinstance(row, dict) or not row.get("at") or not row.get("outcome"):
+            continue
+        out.append(InboxCheckFinding(
+            at=str(row["at"]), checker=str(row.get("checker") or "agent"),
+            checker_kind=str(row.get("checker_kind") or "agent"), host=str(row.get("host") or ""),
+            ref=_opt_str(row.get("ref")),
+            outcome=str(row["outcome"]), option_key=_opt_str(row.get("option_key")),
+            proposed_value=_opt_str(row.get("proposed_value")), quote=_opt_str(row.get("quote"))))
+    return sorted(out, key=lambda f: f.at, reverse=True)
 
 
 def _extractor_refs(fm: dict, kind: str, context: "inbox_context.InboxContext") -> dict:
@@ -908,7 +925,7 @@ async def resolve(
         change=change,
     )
     # G53 (R4) — the pending count just changed; refresh the projection
-    # cheaply (no repo probes, previous blocks carried over) and commit it
+    # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
     # person's answer. Runs AFTER the commit on purpose: `commit_resolution`
     # is `git add -A`, and refreshing first would attribute the projection
@@ -920,7 +937,7 @@ async def resolve(
     try:
         from api.services import state_dictionary
 
-        await state_dictionary.refresh_and_commit(settings.memory_path, settings, probe_repos=False)
+        await state_dictionary.refresh_and_commit(settings.memory_path, settings)
     except Exception as exc:
         logger.warning(f"state refresh after resolution skipped: {type(exc).__name__}: {exc}")
     return {"status": "resolved", "id": item_id}
@@ -992,9 +1009,14 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
         # was raised over, not just the entity's summary confidence — without
         # this, a `keep_active` left the claim itself faded (and, if decay had
         # already closed it, still closed) while the entity page read `active`.
-        claim_id = _opt_str(parsed.frontmatter.get("claim_id"))
+        # One item is one question about the page, however many of its claims
+        # were fading when it was raised or refreshed: the verdict reaches
+        # every claim it covered (`claim_id` plus the refreshes' `claim_ids`).
+        from api.services.inbox_generator import decay_claim_ids
+
+        claim_ids = set(decay_claim_ids(parsed.frontmatter))
         body = entity.body
-        if claim_id:
+        if claim_ids:
             from api.services.claims import MalformedClaimsBlockError, parse_claims, write_claims
 
             try:
@@ -1008,7 +1030,7 @@ async def _resolve_decay(path, parsed, request, settings) -> tuple[str, bool]:
                 claims = None
             if claims:
                 for c in claims:
-                    if c.id == claim_id:
+                    if c.id in claim_ids:
                         c.confidence = max(float(c.confidence or 0), 0.6)
                         if c.valid_to and not c.superseded_by:
                             c.valid_to = None  # faded, not replaced — reopen it

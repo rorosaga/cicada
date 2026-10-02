@@ -16,6 +16,11 @@ import json
 import re
 
 
+class EmptyResponse(ValueError):
+    """The answer was empty (a ``ValueError``, so every existing catch still holds) —
+    told apart from an unparseable one so a drain can say which."""
+
+
 def parse_json_object(raw: str | None) -> dict:
     """Parse a JSON object from a possibly-noisy LLM response.
 
@@ -23,7 +28,7 @@ def parse_json_object(raw: str | None) -> dict:
     trailing commentary after it.
     """
     if not raw or not raw.strip():
-        raise ValueError("empty LLM response")
+        raise EmptyResponse("empty LLM response")
     text = raw.strip()
 
     # Strip a leading ```json / ``` fence and its closing ``` if present.

@@ -33,7 +33,9 @@ def _split(value: str | None) -> set[str] | None:
 # C11 (G146, plan R-PE5): "+pictures" — nodes gained `picture`, `pictureSource` (omitted when absent) and
 # `lastReferenced`. The ETag's components did not move for the pages that already exist, so the bump is what makes
 # every client take one 200.
-NODE_SHAPE = "aliases+f1-facets+pictures"
+#
+# G61 S3-a: "+source-links" — `links` gained read-time edges from a source's `entity:` link, each `kind: "source"`.
+NODE_SHAPE = "aliases+f1-facets+pictures+source-links"
 
 
 @router.get("/graph", response_model=GraphResponse)

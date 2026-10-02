@@ -261,13 +261,13 @@ def test_cancel_after_writes_began_still_commits_normally(tmp_path, monkeypatch,
     from api.services import inbox_generator
     real_generate = inbox_generator.generate
 
-    async def fake_generate(changes, skills, memory_path, relationships=None):
+    async def fake_generate(changes, skills, memory_path, relationships=None, **kwargs):
         # Simulate a cancel landing exactly as Stage 5 starts writing —
         # `write_started` is already True by the time `_run_stages` calls
         # this (see sleep_cycle.py's Stage 5 preamble).
         was_running, _ = sleep_cycle.request_cancel()
         assert was_running is True
-        await real_generate(changes, skills, memory_path, relationships=relationships)
+        await real_generate(changes, skills, memory_path, relationships=relationships, **kwargs)
 
     commit_calls = []
 
@@ -538,6 +538,18 @@ def test_cancel_endpoint_requests_cancellation_when_running_and_is_idempotent():
         state.cancel_requested = False
 
 
+def test_sleep_status_serves_the_configured_batch_size_with_no_run_behind_it():
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    state = sleep_cycle.get_sleep_state()
+    state.episode_cap = 0     # a fresh process, or an empty-queue run, leaves this at 0
+    body = TestClient(main.app).get("/sleep/status").json()
+    assert body["episodeCap"] == 0
+    assert body["batchSize"] == 25
+
+
 def test_sleep_status_exposes_cap_and_cancel_fields():
     from fastapi.testclient import TestClient
 
@@ -554,6 +566,7 @@ def test_sleep_status_exposes_cap_and_cancel_fields():
         assert body["episodesQueued"] == 30
         assert body["cancelRequested"] is True
         assert body["cancelled"] is False
+        assert body["drain"] is None, "a plain cycle carries no drain block"
     finally:
         state.episode_cap = 0
         state.episodes_queued = 0

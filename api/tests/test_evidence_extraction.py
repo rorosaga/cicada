@@ -149,3 +149,33 @@ def test_reinforce_merges_spans_and_drops_a_redundant_reasoning_entry():
         Evidence(episode="ep_b", start=4, end=12, kind="assistant", hash="h2"),
         Evidence(episode="ep_c", start=-1, end=-1, kind="reasoning", hash=""),
     ]
+
+
+def test_prompt_says_attachments_are_documents_not_the_users_words():
+    prompt = ex.EXTRACTION_SYSTEM_PROMPT
+    assert "attachment [<file name>]:" in prompt
+    low = " ".join(prompt.lower().split())
+    assert "document the user shared" in low
+    assert "never attribute a document's contents to the user" in low
+    assert "only inside a document" in low
+
+
+def test_prompt_treats_claude_memory_as_dated_lower_trust_background():
+    low = " ".join(ex.EXTRACTION_SYSTEM_PROMPT.lower().split())
+    assert "claude_memory" in low and "lower-trust" in low and "newer statement" in low
+
+
+def test_claude_memory_chunk_carries_the_source_note_others_do_not(monkeypatch):
+    seen: list[str] = []
+
+    async def fake(**kw):
+        seen.append(kw["messages"][1]["content"])
+        return _resp({"entities": [], "relationships": []})
+
+    monkeypatch.setattr(ex.litellm, "acompletion", fake)
+    eps = [{"id": "ep_2026-09-01_001", "content": "system: placeholder", "timestamp": "2026-09-01T10:00:00+00:00",
+            "origin": "claude-export", "source": "claude_memory"},
+           {"id": "ep_2026-09-01_002", "content": "user: placeholder", "timestamp": "2026-09-01T10:00:00+00:00",
+            "origin": "claude-export", "source": "claude"}]
+    asyncio.run(ex.extract(eps, Settings(litellm_model="m")))
+    assert sorted(s.startswith("[Source: claude_memory") for s in seen) == [False, True]

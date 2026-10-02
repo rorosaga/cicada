@@ -19,18 +19,28 @@ final class MenuBarManager: NSObject {
     func setVisible(_ visible: Bool) {
         isVisible = visible
         statusItem?.isVisible = visible
+        restartAnimation()
     }
 
-    /// 24 cells at 0.75 pt (ruling R3): the standard status-item image height,
-    /// and what the previous template glyph used. A 24 pt image would fill the
-    /// whole menu bar and clip on a 22 pt status button.
+    /// A new skin can have different frame holds. Redraw immediately and restart its chained timer at its key frame.
+    func mascotChanged() {
+        frameStep = 0
+        restartAnimation()
+    }
+
+    /// One point per art pixel, at the standard status-item image height.
     nonisolated static let spritePointSize: CGFloat = 18
 
-    /// Every state has ≥ 2 frames (BookwormSpriteTests), so the frame timer
-    /// runs for every state — except under Reduce Motion, which holds frame 0
-    /// (ruling R7). Pure so the rule is testable without an `NSStatusItem`.
     nonisolated static func animates(_ state: BookwormState, reduceMotion: Bool) -> Bool {
-        !reduceMotion && BookwormSprites.frames(for: state).frames.count > 1
+        !reduceMotion && (BookwormArt.clip(state, look: .idle, set: .small)?.1.order.count ?? 0) > 1
+    }
+
+    nonisolated static func animationRuns(isVisible: Bool, displaysAsleep: Bool, reduceMotion: Bool) -> Bool {
+        isVisible && !displaysAsleep && !reduceMotion
+    }
+
+    nonisolated static func accessibilityLabel(for state: BookwormState) -> String {
+        "Cicada — \(state.title), \(state.detail)"
     }
 
     private var reduceMotion: Bool {
@@ -41,8 +51,13 @@ final class MenuBarManager: NSObject {
     private var frameTimer: Timer?
     private var reduceMotionObserver: NSObjectProtocol?
     private var digestExpiryTask: Task<Void, Never>?
-    private var frameIndex = 0
+    private var frameStep = 0
+    private var displaysAsleep = false
+    private var displayObservers: [NSObjectProtocol] = []
     private var currentSnapshot: StatusSnapshot?
+    /// Sleep page v5 — what the run item and the header say (`SleepDoor`): "Consolidate now — all 287", and while a run
+    /// is paused "Paused — 98 of 287 filed" with "Continue on the Sleep page…", which opens the page and never continues.
+    var sleepDoor: (@MainActor () -> SleepDoor)?
     private var justFinishedAt: Date?
 
     // Quick-action closures injected by the App.
@@ -87,8 +102,18 @@ final class MenuBarManager: NSObject {
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { guard let self else { return }; self.transition(to: self.state) }
+            MainActor.assumeIsolated { guard let self else { return }; self.restartAnimation() }
         }
+        let center = NSWorkspace.shared.notificationCenter
+        displayObservers = [
+            center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.displaysAsleep = true; self?.restartAnimation() }
+            },
+            center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.displaysAsleep = false; self?.restartAnimation() }
+            },
+        ]
+
     }
 
     // MARK: - State input
@@ -167,42 +192,48 @@ final class MenuBarManager: NSObject {
 
     private func transition(to newState: BookwormState) {
         state = newState
+        frameStep = 0
+        restartAnimation()
+    }
+
+    private func restartAnimation() {
         frameTimer?.invalidate()
         frameTimer = nil
-        frameIndex = 0
+        if reduceMotion { frameStep = 0 }
         renderCurrentFrame()
+        scheduleNextFrame()
+    }
 
-        let (_, interval) = BookwormSprites.frames(for: newState)
-        // All states are multi-frame now (G107: "always moving"); the only
-        // reason not to tick is Reduce Motion.
-        guard Self.animates(newState, reduceMotion: reduceMotion) else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+    private func scheduleNextFrame() {
+        guard Self.animationRuns(isVisible: isVisible, displaysAsleep: displaysAsleep, reduceMotion: reduceMotion),
+              let (_, clip) = BookwormArt.clip(state, look: .idle, set: .small), clip.order.count > 1 else { return }
+        let profile = SpritePlaybackProfile.of(reduceMotion: reduceMotion, lowPower: SceneStore.shared.lowPower)
+        let seconds = clip.seconds[frameStep % clip.seconds.count] * profile.slowdown
+        let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        timer.tolerance = interval * 0.3   // let the OS coalesce wakeups -> cheaper
-        RunLoop.main.add(timer, forMode: .common)
+        timer.tolerance = seconds * CicadaMotion.spriteTimerTolerance
         frameTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func tick() {
-        let (frames, _) = BookwormSprites.frames(for: state)
-        guard !frames.isEmpty else { return }
-        frameIndex = (frameIndex + 1) % frames.count
+        frameTimer = nil
+        guard Self.animationRuns(isVisible: isVisible, displaysAsleep: displaysAsleep, reduceMotion: reduceMotion),
+              let (_, clip) = BookwormArt.clip(state, look: .idle, set: .small), !clip.order.isEmpty else { return }
+        frameStep = (frameStep + 1) % clip.order.count
         renderCurrentFrame()
+        scheduleNextFrame()
     }
 
     private func renderCurrentFrame() {
         guard let button = statusItem?.button else { return }
-        let (frames, _) = BookwormSprites.frames(for: state)
-        guard !frames.isEmpty else { return }
-        let idx = frameIndex % frames.count
-        // ONE image, count and stage already in the pixels (R2); a tick is a
-        // cache hit (R5). No `title`: the number used to be drawn twice —
-        // once as pixels, once as text — and the owner asked for one worm.
-        button.image = BookwormRenderer.cachedImage(state: state, frameIndex: idx, pointSize: Self.spritePointSize)
+        let image = BookwormRenderer.smallImage(state: state, frameStep: frameStep, pointSize: Self.spritePointSize)
+        let label = Self.accessibilityLabel(for: state)
+        image.accessibilityDescription = label
+        button.image = image
+        button.setAccessibilityLabel(label)
         button.imagePosition = .imageOnly
-        // Set once so a build that previously wrote " 47" cannot leave stale
-        // text — `NSStatusBarButton` keeps its last title across image swaps.
         button.title = ""
     }
 
@@ -212,7 +243,9 @@ final class MenuBarManager: NSObject {
         let menu = NSMenu()
 
         // Status header (disabled): "<icon> <title> — <detail>".
-        let header = NSMenuItem(title: "\(state.title) — \(state.detail)", action: nil, keyEquivalent: "")
+        let door = sleepDoor?()
+        let header = NSMenuItem(title: door?.menuHeader ?? "\(state.title) — \(state.detail)", action: nil,
+                                keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
 
@@ -240,9 +273,10 @@ final class MenuBarManager: NSObject {
 
         // Quick actions.
         let isRunning = currentSnapshot?.sleep.status == "running"
-        let runItem = NSMenuItem(title: "Run sleep cycle now", action: #selector(runSleepAction), keyEquivalent: "r")
+        let runItem = NSMenuItem(title: door?.menuItemTitle ?? Copy.consolidateNow, action: #selector(runSleepAction),
+                                 keyEquivalent: "r")
         runItem.target = self
-        runItem.isEnabled = !isRunning
+        runItem.isEnabled = !isRunning || door?.isPaused == true
         menu.addItem(runItem)
 
         let saveItem = NSMenuItem(title: "Save clipboard URL", action: #selector(saveClipboardAction), keyEquivalent: "s")
@@ -395,7 +429,7 @@ extension MenuBarManager {
             .awake, .sleeping(stage: 3), .digesting, .happy, .curious(count: 7), .hungry, .reading, .error,
         ]
         return states.map { st in
-            (st.caseName, BookwormRenderer.image(grid: BookwormSprites.frames(for: st).frames[0], pointSize: spritePointSize))
+            (st.caseName, BookwormRenderer.smallImage(state: st, frameStep: 0, pointSize: spritePointSize))
         }
     }
 }

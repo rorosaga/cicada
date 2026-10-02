@@ -40,6 +40,7 @@ from api.models.schemas import (
     EpisodeFocus,
     EpisodeText,
     EpisodeTurn,
+    EpisodeWatch,
     EvidenceModel,
     ProvenanceContributor,
     ProvenanceConversation,
@@ -57,6 +58,7 @@ from api.services import (
     inbox_context,
     markdown_parser,
     turn_authorship,
+    video_state,
 )
 from api.services.claims import Claim, Evidence, is_event, is_record, parse_claims
 from api.services.id_utils import resolve_entity_file
@@ -161,10 +163,12 @@ def episode_document(
     elif focus:
         focus_model = _derived_focus(memory_path, text, focus)
 
+    watch = _watch(memory_path, doc_id, fm) if is_episode else None
     turn_models: list[EpisodeTurn] = []
     for t in spans:
         s = agents.get(t.start) if t.role == "assistant" else None
-        turn_models.append(EpisodeTurn(**asdict(t), model=s.model if s else None, effort=s.effort if s else None))
+        turn_models.append(EpisodeTurn(**asdict(t), model=s.model if s else None, effort=s.effort if s else None,
+                                       fidelity=watch.fidelity if watch is not None and t.role == "media" else None))
 
     return EpisodeText(
         episode=doc_id,
@@ -177,12 +181,44 @@ def episode_document(
         timestamp=_opt(fm.get("timestamp")),
         harness=_opt(fm.get("harness")),
         origin=_opt(fm.get("origin")) or _opt(fm.get("source")),
+        source=_opt(fm.get("source")),
         conversation_id=_opt(fm.get("session_id")) or _opt(fm.get("source_id")),
         capture_kind=_opt(fm.get("capture_kind")),
         turns=turn_models,
         focus=focus_model,
         agent=agent,
+        watch=watch,
     )
+
+
+def _watch(memory_path: Path, doc_id: str, fm: dict) -> EpisodeWatch | None:
+    """G162: the ``watch`` block of a video-watch episode, or ``None`` for any other.
+
+    ``basis`` / ``engine`` come from the episode's frontmatter (the agent's word),
+    ``fidelity`` is derived. The model that wrote it is joined here, per request, from
+    the ``describes`` claim whose evidence cites this episode — the same
+    ``TurnAuthorship`` join every claim uses — because nothing on a watch episode
+    records one. A write with no captured turn (Codex, a remote app) has no join and
+    stays null: the app says the model was not shared, never a guess."""
+    if (fm or {}).get("source") != video_state.WATCH_SOURCE:
+        return None
+    engine = video_state.clean_engine(fm.get("watch_engine"))
+    model = effort = None
+    entity_id = str(fm.get("media_entity_id") or "").strip()
+    page = Path(memory_path) / "entities" / f"{entity_id}.md" if entity_id and "/" not in entity_id else None
+    if page is not None and page.is_file():
+        try:
+            for claim in parse_claims(markdown_parser.parse(page).body):
+                if claim.predicate != "describes" or not any(ev.episode == doc_id for ev in claim.evidence):
+                    continue
+                kind = git_service.author_identity(claim.authored_by)[0]
+                model, effort = turn_authorship.TurnAuthorship(memory_path).for_claim(claim, kind)
+                if model or effort:
+                    break
+        except Exception:  # noqa: BLE001 — a join never fails the read
+            model = effort = None
+    return EpisodeWatch(basis=video_state.clean_basis(fm.get("watch_basis")), engine=engine,
+                        fidelity=video_state.fidelity(engine), author_model=model, author_effort=effort)
 
 
 # How many conversation rows one provenance payload carries (R-PB7). The card
@@ -372,6 +408,7 @@ def entity_provenance(
             title=str(first[2].get("title") or ""),
             harness=next((_opt(e[2].get("harness")) for e in group["episodes"] if _opt(e[2].get("harness"))), None),
             origin=_opt(last[2].get("origin")) or _opt(last[2].get("source")),
+            source=_opt(last[2].get("source")),
             timestamp=last[0] or None,
             claim_count=sum(1 for eps in cited.values() if eps & members),
             available=any(e[3] for e in group["episodes"]),
@@ -462,6 +499,9 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                                            frontmatter=lambda ep: (fm or {}) if ep == doc_id else None)
     rows: list[EpisodeCitation] = []
     entities: list[EpisodeCitationEntity] = []
+    # G162: how faithful this document's video words are, for every `media` row.
+    media_fidelity = (video_state.fidelity(fm.get("watch_engine"))
+                      if (fm or {}).get("source") == video_state.WATCH_SOURCE else "approximate")
     for path in pages:
         try:
             parsed = markdown_parser.parse(path)
@@ -500,6 +540,7 @@ def episode_citations(memory_path: Path, doc_id: str) -> EpisodeCitations | None
                     **base, evidence=turn_authorship.evidence_model(ev, turns), kind=ev.kind,
                     start=None if stale else ev.start, end=None if stale else ev.end,
                     stale=stale, grown=not stale and status == evidence.SPAN_GROWN,
+                    fidelity=media_fidelity if ev.kind == "media" else None,
                 ))
             if spans:
                 continue

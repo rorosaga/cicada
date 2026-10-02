@@ -43,7 +43,7 @@ enum AppSourceDrivers {
     static let contacts = "contacts-local"
     static let tabGroups = "chrome-tab-groups"
 
-    /// The live registrations. Each reader keeps its own rules (R-FA11's one prompt, the backend's Notes read, Wispr
+    /// The live registrations. Each reader keeps its own rules (R-FA11's one prompt, the app's Notes read, Wispr
     /// Flow's column whitelist); a driver only calls them. Missing collaborators register nothing.
     ///
     /// Wispr Flow's speaker names are never guessed here: the driver keeps the person's `ownerSpeakerNames` as they

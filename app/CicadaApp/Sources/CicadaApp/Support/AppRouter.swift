@@ -64,12 +64,37 @@ final class AppRouter {
         return pendingFeedItem
     }
 
+    /// G162 — the Sleep row's "Choose videos ›" (and anything else that asks): the Feed, on its Videos tab, with the
+    /// picker open. `true` stages the picker; the Feed consumes it once it is on screen, like `pendingFeedItem`.
+    var pendingVideoChooser = false
+
+    func routeToVideos(choose: Bool) {
+        closeSettings()
+        pendingTab = .feed
+        pendingVideoChooser = choose
+        activateMainWindow()
+    }
+
+    /// True once per hand-off.
+    func consumeVideoChooser() -> Bool {
+        defer { pendingVideoChooser = false }
+        return pendingVideoChooser
+    }
+
     /// R-DL15 — a saved item's "About" name opens that page's card in Clusters; the tab and the entity move together,
     /// for `routeToFeedAddSource`'s reason.
     func routeToClustersEntity(_ id: String) {
         closeSettings()
         pendingTab = .clusters
         pendingClustersEntity = id
+        activateMainWindow()
+    }
+
+    /// Sleep page v5 — every door but the Sleep page lands here while a run is paused (`SleepViewModel.onPausedDoor`):
+    /// the page holds the reason for the pause and the one Continue.
+    func routeToSleep() {
+        closeSettings()
+        pendingTab = .sleep
         activateMainWindow()
     }
 
