@@ -4,9 +4,9 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-10-02) — round 4 closed; G176 awaiting owner review
+## Where things stand (2026-10-02) — round 4 closed; G176 merged (PR #164)
 
-**Study room sprites and scenery (G176), 2026-10-02 — integrated on `feat/study-room-sprites`; awaiting owner review.**
+**Study room sprites and scenery (G176), 2026-10-02 — merged to `dev` as PR #164 on the owner's word, after his review of `preview.html`.**
 The complete delivery is 36 sheet pairs, 429 tags and 4,426 frames: the owner's worm, all 16 night worm sheets,
 15 weather/time skies, six overlays, relit props and the real wall clock, with the app player, scenery model,
 Settings thumbnails and visible-room-only public-city weather read. All parts are integrated in this worktree;
@@ -23,10 +23,10 @@ CLAUDE size/link checks **2 passed**;
 two headless exports **120 files byte-identical**; documented worm-stage and partial skyfx builds match the same delivery;
 `make app` bundle **36 pairs + manifest, every hash matched**;
 `git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
-**Still open before merge:** the owner's `preview.html`/Sleep-page motion review, demo-bank light/dark review at
-0.8×–1.4× and live idle CPU against `dev` (≤ 3% of one core and within 2 points of `dev`).
-*Pick up here:* review the integration report and diff, commit/open the PR to `dev`, then have the owner review the
-preview and Sleep page before merge. **Open design rounds:** count props, the queue as a room, G175 marks, a second G127 character and
+**Still to measure live:** idle CPU on the Sleep page against the previous build (≤ 3% of one core and within 2 points)
+and the demo-bank light/dark look at 0.8×–1.4×.
+*Pick up here:* the next mascot — `app/CicadaApp/Art/sprites/MAKING_A_MASCOT.md` and the prompt
+`docs/specs/2026-10-02-new-mascot-handoff-prompt.md`. **Open design rounds:** count props, the queue as a room, G175 marks, a second G127 character and
 Q1 (running Sleep currently sleeps rather than reads). Time-of-day/dark-room scenery and the clock are built.
 **Owner 2026-10-02, mascot selector:** Settings → Sleep → Mascot is built beside The scenery. Its pure registry
 holds exactly Bookworm; the per-viewer choice defaults/falls back to `bookworm`, and all room/menu/empty/intake
