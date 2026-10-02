@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 ART=Path(__file__).resolve().parent.parent
 RES=ART.parents[2]/'Sources/CicadaApp/Resources/sprites'
-ORDER=['awake','reading','sleeping','digesting','happy','hungry','error','curious','small','small-dark']
+ORDER=['awake','reading','sleeping','digesting','happy','hungry','error','curious','small']
 plan=[]
 keyframes={}
 for state in ORDER:
@@ -51,11 +51,13 @@ comparisons.append(('mad','bookworm_mad.png',mad.resize((64,48),Image.Resampling
 for label,ref,im in comparisons:
     raw=Image.open(ART/'reference'/ref).convert('RGBA')
     alpha=raw.getchannel('A').point(lambda a:255 if a>=128 else 0)
-    bounds=alpha.getbbox();raw.putalpha(alpha);raw=raw.crop(bounds).resize((56,38),Image.Resampling.NEAREST)
-    fitted=im.crop((4,10,60,48))
-    out=Image.new('RGBA',(56*6*2+24,38*6+24),'#ECECEC');draw=ImageDraw.Draw(out)
+    bounds=alpha.getbbox();raw.putalpha(alpha);raw=raw.crop(bounds)
+    factor=min(56/raw.width,48/raw.height)
+    raw=raw.resize((round(raw.width*factor),round(raw.height*factor)),Image.Resampling.NEAREST)
+    fitted=Image.new('RGBA',(64,48));fitted.alpha_composite(raw,((64-raw.width)//2,48-raw.height))
+    out=Image.new('RGBA',(64*6*2+24,48*6+24),'#ECECEC');draw=ImageDraw.Draw(out)
     draw.text((4,3),label+' reference / saved-parts sprite',fill='#292929')
-    out.alpha_composite(raw.resize((336,228),Image.Resampling.NEAREST),(4,20))
-    out.alpha_composite(fitted.resize((336,228),Image.Resampling.NEAREST),(352,20))
+    out.alpha_composite(fitted.resize((384,288),Image.Resampling.NEAREST),(4,20))
+    out.alpha_composite(im.resize((384,288),Image.Resampling.NEAREST),(400,20))
     out.save(ART/'qa'/f'compare-{label}@6x.png')
 print(f'{len(plan)} tag plans and all-frame filmstrips written')

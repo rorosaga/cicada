@@ -739,7 +739,7 @@
    },
    {
     "filename": "bookworm-awake 82.aseprite",
-    "frame": { "x": 448, "y": 96, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -748,7 +748,7 @@
    },
    {
     "filename": "bookworm-awake 83.aseprite",
-    "frame": { "x": 128, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -757,7 +757,7 @@
    },
    {
     "filename": "bookworm-awake 84.aseprite",
-    "frame": { "x": 192, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -766,7 +766,7 @@
    },
    {
     "filename": "bookworm-awake 85.aseprite",
-    "frame": { "x": 256, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -775,7 +775,7 @@
    },
    {
     "filename": "bookworm-awake 86.aseprite",
-    "frame": { "x": 320, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -784,7 +784,7 @@
    },
    {
     "filename": "bookworm-awake 87.aseprite",
-    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -793,7 +793,7 @@
    },
    {
     "filename": "bookworm-awake 88.aseprite",
-    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -802,7 +802,7 @@
    },
    {
     "filename": "bookworm-awake 89.aseprite",
-    "frame": { "x": 0, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -811,7 +811,7 @@
    },
    {
     "filename": "bookworm-awake 90.aseprite",
-    "frame": { "x": 64, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -820,7 +820,7 @@
    },
    {
     "filename": "bookworm-awake 91.aseprite",
-    "frame": { "x": 128, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -829,7 +829,7 @@
    },
    {
     "filename": "bookworm-awake 92.aseprite",
-    "frame": { "x": 192, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -838,7 +838,7 @@
    },
    {
     "filename": "bookworm-awake 93.aseprite",
-    "frame": { "x": 256, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -847,7 +847,7 @@
    },
    {
     "filename": "bookworm-awake 94.aseprite",
-    "frame": { "x": 320, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -856,7 +856,7 @@
    },
    {
     "filename": "bookworm-awake 95.aseprite",
-    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -874,7 +874,7 @@
    },
    {
     "filename": "bookworm-awake 97.aseprite",
-    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -883,7 +883,7 @@
    },
    {
     "filename": "bookworm-awake 98.aseprite",
-    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -892,7 +892,7 @@
    },
    {
     "filename": "bookworm-awake 99.aseprite",
-    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -910,7 +910,7 @@
    },
    {
     "filename": "bookworm-awake 101.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -928,7 +928,7 @@
    },
    {
     "filename": "bookworm-awake 103.aseprite",
-    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -937,7 +937,7 @@
    },
    {
     "filename": "bookworm-awake 104.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -946,7 +946,7 @@
    },
    {
     "filename": "bookworm-awake 105.aseprite",
-    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -964,7 +964,7 @@
    },
    {
     "filename": "bookworm-awake 107.aseprite",
-    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -982,7 +982,7 @@
    },
    {
     "filename": "bookworm-awake 109.aseprite",
-    "frame": { "x": 192, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -991,7 +991,7 @@
    },
    {
     "filename": "bookworm-awake 110.aseprite",
-    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1000,7 +1000,7 @@
    },
    {
     "filename": "bookworm-awake 111.aseprite",
-    "frame": { "x": 192, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1018,15 +1018,6 @@
    },
    {
     "filename": "bookworm-awake 113.aseprite",
-    "frame": { "x": 256, "y": 240, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 90
-   },
-   {
-    "filename": "bookworm-awake 114.aseprite",
     "frame": { "x": 320, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -1035,16 +1026,7 @@
     "duration": 90
    },
    {
-    "filename": "bookworm-awake 115.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 80
-   },
-   {
-    "filename": "bookworm-awake 116.aseprite",
+    "filename": "bookworm-awake 114.aseprite",
     "frame": { "x": 384, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -1053,16 +1035,16 @@
     "duration": 90
    },
    {
-    "filename": "bookworm-awake 117.aseprite",
+    "filename": "bookworm-awake 115.aseprite",
     "frame": { "x": 448, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
     "sourceSize": { "w": 64, "h": 48 },
-    "duration": 90
+    "duration": 80
    },
    {
-    "filename": "bookworm-awake 118.aseprite",
+    "filename": "bookworm-awake 116.aseprite",
     "frame": { "x": 0, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -1071,8 +1053,26 @@
     "duration": 90
    },
    {
-    "filename": "bookworm-awake 119.aseprite",
+    "filename": "bookworm-awake 117.aseprite",
     "frame": { "x": 64, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-awake 118.aseprite",
+    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-awake 119.aseprite",
+    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1081,7 +1081,7 @@
    },
    {
     "filename": "bookworm-awake 120.aseprite",
-    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1090,7 +1090,7 @@
    },
    {
     "filename": "bookworm-awake 121.aseprite",
-    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1099,7 +1099,7 @@
    },
    {
     "filename": "bookworm-awake 122.aseprite",
-    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1108,7 +1108,7 @@
    },
    {
     "filename": "bookworm-awake 123.aseprite",
-    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1117,7 +1117,7 @@
    },
    {
     "filename": "bookworm-awake 124.aseprite",
-    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1126,7 +1126,7 @@
    },
    {
     "filename": "bookworm-awake 125.aseprite",
-    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1135,7 +1135,7 @@
    },
    {
     "filename": "bookworm-awake 126.aseprite",
-    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1144,7 +1144,7 @@
    },
    {
     "filename": "bookworm-awake 127.aseprite",
-    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1153,7 +1153,7 @@
    },
    {
     "filename": "bookworm-awake 128.aseprite",
-    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1162,7 +1162,7 @@
    },
    {
     "filename": "bookworm-awake 129.aseprite",
-    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1171,7 +1171,7 @@
    },
    {
     "filename": "bookworm-awake 130.aseprite",
-    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1180,7 +1180,7 @@
    },
    {
     "filename": "bookworm-awake 131.aseprite",
-    "frame": { "x": 64, "y": 336, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1189,7 +1189,7 @@
    },
    {
     "filename": "bookworm-awake 132.aseprite",
-    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1198,7 +1198,7 @@
    },
    {
     "filename": "bookworm-awake 133.aseprite",
-    "frame": { "x": 64, "y": 336, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1207,7 +1207,7 @@
    },
    {
     "filename": "bookworm-awake 134.aseprite",
-    "frame": { "x": 128, "y": 336, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1243,10 +1243,10 @@
    { "name": "shake.right", "from": 130, "to": 134, "direction": "forward", "color": "#000000ff" }
   ],
   "slices": [
-   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 4, "y": 8, "w": 56, "h": 40 } }] },
+   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 4, "y": 6, "w": 56, "h": 42 } }] },
    { "name": "eye", "keys": [{ "frame": 0, "bounds": {"x": 27, "y": 21, "w": 2, "h": 2 } }] },
-   { "name": "lensL", "keys": [{ "frame": 0, "bounds": {"x": 12, "y": 17, "w": 3, "h": 6 } }] },
-   { "name": "lensR", "keys": [{ "frame": 0, "bounds": {"x": 24, "y": 18, "w": 6, "h": 7 } }] }
+   { "name": "lensL", "keys": [{ "frame": 0, "bounds": {"x": 11, "y": 17, "w": 4, "h": 6 } }] },
+   { "name": "lensR", "keys": [{ "frame": 0, "bounds": {"x": 23, "y": 18, "w": 8, "h": 7 } }] }
   ]
  }
 }

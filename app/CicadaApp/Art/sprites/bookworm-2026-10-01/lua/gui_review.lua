@@ -132,19 +132,11 @@ local plan={
 {sheet="bookworm-small",tag="curious",first=17,ms=2800,scale=8},
 {sheet="bookworm-small",tag="hungry",first=21,ms=4800,scale=8},
 {sheet="bookworm-small",tag="reading",first=25,ms=1950,scale=8},
-{sheet="bookworm-small",tag="error",first=29,ms=1500,scale=8},
-{sheet="bookworm-small-dark",tag="awake",first=1,ms=4200,scale=8},
-{sheet="bookworm-small-dark",tag="sleeping",first=6,ms=2800,scale=8},
-{sheet="bookworm-small-dark",tag="digesting",first=10,ms=500,scale=8},
-{sheet="bookworm-small-dark",tag="happy",first=12,ms=3520,scale=8},
-{sheet="bookworm-small-dark",tag="curious",first=17,ms=2800,scale=8},
-{sheet="bookworm-small-dark",tag="hungry",first=21,ms=4800,scale=8},
-{sheet="bookworm-small-dark",tag="reading",first=25,ms=1950,scale=8},
-{sheet="bookworm-small-dark",tag="error",first=29,ms=1500,scale=8}
+{sheet="bookworm-small",tag="error",first=29,ms=1500,scale=8}
 }
 local mode=CicadaReviewMode or 'source';local index=(CicadaReviewStart or 1)-1;local current;local playing=false
 local lastIndex=CicadaReviewEnd or #plan
-local dialog=Dialog{title='Run A '..mode..' review'}
+local dialog=Dialog{title='Worm fix '..mode..' review'}
 local completed={}
 local timer
 local stepLast
@@ -157,6 +149,8 @@ local function nextClip()
  index=index+1;current=index<=lastIndex and plan[index] or nil
  if not current then
   timer:stop();CicadaReview.completed=completed
+  local folder=app.fs.filePath(thisFile);package.path=folder..'/?.lua;'..package.path
+  require('ase_helpers').writeJson(app.fs.joinPath(ART,'qa/wormfix-native-'..mode..'.json'),{completed=completed,count=#completed,mode=mode})
   dialog:modify{id='status',text='COMPLETE: '..#completed..' clips'};return
  end
  local filename=app.fs.joinPath(ART,mode=='gif' and ('qa/'..current.sheet..'/'..current.tag..'@'..current.scale..'x.gif') or ('src/'..current.sheet..'.aseprite'))
@@ -166,7 +160,7 @@ local function nextClip()
  end
  assert(app.activeSprite and app.activeSprite.filename==filename,'did not open review document')
  app.frame=mode=='gif' and 1 or current.first
- app.editor.zoom=mode=='gif' and 1 or 8
+ app.editor.zoom=mode=='gif' and 1 or current.scale
  app.editor.scroll={x=app.activeSprite.width/2,y=app.activeSprite.height/2}
  dialog:modify{id='status',text=index..'/'..#plan..' '..current.sheet..'/'..current.tag}
  if mode=='step' then

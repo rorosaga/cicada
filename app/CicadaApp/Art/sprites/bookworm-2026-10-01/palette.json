@@ -123,12 +123,6 @@
       "role": "worm.lid"
     },
     {
-      "key": "e",
-      "hex": "#E5484D",
-      "group": "worm",
-      "role": "worm.pupilError"
-    },
-    {
       "key": "r",
       "hex": "#5A2230",
       "group": "worm",

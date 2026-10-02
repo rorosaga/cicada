@@ -18,6 +18,13 @@ asset tests can pass; missing clips draw nothing. **Not yet seen live:** the own
 rects, inspect all composites and `preview.html`, then the owner reviews before merge. Count props and the queue as a
 room remain design rounds.
 
+**G176 worm art fix pass (2026-10-01; `feat/study-room-sprites-wormfix`, uncommitted, not merged).**
+The chosen bookworm's eyes/brows, outlines, shadow band, book transitions, z fade and 18×18 state details are repaired in
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/`; nine saved sources export 130 tags / 1,095 frames. Owner 2026-10-01:
+error has black diagonal X eyes and the drop; one dark-outline menu sheet serves both appearances. The itemized handoff is `WORM_FIX_REPORT.md`; all original references are unchanged. **Pick up here:**
+the orchestrator reviews and merges the worm/room work, then integrates the player and new lens slices;
+B12's narrower menu lens is held for the owner. No live app or room integration is claimed by this art pass.
+
 **2026-09-28 fixes (on `dev`):** #118 drops the owner's paths from the MCP tool description, docs and test
 fixtures (the agent setup prompt was already per-machine); #119 imports Claude projects exported one file per project
 (`projects/<name>.json` — they were counted as attachments and dropped; project `docs` are still not imported); #120

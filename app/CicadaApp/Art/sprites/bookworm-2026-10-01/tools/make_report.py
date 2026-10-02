@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Describe actual exported timings and list Run A's files; no art changes."""
+"""Describe actual exported timings and inventory the asset directory; no art changes."""
 import json
 from itertools import groupby
 from pathlib import Path
@@ -10,11 +10,11 @@ RES=ART.parents[2]/'Sources/CicadaApp/Resources/sprites'
 IDLE={
     'awake':'Quiet breathing, delayed head rise, tail follow-through, irregular blinks and a double blink.',
     'reading':'Ten lines, three uneven page flips and blinks, close, tuck, next cover rises, open.',
-    'sleeping':'Two four-second breaths; small z, paired medium z, then three sizes; palette-step fade.',
+    'sleeping':'Two four-second breaths; small z, paired medium z, then three sizes; palette fade and final-frame size step.',
     'digesting':'Two chews, swallow bulge, satisfied smile.',
     'happy':'Breathing, two blinks, lens glint, small head turn.',
     'hungry':'Heavy breathing, droop, slow lids and a small yawn.',
-    'error':'Red pupils, falling sweat drop, brief tremble, side glance.',
+    'error':'Centered black diagonal X eyes, falling sweat drop, brief tremble; worried brows.',
     'curious':'Raised brow, floating question mark, small head turn and irregular blinks.',
 }
 ACTION={
@@ -24,7 +24,7 @@ ACTION={
     'perk':'Crouch, bright-eyed two-pixel hop and settle.',
     'talk':'Six mouth poses with a small head bob.',
     'gulp':'Mouth opens, paper enters, bulge moves down the neck, smile.',
-    'shake':'Alternating head offsets with sad brows; settles in center.',
+    'shake':'Alternating head offsets with sad brows; settles in its original gaze.',
     'cheer':'Crouch, two/three-pixel rise with sparkle, landing squash and settle.',
     'intro':'Close the book, open-mouth yawn, settle into a slump.',
     'outro':'Stretch upward, yawn, reopen eyes and return to sitting.',
@@ -37,9 +37,9 @@ SMALL={
     'curious':'Held pose, raised brow, bob and return; badge corner stays clear of glasses.',
     'hungry':'Heavy lids, droop, hold and return.',
     'reading':'Tiny open book, left/right pupil glance, moving page line and return.',
-    'error':'Red cross pupils and cyan drop; neck tremble and droop.',
+    'error':'Black diagonal X eyes and cyan drop; neck tremble and falling drop.',
 }
-rows=['# Run A tag timings','',
+rows=['# Worm tag timings — fix pass, 2026-10-01','',
       'Generated from the exported JSON. Times are integer milliseconds, in frame order. `N × ms` abbreviates consecutive equal holds. All tags play forward.','']
 for js in sorted(RES.glob('bookworm-*.json')):
     d=json.loads(js.read_text());state=js.stem.removeprefix('bookworm-')
@@ -69,10 +69,11 @@ rows.extend(['## Unbundled review demos','',
 paths=[]
 for f in ART.rglob('*'):
     if not f.is_file() or '__pycache__' in f.parts:continue
-    if 'reference' in f.relative_to(ART).parts and f.name!='menubar-pixel@8x.png':continue
+    if 'reference' in f.relative_to(ART).parts:continue
     paths.append(f.relative_to(ROOT).as_posix())
 paths.extend(f.relative_to(ROOT).as_posix() for f in RES.glob('bookworm-*') if f.is_file())
-paths.extend(['docs/goals/TODO.md','docs/goals/memory-evolution.md'])
+paths.extend(['docs/goals/TODO.md','docs/goals/memory-evolution.md',
+              'docs/architecture/app.md','docs/specs/2026-10-01-bookworm-sprites-spec.md'])
 paths.append((ART/'FILE_INVENTORY.txt').relative_to(ROOT).as_posix())
 (ART/'FILE_INVENTORY.txt').write_text('\n'.join(sorted(set(paths)))+'\n')
 print(f'Timings for {sum(len(json.loads(p.read_text())["meta"]["frameTags"]) for p in RES.glob("bookworm-*.json"))} tags; {len(set(paths))} files listed')
