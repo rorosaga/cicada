@@ -104,3 +104,36 @@ room sheets). Tests derive the expected set from this table, never from a typed 
   rainbow/shooting star still follow the mood. *Refused* stays for a lightning flash.
 - **R-A13 / ruling 18**: the room's lighting is a pure function of (time, base weather, lamp).
 - **The network rails**: one new, documented, opt-out app-side read of public weather for a public city's coordinates.
+
+## The wall clock (owner, 2026-10-02)
+
+> "can you also add a wall clock? that reflects the computer's time with a thin red hand and black hand? and have it be
+> darker when the room is dark."
+
+A clock on the wall shows the Mac's current time (`Date()` in `TimeZone.current`): **black hour and minute hands and a
+thin red second hand**, pixel art at the room's scale. It is state art (a total function of the real time), inert (no
+click does anything), and **darker in the dark room** like every other prop.
+
+**Art — sheet `room-clock`** (an odd square canvas, about 15 × 15, so the hands pivot on a centre pixel; a round or
+rounded face with a rim, hour ticks, and the centre cap), one frame per hand angle, each frame transparent except that
+hand:
+
+| Tag | Frames | Meaning |
+|---|---|---|
+| `face`, `face-night` | 1 each | the dial (day-lit room / dark room) |
+| `hour`, `hour-night` | 60 | frame i = the hour hand at i × 6° from twelve; index = (hour mod 12) × 5 + minute / 12 |
+| `minute`, `minute-night` | 60 | frame i = minute i |
+| `second`, `second-night` | 60 | frame i = second i (thin, red; darker red at night) |
+
+Hands are 1 px wide, drawn with the cleanest whole-pixel line for each angle (hand-corrected where a line reads badly),
+the minute hand longer than the hour hand, the second hand longest and thinnest-looking. `room-plan.json` gains a
+`clock` layer on the wall (z just above the backdrop), placed where no worm frame's ink (including lifts and beats), the
+window, the lamp's shade or the pile column (cols ≥ 110) ever overlaps it — verified by `verify_room.py` over every worm
+sheet. `room-motion.json` does not cover it (it is not a loop). The manifest gains the sheet (36 pairs).
+
+**App** — a `RoomClock` leaf in the room: face + hour + minute (+ second) frames chosen from the current time; dark tags
+when the room is dark. It ticks once a second with its own `TimelineView(.periodic(from:by: 1))` only while the room is on
+screen (the existing visibility rule); the rest of the room never redraws for it. **Reduce Motion: no second hand** (the
+minute and hour still follow the time). Text twin: `.help` and a VoiceOver element "Wall clock, <time>" in the system's
+short time format, in the room's accessibility order after the window; it is not a button. A pure, tested function maps a
+`Date` + `TimeZone` to the three frame indices.
