@@ -9,7 +9,9 @@ orchestrator; the separate art run supplies resources. No application install, b
    `Theme/LocalWeatherReader.swift`: fixed HTTPS endpoint, four seconds, 64 KiB, no cookies/auth/redirects, thirty minutes
    between attempts including failures. Reuse `SceneStore.phase`, with its existing boundary/wake/time-zone checks.
 3. Integrate `DeskScene`, `StudyRoom`, `BookwormArt` and `BookwormView`: skyfx between pane/window, lighting-selected
-   props and worm sheets, whole-room opacity crossfade using `SleepMotion.weather` (instant under Reduce Motion).
+   props and worm sheets. Room appearance layers crossfade using `SleepMotion.weather` (instant under Reduce Motion).
+   The worm is a separate sibling, fading only on its lighting set; an active transition/beat suppresses that fade,
+   including error → sleeping's simultaneous rainy/dark → sunny/day change. Its response starts fully visible.
    The contract's wall-clock amendment adds a separate visible-only one-second leaf, tested civil-time hand indices,
    dark dial/hands and no second hand under Reduce Motion. Its state frames never use the sprite loop schedule.
 4. Add scenery rows to Settings → Sleep using `SettingsRow`, `SettingsGroupCard`, per-viewer `AppStorage`, sheet key

@@ -453,9 +453,12 @@ mug select `night-dark`/`night-lit`, and all eight worm states select `bookworm-
 beats, covers and both sleeping transitions. Tags, frame counts and timings match the day sheets; the small/menu worm
 has no room lighting. The existing sleeping-outro → reading key frame can still change from a closed to an open
 book in one frame; a reading opening beat is not part of the named contract. `SceneryRoomArt` crossfades room layers on weather/overlay/lamp appearance and keeps the worm outside that identity.
-The worm crossfades only on its day / dark-lit / dark-unlit sheet set; mood edges, overlays and day-time lamp toggles
-swap frames immediately when the lighting set stays the same, so yawn, stretch and cheer start fully visible. Both use the existing 0.4 s opacity
-`SleepMotion.weather` token; Reduce Motion swaps instantly. Hotspots and the real pile keep their layout/identity. Beat/transition cleanup tasks live on the stable study room,
+The worm crossfades only on its day / dark-lit / dark-unlit sheet set, and only while no transition or beat is active.
+`StudyRoom` passes the active transition/reaction flag to suppress the worm swap's animation. This includes the
+day/dusk error → sleeping edge in How Sleep is doing or Local weather fallback: rainy/dark becomes sunny/day,
+but the new-sheet yawn starts fully visible. Passive lighting changes still use the existing 0.4 s opacity
+`SleepMotion.weather` token; the room layers keep their crossfade during a worm response. Reduce Motion swaps instantly.
+Hotspots and the real pile keep their layout/identity. Beat/transition cleanup tasks live on the stable study room,
 so a sky/lighting crossfade cannot restart or extend them.
 The current legend line, help and VoiceOver share `Scenery.text`, for example “Night · Rainy · local weather”;
 mist/completion meaning is appended, and under How Sleep is doing the base meanings remain visible in its key-frame

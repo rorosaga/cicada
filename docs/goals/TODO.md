@@ -18,7 +18,7 @@ Rain now holds each of its 48 unchanged frames for 100 ms: worst steady state is
 The app's 552 room composites (all eight moods, both lamp states and both zooms, overlays and fixed clock times) and
 six scenery and four Mascot Settings panes have a reproducible writer and review index; see the art
 `INTEGRATION_REPORT.md` for checks and paths.
-Final checks after the Mascot addition and five-lens review fixes: two full Swift suites, **2,785 tests each / zero failures**;
+Final checks after the Mascot addition, five-lens review and lighting-edge follow-up: two full Swift suites, **2,787 tests each / zero failures**;
 CLAUDE size/link checks **2 passed**;
 two headless exports **120 files byte-identical**; documented worm-stage and partial skyfx builds match the same delivery;
 `make app` bundle **36 pairs + manifest, every hash matched**;
@@ -997,7 +997,10 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       its own base and the same pipeline/tag/canvas contract, plus one entry and manifest files; no state change.
     - **Integration review correction, 2026-10-02:** room layers keep the appearance crossfade; the worm is its
       sibling, keyed only by day/dark-lit/dark-unlit lighting. Mood/overlay edges and day-time lamp toggles start
-      yawn/stretch/cheer fully visible when the lighting set stays the same. The wall clock ticks on whole seconds (whole minutes without seconds under
+      their new frames fully visible when the lighting set stays the same. **Re-review follow-up:** an active
+      transition or beat also suppresses the worm's lighting-swap animation, so error → sleeping's day/dusk
+      rainy/dark → sunny/day yawn starts fully visible in Sleep-driven scenery or Local weather fallback. Room
+      layers still crossfade; passive worm lighting changes retain their fade. The wall clock ticks on whole seconds (whole minutes without seconds under
       Reduce Motion). Weather sends no viewer language/region; an empty language field suppresses CFNetwork's
       default, fixed headers accompany the coordinate/condition query, and the disclosure includes the network
       address. Backwards time makes the next attempt due; stale readings remain only for an eligible visible

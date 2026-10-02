@@ -83,8 +83,10 @@ room sheets). Tests derive the expected set from this table, never from a typed 
   mood, manual choice) -> (base, time, overlay, source)`. Room lighting: `dark` iff `time == .night || base == .rainy`.
 - The room picks `night-*` tags and `bookworm-<state>-night-*` sheets when dark (lamp lit/unlit), else today's. The swap
   crossfades with the pane (the existing R-Z12 crossfade, instant under Reduce Motion); no new timer. The worm is
-  outside the room's appearance identity and crossfades only when its lighting sheet set changes; mood edges,
-  overlays and day-time lamp toggles start their worm frames fully visible when the lighting set stays the same.
+  outside the room's appearance identity and crossfades on a lighting-sheet change only when no transition or beat
+  is active. During a yawn/stretch/cheer or other beat its sheet swap is immediate, including error → sleeping
+  changing rainy/dark to sunny/day in Sleep-driven scenery or Local weather fallback; room layers still crossfade.
+  Mood edges, overlays and day-time lamp toggles that keep the same lighting set only swap the worm's frames.
 - **Settings → the scenery** (the in-app Settings panel; D's list grammar): the source picker (Local weather · How Sleep is
   doing · Choose), a one-line disclosure of what *Local weather* sends ("Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request,
   your network address. Nothing from your memory is sent."), and **thumbnails** drawn from the sheets' key frames — the time

@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
@@ -111,6 +112,50 @@ final class DeskSceneLayoutTests: XCTestCase {
         XCTAssertTrue(subtree.contains(".id(wormLighting)"))
         XCTAssertTrue(subtree.contains("value: wormLighting"))
         XCTAssertTrue(subtree.contains("scenery.lighting.suffix(lampLit: lampLit)"))
+    }
+
+    @MainActor
+    func testErrorToSleepingLightingSwapDoesNotFadeTheYawn() throws {
+        for mode in [SceneryMode.sleep, .localWeather] { for clock in [SkyPhase.day, .dusk] { for lit in [false, true] {
+            let before = Scenery.resolve(mode: mode, clock: clock, forecast: nil, mood: .error, manual: .init())
+            let mood = BookwormState.sleeping(stage: 1)
+            let after = Scenery.resolve(mode: mode, clock: clock, forecast: nil, mood: mood, manual: .init())
+            XCTAssertEqual(before.base, .rainy)
+            XCTAssertEqual(after.base, .sunny)
+            XCTAssertEqual(after.overlay, .mist)
+            XCTAssertEqual(before.lighting.suffix(lampLit: lit), lit ? "-night-lit" : "-night-dark")
+            XCTAssertEqual(after.lighting.suffix(lampLit: lit), "")
+            XCTAssertNotEqual(before.lighting.suffix(lampLit: lit), after.lighting.suffix(lampLit: lit))
+
+            let room = RoomModel()
+            room.moodChanged(from: "error", to: mood, now: SpriteClock.origin, reduceMotion: false)
+            XCTAssertEqual(room.transition?.kind, .yawn)
+            let art = SceneryRoomArt(lampLit: lit, scenery: after, cell: 3,
+                                     suppressWormCrossfade: room.transition != nil || room.reaction != nil) { EmptyView() }
+            XCTAssertNil(art.wormLightingAnimation(reduceMotion: false), "the new day-sheet yawn must start fully visible")
+            XCTAssertNotNil(SleepMotion.weather(reduceMotion: false), "room layers still crossfade")
+        } } }
+        let root = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep")
+        let host = try String(contentsOf: root.appendingPathComponent("StudyRoom.swift"), encoding: .utf8)
+        XCTAssertTrue(host.contains("suppressWormCrossfade: room.transition != nil || room.reaction != nil"))
+        let art = try String(contentsOf: root.appendingPathComponent("DeskScene.swift"), encoding: .utf8)
+        XCTAssertTrue(art.contains(".animation(wormLightingAnimation(reduceMotion: reduceMotion), value: wormLighting)"))
+        XCTAssertTrue(art.contains(".animation(SleepMotion.weather(reduceMotion: reduceMotion), value: appearance)"))
+    }
+
+    @MainActor
+    func testLightingCrossfadeRemainsForPassiveSwapsButIsSuppressedForABeat() {
+        let scene = Self.scenery(.sunny, .night)
+        let passive = SceneryRoomArt(lampLit: true, scenery: scene, cell: 3) { EmptyView() }
+        XCTAssertNotNil(passive.wormLightingAnimation(reduceMotion: false))
+        XCTAssertNil(passive.wormLightingAnimation(reduceMotion: true))
+        let room = RoomModel()
+        XCTAssertTrue(room.play(.cheer, state: .digesting, now: SpriteClock.origin, reduceMotion: false))
+        XCTAssertEqual(room.reaction?.kind, .cheer)
+        XCTAssertNil(room.transition)
+        let reacting = SceneryRoomArt(lampLit: true, scenery: scene, cell: 3,
+                                      suppressWormCrossfade: room.transition != nil || room.reaction != nil) { EmptyView() }
+        XCTAssertNil(reacting.wormLightingAnimation(reduceMotion: false))
     }
 
     func testLightingAndScheduleSelectTheExactTags() {

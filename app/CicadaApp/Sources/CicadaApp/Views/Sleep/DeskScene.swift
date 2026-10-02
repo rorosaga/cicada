@@ -86,16 +86,21 @@ struct DeskSceneView: View {
     }
 }
 
-/// Room layers crossfade with the sky; the worm crossfades only when its lighting sheet set changes.
+/// Room layers crossfade with the sky; active worm transitions/beats swap lighting sheets immediately.
 struct SceneryRoomArt<Worm: View>: View {
     let lampLit: Bool
     let scenery: Scenery
     let cell: CGFloat
     var includesClock = true
+    var suppressWormCrossfade = false
     @ViewBuilder var worm: () -> Worm
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var appearance: String { scenery.weatherTag + "|" + (scenery.overlayTag ?? "") + "|" + (lampLit ? "lit" : "dark") }
+
+    func wormLightingAnimation(reduceMotion: Bool) -> Animation? {
+        suppressWormCrossfade ? nil : SleepMotion.weather(reduceMotion: reduceMotion)
+    }
 
     var body: some View {
         let layout = deskSceneLayout(pixelScale: cell)
@@ -110,7 +115,7 @@ struct SceneryRoomArt<Worm: View>: View {
             worm().offset(x: layout.wormOrigin.x, y: -layout.wormOrigin.y)
                 .id(wormLighting)
                 .transition(.opacity)
-                .animation(SleepMotion.weather(reduceMotion: reduceMotion), value: wormLighting)
+                .animation(wormLightingAnimation(reduceMotion: reduceMotion), value: wormLighting)
             if includesClock, let clock = layout.layers.first(where: { $0.prop == .clock }) {
                 RoomClock(lighting: scenery.lighting, cell: cell)
                     .offset(x: CGFloat(clock.cellX) * cell, y: -CGFloat(clock.cellY) * cell)

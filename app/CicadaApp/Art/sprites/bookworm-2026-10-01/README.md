@@ -28,6 +28,8 @@ the room; the scheduled lamp supplies a warm near-side pool. Mist means running;
 by night mean just finished. The clock shows the Mac's civil time and sits at **(94,34)** in [room-plan.json](room-plan.json);
 it is inert. Reduce Motion omits seconds and holds sprite key frames. Low Power doubles sprite holds; hidden rooms
 and Settings pause the room's leaves.
+The room layers retain their scenery crossfade. The worm fades only on a passive lighting-sheet change; an active
+transition or beat makes its sheet swap immediate, including the error → sleeping yawn's dark-to-day edge.
 
 Owner 2026-10-02: this character is named **Bookworm** in Settings → Sleep → Mascot, beside The scenery.
 `MascotRegistry` supplies its id, display name, sheet prefix, menu sheet and this art folder. The per-viewer choice

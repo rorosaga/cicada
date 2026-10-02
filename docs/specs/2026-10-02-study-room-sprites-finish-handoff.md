@@ -35,13 +35,18 @@ The clock's app placement matches the art plan at **(94,34)**. Rain holds **100 
 falls from **1,908 to 1,758 boundaries/minute**, including the clock, under the unchanged **1,800 cap**.
 Settings' existing pause now reaches the sprite leaves as well as the reader and clock.
 
-The five-lens review fixes keep mood/overlay/day-lamp changes outside the worm's lighting-only fade identity;
+The five-lens review and its follow-up keep the worm outside the room's appearance identity and suppress its
+lighting-swap animation while a transition or beat is active, including the day/dusk error → sleeping yawn in
+Sleep-driven scenery or Local weather fallback. Room layers still crossfade; passive worm lighting swaps still fade.
+The remaining fixes
 align the clock to whole seconds (minutes under Reduce Motion); suppress viewer-language headers and disclose the
 network address; handle backwards time and visible stale-while-revalidate weather. Tests now cover every night
 state mark, plan-mapped fly occlusion and distinct source render heights. Partial/worm exports rebuild saved-parts
 predecessors, all night art, manifest and full acceptance; static family provenance removes the Codex CLI dependency.
 
-Two stable-resource full Swift suites after all review fixes pass **2,785 tests each, zero failures**; no polling flake.
+Two stable-resource full Swift suites after all review fixes and the lighting-edge follow-up pass **2,787 tests each,
+zero failures**; no polling flake. The follow-up adds yawn-edge and beat/passive-fade regressions; its targeted
+layout/model/scenery group passes 27 tests. Art resources remain byte-identical to the preceding export checks.
 The CLAUDE.md size/link checks pass **2 tests**. Two full headless exports pass all verifiers and
 match **120 files byte for byte**; the actual documented worm-stage and partial skyfx exports match them too.
 Both independent night/fx builders pass two-run 38-file comparisons; six pipeline regressions pass.

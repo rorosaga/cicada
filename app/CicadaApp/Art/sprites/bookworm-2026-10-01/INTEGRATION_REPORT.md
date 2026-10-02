@@ -4,9 +4,11 @@ Integrated on `feat/study-room-sprites`; no commit, push, install, app launch, b
 Owner acceptance and merge to dev remain pending. The binding scenery contract and TODO ruling 18 apply.
 
 The five-lens review of `416f1c05` is resolved below, alongside the subsequent Mascot selector. Final verification
-is **2,785 Swift tests twice / zero failures**, **120 rebuild files byte-identical**, and all **36 sheet pairs** in
+is **2,787 Swift tests twice / zero failures**, **120 rebuild files byte-identical**, and all **36 sheet pairs** in
 the worktree-only bundle. No art pixels changed during this review pass; the manifest now records static authoring
-provenance. The inspected PNGs were regenerated and reviewed again after the fixes.
+provenance. The inspected PNGs were regenerated and reviewed again after those fixes. The subsequent re-review of
+`c588e8ad` found and corrected the active-response lighting edge described below; this follow-up changes app code,
+tests and docs only, with no art or render changes.
 
 ## Fixes and causes
 
@@ -106,19 +108,45 @@ The first rejected Settings image was `$TMPDIR/cicada-sprite-composites/settings
 ImageRenderer's native-view warning patches. The hook correction regenerated the same path and all six copied panes;
 those warning patches are absent in the final inspected renders. No saved art pixels needed a visual correction.
 
+## Lighting-edge re-review follow-up — 2026-10-02
+
+The lighting-only worm identity fix was incomplete: in daytime/dusk Sleep-driven scenery or Local weather fallback,
+error resolves to rainy/dark and sleeping to sunny/day plus mist. Error → sleeping starts a yawn and changes the
+worm suffix from `-night-dark`/`-night-lit` to the empty day suffix. The previous code still faded the inserted yawn
+under the removed error worm for 0.4 s. The earlier identity test covered one scene at a time, not this edge.
+
+Option (a) is now implemented. `StudyRoom.swift:122` passes
+`room.transition != nil || room.reaction != nil` to `SceneryRoomArt.suppressWormCrossfade`.
+`DeskScene.swift:101` returns no worm lighting animation while that flag is true; the room's appearance modifier
+still uses `SleepMotion.weather`. The new-sheet response therefore starts fully visible. Passive lighting changes
+without a transition/beat retain the worm's crossfade; this is an active-response guarantee, not a claim that
+every mood or lighting change can never show two crossfading worm states.
+
+`DeskSceneLayoutTests.testErrorToSleepingLightingSwapDoesNotFadeTheYawn` (`:118`) resolves error then sleeping,
+asserts the different suffixes and the actual RoomModel yawn, then checks that the worm animation is nil while the
+room animation remains present. It covers both scenery modes, day/dusk and both lamp states (eight cases), and pins
+the host/modifier wiring. `testLightingCrossfadeRemainsForPassiveSwapsButIsSuppressedForABeat` (`:147`) verifies
+passive fade, Reduce Motion and the active-cheer path. The tests were written first; exposing the unchanged fade
+policy produced **two failing tests / nine assertions** (`qa/worm-lighting-edge-behavior-red.log`). With the guard,
+the layout/model/scenery group passes **27 tests / zero failures in 0.931 s** (`qa/worm-lighting-edge-green.log`).
+No assertion, state precedence, beat timing, room fade or art resource changed. Architecture, scenery contract,
+implementation plan, TODO ruling 18, G176, design log, finishing handoff and art README now state this exact scope.
+
 ## Verification record
 
-Two full `swift test` runs after all review fixes and completed exports pass **2,785 tests each, zero failures**:
-**131.470 s** and **131.430 s** (`qa/review-swift-{1,2}.log`). No polling test flaked; no isolated polling rerun was
-needed. The review adds ten tests to the earlier 2,775-test Mascot integration; earlier logs remain historical evidence.
+Two full `swift test` runs after the lighting-edge follow-up pass **2,787 tests each, zero failures**:
+**135.213 s** and **134.443 s** (`qa/worm-lighting-edge-swift-{1,2}.log`). No polling test flaked; no isolated polling
+rerun was needed. This adds two regressions to the earlier 2,785-test five-lens review (itself ten tests beyond the
+2,775-test Mascot integration); earlier logs remain historical evidence.
 The targeted review group passes **57 tests / zero failures in 7.983 s** (`qa/review-runtime-green.log`);
 the render group passes **11 tests / zero failures in 41.410 s** (`qa/review-renders.log`).
-The requested `PYTHONDONTWRITEBYTECODE=1` CLAUDE.md size/link pytest command passes **2 tests in 1.05 s**
-after the final documentation edits (`qa/review-claude-size-final.log`; earlier pass: 1.06 s).
+The requested `PYTHONDONTWRITEBYTECODE=1` CLAUDE.md size/link pytest command passes **2 tests** after the follow-up
+documentation edits (`qa/worm-lighting-edge-claude-size.log`).
 `make app` builds only this worktree's debug bundle; it installs and launches nothing. The built
 `.build/arm64-apple-macosx/debug/Cicada.app` contains **36 PNG/JSON pairs plus the manifest (73 files)**,
 with every PNG/JSON SHA-256 matching its manifest entry, every file matching the source resource bytes and no extra
-sprite files. The bundle's sprite bytes total **1,835,725** (`qa/review-build.log`, `qa/review-bundle.json`).
+sprite files. The rebuilt follow-up bundle's sprite bytes total **1,835,725**
+(`qa/worm-lighting-edge-build.log`, `qa/worm-lighting-edge-bundle.json`).
 The static authoring/provenance metadata adds 1,424 bytes to the earlier 1,834,301-byte bundle; PNG/JSON art bytes,
 saved parts/sources, palette, sidecars and preview remain unchanged. `git diff --check` is clean.
 The Run C call-site size check reads `IntakePanel`'s reading/importing `pointSize: 48` and
@@ -128,7 +156,7 @@ live UI inspection.
 An earlier, pre-review full suite overlapped the exporter and SwiftPM copied a transient resource set missing
 `bookworm-reading-night-dark.png`; all 12 resulting failures traced to that missing file.
 The failed attempt is retained as `qa/integration-swift-overlap.log`; it is not counted as a green pass.
-Two completed full exports pass all art verifiers and match **120 files byte for byte**, including the static
+The preceding two completed full exports pass all art verifiers and match **120 files byte for byte**, including the static
 authoring record (`qa/review-export-{1,2}.log`, `qa/review-export-compare.log`, `qa/scenery-rebuild.json`). The actual
 documented `BUILDS="build_worm build_worm_small" STAGE=worm tools/export_all.sh` and partial
 `BUILDS=build_skyfx tools/export_all.sh` also pass the full verifier and each match those same 120 files
@@ -136,6 +164,8 @@ documented `BUILDS="build_worm build_worm_small" STAGE=worm tools/export_all.sh`
 The six pipeline control/provenance regression tests pass in **2.731 s** (`qa/review-pipeline.log`). Independent
 `build_night` and `build_skyfx` each ran twice in disposable headless fixtures, comparing **38 files byte-identically**
 per builder (`qa/review-builder-idempotence.json`). No duplicate tags/records survive either run.
+The app-only lighting-edge follow-up changes none of these art files; a fresh rebuild comparison still matches
+all 120 files. No new art export or visual/motion acceptance is claimed for this follow-up.
 The offline script smoke check passes **36 sheets / 429 tags / 480 combinations / 113,232 draw calls**
 (`qa/review-preview.log`); it is a Canvas stub, not a browser.
 Resources measure **1,835,725 bytes** (cap 6 MiB), **6,151,414 decoded pixels** (cap 8,388,608).
@@ -150,7 +180,7 @@ cross-city stale-cache cases each failed once before their fixes (`qa/review-pip
 
 | Confirmed finding | Cause fix (file:line) | Regression or verification |
 |---|---|---|
-| Two worms overlap during a mood/overlay edge | `Sources/CicadaApp/Views/Sleep/DeskScene.swift:102`: the worm is a sibling outside `.id(appearance)`; only its day/dark-lit/dark-unlit suffix owns its fade. Room layers retain the appearance fade. | `DeskSceneLayoutTests.testWormCrossfadeIdentityChangesOnlyWithItsLightingSheetSet` (`Tests/CicadaAppTests/DeskSceneLayoutTests.swift:93`), 720 mode/time/base/mood/lamp cases plus subtree pins. |
+| Two worms overlap during a mood/overlay edge | `Sources/CicadaApp/Views/Sleep/DeskScene.swift:101`: the worm remains outside `.id(appearance)` and uses a lighting-only identity; `StudyRoom.swift:122` suppresses its lighting animation while a transition/beat is active, including error → sleeping's dark-to-day yawn. Passive lighting swaps retain the fade; room layers always keep their appearance fade unless Reduce Motion is on. | `DeskSceneLayoutTests.testWormCrossfadeIdentityChangesOnlyWithItsLightingSheetSet` (`:94`), plus `testErrorToSleepingLightingSwapDoesNotFadeTheYawn` (`:118`) and `testLightingCrossfadeRemainsForPassiveSwapsButIsSuppressedForABeat` (`:147`). |
 | Clock ticks at a random fractional second | `Sources/CicadaApp/Views/Sleep/RoomClock.swift:8`: floor the schedule anchor to a whole second; line 50 uses aligned `.everyMinute` under Reduce Motion. | `RoomClockTests.testSecondScheduleStartsOnWholeSecondsIncludingBeforeTheReferenceDate` (line 8) and `testTimelineAndAccessibleTextBelongOnlyToTheVisibleClockLeaf` (line 74). |
 | A backwards clock blocks weather for the length of the jump | `Sources/CicadaApp/Theme/LocalWeatherReader.swift:119`: negative attempt age is due; the next attempt restarts the half-hour throttle. | `LocalWeatherReaderTests.testBackwardsClockIsDueAndTheNextAttemptRestartsTheThrottle` (line 31). |
 | Returning to expired weather relights the room twice | `Sources/CicadaApp/Theme/LocalWeatherReader.swift:107` and `Views/Sleep/StudyRoom.swift:117`: observed city-specific in-flight state and an eligible visible refresh keep the cached city until revalidation answers. Inactive/throttled/other-city requests cannot retain expired data; failure clears it. | `LocalWeatherReaderTests.testExpiredReadingStaysDuringRefreshAndFailureClearsIt` (line 46), cancellation/throttle test (line 72), and other-city in-flight test (line 94). |

@@ -118,7 +118,8 @@ struct StudyRoom: View {
                                       manual: ManualScenery(timeRaw: timeRaw, baseRaw: baseRaw))
         ZStack(alignment: .bottomLeading) {
             // The lamp still means schedule; the worm still means Sleep. Environment is independent.
-            SceneryRoomArt(lampLit: page.lampLit, scenery: scenery, cell: scene.cell, includesClock: false) {
+            SceneryRoomArt(lampLit: page.lampLit, scenery: scenery, cell: scene.cell, includesClock: false,
+                          suppressWormCrossfade: room.transition != nil || room.reaction != nil) {
                 WormStage(mood: page.mood, room: room, cell: scene.cell,
                           lighting: scenery.lighting, lampLit: page.lampLit)
             }
