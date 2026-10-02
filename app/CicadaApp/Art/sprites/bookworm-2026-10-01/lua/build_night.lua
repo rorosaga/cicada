@@ -1,6 +1,8 @@
 -- G176: deterministic relighting of saved day sources, never a GUI or a clock.
 local H=require('ase_helpers')
 local ART=assert((app.params or {}).art)
+-- Room relights always start at the saved day parts, never at previously appended night ranges.
+dofile(app.fs.joinPath(ART,'lua/build_room.lua'))
 local data=H.readJson(app.fs.joinPath(ART,'palette.json'))
 local pal=H.paletteFromJson(app.fs.joinPath(ART,'palette.json'))
 local map=H.readJson(app.fs.joinPath(ART,'room-light-map.json'))
@@ -38,6 +40,7 @@ for _,layer in ipairs(plan.layers) do
     local path=app.fs.joinPath(ART,'src',layer.sheet..'.aseprite')
     local s=assert(app.open(path));local tags={};local images={};local durations={}
     for _,t in ipairs(s.tags) do
+      assert(t.name~='night-dark' and t.name~='night-lit','stale night range '..layer.sheet)
       tags[#tags+1]={name=t.name,from=t.fromFrame.frameNumber,to=t.toFrame.frameNumber}
     end
     for i=1,#s.frames do images[i]=H.flatten(s,i);durations[i]=H.ms(s.frames[i]) end

@@ -1,5 +1,11 @@
 # Bookworm and queue — concept, 2026-09-29
 
+**Historical concept snapshot, superseded for the shipped worm and scenery.** The owner's 2026-10-01 Bookworm
+design and the 2026-10-02 scenery contract replace the concepts' palette, seven mood-only skies and night-light
+deferrals. The built delivery lives in `../bookworm-2026-10-01/`: 15 weather/time skies, a dark lamp-lit room and a
+wall clock. The queue as a room and count-driven props remain open design rounds. These boards and their title
+metadata preserve the earlier proposals; they are not the current app contract.
+
 The Opus design pass behind the study-room sprites brief
 (`docs/specs/2026-09-29-study-room-sprites-brief.md`). Concept art, not app assets: nothing here is loaded
 by the app.
@@ -17,6 +23,6 @@ by the app.
 Regenerate: `python3 generator/boards_worm.py && python3 generator/boards_queue.py && python3 generator/boards_view.py`
 (standard library only). The boards come out byte-identical to the published ones.
 
-Next (the brief's Phase 1): turn `worm.py`'s frames and the room's props into layered, tagged `.aseprite` sources with
-real per-frame timings via headless Aseprite + Lua, add the CRT, phone, TV, letter tray and calendar props, and export
-sprite sheets for a native player.
+The brief's original Phase 1 proposed turning these frames/props into tagged Aseprite sources. The owner instead
+supplied Bookworm's base design, now built through the saved-parts/headless pipeline with a native sprite player.
+The CRT, phone, globe, TV, letter tray and calendar props still need their own design round.

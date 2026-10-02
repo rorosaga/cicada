@@ -45,7 +45,15 @@ The earlier timing tables in the dated run reports describe those earlier delive
 
 Saved `parts/worm-parts.aseprite`, `parts/worm-small-parts.aseprite` and `parts/room-parts.aseprite` own the pixels.
 **Never delete the finished parts or rerun a one-time migration.** Builders in `lua/` assemble `src/`; exports go
-to the app's flat `Resources/sprites/`. References in `reference/` are read-only. Historical `gui_*.lua` files
+to the app's flat `Resources/sprites/`. `authoring-provenance.json` records the authoring tool/model/effort/date
+once per family; rebuilds require Aseprite and Python/Pillow, **not the Codex CLI**. The manifest reads that static
+record, alongside the actual export generator and byte hashes.
+
+Partial `BUILDS` requests expand the saved-parts day worm/room prerequisites of night art. Weather and skyfx rebuild
+together in that order. Both `STAGE=all` and `STAGE=worm` refresh night sheets, export all 36 pairs, regenerate the
+manifest and run the full verifier/preview. Unknown stages/builders and any stale-sheet/verifier failure exit without
+`sprites: OK`. Night props rebuild their day sources/records from saved room parts before relighting; skyfx recreates the weather motion records before adding its six overlays. Registry part records have stable ordering. Run the control and
+repeated-builder regressions with `python3 tools/test_export_pipeline.py` and `python3 tools/check_builder_idempotence.py`. References in `reference/` are read-only. Historical `gui_*.lua` files
 record earlier native Pencil corrections; the current pipeline runs headless and does not drive the owner's Aseprite.
 
 From this directory:
@@ -58,7 +66,7 @@ python3 tools/check_scenery_rebuild.py compare
 node tools/check_preview.mjs
 ```
 
-The repeat check covers **119** saved sources/parts/exports/sidecars/manifest/preview files. Verifiers check exact
+The repeat check covers **120** saved sources/parts/exports/sidecars/manifest/preview files. Verifiers check exact
 palette/alpha, all-frame relight and state marks, frame timing/slices, every motion seam, no rain flash, all-mood window
 visibility, all 360 clock angles and placement, provenance hashes and bundle budgets. `palette.json` declares
 **81 authoring keys** (budget 87) and keyless night/scenery/clock colours: **699 distinct RGBs**. Python, Lua and the
@@ -79,8 +87,8 @@ isolated preferences and frozen sprite frames; the source menu's text twin repla
 snapshot control. This checks layout/art, not a real menu click or live app motion. The separate wall clock chooses
 state angles, so it does not appear in `room-motion.json`.
 
-[SCENERY_REPORT.md](SCENERY_REPORT.md), [RUN_B_REPORT.md](RUN_B_REPORT.md) and
-[WORM_FIX_REPORT.md](WORM_FIX_REPORT.md) are dated delivery records, not the current acceptance status.
+[SCENERY_REPORT.md](SCENERY_REPORT.md), [RUN_B_REPORT.md](RUN_B_REPORT.md),
+[WORM_FIX_REPORT.md](WORM_FIX_REPORT.md) and [ROOM_TAG_TIMINGS.md](ROOM_TAG_TIMINGS.md) are dated delivery records, not the current acceptance status.
 Earlier art runs included superseded red pupils, a grey-rim menu variant or seven mood-only skies;
 none remains in the current manifest. `qa/` is reproducible and gitignored.
 

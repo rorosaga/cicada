@@ -2,6 +2,15 @@ import XCTest
 @testable import CicadaApp
 
 final class NightWormSpriteTests: XCTestCase {
+    func testNightStateMarksUseDeclaredRolesAndErrorEyesKeepTheirXs() throws {
+        let palette = try SpriteTestAssets.palette()
+        for lit in [false, true] {
+            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(.error, .room, lighting: .dark, lampLit: lit))
+            let frame = try SpriteTestAssets.plane(sheet, frame: 0)
+            XCTAssertGreaterThanOrEqual(frame.pixels.filter { $0.alpha > 0 && palette.roles[$0.rgb]?.hasPrefix("book.") == true }.count, 20)
+            try SpriteTestAssets.assertErrorMarks(frame, small: false, palette: palette, lighting: .dark)
+        }
+    }
     func testAllNightSheetsMatchDayTagsFramesTimingsSlicesAndSilhouettes() throws {
         for state in BookwormArt.states {
             let day = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))

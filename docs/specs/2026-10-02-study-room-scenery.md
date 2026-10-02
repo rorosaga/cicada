@@ -82,14 +82,16 @@ room sheets). Tests derive the expected set from this table, never from a typed 
   and an optional overlay (`mist`, `rainbow`/`shootingstar`), each a pure function: `scenery(mode, clock phase, forecast,
   mood, manual choice) -> (base, time, overlay, source)`. Room lighting: `dark` iff `time == .night || base == .rainy`.
 - The room picks `night-*` tags and `bookworm-<state>-night-*` sheets when dark (lamp lit/unlit), else today's. The swap
-  crossfades with the pane (the existing R-Z12 crossfade, instant under Reduce Motion); no new timer.
+  crossfades with the pane (the existing R-Z12 crossfade, instant under Reduce Motion); no new timer. The worm is
+  outside the room's appearance identity and crossfades only when its lighting sheet set changes; mood edges,
+  overlays and day-time lamp toggles start their worm frames fully visible when the lighting set stays the same.
 - **Settings → the scenery** (the in-app Settings panel; D's list grammar): the source picker (Local weather · How Sleep is
-  doing · Choose), a one-line disclosure of what *Local weather* sends ("your time zone's city, every half hour while the
-  study room is open; nothing else leaves your Mac"), and **thumbnails** drawn from the sheets' key frames — the time
+  doing · Choose), a one-line disclosure of what *Local weather* sends ("Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request,
+  your network address. Nothing from your memory is sent."), and **thumbnails** drawn from the sheets' key frames — the time
   (day · dusk · night) and the base weathers — selectable under *Choose*, with a small live room preview of the current
   selection. Every tile has a text label and a VoiceOver label.
 - **Local weather fetch**: the app, not the backend; one host (the forecast service), HTTPS, 4 s timeout, ≤ 64 KB, no
-  cookies, no identifiers; at most once per 30 min and only while the room is on screen; cached in memory; offline-safe
+  cookies, no identifiers or viewer language/region (an empty language field suppresses the system default); at most once per 30 min and only while the room is on screen; cached in memory; offline-safe
   (falls back to *How Sleep is doing*). Off when the person picks another source. Documented in
   `docs/architecture/network.md` as its own gate, with a one-line rail edit in `CLAUDE.md`.
 - **Text twins**: the window's legend and `.help` name the time, the base weather and its source ("Night · Rainy · local

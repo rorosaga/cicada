@@ -86,7 +86,7 @@ struct DeskSceneView: View {
     }
 }
 
-/// Lighting, sky and worm switch as one art layer. Hotspots and the real pile remain stable siblings.
+/// Room layers crossfade with the sky; the worm crossfades only when its lighting sheet set changes.
 struct SceneryRoomArt<Worm: View>: View {
     let lampLit: Bool
     let scenery: Scenery
@@ -99,19 +99,23 @@ struct SceneryRoomArt<Worm: View>: View {
 
     var body: some View {
         let layout = deskSceneLayout(pixelScale: cell)
+        let wormLighting = scenery.lighting.suffix(lampLit: lampLit)
         ZStack(alignment: .bottomLeading) {
             ZStack(alignment: .bottomLeading) {
                 DeskSceneView(lampLit: lampLit, scenery: scenery, pixelScale: cell)
-                worm().offset(x: layout.wormOrigin.x, y: -layout.wormOrigin.y)
             }
             .id(appearance)
             .transition(.opacity)
+            .animation(SleepMotion.weather(reduceMotion: reduceMotion), value: appearance)
+            worm().offset(x: layout.wormOrigin.x, y: -layout.wormOrigin.y)
+                .id(wormLighting)
+                .transition(.opacity)
+                .animation(SleepMotion.weather(reduceMotion: reduceMotion), value: wormLighting)
             if includesClock, let clock = layout.layers.first(where: { $0.prop == .clock }) {
                 RoomClock(lighting: scenery.lighting, cell: cell)
                     .offset(x: CGFloat(clock.cellX) * cell, y: -CGFloat(clock.cellY) * cell)
             }
         }
-        .animation(SleepMotion.weather(reduceMotion: reduceMotion), value: appearance)
         .frame(width: layout.size.width, height: layout.size.height, alignment: .bottomLeading)
         .allowsHitTesting(false)
         .accessibilityHidden(true)

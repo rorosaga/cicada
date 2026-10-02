@@ -11,7 +11,8 @@ RES=ART.parents[2]/'Sources/CicadaApp/Resources/sprites'
 def main():
  ase=os.environ.get('ASEPRITE','/Applications/Aseprite.app/Contents/MacOS/aseprite')
  generator=subprocess.check_output([ase,'--version'],text=True).strip()
- authoring=subprocess.check_output(['codex','--version'],text=True).strip()
+ provenance=json.loads((ART/'authoring-provenance.json').read_text())
+ assert provenance['version']==1,'Unknown authoring provenance schema'
  assets=[]
  for png in sorted(RES.glob('*.png')):
   name=png.stem;small='small' in name
@@ -24,9 +25,12 @@ def main():
   relit='-night-' in name or name in ['room-backdrop','room-window','room-plant','room-lamp','room-beanbag','room-mug']
   if relit:script='build_night'
   scenery=name in ('room-weather','room-skyfx','room-clock')
+  family='night' if relit else 'scenery' if scenery else 'day'
+  author=provenance['families'][family]
   asset=dict(id=name,png=png.name,json=name+'.json',role=role,
    generator=generator+', headless (-b), from saved Aseprite sources and Lua',script=f'lua/{script}.lua',source=f'src/{name}.aseprite',
-   authoring=authoring+' (gpt-6.1-sol, extra-high effort)'+('; headless night relight from saved day art' if relit else '; headless scenery built from saved parts and declared palette' if scenery else '; original day art authored in Aseprite'),date='2026-10-02' if relit or scenery else '2026-10-01',
+   authoring=f"{author['tool']} ({author['model']}, {author['effort']} effort); {author['process']}",date=author['date'],
+   provenance=f'authoring-provenance.json#{family}',
    licence="MIT, as this repository (see LICENSE). Own work for Cicada; no third-party artwork or brand marks.",
    processing='export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json',
    pngSha256=hashlib.sha256(png.read_bytes()).hexdigest(),jsonSha256=hashlib.sha256((RES/(name+'.json')).read_bytes()).hexdigest())

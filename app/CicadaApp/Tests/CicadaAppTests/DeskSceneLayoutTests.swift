@@ -90,6 +90,29 @@ final class DeskSceneLayoutTests: XCTestCase {
         Scenery(base: base, time: time, overlay: overlay, source: .chosen)
     }
 
+    func testWormCrossfadeIdentityChangesOnlyWithItsLightingSheetSet() throws {
+        for mode in SceneryMode.allCases { for time in SkyPhase.allCases { for base in WindowWeather.all {
+            for mood in BookwormArt.states { for lit in [false, true] {
+                let scene = Scenery.resolve(mode: mode, clock: time, forecast: base, mood: mood,
+                                            manual: .init(time: time, base: base))
+                let identity = scene.lighting.suffix(lampLit: lit)
+                XCTAssertEqual(identity, scene.lighting == .day ? "" : (lit ? "-night-lit" : "-night-dark"))
+                let noOverlay = Scenery(base: scene.base, time: scene.time, overlay: nil, source: scene.source)
+                XCTAssertEqual(identity, noOverlay.lighting.suffix(lampLit: lit))
+                if scene.lighting == .day { XCTAssertEqual(identity, scene.lighting.suffix(lampLit: !lit)) }
+            } }
+        } } }
+        let source = try String(contentsOf: SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep/DeskScene.swift"), encoding: .utf8)
+        let body = try XCTUnwrap(source.range(of: "struct SceneryRoomArt")).lowerBound
+        let subtree = String(source[body...])
+        let roomID = try XCTUnwrap(subtree.range(of: ".id(appearance)"))
+        let worm = try XCTUnwrap(subtree.range(of: "worm().offset"))
+        XCTAssertLessThan(roomID.lowerBound, worm.lowerBound, "worm must be a sibling after the room identity, never inside it")
+        XCTAssertTrue(subtree.contains(".id(wormLighting)"))
+        XCTAssertTrue(subtree.contains("value: wormLighting"))
+        XCTAssertTrue(subtree.contains("scenery.lighting.suffix(lampLit: lampLit)"))
+    }
+
     func testLightingAndScheduleSelectTheExactTags() {
         for base in WindowWeather.all { for time in SkyPhase.allCases { for lit in [false, true] {
             let scenery = Self.scenery(base, time, overlay: .mist)

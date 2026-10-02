@@ -13,7 +13,7 @@ OUTPUT=ART/'qa/scenery-rebuild.json'
 def snapshot():
     files=[*ART.glob('src/*.aseprite'),*ART.glob('parts/*.aseprite'),
            *RES.glob('*.png'),*RES.glob('*.json'),
-           *(ART/name for name in ['palette.json','room-light-map.json','room-plan.json','room-motion.json','day-art-contract.json','preview.html','menubar.aseprite'])]
+           *(ART/name for name in ['palette.json','authoring-provenance.json','room-light-map.json','room-plan.json','room-motion.json','day-art-contract.json','preview.html','menubar.aseprite'])]
     return {str(p.relative_to(REPO)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(files)}
 
 def main():

@@ -1,6 +1,8 @@
 -- Transparent Sleep moments, composed over the base weather and under the frame.
 local H=require('ase_helpers');local R=require('room_common')
 local ART=assert((app.params or {}).art);R.context(ART)
+-- Recreate base motion from saved weather parts before adding this build's six overlay records.
+dofile(app.fs.joinPath(ART,'lua/build_weather.lua'))
 local C=require('scenery_common').context(ART)
 local s=H.newSprite(36,32,R.pal,{'moment'});local rec=H.recorder(s);local records={}
 local motion=H.readJson(app.fs.joinPath(ART,'room-motion.json'))

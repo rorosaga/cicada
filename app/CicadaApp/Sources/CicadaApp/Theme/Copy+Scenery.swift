@@ -2,7 +2,7 @@ extension Copy {
     enum Scenery {
         static let group = "The scenery"
         static let source = "Source"
-        static let disclosure = "Open-Meteo receives your time zone's city, every half hour while the study room is open; nothing else leaves your Mac."
+        static let disclosure = "Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request, your network address. Nothing from your memory is sent."
         static let time = "Time of day"
         static let weather = "Weather"
         static let preview = "Preview"

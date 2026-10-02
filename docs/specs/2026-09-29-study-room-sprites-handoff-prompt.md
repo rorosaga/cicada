@@ -16,6 +16,13 @@ superseded. Charcoal-grey glasses replace orange; no antennae. Implement Runs A,
 character and room. Q1 remains deferred. The count props, queue as a room, time-of-day palettes and night light below
 are future design rounds, not extra work in the approved sprite run.
 
+Dated amendment 2026-10-02: docs/specs/2026-10-02-study-room-scenery.md supersedes those scenery deferrals.
+Day/dusk/night skies, the dark room lit by the lamp (replacing the separate night light) and the wall clock are built.
+The open design rounds are count props, the queue as a room, G175 marks, a second G127 character and Q1.
+The existing character is Bookworm in Settings → Sleep → Mascot. Follow the finishing handoff for current acceptance;
+these historical Phase 1 instructions do not authorize computer use or installing over the owner's app.
+
+
 STEP 2 — Future design rounds for the full count props and the queue as a room. The 2026-10-01 spec
 ships the approved worm, lamp/fly, window/weather, bean bag, plant, mug and spine textures first; the older ideas below
 remain a reference wherever they fall outside that scope.

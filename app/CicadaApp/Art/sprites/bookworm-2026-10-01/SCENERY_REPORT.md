@@ -2,7 +2,9 @@
 
 **Historical art-run snapshot, before final integration.** The completed app integration is recorded in
 [INTEGRATION_REPORT.md](INTEGRATION_REPORT.md). Its dated rain timing amendment changes the unchanged 48 rain frames
-from 80 to 100 ms (4,800 ms loops); the final resources total 1,834,301 bytes. The earlier measurements and timings
+from 80 to 100 ms (4,800 ms loops); final resources total 1,835,725 bytes after the static-provenance metadata update.
+The current rebuild comparison includes 120 files; the earlier 119-file comparison below predates that authoring record.
+The earlier measurements and timings
 below describe this art delivery, not the final integrated timing. All 36 sheet pairs are now integrated with the app.
 
 Art-only delivery against the [binding scenery contract](../../../../../docs/specs/2026-10-02-study-room-scenery.md),

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The legacy nine-key palette remains the authority for code-drawn badges, dots and stage icons.
+/// The overlay palette remains the authority for code-drawn badges, dots and stage icons.
 enum BookwormPalette {
     static let transparent: Character = "."
     static let colors: [Character: UInt32] = [
@@ -12,7 +12,6 @@ enum BookwormPalette {
         "a": 0xE0A93A,  // accent: glasses rim, book cover (= CicadaTheme hub gold)
         "z": 0x8896FF,  // zZ + sweat drop (the pre-G137 dark accent — the mascot's palette is its own and did not move)
         "q": 0xFFCB57,  // ? mark, sparkle, badge pill (= CicadaTheme pendingPulse)
-        "e": 0xE5484D,  // error red pupils — an art red, not the `danger` state token (see above)
     ]
 }
 

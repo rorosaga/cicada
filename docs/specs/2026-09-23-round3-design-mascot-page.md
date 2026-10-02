@@ -1,5 +1,13 @@
 # Track Z, final: the mascot page (Sleep v4), the judge's synthesis
 
+**Historical design/implementation snapshot — superseded for sprite art (2026-10-02).**
+The [owner sprite contract](2026-10-01-bookworm-sprites-spec.md) and
+[scenery amendment](2026-10-02-study-room-scenery.md) override the old code grids, red error-eye marks,
+seven mood-only skies and clock refusal below. Current art uses black X eyes plus the drop, one dark-outline menu
+sheet on both bars, 15 time/weather skies, relit night rooms/worms, 100 ms rain and a wall clock. The worm's mood
+remains independent of clock/weather. Use [app.md](../architecture/app.md) and the current handoff for implementation.
+
+
 Owner brief (Rodrigo 2026-09-23): *"Change the mascot page, make it better and have it be more
 interactive, keeping the minimal vibes."* Round-3 spec decision 5 keeps the bookworm, allows hover
 and click on the worm, a clickable pile and lamp, and "feeding = dropping a file on the worm imports

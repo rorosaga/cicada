@@ -51,25 +51,62 @@ final class RoomSpriteTests: XCTestCase {
     func testFlyIsPixelSizedOutsideTheGlassAndPileAndRestsOnTheShade() throws {
         let fly = try SpriteTestAssets.sheet("room-fly"), lamp = try SpriteTestAssets.sheet("room-lamp")
         let clip = try SpriteTestAssets.clip(fly, "buzz")
-        let glass = CGRect(x: 20, y: 27, width: 36, height: 32)
-        let lampInk = SpriteTestAssets.scene(try SpriteTestAssets.unionInk(lamp), x: 0, y: 0, h: 50)
+        let placement = try XCTUnwrap(DeskScene.plan.first { $0.prop == .fly })
+        let lampLayer = try XCTUnwrap(DeskScene.plan.first { $0.prop == .lamp })
+        let pane = try XCTUnwrap(DeskScene.plan.first { $0.prop == .pane })
+        let glass = CGRect(x: pane.cellX, y: pane.cellY, width: pane.w, height: pane.h)
+        let pile = CGRect(x: DeskScene.pileCell.x, y: DeskScene.pileCell.y,
+                          width: DeskScene.pileCell.width, height: DeskScene.pileCell.height)
+        let lampInk = SpriteTestAssets.scene(try SpriteTestAssets.unionInk(lamp), x: lampLayer.cellX, y: lampLayer.cellY, h: lampLayer.h)
         let shade = try XCTUnwrap(lamp.slices["shade"])
+        let sceneShade = CGRect(x: CGFloat(lampLayer.cellX) + shade.minX,
+                                y: CGFloat(lampLayer.cellY + lampLayer.h) - shade.maxY,
+                                width: shade.width, height: shade.height)
+        let frames = try clip.order.map { SpriteTestAssets.scene(try SpriteTestAssets.plane(fly, frame: $0).ink,
+                                                               x: placement.cellX, y: placement.cellY, h: placement.h) }
+        XCTAssertTrue(Self.flyVisibilityIsValid(frames, shade: sceneShade), "empty runs may start only behind the shade")
         for (step, frame) in clip.order.enumerated() {
             let ink = try SpriteTestAssets.plane(fly, frame: frame).ink
             XCTAssertLessThanOrEqual(ink.count, 2)
-            let scene = SpriteTestAssets.scene(ink, x: 0, y: 32, h: 26)
-            XCTAssertTrue(scene.allSatisfy { $0.x < 110 && !glass.contains(CGPoint(x: Double($0.x) + 0.5, y: Double($0.y) + 0.5)) })
+            let scene = frames[step]
+            XCTAssertTrue(scene.allSatisfy {
+                let point = CGPoint(x: Double($0.x) + 0.5, y: Double($0.y) + 0.5)
+                return !pile.contains(point) && !glass.contains(point)
+            })
             if step == 0 {
                 XCTAssertGreaterThanOrEqual(ink.count, 1)
                 XCTAssertTrue(scene.allSatisfy { cell in
                     // `shade` bounds the changed lighting pixels, excluding the unchanged top rim (row 0).
                     // §5.4 says ON TOP: the fly must sit exactly one cell above the actual shade silhouette.
-                    Double(cell.x) >= shade.minX && Double(cell.x) < shade.maxX
+                    Double(cell.x) >= sceneShade.minX && Double(cell.x) < sceneShade.maxX
                         && lampInk.contains(.init(x: cell.x, y: cell.y - 1))
                         && cell.y == (lampInk.filter { $0.x == cell.x }.map(\.y).max() ?? -2) + 1
                 })
             }
         }
+    }
+
+    private static func flyVisibilityIsValid(_ frames: [Set<SpriteTestAssets.Cell>], shade: CGRect) -> Bool {
+        guard var lastVisible = frames.last(where: { !$0.isEmpty }) else { return false }
+        for frame in frames {
+            if frame.isEmpty {
+                guard lastVisible.allSatisfy({ shade.contains(CGPoint(x: Double($0.x) + 0.5, y: Double($0.y) + 0.5)) }) else { return false }
+            } else {
+                guard frame.count <= 2 else { return false }
+                lastVisible = frame
+            }
+        }
+        return true
+    }
+
+    func testFlyVisibilityGuardRejectsOpenAirDisappearancesAndMissingFly() {
+        let shade = CGRect(x: 0, y: 38, width: 18, height: 12)
+        let hidden: Set<SpriteTestAssets.Cell> = [.init(x: 14, y: 43)]
+        let open: Set<SpriteTestAssets.Cell> = [.init(x: 19, y: 51)]
+        XCTAssertTrue(Self.flyVisibilityIsValid([open, hidden, [], [], open], shade: shade))
+        XCTAssertFalse(Self.flyVisibilityIsValid([hidden, open, [], hidden], shade: shade))
+        XCTAssertFalse(Self.flyVisibilityIsValid([[], []], shade: shade))
+        XCTAssertFalse(Self.flyVisibilityIsValid([hidden.union(open).union([.init(x: 10, y: 40)])], shade: shade))
     }
 
     func testRainNeverFlashes() throws {

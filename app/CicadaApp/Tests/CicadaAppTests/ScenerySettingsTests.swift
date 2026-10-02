@@ -5,7 +5,7 @@ import XCTest
 final class ScenerySettingsTests: XCTestCase {
     func testExactCopyAndSearchLandOnVisibleScenerySource() {
         XCTAssertEqual(Copy.Scenery.group, "The scenery")
-        XCTAssertEqual(Copy.Scenery.disclosure, "Open-Meteo receives your time zone's city, every half hour while the study room is open; nothing else leaves your Mac.")
+        XCTAssertEqual(Copy.Scenery.disclosure, "Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request, your network address. Nothing from your memory is sent.")
         for query in ["scenery", "local weather", "scenery night", "rainy"] {
             let entry = SettingsSearchLanding.topHit(query, in: SettingsIndex.staticEntries)
             XCTAssertEqual(entry?.section, .sleep, query)
@@ -23,6 +23,7 @@ final class ScenerySettingsTests: XCTestCase {
         XCTAssertTrue(room.contains("WindowVisibilityReader"))
         XCTAssertTrue(room.contains("windowVisible && !hostPaused"))
         XCTAssertTrue(room.contains("appRouter?.settingsOpen != true"))
+        XCTAssertTrue(room.contains("refreshWhenVisible: onScreen && mode == .localWeather"))
         XCTAssertTrue(room.contains(".environment(\\.scenePaused, !onScreen)"))
         XCTAssertTrue(room.contains(".help(scenery.text)"))
         XCTAssertTrue(room.contains("WindowLegend(current: scenery)"))
@@ -49,6 +50,7 @@ final class ScenerySettingsTests: XCTestCase {
         defer { CicadaTheme.mode = saved }
         for scheme in AppColorScheme.allCases {
             CicadaTheme.mode = scheme
+            var heights: [SceneryMode: Int] = [:]
             for mode in SceneryMode.allCases {
                 defaults.set(mode.rawValue, forKey: SceneryMode.defaultsKey)
                 defaults.set("night", forKey: ManualScenery.timeKey)
@@ -65,11 +67,19 @@ final class ScenerySettingsTests: XCTestCase {
                 let image = try XCTUnwrap(renderer.cgImage, "Scenery Settings \(mode.rawValue)")
                 XCTAssertEqual(image.width, 1280)
                 XCTAssertGreaterThan(image.height, 200)
+                heights[mode] = image.height
                 if write {
                     let data = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
                     try data.write(to: dir.appendingPathComponent("\(mode.rawValue)-\(scheme.rawValue).png"))
                 }
             }
+            XCTAssertGreaterThan(try XCTUnwrap(heights[.choose]), try XCTUnwrap(heights[.localWeather]))
+            XCTAssertGreaterThan(try XCTUnwrap(heights[.localWeather]), try XCTUnwrap(heights[.sleep]))
+            let selection = ManualScenery(timeRaw: defaults.string(forKey: ManualScenery.timeKey),
+                                           baseRaw: defaults.string(forKey: ManualScenery.baseKey))
+            XCTAssertEqual(selection, .init(time: .night, base: .rainy))
+            XCTAssertEqual(Scenery.resolve(mode: .choose, clock: .day, forecast: nil, mood: .reading,
+                                          manual: selection).text, "Night · Rainy · your choice")
         }
     }
 }

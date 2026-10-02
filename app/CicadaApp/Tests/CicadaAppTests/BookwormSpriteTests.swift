@@ -4,8 +4,8 @@ import XCTest
 final class BookwormSpriteTests: XCTestCase {
     static var states: [BookwormState] { BookwormArt.states }
 
-    func testPaletteIsExactlyTheNineRoles() {
-        XCTAssertEqual(Set(BookwormPalette.colors.keys), ["o", "b", "l", "w", "r", "a", "z", "q", "e"])
+    func testOverlayPaletteKeepsItsEightRolesWithoutRetiredErrorRed() {
+        XCTAssertEqual(Set(BookwormPalette.colors.keys), ["o", "b", "l", "w", "r", "a", "z", "q"])
         XCTAssertEqual(BookwormPalette.transparent, ".")
     }
 

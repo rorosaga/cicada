@@ -1,5 +1,13 @@
 # Run B — room asset delivery, 2026-10-01
 
+**Historical Run B snapshot, superseded by the owner amendments and final integration.**
+The retired light-rim dark-menu variant, 19-sheet totals, seven mood-only skies and 80 ms rain below describe this
+run only. The current delivery has one dark-outline menu sheet on both bars, 36 pairs, 15 time/weather skies,
+six overlays, night props/worms and 100 ms rain. [INTEGRATION_REPORT.md](INTEGRATION_REPORT.md) is the current
+acceptance record; [README.md](README.md) gives the current rebuild commands. Run A's stage now refreshes night
+art and the manifest and verifies the complete delivery. No future run should implement the handoff below verbatim.
+
+
 Run B supplies the nine room sheet pairs, saved Aseprite sources/parts, seven weather loops, lit/dark lamp and tiny fly, five spine textures, manifest, full verifier and offline preview. The complete bundle contains **19 sheet pairs / 159 tags / 1,450 frames**. Run B contributes **21 tags / 323 frames**. No Swift file was changed, and no commit, push, stash, branch or reset was performed.
 
 The art and pipeline checks pass. Actual `file://` browser playback remains unverified: the computer-use browser's security policy rejected that protocol. This report leaves that acceptance item open rather than claiming the JavaScript smoke check is a browser test.

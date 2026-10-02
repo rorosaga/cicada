@@ -1,5 +1,12 @@
 # Run B room tag timings
 
+**Historical Run B snapshot (2026-10-01).** Superseded by the shipped room sheets' `frameTags`/durations,
+[`room-motion.json`](room-motion.json) and
+[`2026-10-02-study-room-scenery.md`](../../../../../docs/specs/2026-10-02-study-room-scenery.md):
+15 `<base>-<time>` weather tags, six skyfx tags, `night-dark`/`night-lit` props and rain at **100 ms**.
+For current acceptance and timing totals see [INTEGRATION_REPORT.md](INTEGRATION_REPORT.md).
+
+
 All indices below are play-order steps. Weather and fly tags play forward and loop. Props are static. Spine frames are masks, selected by role; they are never played as animation.
 
 | Sheet / tag | Canvas | Frames | Each frame in ms | Total ms | Action |

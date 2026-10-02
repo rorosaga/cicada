@@ -5,6 +5,10 @@ enum RoomClockReading {
     struct Indices: Equatable { let hour, minute, second: Int }
     struct Layer: Equatable { let tag: String; let index: Int }
 
+    static func secondBoundary(at date: Date) -> Date {
+        Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded(.down))
+    }
+
     static func indices(at date: Date, zone: TimeZone) -> Indices {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
@@ -42,8 +46,12 @@ struct RoomClock: View {
     var body: some View {
         Group {
             if snapshotDate == nil && onScreen && windowVisible && !hostPaused {
-                TimelineView(.periodic(from: Date(), by: CicadaMotion.roomClockTick)) { context in
-                    reading(at: context.date)
+                if reduceMotion {
+                    TimelineView(.everyMinute) { context in reading(at: context.date) }
+                } else {
+                    TimelineView(.periodic(from: RoomClockReading.secondBoundary(at: Date()), by: CicadaMotion.roomClockTick)) { context in
+                        reading(at: context.date)
+                    }
                 }
             } else { reading(at: snapshotDate ?? Date()) }
         }

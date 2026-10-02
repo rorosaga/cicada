@@ -419,7 +419,7 @@ page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro D
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
-Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count or the clock driving the window, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12). State art loops (ruling 18).
+Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count driving the window (time of day follows the clock or the person's choice, R-Z11 as amended 2026-10-02), duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12). State art loops (ruling 18).
 
 **Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
 the server drains. `SleepStatusResponse.drain` (`SleepDrainInfo`, lenient like every field) and the SSE event's compact
@@ -452,7 +452,9 @@ between pane and window in `DeskScene.plan`/`room-plan.json`. In darkness the ba
 mug select `night-dark`/`night-lit`, and all eight worm states select `bookworm-<state>-night-dark`/`-night-lit`, including
 beats, covers and both sleeping transitions. Tags, frame counts and timings match the day sheets; the small/menu worm
 has no room lighting. The existing sleeping-outro → reading key frame can still change from a closed to an open
-book in one frame; a reading opening beat is not part of the named contract. `SceneryRoomArt` swaps the whole inert art layer with one 0.4 s opacity crossfade using the existing
+book in one frame; a reading opening beat is not part of the named contract. `SceneryRoomArt` crossfades room layers on weather/overlay/lamp appearance and keeps the worm outside that identity.
+The worm crossfades only on its day / dark-lit / dark-unlit sheet set; mood edges, overlays and day-time lamp toggles
+swap frames immediately when the lighting set stays the same, so yawn, stretch and cheer start fully visible. Both use the existing 0.4 s opacity
 `SleepMotion.weather` token; Reduce Motion swaps instantly. Hotspots and the real pile keep their layout/identity. Beat/transition cleanup tasks live on the stable study room,
 so a sky/lighting crossfade cannot restart or extend them.
 The current legend line, help and VoiceOver share `Scenery.text`, for example “Night · Rainy · local weather”;
@@ -465,7 +467,7 @@ sixty whole-pixel angles: hour = `(hour mod 12) × 5 + minute / 12`, minute/seco
 only while its window/room is visible and its host is active; it never redraws the parent room. `room-clock` has
 `face`, `hour`, `minute`, `second` and each `-night` variant. Night-or-rain lighting selects the dark dial/hands;
 black hour/minute hands and the thin red second hand use transparent state frames, not timed sprite loops.
-Reduce Motion removes the second hand while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”
+Normal ticks start on whole seconds; Reduce Motion removes the second hand and ticks on minute boundaries while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”
 in the system's short format, after the window and before the lamp; it is not a button. The 15 × 15 clock at
 `(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
@@ -478,8 +480,11 @@ Selection uses the neutral ground/ring, text below the art, no shadow. The small
 composition and current Sleep mood/schedule, reading cached weather only. The Settings search indexes each row; hidden
 Choose-only rows land on Source. Preferences are per viewer (`cicada.sleep.scenerySource`, `sceneryTime`,
 `sceneryWeather`), separate from Home's scene and never in a bank. Local weather's one-line disclosure is
-“Open-Meteo receives your time zone's city, every half hour while the study room is open; nothing else leaves your Mac.”
-`LocalWeatherReader` is an in-memory read, not a Store domain; its own visibility/source gate, half-hour attempts and
+“Open-Meteo receives your time zone's city every half hour while the study room is open and, like any web request, your network address. Nothing from your memory is sent.”
+`LocalWeatherReader` suppresses CFNetwork's preferred-language header with an empty field, pins fixed Accept/encoding/User-Agent headers,
+and uses an ephemeral session without cookies, credentials or disk cache. Its freshness policy keeps the same city's stale
+reading only when a visible refresh is due to start or in flight; failure clears it, and a backwards clock makes the next
+attempt due. It is an in-memory read, not a Store domain; its own visibility/source gate, half-hour attempts and
 four-second/64-KiB/no-cookie transport are detailed in `network.md`. The ImageRenderer hook uses isolated viewer
 preferences and frozen sprite frames without native visibility probes; it renders the native source menu's current
 text as a SwiftUI label because ImageRenderer cannot draw that menu. It verifies pane layout/art, not native menu
@@ -561,6 +566,9 @@ in day/night lighting with the lamp lit or dark, every mood in every environment
 bar, all at their real per-frame timings. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
 its dark outlines on a dark bar (one sheet for both). The 2026-10-02 scenery contract and wall-clock amendment expand the bundle to 36
 sheet pairs (429 tags, 4,426 frames), all integrated with the plan, motion sidecar, manifest and preview.
+Both full and partial/worm-stage exports rebuild saved-parts predecessors, all night sheets and the manifest, then
+run complete acceptance. Independent night/fx builders are repeatable; static `authoring-provenance.json` records
+tool/model/effort/date per family, so rebuilding requires Aseprite and Python/Pillow rather than the Codex CLI.
 `INTEGRATION_REPORT.md` in the art directory records the app checks and all inspected render paths: 480
 environment/mood/lamp/zoom composites, 48 overlay composites, 24 fixed-clock composites and six scenery Settings panes.
 `CICADA_WRITE_COMPOSITES=1 swift test --filter WindowSpritesTests` reproduces the room PNGs; run the same flag with

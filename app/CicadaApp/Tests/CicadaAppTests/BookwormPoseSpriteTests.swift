@@ -28,25 +28,36 @@ final class BookwormPoseSpriteTests: XCTestCase {
     func testEveryRoomFrameKeepsTheBookGlassesAndStateMarks() throws {
         let palette = try SpriteTestAssets.palette()
         let roles = palette.roles
-        let d = try palette.rgb("D"), l = try palette.rgb("L"), j = try palette.rgb("j"), w = try palette.rgb("W")
-        let z = try palette.rgb("Z")
         for state in BookwormSpriteTests.states {
-            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
-            for tag in BookwormArt.requiredTags(state) {
-                let clip = try SpriteTestAssets.clip(sheet, tag)
-                for (step, index) in clip.order.enumerated() {
-                    let frame = try SpriteTestAssets.plane(sheet, frame: index)
-                    let label = "\(sheet.name)/\(tag) #\(step)"
-                    XCTAssertGreaterThanOrEqual(frame.pixels.filter { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("book.") ?? false) }.count, 20, label)
-                    XCTAssertGreaterThanOrEqual(frame.count(d), 30, label)
-                    XCTAssertGreaterThanOrEqual(frame.count(l), 6, label)
-                    if state.caseName == "sleeping" && tag != "intro" && tag != "outro" {
-                        XCTAssertGreaterThanOrEqual(frame.count(j), 4, label)
-                        XCTAssertEqual(frame.count(w), 0, label)
-                        if tag == "idle" && step == 0 { XCTAssertGreaterThanOrEqual(frame.count(z), 3, label) }
-                    }
-                    if state.caseName == "error" {
-                        try SpriteTestAssets.assertErrorMarks(frame, small: false, palette: palette)
+            for (lighting, lit) in [(RoomLighting.day, false), (.dark, false), (.dark, true)] {
+                let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room, lighting: lighting, lampLit: lit))
+                let d = try palette.rgbSet("D", lighting: lighting), l = try palette.rgbSet("L", lighting: lighting)
+                let j = try palette.rgbSet("j", lighting: lighting), w = try palette.rgbSet("W", lighting: lighting)
+                let z = try palette.rgbSet("Z", lighting: lighting)
+                for tag in BookwormArt.requiredTags(state) {
+                    let clip = try SpriteTestAssets.clip(sheet, tag)
+                    for (step, index) in clip.order.enumerated() {
+                        let frame = try SpriteTestAssets.plane(sheet, frame: index)
+                        let label = "\(sheet.name)/\(tag) #\(step)"
+                        XCTAssertGreaterThanOrEqual(frame.pixels.filter { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("book.") ?? false) }.count, 20, label)
+                        XCTAssertGreaterThanOrEqual(frame.count(d), 30, label)
+                        XCTAssertGreaterThanOrEqual(frame.count(l), 6, label)
+                        if state.caseName == "sleeping" && tag != "intro" && tag != "outro" {
+                            XCTAssertGreaterThanOrEqual(frame.count(j), 4, label)
+                            XCTAssertEqual(frame.count(w), 0, label)
+                            if tag == "idle" && step == 0 { XCTAssertGreaterThanOrEqual(frame.count(z), 3, label) }
+                        }
+                        if state.caseName == "error" {
+                            try SpriteTestAssets.assertErrorMarks(frame, small: false, palette: palette, lighting: lighting)
+                        }
+                        if state.caseName == "curious" {
+                            let glyphColors = lighting == .day ? w.union(try palette.rgbSet("K", lighting: .day))
+                                : Set(palette.night.glyphs.question.colors.values.compactMap { UInt32($0.dropFirst(), radix: 16) })
+                            let box = palette.night.glyphs.question.box
+                            let glyph = frame.cells { $0.alpha > 0 && glyphColors.contains($0.rgb) }
+                                .filter { (box.x..<(box.x + box.w)).contains($0.x) && (box.y..<(box.y + box.h)).contains($0.y) }
+                            XCTAssertEqual(glyph.count, 11, label + " question keeps all eight outline and three core cells")
+                        }
                     }
                 }
             }

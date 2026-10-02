@@ -114,7 +114,7 @@ struct StudyRoom: View {
         let zoneID = SceneStore.shared.timeZoneIdentifier
         let onScreen = windowVisible && !hostPaused && appRouter?.settingsOpen != true
         let scenery = Scenery.resolve(mode: mode, clock: SceneStore.shared.phase,
-                                      forecast: LocalWeatherReader.shared.base(for: zoneID), mood: page.mood,
+                                      forecast: LocalWeatherReader.shared.base(for: zoneID, refreshWhenVisible: onScreen && mode == .localWeather), mood: page.mood,
                                       manual: ManualScenery(timeRaw: timeRaw, baseRaw: baseRaw))
         ZStack(alignment: .bottomLeading) {
             // The lamp still means schedule; the worm still means Sleep. Environment is independent.
@@ -206,7 +206,7 @@ struct StudyRoom: View {
         .onChange(of: page.mood.caseName) { old, _ in
             room.moodChanged(from: old, to: page.mood, reduceMotion: reduceMotion)
         }
-        // The art identity changes on a lighting/sky swap; the beat's lifetime belongs to the stable room.
+        // Only a lighting sheet swap re-identifies the worm; beat lifetimes belong to the stable room.
         .task(id: room.reaction?.id) { await room.settleReaction() }
         .task(id: room.transition?.id) { await room.settleTransition() }
         .accessibilityElement(children: .contain)

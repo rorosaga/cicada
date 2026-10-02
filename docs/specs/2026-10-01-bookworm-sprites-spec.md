@@ -1,5 +1,15 @@
 # The owner's bookworm as animated sprite sheets, the study room around it, and the app on a sprite player
 
+**Current 2026-10-02 amendment.** The [scenery contract](2026-10-02-study-room-scenery.md) supersedes this Run A/B
+snapshot's seven mood-only skies, 80 ms rain, clock refusal and time-of-day/night-light deferrals: 15 time/weather
+skies, six overlays, dark rooms lit by the lamp, night worm sheets and the wall clock are built; rain holds 100 ms.
+The owner's 2026-10-01 error/menu decisions use black X eyes plus the drop and one dark-outline menu sheet on both bars.
+The open design rounds are count props, the queue as a room, G175 marks, a second G127 character and Q1.
+The [finishing handoff](2026-10-02-study-room-sprites-finish-handoff.md) is the current integration/acceptance record;
+this finishing run is headless, with no computer use or app installation. Partial `BUILDS` and `STAGE=worm` now refresh
+night dependencies, the complete manifest and the full verifier; authoring provenance is static data, never the
+currently installed Codex CLI's version. The registry names today's character Bookworm in Settings → Sleep → Mascot.
+
 **Spec, 2026-10-01. Backlog G176 (with G107, G125, G127). Branch `feat/study-room-sprites`, PR to `dev`.**
 This is the binding brief for three Codex runs (gpt-6.1-sol, extra-high effort): **A** draws the worm, **B** draws the
 room and builds the export pipeline, **C** wires both into the app. Each run reads this whole file before starting.
@@ -51,7 +61,7 @@ The reference art has been copied into the worktree at `ART/reference/`:
   folder after the others (13:37 against 13:04).
 - `glasses.png` is the authority for the glasses' frame ramp and specular; `cicada.png` is a brand reference (§1.1).
 
-It is untracked today (`git status`: `?? app/CicadaApp/Art/sprites/bookworm-2026-10-01/`). Run A adds it to the branch.
+The reference set and finished source art are tracked on the integration branch; Run A has completed.
 It supersedes the round-1 "worm directions" on `feat/worm-directions`. Take lessons from that round's scripts (§10.5),
 never its art.
 
@@ -92,7 +102,7 @@ never its art.
 - The count-driven props of BRIEF §9: CRT computer, phone, globe, TV, letter tray and calendar.
 - The queue as a room: cart, crate, bookcase and finished-books shelf.
 - Pixel brand marks (G175).
-- Time-of-day room palettes and the night light.
+- Time-of-day skies, dark room lighting and the wall clock are built by the 2026-10-02 amendment; no separate night-light round remains.
 - Any decorative book pile (P10 holds; see R-BW9).
 - Mug steam and plant sway: they are motion with no fact behind them (R-BW4).
 
@@ -1276,37 +1286,62 @@ cue ("hue is never the only signal", G176). It adds no fact and changes no `fitP
 
 ```bash
 #!/bin/bash
-# Rebuild Cicada's sprites from parts + scripts, export the sheets the app loads, verify, and (STAGE=all) write the
-# manifest and the preview. Run from anywhere. Exit non-zero on any failure.
-#   Run A:  BUILDS="build_worm build_worm_small" STAGE=worm tools/export_all.sh
-#   Run B+: tools/export_all.sh            (every build, STAGE=all)
+# Saved Aseprite sources own the pixels; every builder reads them and every sheet is re-exported.
 set -euo pipefail
-ASE="${ASEPRITE:-/Applications/Aseprite.app/Contents/MacOS/aseprite}"   # measured: "Aseprite 1.3.18.6-dev"
-BUILDS="${BUILDS:-build_worm build_worm_small build_room build_weather build_spines}"
-STAGE="${STAGE:-all}"                                                   # all | worm
+ASE="${ASEPRITE:-/Applications/Aseprite.app/Contents/MacOS/aseprite}"
+BUILDS="${BUILDS:-build_worm build_worm_small build_room build_clock build_weather build_skyfx build_spines}"
+STAGE="${STAGE:-all}"
+case "$STAGE" in all|worm) ;; *) echo "Unknown stage: $STAGE" >&2; exit 1 ;; esac
+want_clock=false
+want_scenery=false
+want_spines=false
+for build in $BUILDS; do
+  case "$build" in
+    build_clock) want_clock=true ;;
+    build_weather|build_skyfx) want_scenery=true ;;
+    build_spines) want_spines=true ;;
+    build_worm|build_worm_small|build_room|build_night) ;;
+    *) echo "Unknown builder: $build" >&2; exit 1 ;;
+  esac
+done
+# Every delivery includes night art. Its day worm/prop prerequisites always rebuild from saved parts.
+# A partial weather/fx request rebuilds both in order: weather owns the base motion records.
+BUILDS="build_worm build_worm_small build_room"
+[[ "$want_clock" != true ]] || BUILDS="$BUILDS build_clock"
+if [[ "$want_scenery" == true ]]; then
+  BUILDS="$BUILDS build_weather build_skyfx"
+fi
+[[ "$want_spines" != true ]] || BUILDS="$BUILDS build_spines"
 ART="$(cd "$(dirname "$0")/.." && pwd)"
 RES="$(cd "$ART/../../../Sources/CicadaApp/Resources" && pwd)/sprites"
 mkdir -p "$RES" "$ART/src" "$ART/qa"
+run_lua() {
+  local script="$1" status="$ART/qa/.lua-completed"
+  rm -f "$status"
+  "$ASE" -b --script-param art="$ART" --script-param run="$script" \
+    --script-param status="$status" --script "$ART/lua/run_checked.lua"
+  if [[ ! -f "$status" || "$(cat "$status")" != completed ]]; then
+    echo "Lua did not complete: $script" >&2
+    exit 1
+  fi
+  rm -f "$status"
+}
 for build in $BUILDS; do
-  # --script-param MUST precede --script (params after it are dropped — verified)
-  "$ASE" -b --script-param art="$ART" --script "$ART/lua/$build.lua"
+  run_lua "$build"
 done
+run_lua check_room_parts
+run_lua build_night
 for src in "$ART"/src/*.aseprite; do
   name="$(basename "$src" .aseprite)"
   rm -f "$RES/$name.png" "$RES/$name.json"
-  # Full sheet, never --tag (meta.frameTags would keep whole-sprite indices) and never --split-tags (broken) — verified.
   "$ASE" -b "$src" --sheet "$RES/$name.png" --data "$RES/$name.json" \
-         --format json-array --sheet-pack --list-tags --list-slices
-  # A missing input exits 0 and prints "File not found" (verified), so check the outputs.
+    --format json-array --sheet-pack --list-tags --list-slices
   [[ -s "$RES/$name.png" && -s "$RES/$name.json" ]] || { echo "export failed: $name" >&2; exit 1; }
 done
-if [[ "$STAGE" == "all" ]]; then
-  python3 "$ART/tools/verify.py"          # §6.2 (python3 has Pillow 12.3.0 here — measured)
-  python3 "$ART/tools/manifest.py"        # §6.3
-  python3 "$ART/tools/make_preview.py"    # §6.4
-else
-  python3 "$ART/tools/verify.py" --worm-only   # skips the room, ruling-9 and fly checks (no room sheets yet)
-fi
+# STAGE=worm narrows the requested authoring work, never the delivered-sheet acceptance contract.
+python3 "$ART/tools/manifest.py"
+python3 "$ART/tools/verify.py"
+python3 "$ART/tools/make_preview.py"
 echo "sprites: OK ($STAGE)"
 ```
 
@@ -1327,7 +1362,8 @@ echo "sprites: OK ($STAGE)"
 
 ### 6.2 `ART/tools/verify.py` (Pillow; fails loudly)
 
-`--worm-only` (Run A) checks only the `bookworm-*` sheets and skips every room, ruling-9, fly and weather check. For
+`--worm-only` is a historical day-sheet diagnostic, not a delivery acceptance path. Both export stages now run
+the full verifier, including all sixteen night worm sheets, room/skyfx motion and manifest hashes. For
 every `RES/*.json` + `.png` in scope:
 1. **Size.** The PNG size equals `meta.size`, and every `frames[].frame` lies inside it. All frames of a sheet share one
    `sourceSize`, equal to the §3.3 canvas.
@@ -1404,7 +1440,9 @@ serialization.
 - **Paths.** Every path is repo-relative to `ART/`. No field contains `/Users/` or `/private/` (the privacy assertion
   of `T/ArtAssetTests.swift:112-115`, copied).
 - **Hashes.** sha256 of the raw file bytes, lowercase hex, exactly as `T/ArtAssetTests.swift:87-92` computes it.
-- **Authoring.** Write the Codex CLI version the run actually used (`codex --version`; measured 0.159.3 on 2026-10-01).
+- **Authoring (amended 2026-10-02).** `authoring-provenance.json` statically records tool/model/effort/date/process
+  by day/night/scenery family. `manifest.py` reads it; rebuilding needs no authoring CLI and cannot rewrite provenance
+  to the currently installed version. Aseprite remains the actual export generator.
 
 ### 6.4 `ART/preview.html` (generated; a local file, no network)
 
@@ -1998,14 +2036,14 @@ ruling and every "ruling 18" reference in the same commit.
       change may play one transition (a yawn into sleep, a stretch out of it) besides the cheer and the weather
       crossfade; a hydrate or a refresh never does (DR-65). Glances, sways, tail flicks and nod-offs inside a state's
       idle loop, and cloud drift inside a weather's loop, are state art (R-Z12's "no glance, no drift" is amended for
-      them). Still refused: any flash or strobe (the storm flash), weather driven by a count or the clock, motion with
+      them). Still refused: any flash or strobe (the storm flash), weather driven by a count (time now follows the clock or the person's choice, 2026-10-02), motion with
       no state behind it (mug steam, plant sway), and duration estimates.
     - **R-BW5 — the window: the owner's four weathers, still a total function of the mood (R-Z11).**
       `windowWeather(for:)` and `WindowWeather.all` are unchanged; the titles become Night, Dawn, Sunny (`clear`),
       Partly cloudy (`fair`), Windy (`overcast`), Rainy (`storm`, rain without lightning) and Curtains drawn. The legend
       stays the twin, keeps its header, and shows each weather's key frame. Pixels on the lattice only, never the Meadow
       paintings (DR-13). Ruling 9's occlusion test runs on every frame of every weather.
-    - **R-BW6 — no clock.** Nothing in the room, the window or the worm reads the time of day; the room's interior
+    - **R-BW6 — no clock (historical; superseded 2026-10-02).** Nothing in the room, the window or the worm reads the time of day; the room's interior
       palette and the night light stay out of scope (the brief §9 palettes and night light are a later ruling).
     - **R-BW7 — the five emotions map to states, once.** happy → `.happy`, `.digesting` and the cheer; tired →
       `.hungry`; worried (sweat drop, black X eyes) → `.error`; sad → the shake beat; the base model → `.awake` and
@@ -2066,15 +2104,15 @@ then the count props and the queue as a room (design rounds).
 > emotions and the owner's own menu-bar design) supersedes the round-1 directions. The ask adds per-frame animation for every sprite, a redrawn lamp with a
 > pixel-size fly while it is lit, extra books, and the window's environment animated in four named weathers (sunny, night,
 > windy, rainy). Rulings: TODO ruling 18 (R-BW1…R-BW12); spec `docs/specs/2026-10-01-bookworm-sprites-spec.md`.
-> **Built 2026-10-xx (`feat/study-room-sprites`, PR #n):** sheets + `sprites.manifest.json` + hash test;
-> `SpriteLayerView`; the worm's states, poses, beats, covers and transitions; the seven weathers animated; the lamp and
+> **Integrated 2026-10-02 (`feat/study-room-sprites`, owner acceptance and PR to dev pending):** sheets + `sprites.manifest.json` + hash test;
+> `SpriteLayerView`; the worm's states, poses, beats, covers and transitions; 15 time/weather skies plus six overlays and the wall clock; the lamp and
 > its fly; spine textures; Reduce Motion / Low Power; `preview.html`. **Not yet seen live:** the owner's pass on the demo
 > bank, light and dark, 0.8×–1.4×; idle CPU against `dev`. **Open:** the count props of brief §9, the queue as a room,
-> time-of-day palettes and the night light, G175 marks.
+> G175 marks, a second G127 character and Q1. Time-of-day skies and lamp-lit night rooms are built.
 
 Change its status cell to:
 
-> 🛠️ worm, window, lamp built (2026-10-xx, PR #n; ruling 18) · 🔲 count props, the queue as a room (design rounds)
+> 🛠️ art/app/scenery/Mascot integrated (2026-10-02; ruling 18), owner acceptance pending · 🔲 count props, queue as a room, G175, second G127 character, Q1
 
 **One dated line on each related row** (same privacy rules):
 - **G107** (`:686`): "2026-10-01 (TODO ruling 18): the worm moves from code-defined 24 × 24 grids to the owner's design
@@ -2099,10 +2137,10 @@ Change its status cell to:
 - **Sleep page — the study room (`:378-414`).**
   - Replace "**Two kinds of art (R-Z1):** *state art* — the mood's frames, the lamp (= the schedule), the pile, and the
     window's **weather** …" so it names the sprite sheets, the 160 × 64 lattice (3 pt per cell at 1.0), the window's
-    seven animated weathers with the new titles, the lamp's fly, and the bean bag.
+    fifteen animated time/weather skies and six overlays with the current titles, the lamp's fly, and the bean bag.
   - Replace the closing "Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, duration
     estimates, …" with: "Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any
-    weather, a count or the clock driving the window, duration estimates, and any price or plan figure outside Details
+    weather, a count driving the window (time follows the clock or the person's choice, amended 2026-10-02), duration estimates, and any price or plan figure outside Details
     and the engine menu (TODO ruling 12). State art loops (ruling 18)."
 - **Mascot states (G107) (`:459-474`).**
   - Replace "every beat is ≤ 3 frames × 0.12 s; a hop is a whole-cell shift (a capped state crouches instead — the
@@ -2201,7 +2239,8 @@ Then run `api/tests/test_claude_md_size.py`; the file is ~22.5 KB against the 60
    - write `qa/registry.json`.
 6. **The 18 × 18 set.** Redraw `bookworm-small` by hand from `reference/bookworm_menu_bar.png`, per §1.7 and §3.7. Never
    downsample. Render `ART/demo/bookworm-mad-demo@6x.gif` (awake `idle` with `brows.mad`).
-7. **Export and verify.** Run `BUILDS="build_worm build_worm_small" STAGE=worm tools/export_all.sh`; it ends with
+7. **Export and verify.** Run `BUILDS="build_worm build_worm_small" STAGE=worm tools/export_all.sh`; it refreshes night
+   dependencies, all 36 sheet pairs and the manifest, runs the full verifier and ends with
    `verify.py --worm-only`.
 8. **GUI review loop (§10.6).** For each `src/bookworm-*.aseprite`:
    - open it, play every tag (Enter), and step the transitions frame by frame at zoom 4 (800%);
@@ -2275,7 +2314,7 @@ Then run `api/tests/test_claude_md_size.py`; the file is ~22.5 KB against the 60
 **Acceptance (B):**
 - [ ] All 18 sheets and the manifest exist; verify.py is green, including ruling 9 per frame, the fly checks, the storm
   luminance check and the `room-motion.json` seam check.
-- [ ] The seven weathers read at 1× as night, dawn, sunny, partly cloudy, windy, rainy and curtains drawn, each from
+- [ ] The fifteen time/weather skies read at 1× as five base weathers × day/dusk/night, each from
   its key frame alone.
 - [ ] Rain has no flash (the luminance check, and by eye). No loop shows a seam jump (the seam check, and three loops
   of each watched).

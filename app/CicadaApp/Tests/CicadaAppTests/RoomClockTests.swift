@@ -5,6 +5,16 @@ final class RoomClockTests: XCTestCase {
     private let utc = TimeZone(secondsFromGMT: 0)!
     private func date(_ value: String) -> Date { ISO8601DateFormatter().date(from: value)! }
 
+    func testSecondScheduleStartsOnWholeSecondsIncludingBeforeTheReferenceDate() {
+        for value in [-1.73, -0.01, 0, 0.73, 812_345_678.99] {
+            let instant = Date(timeIntervalSinceReferenceDate: value)
+            let start = RoomClockReading.secondBoundary(at: instant)
+            XCTAssertEqual(start.timeIntervalSinceReferenceDate, floor(value))
+            XCTAssertLessThanOrEqual(start, instant)
+            XCTAssertLessThan(instant.timeIntervalSince(start), 1)
+        }
+    }
+
     func testEverySecondMapsToTheContractAnglesAndWrapsAtNoon() {
         let start = date("2026-10-02T00:00:00Z")
         for second in 0..<86400 {
@@ -65,7 +75,8 @@ final class RoomClockTests: XCTestCase {
         let root = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep")
         let clock = try String(contentsOf: root.appendingPathComponent("RoomClock.swift"), encoding: .utf8)
         XCTAssertTrue(clock.contains("onScreen && windowVisible && !hostPaused"))
-        XCTAssertTrue(clock.contains("TimelineView(.periodic(from: Date(), by: CicadaMotion.roomClockTick))"))
+        XCTAssertTrue(clock.contains("TimelineView(.periodic(from: RoomClockReading.secondBoundary(at: Date()), by: CicadaMotion.roomClockTick))"))
+        XCTAssertTrue(clock.contains("TimelineView(.everyMinute)"), "without seconds Reduce Motion updates at minute boundaries")
         XCTAssertTrue(clock.contains("reading(at: context.date)"))
         XCTAssertTrue(clock.contains(".help(label)"))
         XCTAssertTrue(clock.contains(".accessibilityLabel(label)"))

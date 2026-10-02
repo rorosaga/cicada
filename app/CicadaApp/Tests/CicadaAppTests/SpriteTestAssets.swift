@@ -36,7 +36,11 @@ enum SpriteTestAssets {
     struct Palette: Decodable {
         struct Entry: Decodable { let key, hex, group, role: String }
         struct Night: Decodable {
-            struct Glyph: Decodable { let colors: [String: String] }
+            struct Glyph: Decodable {
+                struct Box: Decodable { let x, y, w, h: Int }
+                let box: Box
+                let colors: [String: String]
+            }
             struct Glyphs: Decodable { let question: Glyph }
             let ramps: [String: [String]]
             let glyphs: Glyphs
@@ -63,6 +67,11 @@ enum SpriteTestAssets {
         }
         var roles: [UInt32: String] {
             var result: [UInt32: String] = [:]
+            for color in colors {
+                for hex in night.ramps[color.key] ?? [] {
+                    if let rgb = UInt32(hex.dropFirst(), radix: 16) { result[rgb] = color.role }
+                }
+            }
             // Sky tints retain their authoring role, so night/dusk visibility checks inspect actual shapes too.
             for ramp in scenery.ramps.values {
                 for color in colors {
@@ -81,15 +90,23 @@ enum SpriteTestAssets {
             let color = try XCTUnwrap(colors.first { $0.key == key }, "palette has no key \(key)")
             return try XCTUnwrap(UInt32(color.hex.dropFirst(), radix: 16), "bad palette colour")
         }
+        func rgbSet(_ key: String, lighting: RoomLighting) throws -> Set<UInt32> {
+            if lighting == .day { return [try rgb(key)] }
+            return try Set(XCTUnwrap(night.ramps[key], "missing night ramp \(key)").map {
+                try XCTUnwrap(UInt32($0.dropFirst(), radix: 16), "bad night colour")
+            })
+        }
     }
     static func palette() throws -> Palette {
         try JSONDecoder().decode(Palette.self, from: artData("palette.json"))
     }
 
     /// The owner's X shapes, including their clear skin perimeter, must survive every error frame.
-    static func assertErrorMarks(_ plane: Plane, small: Bool, palette: Palette,
+    static func assertErrorMarks(_ plane: Plane, small: Bool, palette: Palette, lighting: RoomLighting = .day,
                                  file: StaticString = #filePath, line: UInt = #line) throws {
-        let k = try palette.rgb("K"), sweat = try palette.rgb("S")
+        let k = try palette.rgbSet("K", lighting: lighting), sweat = try palette.rgbSet("S", lighting: lighting)
+        let skin = try palette.colors.filter { $0.role.hasPrefix("worm.") && $0.key != "K" }
+            .reduce(into: Set<UInt32>()) { $0.formUnion(try palette.rgbSet($1.key, lighting: lighting)) }
         let patterns = small ? [(["K.K", ".K.", "K.K"], CGRect(x: 2, y: 4, width: 4, height: 6)),
                                 (["K.K", ".K.", "K.K"], CGRect(x: 10, y: 4, width: 5, height: 6))]
             : [(["K.K", ".K.", ".K.", "K.K"], CGRect(x: 10, y: 16, width: 5, height: 7)),
@@ -100,12 +117,12 @@ enum SpriteTestAssets {
             for y in Int(box.minY)...(Int(box.maxY) - h) { for x in Int(box.minX)...(Int(box.maxX) - w) {
                 let shape = (0..<h).allSatisfy { dy in (0..<w).allSatisfy { dx in
                     let p = plane.at(x + dx, y + dy)
-                    return p.alpha > 0 && (chars[dy][dx] == "K" ? p.rgb == k : palette.roles[p.rgb]?.hasPrefix("worm.") == true && p.rgb != k)
+                    return p.alpha > 0 && (chars[dy][dx] == "K" ? k.contains(p.rgb) : skin.contains(p.rgb) && !k.contains(p.rgb))
                 } }
                 let gap = small || ((-1...w).allSatisfy { dx in
-                    plane.at(x + dx, y - 1).rgb != k && plane.at(x + dx, y + h).rgb != k
+                    !k.contains(plane.at(x + dx, y - 1).rgb) && !k.contains(plane.at(x + dx, y + h).rgb)
                 } && (0..<h).allSatisfy { dy in
-                    plane.at(x - 1, y + dy).rgb != k && plane.at(x + w, y + dy).rgb != k
+                    !k.contains(plane.at(x - 1, y + dy).rgb) && !k.contains(plane.at(x + w, y + dy).rgb)
                 })
                 found = found || (shape && gap)
             } }
@@ -150,6 +167,7 @@ enum SpriteTestAssets {
         }
         var ink: Set<Cell> { cells { $0.alpha > 0 } }
         func count(_ rgb: UInt32) -> Int { pixels.filter { $0.alpha > 0 && $0.rgb == rgb }.count }
+        func count(_ rgbs: Set<UInt32>) -> Int { pixels.filter { $0.alpha > 0 && rgbs.contains($0.rgb) }.count }
     }
 
     private static let lock = NSLock()

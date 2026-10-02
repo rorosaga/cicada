@@ -35,9 +35,17 @@ The clock's app placement matches the art plan at **(94,34)**. Rain holds **100 
 falls from **1,908 to 1,758 boundaries/minute**, including the clock, under the unchanged **1,800 cap**.
 Settings' existing pause now reaches the sprite leaves as well as the reader and clock.
 
-Two stable-resource full Swift suites after the Mascot addition pass **2,775 tests each, zero failures**; no polling flake.
+The five-lens review fixes keep mood/overlay/day-lamp changes outside the worm's lighting-only fade identity;
+align the clock to whole seconds (minutes under Reduce Motion); suppress viewer-language headers and disclose the
+network address; handle backwards time and visible stale-while-revalidate weather. Tests now cover every night
+state mark, plan-mapped fly occlusion and distinct source render heights. Partial/worm exports rebuild saved-parts
+predecessors, all night art, manifest and full acceptance; static family provenance removes the Codex CLI dependency.
+
+Two stable-resource full Swift suites after all review fixes pass **2,785 tests each, zero failures**; no polling flake.
 The CLAUDE.md size/link checks pass **2 tests**. Two full headless exports pass all verifiers and
-match **119 files byte for byte**. The offline preview smoke check passes 36 sheets / 429 tags /
+match **120 files byte for byte**; the actual documented worm-stage and partial skyfx exports match them too.
+Both independent night/fx builders pass two-run 38-file comparisons; six pipeline regressions pass.
+The offline preview smoke check passes 36 sheets / 429 tags /
 480 room combinations. `make app` builds only the worktree bundle, containing **36 PNG/JSON pairs
 plus the manifest (73 files)** with matching hashes. `git diff --check` is clean.
 

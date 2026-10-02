@@ -27,7 +27,14 @@ function R.finish(s,name,frames)
   for _,t in ipairs(s.tags) do
     local tag={name=t.name,frames={}}
     for i=t.fromFrame.frameNumber,t.toFrame.frameNumber do
-      local f=frames[i] or {};f.index=i-1;f.ms=H.ms(s.frames[i]);tag.frames[#tag.frames+1]=f
+      local f=frames[i] or {}
+      if f.parts then
+        table.sort(f.parts,function(a,b)
+          local function key(p)return (p.layer or '')..'|'..(p.part or '')..'|'..tostring(p.x or 0)..'|'..tostring(p.y or 0) end
+          return key(a)<key(b)
+        end)
+      end
+      f.index=i-1;f.ms=H.ms(s.frames[i]);tag.frames[#tag.frames+1]=f
     end
     record.tags[#record.tags+1]=tag
   end

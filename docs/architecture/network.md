@@ -33,20 +33,25 @@ and wait. The Settings preview reads the memory cache and never fetches. The roo
 pause to its sprite leaves too; the clock uses the same visible-room predicate. Tests inject transport and render
 Settings with isolated preferences, without making a weather request. This is not a Store domain and has no ETag.
 
-The app sends only the time zone's principal city's public latitude/longitude from `TimeZoneCoordinates` plus fixed
+The app's query sends the time zone's principal city's public latitude/longitude from `TimeZoneCoordinates` plus fixed
 current-condition parameters (`weather_code`, `wind_speed_10m`, kilometres per hour, one forecast day). No location
 permission, time-zone identifier, viewer id, account or bank content is sent. `LocalWeatherRequest` constructs one
 HTTPS endpoint at `api.open-meteo.com/v1/forecast`; the transport refuses other hosts/paths/schemes, all redirects and
 HTTP authentication. Its ephemeral session has no cookies, credentials or disk cache, a constant non-identifying
-User-Agent and both request/resource timeouts of four seconds. Advertised bodies above 64 KiB are refused; streaming
+User-Agent, fixed `Accept: application/json` / `Accept-Encoding: identity` and an explicitly empty `Accept-Language`
+field that suppresses CFNetwork's viewer-language default. The service also sees the network address, as with any web request.
+Both request/resource timeouts are four seconds. Advertised bodies above 64 KiB are refused; streaming
 stops before appending a byte beyond 64 KiB. Every attempt, including cancellation and failure, consumes the half-hour
-slot; a time-zone switch cannot bypass it. A cached city never supplies another city's weather, and readings expire
-within half an hour. A missing city, offline/refused/malformed/oversize response or unknown conditions falls back to
+slot; a time-zone switch cannot bypass it. A backwards clock makes the next attempt due and restarts the throttle
+from the new time. A cached city never supplies another city's weather. After half an hour, a stale reading remains
+only when the visible local-weather room is about to refresh or that city's refresh is in flight. Failures clear it;
+cancellation removes the in-flight allowance, and an expired reading cannot survive a throttled retry or hidden room.
+A missing city, offline/refused/malformed/oversize response or unknown conditions falls back to
 How Sleep is doing, named explicitly in the legend/help/VoiceOver. No alternate headers or immediate retries.
 
-The one-line disclosure is: “Open-Meteo receives your time zone's city, every half hour while the study room is open;
-nothing else leaves your Mac.” This names the weather service only as a privacy disclosure. Conditions use the
-[public forecast API](https://open-meteo.com/en/docs); transport tests inject responses and never contact it.
+The one-line disclosure is: “Open-Meteo receives your time zone's city every half hour while the study room is open and,
+like any web request, your network address. Nothing from your memory is sent.” This names the weather service only as a privacy disclosure. Conditions use the
+[public forecast API](https://open-meteo.com/en/docs); transport tests inject responses and capture a real loopback wire request; they never contact the public service.
 
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**

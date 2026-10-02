@@ -1,3 +1,6 @@
+# Historical 2026-09-29 queue/design boards, not the shipped scenery contract.
+# Their seven mood-only weathers/palette labels are superseded by the 2026-10-02 scenery spec:
+# five base weathers × day/dusk/night, six overlays, dark rooms lit by the lamp and the wall clock.
 import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 import json, math

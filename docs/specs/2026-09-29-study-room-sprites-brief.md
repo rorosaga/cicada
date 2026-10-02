@@ -219,3 +219,10 @@ headless-only authoring becomes computer use in Aseprite for the parts and GUI r
 builds and exports. The owner chose Codex (gpt-6.1-sol, extra-high effort) for this job only. The new room, lamp, fly,
 weather and spine textures follow that spec; the count props, queue as a room, time-of-day palettes, night light and
 G175 marks still need their own design rounds. Q1's mood decision remains deferred as the spec says.
+
+**2026-10-02 amendment — built scenery, superseding the deferrals above.**
+[`2026-10-02-study-room-scenery.md`](2026-10-02-study-room-scenery.md) delivers day/dusk/night skies,
+the dark room lit by the lamp (replacing the separate night-light deferral, per the bookworm spec §5's dated note),
+and the wall clock. The open design rounds are count props, the queue as a room, G175 marks, a second G127 character
+and Q1. The existing character is named Bookworm in Settings → Sleep → Mascot. Final integration and review are
+recorded in the [finishing handoff](2026-10-02-study-room-sprites-finish-handoff.md).

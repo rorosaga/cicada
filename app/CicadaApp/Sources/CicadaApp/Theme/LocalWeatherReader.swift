@@ -31,6 +31,10 @@ enum LocalWeatherRequest {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         // A constant header avoids the system's app/version/device User-Agent. No viewer identifier.
         request.setValue("weather-reader", forHTTPHeaderField: "User-Agent")
+        // CFNetwork otherwise adds the viewer's preferred languages, even in an ephemeral session.
+        // An empty field suppresses that default without sending any language or region.
+        request.setValue("", forHTTPHeaderField: "Accept-Language")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         return request
     }
 }
@@ -90,7 +94,7 @@ final class LocalWeatherReader {
     private var cachedZone: String?
     private var fetchedAt: Date?
     @ObservationIgnored private var attemptedAt: Date?
-    @ObservationIgnored private var inFlight = false
+    private var inFlightZone: String?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let table: [String: GeoPoint]
     @ObservationIgnored private let transport: (URLRequest) async throws -> Data
@@ -100,23 +104,31 @@ final class LocalWeatherReader {
         self.now = now; self.table = table; self.transport = transport
     }
 
-    func base(for zone: String) -> WindowWeather? {
-        guard zone == cachedZone, let fetchedAt, now().timeIntervalSince(fetchedAt) >= 0,
-              now().timeIntervalSince(fetchedAt) < LocalWeatherRequest.interval else { return nil }
+    func base(for zone: String, refreshWhenVisible: Bool = false) -> WindowWeather? {
+        guard zone == cachedZone, let fetchedAt else { return nil }
+        let age = now().timeIntervalSince(fetchedAt)
+        guard age >= 0 else { return nil }
+        // The visible room can keep its last reading on the body evaluation that starts its task,
+        // then throughout that refresh. Hidden rooms and throttled failures cannot retain stale weather.
+        let refreshDue = refreshWhenVisible && inFlightZone == nil && delayUntilNextAttempt() <= 0
+            && TimeZoneCoordinates.point(for: zone, in: table).flatMap(LocalWeatherRequest.make(point:)) != nil
+        guard age < LocalWeatherRequest.interval || inFlightZone == zone || refreshDue else { return nil }
         return cachedBase
     }
 
     func delayUntilNextAttempt() -> TimeInterval {
         guard let attemptedAt else { return 0 }
-        return max(0, LocalWeatherRequest.interval - now().timeIntervalSince(attemptedAt))
+        let age = now().timeIntervalSince(attemptedAt)
+        guard age >= 0 else { return 0 }
+        return max(0, LocalWeatherRequest.interval - age)
     }
 
     func refreshIfNeeded(onScreen: Bool, mode: SceneryMode, zone: TimeZone) async {
-        guard onScreen, mode == .localWeather, !Task.isCancelled, !inFlight, delayUntilNextAttempt() <= 0,
+        guard onScreen, mode == .localWeather, !Task.isCancelled, inFlightZone == nil, delayUntilNextAttempt() <= 0,
               let point = TimeZoneCoordinates.point(for: zone.identifier, in: table),
               let request = LocalWeatherRequest.make(point: point) else { return }
-        attemptedAt = now(); inFlight = true
-        defer { inFlight = false }
+        attemptedAt = now(); inFlightZone = zone.identifier
+        defer { inFlightZone = nil }
         do {
             let data = try await transport(request)
             try Task.checkCancellation()
