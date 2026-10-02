@@ -11,12 +11,11 @@ import XCTest
 final class SkyBandTests: XCTestCase {
 
     func test_theBandShowsOnlyASkyTheWindowAgreesWith() {
-        XCTAssertEqual(SkyBand.phase(for: .night), .night)
-        XCTAssertEqual(SkyBand.phase(for: .dawn), .dusk)
-        XCTAssertEqual(SkyBand.phase(for: .clear), .day)
-        XCTAssertEqual(SkyBand.phase(for: .fair), .day)
-        for grey in [WindowWeather.overcast, .storm, .curtains] {
-            XCTAssertNil(SkyBand.phase(for: grey), "\(grey): no grey band — the window and the sentence say it")
+        for time in SkyPhase.allCases {
+            for base in WindowWeather.all {
+                XCTAssertEqual(SkyBand.phase(for: Scenery(base: base, time: time, overlay: nil, source: .chosen)),
+                               [.sunny, .cloudy].contains(base) ? time : nil)
+            }
         }
     }
 
@@ -72,12 +71,13 @@ final class SkyBandTests: XCTestCase {
                 print("sky band ratio: \(mode.rawValue) \(phase) tint \(String(format: "%.2f", tint)):1 "
                       + "title \(String(format: "%.1f", title)):1")
             }
-            let weathers: [WindowWeather?] = [nil]
-                + WindowWeather.all.filter { SkyBand.phase(for: $0) != nil }.map(Optional.some)
+            let weathers: [Scenery?] = [nil] + SkyPhase.allCases.map {
+                Scenery(base: .sunny, time: $0, overlay: nil, source: .chosen)
+            }
             for weather in weathers {
                 let page = ZStack(alignment: .top) {
                     CicadaTheme.background
-                    if let weather { SleepSkyBand(weather: weather) }
+                    if let weather { SleepSkyBand(scenery: weather) }
                     VStack(alignment: .leading, spacing: 16) {
                         PageTitle(Copy.sleepPageTitle)
                         RoundedRectangle(cornerRadius: CicadaTheme.cornerRadius).fill(CicadaTheme.surface)
@@ -91,7 +91,7 @@ final class SkyBandTests: XCTestCase {
                 let image = try XCTUnwrap(renderer.nsImage)
                 let rep = NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation))
                 try XCTUnwrap(rep?.representation(using: .png, properties: [:]))
-                    .write(to: dir.appendingPathComponent("sky-band-\(weather?.rawValue ?? "none")-\(mode.rawValue).png"))
+                    .write(to: dir.appendingPathComponent("sky-band-\(weather?.weatherTag ?? "none")-\(mode.rawValue).png"))
             }
         }
         print("sky band composites: \(dir.path)")

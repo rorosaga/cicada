@@ -392,13 +392,12 @@ default, remembered per viewer
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1, amended by ruling 18):**
-*state art* — the owner's worm in Aseprite sheets on a 160 × 64 lattice (3 pt per cell at 1.0), the real pile,
-the lamp (= the schedule) and its pixel-size fly, the bean bag, mood-edge yawn/stretch, and the window's seven animated weathers (Night,
-Dawn, Sunny, Partly cloudy, Windy, Rainy and Curtains drawn), still a total function of the mood with a legend
-popover of key frames as its twin — and *response art* (gaze, perk, talk, cheer), transient and
-never contradicting state. The sheet player loads once, caches failures, uses per-frame boundary schedules,
-shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
-The room's wall/floor, plant and mug are inert; no time-of-day palette is read. The art layer stays inert; interaction is a
+*state art* — the owner's worm on a 160 × 64 lattice (3 pt per cell at 1.0), the real pile, the lamp (= the schedule)
+and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep moment overlays — and *response art* (gaze,
+perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
+and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
+schedules, shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+The room's wall/floor, plant and mug stay inert, with lighting chosen by the scenery. The art layer stays inert; interaction is a
 hotspot layer derived from the pure layout (`deskHotspots`), and **no click on art changes what the
 machine does**: the lamp's popover shows the scheduled engine and its reason *before* its labelled
 toggle can flip, and Consolidate stays the one trigger. The strip appears only while running or
@@ -435,6 +434,51 @@ sentence, a drain-aware cancel text, and no "Episode cap reached" row for a drai
 after an early stop (`FirstReadAction.keepReading`) and "Your memory has N pages now." after a full drain. Since ruling 16 the lamp's popover and the engine menu's Scheduled row say a scheduled run reads everything waiting too
 (`Copy.scheduledReadsAll`), with how it spends in words from `preview.scheduled.billing` ("charged per use; Cicada sets no limit", "on this
 Mac") — never a provider's name.
+**The study room's scenery (G176, owner 2026-10-02).** `Scenery.resolve(mode:clock:forecast:mood:manual:)` is pure:
+base weather · `SkyPhase` · optional overlay · effective source. The worm still means Sleep at any hour/in any weather.
+Clock time is `SceneStore.phase` (day · dusk · night), shared with Home's existing boundary/hourly/wake/time-zone
+checks, with no new per-second timer. Local weather (default) reads the time zone's principal city's public conditions,
+not the person's location. Missing weather falls back to How Sleep is doing and says “Local weather unavailable.”
+The fallback maps happy/sleeping/digesting → sunny, reading/curious → cloudy, hungry → windy, error → rainy,
+awake → curtains. Choose ignores clock and forecast and pins a time/base. In every mode, sleeping adds calm mist and
+digesting adds a rainbow by day/dusk or a shooting star at night. Night OR rainy makes the room dark; dusk otherwise
+keeps day lighting. The lamp still means the schedule.
+
+`room-weather` uses `<base>-<time>` (five bases × three times). `room-skyfx` uses six moment/time tags, with its layer
+between pane and window in `DeskScene.plan`/`room-plan.json`. In darkness the backdrop/lamp and the window/plant/beanbag/
+mug select `night-dark`/`night-lit`, and all eight worm states select `bookworm-<state>-night-dark`/`-night-lit`, including
+beats, covers and both sleeping transitions. Tags, frame counts and timings match the day sheets; the small/menu worm
+has no room lighting. The existing sleeping-outro → reading key frame can still change from a closed to an open
+book in one frame; a reading opening beat is not part of the named contract. `SceneryRoomArt` swaps the whole inert art layer with one 0.4 s opacity crossfade using the existing
+`SleepMotion.weather` token; Reduce Motion swaps instantly. Hotspots and the real pile keep their layout/identity. Beat/transition cleanup tasks live on the stable study room,
+so a sky/lighting crossfade cannot restart or extend them.
+The current legend line, help and VoiceOver share `Scenery.text`, for example “Night · Rainy · local weather”;
+mist/completion meaning is appended, and under How Sleep is doing the base meanings remain visible in its key-frame
+legend. No scenery action starts work; the window offers a link to its Settings row.
+
+**The wall clock (owner amendment, 2026-10-02).** `RoomClockReading.indices(at:zone:)` maps civil time to
+sixty whole-pixel angles: hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their integer values.
+`RoomClock` is a separate inert leaf, with a `TimelineView(.periodic)` at `CicadaMotion.roomClockTick` (one second)
+only while its window/room is visible and its host is active; it never redraws the parent room. `room-clock` has
+`face`, `hour`, `minute`, `second` and each `-night` variant. Night-or-rain lighting selects the dark dial/hands;
+black hour/minute hands and the thin red second hand use transparent state frames, not timed sprite loops.
+Reduce Motion removes the second hand while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”
+in the system's short format, after the window and before the lamp; it is not a button. The 15 × 15 clock at
+`(93,37)`, z1, clears every existing worm frame/beat/transition, the window, lamp and pile column; art acceptance
+also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
+
+**Settings → Sleep → The scenery.** One group in the in-app Settings panel's existing list grammar:
+Source (Local weather · How Sleep is doing · Choose), then Time of day and Weather under Choose, then Preview.
+Three time thumbnails (Day · Dusk · Night) and five weather thumbnails (Sunny · Cloudy · Windy · Rainy · Curtains drawn)
+use the sheets' key frames; every native button has a text label, keyboard focus, VoiceOver label and selected trait.
+Selection uses the neutral ground/ring, text below the art, no shadow. The small live preview uses the same room
+composition and current Sleep mood/schedule, reading cached weather only. The Settings search indexes each row; hidden
+Choose-only rows land on Source. Preferences are per viewer (`cicada.sleep.scenerySource`, `sceneryTime`,
+`sceneryWeather`), separate from Home's scene and never in a bank. Local weather's one-line disclosure is
+“Open-Meteo receives your time zone's city, every half hour while the study room is open; nothing else leaves your Mac.”
+`LocalWeatherReader` is an in-memory read, not a Store domain; its own visibility/source gate, half-hour attempts and
+four-second/64-KiB/no-cookie transport are detailed in `network.md`.
+
 **Sleep page v5, the app half (2026-09-30; rulings 15, 16).** All copy is `Theme/Copy+SleepV5.swift`, provider-neutral
 (`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
 person's own choice) and journal-honest (no "read and kept": a Pause reads the part in progress again). The **paused run** (`SleepPausedRun`, on
@@ -474,7 +518,7 @@ shut and the X-eyed error worm never looks away. The worm is the owner's design 
 (`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
 drawn in code); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
 Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
-covers on its own loop. A transition always uses the sleeping sheet; a cold page never transitions, and a real
+covers on its own loop. A transition always uses the sleeping sheet from the current room lighting/lamp set; a cold page never transitions, and a real
 completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`
 on every sprite except whole-cell lattice placement. Cached room crops are bounded by distinct frame rects and
 decoded pixels; the small renderer's independent cache keeps its 1024-entry wipe bound. Spines use kind-specific
@@ -487,10 +531,13 @@ shake like every other beat.
 truth), the Lua builders, and `tools/export_all.sh`, which rebuilds every sheet into `Resources/sprites/`, verifies pixels
 and timing, writes the manifest and regenerates the preview. **To see all of it move, open
 `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser straight from disk** (no server, no
-network): every worm state, beat and transition, the seven weathers behind the window, the lamp and its fly, the room
-by mood with the lamp lit or dark, Reduce Motion and Low Power, and the 18 × 18 menu-bar strips on a light and a dark
+network): every worm state, beat and transition, the contract's fifteen weather/time tags and six overlays behind the window, the clock's hand-angle states, the lamp and its fly, the room
+in day/night lighting with the lamp lit or dark, every mood in every environment, Reduce Motion and Low Power, and the 18 × 18 menu-bar strips on a light and a dark
 bar, all at their real per-frame timings. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
-its dark outlines on a dark bar (one sheet for both).
+its dark outlines on a dark bar (one sheet for both). The 2026-10-02 scenery contract and wall-clock amendment expand the bundle to 36
+sheet pairs; the art run supplies the new night sheets, weather/overlay/clock tags, plan, motion sidecar, manifest and preview
+before acceptance can pass. Count props, the queue as a room, G175 marks and Q1 remain open; app-side tests do not
+establish the owner's visual acceptance or the live CPU budget.
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the

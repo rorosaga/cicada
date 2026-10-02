@@ -65,16 +65,14 @@ final class BookwormStateTests: XCTestCase {
         XCTAssertEqual(BookwormState.reading.stageNumber, 0)
     }
 
-    func testErrorFramesHaveRedPupilsAndMove() throws {
+    func testErrorFramesHaveBlackXEyesAndDropAndMove() throws {
         let sheet = try SpriteTestAssets.sheet("bookworm-error")
         let clip = try SpriteTestAssets.clip(sheet, "idle")
         XCTAssertGreaterThanOrEqual(Set(clip.order.map { sheet.rectIndex[$0] }).count, 2)
         let palette = try SpriteTestAssets.palette()
-        let e = try palette.rgb("e"), sweat = try palette.rgb("S")
         for frame in clip.order {
             let plane = try SpriteTestAssets.plane(sheet, frame: frame)
-            XCTAssertGreaterThanOrEqual(plane.count(e), 4)
-            XCTAssertGreaterThanOrEqual(plane.count(sweat), 1)
+            try SpriteTestAssets.assertErrorMarks(plane, small: false, palette: palette)
         }
     }
 

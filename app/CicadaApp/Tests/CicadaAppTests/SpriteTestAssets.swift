@@ -6,8 +6,12 @@ import XCTest
 enum SpriteTestAssets {
     static let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let art = root.appendingPathComponent("Art/sprites/bookworm-2026-10-01")
-    static let sheetNames = BookwormArt.states.map { BookwormArt.sheetName($0, .room) } + ["bookworm-small"]
-        + ["room-backdrop", "room-window", "room-weather", "room-lamp", "room-fly", "room-beanbag", "room-plant", "room-mug", "room-spines"]
+    static let dayWormNames = BookwormArt.states.map { BookwormArt.sheetName($0, .room) }
+    static let nightWormNames = BookwormArt.states.flatMap { state in
+        [false, true].map { BookwormArt.sheetName(state, .room, lighting: .dark, lampLit: $0) }
+    }
+    static let roomNames = ["room-backdrop", "room-clock", "room-window", "room-weather", "room-skyfx", "room-lamp", "room-fly", "room-beanbag", "room-plant", "room-mug", "room-spines"]
+    static let sheetNames = dayWormNames + nightWormNames + ["bookworm-small"] + roomNames
 
     static func url(_ name: String, ext: String) throws -> URL {
         try XCTUnwrap(Bundle.cicadaResources.cicadaResource(name, ext: ext, in: "sprites"), "Missing sheet resource: \(name).\(ext)")
@@ -40,6 +44,34 @@ enum SpriteTestAssets {
     }
     static func palette() throws -> Palette {
         try JSONDecoder().decode(Palette.self, from: artData("palette.json"))
+    }
+
+    /// The owner's X shapes, including their clear skin perimeter, must survive every error frame.
+    static func assertErrorMarks(_ plane: Plane, small: Bool, palette: Palette,
+                                 file: StaticString = #filePath, line: UInt = #line) throws {
+        let k = try palette.rgb("K"), sweat = try palette.rgb("S")
+        let patterns = small ? [(["K.K", ".K.", "K.K"], CGRect(x: 2, y: 4, width: 4, height: 6)),
+                                (["K.K", ".K.", "K.K"], CGRect(x: 10, y: 4, width: 5, height: 6))]
+            : [(["K.K", ".K.", ".K.", "K.K"], CGRect(x: 10, y: 16, width: 5, height: 7)),
+               (["K....K", ".K..K.", "..KK..", ".K..K.", "K....K"], CGRect(x: 23, y: 17, width: 8, height: 9))]
+        for (rows, box) in patterns {
+            let chars = rows.map(Array.init), w = rows[0].count, h = rows.count
+            var found = false
+            for y in Int(box.minY)...(Int(box.maxY) - h) { for x in Int(box.minX)...(Int(box.maxX) - w) {
+                let shape = (0..<h).allSatisfy { dy in (0..<w).allSatisfy { dx in
+                    let p = plane.at(x + dx, y + dy)
+                    return p.alpha > 0 && (chars[dy][dx] == "K" ? p.rgb == k : palette.roles[p.rgb]?.hasPrefix("worm.") == true && p.rgb != k)
+                } }
+                let gap = small || ((-1...w).allSatisfy { dx in
+                    plane.at(x + dx, y - 1).rgb != k && plane.at(x + dx, y + h).rgb != k
+                } && (0..<h).allSatisfy { dy in
+                    plane.at(x - 1, y + dy).rgb != k && plane.at(x + w, y + dy).rgb != k
+                })
+                found = found || (shape && gap)
+            } }
+            XCTAssertTrue(found, "Missing black X in \(box)", file: file, line: line)
+        }
+        XCTAssertGreaterThanOrEqual(plane.count(sweat), small ? 2 : 1, "error keeps its drop", file: file, line: line)
     }
 
     struct Cell: Hashable { let x, y: Int }
@@ -111,7 +143,7 @@ enum SpriteTestAssets {
                 XCTAssertGreaterThanOrEqual(seconds, CicadaMotion.spriteFrameMin, "\(sheet.name)/\(clip.tag)", file: file, line: line)
                 XCTAssertLessThanOrEqual(seconds, CicadaMotion.spriteFrameMax, "\(sheet.name)/\(clip.tag)", file: file, line: line)
             }
-            if clip.order.count == 1 || sheet.name == "room-spines" {
+            if clip.order.count == 1 || sheet.name == "room-spines" || sheet.name == "room-clock" {
                 XCTAssertTrue(clip.seconds.allSatisfy { $0 == 1 }, "\(sheet.name)/\(clip.tag)", file: file, line: line)
             } else if clip.tag == "intro" || clip.tag == "outro" {
                 XCTAssertLessThanOrEqual(clip.total, CicadaMotion.spriteTransitionMax, file: file, line: line)

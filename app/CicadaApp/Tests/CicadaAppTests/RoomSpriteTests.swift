@@ -4,14 +4,15 @@ import XCTest
 final class RoomSpriteTests: XCTestCase {
     func testRoomSheetsHaveExactTagsCanvasesAndSlices() throws {
         let contracts: [(String, Int, Int, Set<String>, Set<String>)] = [
-            ("room-backdrop", 110, 64, ["dark", "lit"], ["glow"]),
-            ("room-window", 40, 38, ["idle"], ["glass"]),
-            ("room-weather", 36, 32, Set(WindowWeather.all.map(\.rawValue)), []),
-            ("room-lamp", 18, 50, ["dark", "lit"], ["ink", "shade"]),
+            ("room-backdrop", 110, 64, ["dark", "lit", "night-dark", "night-lit"], ["glow"]),
+            ("room-window", 40, 38, ["idle", "night-dark", "night-lit"], ["glass"]),
+            ("room-weather", 36, 32, Set(Scenery.weatherTags), []),
+            ("room-skyfx", 36, 32, Set(SkyOverlay.tags), []),
+            ("room-lamp", 18, 50, ["dark", "lit", "night-dark", "night-lit"], ["ink", "shade"]),
             ("room-fly", 20, 26, ["buzz"], ["ink"]),
-            ("room-beanbag", 62, 12, ["idle"], ["ink", "seat"]),
-            ("room-plant", 12, 22, ["idle"], ["ink"]),
-            ("room-mug", 8, 9, ["idle"], ["ink"]),
+            ("room-beanbag", 62, 12, ["idle", "night-dark", "night-lit"], ["ink", "seat"]),
+            ("room-plant", 12, 22, ["idle", "night-dark", "night-lit"], ["ink"]),
+            ("room-mug", 8, 9, ["idle", "night-dark", "night-lit"], ["ink"]),
             ("room-spines", 24, 12, Set(SpineKind.allCases.map(\.rawValue)), []),
         ]
         for (name, w, h, tags, slices) in contracts {
@@ -25,9 +26,13 @@ final class RoomSpriteTests: XCTestCase {
             SpriteTestAssets.assertCaps(sheet)
             if slices.contains("ink") { XCTAssertEqual(sheet.slices["ink"], SpriteTestAssets.bounds(try SpriteTestAssets.unionInk(sheet)), name) }
         }
+    }
+
+    func testDayWormSliceContractIncludesErrorLensL() throws {
         for state in BookwormSpriteTests.states {
             let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
-            XCTAssertEqual(Set(sheet.slices.keys), ["ink", "eye", "lensL", "lensR"])
+            XCTAssertEqual(Set(sheet.slices.keys), Set(["ink", "eye", "lensL", "lensR"] + (state.caseName == "error" ? ["errorLensL"] : [])))
+            if state.caseName == "error" { XCTAssertEqual(sheet.slices["errorLensL"], CGRect(x: 10, y: 17, width: 5, height: 6)) }
             XCTAssertEqual(sheet.slices["ink"], SpriteTestAssets.bounds(try SpriteTestAssets.unionInk(sheet)), sheet.name)
         }
     }
@@ -49,7 +54,6 @@ final class RoomSpriteTests: XCTestCase {
         let glass = CGRect(x: 20, y: 27, width: 36, height: 32)
         let lampInk = SpriteTestAssets.scene(try SpriteTestAssets.unionInk(lamp), x: 0, y: 0, h: 50)
         let shade = try XCTUnwrap(lamp.slices["shade"])
-        let shadeScene = CGRect(x: shade.minX, y: 50 - shade.maxY, width: shade.width, height: shade.height)
         for (step, frame) in clip.order.enumerated() {
             let ink = try SpriteTestAssets.plane(fly, frame: frame).ink
             XCTAssertLessThanOrEqual(ink.count, 2)
@@ -58,8 +62,11 @@ final class RoomSpriteTests: XCTestCase {
             if step == 0 {
                 XCTAssertGreaterThanOrEqual(ink.count, 1)
                 XCTAssertTrue(scene.allSatisfy { cell in
-                    shadeScene.insetBy(dx: -1, dy: -1).contains(CGPoint(x: Double(cell.x) + 0.5, y: Double(cell.y) + 0.5))
-                        && lampInk.contains { abs($0.x - cell.x) + abs($0.y - cell.y) == 1 }
+                    // `shade` bounds the changed lighting pixels, excluding the unchanged top rim (row 0).
+                    // §5.4 says ON TOP: the fly must sit exactly one cell above the actual shade silhouette.
+                    Double(cell.x) >= shade.minX && Double(cell.x) < shade.maxX
+                        && lampInk.contains(.init(x: cell.x, y: cell.y - 1))
+                        && cell.y == (lampInk.filter { $0.x == cell.x }.map(\.y).max() ?? -2) + 1
                 })
             }
         }
@@ -67,7 +74,8 @@ final class RoomSpriteTests: XCTestCase {
 
     func testRainNeverFlashes() throws {
         let sheet = try SpriteTestAssets.sheet("room-weather")
-        let storm = try SpriteTestAssets.clip(sheet, "storm")
+        for time in SkyPhase.allCases {
+        let storm = try SpriteTestAssets.clip(sheet, "rainy-\(time.tag)")
         let values = try storm.order.map { frame -> Double in
             let pixels = try SpriteTestAssets.plane(sheet, frame: frame).pixels.filter { $0.alpha > 0 }
             XCTAssertFalse(pixels.isEmpty)
@@ -78,6 +86,7 @@ final class RoomSpriteTests: XCTestCase {
         let mean = values.reduce(0, +) / Double(values.count)
         XCTAssertGreaterThan(mean, 0)
         for value in values { XCTAssertLessThanOrEqual(abs(value - mean), mean * 0.02 + 1e-9) }
+        }
     }
 
     /// The spec leaves this sidecar's serialization open. Run B must supply this explicit per-frame contract.
@@ -89,9 +98,10 @@ final class RoomSpriteTests: XCTestCase {
             let tags: [Tag]
         }
         let motion = try JSONDecoder().decode(Motion.self, from: SpriteTestAssets.artData("room-motion.json"))
-        let sheet = try SpriteTestAssets.sheet("room-weather")
-        XCTAssertEqual(Set(motion.tags.map(\.tag)), Set(WindowWeather.all.map(\.rawValue)))
+        XCTAssertEqual(Set(motion.tags.map(\.tag)), Set(Scenery.weatherTags + SkyOverlay.tags))
+        XCTAssertEqual(motion.tags.count, Set(motion.tags.map(\.tag)).count, "no duplicate motion records")
         for tag in motion.tags {
+            let sheet = try SpriteTestAssets.sheet(SkyOverlay.tags.contains(tag.tag) ? "room-skyfx" : "room-weather")
             let clip = try SpriteTestAssets.clip(sheet, tag.tag)
             XCTAssertFalse(tag.elements.isEmpty)
             for element in tag.elements {

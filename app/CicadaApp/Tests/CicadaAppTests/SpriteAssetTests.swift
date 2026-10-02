@@ -9,13 +9,13 @@ final class SpriteAssetTests: XCTestCase {
         try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: SpriteTestAssets.url("sprites.manifest", ext: "json")))
     }
 
-    func testManifestListsEveryBundledFileAndExactlyEighteenSheets() throws {
+    func testManifestListsEveryBundledFileAndAllScenerySheets() throws {
         let manifest = try manifest()
         let urls = ["png", "json"].flatMap { Bundle.cicadaResources.cicadaResources(ext: $0, in: "sprites") }
             .filter { $0.lastPathComponent != "sprites.manifest.json" }
         let names = try manifest.assets.flatMap { [try XCTUnwrap($0["png"]), try XCTUnwrap($0["json"])] }
         XCTAssertEqual(Set(names), Set(urls.map(\.lastPathComponent)))
-        XCTAssertEqual(names.count, 36)
+        XCTAssertEqual(names.count, SpriteTestAssets.sheetNames.count * 2)
         XCTAssertEqual(Set(try manifest.assets.map { try XCTUnwrap($0["id"]) }), Set(SpriteTestAssets.sheetNames))
     }
 
@@ -32,7 +32,7 @@ final class SpriteAssetTests: XCTestCase {
 
     func testEveryEntryHasProvenanceAndNoMachinePaths() throws {
         let required = ["id", "png", "json", "role", "generator", "script", "source", "authoring", "date", "licence", "processing", "pngSha256", "jsonSha256"]
-        let roles: Set<String> = ["worm", "worm-small", "room", "weather", "fly", "spines"]
+        let roles: Set<String> = ["worm", "worm-small", "room", "weather", "skyfx", "clock", "fly", "spines"]
         for entry in try manifest().assets {
             for field in required { XCTAssertFalse(try XCTUnwrap(entry[field], field).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
             XCTAssertTrue(roles.contains(try XCTUnwrap(entry["role"])))

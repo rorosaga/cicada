@@ -4,7 +4,7 @@ Moved word for word from `CLAUDE.md` on 2026-10-01, when that file passed Claude
 session). **`CLAUDE.md` keeps the rails and the map; this file keeps the detail.** A rail stated there binds here too. When
 a change makes this file wrong, update it in the same PR (repository paths below are relative to the repository root).
 
-Three gates, and they do **not** mean the same thing — read the difference before adding a fourth:
+Three backend gates, and a separate app-side scenery gate below. They do **not** mean the same thing:
 
 - **`CICADA_ALLOW_CONNECTOR_FETCH`** gates the default transport of every fetch Sleep starts on its
   own: the unattended nightly connector poll, **link enrichment's page read** — Stage 5.57's
@@ -24,6 +24,27 @@ Three gates, and they do **not** mean the same thing — read the difference bef
   and injects fetchers instead. It also gates the icons of the sites Settings, Reading the web, lists (G166): those
   come from the icon service only and the login-walled site is never contacted for its favicon (nor, since
   `fetch_logo` skips its first two rungs for a walled host, is a company or tool page's logo domain when it is one).
+
+**The study room's weather has its own app gate (G176, owner 2026-10-02).** It is opt-out through the per-viewer scenery
+setting, not any backend environment variable: Settings → Sleep → The scenery → Local weather (default). Choosing
+How Sleep is doing or Choose turns the read off. `LocalWeatherReader` runs only while the study room is on screen,
+using the same window-visibility/host-pause policy as its sprites; leaving, hiding or occluding it, or opening Settings, cancels the request
+and wait. The Settings preview reads the memory cache and never fetches. This is not a Store domain and has no ETag.
+
+The app sends only the time zone's principal city's public latitude/longitude from `TimeZoneCoordinates` plus fixed
+current-condition parameters (`weather_code`, `wind_speed_10m`, kilometres per hour, one forecast day). No location
+permission, time-zone identifier, viewer id, account or bank content is sent. `LocalWeatherRequest` constructs one
+HTTPS endpoint at `api.open-meteo.com/v1/forecast`; the transport refuses other hosts/paths/schemes, all redirects and
+HTTP authentication. Its ephemeral session has no cookies, credentials or disk cache, a constant non-identifying
+User-Agent and both request/resource timeouts of four seconds. Advertised bodies above 64 KiB are refused; streaming
+stops before appending a byte beyond 64 KiB. Every attempt, including cancellation and failure, consumes the half-hour
+slot; a time-zone switch cannot bypass it. A cached city never supplies another city's weather, and readings expire
+within half an hour. A missing city, offline/refused/malformed/oversize response or unknown conditions falls back to
+How Sleep is doing, named explicitly in the legend/help/VoiceOver. No alternate headers or immediate retries.
+
+The one-line disclosure is: “Open-Meteo receives your time zone's city, every half hour while the study room is open;
+nothing else leaves your Mac.” This names the weather service only as a privacy disclosure. Conditions use the
+[public forecast API](https://open-meteo.com/en/docs); transport tests inject responses and never contact it.
 
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**

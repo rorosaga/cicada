@@ -20,8 +20,12 @@ final class BookwormViewTests: XCTestCase {
         // The Sleep room deliberately supplies the text twin through its hotspot instead.
         let room = try String(contentsOf: SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep/StudyRoom.swift"))
         let stage = try XCTUnwrap(room.range(of: "struct WormStage: View"))
-        let tasks = try XCTUnwrap(room.range(of: ".task(id: room.reaction?.id)", range: stage.upperBound..<room.endIndex))
-        XCTAssertTrue(room[stage.lowerBound..<tasks.lowerBound].contains(".accessibilityHidden(true)"))
+        let pose = try XCTUnwrap(room.range(of: "static func pose", range: stage.upperBound..<room.endIndex))
+        let stageBody = room[stage.lowerBound..<pose.lowerBound]
+        XCTAssertTrue(stageBody.contains(".accessibilityHidden(true)"))
+        XCTAssertFalse(stageBody.contains(".task(id:"), "lighting swaps must not restart beat/transition lifetimes")
+        XCTAssertTrue(room[..<stage.lowerBound].contains(".task(id: room.reaction?.id)"))
+        XCTAssertTrue(room[..<stage.lowerBound].contains(".task(id: room.transition?.id)"))
     }
 
     func testReadingCoverIsChosenInsideTheTimelineClosure() throws {
@@ -30,7 +34,8 @@ final class BookwormViewTests: XCTestCase {
         let timeline = try XCTUnwrap(text.range(of: "TimelineView(SpriteFrameSchedule"))
         let cover = try XCTUnwrap(text.range(of: "BookwormArt.coverIndex(at: context.date"))
         XCTAssertGreaterThan(cover.lowerBound, timeline.lowerBound)
-        XCTAssertTrue(text.contains("BookwormArt.transitionClip($0.kind)"))
+        XCTAssertTrue(text.contains("BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit)"))
+        XCTAssertTrue(text.contains("BookwormArt.clip(state, look: look, cover: cover, set: size.set, lighting: lighting, lampLit: lampLit)"))
         XCTAssertTrue(text.contains("WindowVisibilityReader"))
         XCTAssertTrue(text.contains("SceneRunPolicy.isPaused"))
         XCTAssertTrue(text.contains(".accessibilityLabel(\"\\(state.title) — \\(state.detail)\")"))
