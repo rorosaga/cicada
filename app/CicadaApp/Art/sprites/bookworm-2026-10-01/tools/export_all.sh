@@ -2,7 +2,7 @@
 # Saved Aseprite sources own the pixels; every builder reads them and every sheet is re-exported.
 set -euo pipefail
 ASE="${ASEPRITE:-/Applications/Aseprite.app/Contents/MacOS/aseprite}"
-BUILDS="${BUILDS:-build_worm build_worm_small build_room build_weather build_spines}"
+BUILDS="${BUILDS:-build_worm build_worm_small build_room build_clock build_weather build_skyfx build_spines}"
 STAGE="${STAGE:-all}"
 ART="$(cd "$(dirname "$0")/.." && pwd)"
 RES="$(cd "$ART/../../../Sources/CicadaApp/Resources" && pwd)/sprites"
@@ -23,6 +23,7 @@ for build in $BUILDS; do
 done
 if [[ "$STAGE" == all ]]; then
   run_lua check_room_parts
+  run_lua build_night
 fi
 for src in "$ART"/src/*.aseprite; do
   name="$(basename "$src" .aseprite)"

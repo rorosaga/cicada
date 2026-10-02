@@ -46,12 +46,14 @@ rec:stop();rec:apply();H.addSlice(s,'ink',H.spriteInk(s));R.finish(s,'room-fly',
 H.writeJson(app.fs.joinPath(ART,'room-plan.json'),{
  cols=160,rows=64,origin='bottom-left',layers={
  {prop='backdrop',sheet='room-backdrop',x=0,y=0,w=110,h=64,z=0},
- {prop='pane',sheet='room-weather',x=20,y=27,w=36,h=32,z=1},
- {prop='window',sheet='room-window',x=18,y=23,w=40,h=38,z=2},
- {prop='plant',sheet='room-plant',x=21,y=0,w=12,h=22,z=3},
- {prop='lamp',sheet='room-lamp',x=0,y=0,w=18,h=50,z=4},
- {prop='fly',sheet='room-fly',x=0,y=32,w=20,h=26,z=5},
- {prop='beanbag',sheet='room-beanbag',x=36,y=0,w=62,h=12,z=6},
- {prop='mug',sheet='room-mug',x=100,y=0,w=8,h=9,z=7}},
+ {prop='clock',sheet='room-clock',x=94,y=34,w=15,h=15,z=1},
+ {prop='pane',sheet='room-weather',x=20,y=27,w=36,h=32,z=2},
+ {prop='skyfx',sheet='room-skyfx',x=20,y=27,w=36,h=32,z=3},
+ {prop='window',sheet='room-window',x=18,y=23,w=40,h=38,z=4},
+ {prop='plant',sheet='room-plant',x=21,y=0,w=12,h=22,z=5},
+ {prop='lamp',sheet='room-lamp',x=0,y=0,w=18,h=50,z=6},
+ {prop='fly',sheet='room-fly',x=0,y=32,w=20,h=26,z=7},
+ {prop='beanbag',sheet='room-beanbag',x=36,y=0,w=62,h=12,z=8},
+ {prop='mug',sheet='room-mug',x=100,y=0,w=8,h=9,z=9}},
  worm={x=36,y=9,w=64,h=48},pile={x=110,y=0,w=50,h=52}})
 print('room: props, glow, fly and plan built')

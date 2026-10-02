@@ -1,15 +1,56 @@
 # Bookworm sprites — sources and delivery
 
 **Preview: open [preview.html](preview.html) in a browser, straight from disk.** It plays every worm state, beat and
-transition, the seven weathers, the lamp and its fly, the room by mood with the lamp lit or dark, and the menu-bar strips
+transition, 15 time × weather skies, six transparent overlays, the lamp and its fly, any worm mood in day or dark
+lighting, and the menu-bar strips
 on light and dark bars at their real timings. `tools/export_all.sh` regenerates it with the sheets.
 
-Current delivery: **18 sheet pairs** in `Sources/CicadaApp/Resources/sprites/` — nine worm sheets (eight room-scale
-states and the 18 × 18 menu-bar head; owner 2026-10-01: black X error eyes, one dark-outline menu sheet on both bars) and
-nine room sheets. The saved Aseprite parts are the pixel authority; `tools/export_all.sh` rebuilds and verifies every
-sheet. [RUN_B_REPORT.md](RUN_B_REPORT.md) and [ROOM_TAG_TIMINGS.md](ROOM_TAG_TIMINGS.md) cover the room;
+**Current delivery, owner 2026-10-02: 36 sheet pairs, 429 tags, 4,426 frames** in `Sources/CicadaApp/Resources/sprites/`.
+The [scenery contract](../../../../../docs/specs/2026-10-02-study-room-scenery.md) is binding; the records below are
+historical. The saved day parts remain the pixel authority. [SCENERY_REPORT.md](SCENERY_REPORT.md) covers this delivery;
+[RUN_B_REPORT.md](RUN_B_REPORT.md) and [ROOM_TAG_TIMINGS.md](ROOM_TAG_TIMINGS.md) describe the earlier room;
 [WORM_FIX_REPORT.md](WORM_FIX_REPORT.md) and [TAG_TIMINGS.md](TAG_TIMINGS.md) the worm. The run records below are kept as
 history.
+
+| Sheets | Canvas | Tags |
+|---|---|---|
+| Eight `bookworm-<state>` | 64 × 48 | Existing tags unchanged |
+| Sixteen `bookworm-<state>-night-{dark,lit}` | 64 × 48 | Exactly each day sheet's complete tags, frames, durations and slices |
+| `bookworm-small` | 18 × 18 | Eight states, unchanged |
+| `room-weather` | 36 × 32 | `{sunny,cloudy,windy,rainy,curtains}-{day,dusk,night}` |
+| `room-skyfx` | 36 × 32 | `mist-day`, `mist-dusk`, `mist-night`, `rainbow-day`, `rainbow-dusk`, `shootingstar-night` |
+| `room-backdrop`, `room-lamp` | Existing | `dark`, `lit`, `night-dark`, `night-lit` |
+| `room-window`, `room-plant`, `room-beanbag`, `room-mug` | Existing | `idle`, `night-dark`, `night-lit` |
+| `room-clock` | 15 × 15 | `face`, `face-night`; `{hour,minute,second}` and their `-night` tags, 60 angles each |
+| `room-fly`, `room-spines` | Existing | Unchanged |
+
+Dark-room art is selected when **time is night OR base weather is rainy**, for every mood. Otherwise day art is used,
+including dusk. The lamp still means the schedule. The preview has independent time, weather, overlay, lamp and mood
+controls, plus 15 labelled Scenery thumbnails, and the wall clock showing the Mac’s time (no second hand under Reduce Motion). Changing mood selects its Sleep overlay; the overlay control also allows
+inspection with none, mist or rainbow/shooting star.
+
+From this directory, rebuild the complete delivery headlessly:
+
+```sh
+tools/export_all.sh
+node tools/check_preview.mjs
+python3 tools/make_scenery_review.py
+# After the first full rebuild, record; rebuild again, then compare.
+python3 tools/check_scenery_rebuild.py record
+tools/export_all.sh
+python3 tools/check_scenery_rebuild.py compare
+```
+
+The default pipeline rebuilds the saved day sources, the wall clock, weather and overlays, then runs `lua/build_night.lua` through
+`lua/run_checked.lua`. `palette.json` keeps **81 authoring keys** (the 87-key budget), with keyless `night` ramps and
+`scenery` tints/overlay colours and `clock` dial/hand colours. `room-light-map.json` supplies four warm lamp bands, two faint cool window bands and
+deep shadow; the lamp bands apply only when lit. No gradient, dithering or fractional alpha is used. Sleep/sparkle
+glyphs retain their colours; the question mark has a declared pale glyph ramp, and sweat/glints stay readable.
+`room-plan.json` places `skyfx` over `pane`, under `window`; `room-motion.json` records all 21 sky/overlay loops.
+The verifiers check the unchanged worm/prop day pixels and four unchanged day skies against `day-art-contract.json`, every relit frame and state mark,
+timing/slices/alpha, region luminance and warmth, all-mood window visibility, rain flash limits, clock angles/placement and the manifest. The cloudy loop is lifted above the newly reachable
+worm poses, preserving its colours, durations and horizontal cadence.
+Reproducible composites and contact strips are saved under gitignored `qa/scenery/`.
 
 # Bookworm sprites — worm fix pass, 2026-10-01
 

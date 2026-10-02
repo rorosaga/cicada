@@ -9,5 +9,5 @@ def main():
  data={'sheets':sheets,'palette':json.loads((ART/'palette.json').read_text()),'plan':json.loads((ART/'room-plan.json').read_text())}
  template=(ART/'tools/preview_template.html').read_text()
  (ART/'preview.html').write_text(template.replace('/*SPRITE_DATA*/',json.dumps(data,separators=(',',':')).replace('</',r'<\/')))
- print('offline preview: 18 sheets / every tag / room / menu strips')
+ print(f'offline preview: {len(sheets)} sheets / every tag / 15 sceneries / 6 overlays / wall clock / day and dark room / menu strips')
 if __name__=='__main__':main()

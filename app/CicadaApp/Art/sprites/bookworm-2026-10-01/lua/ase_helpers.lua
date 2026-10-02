@@ -126,7 +126,24 @@ function H.addSlice(spr, name, r)
   return s
 end
 
-return H.palette(entries)
+local pal = H.palette(entries)
+pal.derived = {}
+if t.night then
+  for _, ramp in pairs(t.night.ramps) do
+    for _, hex in ipairs(ramp) do pal.derived[pc.rgba(H.hex(hex))] = true end
+  end
+  for _, hex in pairs(t.night.glyphs.question.colors) do pal.derived[pc.rgba(H.hex(hex))] = true end
+end
+if t.scenery then
+  for _, ramp in pairs(t.scenery.ramps) do
+    for _, hex in pairs(ramp) do pal.derived[pc.rgba(H.hex(hex))] = true end
+  end
+  for _, color in ipairs(t.scenery.colors) do pal.derived[pc.rgba(H.hex(color.hex))] = true end
+end
+if t.clock then
+  for _, hex in pairs(t.clock.colors) do pal.derived[pc.rgba(H.hex(hex))] = true end
+end
+return pal
 end
 
 -- Install pal as the sprite palette: index 0 transparent, then the keys in order.
@@ -135,6 +152,26 @@ function H.applyPalette(spr, pal)
   p:setColor(0, Color { r = 0, g = 0, b = 0, a = 0 })
   for i, k in ipairs(pal.keys) do p:setColor(i, pal.color[k]) end
   spr:setPalette(p)
+end
+
+-- Derived RGB sources need their actual colours in Aseprite's display/GIF palette.
+-- These entries are declared output colours, not new one-character authoring keys.
+function H.applyUsedPalette(spr)
+  local used={};local pixels={}
+  for _,cel in ipairs(spr.cels) do
+    for p in cel.image:pixels() do
+      if pc.rgbaA(p())>0 then used[p()]=true end
+    end
+  end
+  for pixel in pairs(used) do pixels[#pixels+1]=pixel end
+  table.sort(pixels)
+  assert(#pixels<256,'source GIF palette exceeds 255 opaque colours')
+  local palette=Palette(#pixels+1)
+  palette:setColor(0,Color{r=0,g=0,b=0,a=0})
+  for i,pixel in ipairs(pixels) do
+    palette:setColor(i,Color{r=pc.rgbaR(pixel),g=pc.rgbaG(pixel),b=pc.rgbaB(pixel),a=255})
+  end
+  spr:setPalette(palette)
 end
 
 function H.writePaletteJson(path, pal, extra)
@@ -554,6 +591,7 @@ end
 function H.assertPalette(spr, pal)
   local allowed = {}
   for _, k in ipairs(pal.keys) do allowed[pal.px[k]] = true end
+  for pixel in pairs(pal.derived or {}) do allowed[pixel] = true end
   for _, cel in ipairs(spr.cels) do
     local im = cel.image
     for it in im:pixels() do

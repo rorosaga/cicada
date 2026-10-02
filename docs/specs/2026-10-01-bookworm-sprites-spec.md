@@ -1093,6 +1093,13 @@ overlay. This is R-BW1 in §8.1.
 
 ## §5. The room: window weather, lamp, fly, backdrop, props, books
 
+**owner 2026-10-02: scenery now follows real time and the chosen weather source, independently of the worm.**
+The room is dark at night and in rain, lit by the lamp when scheduled and faintly by the window. The binding
+[`2026-10-02-study-room-scenery.md`](2026-10-02-study-room-scenery.md) supersedes this section's mood-only sky mapping
+and earlier night-light deferral: 15 time × base skies, six transparent Sleep overlays, and lit/dark night sheets
+for all eight room worm states. Its wall-clock amendment adds the dial and black/black/red hand-angle sheets,
+with darker night colours. Day and dusk otherwise keep the day-lit interior.
+
 ### 5.1 Weather → backdrop (R-Z11 kept as a total function of the mood; titles, motion and palette change)
 
 `windowWeather(for:)` (`S/Views/Sleep/WindowWeather.swift:43-53`) is **unchanged**:

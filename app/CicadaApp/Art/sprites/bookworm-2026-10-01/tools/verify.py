@@ -138,6 +138,22 @@ def verify_gif(path, images, ms, scale):
         check(opaque_equal(a, e) and ams == ems, f'{path.name}: GIF differs at run {k} ({ams}/{ems} ms)')
 
 
+def write_palette_gif(path, images, ms, scale):
+    # Aseprite's GIF quantizer merges some distinct, nearby night ramp colours.
+    # QA uses an exact indexed palette from the independently decoded PNG frames.
+    colors=sorted({p[:3] for im in images for p in im.get_flattened_data() if p[3]})
+    check(len(colors)<=255,path.name+': exact GIF palette budget')
+    indices={rgb:i+1 for i,rgb in enumerate(colors)}
+    palette=[0,0,0]+[v for rgb in colors for v in rgb]
+    palette.extend([0]*(768-len(palette)));frames=[]
+    for im in images:
+        frame=Image.new('P',im.size)
+        frame.putpalette(palette)
+        frame.putdata([indices[p[:3]] if p[3] else 0 for p in im.get_flattened_data()])
+        frames.append(frame.resize((im.width*scale,im.height*scale),Image.Resampling.NEAREST))
+    frames[0].save(path,save_all=True,append_images=frames[1:],duration=ms,loop=0,transparency=0,disposal=2,optimize=False)
+
+
 def contact(name, keys, scale=6):
     cols = 4 if len(keys) > 8 else len(keys)
     cell_w, cell_h = keys[0][1].width * scale + 12, keys[0][1].height * scale + 30
@@ -254,9 +270,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--worm-only', action='store_true')
     args = parser.parse_args()
-    palette = json.loads((ART / 'palette.json').read_text())['colors']
+    from night_palette import palette_data, allowed_colors
+    palette_json = palette_data()
+    palette = palette_json['colors']
     colors = {c['key']: tuple(bytes.fromhex(c['hex'].removeprefix('#'))) + (255,) for c in palette}
-    allowed = set(colors.values())
+    allowed = allowed_colors(palette_json)
     book = {colors[c['key']] for c in palette if c['role'].startswith('book.')}
     check(not (BANNED & {int(c['hex'][1:], 16) for c in palette}), 'reserved hue in palette')
     check(len({c['key'] for c in palette}) == len(palette), 'duplicate palette key')
@@ -398,6 +416,8 @@ def main():
             report['sheets'][name]={'frames':len(records),'tags':len(tags),'pngSha256':hashlib.sha256(png.read_bytes()).hexdigest(),'jsonSha256':hashlib.sha256(js.read_bytes()).hexdigest()}
             print(f'{name}: {len(tags)} tags, {len(records)} frames, pixels/timing/marks/GIFs/determinism OK')
     if not args.worm_only:
+        from verify_night import verify_night
+        verify_night(report)
         from verify_room import verify_room
         verify_room(report, palette)
     # Reference comparison exports belong to the worm runs; the room run leaves them untouched.

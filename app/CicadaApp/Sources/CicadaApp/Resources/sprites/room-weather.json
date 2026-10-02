@@ -6,361 +6,325 @@
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 1.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 36, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 2.aseprite",
-    "frame": { "x": 36, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 72, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 3.aseprite",
-    "frame": { "x": 36, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 108, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 4.aseprite",
-    "frame": { "x": 72, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 144, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 5.aseprite",
-    "frame": { "x": 72, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 180, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 6.aseprite",
-    "frame": { "x": 108, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 216, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 7.aseprite",
-    "frame": { "x": 108, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 252, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 8.aseprite",
-    "frame": { "x": 144, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 288, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 9.aseprite",
-    "frame": { "x": 144, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 324, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 10.aseprite",
-    "frame": { "x": 180, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 360, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 11.aseprite",
-    "frame": { "x": 180, "y": 0, "w": 36, "h": 32 },
+    "frame": { "x": 396, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
+    "duration": 500
    },
    {
     "filename": "room-weather 12.aseprite",
-    "frame": { "x": 216, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 13.aseprite",
-    "frame": { "x": 216, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 14.aseprite",
-    "frame": { "x": 252, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 15.aseprite",
-    "frame": { "x": 252, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 16.aseprite",
-    "frame": { "x": 288, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 17.aseprite",
-    "frame": { "x": 288, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 18.aseprite",
-    "frame": { "x": 324, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 19.aseprite",
-    "frame": { "x": 324, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 20.aseprite",
-    "frame": { "x": 360, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 21.aseprite",
-    "frame": { "x": 360, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 22.aseprite",
-    "frame": { "x": 396, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 23.aseprite",
-    "frame": { "x": 396, "y": 0, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 200
-   },
-   {
-    "filename": "room-weather 24.aseprite",
     "frame": { "x": 432, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 25.aseprite",
+    "filename": "room-weather 13.aseprite",
     "frame": { "x": 468, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 26.aseprite",
+    "filename": "room-weather 14.aseprite",
     "frame": { "x": 504, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 27.aseprite",
+    "filename": "room-weather 15.aseprite",
     "frame": { "x": 540, "y": 0, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 28.aseprite",
+    "filename": "room-weather 16.aseprite",
+    "frame": { "x": 576, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 17.aseprite",
+    "frame": { "x": 612, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 18.aseprite",
+    "frame": { "x": 648, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 19.aseprite",
+    "frame": { "x": 684, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 20.aseprite",
+    "frame": { "x": 720, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 21.aseprite",
+    "frame": { "x": 756, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 22.aseprite",
+    "frame": { "x": 792, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 23.aseprite",
+    "frame": { "x": 828, "y": 0, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 500
+   },
+   {
+    "filename": "room-weather 24.aseprite",
     "frame": { "x": 0, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 29.aseprite",
+    "filename": "room-weather 25.aseprite",
     "frame": { "x": 36, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 30.aseprite",
+    "filename": "room-weather 26.aseprite",
     "frame": { "x": 72, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 31.aseprite",
+    "filename": "room-weather 27.aseprite",
     "frame": { "x": 108, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 32.aseprite",
+    "filename": "room-weather 28.aseprite",
     "frame": { "x": 144, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 33.aseprite",
+    "filename": "room-weather 29.aseprite",
     "frame": { "x": 180, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 34.aseprite",
+    "filename": "room-weather 30.aseprite",
     "frame": { "x": 216, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 35.aseprite",
+    "filename": "room-weather 31.aseprite",
     "frame": { "x": 252, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 36.aseprite",
+    "filename": "room-weather 32.aseprite",
     "frame": { "x": 288, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 37.aseprite",
+    "filename": "room-weather 33.aseprite",
     "frame": { "x": 324, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 38.aseprite",
+    "filename": "room-weather 34.aseprite",
     "frame": { "x": 360, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 39.aseprite",
+    "filename": "room-weather 35.aseprite",
     "frame": { "x": 396, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 500
    },
    {
-    "filename": "room-weather 40.aseprite",
+    "filename": "room-weather 36.aseprite",
     "frame": { "x": 432, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -369,7 +333,7 @@
     "duration": 300
    },
    {
-    "filename": "room-weather 41.aseprite",
+    "filename": "room-weather 37.aseprite",
     "frame": { "x": 468, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -378,7 +342,7 @@
     "duration": 300
    },
    {
-    "filename": "room-weather 42.aseprite",
+    "filename": "room-weather 38.aseprite",
     "frame": { "x": 504, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -387,7 +351,7 @@
     "duration": 300
    },
    {
-    "filename": "room-weather 43.aseprite",
+    "filename": "room-weather 39.aseprite",
     "frame": { "x": 540, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
@@ -396,8 +360,44 @@
     "duration": 300
    },
    {
+    "filename": "room-weather 40.aseprite",
+    "frame": { "x": 576, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 41.aseprite",
+    "frame": { "x": 612, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 42.aseprite",
+    "frame": { "x": 648, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 43.aseprite",
+    "frame": { "x": 684, "y": 32, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
     "filename": "room-weather 44.aseprite",
-    "frame": { "x": 0, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 720, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -406,7 +406,7 @@
    },
    {
     "filename": "room-weather 45.aseprite",
-    "frame": { "x": 36, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 756, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -415,7 +415,7 @@
    },
    {
     "filename": "room-weather 46.aseprite",
-    "frame": { "x": 72, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 792, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -424,7 +424,7 @@
    },
    {
     "filename": "room-weather 47.aseprite",
-    "frame": { "x": 108, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 828, "y": 32, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -433,7 +433,7 @@
    },
    {
     "filename": "room-weather 48.aseprite",
-    "frame": { "x": 144, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 0, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -442,7 +442,7 @@
    },
    {
     "filename": "room-weather 49.aseprite",
-    "frame": { "x": 180, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 36, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -451,7 +451,7 @@
    },
    {
     "filename": "room-weather 50.aseprite",
-    "frame": { "x": 216, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 72, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -460,7 +460,7 @@
    },
    {
     "filename": "room-weather 51.aseprite",
-    "frame": { "x": 252, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 108, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -469,7 +469,7 @@
    },
    {
     "filename": "room-weather 52.aseprite",
-    "frame": { "x": 288, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 144, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -478,7 +478,7 @@
    },
    {
     "filename": "room-weather 53.aseprite",
-    "frame": { "x": 324, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 180, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -487,7 +487,7 @@
    },
    {
     "filename": "room-weather 54.aseprite",
-    "frame": { "x": 360, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 216, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -496,7 +496,7 @@
    },
    {
     "filename": "room-weather 55.aseprite",
-    "frame": { "x": 396, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 252, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -505,7 +505,7 @@
    },
    {
     "filename": "room-weather 56.aseprite",
-    "frame": { "x": 432, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 288, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -514,7 +514,7 @@
    },
    {
     "filename": "room-weather 57.aseprite",
-    "frame": { "x": 468, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 324, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -523,7 +523,7 @@
    },
    {
     "filename": "room-weather 58.aseprite",
-    "frame": { "x": 504, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 360, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -532,7 +532,7 @@
    },
    {
     "filename": "room-weather 59.aseprite",
-    "frame": { "x": 540, "y": 64, "w": 36, "h": 32 },
+    "frame": { "x": 396, "y": 64, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -541,331 +541,331 @@
    },
    {
     "filename": "room-weather 60.aseprite",
+    "frame": { "x": 432, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 61.aseprite",
+    "frame": { "x": 468, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 62.aseprite",
+    "frame": { "x": 504, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 63.aseprite",
+    "frame": { "x": 540, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 64.aseprite",
+    "frame": { "x": 576, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 65.aseprite",
+    "frame": { "x": 612, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 66.aseprite",
+    "frame": { "x": 648, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 67.aseprite",
+    "frame": { "x": 684, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 68.aseprite",
+    "frame": { "x": 720, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 69.aseprite",
+    "frame": { "x": 756, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 70.aseprite",
+    "frame": { "x": 792, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 71.aseprite",
+    "frame": { "x": 828, "y": 64, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 72.aseprite",
     "frame": { "x": 0, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 61.aseprite",
+    "filename": "room-weather 73.aseprite",
+    "frame": { "x": 0, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 74.aseprite",
     "frame": { "x": 36, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 62.aseprite",
+    "filename": "room-weather 75.aseprite",
+    "frame": { "x": 36, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 76.aseprite",
     "frame": { "x": 72, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 63.aseprite",
+    "filename": "room-weather 77.aseprite",
+    "frame": { "x": 72, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 78.aseprite",
     "frame": { "x": 108, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 64.aseprite",
+    "filename": "room-weather 79.aseprite",
+    "frame": { "x": 108, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 80.aseprite",
     "frame": { "x": 144, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 65.aseprite",
+    "filename": "room-weather 81.aseprite",
+    "frame": { "x": 144, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 82.aseprite",
     "frame": { "x": 180, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 66.aseprite",
+    "filename": "room-weather 83.aseprite",
+    "frame": { "x": 180, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 84.aseprite",
     "frame": { "x": 216, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 67.aseprite",
+    "filename": "room-weather 85.aseprite",
+    "frame": { "x": 216, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 86.aseprite",
     "frame": { "x": 252, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 68.aseprite",
+    "filename": "room-weather 87.aseprite",
+    "frame": { "x": 252, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 88.aseprite",
     "frame": { "x": 288, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 69.aseprite",
+    "filename": "room-weather 89.aseprite",
+    "frame": { "x": 288, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 90.aseprite",
     "frame": { "x": 324, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 70.aseprite",
+    "filename": "room-weather 91.aseprite",
+    "frame": { "x": 324, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 92.aseprite",
     "frame": { "x": 360, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
-    "filename": "room-weather 71.aseprite",
+    "filename": "room-weather 93.aseprite",
+    "frame": { "x": 360, "y": 96, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 94.aseprite",
     "frame": { "x": 396, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 72.aseprite",
-    "frame": { "x": 432, "y": 96, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 73.aseprite",
-    "frame": { "x": 468, "y": 96, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 74.aseprite",
-    "frame": { "x": 504, "y": 96, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 75.aseprite",
-    "frame": { "x": 540, "y": 96, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 76.aseprite",
-    "frame": { "x": 0, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 77.aseprite",
-    "frame": { "x": 36, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 78.aseprite",
-    "frame": { "x": 72, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 79.aseprite",
-    "frame": { "x": 108, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 80.aseprite",
-    "frame": { "x": 144, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 81.aseprite",
-    "frame": { "x": 180, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 82.aseprite",
-    "frame": { "x": 216, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 83.aseprite",
-    "frame": { "x": 252, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 84.aseprite",
-    "frame": { "x": 288, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 85.aseprite",
-    "frame": { "x": 324, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 86.aseprite",
-    "frame": { "x": 360, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 87.aseprite",
-    "frame": { "x": 396, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 88.aseprite",
-    "frame": { "x": 432, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 89.aseprite",
-    "frame": { "x": 468, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 90.aseprite",
-    "frame": { "x": 504, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 91.aseprite",
-    "frame": { "x": 540, "y": 128, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 92.aseprite",
-    "frame": { "x": 0, "y": 160, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 93.aseprite",
-    "frame": { "x": 36, "y": 160, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
-   },
-   {
-    "filename": "room-weather 94.aseprite",
-    "frame": { "x": 72, "y": 160, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
     "filename": "room-weather 95.aseprite",
-    "frame": { "x": 108, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 396, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 500
+    "duration": 200
    },
    {
     "filename": "room-weather 96.aseprite",
-    "frame": { "x": 144, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 432, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -874,7 +874,7 @@
    },
    {
     "filename": "room-weather 97.aseprite",
-    "frame": { "x": 180, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 468, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -883,7 +883,7 @@
    },
    {
     "filename": "room-weather 98.aseprite",
-    "frame": { "x": 216, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 504, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -892,7 +892,7 @@
    },
    {
     "filename": "room-weather 99.aseprite",
-    "frame": { "x": 252, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 540, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -901,7 +901,7 @@
    },
    {
     "filename": "room-weather 100.aseprite",
-    "frame": { "x": 288, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 576, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -910,7 +910,7 @@
    },
    {
     "filename": "room-weather 101.aseprite",
-    "frame": { "x": 324, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 612, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -919,7 +919,7 @@
    },
    {
     "filename": "room-weather 102.aseprite",
-    "frame": { "x": 360, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 648, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -928,7 +928,7 @@
    },
    {
     "filename": "room-weather 103.aseprite",
-    "frame": { "x": 396, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 684, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -937,7 +937,7 @@
    },
    {
     "filename": "room-weather 104.aseprite",
-    "frame": { "x": 432, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 720, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -946,7 +946,7 @@
    },
    {
     "filename": "room-weather 105.aseprite",
-    "frame": { "x": 468, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 756, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -955,7 +955,7 @@
    },
    {
     "filename": "room-weather 106.aseprite",
-    "frame": { "x": 504, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 792, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -964,7 +964,7 @@
    },
    {
     "filename": "room-weather 107.aseprite",
-    "frame": { "x": 540, "y": 160, "w": 36, "h": 32 },
+    "frame": { "x": 828, "y": 96, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -973,7 +973,7 @@
    },
    {
     "filename": "room-weather 108.aseprite",
-    "frame": { "x": 0, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 0, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -982,7 +982,7 @@
    },
    {
     "filename": "room-weather 109.aseprite",
-    "frame": { "x": 36, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 36, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -991,7 +991,7 @@
    },
    {
     "filename": "room-weather 110.aseprite",
-    "frame": { "x": 72, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 72, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1000,7 +1000,7 @@
    },
    {
     "filename": "room-weather 111.aseprite",
-    "frame": { "x": 108, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 108, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1009,7 +1009,7 @@
    },
    {
     "filename": "room-weather 112.aseprite",
-    "frame": { "x": 144, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 144, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1018,7 +1018,7 @@
    },
    {
     "filename": "room-weather 113.aseprite",
-    "frame": { "x": 180, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 180, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1027,7 +1027,7 @@
    },
    {
     "filename": "room-weather 114.aseprite",
-    "frame": { "x": 216, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 216, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1036,7 +1036,7 @@
    },
    {
     "filename": "room-weather 115.aseprite",
-    "frame": { "x": 252, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 252, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1045,7 +1045,7 @@
    },
    {
     "filename": "room-weather 116.aseprite",
-    "frame": { "x": 288, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 288, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1054,7 +1054,7 @@
    },
    {
     "filename": "room-weather 117.aseprite",
-    "frame": { "x": 324, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 324, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1063,7 +1063,7 @@
    },
    {
     "filename": "room-weather 118.aseprite",
-    "frame": { "x": 360, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 360, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1072,7 +1072,7 @@
    },
    {
     "filename": "room-weather 119.aseprite",
-    "frame": { "x": 396, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 396, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1081,7 +1081,7 @@
    },
    {
     "filename": "room-weather 120.aseprite",
-    "frame": { "x": 432, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 432, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1090,7 +1090,7 @@
    },
    {
     "filename": "room-weather 121.aseprite",
-    "frame": { "x": 468, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 468, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1099,7 +1099,7 @@
    },
    {
     "filename": "room-weather 122.aseprite",
-    "frame": { "x": 504, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 504, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1108,7 +1108,7 @@
    },
    {
     "filename": "room-weather 123.aseprite",
-    "frame": { "x": 540, "y": 192, "w": 36, "h": 32 },
+    "frame": { "x": 540, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1117,7 +1117,7 @@
    },
    {
     "filename": "room-weather 124.aseprite",
-    "frame": { "x": 0, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 576, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1126,7 +1126,7 @@
    },
    {
     "filename": "room-weather 125.aseprite",
-    "frame": { "x": 36, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 612, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1135,7 +1135,7 @@
    },
    {
     "filename": "room-weather 126.aseprite",
-    "frame": { "x": 72, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 648, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1144,7 +1144,7 @@
    },
    {
     "filename": "room-weather 127.aseprite",
-    "frame": { "x": 108, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 684, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1153,7 +1153,7 @@
    },
    {
     "filename": "room-weather 128.aseprite",
-    "frame": { "x": 144, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 720, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1162,7 +1162,7 @@
    },
    {
     "filename": "room-weather 129.aseprite",
-    "frame": { "x": 180, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 756, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1171,7 +1171,7 @@
    },
    {
     "filename": "room-weather 130.aseprite",
-    "frame": { "x": 216, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 792, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1180,7 +1180,7 @@
    },
    {
     "filename": "room-weather 131.aseprite",
-    "frame": { "x": 252, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 828, "y": 128, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1189,7 +1189,7 @@
    },
    {
     "filename": "room-weather 132.aseprite",
-    "frame": { "x": 288, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 0, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1198,7 +1198,7 @@
    },
    {
     "filename": "room-weather 133.aseprite",
-    "frame": { "x": 324, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 36, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1207,7 +1207,7 @@
    },
    {
     "filename": "room-weather 134.aseprite",
-    "frame": { "x": 360, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 72, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1216,7 +1216,7 @@
    },
    {
     "filename": "room-weather 135.aseprite",
-    "frame": { "x": 396, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 108, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1225,7 +1225,7 @@
    },
    {
     "filename": "room-weather 136.aseprite",
-    "frame": { "x": 432, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 144, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1234,7 +1234,7 @@
    },
    {
     "filename": "room-weather 137.aseprite",
-    "frame": { "x": 468, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 180, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1243,7 +1243,7 @@
    },
    {
     "filename": "room-weather 138.aseprite",
-    "frame": { "x": 504, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 216, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1252,7 +1252,7 @@
    },
    {
     "filename": "room-weather 139.aseprite",
-    "frame": { "x": 540, "y": 224, "w": 36, "h": 32 },
+    "frame": { "x": 252, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1261,7 +1261,7 @@
    },
    {
     "filename": "room-weather 140.aseprite",
-    "frame": { "x": 0, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 288, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1270,7 +1270,7 @@
    },
    {
     "filename": "room-weather 141.aseprite",
-    "frame": { "x": 36, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 324, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1279,7 +1279,7 @@
    },
    {
     "filename": "room-weather 142.aseprite",
-    "frame": { "x": 72, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 360, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1288,7 +1288,7 @@
    },
    {
     "filename": "room-weather 143.aseprite",
-    "frame": { "x": 108, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 396, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1297,7 +1297,7 @@
    },
    {
     "filename": "room-weather 144.aseprite",
-    "frame": { "x": 144, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 432, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1306,7 +1306,7 @@
    },
    {
     "filename": "room-weather 145.aseprite",
-    "frame": { "x": 180, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 468, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1315,7 +1315,7 @@
    },
    {
     "filename": "room-weather 146.aseprite",
-    "frame": { "x": 216, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 504, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1324,7 +1324,7 @@
    },
    {
     "filename": "room-weather 147.aseprite",
-    "frame": { "x": 252, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 540, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1333,7 +1333,7 @@
    },
    {
     "filename": "room-weather 148.aseprite",
-    "frame": { "x": 288, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 576, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1342,7 +1342,7 @@
    },
    {
     "filename": "room-weather 149.aseprite",
-    "frame": { "x": 324, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 612, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1351,7 +1351,7 @@
    },
    {
     "filename": "room-weather 150.aseprite",
-    "frame": { "x": 360, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 648, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1360,7 +1360,7 @@
    },
    {
     "filename": "room-weather 151.aseprite",
-    "frame": { "x": 396, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 684, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1369,7 +1369,7 @@
    },
    {
     "filename": "room-weather 152.aseprite",
-    "frame": { "x": 432, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 720, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1378,7 +1378,7 @@
    },
    {
     "filename": "room-weather 153.aseprite",
-    "frame": { "x": 468, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 756, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1387,7 +1387,7 @@
    },
    {
     "filename": "room-weather 154.aseprite",
-    "frame": { "x": 504, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 792, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1396,7 +1396,7 @@
    },
    {
     "filename": "room-weather 155.aseprite",
-    "frame": { "x": 540, "y": 256, "w": 36, "h": 32 },
+    "frame": { "x": 828, "y": 160, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1405,7 +1405,7 @@
    },
    {
     "filename": "room-weather 156.aseprite",
-    "frame": { "x": 0, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 0, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1414,7 +1414,7 @@
    },
    {
     "filename": "room-weather 157.aseprite",
-    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 36, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1423,7 +1423,7 @@
    },
    {
     "filename": "room-weather 158.aseprite",
-    "frame": { "x": 72, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 72, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1432,7 +1432,7 @@
    },
    {
     "filename": "room-weather 159.aseprite",
-    "frame": { "x": 108, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 108, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1441,7 +1441,7 @@
    },
    {
     "filename": "room-weather 160.aseprite",
-    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 144, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1450,7 +1450,7 @@
    },
    {
     "filename": "room-weather 161.aseprite",
-    "frame": { "x": 180, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 180, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1459,7 +1459,7 @@
    },
    {
     "filename": "room-weather 162.aseprite",
-    "frame": { "x": 216, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 216, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1468,7 +1468,7 @@
    },
    {
     "filename": "room-weather 163.aseprite",
-    "frame": { "x": 252, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 252, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1477,7 +1477,7 @@
    },
    {
     "filename": "room-weather 164.aseprite",
-    "frame": { "x": 288, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 288, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1486,7 +1486,7 @@
    },
    {
     "filename": "room-weather 165.aseprite",
-    "frame": { "x": 324, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 324, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1495,7 +1495,7 @@
    },
    {
     "filename": "room-weather 166.aseprite",
-    "frame": { "x": 360, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 360, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1504,7 +1504,7 @@
    },
    {
     "filename": "room-weather 167.aseprite",
-    "frame": { "x": 396, "y": 288, "w": 36, "h": 32 },
+    "frame": { "x": 396, "y": 192, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -1513,826 +1513,3778 @@
    },
    {
     "filename": "room-weather 168.aseprite",
+    "frame": { "x": 432, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 169.aseprite",
+    "frame": { "x": 468, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 170.aseprite",
+    "frame": { "x": 504, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 171.aseprite",
+    "frame": { "x": 540, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 172.aseprite",
+    "frame": { "x": 576, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 173.aseprite",
+    "frame": { "x": 612, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 174.aseprite",
+    "frame": { "x": 648, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 175.aseprite",
+    "frame": { "x": 684, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 176.aseprite",
+    "frame": { "x": 720, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 177.aseprite",
+    "frame": { "x": 756, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 178.aseprite",
+    "frame": { "x": 792, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 179.aseprite",
+    "frame": { "x": 828, "y": 192, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 180.aseprite",
+    "frame": { "x": 0, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 181.aseprite",
+    "frame": { "x": 36, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 182.aseprite",
+    "frame": { "x": 72, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 183.aseprite",
+    "frame": { "x": 108, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 184.aseprite",
+    "frame": { "x": 144, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 185.aseprite",
+    "frame": { "x": 180, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 186.aseprite",
+    "frame": { "x": 216, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 187.aseprite",
+    "frame": { "x": 252, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 188.aseprite",
+    "frame": { "x": 288, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 189.aseprite",
+    "frame": { "x": 324, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 190.aseprite",
+    "frame": { "x": 360, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 191.aseprite",
+    "frame": { "x": 396, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 192.aseprite",
+    "frame": { "x": 432, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 193.aseprite",
+    "frame": { "x": 468, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 194.aseprite",
+    "frame": { "x": 504, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 195.aseprite",
+    "frame": { "x": 540, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 196.aseprite",
+    "frame": { "x": 576, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 197.aseprite",
+    "frame": { "x": 612, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 198.aseprite",
+    "frame": { "x": 648, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 199.aseprite",
+    "frame": { "x": 684, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 200.aseprite",
+    "frame": { "x": 720, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 201.aseprite",
+    "frame": { "x": 756, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 202.aseprite",
+    "frame": { "x": 792, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 203.aseprite",
+    "frame": { "x": 828, "y": 224, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 204.aseprite",
+    "frame": { "x": 0, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 205.aseprite",
+    "frame": { "x": 36, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 206.aseprite",
+    "frame": { "x": 72, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 207.aseprite",
+    "frame": { "x": 108, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 208.aseprite",
+    "frame": { "x": 144, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 209.aseprite",
+    "frame": { "x": 180, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 210.aseprite",
+    "frame": { "x": 216, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 211.aseprite",
+    "frame": { "x": 252, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 212.aseprite",
+    "frame": { "x": 288, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 213.aseprite",
+    "frame": { "x": 324, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 214.aseprite",
+    "frame": { "x": 360, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 215.aseprite",
+    "frame": { "x": 396, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 216.aseprite",
+    "frame": { "x": 432, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 217.aseprite",
+    "frame": { "x": 468, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 218.aseprite",
+    "frame": { "x": 504, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 219.aseprite",
+    "frame": { "x": 540, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 220.aseprite",
+    "frame": { "x": 576, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 221.aseprite",
+    "frame": { "x": 612, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 222.aseprite",
+    "frame": { "x": 648, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 223.aseprite",
+    "frame": { "x": 684, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 224.aseprite",
+    "frame": { "x": 720, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 225.aseprite",
+    "frame": { "x": 756, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 226.aseprite",
+    "frame": { "x": 792, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 227.aseprite",
+    "frame": { "x": 828, "y": 256, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 228.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 229.aseprite",
+    "frame": { "x": 36, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 230.aseprite",
+    "frame": { "x": 72, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 231.aseprite",
+    "frame": { "x": 108, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 232.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 233.aseprite",
+    "frame": { "x": 180, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 234.aseprite",
+    "frame": { "x": 216, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 235.aseprite",
+    "frame": { "x": 252, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 236.aseprite",
+    "frame": { "x": 288, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 237.aseprite",
+    "frame": { "x": 324, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 238.aseprite",
+    "frame": { "x": 360, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 239.aseprite",
+    "frame": { "x": 396, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 240.aseprite",
     "frame": { "x": 432, "y": 288, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 169.aseprite",
+    "filename": "room-weather 241.aseprite",
     "frame": { "x": 468, "y": 288, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 170.aseprite",
+    "filename": "room-weather 242.aseprite",
     "frame": { "x": 504, "y": 288, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 171.aseprite",
+    "filename": "room-weather 243.aseprite",
     "frame": { "x": 540, "y": 288, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 172.aseprite",
+    "filename": "room-weather 244.aseprite",
+    "frame": { "x": 576, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 245.aseprite",
+    "frame": { "x": 612, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 246.aseprite",
+    "frame": { "x": 648, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 247.aseprite",
+    "frame": { "x": 684, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 248.aseprite",
+    "frame": { "x": 720, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 249.aseprite",
+    "frame": { "x": 756, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 250.aseprite",
+    "frame": { "x": 792, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 251.aseprite",
+    "frame": { "x": 828, "y": 288, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 252.aseprite",
     "frame": { "x": 0, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 173.aseprite",
+    "filename": "room-weather 253.aseprite",
     "frame": { "x": 36, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 174.aseprite",
+    "filename": "room-weather 254.aseprite",
     "frame": { "x": 72, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 175.aseprite",
+    "filename": "room-weather 255.aseprite",
     "frame": { "x": 108, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 176.aseprite",
+    "filename": "room-weather 256.aseprite",
     "frame": { "x": 144, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 177.aseprite",
+    "filename": "room-weather 257.aseprite",
     "frame": { "x": 180, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 178.aseprite",
+    "filename": "room-weather 258.aseprite",
     "frame": { "x": 216, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 179.aseprite",
+    "filename": "room-weather 259.aseprite",
     "frame": { "x": 252, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 180.aseprite",
+    "filename": "room-weather 260.aseprite",
     "frame": { "x": 288, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 181.aseprite",
+    "filename": "room-weather 261.aseprite",
     "frame": { "x": 324, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 182.aseprite",
+    "filename": "room-weather 262.aseprite",
     "frame": { "x": 360, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 183.aseprite",
+    "filename": "room-weather 263.aseprite",
     "frame": { "x": 396, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 184.aseprite",
+    "filename": "room-weather 264.aseprite",
     "frame": { "x": 432, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 185.aseprite",
+    "filename": "room-weather 265.aseprite",
     "frame": { "x": 468, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 186.aseprite",
+    "filename": "room-weather 266.aseprite",
     "frame": { "x": 504, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 187.aseprite",
+    "filename": "room-weather 267.aseprite",
     "frame": { "x": 540, "y": 320, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 188.aseprite",
+    "filename": "room-weather 268.aseprite",
+    "frame": { "x": 576, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 269.aseprite",
+    "frame": { "x": 612, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 270.aseprite",
+    "frame": { "x": 648, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 271.aseprite",
+    "frame": { "x": 684, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 272.aseprite",
+    "frame": { "x": 720, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 273.aseprite",
+    "frame": { "x": 756, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 274.aseprite",
+    "frame": { "x": 792, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 275.aseprite",
+    "frame": { "x": 828, "y": 320, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 276.aseprite",
     "frame": { "x": 0, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 189.aseprite",
+    "filename": "room-weather 277.aseprite",
     "frame": { "x": 36, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 190.aseprite",
+    "filename": "room-weather 278.aseprite",
     "frame": { "x": 72, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 191.aseprite",
+    "filename": "room-weather 279.aseprite",
     "frame": { "x": 108, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 192.aseprite",
+    "filename": "room-weather 280.aseprite",
     "frame": { "x": 144, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 193.aseprite",
+    "filename": "room-weather 281.aseprite",
     "frame": { "x": 180, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 194.aseprite",
+    "filename": "room-weather 282.aseprite",
     "frame": { "x": 216, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 195.aseprite",
+    "filename": "room-weather 283.aseprite",
     "frame": { "x": 252, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 196.aseprite",
+    "filename": "room-weather 284.aseprite",
     "frame": { "x": 288, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 197.aseprite",
+    "filename": "room-weather 285.aseprite",
     "frame": { "x": 324, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 198.aseprite",
+    "filename": "room-weather 286.aseprite",
     "frame": { "x": 360, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 199.aseprite",
+    "filename": "room-weather 287.aseprite",
     "frame": { "x": 396, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 200.aseprite",
+    "filename": "room-weather 288.aseprite",
     "frame": { "x": 432, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 201.aseprite",
+    "filename": "room-weather 289.aseprite",
     "frame": { "x": 468, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 202.aseprite",
+    "filename": "room-weather 290.aseprite",
     "frame": { "x": 504, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 203.aseprite",
+    "filename": "room-weather 291.aseprite",
     "frame": { "x": 540, "y": 352, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 120
+    "duration": 200
    },
    {
-    "filename": "room-weather 204.aseprite",
+    "filename": "room-weather 292.aseprite",
+    "frame": { "x": 576, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 293.aseprite",
+    "frame": { "x": 612, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 294.aseprite",
+    "frame": { "x": 648, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 295.aseprite",
+    "frame": { "x": 684, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 296.aseprite",
+    "frame": { "x": 720, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 297.aseprite",
+    "frame": { "x": 756, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 298.aseprite",
+    "frame": { "x": 792, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 299.aseprite",
+    "frame": { "x": 828, "y": 352, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 200
+   },
+   {
+    "filename": "room-weather 300.aseprite",
     "frame": { "x": 0, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 205.aseprite",
+    "filename": "room-weather 301.aseprite",
     "frame": { "x": 36, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 206.aseprite",
+    "filename": "room-weather 302.aseprite",
     "frame": { "x": 72, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 207.aseprite",
+    "filename": "room-weather 303.aseprite",
     "frame": { "x": 108, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 208.aseprite",
+    "filename": "room-weather 304.aseprite",
     "frame": { "x": 144, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 209.aseprite",
+    "filename": "room-weather 305.aseprite",
     "frame": { "x": 180, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 210.aseprite",
+    "filename": "room-weather 306.aseprite",
     "frame": { "x": 216, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 211.aseprite",
+    "filename": "room-weather 307.aseprite",
     "frame": { "x": 252, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 212.aseprite",
+    "filename": "room-weather 308.aseprite",
     "frame": { "x": 288, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 213.aseprite",
+    "filename": "room-weather 309.aseprite",
     "frame": { "x": 324, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 214.aseprite",
+    "filename": "room-weather 310.aseprite",
     "frame": { "x": 360, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 215.aseprite",
+    "filename": "room-weather 311.aseprite",
     "frame": { "x": 396, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 200
    },
    {
-    "filename": "room-weather 216.aseprite",
+    "filename": "room-weather 312.aseprite",
     "frame": { "x": 432, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 217.aseprite",
+    "filename": "room-weather 313.aseprite",
     "frame": { "x": 468, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 218.aseprite",
+    "filename": "room-weather 314.aseprite",
     "frame": { "x": 504, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 219.aseprite",
+    "filename": "room-weather 315.aseprite",
     "frame": { "x": 540, "y": 384, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 220.aseprite",
+    "filename": "room-weather 316.aseprite",
+    "frame": { "x": 576, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 317.aseprite",
+    "frame": { "x": 612, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 318.aseprite",
+    "frame": { "x": 648, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 319.aseprite",
+    "frame": { "x": 684, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 320.aseprite",
+    "frame": { "x": 720, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 321.aseprite",
+    "frame": { "x": 756, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 322.aseprite",
+    "frame": { "x": 792, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 323.aseprite",
+    "frame": { "x": 828, "y": 384, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 324.aseprite",
     "frame": { "x": 0, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 221.aseprite",
+    "filename": "room-weather 325.aseprite",
     "frame": { "x": 36, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 222.aseprite",
+    "filename": "room-weather 326.aseprite",
     "frame": { "x": 72, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 223.aseprite",
+    "filename": "room-weather 327.aseprite",
     "frame": { "x": 108, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 224.aseprite",
+    "filename": "room-weather 328.aseprite",
     "frame": { "x": 144, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 225.aseprite",
+    "filename": "room-weather 329.aseprite",
     "frame": { "x": 180, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 226.aseprite",
+    "filename": "room-weather 330.aseprite",
     "frame": { "x": 216, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 227.aseprite",
+    "filename": "room-weather 331.aseprite",
     "frame": { "x": 252, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 228.aseprite",
+    "filename": "room-weather 332.aseprite",
     "frame": { "x": 288, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 229.aseprite",
+    "filename": "room-weather 333.aseprite",
     "frame": { "x": 324, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 230.aseprite",
+    "filename": "room-weather 334.aseprite",
     "frame": { "x": 360, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 231.aseprite",
+    "filename": "room-weather 335.aseprite",
     "frame": { "x": 396, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 232.aseprite",
+    "filename": "room-weather 336.aseprite",
     "frame": { "x": 432, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 233.aseprite",
+    "filename": "room-weather 337.aseprite",
     "frame": { "x": 468, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 234.aseprite",
+    "filename": "room-weather 338.aseprite",
     "frame": { "x": 504, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 235.aseprite",
+    "filename": "room-weather 339.aseprite",
     "frame": { "x": 540, "y": 416, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 236.aseprite",
+    "filename": "room-weather 340.aseprite",
+    "frame": { "x": 576, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 341.aseprite",
+    "frame": { "x": 612, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 342.aseprite",
+    "frame": { "x": 648, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 343.aseprite",
+    "frame": { "x": 684, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 344.aseprite",
+    "frame": { "x": 720, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 345.aseprite",
+    "frame": { "x": 756, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 346.aseprite",
+    "frame": { "x": 792, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 347.aseprite",
+    "frame": { "x": 828, "y": 416, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 348.aseprite",
     "frame": { "x": 0, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 237.aseprite",
+    "filename": "room-weather 349.aseprite",
     "frame": { "x": 36, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 238.aseprite",
+    "filename": "room-weather 350.aseprite",
     "frame": { "x": 72, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 239.aseprite",
+    "filename": "room-weather 351.aseprite",
     "frame": { "x": 108, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 240.aseprite",
+    "filename": "room-weather 352.aseprite",
     "frame": { "x": 144, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 241.aseprite",
+    "filename": "room-weather 353.aseprite",
     "frame": { "x": 180, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 242.aseprite",
+    "filename": "room-weather 354.aseprite",
     "frame": { "x": 216, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 243.aseprite",
+    "filename": "room-weather 355.aseprite",
     "frame": { "x": 252, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 244.aseprite",
+    "filename": "room-weather 356.aseprite",
     "frame": { "x": 288, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 245.aseprite",
+    "filename": "room-weather 357.aseprite",
     "frame": { "x": 324, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 246.aseprite",
+    "filename": "room-weather 358.aseprite",
     "frame": { "x": 360, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 247.aseprite",
+    "filename": "room-weather 359.aseprite",
     "frame": { "x": 396, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 248.aseprite",
+    "filename": "room-weather 360.aseprite",
     "frame": { "x": 432, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 249.aseprite",
+    "filename": "room-weather 361.aseprite",
     "frame": { "x": 468, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 250.aseprite",
+    "filename": "room-weather 362.aseprite",
     "frame": { "x": 504, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 251.aseprite",
+    "filename": "room-weather 363.aseprite",
     "frame": { "x": 540, "y": 448, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 80
+    "duration": 120
    },
    {
-    "filename": "room-weather 252.aseprite",
+    "filename": "room-weather 364.aseprite",
+    "frame": { "x": 576, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 365.aseprite",
+    "frame": { "x": 612, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 366.aseprite",
+    "frame": { "x": 648, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 367.aseprite",
+    "frame": { "x": 684, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 368.aseprite",
+    "frame": { "x": 720, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 369.aseprite",
+    "frame": { "x": 756, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 370.aseprite",
+    "frame": { "x": 792, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 371.aseprite",
+    "frame": { "x": 828, "y": 448, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 372.aseprite",
     "frame": { "x": 0, "y": 480, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 600
+    "duration": 120
    },
    {
-    "filename": "room-weather 253.aseprite",
+    "filename": "room-weather 373.aseprite",
     "frame": { "x": 36, "y": 480, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 120
    },
    {
-    "filename": "room-weather 254.aseprite",
+    "filename": "room-weather 374.aseprite",
     "frame": { "x": 72, "y": 480, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 600
+    "duration": 120
    },
    {
-    "filename": "room-weather 255.aseprite",
-    "frame": { "x": 36, "y": 480, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
-   },
-   {
-    "filename": "room-weather 256.aseprite",
-    "frame": { "x": 0, "y": 480, "w": 36, "h": 32 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
-    "sourceSize": { "w": 36, "h": 32 },
-    "duration": 600
-   },
-   {
-    "filename": "room-weather 257.aseprite",
+    "filename": "room-weather 375.aseprite",
     "frame": { "x": 108, "y": 480, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
-    "duration": 300
+    "duration": 120
    },
    {
-    "filename": "room-weather 258.aseprite",
+    "filename": "room-weather 376.aseprite",
     "frame": { "x": 144, "y": 480, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
     "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 377.aseprite",
+    "frame": { "x": 180, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 378.aseprite",
+    "frame": { "x": 216, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 379.aseprite",
+    "frame": { "x": 252, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 380.aseprite",
+    "frame": { "x": 288, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 381.aseprite",
+    "frame": { "x": 324, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 382.aseprite",
+    "frame": { "x": 360, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 383.aseprite",
+    "frame": { "x": 396, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 384.aseprite",
+    "frame": { "x": 432, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 385.aseprite",
+    "frame": { "x": 468, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 386.aseprite",
+    "frame": { "x": 504, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 387.aseprite",
+    "frame": { "x": 540, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 388.aseprite",
+    "frame": { "x": 576, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 389.aseprite",
+    "frame": { "x": 612, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 390.aseprite",
+    "frame": { "x": 648, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 391.aseprite",
+    "frame": { "x": 684, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 392.aseprite",
+    "frame": { "x": 720, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 393.aseprite",
+    "frame": { "x": 756, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 394.aseprite",
+    "frame": { "x": 792, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 395.aseprite",
+    "frame": { "x": 828, "y": 480, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 396.aseprite",
+    "frame": { "x": 0, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 397.aseprite",
+    "frame": { "x": 36, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 398.aseprite",
+    "frame": { "x": 72, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 399.aseprite",
+    "frame": { "x": 108, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 400.aseprite",
+    "frame": { "x": 144, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 401.aseprite",
+    "frame": { "x": 180, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 402.aseprite",
+    "frame": { "x": 216, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 403.aseprite",
+    "frame": { "x": 252, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 404.aseprite",
+    "frame": { "x": 288, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 405.aseprite",
+    "frame": { "x": 324, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 406.aseprite",
+    "frame": { "x": 360, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 407.aseprite",
+    "frame": { "x": 396, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 408.aseprite",
+    "frame": { "x": 432, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 409.aseprite",
+    "frame": { "x": 468, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 410.aseprite",
+    "frame": { "x": 504, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 411.aseprite",
+    "frame": { "x": 540, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 412.aseprite",
+    "frame": { "x": 576, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 413.aseprite",
+    "frame": { "x": 612, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 414.aseprite",
+    "frame": { "x": 648, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 415.aseprite",
+    "frame": { "x": 684, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 416.aseprite",
+    "frame": { "x": 720, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 417.aseprite",
+    "frame": { "x": 756, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 418.aseprite",
+    "frame": { "x": 792, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 419.aseprite",
+    "frame": { "x": 828, "y": 512, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 120
+   },
+   {
+    "filename": "room-weather 420.aseprite",
+    "frame": { "x": 0, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 421.aseprite",
+    "frame": { "x": 36, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 422.aseprite",
+    "frame": { "x": 72, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 423.aseprite",
+    "frame": { "x": 108, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 424.aseprite",
+    "frame": { "x": 144, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 425.aseprite",
+    "frame": { "x": 180, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 426.aseprite",
+    "frame": { "x": 216, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 427.aseprite",
+    "frame": { "x": 252, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 428.aseprite",
+    "frame": { "x": 288, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 429.aseprite",
+    "frame": { "x": 324, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 430.aseprite",
+    "frame": { "x": 360, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 431.aseprite",
+    "frame": { "x": 396, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 432.aseprite",
+    "frame": { "x": 432, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 433.aseprite",
+    "frame": { "x": 468, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 434.aseprite",
+    "frame": { "x": 504, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 435.aseprite",
+    "frame": { "x": 540, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 436.aseprite",
+    "frame": { "x": 576, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 437.aseprite",
+    "frame": { "x": 612, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 438.aseprite",
+    "frame": { "x": 648, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 439.aseprite",
+    "frame": { "x": 684, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 440.aseprite",
+    "frame": { "x": 720, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 441.aseprite",
+    "frame": { "x": 756, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 442.aseprite",
+    "frame": { "x": 792, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 443.aseprite",
+    "frame": { "x": 828, "y": 544, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 444.aseprite",
+    "frame": { "x": 0, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 445.aseprite",
+    "frame": { "x": 36, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 446.aseprite",
+    "frame": { "x": 72, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 447.aseprite",
+    "frame": { "x": 108, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 448.aseprite",
+    "frame": { "x": 144, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 449.aseprite",
+    "frame": { "x": 180, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 450.aseprite",
+    "frame": { "x": 216, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 451.aseprite",
+    "frame": { "x": 252, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 452.aseprite",
+    "frame": { "x": 288, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 453.aseprite",
+    "frame": { "x": 324, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 454.aseprite",
+    "frame": { "x": 360, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 455.aseprite",
+    "frame": { "x": 396, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 456.aseprite",
+    "frame": { "x": 432, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 457.aseprite",
+    "frame": { "x": 468, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 458.aseprite",
+    "frame": { "x": 504, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 459.aseprite",
+    "frame": { "x": 540, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 460.aseprite",
+    "frame": { "x": 576, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 461.aseprite",
+    "frame": { "x": 612, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 462.aseprite",
+    "frame": { "x": 648, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 463.aseprite",
+    "frame": { "x": 684, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 464.aseprite",
+    "frame": { "x": 720, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 465.aseprite",
+    "frame": { "x": 756, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 466.aseprite",
+    "frame": { "x": 792, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 467.aseprite",
+    "frame": { "x": 828, "y": 576, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 468.aseprite",
+    "frame": { "x": 0, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 469.aseprite",
+    "frame": { "x": 36, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 470.aseprite",
+    "frame": { "x": 72, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 471.aseprite",
+    "frame": { "x": 108, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 472.aseprite",
+    "frame": { "x": 144, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 473.aseprite",
+    "frame": { "x": 180, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 474.aseprite",
+    "frame": { "x": 216, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 475.aseprite",
+    "frame": { "x": 252, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 476.aseprite",
+    "frame": { "x": 288, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 477.aseprite",
+    "frame": { "x": 324, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 478.aseprite",
+    "frame": { "x": 360, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 479.aseprite",
+    "frame": { "x": 396, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 480.aseprite",
+    "frame": { "x": 432, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 481.aseprite",
+    "frame": { "x": 468, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 482.aseprite",
+    "frame": { "x": 504, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 483.aseprite",
+    "frame": { "x": 540, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 484.aseprite",
+    "frame": { "x": 576, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 485.aseprite",
+    "frame": { "x": 612, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 486.aseprite",
+    "frame": { "x": 648, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 487.aseprite",
+    "frame": { "x": 684, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 488.aseprite",
+    "frame": { "x": 720, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 489.aseprite",
+    "frame": { "x": 756, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 490.aseprite",
+    "frame": { "x": 792, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 491.aseprite",
+    "frame": { "x": 828, "y": 608, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 492.aseprite",
+    "frame": { "x": 0, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 493.aseprite",
+    "frame": { "x": 36, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 494.aseprite",
+    "frame": { "x": 72, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 495.aseprite",
+    "frame": { "x": 108, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 496.aseprite",
+    "frame": { "x": 144, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 497.aseprite",
+    "frame": { "x": 180, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 498.aseprite",
+    "frame": { "x": 216, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 499.aseprite",
+    "frame": { "x": 252, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 500.aseprite",
+    "frame": { "x": 288, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 501.aseprite",
+    "frame": { "x": 324, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 502.aseprite",
+    "frame": { "x": 360, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 503.aseprite",
+    "frame": { "x": 396, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 504.aseprite",
+    "frame": { "x": 432, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 505.aseprite",
+    "frame": { "x": 468, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 506.aseprite",
+    "frame": { "x": 504, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 507.aseprite",
+    "frame": { "x": 540, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 508.aseprite",
+    "frame": { "x": 576, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 509.aseprite",
+    "frame": { "x": 612, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 510.aseprite",
+    "frame": { "x": 648, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 511.aseprite",
+    "frame": { "x": 684, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 512.aseprite",
+    "frame": { "x": 720, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 513.aseprite",
+    "frame": { "x": 756, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 514.aseprite",
+    "frame": { "x": 792, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 515.aseprite",
+    "frame": { "x": 828, "y": 640, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 516.aseprite",
+    "frame": { "x": 0, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 517.aseprite",
+    "frame": { "x": 36, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 518.aseprite",
+    "frame": { "x": 72, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 519.aseprite",
+    "frame": { "x": 108, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 520.aseprite",
+    "frame": { "x": 144, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 521.aseprite",
+    "frame": { "x": 180, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 522.aseprite",
+    "frame": { "x": 216, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 523.aseprite",
+    "frame": { "x": 252, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 524.aseprite",
+    "frame": { "x": 288, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 525.aseprite",
+    "frame": { "x": 324, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 526.aseprite",
+    "frame": { "x": 360, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 527.aseprite",
+    "frame": { "x": 396, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 528.aseprite",
+    "frame": { "x": 432, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 529.aseprite",
+    "frame": { "x": 468, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 530.aseprite",
+    "frame": { "x": 504, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 531.aseprite",
+    "frame": { "x": 540, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 532.aseprite",
+    "frame": { "x": 576, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 533.aseprite",
+    "frame": { "x": 612, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 534.aseprite",
+    "frame": { "x": 648, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 535.aseprite",
+    "frame": { "x": 684, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 536.aseprite",
+    "frame": { "x": 720, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 537.aseprite",
+    "frame": { "x": 756, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 538.aseprite",
+    "frame": { "x": 792, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 539.aseprite",
+    "frame": { "x": 828, "y": 672, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 540.aseprite",
+    "frame": { "x": 0, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 541.aseprite",
+    "frame": { "x": 36, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 542.aseprite",
+    "frame": { "x": 72, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 543.aseprite",
+    "frame": { "x": 108, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 544.aseprite",
+    "frame": { "x": 144, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 545.aseprite",
+    "frame": { "x": 180, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 546.aseprite",
+    "frame": { "x": 216, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 547.aseprite",
+    "frame": { "x": 252, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 548.aseprite",
+    "frame": { "x": 288, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 549.aseprite",
+    "frame": { "x": 324, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 550.aseprite",
+    "frame": { "x": 360, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 551.aseprite",
+    "frame": { "x": 396, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 552.aseprite",
+    "frame": { "x": 432, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 553.aseprite",
+    "frame": { "x": 468, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 554.aseprite",
+    "frame": { "x": 504, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 555.aseprite",
+    "frame": { "x": 540, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 556.aseprite",
+    "frame": { "x": 576, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 557.aseprite",
+    "frame": { "x": 612, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 558.aseprite",
+    "frame": { "x": 648, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 559.aseprite",
+    "frame": { "x": 684, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 560.aseprite",
+    "frame": { "x": 720, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 561.aseprite",
+    "frame": { "x": 756, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 562.aseprite",
+    "frame": { "x": 792, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 563.aseprite",
+    "frame": { "x": 828, "y": 704, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 80
+   },
+   {
+    "filename": "room-weather 564.aseprite",
+    "frame": { "x": 0, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
     "duration": 600
    },
    {
-    "filename": "room-weather 259.aseprite",
-    "frame": { "x": 108, "y": 480, "w": 36, "h": 32 },
+    "filename": "room-weather 565.aseprite",
+    "frame": { "x": 36, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 566.aseprite",
+    "frame": { "x": 72, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 567.aseprite",
+    "frame": { "x": 36, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 568.aseprite",
+    "frame": { "x": 0, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 569.aseprite",
+    "frame": { "x": 108, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 570.aseprite",
+    "frame": { "x": 144, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 571.aseprite",
+    "frame": { "x": 108, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 572.aseprite",
+    "frame": { "x": 180, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 573.aseprite",
+    "frame": { "x": 216, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 574.aseprite",
+    "frame": { "x": 252, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 575.aseprite",
+    "frame": { "x": 216, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 576.aseprite",
+    "frame": { "x": 180, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 577.aseprite",
+    "frame": { "x": 288, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 578.aseprite",
+    "frame": { "x": 324, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 579.aseprite",
+    "frame": { "x": 288, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 580.aseprite",
+    "frame": { "x": 360, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 581.aseprite",
+    "frame": { "x": 396, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 582.aseprite",
+    "frame": { "x": 432, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 583.aseprite",
+    "frame": { "x": 396, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 584.aseprite",
+    "frame": { "x": 360, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 585.aseprite",
+    "frame": { "x": 468, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 300
+   },
+   {
+    "filename": "room-weather 586.aseprite",
+    "frame": { "x": 504, "y": 736, "w": 36, "h": 32 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
+    "sourceSize": { "w": 36, "h": 32 },
+    "duration": 600
+   },
+   {
+    "filename": "room-weather 587.aseprite",
+    "frame": { "x": 468, "y": 736, "w": 36, "h": 32 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 36, "h": 32 },
@@ -2345,16 +5297,24 @@
   "version": "1.3.18.6-dev",
   "image": "room-weather.png",
   "format": "RGBA8888",
-  "size": { "w": 576, "h": 512 },
+  "size": { "w": 864, "h": 768 },
   "scale": "1",
   "frameTags": [
-   { "name": "night", "from": 0, "to": 23, "direction": "forward", "color": "#000000ff" },
-   { "name": "dawn", "from": 24, "to": 59, "direction": "forward", "color": "#000000ff" },
-   { "name": "clear", "from": 60, "to": 95, "direction": "forward", "color": "#000000ff" },
-   { "name": "fair", "from": 96, "to": 167, "direction": "forward", "color": "#000000ff" },
-   { "name": "overcast", "from": 168, "to": 203, "direction": "forward", "color": "#000000ff" },
-   { "name": "storm", "from": 204, "to": 251, "direction": "forward", "color": "#000000ff" },
-   { "name": "curtains", "from": 252, "to": 259, "direction": "forward", "color": "#000000ff" }
+   { "name": "sunny-day", "from": 0, "to": 35, "direction": "forward", "color": "#000000ff" },
+   { "name": "sunny-dusk", "from": 36, "to": 71, "direction": "forward", "color": "#000000ff" },
+   { "name": "sunny-night", "from": 72, "to": 95, "direction": "forward", "color": "#000000ff" },
+   { "name": "cloudy-day", "from": 96, "to": 167, "direction": "forward", "color": "#000000ff" },
+   { "name": "cloudy-dusk", "from": 168, "to": 239, "direction": "forward", "color": "#000000ff" },
+   { "name": "cloudy-night", "from": 240, "to": 311, "direction": "forward", "color": "#000000ff" },
+   { "name": "windy-day", "from": 312, "to": 347, "direction": "forward", "color": "#000000ff" },
+   { "name": "windy-dusk", "from": 348, "to": 383, "direction": "forward", "color": "#000000ff" },
+   { "name": "windy-night", "from": 384, "to": 419, "direction": "forward", "color": "#000000ff" },
+   { "name": "rainy-day", "from": 420, "to": 467, "direction": "forward", "color": "#000000ff" },
+   { "name": "rainy-dusk", "from": 468, "to": 515, "direction": "forward", "color": "#000000ff" },
+   { "name": "rainy-night", "from": 516, "to": 563, "direction": "forward", "color": "#000000ff" },
+   { "name": "curtains-day", "from": 564, "to": 571, "direction": "forward", "color": "#000000ff" },
+   { "name": "curtains-dusk", "from": 572, "to": 579, "direction": "forward", "color": "#000000ff" },
+   { "name": "curtains-night", "from": 580, "to": 587, "direction": "forward", "color": "#000000ff" }
   ],
   "slices": [
   ]
