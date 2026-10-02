@@ -296,7 +296,9 @@ struct WormHotspot: View {
         Color.clear
             .contentShape(Rectangle())
             .onTapGesture { poke() }
-            .focusable()
+            // Owner 2026-10-02: a click must not leave a blue focus ring around the worm. Activate-only focus keeps it
+            // a keyboard and VoiceOver stop (Full Keyboard Access) while a pointer click never takes focus.
+            .focusable(interactions: .activate)
             .onKeyPress(.space) { poke(); return .handled }
             .onKeyPress(.return) { poke(); return .handled }
             .onKeyPress(.escape) {

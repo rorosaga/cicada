@@ -8,6 +8,20 @@ final class DeskHotspotTests: XCTestCase {
 
     private var scales: [Double] { (8...14).map { Double($0) / 10 } }
 
+    /// Owner 2026-10-02: clicking the worm must not leave a blue focus ring around it. The worm stays a keyboard and
+    /// VoiceOver stop (Full Keyboard Access, Space/Return/Esc), but a pointer click activates it without taking focus,
+    /// the way a macOS button behaves.
+    func test_wormHotspotIsActivateOnlyFocusSoAClickDrawsNoRing() throws {
+        let root = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp")
+        let room = try String(contentsOf: root.appendingPathComponent("Views/Sleep/StudyRoom.swift"), encoding: .utf8)
+        let hotspot = try XCTUnwrap(room.range(of: "struct WormHotspot: View")).lowerBound
+        let body = String(room[hotspot...])
+        XCTAssertTrue(body.contains(".focusable(interactions: .activate)"))
+        XCTAssertFalse(body.contains(".focusable()\n"))
+        XCTAssertTrue(body.contains(".onKeyPress(.space)"))
+        XCTAssertTrue(body.contains(".onKeyPress(.return)"))
+    }
+
     func test_everyHotspotIsWholeCellsInsideTheScene() {
         for scale in scales {
             let layout = deskSceneLayout(uiScale: scale)
