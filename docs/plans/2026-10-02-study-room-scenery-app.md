@@ -21,7 +21,7 @@ orchestrator; the separate art run supplies resources. No application install, b
 
 Validation: `cd app/CicadaApp && swift test --filter SceneryTests` first; targeted model/reader/art tests while building;
 then `cd app/CicadaApp && swift test` twice, capturing counts and every failing name. Finally
-`PYTHONDONTWRITEBYTECODE=1 /Users/rorosaga/code/cicada/api/.venv/bin/python -m pytest api/tests/test_claude_md_size.py -q -p no:cacheprovider`.
+`PYTHONDONTWRITEBYTECODE=1 <main-checkout>/api/.venv/bin/python -m pytest api/tests/test_claude_md_size.py -q -p no:cacheprovider`.
 
 Rulings: no flash; dark iff night or rainy; lamp means schedule; overlays mean running/finished in every source;
 fallback names How Sleep is doing; changing scenery never starts work. Art verification is separate from the owner's
