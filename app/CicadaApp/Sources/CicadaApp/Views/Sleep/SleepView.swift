@@ -150,6 +150,10 @@ func sleepLiveness(isConnected: Bool,
 ///    Consolidate/Cancel buttons' own in-flight state. The queue's rows lost
 ///    theirs in Task 6 — they have `read of total`.
 struct SleepView: View {
+    @AppStorage(SceneryMode.defaultsKey) private var scenerySourceRaw = SceneryMode.localWeather.rawValue
+    @AppStorage(ManualScenery.timeKey) private var sceneryTimeRaw = "day"
+    @AppStorage(ManualScenery.baseKey) private var sceneryWeatherRaw = "sunny"
+
     @Binding var selectedTab: AppTab
     /// Entity chips inside the consolidation history's expanded detail land
     /// here (mirrors `SourcesPageView`'s own closure at `ContentView.swift`)
@@ -213,7 +217,10 @@ struct SleepView: View {
             // `SkyBand.ships` is the one switch (Z-B16).
             if SkyBand.isDrawn(contrast: contrast) {
                 VStack(spacing: 0) {
-                    SleepSkyBand(weather: windowWeather(for: page.mood))
+                    SleepSkyBand(scenery: Scenery.resolve(mode: SceneryMode.stored(scenerySourceRaw),
+                        clock: SceneStore.shared.phase,
+                        forecast: LocalWeatherReader.shared.base(for: SceneStore.shared.timeZoneIdentifier),
+                        mood: page.mood, manual: ManualScenery(timeRaw: sceneryTimeRaw, baseRaw: sceneryWeatherRaw)))
                     Spacer(minLength: 0)
                 }
             }

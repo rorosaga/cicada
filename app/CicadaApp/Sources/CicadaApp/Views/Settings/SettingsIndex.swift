@@ -76,6 +76,7 @@ enum SettingsIndex {
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
         .searchIndex, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
+        .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .calendarApp, .contactsApp,
         .agentsInstall, .agentsCloud, .agentsSkill, .agentsAutoRecall, .agentsReading,
         .readingAgent, .readingMethods, .watchingMethods, .readingSites,
@@ -87,6 +88,10 @@ enum SettingsIndex {
     ]
 
     static let staticEntries: [SettingsEntry] = [
+        SettingsEntry(.scenerySource, .sleep, Copy.Scenery.source, keywords: ["scenery", "weather", "local weather", "How Sleep is doing", "choose"], detail: Copy.Scenery.disclosure),
+        SettingsEntry(.sceneryTime, .sleep, Copy.Scenery.time, keywords: ["scenery", "day", "dusk", "night"], anchor: .scenerySource),
+        SettingsEntry(.sceneryWeather, .sleep, Copy.Scenery.weather, keywords: ["scenery", "sunny", "cloudy", "windy", "rainy", "curtains"], anchor: .scenerySource),
+        SettingsEntry(.sceneryPreview, .sleep, Copy.Scenery.preview, keywords: ["scenery", "study room"]),
         // General
         SettingsEntry(.appearance, .general, Copy.appearance, keywords: ["dark", "light", "theme", "mode", "system", "night"]),
         SettingsEntry(.heroScene, .general, Copy.scene, keywords: ["painting", "picture", "home", "sky", "day", "night", "sunrise", "sunset", "afternoon", "golden hour", "evening", "meadow"], detail: Copy.sceneDetail),

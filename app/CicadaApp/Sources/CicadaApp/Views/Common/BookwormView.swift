@@ -12,6 +12,8 @@ struct BookwormView: View {
     var pose: BookwormPose = .idle
     var reaction: ActiveReaction? = nil
     var transition: ActiveTransition? = nil
+    var lighting: RoomLighting = .day
+    var lampLit: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePaused) private var hostPaused
@@ -25,8 +27,8 @@ struct BookwormView: View {
         let beat = reduceMotion ? nil : reaction.flatMap { BookwormLook.beat($0.kind, for: state, gaze: effective.gaze) }
         let look = beat ?? .pose(effective)
         let activeTransition = reduceMotion || beat != nil || size.set == .small ? nil : transition
-        let pair = activeTransition.flatMap { BookwormArt.transitionClip($0.kind) }
-            ?? BookwormArt.clip(state, look: look, set: size.set)
+        let pair = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit) }
+            ?? BookwormArt.clip(state, look: look, set: size.set, lighting: lighting, lampLit: lampLit)
         let start = beat != nil ? reaction?.startedAt : activeTransition?.startedAt
 
         VStack(alignment: alignment, spacing: CicadaTheme.spacingSM) {
@@ -36,8 +38,8 @@ struct BookwormView: View {
                     TimelineView(SpriteFrameSchedule(tracks: tracks)) { context in
                         // TimelineView re-evaluates this closure only: the cover must be chosen here.
                         let cover = BookwormArt.coverIndex(at: context.date, profile: profile)
-                        let current = activeTransition.flatMap { BookwormArt.transitionClip($0.kind) }
-                            ?? BookwormArt.clip(state, look: look, cover: cover, set: size.set)
+                        let current = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit) }
+                            ?? BookwormArt.clip(state, look: look, cover: cover, set: size.set, lighting: lighting, lampLit: lampLit)
                         draw(current, at: context.date, startedAt: start, profile: profile, size: size)
                     }
                 } else {

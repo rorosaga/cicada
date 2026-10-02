@@ -29,7 +29,7 @@ final class DeskSceneLayoutTests: XCTestCase {
         let layers = DeskScene.plan
         XCTAssertEqual(Set(layers.map(\.prop)), Set(DeskProp.allCases))
         XCTAssertEqual(layers.count, DeskProp.allCases.count)
-        XCTAssertEqual(layers.map(\.z), Array(0..<8))
+        XCTAssertEqual(layers.map(\.z), Array(0..<DeskProp.allCases.count))
     }
 
     func testPlanEqualsTheArtRunsData() throws {
@@ -46,7 +46,7 @@ final class DeskSceneLayoutTests: XCTestCase {
         XCTAssertEqual(plan.layers.count, DeskScene.plan.count)
         for (art, layer) in zip(plan.layers, DeskScene.plan) {
             XCTAssertEqual(art.prop, layer.prop.rawValue)
-            XCTAssertEqual(art.sheet, RoomArt.tag(layer.prop, lampLit: true, weather: .night)?.sheet)
+            XCTAssertEqual(art.sheet, RoomArt.tag(layer.prop, lampLit: true, scenery: Self.scenery(.sunny, .night, overlay: .mist))?.sheet)
             XCTAssertEqual([art.x, art.y, art.w, art.h, art.z], [layer.cellX, layer.cellY, layer.w, layer.h, layer.z])
         }
         XCTAssertEqual([plan.worm.x, plan.worm.y, plan.worm.w, plan.worm.h],
@@ -77,7 +77,7 @@ final class DeskSceneLayoutTests: XCTestCase {
 
     func testNoPropInkReachesThePileColumn() throws {
         for layer in DeskScene.plan {
-            let name = try XCTUnwrap(RoomArt.tag(layer.prop, lampLit: true, weather: .night)?.sheet)
+            let name = try XCTUnwrap(RoomArt.tag(layer.prop, lampLit: true, scenery: Self.scenery(.sunny, .night, overlay: .mist))?.sheet)
             let sheet = try SpriteTestAssets.sheet(name)
             for frame in sheet.frameRects.indices {
                 let ink = try SpriteTestAssets.plane(sheet, frame: frame).ink
@@ -86,13 +86,24 @@ final class DeskSceneLayoutTests: XCTestCase {
         }
     }
 
-    func testLampAndFlyTagsReadOnlyTheSchedule() {
-        XCTAssertNil(RoomArt.tag(.fly, lampLit: false, weather: .night))
-        XCTAssertEqual(RoomArt.tag(.fly, lampLit: true, weather: .night)?.tag, "buzz")
-        for weather in WindowWeather.all {
-            XCTAssertEqual(RoomArt.tag(.lamp, lampLit: false, weather: weather)?.tag, "dark")
-            XCTAssertEqual(RoomArt.tag(.backdrop, lampLit: true, weather: weather)?.tag, "lit")
-            XCTAssertEqual(RoomArt.tag(.pane, lampLit: false, weather: weather)?.tag, weather.rawValue)
-        }
+    static func scenery(_ base: WindowWeather, _ time: SkyPhase, overlay: SkyOverlay? = nil) -> Scenery {
+        Scenery(base: base, time: time, overlay: overlay, source: .chosen)
+    }
+
+    func testLightingAndScheduleSelectTheExactTags() {
+        for base in WindowWeather.all { for time in SkyPhase.allCases { for lit in [false, true] {
+            let scenery = Self.scenery(base, time, overlay: .mist)
+            let dark = time == .night || base == .rainy
+            XCTAssertEqual(RoomArt.tag(.lamp, lampLit: lit, scenery: scenery)?.tag,
+                           (dark ? "night-" : "") + (lit ? "lit" : "dark"))
+            for prop in [DeskProp.window, .plant, .beanbag, .mug] {
+                XCTAssertEqual(RoomArt.tag(prop, lampLit: lit, scenery: scenery)?.tag,
+                               dark ? "night-\(lit ? "lit" : "dark")" : "idle")
+            }
+            XCTAssertEqual(RoomArt.tag(.pane, lampLit: lit, scenery: scenery)?.tag, "\(base.rawValue)-\(time.tag)")
+            XCTAssertEqual(RoomArt.tag(.skyfx, lampLit: lit, scenery: scenery)?.tag, "mist-\(time.tag)")
+            XCTAssertEqual(RoomArt.tag(.fly, lampLit: lit, scenery: scenery)?.tag, lit ? "buzz" : nil)
+        } } }
+        XCTAssertNil(RoomArt.tag(.skyfx, lampLit: true, scenery: Self.scenery(.sunny, .day)))
     }
 }

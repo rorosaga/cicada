@@ -112,8 +112,8 @@ enum Copy {
         "If you light it, scheduled runs would use \(engineLabel(engine))"
     }
     // Track Z §7.3 — the window's weather and its legend (the text twin).
-    static let windowLegendHeader = "The window shows how Sleep is doing, not the time of day."
-    static let windowLegendPointer = "The window in the room shows how Sleep is doing — click it to see what each sky means."
+    static let windowLegendHeader = "The window shows the time and the scenery you chose."
+    static let windowLegendPointer = "Click the window for its scenery and Sleep moments; change the scenery in Settings → Sleep."
     static let windowHint = "Shows what the sky means"
     // MARK: The `?` popover (Track P)
     //

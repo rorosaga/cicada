@@ -11,8 +11,9 @@ enum BookwormArt {
     static let states: [BookwormState] = [.awake, .reading, .sleeping(stage: 1), .digesting, .happy,
                                          .hungry, .error, .curious(count: 1)]
 
-    static func sheetName(_ state: BookwormState, _ set: BookwormArtSet) -> String {
-        set == .small ? "bookworm-small" : "bookworm-\(state.caseName)"
+    static func sheetName(_ state: BookwormState, _ set: BookwormArtSet,
+                          lighting: RoomLighting = .day, lampLit: Bool = false) -> String {
+        set == .small ? "bookworm-small" : "bookworm-\(state.caseName)\(lighting.suffix(lampLit: lampLit))"
     }
 
     static func tag(_ look: BookwormLook, cover: Int = 1) -> String {
@@ -42,8 +43,9 @@ enum BookwormArt {
     }
 
     static func clip(_ state: BookwormState, look: BookwormLook, cover: Int = 1,
-                     set: BookwormArtSet = .room) -> (SpriteSheet, SpriteClip)? {
-        guard let sheet = SpriteSheets.sheet(named: sheetName(state, set)) else { return nil }
+                     set: BookwormArtSet = .room, lighting: RoomLighting = .day,
+                     lampLit: Bool = false) -> (SpriteSheet, SpriteClip)? {
+        guard let sheet = SpriteSheets.sheet(named: sheetName(state, set, lighting: lighting, lampLit: lampLit)) else { return nil }
         let name = set == .small ? state.caseName : tag(look, cover: state.caseName == "reading" ? cover : 1)
         guard let clip = fallbackClip(in: sheet, tag: name) else { return nil }
         return (sheet, clip)
@@ -63,8 +65,10 @@ enum BookwormArt {
         return SpriteSheets.sheet(named: sheetName(state, .room))?.clip(tag(look))?.total ?? CicadaMotion.spriteBeatMax
     }
 
-    static func transitionClip(_ t: BookwormTransition) -> (SpriteSheet, SpriteClip)? {
-        guard let sheet = SpriteSheets.sheet(named: "bookworm-sleeping"), let clip = sheet.clip(t.rawValue) else { return nil }
+    static func transitionClip(_ t: BookwormTransition, lighting: RoomLighting = .day,
+                               lampLit: Bool = false) -> (SpriteSheet, SpriteClip)? {
+        let name = sheetName(.sleeping(stage: 1), .room, lighting: lighting, lampLit: lampLit)
+        guard let sheet = SpriteSheets.sheet(named: name), let clip = sheet.clip(t.rawValue) else { return nil }
         return (sheet, clip)
     }
 

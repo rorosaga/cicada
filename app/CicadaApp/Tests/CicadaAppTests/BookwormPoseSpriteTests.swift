@@ -29,7 +29,7 @@ final class BookwormPoseSpriteTests: XCTestCase {
         let palette = try SpriteTestAssets.palette()
         let roles = palette.roles
         let d = try palette.rgb("D"), l = try palette.rgb("L"), j = try palette.rgb("j"), w = try palette.rgb("W")
-        let e = try palette.rgb("e"), sweat = try palette.rgb("S"), z = try palette.rgb("Z")
+        let z = try palette.rgb("Z")
         for state in BookwormSpriteTests.states {
             let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
             for tag in BookwormArt.requiredTags(state) {
@@ -46,8 +46,7 @@ final class BookwormPoseSpriteTests: XCTestCase {
                         if tag == "idle" && step == 0 { XCTAssertGreaterThanOrEqual(frame.count(z), 3, label) }
                     }
                     if state.caseName == "error" {
-                        XCTAssertGreaterThanOrEqual(frame.count(e), 4, label)
-                        XCTAssertGreaterThanOrEqual(frame.count(sweat), 1, label)
+                        try SpriteTestAssets.assertErrorMarks(frame, small: false, palette: palette)
                     }
                 }
             }
@@ -57,7 +56,7 @@ final class BookwormPoseSpriteTests: XCTestCase {
     func testSmallStateMarksAndOverlaySpace() throws {
         let sheet = try SpriteTestAssets.sheet("bookworm-small")
         let palette = try SpriteTestAssets.palette(), roles = palette.roles
-        let k = try palette.rgb("K"), e = try palette.rgb("e"), sweat = try palette.rgb("S")
+        let k = try palette.rgb("K")
         for clip in sheet.tags.values {
             for frame in clip.order {
                 let plane = try SpriteTestAssets.plane(sheet, frame: frame)
@@ -70,7 +69,7 @@ final class BookwormPoseSpriteTests: XCTestCase {
                         XCTAssertEqual(Set(lids.map(\.y)).count, 1, "closed lid, never plus pupil")
                     }
                 }
-                if clip.tag == "error" { XCTAssertGreaterThanOrEqual(plane.count(e), 1); XCTAssertGreaterThanOrEqual(plane.count(sweat), 1) }
+                if clip.tag == "error" { try SpriteTestAssets.assertErrorMarks(plane, small: true, palette: palette) }
                 if clip.tag == "reading" { XCTAssertGreaterThanOrEqual(plane.pixels.filter { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("book.") ?? false) }.count, 8) }
             }
         }

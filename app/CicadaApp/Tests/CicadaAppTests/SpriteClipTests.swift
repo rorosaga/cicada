@@ -3,19 +3,27 @@ import XCTest
 @testable import CicadaApp
 
 final class SpriteClipTests: XCTestCase {
-    func testEveryMoodAndLampStateStaysInsideTheRoomRedrawBudget() throws {
-        let weather = try SpriteTestAssets.sheet("room-weather")
+    func testEveryEnvironmentMoodAndLampStateStaysInsideTheRoomRedrawBudget() throws {
+        let weather = try SpriteTestAssets.sheet("room-weather"), fx = try SpriteTestAssets.sheet("room-skyfx")
         let fly = try SpriteTestAssets.sheet("room-fly")
-        for mood in WindowSpritesTests.moods { for lit in [false, true] {
-            let worm = try SpriteTestAssets.sheet(BookwormArt.sheetName(mood, .room))
-            var clips = [try SpriteTestAssets.clip(weather, windowWeather(for: mood).rawValue), try SpriteTestAssets.clip(worm, "idle")]
-            if lit { clips.append(try SpriteTestAssets.clip(fly, "buzz")) }
-            let schedule = SpriteFrameSchedule(tracks: clips.map { .init(origin: SpriteClock.origin, seconds: $0.seconds, loops: true) })
-            let entries = schedule.entries(from: SpriteClock.origin, mode: .normal)
-            _ = entries.next()
-            var boundaries = 0
-            while let date = entries.next(), date.timeIntervalSince(SpriteClock.origin) <= 60 { boundaries += 1 }
-            XCTAssertLessThanOrEqual(boundaries, 1800, "\(mood.caseName) lamp \(lit)")
+        for base in WindowWeather.all { for time in SkyPhase.allCases {
+            for mood in WindowSpritesTests.moods { for lit in [false, true] {
+                let scenery = Scenery.resolve(mode: .choose, clock: .day, forecast: nil, mood: mood,
+                                              manual: .init(time: time, base: base))
+                let worm = try SpriteTestAssets.sheet(BookwormArt.sheetName(mood, .room, lighting: scenery.lighting, lampLit: lit))
+                var clips = [try SpriteTestAssets.clip(weather, scenery.weatherTag), try SpriteTestAssets.clip(worm, "idle")]
+                if let tag = scenery.overlayTag { clips.append(try SpriteTestAssets.clip(fx, tag)) }
+                if lit { clips.append(try SpriteTestAssets.clip(fly, "buzz")) }
+                // Separate leaves redraw even on coincident boundaries; sum, rather than deduplicating them.
+                var boundaries = 60 // The independent wall-clock leaf ticks once per second.
+                for clip in clips where clip.order.count > 1 {
+                    let schedule = SpriteFrameSchedule(tracks: [.init(origin: SpriteClock.origin, seconds: clip.seconds, loops: true)])
+                    let entries = schedule.entries(from: SpriteClock.origin, mode: .normal)
+                    _ = entries.next()
+                    while let date = entries.next(), date.timeIntervalSince(SpriteClock.origin) <= 60 { boundaries += 1 }
+                }
+                XCTAssertLessThanOrEqual(boundaries, 1800, "\(scenery.weatherTag) \(mood.caseName) lamp \(lit)")
+            } }
         } }
     }
     private let clip = SpriteClip(sheet: "synthetic", tag: "idle", order: [4, 1, 4], seconds: [0.1, 0.2, 0.3])

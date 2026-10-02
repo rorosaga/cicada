@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Track Z Z10 (spec decision 16, Z-B16) — the optional wash across the top of
 /// the Sleep page that follows the window's weather. State, never quantity
-/// (R-Z1): its only input is the weather, which is the mood alone (R-Z11), and
+/// (R-Z1): its only input is the resolved scenery (R-Z11, amended 2026-10-02), and
 /// its text twin is the window's legend. It is a procedural wash of Meadow's
 /// sky tokens — not painted art — fading to clear before the room card, so
 /// it never sits behind a number, and nothing in it moves but the crossfade.
@@ -26,17 +26,9 @@ enum SkyBand {
     /// Text over the band (the page title) stays comfortably legible.
     static let minTitleContrast: Double = 7
 
-    /// Only a sky the window agrees with: night while a cycle runs, dusk at
-    /// dawn, day for clear and fair. Overcast, storm and curtains draw no band
-    /// — a grey wash would be the "dirt" the owner's §16 question names, and
-    /// the window and the sentence already say those states.
-    static func phase(for weather: WindowWeather) -> CicadaTheme.SkyPhase? {
-        switch weather {
-        case .night: .night
-        case .dawn: .dusk
-        case .clear, .fair: .day
-        case .overcast, .storm, .curtains: nil
-        }
+    /// The unshipped band's prospective sky follows the same resolved environment as the pane.
+    static func phase(for scenery: Scenery) -> SkyPhase? {
+        [.sunny, .cloudy].contains(scenery.base) ? scenery.time : nil
     }
 
     /// The sky's top stop at full strength; the view fades it to clear.
@@ -51,12 +43,12 @@ enum SkyBand {
 /// The band itself: the weather's sky at `skyBandOpacity`, fading to clear,
 /// crossfading when the weather changes (a jump under Reduce Motion).
 struct SleepSkyBand: View {
-    let weather: WindowWeather
+    let scenery: Scenery
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let phase = SkyBand.phase(for: weather)
+        let phase = SkyBand.phase(for: scenery)
         ZStack {
             if let phase {
                 LinearGradient(colors: [SkyBand.top(phase).opacity(CicadaTheme.skyBandOpacity), .clear],
