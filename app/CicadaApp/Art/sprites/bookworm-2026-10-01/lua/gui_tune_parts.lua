@@ -22,7 +22,7 @@ app.transaction('Hand clean pupils, frame light and turning page',function()
     dot(34,19+dy,'L') -- carry the upper-left light onto the temple arm
   end
   -- Narrow four-wide pluses into precise 3x3 pluses, wholly inside lensR.
-  for _,t in ipairs(s.tags) do if t.name:match('^eyes%.') and not t.name:find('closed') and not t.name:find('happy') then
+  for _,t in ipairs(s.tags) do if t.name:match('^eyes%.') and not t.name:find('closed') and not t.name:find('happy') and not t.name:find('error') then
     local n=t.name:sub(6);choose(t.name)
     local dx=n:find('left') and -1 or (n:find('right') and 1 or 0)
     local row=n:match('down%.l(%d)');if row then dx=tonumber(row)-2 end
@@ -31,7 +31,7 @@ app.transaction('Hand clean pupils, frame light and turning page',function()
     if n~='half' and n~='blink.half' then
       for y=20,24 do for x=24,29 do dot(x,y,'G') end end
       local x=26+dx; local y=21+dy
-      local k=n:find('error') and Color{r=229,g=72,b=77} or C.K
+      local k=C.K
       for _,p in ipairs({{1,0},{0,1},{1,1},{2,1},{1,2}}) do
         app.useTool{tool='pencil',brush=Brush(1),color=k,points={Point(x+p[1],y+p[2])}}
       end

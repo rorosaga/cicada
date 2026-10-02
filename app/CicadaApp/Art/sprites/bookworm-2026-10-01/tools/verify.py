@@ -26,7 +26,7 @@ EXPECTED.update({'bookworm-happy': COMMON + ['cheer.center'],
                  'bookworm-digesting': ['idle', 'expectant.center', 'eager', 'talk.center', 'gulp.center', 'shake.center', 'cheer.center'],
                  'bookworm-sleeping': ['idle', 'talk.center', 'intro', 'outro'],
                  'bookworm-error': ['idle'], 'bookworm-curious': ['idle'],
-                 'bookworm-small': SMALL, 'bookworm-small-dark': SMALL})
+                 'bookworm-small': SMALL})
 BANNED = {0x22C55E, 0xEF4444, 0xF59E0B, 0x3B82F6, 0x4A9EFF, 0x8B5CF6, 0x3BD97A, 0x6B7280, 0x999999}
 
 # Independent transcription of the binding timing tables, not the generator registry.
@@ -150,21 +150,104 @@ def contact(name, keys, scale=6):
     out.save(ART / 'qa' / f'{name}-contact@{scale}x.png')
 
 
-def boards(small, dark):
-    for name, bg, values in [('light', '#F6F6F6', small), ('dark', '#1E1E1E', small), ('dark-variant', '#1E1E1E', dark)]:
+def boards(small):
+    for name, bg, values in [('light', '#ECECEC', small), ('dark', '#1E1E1E', small)]:
         board = Image.new('RGBA', (8 * 20, 18), bg)
         for i, im in enumerate(values):
             board.alpha_composite(im, (i * 20, 0))
         for scale in [1, 2, 8]:
             board.resize((board.width * scale, board.height * scale), Image.Resampling.NEAREST).save(ART / 'qa' / f'menubar-{name}@{scale}x.png')
     # Owner-requested #ECECEC and #1E1E1E strip at 1x/2x and inspectable 8x.
-    strip = Image.new('RGBA', (160, 54), '#ECECEC')
-    for row, (bg, values) in enumerate([('#ECECEC', small), ('#1E1E1E', small), ('#1E1E1E', dark)]):
+    strip = Image.new('RGBA', (160, 36), '#ECECEC')
+    for row, (bg, values) in enumerate([('#ECECEC', small), ('#1E1E1E', small)]):
         strip.paste(Image.new('RGBA', (160, 18), bg), (0, row * 18))
         for i, im in enumerate(values): strip.alpha_composite(im, (i * 20, row * 18))
     for scale in [1, 2, 8]:
-        strip.resize((160 * scale, 54 * scale), Image.Resampling.NEAREST).save(ART / 'demo' / f'menubar-comparison@{scale}x.png')
-    small[0].resize((144, 144), Image.Resampling.NEAREST).save(ART / 'reference' / 'menubar-pixel@8x.png')
+        strip.resize((160 * scale, 36 * scale), Image.Resampling.NEAREST).save(ART / 'qa' / f'menubar-comparison@{scale}x.png')
+    small[0].resize((144, 144), Image.Resampling.NEAREST).save(ART / 'qa' / 'menubar-pixel@8x.png')
+
+
+# Worm fix pass checks. Self-contained helpers for Run B's clean merge.
+ROOM_LENS_SLICES = {'eye': dict(x=27,y=21,w=2,h=2),
+                    'lensL': dict(x=11,y=17,w=4,h=6),
+                    'lensR': dict(x=23,y=18,w=8,h=7)}
+
+def verify_wormfix_lens_slices(slices, label):
+    check({k:slices[k] for k in ROOM_LENS_SLICES} == ROOM_LENS_SLICES,
+          label + ': review A2 lens slices')
+
+
+def verify_wormfix_attentive(images, tag, label):
+    if tag.startswith('attentive.'):
+        check(not opaque_equal(images[0], images[5]), label + ': review A2 glance equals rest')
+
+
+def verify_wormfix_swap(images, regframes, colors, label):
+    for image, record in zip(images, regframes):
+        if record.get('note') in ['swap.down.2', 'swap.down.3']:
+            cover = record['cover']
+            keys = [('B','b','H'), ('1','2','3'), ('4','5','6')]
+            for group in [keys[cover-1], keys[cover % 3]]:
+                check(sum(count(image, colors[k]) for k in group) >= 6,
+                      label + ': review A8 missing outgoing/incoming cover')
+
+
+def verify_wormfix_body_outline(source, temp, colors, label):
+    # Independently export the actual saved body layer, not a generator mask.
+    stem = label + '-body'
+    run('--layer', 'body', source, '--sheet', temp / (stem+'.png'),
+        '--data', temp / (stem+'.json'), '--format', 'json-array', '--sheet-pack')
+    data = json.loads((temp / (stem+'.json')).read_text())
+    sheet = Image.open(temp / (stem+'.png')).convert('RGBA')
+    for index, record in enumerate(data['frames']):
+        image = crop_frame(sheet, record)
+        def at(x,y):
+            return image.getpixel((x,y)) if 0<=x<64 and 0<=y<48 else (0,0,0,0)
+        for y in range(48):
+            for x in range(64):
+                value = at(x,y)
+                if value == colors['K']:
+                    neighbors = [at(xx,yy) for yy in range(y-1,y+2) for xx in range(x-1,x+2)]
+                    # The intentionally enclosed glass rings adjoin D/L. A1
+                    # applies to anatomical silhouette lines; preserve the rings.
+                    glass = any(p in (colors['D'],colors['L']) for p in neighbors)
+                    check(glass or any(p[3]==0 for p in neighbors),
+                          f'{label} frame {index}: enclosed skin outline r{y} c{x}')
+                elif value in (colors['G'],colors['g']):
+                    check(all(at(xx,yy)[3] for xx,yy in [(x-1,y),(x+1,y),(x,y-1),(x,y+1)]),
+                          f'{label} frame {index}: exposed skin r{y} c{x}')
+
+
+def verify_owner_error_xs(image, colors, small, label):
+    """Owner 2026-10-01: both diagonal Xs and drop in every error frame."""
+    # Independent pixel transcription, including the green air around the room
+    # Xs. The two room marks must share the head's tremble offset, not gaze.
+    patterns = ([(3,6,['K.K','.K.','K.K']), (11,6,['K.K','.K.','K.K'])]
+                if small else
+                [(10,17,['.....','.K.K.','..K..','..K..','.K.K.','.....']),
+                 (23,18,['........','.K....K.','..K..K..','...KK...',
+                         '..K..K..','.K....K.','........'])])
+    green = colors['m' if small else 'G']
+    def matches(dx):
+        return all(image.getpixel((x+col+dx,y+row)) ==
+                   (colors['K'] if value == 'K' else green)
+                   for x,y,rows in patterns for row,line in enumerate(rows)
+                   for col,value in enumerate(line))
+    check(any(matches(dx) for dx in ([0] if small else [-1,0,1])),
+          label + ': missing/uncentered diagonal Xs or room X touching rim')
+    check(count(image, colors['S']) >= (2 if small else 1), label + ': missing drop')
+    check(count(image, (229,72,77,255)) == 0, label + ': red error pupil')
+
+
+def verify_owner_single_menubar():
+    check(all(not (folder / ('bookworm-small-dark' + ext)).exists()
+              for folder, extensions in [(ART/'src',['.aseprite']), (RES,['.png','.json'])]
+              for ext in extensions), 'owner: removed dark menu variant remains')
+
+
+def verify_owner_error_lens_slice(slices, label):
+    check(slices.get('errorLensL') == dict(x=10,y=17,w=5,h=6),
+          label + ': owner black-X left lens slice')
 
 
 def main():
@@ -178,6 +261,8 @@ def main():
     book = {colors[c['key']] for c in palette if c['role'].startswith('book.')}
     check(not (BANNED & {int(c['hex'][1:], 16) for c in palette}), 'reserved hue in palette')
     check(len({c['key'] for c in palette}) == len(palette), 'duplicate palette key')
+    check('e' not in colors and 'R' not in colors, 'owner: unused error-red/dark-rim palette key')
+    verify_owner_single_menubar()
     registry = json.loads((ART / 'qa/registry.json').read_text())['sheets']
     report = {'sheets': {}, 'blinkGapsMs': {}, 'deterministic': True}
     small_keys = {}
@@ -209,6 +294,10 @@ def main():
                 same = {n: slices[n] for n in ['eye', 'lensL', 'lensR']}
                 if baseline_slices is None: baseline_slices = same
                 check(same == baseline_slices and same['eye']['w'] == same['eye']['h'] == 2, f'{name}: lens/eye registration')
+            if canvas == (64,48):
+                verify_wormfix_lens_slices(slices,name)
+                if name == 'bookworm-error': verify_owner_error_lens_slice(slices,name)
+                verify_wormfix_body_outline(source,temp,colors,name)
             regtags = {t['name']: t for t in registry[name]['tags']}
             keys = [];times = {}
             for tag in tags:
@@ -219,6 +308,9 @@ def main():
                 check(ms == [r['ms'] for r in regtags[tag['name']]['frames']], label + ': duration registry')
                 check([r['index'] for r in regtags[tag['name']]['frames']] == list(range(tag['from'], tag['to']+1)), label + ': registry indices')
                 times[tag['name']] = ms
+                verify_wormfix_attentive(ims,tag['name'],label)
+                if name=='bookworm-reading':
+                    verify_wormfix_swap(ims,regtags[tag['name']]['frames'],colors,label)
                 if len(ms) == 1: check(ms == [1000], label + ': static duration')
                 else:
                     check(all(40 <= t <= 4000 and t % 10 == 0 for t in ms), label + ': duration bounds/GIF precision')
@@ -238,11 +330,11 @@ def main():
                                     check(40 <= x <= 63 and 0 <= y <= 14, label + ': z box')
                         if name == 'bookworm-sleeping' and tag['name'] in ['idle', 'talk.center']:
                             check(count(im, colors['j']) >= 4 and count(im, colors['W']) == 0, label + ': sleeping eyes')
-                        if name == 'bookworm-error': check(count(im, colors['e']) >= 4 and count(im, colors['S']) >= 1, label + ': error marks')
+                        if name == 'bookworm-error': verify_owner_error_xs(im,colors,False,label+f'/frame{k}')
                     else:
                         check(not im.crop((0,16,18,18)).getbbox(), label + ': badge rows')
                         if tag['name'] == 'reading': check(sum(p in book for p in im.get_flattened_data()) >= 8, label + ': book')
-                        if tag['name'] == 'error': check(count(im, colors['e']) >= 1 and count(im, colors['S']) >= 1, label + ': error')
+                        if tag['name'] == 'error': verify_owner_error_xs(im,colors,True,label+f'/frame{k}')
                         if tag['name'] == 'sleeping':
                             for lens in ['lensL', 'lensR']:
                                 r=slices[lens];points=[(x,y) for y in range(r['y'],r['y']+r['h']) for x in range(r['x'],r['x']+r['w']) if im.getpixel((x,y))==colors['K']]
@@ -279,7 +371,7 @@ def main():
                 check(len(flips)==3 and len(set(b-a for a,b in zip(flips,flips[1:])))==2, name + ': uneven flips')
             if name == 'bookworm-sleeping':
                 tag = next(t for t in tags if t['name']=='idle')
-                glyphs = {'s':['.ZZ','.Z.','ZZ.'], 'm':['ZZZZ','..Z.','.Z..','ZZZZ'], 'l':['ZZZZZ','...Z.','..Z..','.Z...','ZZZZZ']}
+                glyphs = {'s':['ZZZ','.Z.','ZZZ'], 'm':['ZZZZ','..Z.','.Z..','ZZZZ'], 'l':['ZZZZZ','...Z.','..Z..','.Z...','ZZZZZ']}
                 for f,im in enumerate(images[tag['from']:tag['to']+1],1):
                     stamps=[]
                     if f<=10: stamps.append(('s','Z' if f<=6 else ('Y' if f<=8 else 'X'),40+(f-1)//2,12-(f-1)))
@@ -291,6 +383,8 @@ def main():
                         stamps.append(('s',c,x,11))
                         if f>=21: stamps.append(('m',c,x+4,6))
                         if f>=23: stamps.append(('l',c,x+9,0))
+                    if f in [10,20,32]:
+                        stamps=[('m' if size=='l' else 's',c,x,y) if c=='X' else (size,c,x,y) for size,c,x,y in stamps]
                     want={(x+dx,y+dy,colors[c]) for size,c,x,y in stamps for dy,row in enumerate(glyphs[size]) for dx,p in enumerate(row) if p=='Z'}
                     got={(x,y,im.getpixel((x,y))) for y in range(15) for x in range(40,64) if im.getpixel((x,y)) in {colors[c] for c in ['Z','Y','X']}}
                     check(got==want,f'{name}: z path frame {f}')
@@ -300,7 +394,7 @@ def main():
             for ext in ['png','json']: check((temp/f'{name}.{ext}').read_bytes()==(RES/f'{name}.{ext}').read_bytes(),f'{name}: non-deterministic {ext}')
             report['sheets'][name]={'frames':len(records),'tags':len(tags),'pngSha256':hashlib.sha256(png.read_bytes()).hexdigest(),'jsonSha256':hashlib.sha256(js.read_bytes()).hexdigest()}
             print(f'{name}: {len(tags)} tags, {len(records)} frames, pixels/timing/marks/GIFs/determinism OK')
-    boards(small_keys['bookworm-small'],small_keys['bookworm-small-dark'])
+    boards(small_keys['bookworm-small'])
     (ART/'qa/verification.json').write_text(json.dumps(report,indent=2)+'\n')
     print('worm verification: OK')
 

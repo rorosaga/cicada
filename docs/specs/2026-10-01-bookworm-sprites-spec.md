@@ -603,7 +603,7 @@ Every build script starts with `local ART = app.params.art or app.fs.joinPath(H.
   `room-spines` (`.png` + `.json`)
 - `sprites.manifest.json`
 
-That is 18 sheets, 36 files and the manifest. Nothing goes in `Resources/art/`: `T/ArtAssetTests.swift:82-85` fails on
+That is 18 sheets, 36 files and the manifest (owner 2026-10-01: keep the dark outlines on a dark bar; no variant). Nothing goes in `Resources/art/`: `T/ArtAssetTests.swift:82-85` fails on
 any png there without an art-manifest entry.
 
 ### 3.2 `palette.json`
@@ -625,10 +625,10 @@ any png there without an art-manifest entry.
 - **Keys.** Single characters, unique across the whole file. Legal keys are `A–Z`, `a–z`, `0–9` and the 25 characters
   `! # $ % & ( ) * + , - / : ; < = > ? @ [ ] ^ { } ~`: 87 in all, and the file holds at most 87 (tested). Never `.`,
   space or `_` (they mean transparent and erase in `H.stamp`), and never a quote, backslash, backtick or `|` (they break
-  Lua strings, JSON or the README's tables). Run A's seed uses 27 keys; Run B's 40–55 fit in the remaining 60.
+  Lua strings, JSON or the README's tables). Run A now uses 26 keys; Run B's 40–55 fit in the remaining 61 (owner 2026-10-01: unused error-red and dark-rim keys removed).
 - **Hexes are unique across the file too**, so a pixel's RGB maps back to exactly one key and one role.
 - **Roles.** `role` is a dotted name. Tests read the prefixes `celestial.` (sun, moon, star), `cloud.`, `book.`
-  (`book.cover…`, `book.page…`), `worm.lid`, `worm.pupilError` and `fx.sweat` (§4.4, §5.3), so a colour in one of those
+  (`book.cover…`, `book.page…`), `worm.lid` and `fx.sweat` (§4.4, §5.3), so a colour in one of those
   roles is used for nothing else.
 
 **Seed values (Run A owns the `worm`, `fx` and `book` groups; Run B appends `room`, `weather`, `spine` and `fly`):**
@@ -646,7 +646,6 @@ any png there without an art-manifest entry.
 | `1` `2` `3` | book | `book.cover2.mid/dark/light` (crimson) | `#B8433A` `#7E2620` `#D5675B` |
 | `4` `5` `6` | book | `book.cover3.mid/dark/light` (ochre) | `#C98A2B` `#8F5A12` `#E3AE52` |
 | `j` | worm | `worm.lid` (closed-eye curve, heavy lids; between `g` and `K`) | `#46672F` |
-| `e` | worm | `worm.pupilError` (red pupils, the error mark) | `#E5484D` (today's `e`, `S/MenuBar/BookwormSprites.swift:20-33`) |
 | `r` | worm | `worm.mouth` (open-mouth interior) | `#5A2230` |
 | `Z` `Y` `X` | fx | `fx.z.bright/mid/pale` (sleep z fades) | `#8896FF` `#B3BBFF` `#DADFFF` |
 | `q` `Q` | fx | `fx.sparkle/fx.sparkleCore` | `#FFCB57` `#FFF1B8` |
@@ -712,6 +711,10 @@ top-left):
 | `room-fly` | `ink` | union over `buzz` |
 | `room-plant`, `room-mug`, `room-beanbag` | `ink` | union |
 
+**2026-10-01, worm fix pass, review A2.** Room lens slices are `lensL = (11,17,4,6)` and `lensR = (23,18,8,7)`; `eye = (27,21,2,2)` stays. Small lens slices remain inner boxes `(2,5,4,4)` and `(10,5,5,4)`. The same small sheet is used on light and dark bars.
+
+**owner 2026-10-01: black X eyes, no red.** On `bookworm-error` only, the inner left rim moves from c10 to c9, leaving a 5×6 green interior at `(10,17,5,6)` and the same outer silhouette. Its additional `errorLensL` slice records this box; the common `lensL`/`lensR` rest-registration slices remain unchanged. Left X = `K.K / .K. / .K. / K.K` at `(11,18)`; right X = `K....K / .K..K. / ..KK.. / .K..K. / K....K` at `(24,19)`. Both are centered with a full green perimeter.
+
 ### 3.4 The worm's parts (`parts/worm-parts.aseprite`; one tag per variant, each on the full 64 × 48 canvas)
 
 **How hand corrections stay reproducible.** The build composes frames from these parts, so a hand correction made in the
@@ -724,11 +727,13 @@ offset. There are no anchor slices.
 | Family | Variants (tag names) | Notes |
 |---|---|---|
 | `body.*` | `sit` (the reference pose), `sit.in1` (torso hump +1 px), `sit.in2` (torso +1, head +1), `sit.tail1` (tail tip +1), `slump` (sleeping: head −2, body relaxed onto the bag), `slump.in1`, `slump.in2`, `crouch` (−1, 1 px wider), `stretch1`, `stretch2` (waking: +1, +2 tall, tail up) | Each body variant is **three tags**, `body.<v>/head`, `body.<v>/torso` and `body.<v>/tail`, so an offset applies per sub-part and breathing can lead with the torso and follow with the head one frame later (follow-through). Sub-parts overlap by ≥ 1 px at their seams, so a 1-px offset never opens a gap |
-| `eyes.*` | `center`, `left`, `right` (pupils −2/+2 px in the right lens, −1/+1 in the left), `up`, `up.left`, `up.right`, `down.l0`…`down.l3` (reading: pupils 1–2 px down, stepping right along a line), `down.l0b`…`down.l3b`, `down.l0c`…`down.l3c` (the next two line rows), `half` (heavy lid: upper third of the lens interior `j`), `blink.half`, `closed` (a 1-px `j` curve "‿", no `W`), `happy` (^ ^ arcs in `K`, no `W`), `wide` (pupil +1 px, extra `W`), `error` (pupils in `e`, otherwise `center`), `error.left`, `error.right` | The glasses' frame never moves relative to the head; only lens interiors change |
+| `eyes.*` | `center`, `left`, `right` (pupils −2/+2 px in the right lens, −1/+1 in the left), `up`, `up.left`, `up.right`, `down.l0`…`down.l3` (reading: pupils 1–2 px down, stepping right along a line), `down.l0b`…`down.l3b`, `down.l0c`…`down.l3c` (the next two line rows), `half` (heavy lid: upper third of the lens interior `j`), `blink.half`, `closed` (a 1-px `j` curve "‿", no `W`), `happy` (^ ^ arcs in `K`, no `W`), `wide` (pupil +1 px, extra `W`), `error` (centered diagonal Xs in `K`), `error.left`, `error.right` (aliases of the same centered Xs) | The glasses' outer frame never moves relative to the head; the error overlay moves only the inner left rim one pixel outward to leave green air around its X |
 | `brows.*` | `none` (reference), `happy`, `sad`, `tired`, `worried`, `mad`, `curious` (left `happy` arc + right `tired` bar), each also at `+1` (raised one row) | From §1.6; `mad` is authored but no shipped tag uses it (§11 Q3) |
 | `mouth.*` | `none` (reference: no mouth), `talk1` (3×2 `r` opening just under the right lens's bottom rim), `talk2` (4×3), `chew1`, `chew2`, `gulpOpen` (5×4), `yawn` (6×5 oval), `smile` (1-px `K` curve), `mumble1`, `mumble2` (1–2 px, eyes-shut talk) | Hidden at rest, exactly as the reference |
 | `book.*` | `closed` (the reference), `closed.low` (for `gulp` while reading: the book drops 3 px and moves to `book-back`, so the body's lower outline covers its bottom rows; nothing is cut by the canvas edge), `open` (lying open in front of the lower body on the lap: two pages with 1-px grey line marks, the cover showing as a 1-px rim and spine), `flip1`…`flip5` (the right page lifts, curls, stands over the spine, falls, lands), `close1`…`close3`, `down1`…`down3` (the finished book is lowered and tucked behind the body on the `book-back` layer, so the body occludes it inside the same sprite; never off the canvas), `up1`…`up3` (the next book rises from behind the body on `book-back`, then moves to `book` for `open1`/`open2`), `open1`, `open2` (the cover opening), `rest.sleep` (closed, lying against the body) | Cover colours by palette remap: cover1 = `B b H`, cover2 = `1 2 3`, cover3 = `4 5 6` (`H.recolor`, §10.3). Every swap frame keeps ≥ 20 `book.` px visible |
 | `fx.*` | `z.s` (3×3), `z.m` (4×4), `z.l` (5×5), each in `Z`, `Y`, `X`; `sparkle1`…`sparkle4` (`q`/`Q` bursts, 3×3 to 7×7); `glint1`…`glint4` (a 2-px `W` glint crossing the right lens's top rim); `sweat.d1`…`sweat.d8` (forming 1 px → 2×2 → the 3×4 drop, sliding, dripping); `q.mark` (a 5×7 "?" in `K` with a `W` core); `paper` (a 3×3 page scrap) | |
+
+**2026-10-01, worm fix pass, review A2.** Right-pupil travel is −2 / +1, with a clear green column at each side; at that horizontal clamp a further glance moves up one row. Rest uses a solid 3×3 pupil, a left sliver and the reference specular stairs; reading rows are a (21–23), b (22–24), c (b plus a `j` lid). The part seams overlap by at least two rows (A1); the compositor repairs skin outlines while preserving the structural `D`/`L`-adjacent glass rings. A4 enlarges the held sweat drop to the reference 5×6, with its slide remaining above row 18. A5 uses one closed ∩ arc per lens.
 
 ### 3.5 The worm's idle loops (room scale)
 
@@ -832,7 +837,9 @@ The table is exact.
 | 16 | `talk1` | 200 |
 | 17 | rest | 900 |
 
-**`error/idle` (worried, red pupils).** 13 frames, 2,400 ms. **No blink** (the red pupils are the tested mark), and a drop
+**owner 2026-10-01: black X eyes, no red.** Retain the worried brows and drop. Both centered Xs are visible in every frame; the right X is larger and each has a green pixel gap from its ring.
+
+**`error/idle` (worried, black X eyes).** 13 frames, 2,400 ms. **No blink** (both Xs are the tested mark), and a drop
 is visible in every frame: frames 9–13 keep `sweat.d3`, so the seam back to frame 1 (`d3`) is continuous.
 
 | # | Frame | ms |
@@ -849,7 +856,7 @@ is visible in every frame: frames 9–13 keep `sweat.d3`, so the seam back to fr
 | 10 | +1 x | 80 |
 | 11 | −1 x | 80 |
 | 12 | rest | 300 |
-| 13 | `error.left` (glance) | 340 |
+| 13 | `error.left` (same centered X eyes; retained hold) | 340 |
 
 **`curious/idle`.** 8 frames, 3,600 ms, with two blinks at uneven gaps (starting at 600 and 3,400 ms).
 
@@ -919,6 +926,10 @@ one-way map would paint both books in the swap frames the same colour; the cycle
 "cover 2 down, cover 3 up" and "cover 3 down, cover 1 up". `H.recolor` maps every pixel once from the original image, so
 the cycle never chains (§10.3).
 
+**2026-10-01, worm fix pass, review B4.** A line immediately followed by `F` holds its `l3` column on the 140 ms return frame with head 0, avoiding a double reversal. Each page starts at row a. A10 shrinks medium/large z glyphs by one size on their final pale frame (#9/#19/#31, zero-based); the 3×3 glyph retains its minimum readable size.
+
+**2026-10-01, worm fix pass, review A8.** In `down2`/`down3`, the incoming top alone uses the foreground `book` layer so its 3/6 rows at `(12,31)`/`(12,30)` remain readable beside the outgoing cover. The outgoing cover and the next book's subsequent rise stay on `book-back`; both cover ramps have at least six visible pixels during the overlap.
+
 ### 3.6 Poses and beats (room scale; generated per state from §3.4 parts)
 
 **Rules for every pose and beat:**
@@ -945,7 +956,13 @@ the cycle never chains (§10.3).
 **Gaze variants share durations frame for frame** (tested), so a beat's length never depends on the gaze. Each
 `<look>@k` of reading is the cover-1 tag recoloured with §3.5's cyclic map (`H.recolor`), with identical durations.
 
+**2026-10-01, worm fix pass, review B5/B10.** Shake oscillates around the gaze head and settles there. Eager and cheer land with a distinct one-pixel base squash; cheer retains closed happy eyes through the squash. No frames or durations change.
+
+**2026-10-01, worm fix pass, review B10.** The saved crouch's body contact patch is cols 46–52 on row 47, so the landing widens that connected patch to cols 45–53. The review's suggested cols 3/60 would be detached from this silhouette and are not stamped there.
+
 ### 3.7 The small set (18 × 18; the owner's menu-bar design, §1.7)
+
+**owner 2026-10-01: black X eyes, no red.** Error uses a 3×3 diagonal `K.K / .K. / K.K` X in each lens and the two-pixel cyan drop; normal plus pupils stay unchanged. Use the same dark-outline sheet on both bar appearances.
 
 Every tag is the owner's head, glasses and neck in `K` and `m` on rows 0–15, with rows 16–17 transparent (§1.7). A bob
 or droop is a 1-px squash of the neck (head and glasses down 1 px), never a lift off row 0.
@@ -959,13 +976,13 @@ or droop is a 1-px squash of the neck (head and glasses down 1 px), never a lift
 | `curious` | rest 1200 · brow up (a 1-px `K` brow on the dome over the right lens lifts 1 px) 300 · rest 900 · tilt 400 | **cols 9–17 × rows 11–17 carry no glasses ink** (the badge is drawn there; only the neck is) |
 | `hungry` | rest (half lids: the top row of each lens interior is `K`) 2000 · closed 400 · rest 1600 · droop 800 | |
 | `reading` | pupils left 600 · right 600 · page line moves 150 · left 600 | adds an open book (pages `C`/`P`, cover rim `B`/`b`) at cols 0–6, rows 11–15, below the left lens, which the owner's design leaves empty; ≥ 8 px whose role starts `book.` in every frame (§4.4) |
-| `error` | rest 600 · tremble −1 x 100 · rest 400 · drop 1 px lower 400 | pupils in `e` and ≥ 1 `S` pixel (the drop) in every frame |
+| `error` | rest 600 · tremble −1 x 100 · rest 400 · drop 1 px lower 400 | both diagonal X eyes in `K` and ≥ 2 `S` pixels (the drop) in every frame |
 
 **Legibility gate** (record each look in the run's report):
-- **Light bar:** every frame passes a person's look on `#F6F6F6`.
+- **Light bar:** every frame passes a person's look on `#ECECEC`.
 - **Dark bar:** on `#1E1E1E` the `K` rings vanish. The lime lenses with their dark pupil holes and the lime neck must
   still read as glasses and a worm.
-- **No halo:** do not add one (§11 Q8).
+- **owner 2026-10-01: keep the dark outlines on a dark bar; no variant.** This supersedes the earlier grey-rim approval. A11 keeps the outlined miniature book on rows 12–15. B11 keeps the two-pixel sweat. The small reading gaze and lens width stay preserved; B12 still awaits a lens-size decision.
 
 ---
 
@@ -1045,10 +1062,12 @@ coverIndex(t) = profile == .still ? 1 : 1 + (⌊(t − origin) / (T · slowdown)
 
 ### 4.4 State marks (R-Z1; "no response may hide a state mark"; frame 0 always carries them)
 
+**owner 2026-10-01: black X eyes, no red.** Error's R-Z1 mark is now **black X eyes + the drop**; worried brows remain.
+
 | State | Mark | How a test sees it |
 |---|---|---|
 | sleeping | eyes shut, and a z on the key frame | Every frame of `idle` and `talk.center` in `bookworm-sleeping` (the `intro` and `outro` transitions excepted) has ≥ 4 `j` px and 0 `W` px anywhere in the frame. `j` is used only for lids; `W` only for speculars, glints, the sweat highlight and the `?` core, and sleeping uses none of them. Frame 0 of `idle` has ≥ 3 `Z` px. In the small set, inside each of the `lensL`/`lensR` slices, every `sleeping` frame's `K` pixels lie in one row and number ≥ 2 (a lid line, never the plus pupil). |
-| error | red pupils and the sweat drop | Every frame of `bookworm-error` has ≥ 4 `e` px and ≥ 1 `S` px. In the small set, every `error` frame has ≥ 1 `e` and ≥ 1 `S`. |
+| error | black X eyes + the drop | Every room error frame has the centered 3×4 left and 6×5 right diagonal `K` X patterns, a green pixel gap from each ring, and ≥ 1 `S` pixel. Head tremble moves both Xs together. Every small `error` frame has both 3×3 diagonal `K` X patterns and ≥ 2 `S` pixels. Tests match the shapes and drop; no red pupil colour is used. |
 | reading | the book | Every frame of every `bookworm-reading` tag has ≥ 20 px whose colour role starts `book.`. Every frame of the small set's `reading` has ≥ 8. |
 | every room state | the held book (R-Z1 as amended by ruling 18) | Every frame of every tag of every room `bookworm-*` sheet, transitions included, has ≥ 20 px whose role starts `book.`. |
 | every state | the glasses | Every frame of every room tag has ≥ 30 `D` px and ≥ 6 `L` px (the glasses never leave). |
@@ -1065,7 +1084,7 @@ overlay. This is R-BW1 in §8.1.
 | base model (no brows) | `.awake`, `.reading` | neutral and focused |
 | happy | `.happy`, `.digesting` (with chewing), `cheer` | caught up / a cycle just finished |
 | tired | `.hungry` | overdue; G107: "hungry maps directly onto sleep-deprived" (`docs/goals/memory-evolution.md:686`) |
-| worried (+ sweat drop) | `.error`, with red pupils kept as the second cue | BRIEF §10: "worry on an error" |
+| worried (+ sweat drop) | `.error`, with black X eyes and the worried brows/drop | BRIEF §10: "worry on an error" |
 | sad | the `shake` beat (a drop the intake did not take: `FeedResult` ≠ `.handedOver`, `S/Views/Sleep/RoomModel.swift:168-171`) | |
 | mad | authored as `brows.mad`; **no shipped tag uses it**. Run A writes `ART/demo/bookworm-mad-demo@6x.gif` (awake `idle` with `brows.mad`; committed, never bundled), and `preview.html` shows it under "Drawn, not yet used" so Q3 can be answered by eye | §11 Q3 |
 | curious (left arc + right bar, from the happy and tired brows) | `.curious` | menu bar and Home |
@@ -1808,7 +1827,7 @@ static let spriteTimerTolerance: Double = 0.2        // menu bar: tolerance as a
     which calls `celebrateCompletion`, `:553-556`) against StudyRoom's mood `onChange`.
   - **Then the transition**, only if no reaction is active after that: `new.caseName == "sleeping"` (and `old` is not)
     sets `.yawn`; `old == "sleeping"` sets `.stretch` only when `new` is `.digesting`, `.happy`, `.reading` or `.hungry`,
-    never `.error` (its red pupils and drop show at once, R-Z1).
+    never `.error` (its black X eyes and drop show at once, R-Z1).
   - **`play(...)`**, when it starts a beat, sets `transition = nil`. So either call order gives the same result: a real
     completion plays the cheer and no stretch, a cancelled cycle plays the stretch, and a failed one plays neither.
   - The transitions are state art, not responses, so the matrix does not gate them; a beat outranks a transition (§4.2).
@@ -1942,7 +1961,7 @@ ruling and every "ruling 18" reference in the same commit.
     will find the bookworm png and 5 emotion states here app/assets/. Make sure to generate everything, have codex
     implement it using computer use in aseprite and add it to the app." The binding spec is
     [`2026-10-01-bookworm-sprites-spec.md`](../specs/2026-10-01-bookworm-sprites-spec.md). This amends Track Z's R-Z1
-    (its persist list: the held book at room scale in every state, shut eyes when sleeping, red pupils and the drop on
+    (its persist list: the held book at room scale in every state, shut eyes when sleeping, black X eyes and the drop on
     error; the nightcap retires; the stage dots persist only in the 18 × 18 set), R-Z4, R-Z11 (titles, motion and
     palette: `palette.json`, not `DeskPalette`) and R-Z12, G125 v3's R-A13 and P14, the 2026-09-02 mascot plan's R1
     (nine colours), R3 (the 24-cell grid) and R8 (250–800 ms), and the sprites brief's §4, §5 and §9 where named below.
@@ -1982,7 +2001,7 @@ ruling and every "ruling 18" reference in the same commit.
     - **R-BW6 — no clock.** Nothing in the room, the window or the worm reads the time of day; the room's interior
       palette and the night light stay out of scope (the brief §9 palettes and night light are a later ruling).
     - **R-BW7 — the five emotions map to states, once.** happy → `.happy`, `.digesting` and the cheer; tired →
-      `.hungry`; worried (sweat drop, red pupils kept) → `.error`; sad → the shake beat; the base model → `.awake` and
+      `.hungry`; worried (sweat drop, black X eyes) → `.error`; sad → the shake beat; the base model → `.awake` and
       `.reading`; mad is drawn but unused. Never random, never the clock. The menu bar gets an 18 × 18 set drawn from
       the owner's menu-bar design, with the count badge and stage dots drawn on it in code (G107 R2), and its own
       precedence unchanged.
@@ -2187,7 +2206,7 @@ Then run `api/tests/test_claude_md_size.py`; the file is ~22.5 KB against the 60
   alpha and palette-locked pixels.
 - [ ] Every duration is inside the caps. Gaze families and reading covers share durations frame for frame.
 - [ ] Every frame 0 carries its marks (§4.4). Sleeping's `idle` and `talk.center` never show open eyes; error always
-  shows red pupils and the drop; every room frame shows ≥ 20 book px (transitions included). No frame outside a lift
+  shows black X eyes and the drop; every room frame shows ≥ 20 book px (transitions included). No frame outside a lift
   (`perk.*`, `eager`, `cheer.center`) moves the base row off canvas row 47, and no lift exceeds +3.
 - [ ] Reading: the eyes track lines left to right with a line return (verify.py's centroid check); three page flips at
   uneven spacing; three blinks at uneven gaps; a real close; the cover-k book is tucked behind the body while cover k+1
@@ -3030,11 +3049,11 @@ print(string.format('dev_loop: %s  frames=%d tags=%d  tag %s starts at frame %d'
 | Q1 | When does the worm sleep? The 09-29 brief said "reading books when consolidating" (BRIEF §9, `:173-175`); today `.sleeping` *is* a running cycle (Cicada's Sleep metaphor; `S/MenuBar/BookwormState.swift:10-12`). | Keep the state machine: asleep on the bean bag while a cycle runs (night window), reading while things wait or a run is paused. This contradicts your 09-29 words, so it is the first line of the PR body (§0). No sheet bakes the mapping in. | Swap: read while consolidating, sleep when caught up (a state-machine change; its own ruling; no new art). |
 | Q2 | Weather titles. | Night, Dawn, Sunny, Partly cloudy, Windy, Rainy, Curtains drawn (§5.1). | Keep Clear, Fair, Overcast, Storm with the new animation. |
 | Q3 | Where does "mad" go? | Drawn as a part, used by no shipped tag. | Shake for a refused drop (sad then goes unused), or a new reaction kind (a matrix change). |
-| Q4 | Error pupils. | Red pupils kept beside the worried brows and drop (a second cue; R-Z1's tested mark). | Drop the red; key the test to the brow and drop. |
+| Q4 | Error pupils. | **owner 2026-10-01: black X eyes, no red.** Both diagonal Xs and the drop are R-Z1's tested mark; keep the worried brows. | Settled by the owner. |
 | Q5 | Book covers. | Three: your blue, crimson, ochre. | More covers, or different colours. |
 | Q6 | A pose spanning a cover change swaps the book's colour mid-gaze (every ~22 s at most). | Accepted. | Freeze the cover while the pointer is in the room (a few more lines in `WormStage`). |
 | Q7 | Reduce Motion. | Key frame only (G107 R7), no yawn or stretch. | DR-66's gentler profile (slow loops), like Home's painting. |
-| Q8 | Your menu-bar worm's near-black rings vanish on a dark bar. | No halo; the lime lenses, pupil holes and neck carry it. | A 1-px light rim on dark appearance only (a second small set). |
+| Q8 | Your menu-bar worm's near-black rings vanish on a dark bar. | **owner 2026-10-01: keep the dark outlines on a dark bar; no variant.** Use the one coloured `bookworm-small` sheet on both appearances. | Settled by the owner; remove the dark variant and its rim palette key. |
 | Q9 | Home and Getting started's worm drops from 24 pt to 18 pt at 1.0 (whole points per pixel). | 18 pt (36 at ≥ 1.2). | 36 pt always. |
 | Q10 | The wall ends at the pile column with a corner trim. | As built. | Extend only the floor under the pile (DR-13 says no paint behind data; needs a ruling). |
 | Q11 | Mug steam and plant sway. | None (motion with no fact). | Allow ambient decoration (R-BW4 amended again). |

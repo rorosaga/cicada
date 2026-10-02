@@ -66,11 +66,13 @@ end
 local function eyes(kind,dx,dy)
   local e=im();H.rect(e,12,17,3,6,pal,'G');H.rect(e,24,18,6,7,pal,'G')
   dx,dy=dx or 0,dy or 0
-  if kind=='closed' then
+  if kind:find('error') then
+    require('error_eyes').room(function(x,y,k) H.px(e,x,y,pal,k) end)
+  elseif kind=='closed' then
     H.stamp(e,{'j.j','jjj'},12,20,pal);H.stamp(e,{'j....j','.jjjj.'},24,21,pal)
   elseif kind=='happy' then H.stamp(e,{'K.K','...'},12,19,pal);H.stamp(e,{'.K..K.','K.KK.K'},24,20,pal)
   else
-    local p=kind:find('error') and 'e' or 'K'
+    local p='K'
     H.rect(e,14+math.max(-1,math.min(0,dx)),20+dy,1,2,pal,p)
     H.stamp(e,{'.KK.','KKKK','.KK.'},25+dx,21+dy,pal,{map={K=p}})
     -- Highlights stay above/left of pupils, as in the owner's stepped specular.
@@ -143,8 +145,9 @@ sp('body.bob',bob);sp('body.droop',bob:clone())
 for _,v in ipairs({'center','left','right','blink','half','error'}) do
   local f=H.image(18,18)
   H.rect(f,2,5,4,4,pal,'m');H.rect(f,10,5,5,4,pal,'m')
-  if v=='blink' then H.line(f,2,7,5,7,pal,'K');H.line(f,10,7,14,7,pal,'K')
-  else local k=v=='error' and 'e' or 'K';local dx=v=='left' and -1 or (v=='right' and 1 or 0)
+  if v=='error' then require('error_eyes').small(function(x,y,k) H.px(f,x,y,pal,k) end)
+  elseif v=='blink' then H.line(f,2,7,5,7,pal,'K');H.line(f,10,7,14,7,pal,'K')
+  else local k='K';local dx=v=='left' and -1 or (v=='right' and 1 or 0)
     H.stamp(f,{'.K.','KKK','.K.'},3+math.min(0,dx),6,pal,{map={K=k}});H.stamp(f,{'.K.','KKK','.K.'},11+dx,6,pal,{map={K=k}})
     if v=='half' then H.line(f,2,5,5,5,pal,'K');H.line(f,10,5,14,5,pal,'K') end
   end

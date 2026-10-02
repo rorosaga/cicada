@@ -1,4 +1,4 @@
-# Run A tag timings
+# Worm tag timings — fix pass, 2026-10-01
 
 Generated from the exported JSON. Times are integer milliseconds, in frame order. `N × ms` abbreviates consecutive equal holds. All tags play forward.
 
@@ -21,9 +21,9 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `talk.center` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. |
 | `talk.right` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: right. |
 | `gulp.center` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. |
-| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: left. |
-| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. |
-| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: right. |
+| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: left. |
+| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. |
+| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: right. |
 
 ## bookworm-curious
 
@@ -40,14 +40,14 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `eager` | 4 | 100, 120, 100, 140 | 460 | Crouch, two-pixel hop, overlap and landing. |
 | `talk.center` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. |
 | `gulp.center` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. |
-| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. |
+| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. |
 | `cheer.center` | 7 | 2 × 100, 120, 2 × 100, 80, 120 | 720 | Crouch, two/three-pixel rise with sparkle, landing squash and settle. Gaze: center. |
 
 ## bookworm-error
 
 | Tag | Frames | Per-frame ms | Total ms | Action |
 |---|---:|---|---:|---|
-| `idle` | 13 | 300, 4 × 150, 120, 200, 300, 3 × 80, 300, 340 | 2400 | Red pupils, falling sweat drop, brief tremble, side glance. |
+| `idle` | 13 | 300, 4 × 150, 120, 200, 300, 3 × 80, 300, 340 | 2400 | Centered black diagonal X eyes, falling sweat drop, brief tremble; worried brows. |
 
 ## bookworm-happy
 
@@ -68,9 +68,9 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `talk.center` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. |
 | `talk.right` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: right. |
 | `gulp.center` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. |
-| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: left. |
-| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. |
-| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: right. |
+| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: left. |
+| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. |
+| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: right. |
 | `cheer.center` | 7 | 2 × 100, 120, 2 × 100, 80, 120 | 720 | Crouch, two/three-pixel rise with sparkle, landing squash and settle. Gaze: center. |
 
 ## bookworm-hungry
@@ -92,9 +92,9 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `talk.center` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. |
 | `talk.right` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: right. |
 | `gulp.center` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. |
-| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: left. |
-| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. |
-| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: right. |
+| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: left. |
+| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. |
+| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: right. |
 
 ## bookworm-reading
 
@@ -115,9 +115,9 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `talk.center` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. Cover 1. |
 | `talk.right` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: right. Cover 1. |
 | `gulp.center` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. Cover 1. |
-| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: left. Cover 1. |
-| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. Cover 1. |
-| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: right. Cover 1. |
+| `shake.left` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: left. Cover 1. |
+| `shake.center` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. Cover 1. |
+| `shake.right` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: right. Cover 1. |
 | `idle@2` | 85 | 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 90, 200, 2 × 90, 100, 90, 120, 200, 420, 2 × 380, 420, 140, 90, 200, 420, 2 × 380, 420, 140, 2 × 90, 100, 90, 120, 200, 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 2 × 90, 100, 90, 120, 200, 420, 2 × 380, 420, 140, 90, 200, 420, 2 × 380, 420, 140, 100, 120, 8 × 140, 160 | 21840 | Ten lines, three uneven page flips and blinks, close, tuck, next cover rises, open. Cover 2. |
 | `attentive.left@2` | 11 | 1400, 50, 80, 50, 1250, 2 × 300, 50, 80, 50, 2300 | 5910 | Held gaze, two irregular blinks and a side/up glance. Gaze: left. Cover 2. |
 | `attentive.center@2` | 11 | 1400, 50, 80, 50, 1250, 2 × 300, 50, 80, 50, 2300 | 5910 | Held gaze, two irregular blinks and a side/up glance. Gaze: center. Cover 2. |
@@ -133,9 +133,9 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `talk.center@2` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. Cover 2. |
 | `talk.right@2` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: right. Cover 2. |
 | `gulp.center@2` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. Cover 2. |
-| `shake.left@2` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: left. Cover 2. |
-| `shake.center@2` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. Cover 2. |
-| `shake.right@2` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: right. Cover 2. |
+| `shake.left@2` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: left. Cover 2. |
+| `shake.center@2` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. Cover 2. |
+| `shake.right@2` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: right. Cover 2. |
 | `idle@3` | 85 | 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 90, 200, 2 × 90, 100, 90, 120, 200, 420, 2 × 380, 420, 140, 90, 200, 420, 2 × 380, 420, 140, 2 × 90, 100, 90, 120, 200, 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 420, 2 × 380, 420, 140, 2 × 90, 100, 90, 120, 200, 420, 2 × 380, 420, 140, 90, 200, 420, 2 × 380, 420, 140, 100, 120, 8 × 140, 160 | 21840 | Ten lines, three uneven page flips and blinks, close, tuck, next cover rises, open. Cover 3. |
 | `attentive.left@3` | 11 | 1400, 50, 80, 50, 1250, 2 × 300, 50, 80, 50, 2300 | 5910 | Held gaze, two irregular blinks and a side/up glance. Gaze: left. Cover 3. |
 | `attentive.center@3` | 11 | 1400, 50, 80, 50, 1250, 2 × 300, 50, 80, 50, 2300 | 5910 | Held gaze, two irregular blinks and a side/up glance. Gaze: center. Cover 3. |
@@ -151,31 +151,18 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `talk.center@3` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: center. Cover 3. |
 | `talk.right@3` | 6 | 80, 70, 90, 70, 90, 100 | 500 | Six mouth poses with a small head bob. Gaze: right. Cover 3. |
 | `gulp.center@3` | 7 | 2 × 90, 80, 3 × 90, 120 | 650 | Mouth opens, paper enters, bulge moves down the neck, smile. Gaze: center. Cover 3. |
-| `shake.left@3` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: left. Cover 3. |
-| `shake.center@3` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: center. Cover 3. |
-| `shake.right@3` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in center. Gaze: right. Cover 3. |
+| `shake.left@3` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: left. Cover 3. |
+| `shake.center@3` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: center. Cover 3. |
+| `shake.right@3` | 5 | 4 × 70, 150 | 430 | Alternating head offsets with sad brows; settles in its original gaze. Gaze: right. Cover 3. |
 
 ## bookworm-sleeping
 
 | Tag | Frames | Per-frame ms | Total ms | Action |
 |---|---:|---|---:|---|
-| `idle` | 32 | 32 × 250 | 8000 | Two four-second breaths; small z, paired medium z, then three sizes; palette-step fade. |
+| `idle` | 32 | 32 × 250 | 8000 | Two four-second breaths; small z, paired medium z, then three sizes; palette fade and final-frame size step. |
 | `talk.center` | 6 | 6 × 90 | 540 | Closed lids and tiny mumbling mouth; a pale z on the fifth pose. Gaze: center. |
 | `intro` | 10 | 140, 120, 260, 200, 5 × 120, 100 | 1420 | Close the book, open-mouth yawn, settle into a slump. |
 | `outro` | 9 | 120, 2 × 160, 240, 140, 100, 80, 2 × 120 | 1240 | Stretch upward, yawn, reopen eyes and return to sitting. |
-
-## bookworm-small-dark
-
-| Tag | Frames | Per-frame ms | Total ms | Action |
-|---|---:|---|---:|---|
-| `awake` | 5 | 1800, 100, 1400, 300, 600 | 4200 | Held cross pupils, blink, return, one-pixel bob and settle. |
-| `sleeping` | 4 | 4 × 700 | 2800 | Closed lids; tiny z rises through four held poses. |
-| `digesting` | 2 | 2 × 250 | 500 | Alternating neck/bob poses. |
-| `happy` | 5 | 1600, 2 × 160, 400, 1200 | 3520 | Held pose, one-pixel bob, return, sparkle and settle. |
-| `curious` | 4 | 1200, 300, 900, 400 | 2800 | Held pose, raised brow, bob and return; badge corner stays clear of glasses. |
-| `hungry` | 4 | 2000, 400, 1600, 800 | 4800 | Heavy lids, droop, hold and return. |
-| `reading` | 4 | 2 × 600, 150, 600 | 1950 | Tiny open book, left/right pupil glance, moving page line and return. |
-| `error` | 4 | 600, 100, 2 × 400 | 1500 | Red cross pupils and cyan drop; neck tremble and droop. |
 
 ## bookworm-small
 
@@ -188,7 +175,7 @@ Generated from the exported JSON. Times are integer milliseconds, in frame order
 | `curious` | 4 | 1200, 300, 900, 400 | 2800 | Held pose, raised brow, bob and return; badge corner stays clear of glasses. |
 | `hungry` | 4 | 2000, 400, 1600, 800 | 4800 | Heavy lids, droop, hold and return. |
 | `reading` | 4 | 2 × 600, 150, 600 | 1950 | Tiny open book, left/right pupil glance, moving page line and return. |
-| `error` | 4 | 600, 100, 2 × 400 | 1500 | Red cross pupils and cyan drop; neck tremble and droop. |
+| `error` | 4 | 600, 100, 2 × 400 | 1500 | Black diagonal X eyes and cyan drop; neck tremble and falling drop. |
 
 ## Unbundled review demos
 

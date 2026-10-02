@@ -676,7 +676,7 @@
    },
    {
     "filename": "bookworm-happy 75.aseprite",
-    "frame": { "x": 512, "y": 96, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -685,7 +685,7 @@
    },
    {
     "filename": "bookworm-happy 76.aseprite",
-    "frame": { "x": 128, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -694,7 +694,7 @@
    },
    {
     "filename": "bookworm-happy 77.aseprite",
-    "frame": { "x": 192, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -703,7 +703,7 @@
    },
    {
     "filename": "bookworm-happy 78.aseprite",
-    "frame": { "x": 256, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -712,7 +712,7 @@
    },
    {
     "filename": "bookworm-happy 79.aseprite",
-    "frame": { "x": 320, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -721,7 +721,7 @@
    },
    {
     "filename": "bookworm-happy 80.aseprite",
-    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -730,7 +730,7 @@
    },
    {
     "filename": "bookworm-happy 81.aseprite",
-    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 512, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -739,7 +739,7 @@
    },
    {
     "filename": "bookworm-happy 82.aseprite",
-    "frame": { "x": 512, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -748,7 +748,7 @@
    },
    {
     "filename": "bookworm-happy 83.aseprite",
-    "frame": { "x": 0, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -757,7 +757,7 @@
    },
    {
     "filename": "bookworm-happy 84.aseprite",
-    "frame": { "x": 64, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -766,7 +766,7 @@
    },
    {
     "filename": "bookworm-happy 85.aseprite",
-    "frame": { "x": 128, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -775,7 +775,7 @@
    },
    {
     "filename": "bookworm-happy 86.aseprite",
-    "frame": { "x": 192, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -784,7 +784,7 @@
    },
    {
     "filename": "bookworm-happy 87.aseprite",
-    "frame": { "x": 256, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -793,7 +793,7 @@
    },
    {
     "filename": "bookworm-happy 88.aseprite",
-    "frame": { "x": 320, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -811,7 +811,7 @@
    },
    {
     "filename": "bookworm-happy 90.aseprite",
-    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -820,7 +820,7 @@
    },
    {
     "filename": "bookworm-happy 91.aseprite",
-    "frame": { "x": 320, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -829,7 +829,7 @@
    },
    {
     "filename": "bookworm-happy 92.aseprite",
-    "frame": { "x": 384, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -847,7 +847,7 @@
    },
    {
     "filename": "bookworm-happy 94.aseprite",
-    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 512, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -865,7 +865,7 @@
    },
    {
     "filename": "bookworm-happy 96.aseprite",
-    "frame": { "x": 512, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -874,7 +874,7 @@
    },
    {
     "filename": "bookworm-happy 97.aseprite",
-    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 512, "y": 192, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -883,7 +883,7 @@
    },
    {
     "filename": "bookworm-happy 98.aseprite",
-    "frame": { "x": 512, "y": 192, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -901,7 +901,7 @@
    },
    {
     "filename": "bookworm-happy 100.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -919,7 +919,7 @@
    },
    {
     "filename": "bookworm-happy 102.aseprite",
-    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -928,7 +928,7 @@
    },
    {
     "filename": "bookworm-happy 103.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -937,7 +937,7 @@
    },
    {
     "filename": "bookworm-happy 104.aseprite",
-    "frame": { "x": 64, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -955,15 +955,6 @@
    },
    {
     "filename": "bookworm-happy 106.aseprite",
-    "frame": { "x": 128, "y": 240, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 90
-   },
-   {
-    "filename": "bookworm-happy 107.aseprite",
     "frame": { "x": 192, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -972,16 +963,7 @@
     "duration": 90
    },
    {
-    "filename": "bookworm-happy 108.aseprite",
-    "frame": { "x": 448, "y": 192, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 80
-   },
-   {
-    "filename": "bookworm-happy 109.aseprite",
+    "filename": "bookworm-happy 107.aseprite",
     "frame": { "x": 256, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -990,16 +972,16 @@
     "duration": 90
    },
    {
-    "filename": "bookworm-happy 110.aseprite",
+    "filename": "bookworm-happy 108.aseprite",
     "frame": { "x": 320, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
     "sourceSize": { "w": 64, "h": 48 },
-    "duration": 90
+    "duration": 80
    },
    {
-    "filename": "bookworm-happy 111.aseprite",
+    "filename": "bookworm-happy 109.aseprite",
     "frame": { "x": 384, "y": 240, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -1008,8 +990,26 @@
     "duration": 90
    },
    {
-    "filename": "bookworm-happy 112.aseprite",
+    "filename": "bookworm-happy 110.aseprite",
     "frame": { "x": 448, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy 111.aseprite",
+    "frame": { "x": 512, "y": 240, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 90
+   },
+   {
+    "filename": "bookworm-happy 112.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1018,7 +1018,7 @@
    },
    {
     "filename": "bookworm-happy 113.aseprite",
-    "frame": { "x": 512, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1027,7 +1027,7 @@
    },
    {
     "filename": "bookworm-happy 114.aseprite",
-    "frame": { "x": 0, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1036,7 +1036,7 @@
    },
    {
     "filename": "bookworm-happy 115.aseprite",
-    "frame": { "x": 512, "y": 240, "w": 64, "h": 48 },
+    "frame": { "x": 64, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1045,7 +1045,7 @@
    },
    {
     "filename": "bookworm-happy 116.aseprite",
-    "frame": { "x": 0, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1054,7 +1054,7 @@
    },
    {
     "filename": "bookworm-happy 117.aseprite",
-    "frame": { "x": 64, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1063,7 +1063,7 @@
    },
    {
     "filename": "bookworm-happy 118.aseprite",
-    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1072,7 +1072,7 @@
    },
    {
     "filename": "bookworm-happy 119.aseprite",
-    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1081,7 +1081,7 @@
    },
    {
     "filename": "bookworm-happy 120.aseprite",
-    "frame": { "x": 128, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1090,7 +1090,7 @@
    },
    {
     "filename": "bookworm-happy 121.aseprite",
-    "frame": { "x": 192, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1099,7 +1099,7 @@
    },
    {
     "filename": "bookworm-happy 122.aseprite",
-    "frame": { "x": 256, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1108,7 +1108,7 @@
    },
    {
     "filename": "bookworm-happy 123.aseprite",
-    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1117,7 +1117,7 @@
    },
    {
     "filename": "bookworm-happy 124.aseprite",
-    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 512, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1126,7 +1126,7 @@
    },
    {
     "filename": "bookworm-happy 125.aseprite",
-    "frame": { "x": 320, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1135,7 +1135,7 @@
    },
    {
     "filename": "bookworm-happy 126.aseprite",
-    "frame": { "x": 384, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 512, "y": 288, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1144,7 +1144,7 @@
    },
    {
     "filename": "bookworm-happy 127.aseprite",
-    "frame": { "x": 448, "y": 288, "w": 64, "h": 48 },
+    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1153,7 +1153,7 @@
    },
    {
     "filename": "bookworm-happy 128.aseprite",
-    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 448, "y": 144, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1162,33 +1162,6 @@
    },
    {
     "filename": "bookworm-happy 129.aseprite",
-    "frame": { "x": 512, "y": 288, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 100
-   },
-   {
-    "filename": "bookworm-happy 130.aseprite",
-    "frame": { "x": 0, "y": 336, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 120
-   },
-   {
-    "filename": "bookworm-happy 131.aseprite",
-    "frame": { "x": 512, "y": 288, "w": 64, "h": 48 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
-    "sourceSize": { "w": 64, "h": 48 },
-    "duration": 100
-   },
-   {
-    "filename": "bookworm-happy 132.aseprite",
     "frame": { "x": 64, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
@@ -1197,8 +1170,35 @@
     "duration": 100
    },
    {
+    "filename": "bookworm-happy 130.aseprite",
+    "frame": { "x": 128, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 120
+   },
+   {
+    "filename": "bookworm-happy 131.aseprite",
+    "frame": { "x": 192, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
+    "filename": "bookworm-happy 132.aseprite",
+    "frame": { "x": 256, "y": 336, "w": 64, "h": 48 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
+    "sourceSize": { "w": 64, "h": 48 },
+    "duration": 100
+   },
+   {
     "filename": "bookworm-happy 133.aseprite",
-    "frame": { "x": 384, "y": 144, "w": 64, "h": 48 },
+    "frame": { "x": 320, "y": 336, "w": 64, "h": 48 },
     "rotated": false,
     "trimmed": false,
     "spriteSourceSize": { "x": 0, "y": 0, "w": 64, "h": 48 },
@@ -1244,10 +1244,10 @@
    { "name": "cheer.center", "from": 128, "to": 134, "direction": "forward", "color": "#000000ff" }
   ],
   "slices": [
-   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 4, "y": 6, "w": 56, "h": 42 } }] },
+   { "name": "ink", "keys": [{ "frame": 0, "bounds": {"x": 4, "y": 3, "w": 56, "h": 45 } }] },
    { "name": "eye", "keys": [{ "frame": 0, "bounds": {"x": 27, "y": 21, "w": 2, "h": 2 } }] },
-   { "name": "lensL", "keys": [{ "frame": 0, "bounds": {"x": 12, "y": 17, "w": 3, "h": 6 } }] },
-   { "name": "lensR", "keys": [{ "frame": 0, "bounds": {"x": 24, "y": 18, "w": 6, "h": 7 } }] }
+   { "name": "lensL", "keys": [{ "frame": 0, "bounds": {"x": 11, "y": 17, "w": 4, "h": 6 } }] },
+   { "name": "lensR", "keys": [{ "frame": 0, "bounds": {"x": 23, "y": 18, "w": 8, "h": 7 } }] }
   ]
  }
 }

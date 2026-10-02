@@ -473,6 +473,13 @@ page's reachable set is ≤ 256 keys per size and the wipe bound is 1024. **Feed
 on the worm imports through the one intake (R-Z10) — shipped in Z9; the matrix decides its gulp and
 shake like every other beat.
 
+**G176 sprite assets staged (2026-10-01, not integrated).** The chosen-reference worm art in
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/` now supplies nine saved animation sheets (130 tags / 1,095 frames),
+including the owner's independent 18×18 menu head. Owner 2026-10-01: black diagonal X error eyes and one dark-outline menu sheet on both appearances. The saved Aseprite parts are authoritative;
+`tools/export_all.sh` rebuilds the sheets and checks pixels/timing. `WORM_FIX_REPORT.md` is the itemized art handoff.
+The forthcoming player must use the amended room lens slices, advance the three reading cover tags and use the same dark-outline
+menu sheet on both appearances. The legacy renderer above remains the running implementation until that integration lands.
+
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the
 PR #49 lesson repeated). The graph canvas keeps its own zoom; ⌘+/⌘− means chrome, not canvas, same

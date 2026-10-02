@@ -1,5 +1,5 @@
 local H=require('ase_helpers');local S=require('worm_scripts')
-local ART=app.params.art or app.fs.joinPath(H.scriptDir(),'..')
+local ART=(app.params or {}).art or app.fs.joinPath(H.scriptDir(),'..')
 local pal=H.paletteFromJson(app.fs.joinPath(ART,'palette.json'))
 local partPath=app.fs.joinPath(ART,'parts/worm-parts.aseprite')
 local cyclic={B='1',b='2',H='3',['1']='4',['2']='5',['3']='6',['4']='B',['5']='b',['6']='H'}
@@ -9,9 +9,29 @@ local layers={'ref','book-back','body','book','face','brows','mouth','fx'}
 local source=app.open(partPath);assert(source,'missing room parts')
 for _,t in ipairs(source.tags) do H._parts[partPath..'#'..t.name]=H.flatten(source,t.fromFrame.frameNumber) end
 source:close()
+-- Anatomical skin outline only: D/L-adjacent black glass rings are structural.
+local function skinOutline(im)
+  local src=im:clone()
+  local function at(x,y) if x<0 or y<0 or x>=64 or y>=48 then return 0 end;return src:getPixel(x,y) end
+  for it in src:pixels() do local v=it();local x,y=it.x,it.y
+    if v==pal.px.K then
+      local outside,glass=false,false
+      for yy=y-1,y+1 do for xx=x-1,x+1 do local q=at(xx,yy);if q==0 then outside=true end;if q==pal.px.D or q==pal.px.L then glass=true end end end
+      if not outside and not glass then H.px(im,x,y,pal,'G') end
+    elseif v==pal.px.G or v==pal.px.g then
+      if at(x-1,y)==0 or at(x+1,y)==0 or at(x,y-1)==0 or at(x,y+1)==0 then H.px(im,x,y,pal,'K') end
+    end
+  end
+  return im
+end
 local function part(n)
-  if n:find('fx.bulge.') then local img=H.image(64,48);local y=n:find('high') and 32 or (n:find('mid') and 34 or 36);H.stamp(img,{'gG','gg'},31,y,pal);return img end
-  return H.loadPart(partPath,n)
+ -- Broaden the actual underside's contact patch, not isolated pixels at c60.
+ if n=='body.land/base' then local a=H.image(64,48);H.rect(a,45,47,9,1,pal,'K');return a end
+ if n:find('fx.bulge.') then
+  local a=H.image(64,48);local y=n:find('high') and 30 or (n:find('mid') and 31 or 32)
+  H.rect(a,30,y,2,2,pal,'g');H.px(a,32,y,pal,'G');H.px(a,33,y,pal,'K');H.px(a,33,y+1,pal,'K');return a
+ end
+ return H.loadPart(partPath,n)
 end
 local function compose(frame,cover,mad)
   local cels={};for _,l in ipairs(layers) do cels[l]=H.image(64,48) end
@@ -21,6 +41,7 @@ local function compose(frame,cover,mad)
     for i=1,(cover or 1)-1+(p.remap or 0) do img=H.recolor(img,pal,cyclic) end
     H.paste(cels[p.layer],img,p.x,p.y)
   end
+  cels.body=skinOutline(cels.body)
   return cels
 end
 local bookPx={};for _,k in ipairs(pal.keys) do if pal.role[k]:find('^book%.') then bookPx[pal.px[k]]=true end end
@@ -35,7 +56,22 @@ local function checkFrame(cels,state,tag,key,ms)
     assert((counts[pal.px.j] or 0)>=4 and not counts[pal.px.W],'closed sleeping eyes')
     if tag=='idle' and key then assert((counts[pal.px.Z] or 0)>=3,'key z') end
   end
-  if state=='error' then assert((counts[pal.px.e] or 0)>=4 and (counts[pal.px.S] or 0)>=1,'error marks') end
+  if state=='error' then
+    local E=require('error_eyes')
+    for _,pattern in ipairs({E.roomLeft,E.roomRight}) do
+      local found=false
+      for dx=-1,1 do
+        local same=true
+        for y,row in ipairs(pattern.rows) do for x=1,#row do
+          local want=row:sub(x,x)=='K' and pal.px.K or pal.px.G
+          if im:getPixel(pattern.x+x-1+dx,pattern.y+y-1)~=want then same=false end
+        end end
+        found=found or same
+      end
+      assert(found,'error diagonal X mark')
+    end
+    assert((counts[pal.px.S] or 0)>=1,'error drop')
+  end
 end
 for _,state in ipairs(S.states) do
   local name='bookworm-'..state;local spr,ls=H.newSprite(64,48,pal,layers);ls.ref.isVisible=false
@@ -52,6 +88,7 @@ for _,state in ipairs(S.states) do
     rec:stop();rows[#rows+1]=data
   end end
   rec:apply();H.addSlice(spr,'ink',H.spriteInk(spr));for _,n in ipairs({'eye','lensL','lensR'}) do H.addSlice(spr,n,S.slices[n]) end
+  if state=='error' then H.addSlice(spr,'errorLensL',{x=10,y=17,w=5,h=6}) end
   H.assertPalette(spr,pal);H.save(spr,app.fs.joinPath(ART,'src/'..name..'.aseprite'))
   registry.sheets[name]={canvas={w=64,h=48},tags=rows}
   H.exportFramePng(spr,1,app.fs.joinPath(ART,'qa/'..name..'-key@8x.png'),8)
