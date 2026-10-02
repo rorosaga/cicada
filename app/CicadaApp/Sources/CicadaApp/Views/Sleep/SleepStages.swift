@@ -164,8 +164,8 @@ func stageStripIsVisible(isRunning: Bool, cancelled: Bool, failed: Bool) -> Bool
 
 // MARK: - The motion budget (R-A13)
 
-/// The active pip's breath, as a pure function of the clock — the same shape
-/// `BookwormView.frameIndex(at:…)` uses, and for the same reasons: no `Timer`
+/// The active pip's breath, as a pure function of the clock — like
+/// `SpriteClip.loopStep`, and for the same reasons: no `Timer`
 /// to leak, no `@State` to reset on a state change, and two strips on one
 /// screen breathe in step.
 ///

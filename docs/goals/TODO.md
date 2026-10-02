@@ -6,6 +6,18 @@
 
 ## Where things stand (2026-09-25) — round 4 closed
 
+**Study room sprites v2 (G176) — app built on `feat/study-room-sprites-app`, 2026-10-01 (PR #n to `dev`; not merged; ruling 18).**
+The owner: "Make sure to generate everything, have codex implement it using computer use in aseprite and add it to the
+app." The app side is built against the sheet contract while the art runs work separately: the sprite decoder and
+frame-boundary player, the worm's states, poses, beats, covers and transitions, the 18 × 18 menu-bar player, the
+160 × 64 room lattice, seven weather tags, the lamp and its fly, bean bag, plant and mug, spine textures, and the
+unguarded asset acceptance tests. Reduce Motion holds key frames; Low Power plays every frame at half speed; unseen
+sprites rest. **Pending art:** the sheets, palette, room plan and motion sidecar, manifest and preview must land before
+asset tests can pass; missing clips draw nothing. **Not yet seen live:** the owner's demo-bank review in light and dark,
+0.8×–1.4×, and idle CPU against `dev`. *Pick up here:* bring over Runs A/B, run the asset checks, pin measured hotspot
+rects, inspect all composites and `preview.html`, then the owner reviews before merge. Count props and the queue as a
+room remain design rounds.
+
 **2026-09-28 fixes (on `dev`):** #118 drops the owner's paths from the MCP tool description, docs and test
 fixtures (the agent setup prompt was already per-machine); #119 imports Claude projects exported one file per project
 (`projects/<name>.json` — they were counted as attachments and dropped; project `docs` are still not imported); #120
@@ -525,7 +537,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   art on the Sleep page (G127 would throw it away); a time-of-day sky was deliberately left out (art
   only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
   260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
-  16-cell grid (the spec said 40).
+  16-cell grid (the spec said 40). (2026-10-01, ruling 18: the nightcap retired with the owner's own worm; the time-of-day sky stays out.)
 - **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
   Sleep cycle starting mid-remote-write can still sweep that file (R-R27); a stdio
   `cicada_write_claim` asks `GET /sleep/status` before its own commit and leaves the page dirty for
@@ -850,6 +862,81 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
 
     Revisit R-VU10 only if a real run shows the clause steering an agent somewhere the person did not allow; revisit
     R-VU12 only if a bank's queue file ever nears its ceiling.
+
+18. **The study room is animated pixel art on the owner's own bookworm — state art may move, and it still shows only
+    real state (owner, 2026-10-01; G176, G107, G125).** The owner: "I've already done here the base model of the
+    bookworm i want. Can you iterate with codex sol 6.1 extra high effort all the sprites with the animations? and
+    generate the assets like the lamp, extra books, window, environment behind window animated too. Little fly (pixel
+    size almost), moving around turned on lamp. Have environemnts for sunny, night, windy, rainy... all animated. You
+    will find the bookworm png and 5 emotion states here app/assets/. Make sure to generate everything, have codex
+    implement it using computer use in aseprite and add it to the app." The binding spec is
+    [`2026-10-01-bookworm-sprites-spec.md`](../specs/2026-10-01-bookworm-sprites-spec.md). This amends Track Z's R-Z1
+    (its persist list: the held book at room scale in every state, shut eyes when sleeping, red pupils and the drop on
+    error; the nightcap retires; the stage dots persist only in the 18 × 18 set), R-Z4, R-Z11 (titles, motion and
+    palette: `palette.json`, not `DeskPalette`) and R-Z12, G125 v3's R-A13 and P14, the 2026-09-02 mascot plan's R1
+    (nine colours), R3 (the 24-cell grid) and R8 (250–800 ms), and the sprites brief's §4, §5 and §9 where named below.
+    R-Z2, R-Z3, R-Z5, R-Z7, R-Z8, R-Z9, R-Z10, R-Z13, R-Z14, P10, P11, P12, P13 and rulings 8–10 and 12 are untouched.
+    - **R-BW1 — the worm is the owner's reference.** `app/CicadaApp/Art/sprites/bookworm-2026-10-01/reference/` (the
+      base model, five emotions and the menu-bar design) is the approved design: a green bookworm, charcoal-grey
+      glasses, a blue book, no antennae. It closes G176 Step 1 (the round-1 directions are superseded) and replaces
+      "orange glasses" (brief §4, §9). The book is the character's own in every room-scale state; P10 is about props,
+      not the worm. The 18 × 18 set follows the owner's menu-bar design (head, glasses and neck in two colours) and
+      shows a book only in `reading`. The nightcap retires (P14), and the room worm drops the stage dots: the stage
+      strip, the sentence and VoiceOver carry the stage; the 18 × 18 set keeps them.
+    - **R-BW2 — sprites are sheets, not strings.** Sources and Lua generators live in
+      `app/CicadaApp/Art/sprites/bookworm-2026-10-01/`; exported PNG sheets + Aseprite JSON (tags, per-frame
+      durations, slices) live in `Resources/sprites/` with `sprites.manifest.json` (generator, script, source, date,
+      licence, sha256) and a test that checks every hash and that each JSON's tags are exactly the ones the app asks
+      for. Sheets load only through `Bundle.cicadaResource`. One `palette.json` is read by the scripts and the tests.
+      G127's seam stands: a character is a set of sheets with the same tags.
+    - **R-BW3 — frame animation (the Track Z lint amendment brief §4 asked for).** Motion is sprite frames with
+      per-frame durations from the sheet, on whole pixels of the one lattice, drawn nearest-neighbour. R-Z4's
+      no-transform lint stays for the worm and widens to every room sprite. "≤ 3 frames × 0.12 s" becomes: a beat
+      settles within 800 ms (the perk within 400 ms); a transition within 1.6 s; no frame is shorter than 40 ms or
+      longer than 4 s; a loop runs 0.4–30 s — `CicadaMotion`'s sprite caps, checked against every sheet. The renderer
+      key bound (≤ 256 per size) becomes a bound on frame rects and decoded pixels.
+    - **R-BW4 — state art may move (R-Z12 and R-A13 amended).** A state's art may loop — breathing, blinks, page
+      flips, z → zz → zzz, the weather's own loop, the fly — because the loop shows a state that is already true. It
+      never adds a fact and never speeds up, densifies or brightens with a count, an age or a stage (R-Z3). A mood
+      change may play one transition (a yawn into sleep, a stretch out of it) besides the cheer and the weather
+      crossfade; a hydrate or a refresh never does (DR-65). Glances, sways, tail flicks and nod-offs inside a state's
+      idle loop, and cloud drift inside a weather's loop, are state art (R-Z12's "no glance, no drift" is amended for
+      them). Still refused: any flash or strobe (the storm flash), weather driven by a count or the clock, motion with
+      no state behind it (mug steam, plant sway), and duration estimates.
+    - **R-BW5 — the window: the owner's four weathers, still a total function of the mood (R-Z11).**
+      `windowWeather(for:)` and `WindowWeather.all` are unchanged; the titles become Night, Dawn, Sunny (`clear`),
+      Partly cloudy (`fair`), Windy (`overcast`), Rainy (`storm`, rain without lightning) and Curtains drawn. The legend
+      stays the twin, keeps its header, and shows each weather's key frame. Pixels on the lattice only, never the Meadow
+      paintings (DR-13). Ruling 9's occlusion test runs on every frame of every weather.
+    - **R-BW6 — no clock.** Nothing in the room, the window or the worm reads the time of day; the room's interior
+      palette and the night light stay out of scope (the brief §9 palettes and night light are a later ruling).
+    - **R-BW7 — the five emotions map to states, once.** happy → `.happy`, `.digesting` and the cheer; tired →
+      `.hungry`; worried (sweat drop, red pupils kept) → `.error`; sad → the shake beat; the base model → `.awake` and
+      `.reading`; mad is drawn but unused. Never random, never the clock. The menu bar gets an 18 × 18 set drawn from
+      the owner's menu-bar design, with the count badge and stage dots drawn on it in code (G107 R2), and its own
+      precedence unchanged.
+    - **R-BW8 — the lamp and its fly.** The lamp is redrawn and still means exactly the schedule (R-A3, P11; it never
+      previews). The fly is the lit lamp's art: present only while lit, inert, never in the glass or the pile column,
+      resting on the shade under Reduce Motion.
+    - **R-BW9 — books (P10 holds).** The worm's own book has three covers that change as he picks up the next one;
+      the real pile's spines gain a pixel texture by kind (a second cue beside colour; `fitPile` unchanged). No other
+      book is drawn: a shelf, cart or bookcase needs a real count and its own design round.
+    - **R-BW10 — interaction is unchanged.** The hotspots stay the worm, the lamp and the window; the plant, mug, bean
+      bag, wall, rug, cord, scenery and fly stay inert (R-Z2). No click on art starts, cancels or schedules work (R-Z9).
+    - **R-BW11 — Reduce Motion, Low Power, unseen.** Under Reduce Motion every sprite shows its key frame (G107 R7)
+      and the yawn and stretch do not play; under Low Power every frame plays at half speed; a sprite rests while its
+      window cannot be seen or a host pauses it (R-HO7's reader and policy). Each animated layer redraws only at its
+      own frame boundaries. **Budget:** the room's summed sprite redraws stay ≤ 30 per second in its worst steady
+      state (Rainy + lamp lit + error worm), computed from the sheets (≤ 1,800 `SpriteFrameSchedule` boundaries per
+      minute, tested in `SpriteClipTests`); mean CPU with the room frontmost stays ≤ 3 % of one core and within 2
+      points of `dev`, measured by the owner on the demo bank before merge.
+    - **R-BW12 — how it was made, and the gate.** The owner chose the tool and the model for this job: Codex
+      (gpt-6.1-sol, extra-high effort) with computer use in Aseprite. This overrides brief §5's "Computer use in the GUI
+      is not needed and is worse" and the handoff's model split for this job only; the small-models rule is otherwise
+      unchanged. Parts are hand-correctable in the GUI; every sheet is rebuilt and exported headless so the manifest's
+      hashes are reproducible. PR to `dev`; no merge until the owner has reviewed `preview.html` and the composites.
+    Revisit R-BW4 or R-BW11 if either half of R-BW11's budget is exceeded or a viewer reports motion discomfort;
+    R-BW5–R-BW9 on the owner's word.
 
 ## How work is run here
 

@@ -18,6 +18,7 @@ final class WindowWeatherTests: XCTestCase {
 
     func test_theWeathersAreListedOnce_withDistinctWords() {
         XCTAssertEqual(WindowWeather.all, WindowWeather.allCases)
+        XCTAssertEqual(WindowWeather.all.map(\.title), ["Night", "Dawn", "Sunny", "Partly cloudy", "Windy", "Rainy", "Curtains drawn"])
         XCTAssertEqual(Set(WindowWeather.all.map(\.title)).count, 7)
         XCTAssertEqual(Set(WindowWeather.all.map(\.meaning)).count, 7)
         for weather in WindowWeather.all {

@@ -101,16 +101,16 @@ struct StudyRoom: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let scene = deskSceneLayout(pointSize: SleepView.wormPointSize)
+        let scene = deskSceneLayout()
         let spots = deskHotspots(scene)
         ZStack(alignment: .bottomLeading) {
             // R-A3: lit exactly when Sleep is scheduled — the lamp and the
             // whisper line read the same field, so the art never disagrees
             // with the words. R-Z11: the window's sky is the mood alone —
             // the same `page.mood` the sentence and the worm read.
-            DeskSceneView(pointSize: SleepView.wormPointSize, lampLit: page.lampLit,
+            DeskSceneView(lampLit: page.lampLit,
                           weather: windowWeather(for: page.mood))
-            WormStage(mood: page.mood, room: room, pointSize: SleepView.wormPointSize)
+            WormStage(mood: page.mood, room: room, cell: scene.cell)
                 .offset(x: scene.wormOrigin.x, y: -scene.wormOrigin.y)   // R-Z4: the lattice placement, whole cells
             // The REAL pile, in the column the layout reserves for it —
             // never a painted stack (P10).
@@ -184,6 +184,9 @@ struct StudyRoom: View {
         // Z-B8 — a claim never outlives the room: a page torn down mid-drag
         // (a tab switch) would otherwise keep the window's veil hidden.
         .onDisappear { intake.releaseDrop(.sleepRoom) }
+        .onChange(of: page.mood.caseName) { old, _ in
+            room.moodChanged(from: old, to: page.mood, reduceMotion: reduceMotion)
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -228,15 +231,16 @@ private struct DropOutline: View {
 struct WormStage: View {
     let mood: BookwormState
     let room: RoomModel
-    let pointSize: CGFloat
+    let cell: CGFloat
 
     var body: some View {
-        BookwormView(state: mood, pointSize: pointSize, caption: nil,
+        BookwormView(state: mood, latticeCell: cell, caption: nil,
                      pose: Self.pose(drag: room.drag, pointerInRoom: room.pointerInRoom, gaze: room.gaze),
-                     reaction: room.reaction)
+                     reaction: room.reaction, transition: room.transition)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .task(id: room.reaction?.id) { await room.settleReaction() }
+            .task(id: room.transition?.id) { await room.settleTransition() }
     }
 
     /// A drag outranks the pointer (§6.1): the armed pose is the drop cue.

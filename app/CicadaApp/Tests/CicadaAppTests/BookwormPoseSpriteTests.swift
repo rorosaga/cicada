@@ -1,132 +1,15 @@
 import XCTest
 @testable import CicadaApp
 
-/// Track Z §6.1 — the worm's poses and reactions, checked the way
-/// `BookwormSpriteTests` checks its states: dimensions and palette, the
-/// signature rows, and — the rule response art lives under — **a reaction
-/// never hides a state mark** (R-Z1): the nightcap, the stage dots and the
-/// red pupils persist through every response.
 final class BookwormPoseSpriteTests: XCTestCase {
+    static let pageStates: [BookwormState] = [.awake, .happy, .reading, .hungry, .digesting, .error] + (1...5).map { .sleeping(stage: $0) }
 
-    /// Every state the Sleep page can show.
-    static let pageStates: [BookwormState] =
-        [.awake, .happy, .reading, .hungry, .digesting, .error] + (1...5).map { .sleeping(stage: $0) }
-
-    private var allowed: Set<Character> { Set(BookwormPalette.colors.keys).union(["."]) }
-
-    private func everyFrame(_ state: BookwormState) -> [(String, PixelGrid)] {
-        BookwormLook.reachable(for: state).flatMap { look in
-            BookwormSprites.frames(for: state, look: look).frames.enumerated().map {
-                ("\(state.spriteKey) \(look.keySegment ?? "idle") #\($0.offset)", $0.element)
-            }
-        }
-    }
-
-    func test_everyLookFrameIs24x24AndInThePalette() {
-        for state in Self.pageStates {
-            for (name, frame) in everyFrame(state) {
-                XCTAssertEqual(frame.count, 24, name)
-                for row in frame {
-                    XCTAssertEqual(row.count, 24, name)
-                    for ch in row where !allowed.contains(ch) { XCTFail("\(name): '\(ch)'") }
-                }
-            }
-        }
-    }
-
-    /// R-Z4 / design §6.1: `.idle` is byte-identical to today's frames.
-    func test_theIdleLookIsTodaysFrames() {
-        for state in Self.pageStates + [.curious(count: 3)] {
-            XCTAssertEqual(BookwormSprites.frames(for: state, pose: .idle).frames,
-                           BookwormSprites.frames(for: state).frames, state.spriteKey)
-            XCTAssertEqual(BookwormSprites.frames(for: state, look: .idle).interval,
-                           BookwormSprites.frames(for: state).interval)
-        }
-        XCTAssertEqual(BookwormSprites.eyes(), BookwormSprites.eyes(gaze: .center))
-    }
-
-    /// Three gazes change only the pupil rows (7–8 open, 7 half-lidded); the
-    /// rim rows, which `BookwormSpriteTests` pins, never move.
-    func test_gazeMovesOnlyThePupils() {
-        let left = BookwormSprites.eyes(gaze: .left), right = BookwormSprites.eyes(gaze: .right)
-        let center = BookwormSprites.eyes()
-        XCTAssertEqual(left[2], "....obaoowwabaoowwabo...")
-        XCTAssertEqual(right[2], "....obawwooabawwooabo...")
-        XCTAssertEqual(center[2], "....obawoowabawoowabo...")
-        for i in [0, 1, 4] { XCTAssertEqual(left[i], center[i]); XCTAssertEqual(right[i], center[i]) }
-        XCTAssertEqual(BookwormSprites.eyes(pupil: "e", gaze: .left), BookwormSprites.eyes(pupil: "e"),
-                       "red eyes are state art and never look away")
-    }
-
-    /// The glasses rims (rows 5 and 9) are the character's signature. Every
-    /// frame this task AUTHORS keeps them, after undoing at most the one-cell
-    /// hop/crouch or the head's one-cell shake. The idle frames and cheer's
-    /// borrowed happy frames (whose big sparkle crosses the rim on frame 1)
-    /// are existing art, pinned by `BookwormSpriteTests`.
-    func test_theGlassesRimsSurviveEveryNewFrame() {
-        let top = String(BookwormSprites.awakeBase[5].prefix(21))
-        let bottom = String(BookwormSprites.awakeBase[9].prefix(21))
-        for state in Self.pageStates {
-            let authored = BookwormLook.reachable(for: state).filter { look in
-                if look == .idle { return false }
-                if case .reaction(.cheer, _) = look { return false }
-                return true
-            }
-            let frames = authored.flatMap { look in
-                BookwormSprites.frames(for: state, look: look).frames.map { ("\(state.spriteKey) \(look.keySegment ?? "")", $0) }
-            }
-            for (name, frame) in frames {
-                let found = [-1, 0, 1].contains { dy in [-1, 0, 1].contains { dx in
-                    let f = BookwormSprites.shiftRows(BookwormSprites.shift(frame, dy: -dy), 0..<24, dx: -dx)
-                    return String(f[5].prefix(21)) == top && String(f[9].prefix(21)) == bottom
-                } }
-                XCTAssertTrue(found, name)
-            }
-        }
-    }
-
-    /// R-Z1 — the cap on every `.sleeping`/`.reading` frame (a capped state's
-    /// hop is a one-cell crouch, Z-P11, so the cap may sit one row lower).
-    func test_theNightcapSurvivesEveryLook() {
-        let cap: [(Int, Int, Character)] = [(0, 10, "z"), (2, 5, "w"), (2, 16, "w"), (3, 3, "w")]
-        for state in [BookwormState.reading] + (1...5).map({ .sleeping(stage: $0) }) {
-            for (name, frame) in everyFrame(state) {
-                let capped = [0, 1].contains { dy in cap.allSatisfy { Array(frame[$0.0 + dy])[$0.1] == $0.2 } }
-                XCTAssertTrue(capped, name)
-            }
-        }
-    }
-
-    func test_theStageDotsAndTheRedPupilsSurviveEveryLook() {
-        for stage in 1...5 {
-            for (name, frame) in everyFrame(.sleeping(stage: stage)) {
-                XCTAssertEqual(frame[23], BookwormSprites.stageDots(stage)[23], name)
-            }
-        }
-        for (name, frame) in everyFrame(.error) {
-            XCTAssertTrue(frame.joined().contains("e"), name)
-            XCTAssertFalse(frame[7].contains("oo"), "\(name): no dark pupils on an error frame")
-        }
-    }
-
-    /// Reading keeps its book on every frame — gulp lowers it (Z-P12).
-    func test_theReadingBookSurvivesEveryLook() {
-        for (name, frame) in everyFrame(.reading) {
-            XCTAssertTrue((14...21).contains { r in String(Array(frame[r])[8...16]) == "aaaaaaaaa" }, name)
-        }
-    }
-
-    /// §6.4 — `.sleeping`, `.error` and `.digesting` have no gaze variants.
     func test_suppressedStatesIgnoreThePointer() {
         for state in [BookwormState.sleeping(stage: 2), .error, .digesting] {
-            for gaze in Gaze.allCases {
-                XCTAssertEqual(BookwormSprites.frames(for: state, pose: .attentive(gaze)).frames,
-                               BookwormSprites.frames(for: state).frames, state.spriteKey)
-            }
+            for gaze in Gaze.allCases { XCTAssertEqual(BookwormPose.attentive(gaze).effective(for: state, reduceMotion: false), .idle) }
         }
     }
 
-    /// The state × response matrix (§6.4), including the Z-P12 reconciliation.
     func test_theMatrix() {
         XCTAssertEqual(Self.pageStates.filter(\.acceptsGaze).map(\.caseName), ["awake", "happy", "reading", "hungry"])
         XCTAssertTrue(BookwormState.digesting.acceptsDropPose)
@@ -138,32 +21,165 @@ final class BookwormPoseSpriteTests: XCTestCase {
         XCTAssertTrue(BookwormState.happy.allows(.cheer))
         XCTAssertFalse(BookwormState.reading.allows(.cheer))
         XCTAssertFalse(BookwormState.digesting.allows(.perk))
-        XCTAssertTrue(BookwormSprites.reactionFrames(.talk, for: .error, gaze: .center).isEmpty)
+        XCTAssertNil(BookwormLook.beat(.talk, for: .error, gaze: .center))
         XCTAssertFalse(BookwormState.curious(count: 3).acceptsGaze, "the menu bar never gets a pose")
     }
 
-    /// Every beat is at most three frames at 0.12 s — ≤ 0.36 s, inside the
-    /// page's 400 ms budget (R-Z12).
-    func test_everyBeatFitsTheMotionBudget() {
-        XCTAssertEqual(BookwormSprites.reactionInterval, 0.12)
-        for state in Self.pageStates {
-            for reaction in BookwormReaction.allCases where state.allows(reaction) {
-                let n = BookwormSprites.reactionFrames(reaction, for: state, gaze: .left).count
-                XCTAssertTrue((2...3).contains(n), "\(reaction) on \(state.spriteKey)")
-                XCTAssertLessThanOrEqual(Double(n) * BookwormSprites.reactionInterval, SleepMotion.maxDuration)
+    func testEveryRoomFrameKeepsTheBookGlassesAndStateMarks() throws {
+        let palette = try SpriteTestAssets.palette()
+        let roles = palette.roles
+        let d = try palette.rgb("D"), l = try palette.rgb("L"), j = try palette.rgb("j"), w = try palette.rgb("W")
+        let e = try palette.rgb("e"), sweat = try palette.rgb("S"), z = try palette.rgb("Z")
+        for state in BookwormSpriteTests.states {
+            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
+            for tag in BookwormArt.requiredTags(state) {
+                let clip = try SpriteTestAssets.clip(sheet, tag)
+                for (step, index) in clip.order.enumerated() {
+                    let frame = try SpriteTestAssets.plane(sheet, frame: index)
+                    let label = "\(sheet.name)/\(tag) #\(step)"
+                    XCTAssertGreaterThanOrEqual(frame.pixels.filter { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("book.") ?? false) }.count, 20, label)
+                    XCTAssertGreaterThanOrEqual(frame.count(d), 30, label)
+                    XCTAssertGreaterThanOrEqual(frame.count(l), 6, label)
+                    if state.caseName == "sleeping" && tag != "intro" && tag != "outro" {
+                        XCTAssertGreaterThanOrEqual(frame.count(j), 4, label)
+                        XCTAssertEqual(frame.count(w), 0, label)
+                        if tag == "idle" && step == 0 { XCTAssertGreaterThanOrEqual(frame.count(z), 3, label) }
+                    }
+                    if state.caseName == "error" {
+                        XCTAssertGreaterThanOrEqual(frame.count(e), 4, label)
+                        XCTAssertGreaterThanOrEqual(frame.count(sweat), 1, label)
+                    }
+                }
             }
         }
     }
 
-    /// The attentive loop costs no more ticks than idle: the state's own
-    /// interval, a blink on the fourth frame; the drop poses loop at 0.4 s.
-    func test_theLoopsKeepTheirIntervals() {
-        let attentive = BookwormSprites.frames(for: .hungry, pose: .attentive(.left))
-        XCTAssertEqual(attentive.interval, BookwormSprites.frames(for: .hungry).interval)
-        XCTAssertEqual(attentive.frames.count, 4)
-        XCTAssertEqual(attentive.frames[0], attentive.frames[2])
-        XCTAssertNotEqual(attentive.frames[0], attentive.frames[3])
-        XCTAssertEqual(BookwormSprites.frames(for: .awake, pose: .expectant(.right)).interval, 0.4)
-        XCTAssertEqual(BookwormSprites.frames(for: .awake, pose: .eager).frames.count, 2)
+    func testSmallStateMarksAndOverlaySpace() throws {
+        let sheet = try SpriteTestAssets.sheet("bookworm-small")
+        let palette = try SpriteTestAssets.palette(), roles = palette.roles
+        let k = try palette.rgb("K"), e = try palette.rgb("e"), sweat = try palette.rgb("S")
+        for clip in sheet.tags.values {
+            for frame in clip.order {
+                let plane = try SpriteTestAssets.plane(sheet, frame: frame)
+                XCTAssertTrue(plane.ink.allSatisfy { $0.y < 16 }, "rows 16–17 reserved for dots")
+                if clip.tag == "sleeping" {
+                    for lens in ["lensL", "lensR"] {
+                        let rect = try XCTUnwrap(sheet.slices[lens])
+                        let lids = plane.cells { $0.alpha > 0 && $0.rgb == k }.filter { rect.contains(CGPoint(x: Double($0.x) + 0.5, y: Double($0.y) + 0.5)) }
+                        XCTAssertGreaterThanOrEqual(lids.count, 2)
+                        XCTAssertEqual(Set(lids.map(\.y)).count, 1, "closed lid, never plus pupil")
+                    }
+                }
+                if clip.tag == "error" { XCTAssertGreaterThanOrEqual(plane.count(e), 1); XCTAssertGreaterThanOrEqual(plane.count(sweat), 1) }
+                if clip.tag == "reading" { XCTAssertGreaterThanOrEqual(plane.pixels.filter { $0.alpha > 0 && (roles[$0.rgb]?.hasPrefix("book.") ?? false) }.count, 8) }
+            }
+        }
+        let curious = try SpriteTestAssets.clip(sheet, "curious")
+        let lenses = try ["lensL", "lensR"].map { try XCTUnwrap(sheet.slices[$0]) }
+        XCTAssertLessThanOrEqual(lenses[1].maxY, 10, "the lens and its one-pixel ring must stay above badge row 11")
+        for frame in curious.order {
+            let plane = try SpriteTestAssets.plane(sheet, frame: frame)
+            let covered = plane.ink.filter { cell in
+                Self.isGlassesInkInBadge(plane.at(cell.x, cell.y), at: cell, roles: roles, lenses: lenses, outline: k)
+            }
+            XCTAssertTrue(covered.isEmpty, "curious frame \(frame): the badge cannot cover glasses ink at \(covered)")
+        }
+    }
+
+    func testBadgeGuardRejectsGlassInkButAllowsNeckAndTransparency() {
+        let k: UInt32 = 0x010101, lime: UInt32 = 0xACEC62, dark: UInt32 = 0x4A4647, white: UInt32 = 0xFDFDFD
+        let roles = [k: "worm.outline", lime: "worm.small.body", dark: "worm.glasses.dark", white: "worm.white"]
+        let lenses = [CGRect(x: 2, y: 8, width: 4, height: 3), CGRect(x: 9, y: 8, width: 4, height: 3)]
+        // The old maxY <= 11 check admitted this black ring at row 11.
+        XCTAssertTrue(Self.isGlassesInkInBadge(.init(rgb: k, alpha: 255), at: .init(x: 10, y: 11),
+                                             roles: roles, lenses: lenses, outline: k))
+        for rgb in [dark, white] {
+            XCTAssertTrue(Self.isGlassesInkInBadge(.init(rgb: rgb, alpha: 255), at: .init(x: 17, y: 15),
+                                                 roles: roles, lenses: lenses, outline: k))
+        }
+        // Small lenses and neck share lime, so geometry must distinguish them too.
+        XCTAssertTrue(Self.isGlassesInkInBadge(.init(rgb: lime, alpha: 255), at: .init(x: 10, y: 11),
+                                             roles: roles, lenses: [CGRect(x: 9, y: 11, width: 4, height: 1)], outline: k))
+        for rgb in [k, lime] {
+            XCTAssertFalse(Self.isGlassesInkInBadge(.init(rgb: rgb, alpha: 255), at: .init(x: 16, y: 14),
+                                                  roles: roles, lenses: lenses, outline: k))
+        }
+        XCTAssertFalse(Self.isGlassesInkInBadge(.init(rgb: k, alpha: 0), at: .init(x: 10, y: 11),
+                                              roles: roles, lenses: lenses, outline: k))
+        XCTAssertFalse(Self.isGlassesInkInBadge(.init(rgb: dark, alpha: 255), at: .init(x: 10, y: 10),
+                                              roles: roles, lenses: lenses, outline: k))
+    }
+
+    private static func isGlassesInkInBadge(_ pixel: SpriteTestAssets.Pixel, at cell: SpriteTestAssets.Cell,
+                                          roles: [UInt32: String], lenses: [CGRect], outline: UInt32) -> Bool {
+        guard pixel.alpha > 0, (9...17).contains(cell.x), (11...17).contains(cell.y) else { return false }
+        let role = roles[pixel.rgb] ?? ""
+        let point = CGPoint(x: Double(cell.x) + 0.5, y: Double(cell.y) + 0.5)
+        // K is shared by the neck outline and glasses ring; m is shared by the neck and lens interiors.
+        return role.hasPrefix("worm.glasses.") || role == "worm.white"
+            || lenses.contains { $0.contains(point) }
+            || (pixel.rgb == outline && lenses.contains { $0.insetBy(dx: -1, dy: -1).contains(point) })
+    }
+
+    func testEveryBeatFitsTheMotionBudget() throws {
+        for state in BookwormSpriteTests.states { SpriteTestAssets.assertCaps(try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))) }
+    }
+
+    func testGazeVariantsShareDurations() throws {
+        for state in BookwormSpriteTests.states where state.acceptsGaze {
+            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
+            for family in ["attentive", "expectant", "perk", "talk", "shake"] {
+                for cover in state.caseName == "reading" ? [1, 2, 3] : [1] {
+                    let suffix = cover == 1 ? "" : "@\(cover)"
+                    let center = try SpriteTestAssets.clip(sheet, "\(family).center\(suffix)")
+                    for gaze in ["left", "right"] { XCTAssertEqual(try SpriteTestAssets.clip(sheet, "\(family).\(gaze)\(suffix)").seconds, center.seconds) }
+                }
+            }
+        }
+    }
+
+    func testBlinksHaveIrregularCyclicGaps() throws {
+        let w = try SpriteTestAssets.palette().rgb("W")
+        for name in ["awake", "happy", "curious", "reading"] {
+            let sheet = try SpriteTestAssets.sheet("bookworm-\(name)")
+            var tags = name == "reading" ? ["idle", "idle@2", "idle@3"] : ["idle"]
+            if name != "curious" {
+                for gaze in Gaze.allCases {
+                    tags += (name == "reading" ? [1, 2, 3] : [1]).map { "attentive.\(gaze.rawValue)" + ($0 == 1 ? "" : "@\($0)") }
+                }
+            }
+            for tag in tags {
+                let clip = try SpriteTestAssets.clip(sheet, tag)
+                let key = try SpriteTestAssets.plane(sheet, frame: clip.order[0]).count(w)
+                let blink = try clip.order.map { try SpriteTestAssets.plane(sheet, frame: $0).count(w) <= key - 2 }
+                var starts: [Double] = [], t = 0.0
+                for i in blink.indices {
+                    if blink[i] && !blink[(i + blink.count - 1) % blink.count] { starts.append(t) }
+                    t += clip.seconds[i]
+                }
+                let minimum = tag.hasPrefix("idle") && ["awake", "reading"].contains(name) ? 3 : 2
+                XCTAssertGreaterThanOrEqual(starts.count, minimum, "\(sheet.name)/\(tag)")
+                var gaps = zip(starts.dropFirst(), starts).map(-)
+                if let first = starts.first, let last = starts.last { gaps.append(clip.total - last + first) }
+                XCTAssertGreaterThanOrEqual(try XCTUnwrap(gaps.max()) / XCTUnwrap(gaps.min()), 1.6, "\(sheet.name)/\(tag)")
+            }
+        }
+    }
+
+    func testLiftsAndSleepGlyphsStayInTheirBoxes() throws {
+        let palette = try SpriteTestAssets.palette()
+        let zs = try Set(["Z", "Y", "X"].map { try palette.rgb($0) })
+        for state in BookwormSpriteTests.states {
+            let sheet = try SpriteTestAssets.sheet(BookwormArt.sheetName(state, .room))
+            for clip in sheet.tags.values {
+                let lifted = clip.tag.hasPrefix("perk.") || clip.tag.hasPrefix("eager") || clip.tag.hasPrefix("cheer.center")
+                for frame in clip.order {
+                    let plane = try SpriteTestAssets.plane(sheet, frame: frame)
+                    let bottom = try XCTUnwrap(plane.ink.map(\.y).max())
+                    XCTAssertTrue(lifted ? (44...47).contains(bottom) : bottom == 47, "\(sheet.name)/\(clip.tag)")
+                    XCTAssertTrue(plane.cells { $0.alpha > 0 && zs.contains($0.rgb) }.allSatisfy { (40...63).contains($0.x) && (0...14).contains($0.y) })
+                }
+            }
+        }
     }
 }

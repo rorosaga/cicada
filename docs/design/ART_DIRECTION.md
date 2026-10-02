@@ -7,6 +7,10 @@ engineer what to accept, bundle and test. It sits under [`DESIGN_RULES.md`](DESI
 and the reward moments those surfaces carry. It never sits behind data. **DR-14** keeps Liquid Glass
 out of it. Text never sits directly on paint (§10). This document does not relax any of those rules.
 
+2026-10-01: pixel sprites (`Resources/sprites/`) are out of this document's scope; their direction lives in
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/README.md` and ruling 18. The painted-meadow negatives (no animals,
+no weather event) do not apply to them.
+
 The owner's brief (2026-09-24):
 
 > Pastel paintings, similar to Monet's but a tad bit leaning to more realistic. Generate the highest

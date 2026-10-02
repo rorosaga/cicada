@@ -42,8 +42,8 @@ enum BookwormPose: Hashable {
 
     /// What this pose becomes for `state` (§6.4) and under Reduce Motion
     /// (§6.1): the gaze is dropped — a following eye is motion — but the drop
-    /// poses stay, because the armed-drop cue is a state (frame 0 is held by
-    /// `BookwormView.frameIndex` anyway). A state with no gaze looks ahead.
+    /// poses stay, because the armed-drop cue is a state (the sprite clock
+    /// holds frame 0). A state with no gaze looks ahead.
     func effective(for state: BookwormState, reduceMotion: Bool) -> BookwormPose {
         switch self {
         case .idle:
@@ -59,8 +59,8 @@ enum BookwormPose: Hashable {
     }
 }
 
-/// A short beat — at most three frames at `BookwormSprites.reactionInterval`
-/// (≤ 0.36 s, R-Z12). `gulp` and `shake` are feeding's (Z9); `perk`, `talk`
+/// A short sheet beat inside `CicadaMotion`'s sprite caps (TODO ruling 18).
+/// `gulp` and `shake` are feeding's (Z9); `perk`, `talk`
 /// and `cheer` are used from Task 6 on.
 enum BookwormReaction: String, Hashable, CaseIterable {
     case perk, talk, gulp, shake, cheer
@@ -75,6 +75,7 @@ struct ActiveReaction: Equatable {
     let kind: BookwormReaction
     let startedAt: Date
     let id: UUID
+    let length: TimeInterval
 }
 
 /// One thing the renderer can draw for a state: a pose loop or a beat.

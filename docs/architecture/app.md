@@ -71,7 +71,7 @@ announces the row (G139). `SettingsSection` raw values did not move. General's a
 follows the Mac's own light/dark through one app-scope observer (`ThemeStore.observeSystemAppearance`). General (F-10:
 Look · Startup · When Cicada is closed) also holds Scene (four choices, the clock's scene beside it), Open Cicada at
 login (`LoginItemService` over `SMAppService.mainApp`; an unsigned build that macOS does not keep says so), Show in
-menu bar (per viewer, on by default; hides the menu-bar bookworm, the Dock icon stays); a login launch opens no
+menu bar (per viewer, on by default; hides the 18 × 18 menu-bar bookworm (ruling 18), the Dock icon stays); a login launch opens no
 window — the bookworm waits in the menu bar, and the Dock icon brings the window (`LaunchKind` from the 'oapp' event,
 `LaunchState`, R-OB18) and Keep memory working when
 Cicada is closed (`BackendAgentService`: a read-only `launchctl print`, and Install runs
@@ -389,10 +389,14 @@ default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
-omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1):**
-*state art* — the mood's frames, the lamp (= the schedule), the pile, and the window's **weather**,
-a total function of the mood with a legend popover as its twin — and *response art* (gaze, perk,
-talk, cheer), transient and never contradicting state. The art layer stays inert; interaction is a
+omits its rung, never shows a guess); the floating bubble is retired. **Two kinds of art (R-Z1, amended by ruling 18):**
+*state art* — the owner's worm in Aseprite sheets on a 160 × 64 lattice (3 pt per cell at 1.0), the real pile,
+the lamp (= the schedule) and its pixel-size fly, the bean bag, mood-edge yawn/stretch, and the window's seven animated weathers (Night,
+Dawn, Sunny, Partly cloudy, Windy, Rainy and Curtains drawn), still a total function of the mood with a legend
+popover of key frames as its twin — and *response art* (gaze, perk, talk, cheer), transient and
+never contradicting state. The sheet player loads once, caches failures, uses per-frame boundary schedules,
+shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+The room's wall/floor, plant and mug are inert; no time-of-day palette is read. The art layer stays inert; interaction is a
 hotspot layer derived from the pure layout (`deskHotspots`), and **no click on art changes what the
 machine does**: the lamp's popover shows the scheduled engine and its reason *before* its labelled
 toggle can flip, and Consolidate stays the one trigger. The strip appears only while running or
@@ -411,7 +415,7 @@ page sends nothing. **Meadow (Z10).** The sentence is the display face (SF Pro D
 to `CicadaMotion`, and the sky band above the page is OFF (`SkyBand.ships`, TODO ruling 10). The
 pile is compressed to its column at every zoom and queue size — at most eight spines, the order and
 every count kept, never cut (`fitPile`) — and the title is `PageTitle`, the view `PageHeader` draws.
-Refused: autonomous beats with no fact behind them, cloud drift, a storm flash, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12) — inside them only a measured or list-price figure that states its basis ("charged", "at list price", a plan window's share).
+Refused: motion with no state behind it (mug steam, plant sway), a flash or strobe in any weather, a count or the clock driving the window, duration estimates, and any price or plan figure outside Details and the engine menu (TODO ruling 12). State art loops (ruling 18).
 
 **Consolidate reads everything — the app half (G163, ruling 13).** No new door: every trigger already POSTs with no body, and
 the server drains. `SleepStatusResponse.drain` (`SleepDrainInfo`, lenient like every field) and the SSE event's compact
@@ -461,15 +465,18 @@ A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`),
 the menu bar's own precedence and sprite meaning are unchanged. `store.intakeInFlight` (set while
 the intake router has a request in flight) forces `reading` ahead of `happy`/`hungry` but never ahead of
 `sleeping`/`error`/`digesting`. Per-cycle duration *estimates* stay deferred (G107's own ruling);
-only a measured, telemetry-joined duration is ever shown. Track Z adds **response art** inside
-`BookwormSprites`: `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and
-`BookwormReaction` (perk · talk · gulp · shake · cheer), gated by one state × response matrix
-(`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay shut and red pupils never
-look away; every beat is ≤ 3 frames × 0.12 s; a hop is a whole-cell shift (a capped state crouches
-instead — the nightcap owns the grid's headroom); and a lint bans
-`.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(` on the worm except its lattice placement. The
-renderer key gains one `look` segment, omitted for idle (every older key byte-identical); the
-page's reachable set is ≤ 256 keys per size and the wipe bound is 1024. **Feeding** — a file dropped
+only a measured, telemetry-joined duration is ever shown. Track Z's **response art** remains
+`BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and `BookwormReaction` (perk · talk · gulp · shake ·
+cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay
+shut and red pupils never look away. The worm is the owner's design as Aseprite sheets
+(`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
+drawn in code); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
+Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
+covers on its own loop. A transition always uses the sleeping sheet; a cold page never transitions, and a real
+completion's cheer wins in either callback order. A lint bans `.offset`/`.scaleEffect`/`.rotationEffect`/`.spring(`
+on every sprite except whole-cell lattice placement. Cached room crops are bounded by distinct frame rects and
+decoded pixels; the small renderer's independent cache keeps its 1024-entry wipe bound. Spines use kind-specific
+binary masks over the existing origin colour; `fitPile` and spine interactions are unchanged. **Feeding** — a file dropped
 on the worm imports through the one intake (R-Z10) — shipped in Z9; the matrix decides its gulp and
 shake like every other beat.
 
@@ -563,13 +570,14 @@ fallback, opaque under Reduce Transparency); a lint fails the build on any glass
 afternoon and night of one composition — `docs/design/ART_DIRECTION.md`) appears only on non-data surfaces — never the
 graph, a list, a grid, a form or a number, and text never sits directly on paint — enforced by an allowlist lint;
 Home's band and the Welcome are `PaintedScene` (C10), composed inside `Views/Meadow/`, and its particle colours are
-the art's (`ScenePaint`), never theme tokens. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
+the art's (`ScenePaint`), never theme tokens. Pixel sprites carry the same provenance in
+`Resources/sprites/sprites.manifest.json` (script, source, sha256), checked by `SpriteAssetTests`. **Type:** SF only. `displayFont(size:italic:)` is SF Pro Display
 semibold (tracking −0.3 at 20 pt, −0.4 above, floor 20, paired and counted by `FontLiteralLintTests`), `quoteFont` SF
 15 regular, one `SectionLabel` (11 medium, sentence case, never mono or tracked — `SectionLabelLintTests`), monospace
 only on `MonospaceLintTests`' allowlist (code, commands, paths, keys, ids), and `CitedSpan` the washed, underlined span,
 read by the Inbox's quote and the Reader's turns since DS-2 (a mention found by name is its semibold, unwashed case). **Motion:** `CicadaMotion` (nil under Reduce Motion) is the only place outside
 `SleepMotion` a duration is spelled; `hoverLift()` for things that open, `iconHover()` for glyphs; a keyboard action
-never animates.
+never animates. Sprites play per frame from their sheets within `CicadaMotion`'s sprite caps (ruling 18).
 
 **Video (Track V).** A saved video plays where the user already is — a saved item's detail column in the
 Feed, the entity Content tab and the entity hero, all through `MediaPreview`/`HeroPreview` — and the provider is

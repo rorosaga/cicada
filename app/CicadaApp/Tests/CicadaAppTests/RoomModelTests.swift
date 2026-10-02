@@ -8,11 +8,127 @@ import XCTest
 @MainActor
 final class RoomModelTests: XCTestCase {
 
-    private let scene = deskSceneLayout(pointSize: 120, uiScale: 1.0)
+    func testMoodTransitionsAndColdStartSuppression() {
+        let room = RoomModel()
+        room.moodChanged(from: "reading", to: .sleeping(stage: 1), reduceMotion: false)
+        XCTAssertEqual(room.transition?.kind, .yawn)
+        for state in [BookwormState.digesting, .happy, .reading, .hungry] {
+            room.moodChanged(from: "sleeping", to: state, reduceMotion: false)
+            XCTAssertEqual(room.transition?.kind, .stretch)
+        }
+        for (old, new) in [("sleeping", BookwormState.error), ("awake", .sleeping(stage: 1)),
+                           ("reading", .awake), ("sleeping", .sleeping(stage: 2))] {
+            room.moodChanged(from: old, to: new, reduceMotion: false)
+            XCTAssertNil(room.transition)
+        }
+        room.moodChanged(from: "reading", to: .sleeping(stage: 1), reduceMotion: true)
+        XCTAssertNil(room.transition)
+    }
+
+    func testAllowedBeatSurvivesMoodEdgeAndForbiddenBeatIsCleared() {
+        let room = RoomModel()
+        room.play(.talk, state: .reading, reduceMotion: false)
+        let id = room.reaction?.id
+        room.moodChanged(from: "reading", to: .happy, reduceMotion: false)
+        XCTAssertEqual(room.reaction?.id, id)
+        XCTAssertNil(room.transition)
+        room.moodChanged(from: "happy", to: .error, reduceMotion: false)
+        XCTAssertNil(room.reaction)
+        XCTAssertNil(room.transition)
+    }
+
+    func testCheerWinsInBothCallbackOrders() {
+        for cheerFirst in [true, false] {
+            let room = RoomModel()
+            if cheerFirst { room.play(.cheer, state: .digesting, reduceMotion: false) }
+            room.moodChanged(from: "sleeping", to: .digesting, reduceMotion: false)
+            if !cheerFirst { room.play(.cheer, state: .digesting, reduceMotion: false) }
+            XCTAssertEqual(room.reaction?.kind, .cheer)
+            XCTAssertNil(room.transition)
+        }
+    }
+
+    func testSettleReactionHonoursInjectedBeatLength() async {
+        let room = RoomModel()
+        for length in [0.05, 0.1] {
+            let playing = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: length)
+            room.reaction = playing
+            var started = false
+            let settling = Task {
+                let clock = ContinuousClock.now
+                started = true
+                await room.settleReaction()
+                return clock.duration(to: .now)
+            }
+            while !started { await Task.yield() }
+            await Task.yield()
+            XCTAssertEqual(room.reaction?.id, playing.id, "a beat stays present while its length elapses")
+            let elapsed = await settling.value
+            XCTAssertGreaterThanOrEqual(elapsed, .seconds(length))
+            XCTAssertNil(room.reaction)
+        }
+    }
+
+    func testSettleReactionKeepsAReplacementWithoutCancellation() async {
+        let room = RoomModel()
+        let first = ActiveReaction(kind: .talk, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.reaction = first
+        var started = false
+        let settling = Task { started = true; await room.settleReaction() }
+        while !started { await Task.yield() }
+        await Task.yield()
+        XCTAssertEqual(room.reaction?.id, first.id)
+        let replacement = ActiveReaction(kind: .cheer, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.reaction = replacement
+        await settling.value
+        XCTAssertEqual(room.reaction?.id, replacement.id, "the first beat completes but cannot clear its replacement")
+    }
+
+    func testTransitionSettlementAndBeatClearing() async {
+        let room = RoomModel()
+        for length in [0.05, 0.1] {
+            let playing = ActiveTransition(kind: .yawn, startedAt: SpriteClock.origin, id: UUID(), length: length)
+            room.transition = playing
+            var started = false
+            let settling = Task {
+                let clock = ContinuousClock.now
+                started = true
+                await room.settleTransition()
+                return clock.duration(to: .now)
+            }
+            while !started { await Task.yield() }
+            await Task.yield()
+            XCTAssertEqual(room.transition?.id, playing.id, "a transition stays present while its length elapses")
+            let elapsed = await settling.value
+            XCTAssertGreaterThanOrEqual(elapsed, .seconds(length))
+            XCTAssertNil(room.transition)
+        }
+        room.moodChanged(from: "sleeping", to: .reading, reduceMotion: false)
+        XCTAssertNotNil(room.transition)
+        room.play(.talk, state: .reading, reduceMotion: false)
+        XCTAssertNil(room.transition)
+    }
+
+    func testSettleTransitionKeepsAReplacementWithoutCancellation() async {
+        let room = RoomModel()
+        let first = ActiveTransition(kind: .yawn, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.transition = first
+        var started = false
+        let settling = Task { started = true; await room.settleTransition() }
+        while !started { await Task.yield() }
+        await Task.yield()
+        XCTAssertEqual(room.transition?.id, first.id)
+        let replacement = ActiveTransition(kind: .stretch, startedAt: SpriteClock.origin, id: UUID(), length: 0.05)
+        room.transition = replacement
+        await settling.value
+        XCTAssertEqual(room.transition?.id, replacement.id, "the first transition completes but cannot clear its replacement")
+    }
+
+    private let scene = deskSceneLayout(uiScale: 1.0)
     private var spots: [DeskHotspot: CGRect] { deskHotspots(scene) }
-    /// Top-left points (what `onContinuousHover` reports) at 5 pt cells.
-    private let overWorm = CGPoint(x: 200, y: 70)
-    private let overLamp = CGPoint(x: 20, y: 100)
+    /// Top-left points (what `onContinuousHover` reports) at 3 pt cells.
+    private var overWorm: CGPoint { let r = spots[.worm]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
+    private var overLamp: CGPoint { let r = spots[.lamp]!; return sceneBottomLeading(CGPoint(x: r.midX, y: r.midY), in: scene) }
 
     func test_theLadderStepsThroughThenReturnsToTheStatus() {
         XCTAssertEqual(RoomModel.nextAnswerIndex(after: nil, count: 3), 0)

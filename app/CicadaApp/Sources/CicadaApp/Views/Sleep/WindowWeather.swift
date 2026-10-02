@@ -1,11 +1,6 @@
 import SwiftUI
 
-/// The window's sky (Track Z R-Z11): STATE art. A total function of the mood
-/// and nothing else — no count, no clock, no stage number — so the window can
-/// never say something the sentence does not. The seven are listed once, in
-/// `all`, and the legend (its text twin) is the only place their meanings are
-/// written (P16). Refused: drift, a storm flash, and any weather driven by the
-/// time of day (G125: state outranks the clock).
+/// Animated state art: the loop shows the mood already true. Still refused: a flash, a clock, a count.
 enum WindowWeather: String, CaseIterable, Identifiable, Equatable {
     case night, dawn, clear, fair, overcast, storm, curtains
 
@@ -18,10 +13,10 @@ enum WindowWeather: String, CaseIterable, Identifiable, Equatable {
         switch self {
         case .night: "Night"
         case .dawn: "Dawn"
-        case .clear: "Clear"
-        case .fair: "Fair"
-        case .overcast: "Overcast"
-        case .storm: "Storm"
+        case .clear: "Sunny"
+        case .fair: "Partly cloudy"
+        case .overcast: "Windy"
+        case .storm: "Rainy"
         case .curtains: "Curtains drawn"
         }
     }
@@ -88,15 +83,17 @@ struct WindowLegend: View {
         .background(CicadaTheme.surface)
     }
 
-    /// Drawn from the same scene cache as the room (P13), on its own 16-cell
-    /// grid so it is a smaller GRID, never a smaller rendering (P12's rule).
+    /// A weather's key frame is the legend's still text twin.
     private func thumbnail(_ weather: WindowWeather) -> some View {
-        let pt = PixelRenderer.snappedPointSize(32 * CicadaTheme.uiScale, gridSize: 16)
-        return Image(nsImage: PixelRenderer.cachedImage(
-            key: "desk.paneThumb|\(weather.rawValue)|\(Int(pt))",
-            grid: DeskSceneSprites.paneThumbnail(weather), gridSize: 16, pointSize: pt, palette: DeskPalette.ns))
-            .interpolation(.none)
-            .frame(width: pt, height: pt)
-            .accessibilityHidden(true)
+        let sheet = SpriteSheets.sheet(named: "room-weather")
+        let frame = sheet?.clip(weather.rawValue)?.order.first
+        let cell = max(1, CicadaTheme.uiScale.rounded())
+        return Group {
+            if let frame, let cg = sheet?.frameImage(frame) {
+                Image(decorative: cg, scale: 1).resizable().interpolation(.none)
+            } else { Color.clear }
+        }
+        .frame(width: 36 * cell, height: 32 * cell)
+        .accessibilityHidden(true)
     }
 }
