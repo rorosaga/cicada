@@ -17,12 +17,13 @@ struct BookwormView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePaused) private var hostPaused
+    @Environment(\.spriteSnapshotDate) private var snapshotDate
     @State private var windowVisible = true
 
     var body: some View {
         let size = BookwormSize.resolve(pointSize: pointSize, uiScale: CicadaTheme.uiScale, latticeCell: latticeCell)
         let profile = SpritePlaybackProfile.of(reduceMotion: reduceMotion, lowPower: SceneStore.shared.lowPower)
-        let paused = SceneRunPolicy.isPaused(windowVisible: windowVisible, hostPaused: hostPaused)
+        let paused = snapshotDate != nil || SceneRunPolicy.isPaused(windowVisible: windowVisible, hostPaused: hostPaused)
         let effective = pose.effective(for: state, reduceMotion: reduceMotion)
         let beat = reduceMotion ? nil : reaction.flatMap { BookwormLook.beat($0.kind, for: state, gaze: effective.gaze) }
         let look = beat ?? .pose(effective)
@@ -47,7 +48,7 @@ struct BookwormView: View {
                 }
             }
             .frame(width: size.size.width, height: size.size.height)
-            .background(WindowVisibilityReader { windowVisible = $0 })
+            .background { if snapshotDate == nil { WindowVisibilityReader { windowVisible = $0 } } }
             .accessibilityElement(children: .ignore)
             .accessibilityAddTraits(.isImage)
             .accessibilityLabel("\(state.title) — \(state.detail)")

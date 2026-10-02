@@ -36,17 +36,18 @@ struct RoomClock: View {
     var onScreen = true
     @Environment(\.scenePaused) private var hostPaused
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.spriteSnapshotDate) private var snapshotDate
     @State private var windowVisible = false
 
     var body: some View {
         Group {
-            if onScreen && windowVisible && !hostPaused {
+            if snapshotDate == nil && onScreen && windowVisible && !hostPaused {
                 TimelineView(.periodic(from: Date(), by: CicadaMotion.roomClockTick)) { context in
                     reading(at: context.date)
                 }
-            } else { reading(at: Date()) }
+            } else { reading(at: snapshotDate ?? Date()) }
         }
-        .background(WindowVisibilityReader { windowVisible = $0 })
+        .background { if snapshotDate == nil { WindowVisibilityReader { windowVisible = $0 } } }
         .accessibilitySortPriority(RoomA11yOrder.clock)
     }
 

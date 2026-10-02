@@ -29,7 +29,9 @@ Three backend gates, and a separate app-side scenery gate below. They do **not**
 setting, not any backend environment variable: Settings → Sleep → The scenery → Local weather (default). Choosing
 How Sleep is doing or Choose turns the read off. `LocalWeatherReader` runs only while the study room is on screen,
 using the same window-visibility/host-pause policy as its sprites; leaving, hiding or occluding it, or opening Settings, cancels the request
-and wait. The Settings preview reads the memory cache and never fetches. This is not a Store domain and has no ETag.
+and wait. The Settings preview reads the memory cache and never fetches. The room explicitly propagates the Settings-open
+pause to its sprite leaves too; the clock uses the same visible-room predicate. Tests inject transport and render
+Settings with isolated preferences, without making a weather request. This is not a Store domain and has no ETag.
 
 The app sends only the time zone's principal city's public latitude/longitude from `TimeZoneCoordinates` plus fixed
 current-condition parameters (`weather_code`, `wind_speed_10m`, kilometres per hour, one forecast day). No location

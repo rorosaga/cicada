@@ -8,7 +8,7 @@ final class BookwormViewTests: XCTestCase {
         let frame = try XCTUnwrap(text.range(of: ".frame(width: size.size.width, height: size.size.height)"))
         let caption = try XCTUnwrap(text.range(of: "if let caption", range: frame.upperBound..<text.endIndex))
         let artFrame = text[frame.lowerBound..<caption.lowerBound]
-        let visibility = try XCTUnwrap(artFrame.range(of: ".background(WindowVisibilityReader { windowVisible = $0 })"))
+        let visibility = try XCTUnwrap(artFrame.range(of: ".background { if snapshotDate == nil { WindowVisibilityReader { windowVisible = $0 } } }"))
         let element = try XCTUnwrap(artFrame.range(of: ".accessibilityElement(children: .ignore)"),
                                   "the shared frame must expose an element even for decorative or missing art")
         let image = try XCTUnwrap(artFrame.range(of: ".accessibilityAddTraits(.isImage)"))

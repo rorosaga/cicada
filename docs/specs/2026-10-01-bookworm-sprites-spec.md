@@ -3053,8 +3053,8 @@ print(string.format('dev_loop: %s  frames=%d tags=%d  tag %s starts at frame %d'
 
 | # | Question | Default built | Alternative |
 |---|---|---|---|
-| Q1 | When does the worm sleep? The 09-29 brief said "reading books when consolidating" (BRIEF §9, `:173-175`); today `.sleeping` *is* a running cycle (Cicada's Sleep metaphor; `S/MenuBar/BookwormState.swift:10-12`). | Keep the state machine: asleep on the bean bag while a cycle runs (night window), reading while things wait or a run is paused. This contradicts your 09-29 words, so it is the first line of the PR body (§0). No sheet bakes the mapping in. | Swap: read while consolidating, sleep when caught up (a state-machine change; its own ruling; no new art). |
-| Q2 | Weather titles. | Night, Dawn, Sunny, Partly cloudy, Windy, Rainy, Curtains drawn (§5.1). | Keep Clear, Fair, Overcast, Storm with the new animation. |
+| Q1 | When does the worm sleep? The 09-29 brief said "reading books when consolidating" (BRIEF §9, `:173-175`); today `.sleeping` *is* a running cycle (Cicada's Sleep metaphor; `S/MenuBar/BookwormState.swift:10-12`). | Keep the state machine: asleep on the bean bag while a cycle runs, reading while things wait or a run is paused. Scenery follows its separate source. This contradicts your 09-29 words, so it is the first line of the PR body (§0). No sheet bakes the mapping in. | Swap: read while consolidating, sleep when caught up (a state-machine change; its own ruling; no new art). |
+| Q2 | Weather titles. | **Owner 2026-10-02:** Day, Dusk and Night × Sunny, Cloudy, Windy, Rainy and Curtains drawn, under the scenery contract. These supersede the seven mood-only weather titles in §5.1. | Settled by the owner. |
 | Q3 | Where does "mad" go? | Drawn as a part, used by no shipped tag. | Shake for a refused drop (sad then goes unused), or a new reaction kind (a matrix change). |
 | Q4 | Error pupils. | **owner 2026-10-01: black X eyes, no red.** Both diagonal Xs and the drop are R-Z1's tested mark; keep the worried brows. | Settled by the owner. |
 | Q5 | Book covers. | Three: your blue, crimson, ochre. | More covers, or different colours. |
@@ -3064,7 +3064,7 @@ print(string.format('dev_loop: %s  frames=%d tags=%d  tag %s starts at frame %d'
 | Q9 | Home and Getting started's worm drops from 24 pt to 18 pt at 1.0 (whole points per pixel). | 18 pt (36 at ≥ 1.2). | 36 pt always. |
 | Q10 | The wall ends at the pile column with a corner trim. | As built. | Extend only the floor under the pile (DR-13 says no paint behind data; needs a ruling). |
 | Q11 | Mug steam and plant sway. | None (motion with no fact). | Allow ambient decoration (R-BW4 amended again). |
-| Q12 | The count props, the queue as a room, the night light and time-of-day palettes. | Not built; next design rounds. | — |
+| Q12 | The count props and the queue as a room. | Not built; next design rounds. Owner 2026-10-02: time-of-day scenery, dark-room/lamp lighting and the clock are built under the scenery contract. | — |
 | Q13 | Merge gate. | No merge until you have reviewed `preview.html` and the composites. | — |
 | Q14 | The menu-bar worm's green. | Your menu-bar file's lime `#ACEC62` (key `m`, used by the 18 × 18 set only): it is the colour you drew, and it is brighter on a dark bar. | Snap it to the room worm's `G`/`g`, so both scales share one green. |
 | Q15 | On a completed cycle, stretch first, then cheer? | No: the cheer plays and the stretch is dropped (one beat per edge). | Play the stretch, then the cheer (≈ 2 s of motion on the edge). |

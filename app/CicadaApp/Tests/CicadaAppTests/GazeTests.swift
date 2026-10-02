@@ -12,6 +12,20 @@ final class GazeTests: XCTestCase {
     private var right: CGFloat { CGFloat(DeskHotspots.wormCols.upperBound + 1) * layout.cell }
     private var center: CGFloat { (left + right) / 2 }
 
+    func testMeasuredGazeEdgesAndHysteresisAtUnitZoom() {
+        XCTAssertEqual(left, 120)
+        XCTAssertEqual(right, 288)
+        XCTAssertEqual(center, 204)
+        XCTAssertEqual(layout.cell, 3)
+        XCTAssertEqual(gazeFor(pointerX: 119.5, layout: layout, previous: .center, state: .reading), .left)
+        XCTAssertEqual(gazeFor(pointerX: 120, layout: layout, previous: .center, state: .reading), .center)
+        XCTAssertEqual(gazeFor(pointerX: 287.5, layout: layout, previous: .center, state: .reading), .center)
+        XCTAssertEqual(gazeFor(pointerX: 288, layout: layout, previous: .center, state: .reading), .right)
+        XCTAssertEqual(gazeFor(pointerX: 123, layout: layout, previous: .left, state: .reading), .center)
+        XCTAssertEqual(gazeFor(pointerX: 285, layout: layout, previous: .right, state: .reading), .right)
+        XCTAssertEqual(gazeFor(pointerX: 284.5, layout: layout, previous: .right, state: .reading), .center)
+    }
+
     func test_threePosesAcrossTheRoom() {
         XCTAssertEqual(gazeFor(pointerX: nil, layout: layout, previous: .left, state: .awake), .center)
         XCTAssertEqual(gazeFor(pointerX: left - layout.cell, layout: layout, previous: .center, state: .awake), .left)
@@ -19,7 +33,7 @@ final class GazeTests: XCTestCase {
         XCTAssertEqual(gazeFor(pointerX: right + layout.cell, layout: layout, previous: .center, state: .awake), .right)
     }
 
-    /// §6.4 — sleeping eyes stay shut, red pupils and a chewing worm look ahead.
+    /// §6.4 — sleeping eyes stay shut, X eyes and a chewing worm look ahead.
     func test_suppressedStatesAlwaysLookAhead() {
         for state in [BookwormState.sleeping(stage: 2), .error, .digesting] {
             XCTAssertEqual(gazeFor(pointerX: 10, layout: layout, previous: .left, state: state), .center)

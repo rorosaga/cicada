@@ -24,7 +24,9 @@ local rainPoints={{1,1},{8,3},{17,0},{27,2},{34,5},{3,8},{12,6},{20,9},{29,7},{6
 local stars={{2,3},{5,11},{14,2},{14,12},{22,2},{27,4},{33,2},{24,9},{2,13}}
 for _,base in ipairs({'sunny','cloudy','windy','rainy','curtains'}) do
 for _,time in ipairs({'day','dusk','night'}) do
- local spec=({sunny={'clear',36,500},cloudy={'fair',72,200},windy={'overcast',36,120},rainy={'storm',48,80},curtains={'curtains',8,0}})[base]
+ -- G176 final integration, 2026-10-02: 100 ms rain keeps the full room below 1,800 redraws/minute.
+ -- Positions and frame order stay unchanged, including the seamless wrap.
+ local spec=({sunny={'clear',36,500},cloudy={'fair',72,200},windy={'overcast',36,120},rainy={'storm',48,100},curtains={'curtains',8,0}})[base]
  if base=='sunny' and time=='dusk' then spec={'dawn',36,300} end
  if base=='sunny' and time=='night' then spec={'night',24,200} end
  local tag,n,ms=table.unpack(spec);local name=base..'-'..time;local m={tag=name,elements={}};motion.tags[#motion.tags+1]=m

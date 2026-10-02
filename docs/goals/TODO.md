@@ -4,27 +4,32 @@
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
 
-## Where things stand (2026-09-25) — round 4 closed
+## Where things stand (2026-10-02) — round 4 closed; G176 awaiting owner review
 
-**Study room sprites and scenery (G176), 2026-10-02 — built on review branches; not merged.**
-The day worm and room art landed on the sprites branch (the orchestrator's finishing handoff records a reproducible
-18-pair bundle and five follow-on test failures). The scenery app branch fixes those assertions at their causes and
-implements the owner's 2026-10-02 contract: five base weathers × three times, mist/rainbow/shooting-star overlays,
-night-or-rain lighting, two lamp-dependent night sets for all eight worm states, visible-room-only public-city weather,
-Settings → Sleep → The scenery, and the real-time wall-clock amendment. The complete acceptance suite requires the new 36-pair art bundle, its plan,
-motion sidecar and manifest; those tests stay red until the art branch lands. Missing clips draw nothing. Reduce Motion
-holds key frames and swaps lighting instantly; Low Power halves playback speed; unseen sprites rest.
-The clock is a separate visible-only one-second leaf: the Mac's civil time selects hour/minute/second frames,
-dark lighting selects dark tags, and Reduce Motion hides the second hand while hour/minute keep time.
-**Not yet seen live:** the owner's demo-bank review in light and dark, 0.8×–1.4×, and idle CPU against `dev`.
-*Pick up here:* merge the scenery art into the app branch, run the full suite twice, inspect all composites and
-`preview.html`, then review before merge. **Open:** count props, the queue as a room, G175 marks and Q1 (running Sleep
-currently sleeps rather than reads). The scenery is built; those follow-ups remain design rounds.
+**Study room sprites and scenery (G176), 2026-10-02 — integrated on `feat/study-room-sprites`; awaiting owner review.**
+The complete delivery is 36 sheet pairs, 429 tags and 4,426 frames: the owner's worm, all 16 night worm sheets,
+15 weather/time skies, six overlays, relit props and the real wall clock, with the app player, scenery model,
+Settings thumbnails and visible-room-only public-city weather read. All parts are integrated in this worktree;
+missing art is an acceptance failure. Error keeps black X eyes and the drop; one dark-outline menu sheet serves both bars.
+The clock uses the art plan's `(94,34)` placement. Reduce Motion holds sprite key frames and hides the second hand;
+Low Power doubles sprite holds; hidden/occluded rooms and Settings pause the room sprites, clock and weather read.
+Rain now holds each of its 48 unchanged frames for 100 ms: worst steady state is rainy-night + digesting + lit lamp,
+**1,758 boundaries/minute including 60 clock ticks**, below ruling 18's unchanged 1,800 cap.
+The app's 552 room composites (all eight moods, both lamp states and both zooms, overlays and fixed clock times) and
+six Settings panes have a reproducible writer and review index; see the art `INTEGRATION_REPORT.md` for checks and paths.
+Final checks: two full Swift suites, **2,766 tests each / zero failures**; CLAUDE size/link checks **2 passed**;
+two headless exports **119 files byte-identical**; `make app` bundle **36 pairs + manifest, every hash matched**;
+`git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
+**Still open before merge:** the owner's `preview.html`/Sleep-page motion review, demo-bank light/dark review at
+0.8×–1.4× and live idle CPU against `dev` (≤ 3% of one core and within 2 points of `dev`).
+*Pick up here:* review the integration report and diff, commit/open the PR to `dev`, then have the owner review the
+preview and Sleep page before merge. **Open design rounds:** count props, the queue as a room, G175 marks, G127 and
+Q1 (running Sleep currently sleeps rather than reads). Time-of-day/dark-room scenery and the clock are built.
 
 **G176 worm art fix pass (2026-10-01), integrated in the day-art bundle described by the finishing handoff.**
 The chosen bookworm's eyes/brows, outlines, shadow band, book transitions, z fade and 18 × 18 state details are repaired
 in the saved sources; the day worm exports 130 tags / 1,095 frames. Error has black diagonal X eyes and the drop; one
-dark-outline menu sheet serves both appearances. Original references remain unchanged. The scenery app fixes the
+dark-outline menu sheet serves both appearances. Original references remain unchanged. The integrated app fixes the
 five resulting test failures, including the extra error lens slice and the fly's top-rim check. B12's narrower menu
 lens stays held for the owner. The sleeping-outro → reading key-frame closed/open-book handoff can still pop; the
 contract does not name a reading opening beat. No live app review is claimed by these code/art checks.
@@ -943,8 +948,8 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     - **R-BW11 — Reduce Motion, Low Power, unseen.** Under Reduce Motion every sprite shows its key frame (G107 R7)
       and the yawn and stretch do not play; under Low Power every frame plays at half speed; a sprite rests while its
       window cannot be seen or a host pauses it (R-HO7's reader and policy). Each animated layer redraws only at its
-      own frame boundaries. **Budget:** the room's summed sprite redraws stay ≤ 30 per second in its worst steady
-      state (Rainy + lamp lit + error worm), computed from the sheets (sprite boundaries plus the clock's 60 ticks ≤ 1,800 per
+      own frame boundaries. **Budget:** the room's summed sprite redraws stay ≤ 1,800 per minute in every steady
+      environment/mood/lamp combination, computed from the sheets (sprite boundaries plus the clock's 60 ticks ≤ 1,800 per
       minute, tested in `SpriteClipTests`); mean CPU with the room frontmost stays ≤ 3 % of one core and within 2
       points of `dev`, measured by the owner on the demo bank before merge.
       **Wall-clock amendment (owner, 2026-10-02):** `room-clock` is state art selected from `Date()` and
@@ -952,7 +957,7 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       integer values. Its own visible-only `TimelineView(.periodic)` ticks once per second; no room-wide timer.
       Black hour/minute hands and a thin red second hand use dark variants in a dark room. Reduce Motion removes
       only the second hand; hour/minute keep time. Help and VoiceOver say “Wall clock, <system short time>”,
-      after the window. The inert clock at `(93,37)`, 15 × 15, z1 clears every worm frame, the window, shade and pile;
+      after the window. The inert clock at `(94,34)`, 15 × 15, z1 clears every worm frame, the window, shade and pile;
       the art verifier rechecks night sheets. The manifest is 36 pairs; motion sidecars exclude the clock.
     - **R-BW12 — how it was made, and the gate.** The owner chose the tool and the model for this job: Codex
       (gpt-6.1-sol, extra-high effort) with computer use in Aseprite. This overrides brief §5's "Computer use in the GUI
@@ -972,6 +977,12 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       It reads public city coordinates from `TimeZoneCoordinates`, never location permission or a bank. The binding
       [`2026-10-02-study-room-scenery.md`](../specs/2026-10-02-study-room-scenery.md) supersedes the old seven skies and
       no-clock refusal. A lightning flash stays refused. Count props, the queue as a room, G175 marks and Q1 remain open.
+    - **Dated timing amendment, 2026-10-02 — retain R-BW11's cap.** Independent leaves cost 1,908 boundaries/minute
+      for rainy-night + digesting + lamp lit: rain 749, fly 520, worm 340, shooting star 239, clock 60. Rain's holds
+      move from 80 to 100 ms in day/dusk/night, keeping all 48 original pixels/frames and every seamless motion step.
+      The amended rain costs 599/minute; the measured maximum over all 240 combinations is **1,758/minute**. The
+      art verifier pins 100 ms exactly and still checks the historical day-pixel hash. No cap was raised. Hidden
+      rooms and Settings explicitly pass the pause to the sprite leaves as well as the clock and weather reader.
     Revisit R-BW4 or R-BW11 if either half of R-BW11's budget is exceeded or a viewer reports motion discomfort;
     R-BW5–R-BW9 on the owner's word.
 

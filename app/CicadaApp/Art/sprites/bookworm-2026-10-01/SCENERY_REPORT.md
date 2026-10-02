@@ -1,5 +1,10 @@
 # Study-room scenery delivery — 2026-10-02 (G176)
 
+**Historical art-run snapshot, before final integration.** The completed app integration is recorded in
+[INTEGRATION_REPORT.md](INTEGRATION_REPORT.md). Its dated rain timing amendment changes the unchanged 48 rain frames
+from 80 to 100 ms (4,800 ms loops); the final resources total 1,834,301 bytes. The earlier measurements and timings
+below describe this art delivery, not the final integrated timing. All 36 sheet pairs are now integrated with the app.
+
 Art-only delivery against the [binding scenery contract](../../../../../docs/specs/2026-10-02-study-room-scenery.md),
 including its committed wall-clock amendment (`aa39cc1a`). That amendment brings the delivery from 35 to **36 sheet
 pairs: 429 tags, 4,426 frames**. Swift and test edits from the superseded night-room brief were restored to HEAD;

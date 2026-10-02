@@ -59,12 +59,25 @@ final class SpriteAssetTests: XCTestCase {
             XCTAssertTrue(color.role.contains("."))
             XCTAssertFalse(reserved.contains(try XCTUnwrap(UInt32(color.hex.dropFirst(), radix: 16))))
         }
-        let allowed = Set(palette.roles.keys)
+        for hex in palette.declaredHexes {
+            XCTAssertNotNil(hex.range(of: #"^#[0-9A-Fa-f]{6}$"#, options: .regularExpression))
+            XCTAssertFalse(reserved.contains(try XCTUnwrap(UInt32(hex.dropFirst(), radix: 16))), hex)
+        }
+        let allowed = palette.allowedColors
         for name in SpriteTestAssets.sheetNames {
             let sheet = try SpriteTestAssets.sheet(name)
-            for pixel in SpriteTestAssets.Plane(sheet.image).pixels {
-                XCTAssertTrue(pixel.alpha == 0 || pixel.alpha == 255, name)
-                if pixel.alpha > 0 { XCTAssertTrue(allowed.contains(pixel.rgb), "\(name): \(pixel.rgb)") }
+            let plane = SpriteTestAssets.Plane(sheet.image)
+            // Inspect every packed pixel, including padding, but report just the first defect per sheet.
+            let defect = plane.pixels.enumerated().first {
+                let pixel = $0.element
+                return (pixel.alpha != 0 && pixel.alpha != 255)
+                    || (pixel.alpha > 0 && (!allowed.contains(pixel.rgb) || reserved.contains(pixel.rgb)))
+            }
+            if let defect {
+                let x = defect.offset % plane.w, y = defect.offset / plane.w
+                let frame = sheet.frameRects.firstIndex { $0.contains(CGPoint(x: x, y: y)) }
+                let cell = frame.map { "(\(x - Int(sheet.frameRects[$0].minX)),\(y - Int(sheet.frameRects[$0].minY)))" } ?? "padding (\(x),\(y))"
+                XCTFail("\(name), frame \(frame.map(String.init) ?? "padding"), cell \(cell), colour \(String(format: "#%06X", defect.element.rgb)), alpha \(defect.element.alpha)")
             }
             let text = try String(contentsOf: SpriteTestAssets.url(name, ext: "json"))
             XCTAssertFalse(text.contains("/Users/") || text.contains("/private/"))

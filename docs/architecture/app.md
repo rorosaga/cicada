@@ -397,6 +397,9 @@ and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep momen
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
 and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
 schedules, shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+Settings passes the room's pause to every sprite leaf as well as its clock and weather reader. The steady-state
+redraw test covers all 240 weather/time/mood/lamp combinations and sums independent leaves, including 60 clock ticks:
+rain's unchanged 48-frame loop now holds 100 ms (4.8 s total), giving a maximum of 1,758/minute against the 1,800 cap.
 The room's wall/floor, plant and mug stay inert, with lighting chosen by the scenery. The art layer stays inert; interaction is a
 hotspot layer derived from the pure layout (`deskHotspots`), and **no click on art changes what the
 machine does**: the lamp's popover shows the scheduled engine and its reason *before* its labelled
@@ -464,7 +467,7 @@ only while its window/room is visible and its host is active; it never redraws t
 black hour/minute hands and the thin red second hand use transparent state frames, not timed sprite loops.
 Reduce Motion removes the second hand while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”
 in the system's short format, after the window and before the lamp; it is not a button. The 15 × 15 clock at
-`(93,37)`, z1, clears every existing worm frame/beat/transition, the window, lamp and pile column; art acceptance
+`(94,34)`, z1, follows the verified art plan and clears every worm frame/beat/transition, the window, lamp and pile column; art acceptance
 also checks every new night frame. The preview includes the same clock leaf. Motion sidecars exclude its state angles.
 
 **Settings → Sleep → The scenery.** One group in the in-app Settings panel's existing list grammar:
@@ -477,7 +480,10 @@ Choose-only rows land on Source. Preferences are per viewer (`cicada.sleep.scene
 `sceneryWeather`), separate from Home's scene and never in a bank. Local weather's one-line disclosure is
 “Open-Meteo receives your time zone's city, every half hour while the study room is open; nothing else leaves your Mac.”
 `LocalWeatherReader` is an in-memory read, not a Store domain; its own visibility/source gate, half-hour attempts and
-four-second/64-KiB/no-cookie transport are detailed in `network.md`.
+four-second/64-KiB/no-cookie transport are detailed in `network.md`. The ImageRenderer hook uses isolated viewer
+preferences and frozen sprite frames without native visibility probes; it renders the native source menu's current
+text as a SwiftUI label because ImageRenderer cannot draw that menu. It verifies pane layout/art, not native menu
+interaction. The actual menu remains keyboard-accessible. Six light/dark source panes are in the art review index.
 
 **Sleep page v5, the app half (2026-09-30; rulings 15, 16).** All copy is `Theme/Copy+SleepV5.swift`, provider-neutral
 (`SleepProviderNeutralLintTests`: no provider or model named in a literal under `Views/Sleep`/`Views/Intake` outside the files that render the
@@ -535,8 +541,15 @@ network): every worm state, beat and transition, the contract's fifteen weather/
 in day/night lighting with the lamp lit or dark, every mood in every environment, Reduce Motion and Low Power, and the 18 × 18 menu-bar strips on a light and a dark
 bar, all at their real per-frame timings. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
 its dark outlines on a dark bar (one sheet for both). The 2026-10-02 scenery contract and wall-clock amendment expand the bundle to 36
-sheet pairs; the art run supplies the new night sheets, weather/overlay/clock tags, plan, motion sidecar, manifest and preview
-before acceptance can pass. Count props, the queue as a room, G175 marks and Q1 remain open; app-side tests do not
+sheet pairs (429 tags, 4,426 frames), all integrated with the plan, motion sidecar, manifest and preview.
+`INTEGRATION_REPORT.md` in the art directory records the app checks and all inspected render paths: 480
+environment/mood/lamp/zoom composites, 48 overlay composites, 24 fixed-clock composites and six Settings panes.
+`CICADA_WRITE_COMPOSITES=1 swift test --filter WindowSpritesTests` reproduces the room PNGs; run the same flag with
+`--filter ScenerySettingsTests` for the panes and `tools/make_integration_review.py` for the review boards/index.
+The palette loader follows the art verifier's complete declaration: authoring colours, night ramps/question glyph,
+scenery ramps/overlay colours and clock colours. Only the 81 authoring keys count against 87; all 699 declared RGBs
+still meet palette/alpha/reserved-hue checks. A defect reports sheet/frame/cell/colour once per sheet.
+Count props, the queue as a room, G175 marks and Q1 remain open; app-side tests do not
 establish the owner's visual acceptance or the live CPU budget.
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind

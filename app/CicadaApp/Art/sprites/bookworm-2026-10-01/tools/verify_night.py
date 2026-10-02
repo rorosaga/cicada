@@ -46,7 +46,15 @@ def verify_night(report):
     for tag,hash_ in baseline['room-weather']['preservedDayTags'].items():
         t=next(t for t in d['meta']['frameTags'] if t['name']==tag)
         actual={'ms':[f['duration'] for f in d['frames'][t['from']:t['to']+1]],'pixels':[hashlib.sha256(im.tobytes()).hexdigest() for im in tag_images(d,ims,tag)]}
+        if tag=='rainy-day':
+            # Dated 2026-10-02 timing amendment: strictly pin the new holds, then compare every
+            # original pixel against the unchanged historical hash (which includes 80 ms holds).
+            check(actual['ms']==[100]*48,'rainy-day: amended 100 ms holds')
+            actual['ms']=[80]*48
         check(hashlib.sha256(json.dumps(actual,sort_keys=True,separators=(',',':')).encode()).hexdigest()==hash_,tag+': day sky unchanged')
+    for tag in ('rainy-dusk','rainy-night'):
+        t=next(t for t in d['meta']['frameTags'] if t['name']==tag)
+        check([f['duration'] for f in d['frames'][t['from']:t['to']+1]]==[100]*48,tag+': amended 100 ms holds')
 
     def relight(im,position,lit,state=None):
         x,y=position;out=Image.new('RGBA',im.size)

@@ -53,7 +53,7 @@ final class DeskHotspotTests: XCTestCase {
         }
     }
 
-    /// Independently measure real PNG union ink at 3 pt; literal pins await the art handoff.
+    /// Independently measure real PNG union ink, then pin the finished art at 3 pt per cell.
     func test_theCellsTheDesignNames() throws {
         let layout = deskSceneLayout(uiScale: 1.0)
         let spots = deskHotspots(layout)
@@ -70,6 +70,14 @@ final class DeskHotspotTests: XCTestCase {
         XCTAssertEqual(spots[.worm], points(worm))
         XCTAssertEqual(spots[.lamp], points(lampBox))
         XCTAssertEqual(spots[.window], points(window))
+        XCTAssertEqual(worm, CGRect(x: 40, y: 9, width: 56, height: 48))
+        XCTAssertEqual(spots[.worm], CGRect(x: 120, y: 27, width: 168, height: 144))
+        XCTAssertEqual(spots[.lamp], CGRect(x: 6, y: 0, width: 42, height: 150))
+        XCTAssertEqual(spots[.window], CGRect(x: 60, y: 81, width: 60, height: 96))
+        XCTAssertEqual(DeskHotspots.eyeCell.col, 64)
+        XCTAssertEqual(DeskHotspots.eyeCell.row, 34)
+        // The wall clock is an inert text-twin leaf, never a fourth hotspot.
+        XCTAssertEqual(Set(spots.keys), [.worm, .lamp, .window])
     }
 
     func test_sceneBottomLeadingFlipsY() {

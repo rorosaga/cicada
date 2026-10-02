@@ -9,11 +9,12 @@ struct SpriteLayerView: View {
     var canvasSize: CGSize? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePaused) private var hostPaused
+    @Environment(\.spriteSnapshotDate) private var snapshotDate
     @State private var windowVisible = true
 
     var body: some View {
         let profile = SpritePlaybackProfile.of(reduceMotion: reduceMotion, lowPower: SceneStore.shared.lowPower)
-        let paused = SceneRunPolicy.isPaused(windowVisible: windowVisible, hostPaused: hostPaused)
+        let paused = snapshotDate != nil || SceneRunPolicy.isPaused(windowVisible: windowVisible, hostPaused: hostPaused)
         Group {
             if let clip, clip.order.count > 1, profile != .still, !paused {
                 TimelineView(SpriteFrameSchedule(tracks: [.init(origin: SpriteClock.origin,
@@ -26,7 +27,7 @@ struct SpriteLayerView: View {
                 frame(nil)
             }
         }
-        .background(WindowVisibilityReader { windowVisible = $0 })
+        .background { if snapshotDate == nil { WindowVisibilityReader { windowVisible = $0 } } }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

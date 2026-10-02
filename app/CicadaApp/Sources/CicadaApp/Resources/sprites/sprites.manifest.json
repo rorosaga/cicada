@@ -549,7 +549,7 @@
    "licence": "MIT, as this repository (see LICENSE). Own work for Cicada; no third-party artwork or brand marks.",
    "processing": "export_all.sh: --sheet-pack --format json-array --list-tags --list-slices; no trim; RGBA8888; binary alpha; palette-locked to palette.json",
    "pngSha256": "04a02148eb4db01d9a40bdf2dbaaebd4829298cc10dc23db241bf527d9899bc3",
-   "jsonSha256": "fe6b3ce8a434b69cfd266d061f2fe91fd341cfe6a2889b09b9e20e1ccc7d8fc0"
+   "jsonSha256": "7124f9ecb52233f1ea2923daf1cd4024c54cba634b829aabaf25f0f0ffa8374b"
   },
   {
    "id": "room-window",

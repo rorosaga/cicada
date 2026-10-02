@@ -6,6 +6,7 @@ final class SpriteClipTests: XCTestCase {
     func testEveryEnvironmentMoodAndLampStateStaysInsideTheRoomRedrawBudget() throws {
         let weather = try SpriteTestAssets.sheet("room-weather"), fx = try SpriteTestAssets.sheet("room-skyfx")
         let fly = try SpriteTestAssets.sheet("room-fly")
+        var maximum = (count: 0, scene: "")
         for base in WindowWeather.all { for time in SkyPhase.allCases {
             for mood in WindowSpritesTests.moods { for lit in [false, true] {
                 let scenery = Scenery.resolve(mode: .choose, clock: .day, forecast: nil, mood: mood,
@@ -23,8 +24,12 @@ final class SpriteClipTests: XCTestCase {
                     while let date = entries.next(), date.timeIntervalSince(SpriteClock.origin) <= 60 { boundaries += 1 }
                 }
                 XCTAssertLessThanOrEqual(boundaries, 1800, "\(scenery.weatherTag) \(mood.caseName) lamp \(lit)")
+                if boundaries > maximum.count { maximum = (boundaries, "\(scenery.weatherTag) \(mood.caseName) lamp \(lit)") }
             } }
         } }
+        if ProcessInfo.processInfo.environment["CICADA_WRITE_COMPOSITES"] == "1" {
+            print("Room redraw maximum: \(maximum.count)/minute, \(maximum.scene), including 60 clock ticks")
+        }
     }
     private let clip = SpriteClip(sheet: "synthetic", tag: "idle", order: [4, 1, 4], seconds: [0.1, 0.2, 0.3])
     private func at(_ t: Double) -> Date { SpriteClock.origin.addingTimeInterval(t) }

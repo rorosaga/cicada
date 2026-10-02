@@ -4,6 +4,7 @@ import SwiftUI
 struct ScenerySettings: View {
     let mood: BookwormState
     let lampLit: Bool
+    @Environment(\.spriteSnapshotDate) private var snapshotDate
     @AppStorage(SceneryMode.defaultsKey) private var sourceRaw = SceneryMode.localWeather.rawValue
     @AppStorage(ManualScenery.timeKey) private var timeRaw = "day"
     @AppStorage(ManualScenery.baseKey) private var baseRaw = "sunny"
@@ -17,15 +18,22 @@ struct ScenerySettings: View {
         SettingsGroupCard(header: Copy.Scenery.group) {
             SettingsRow(.scenerySource, title: Copy.Scenery.source,
                         detail: mode == .localWeather ? Copy.Scenery.disclosure : nil) {
-                Picker(Copy.Scenery.source, selection: Binding(get: { mode.rawValue }, set: { value in
-                    var transaction = Transaction(animation: nil)
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) { sourceRaw = value }
-                })) {
-                    ForEach(SceneryMode.allCases) { Text($0.label).tag($0.rawValue) }
+                if snapshotDate != nil {
+                    // The native menu is outside ImageRenderer's supported views; render its current text twin.
+                    HStack { Text(mode.label); Image(systemName: "chevron.down") }
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textPrimary)
+                } else {
+                    Picker(Copy.Scenery.source, selection: Binding(get: { mode.rawValue }, set: { value in
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { sourceRaw = value }
+                    })) {
+                        ForEach(SceneryMode.allCases) { Text($0.label).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
             }
             if mode == .choose {
                 SettingsDivider()

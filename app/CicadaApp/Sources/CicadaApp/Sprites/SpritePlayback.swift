@@ -1,6 +1,15 @@
 import Foundation
 import SwiftUI
 
+/// ImageRenderer cannot draw native visibility probes. Snapshot hooks hold key frames without mounting probes.
+private struct SpriteSnapshotDateKey: EnvironmentKey { static let defaultValue: Date? = nil }
+extension EnvironmentValues {
+    var spriteSnapshotDate: Date? {
+        get { self[SpriteSnapshotDateKey.self] }
+        set { self[SpriteSnapshotDateKey.self] = newValue }
+    }
+}
+
 enum SpritePlaybackProfile: Equatable, Sendable {
     case full, gentle, still
     static func of(reduceMotion: Bool, lowPower: Bool) -> Self { reduceMotion ? .still : (lowPower ? .gentle : .full) }

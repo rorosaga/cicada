@@ -122,6 +122,7 @@ struct StudyRoom: View {
                 WormStage(mood: page.mood, room: room, cell: scene.cell,
                           lighting: scenery.lighting, lampLit: page.lampLit)
             }
+            .environment(\.scenePaused, !onScreen)
             if let clock = scene.layers.first(where: { $0.prop == .clock }) {
                 RoomClock(lighting: scenery.lighting, cell: scene.cell, onScreen: onScreen)
                     .offset(x: CGFloat(clock.cellX) * scene.cell, y: -CGFloat(clock.cellY) * scene.cell)

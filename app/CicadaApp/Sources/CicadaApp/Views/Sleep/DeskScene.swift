@@ -22,7 +22,7 @@ enum DeskScene {
     static let rows = RoomLattice.rows
     static let plan: [DeskLayer] = [
         .init(prop: .backdrop, cellX: 0, cellY: 0, w: 110, h: 64, z: 0),
-        .init(prop: .clock, cellX: 93, cellY: 37, w: 15, h: 15, z: 1),
+        .init(prop: .clock, cellX: 94, cellY: 34, w: 15, h: 15, z: 1),
         .init(prop: .pane, cellX: 20, cellY: 27, w: 36, h: 32, z: 2),
         .init(prop: .skyfx, cellX: 20, cellY: 27, w: 36, h: 32, z: 3),
         .init(prop: .window, cellX: 18, cellY: 23, w: 40, h: 38, z: 4),

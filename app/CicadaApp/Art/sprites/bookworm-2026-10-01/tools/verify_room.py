@@ -26,7 +26,8 @@ CONTRACT = {
  'room-plant':((12,22),['idle','night-dark','night-lit'],['ink']),
  'room-mug':((8,9),['idle','night-dark','night-lit'],['ink']),
  'room-spines':((24,12),['chat','page','note','video','other'],[])}
-WEATHER_MS={base+'-'+time:([500]*36 if base=='sunny' else [200]*72 if base=='cloudy' else [120]*36 if base=='windy' else [80]*48 if base=='rainy' else [600,300]*4) for base in BASES for time in TIMES}
+# G176 2026-10-02: rain holds 100 ms to leave the full room below the unchanged redraw cap.
+WEATHER_MS={base+'-'+time:([500]*36 if base=='sunny' else [200]*72 if base=='cloudy' else [120]*36 if base=='windy' else [100]*48 if base=='rainy' else [600,300]*4) for base in BASES for time in TIMES}
 WEATHER_MS['sunny-dusk']=[300]*36;WEATHER_MS['sunny-night']=[200]*24
 FX_MS={tag:([300]*36 if tag.startswith('mist') else [600]*12 if tag.startswith('rainbow') else [250]*48) for tag in SKYFX}
 CLOCK_MS={tag:[1000]*(1 if tag.startswith('face') else 60) for tag in CLOCK}

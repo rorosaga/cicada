@@ -31,11 +31,47 @@ enum SpriteTestAssets {
 
     struct Palette: Decodable {
         struct Entry: Decodable { let key, hex, group, role: String }
+        struct Night: Decodable {
+            struct Glyph: Decodable { let colors: [String: String] }
+            struct Glyphs: Decodable { let question: Glyph }
+            let ramps: [String: [String]]
+            let glyphs: Glyphs
+        }
+        struct SceneryColors: Decodable {
+            struct Color: Decodable { let id, hex, role: String }
+            let ramps: [String: [String: String]]
+            let colors: [Color]
+        }
+        struct Clock: Decodable { let colors: [String: String] }
         let colors: [Entry]
+        let night: Night
+        let scenery: SceneryColors
+        let clock: Clock
+        /// Exactly tools/night_palette.py's allowed_colors: authoring colours plus all declared derivatives.
+        var declaredHexes: [String] {
+            colors.map(\.hex) + night.ramps.values.flatMap { $0 }
+                + Array(night.glyphs.question.colors.values)
+                + scenery.ramps.values.flatMap { $0.values }
+                + scenery.colors.map(\.hex) + Array(clock.colors.values)
+        }
+        var allowedColors: Set<UInt32> {
+            Set(declaredHexes.compactMap { UInt32($0.dropFirst(), radix: 16) })
+        }
         var roles: [UInt32: String] {
-            colors.reduce(into: [:]) { result, color in
+            var result: [UInt32: String] = [:]
+            // Sky tints retain their authoring role, so night/dusk visibility checks inspect actual shapes too.
+            for ramp in scenery.ramps.values {
+                for color in colors {
+                    if let hex = ramp[color.key], let rgb = UInt32(hex.dropFirst(), radix: 16) { result[rgb] = color.role }
+                }
+            }
+            for color in scenery.colors {
                 if let rgb = UInt32(color.hex.dropFirst(), radix: 16) { result[rgb] = color.role }
             }
+            for color in colors {
+                if let rgb = UInt32(color.hex.dropFirst(), radix: 16) { result[rgb] = color.role }
+            }
+            return result
         }
         func rgb(_ key: String) throws -> UInt32 {
             let color = try XCTUnwrap(colors.first { $0.key == key }, "palette has no key \(key)")
