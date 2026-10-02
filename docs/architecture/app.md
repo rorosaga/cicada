@@ -375,7 +375,9 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
   value. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
 
-**Sleep page — the study room (G125 v4, Track Z).** One 760 pt column at every width: the room,
+**Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
+animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
+preview*, below). One 760 pt column at every width: the room,
 one sentence in the display face under it, one Consolidate/Cancel control with the engine menu
 beside it — a neutral button naming what a cycle you start would run (`preview.manual`, "Auto ·"
 under Auto) that opens the five engines with their real marks, the chosen engine's model and both
@@ -468,7 +470,7 @@ the intake router has a request in flight) forces `reading` ahead of `happy`/`hu
 only a measured, telemetry-joined duration is ever shown. Track Z's **response art** remains
 `BookwormPose` (idle · attentive(gaze) · expectant(gaze) · eager) and `BookwormReaction` (perk · talk · gulp · shake ·
 cheer), gated by one state × response matrix (`BookwormState.allows`, `acceptsGaze`) so a sleeping worm's eyes stay
-shut and red pupils never look away. The worm is the owner's design as Aseprite sheets
+shut and the X-eyed error worm never looks away. The worm is the owner's design as Aseprite sheets
 (`Resources/sprites/bookworm-<state>`, 64 × 48; the menu bar's `bookworm-small`, 18 × 18, with badge and stage dots
 drawn in code); a beat settles within 800 ms, a perk within 400 ms, and the yawn and stretch within 1.6 s (ruling 18).
 Tags derive from `BookwormLook.keySegment` and are tested to match each sheet exactly; reading cycles three book
@@ -480,12 +482,15 @@ binary masks over the existing origin colour; `fitPile` and spine interactions a
 on the worm imports through the one intake (R-Z10) — shipped in Z9; the matrix decides its gulp and
 shake like every other beat.
 
-**G176 sprite assets staged (2026-10-01, not integrated).** The chosen-reference worm art in
-`app/CicadaApp/Art/sprites/bookworm-2026-10-01/` now supplies nine saved animation sheets (130 tags / 1,095 frames),
-including the owner's independent 18×18 menu head. Owner 2026-10-01: black diagonal X error eyes and one dark-outline menu sheet on both appearances. The saved Aseprite parts are authoritative;
-`tools/export_all.sh` rebuilds the sheets and checks pixels/timing. `WORM_FIX_REPORT.md` is the itemized art handoff.
-The forthcoming player must use the amended room lens slices, advance the three reading cover tags and use the same dark-outline
-menu sheet on both appearances. The legacy renderer above remains the running implementation until that integration lands.
+**The sprite art and its preview (G176).** The worm and the room are pixel art authored in Aseprite, in
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/`: the owner's references in `reference/`, the saved parts (the source of
+truth), the Lua builders, and `tools/export_all.sh`, which rebuilds every sheet into `Resources/sprites/`, verifies pixels
+and timing, writes the manifest and regenerates the preview. **To see all of it move, open
+`app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser straight from disk** (no server, no
+network): every worm state, beat and transition, the seven weathers behind the window, the lamp and its fly, the room
+by mood with the lamp lit or dark, Reduce Motion and Low Power, and the 18 × 18 menu-bar strips on a light and a dark
+bar, all at their real per-frame timings. Owner 2026-10-01: the error worm has black X eyes, and the menu-bar worm keeps
+its dark outlines on a dark bar (one sheet for both).
 
 **View menu (G130 slice 1a).** ⌘+ / ⌘− / ⌘0 scale the whole chrome — one persisted `uiScale` behind
 every `CicadaTheme` font and spacing token, so every reader repaints with no `.id()` anywhere (the

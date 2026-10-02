@@ -1,6 +1,15 @@
 # Bookworm sprites — sources and delivery
 
-Current delivery: **19 sheet pairs, 159 tags and 1,450 frames** — Run A's ten worm sheets (including the dark menu-bar variant), plus Run B's nine room sheets. Open [preview.html](preview.html) locally for the complete art review. Read [RUN_B_REPORT.md](RUN_B_REPORT.md) for the room's acceptance evidence, remaining browser-review limitation and Run C handoff; [ROOM_TAG_TIMINGS.md](ROOM_TAG_TIMINGS.md) lists all 21 room tags. The Run A record below is preserved as historical evidence.
+**Preview: open [preview.html](preview.html) in a browser, straight from disk.** It plays every worm state, beat and
+transition, the seven weathers, the lamp and its fly, the room by mood with the lamp lit or dark, and the menu-bar strips
+on light and dark bars at their real timings. `tools/export_all.sh` regenerates it with the sheets.
+
+Current delivery: **18 sheet pairs** in `Sources/CicadaApp/Resources/sprites/` — nine worm sheets (eight room-scale
+states and the 18 × 18 menu-bar head; owner 2026-10-01: black X error eyes, one dark-outline menu sheet on both bars) and
+nine room sheets. The saved Aseprite parts are the pixel authority; `tools/export_all.sh` rebuilds and verifies every
+sheet. [RUN_B_REPORT.md](RUN_B_REPORT.md) and [ROOM_TAG_TIMINGS.md](ROOM_TAG_TIMINGS.md) cover the room;
+[WORM_FIX_REPORT.md](WORM_FIX_REPORT.md) and [TAG_TIMINGS.md](TAG_TIMINGS.md) the worm. The run records below are kept as
+history.
 
 # Bookworm sprites — worm fix pass, 2026-10-01
 
