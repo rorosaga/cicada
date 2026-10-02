@@ -73,8 +73,8 @@ All sheets 1 px = one room cell, palette-locked, binary alpha, per-frame duratio
 | `bookworm-small` | 18 × 18 | unchanged (the menu bar has no room light) |
 
 `room-plan.json` gains the `skyfx` layer between `pane` and `window`. `room-motion.json` covers all 15 weather tags and
-the 6 sky-fx tags. The manifest covers every sheet (**36 sheet pairs**: 9 day worm + 16 night worm + 1 small... — the
-manifest lists the exact set the builders write; tests derive the expected set from this table, never from a typed count).
+the 6 sky-fx tags. The manifest covers every sheet: **35 sheet pairs** (8 day worm + 16 night worm + the small worm + 10
+room sheets). Tests derive the expected set from this table, never from a typed count.
 
 ## The app contract
 
