@@ -4,6 +4,9 @@
 three-cover reading cycle, the 15 time/weather skies, six overlays, lamp/fly and clock, day/dark rooms, and the
 18 × 18 menu strips on both bar appearances at their real sheet timings. No server or network is needed.
 
+**Making another mascot:** follow [../MAKING_A_MASCOT.md](../MAKING_A_MASCOT.md) (agent quickstart first) and start a
+session with the paste-ready prompt `docs/specs/2026-10-02-new-mascot-handoff-prompt.md`.
+
 **Current delivery (2026-10-02): 36 sheet pairs, 429 tags, 4,426 frames**, integrated with the app on
 `feat/study-room-sprites`; owner review and merge to dev remain pending. The
 [scenery contract](../../../../../docs/specs/2026-10-02-study-room-scenery.md) wins over the earlier sprite spec

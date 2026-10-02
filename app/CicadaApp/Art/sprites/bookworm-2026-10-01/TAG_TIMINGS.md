@@ -185,4 +185,3 @@ Frame counts below describe the assembled animation before GIF duplicate-frame m
 |---|---:|---|---:|---|
 | `bookworm-mad-demo@6x.gif` / `mad` | 34 | Same holds as awake `idle` above | 13200 | Awake breathing/blinks with the unused mad brows. |
 | `bookworm-reading-cycle@6x.gif` / `cycle` | 255 | The three reading idle hold arrays above, in cover order | 65520 | Blue, crimson and ochre reading cycles joined with matching cover seams. |
-
