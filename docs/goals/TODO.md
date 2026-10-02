@@ -23,8 +23,11 @@ CLAUDE size/link checks **2 passed**;
 two headless exports **120 files byte-identical**; documented worm-stage and partial skyfx builds match the same delivery;
 `make app` bundle **36 pairs + manifest, every hash matched**;
 `git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
-**Still to measure live:** idle CPU on the Sleep page against the previous build (≤ 3% of one core and within 2 points)
-and the demo-bank light/dark look at 0.8×–1.4×.
+**Measured live 2026-10-02 (installed release build of 0d745538):** the Sleep page uses **11.9% of one core** on average
+(peak 14.4%; 12 samples of 5 s) against ruling 18's ≤ 3% — open, first in the follow-up handoff. Clicking the worm no
+longer draws a focus ring (#165). Still to look at: the Sleep page in light and dark at 0.8×–1.4×. **Follow-ups:**
+`docs/specs/2026-10-02-g176-followups-handoff.md` (the CPU, the backend test failing on `dev`, the blocked
+auto-updater, Q1).
 *Pick up here:* the next mascot — `app/CicadaApp/Art/sprites/MAKING_A_MASCOT.md` and the prompt
 `docs/specs/2026-10-02-new-mascot-handoff-prompt.md`. **Open design rounds:** count props, the queue as a room, G175 marks, a second G127 character and
 Q1 (running Sleep currently sleeps rather than reads). Time-of-day/dark-room scenery and the clock are built.
