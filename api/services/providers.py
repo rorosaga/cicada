@@ -726,6 +726,14 @@ def resolve_embed_fn(
 
         return _openai_embed, model
 
+    # G182 — a bundled ONNX model (a release app's default) runs without torch.
+    if sentence_transformer_factory is None:
+        from api.services import onnx_embedder
+
+        spec = onnx_embedder.find(model)
+        if spec is not None:
+            return onnx_embedder.OnnxEmbedder(spec), spec.id
+
     # Local sentence-transformers (default: google/embeddinggemma-300m).
     if sentence_transformer_factory is None:
         from sentence_transformers import SentenceTransformer
@@ -853,6 +861,14 @@ def resolve_embed_fn_for_model(
             return np.asarray(out, dtype=np.float32)
 
         return _or_embed, mid
+
+    # A bank built with a bundled ONNX model queries with it (G182).
+    if sentence_transformer_factory is None:
+        from api.services import onnx_embedder
+
+        spec = onnx_embedder.find(mid)
+        if spec is not None:
+            return onnx_embedder.OnnxEmbedder(spec), spec.id
 
     # Local sentence-transformers (the recorded id is the ST model name).
     if sentence_transformer_factory is None:

@@ -12,18 +12,32 @@
 #   ./bundle.sh           # build (debug) + assemble Cicada.app, print its path
 #   ./bundle.sh --release # optimized build
 #   ./bundle.sh --run     # build, assemble, and launch
+#   ./bundle.sh --release --with-backend
+#                         # the installable app (G182): carries its own Python, code, git and
+#                         # embedding model (scripts/release/build-backend.sh), is stamped
+#                         # CicadaDistribution=release instead of a checkout path, and is signed
+#                         # inside out (scripts/release/sign-app.sh — ad hoc unless
+#                         # CICADA_SIGN_IDENTITY names a Developer ID). Never used by make dev,
+#                         # install_app.sh or the dev auto-updater, whose builds are unchanged.
+#   CICADA_BACKEND_DIR=<dir> reuses an already assembled backend instead of building one.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 CONFIG="debug"
 RUN=0
+WITH_BACKEND=0
 for arg in "$@"; do
   case "$arg" in
     --release) CONFIG="release" ;;
     --run) RUN=1 ;;
+    --with-backend) WITH_BACKEND=1 ;;
   esac
 done
+if [ "$WITH_BACKEND" = "1" ] && [ "$CONFIG" != "release" ]; then
+  echo "✗ --with-backend builds the installable app; pass --release too" >&2
+  exit 2
+fi
 
 echo "→ swift build ($CONFIG)…"
 swift build -c "$CONFIG"
@@ -122,6 +136,24 @@ APP_VERSION="$(head -n1 "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
 BUILD_NUMBER="${CICADA_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
 plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP/Contents/Info.plist"
+
+if [ "$WITH_BACKEND" = "1" ]; then
+  # G182 — the installable app. No checkout path is stamped: the app finds its backend inside itself
+  # (CicadaRuntime), and its memory lives in ~/cicada/memory, never in the bundle.
+  REPO_ROOT_DIR="$(cd ../.. && pwd)"
+  BACKEND_DIR="${CICADA_BACKEND_DIR:-$PWD/.build/release-backend/backend}"
+  if [ -z "${CICADA_BACKEND_DIR:-}" ]; then
+    "$REPO_ROOT_DIR/scripts/release/build-backend.sh" "$BACKEND_DIR"
+  fi
+  [ -x "$BACKEND_DIR/bin/cicada-backend" ] || { echo "✗ no assembled backend at $BACKEND_DIR" >&2; exit 1; }
+  ditto "$BACKEND_DIR" "$APP/Contents/Resources/backend"
+  plutil -replace CicadaDistribution -string release "$APP/Contents/Info.plist"
+  # Symbols are 60% of the binary and nothing on a tester's Mac reads them.
+  strip -x "$APP/Contents/MacOS/CicadaApp"
+  "$REPO_ROOT_DIR/scripts/release/sign-app.sh" "$APP"
+  echo "✓ built $APP ($APP_VERSION, build $BUILD_NUMBER, release with backend, $(du -sh "$APP" | cut -f1))"
+  exit 0
+fi
 
 # Stamp the checkout path that produced this bundle (G88). BackendProcess's
 # installRoot() prefers this over its .build/DerivedData path heuristic, so

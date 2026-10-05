@@ -8,7 +8,8 @@ enum BackendAgentState: Equatable {
 }
 
 /// Round-4 D3 (R-FA8, R-FA9) — the only command the app runs for the background service, pinned to the checkout the
-/// app was built from (the `AgentConnectPolicy` rule), and the read-only probe beside it.
+/// app was built from (the `AgentConnectPolicy` rule), and the read-only probe beside it. G182: in a release the
+/// "checkout" is the bundled `backend/app` (`CicadaRuntime.codeRoot`), so the argv keeps its shape in both builds.
 enum BackendAgentPolicy {
     static let label = "com.cicada.backend"
     static let probeTimeout: Duration = .seconds(2)
@@ -50,7 +51,7 @@ enum BackendAgentPolicy {
     }
 
     /// Where launchd's copy of the background service is declared. `BackendProcess.start` reads the same path to
-    /// leave :8000 to launchd (finding 2), so the two can never disagree about which file means "launchd owns it".
+    /// leave the backend's port to launchd (finding 2), so the two can never disagree about which file means "launchd owns it".
     static func plistURL(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
@@ -89,6 +90,29 @@ enum BackendAgentPolicy {
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         return env
     }
+
+    /// G182 — the same environment for this runtime. A release adds what the script needs to write a plist that
+    /// runs the stable launcher (`CICADA_BACKEND_PROGRAM`), logs under Cicada's home, and the port the app reads.
+    static func environment(base: [String: String], runtime: CicadaRuntime, memoryRoot: String) -> [String: String] {
+        var env = environment(base: base, installRoot: runtime.codeRoot, memoryRoot: memoryRoot)
+        guard runtime.isRelease else { return env }
+        env["CICADA_BACKEND_PROGRAM"] = runtime.binDir.appendingPathComponent("cicada-backend").path
+        env["CICADA_LOG_DIR"] = runtime.logDir.path
+        env["CICADA_PORT"] = String(runtime.port)
+        env["CICADA_HOME"] = runtime.cicadaHome.path
+        return env
+    }
+
+    /// G182 — a plist written before this build (a venv python, or an older copy of the app) still runs whatever it
+    /// named, so a person who chose the background service is quietly left on the old backend. True only when the
+    /// plist exists, parses, and its `ProgramArguments[0]` is not exactly the launcher; nothing on disk, or nothing
+    /// readable, is never a reason to install (the service stays opt-in).
+    static func needsMigration(plistData: Data?, launcher: String) -> Bool {
+        guard let plistData,
+              let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+              let program = (plist["ProgramArguments"] as? [Any])?.first as? String else { return false }
+        return program != launcher
+    }
 }
 
 @MainActor
@@ -97,7 +121,8 @@ final class BackendAgentService {
     private(set) var state: BackendAgentState = .checking
 
     @ObservationIgnored private let runner: AgentProcessRunning
-    @ObservationIgnored let installRoot: URL
+    @ObservationIgnored let runtime: CicadaRuntime
+    var installRoot: URL { runtime.codeRoot }
     @ObservationIgnored private let plistURL: URL
     @ObservationIgnored private let uid: uid_t
     @ObservationIgnored private let memoryRoot: () async -> String?
@@ -105,18 +130,18 @@ final class BackendAgentService {
     @ObservationIgnored private let onInstalled: () -> Void
 
     init(runner: AgentProcessRunning = LiveAgentProcessRunner(),
-         installRoot: URL = BackendProcess.installRoot(),
+         runtime: CicadaRuntime = .current,
          plistURL: URL = BackendAgentPolicy.plistURL(),
          uid: uid_t = getuid(),
          memoryRoot: @escaping () async -> String? = { try? await APIClient.shared.fetchHealth().memoryRoot },
          envFileContents: (() -> String?)? = nil,
          onInstalled: @escaping () -> Void = {}) {
         self.runner = runner
-        self.installRoot = installRoot
+        self.runtime = runtime
         self.plistURL = plistURL
         self.uid = uid
         self.memoryRoot = memoryRoot
-        let envFile = installRoot.appendingPathComponent("api/.env")
+        let envFile = runtime.codeRoot.appendingPathComponent("api/.env")
         self.envFileContents = envFileContents ?? { try? String(contentsOf: envFile, encoding: .utf8) }
         self.onInstalled = onInstalled
     }
@@ -131,7 +156,7 @@ final class BackendAgentService {
                                          plistExists: FileManager.default.fileExists(atPath: plistURL.path))
     }
 
-    /// Only ever from the person's click on Install.
+    /// From the person's click on Install, or `migrateIfNeeded` keeping a choice they already made.
     func install() async {
         let argv = BackendAgentPolicy.installArgv(installRoot: installRoot)
         guard BackendAgentPolicy.isAllowed(argv, installRoot: installRoot) else {
@@ -139,12 +164,14 @@ final class BackendAgentService {
             return
         }
         state = .installing
-        guard let memory = BackendAgentPolicy.memoryPath(
-            live: await memoryRoot(), envFile: BackendAgentPolicy.envFileMemoryPath(envFileContents())) else {
+        // G182 — a release has no `api/.env`; its fallback is the backend's own default, never a bundle path.
+        let fallback = runtime.isRelease ? runtime.memoryRootDefault
+            : BackendAgentPolicy.envFileMemoryPath(envFileContents())
+        guard let memory = BackendAgentPolicy.memoryPath(live: await memoryRoot(), envFile: fallback) else {
             state = .failed(Copy.backgroundNeedsBackend)
             return
         }
-        let env = BackendAgentPolicy.environment(base: ProcessInfo.processInfo.environment, installRoot: installRoot,
+        let env = BackendAgentPolicy.environment(base: ProcessInfo.processInfo.environment, runtime: runtime,
                                                  memoryRoot: memory)
         let result = await runner.run(argv, environment: env, timeout: BackendAgentPolicy.installTimeout)
         guard result.status == 0 else {
@@ -154,5 +181,17 @@ final class BackendAgentService {
         onInstalled()
         state = .checking
         await refresh()
+    }
+
+    /// G182 — on a release's launch: when the background service is already installed but its plist runs something
+    /// other than the launcher (a checkout's venv, an older copy of the app), run the same install once so the
+    /// person's choice follows the app. No plist → nothing (the service stays opt-in). Returns whether it ran.
+    @discardableResult
+    func migrateIfNeeded(readPlist: (URL) -> Data? = { try? Data(contentsOf: $0) }) async -> Bool {
+        guard runtime.isRelease, state != .installing else { return false }
+        let launcher = runtime.binDir.appendingPathComponent("cicada-backend").path
+        guard BackendAgentPolicy.needsMigration(plistData: readPlist(plistURL), launcher: launcher) else { return false }
+        await install()
+        return true
     }
 }

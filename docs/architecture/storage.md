@@ -388,7 +388,10 @@ argument the schema rejects is a bug** — every argument it names must exist in
 ### sqlite-vec (vector index)
 `api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
 is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
-asymmetric query/document prompts. The index is **derived and disposable** — synced by Sleep from
+asymmetric query/document prompts — in a developer checkout. A release app (G182) bundles the int8 ONNX export of
+`BAAI/bge-small-en-v1.5` (384-dim, no torch, `api/services/onnx_embedder.py`, found through `CICADA_BUNDLED_MODELS`)
+and a fresh bank there is built with it unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
+queried with it (the recorded model, as for every bank). The index is **derived and disposable** — synced by Sleep from
 markdown, safe to delete at any time. **The sync is incremental** (`SqliteVecIndexer._sync_kind`): each
 row keeps a stable `key` and the `hash` of the text that was embedded, so a cycle embeds only new and
 changed texts, removes deleted ones and refreshes a page's metadata in place without an embed; a missing

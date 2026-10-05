@@ -764,4 +764,28 @@ build number — the commit count, or `CICADA_BUILD_NUMBER` when a build passes 
 Settings → General ends with a Version row ("Version 0.3.0 (1523)", `AppVersion`); when `/healthz` answers with a
 different version (an updated app beside a background service still running the old one) the row says so.
 
+**The release app (G182 phase 2).** `bundle.sh --release --with-backend` builds the installable app: it runs
+`scripts/release/build-backend.sh` (python-build-standalone CPython 3.12 for arm64; the release dependency set from
+`scripts/release/requirements.lock`, hashed, no torch; Cicada's tracked `api/`, `mcp/`, `skills/`, `SKILL.md`,
+`VERSION` and agent script; dugite-native git, pruned, with its GPLv2 `COPYING` and a source pointer; the int8 ONNX
+`BAAI/bge-small-en-v1.5`), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
+`CicadaRepoRoot`), strips the binary and signs every Mach-O ad hoc, inside out, never `--deep`
+(`scripts/release/sign-app.sh`). 347 MB unzipped, 138 MB zipped (0.3.0). Nothing is written inside the signed app:
+bytecode goes to `~/.cicada/cache/pycache`. `scripts/release/smoke-test.sh <app>` copies a build to a temp folder and
+proves it there with a temporary home, bank and port (health and version, the bundled git, an MCP save, the bundled
+model through sqlite-vec, a hook, a launcher that fails loudly when its app moved). `CicadaRuntime` decides the
+distribution once at launch (the plist stamp plus the bundled launcher on disk); a developer build — `make dev`,
+`install_app.sh`, the auto-updater — has no stamp and behaves exactly as before. A release writes
+`~/.cicada/bin/cicada-{backend,mcp,hook,python}` on every launch (`LauncherInstaller`, atomic, 0755), each a few lines
+that exec the matching script inside whichever copy of the app opened last and exit 127 with a sentence when it is
+gone; MCP registrations, the Stop and recall hooks and the launchd plist name only those paths
+(`api/services/runtime_layout.py` and `CicadaRuntime` hold the same shapes; `AgentConnectPolicy` accepts exactly the
+running distribution's). The hook registry knows both forms as Cicada's own, so one entry per script survives a switch
+between a source install and the app. Memory defaults to `~/cicada/memory`, never inside the bundle. The background
+service stays opt-in; a release re-points an existing `com.cicada.backend` plist at its launcher
+(`BackendAgentPolicy.needsMigration`, then the bundled `install-backend-agent.sh` in its `CICADA_BACKEND_PROGRAM`
+mode, logs in `~/.cicada/logs`). `CICADA_PORT` (default 8000; the app also reads the `cicada.port` default) is honoured
+by the app, the backend, the MCP server, the hooks and the launchers. The bundled git is first on the backend's
+`PATH`; the app's own repo reads try the person's git first and the bundled one last.
+
 ---

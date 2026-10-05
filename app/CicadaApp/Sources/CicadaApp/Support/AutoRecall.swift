@@ -89,14 +89,15 @@ enum AutoRecall {
 final class AutoRecallModel {
     struct Deps {
         var fetch: @MainActor () async -> AgentWiringResponse?
-        var run: @MainActor ([AgentWiringStep], URL, Set<String>) async -> AgentConnectOutcome
-        var installRoot: URL
+        var run: @MainActor ([AgentWiringStep], CicadaRuntime, Set<String>) async -> AgentConnectOutcome
+        /// G182 — the shapes the allowlist accepts (the checkout's, or a release's launchers).
+        var runtime: CicadaRuntime
 
         /// `@MainActor` like `FoundTurnOnDeps.live`: a nested type does not inherit the class's actor.
         @MainActor static var live: Deps {
             Deps(fetch: { try? await APIClient.shared.fetchAgentWiring() },
-                 run: { steps, root, binaries in await AgentConnect.run(steps, installRoot: root, binaries: binaries) },
-                 installRoot: BackendProcess.installRoot())
+                 run: { steps, runtime, binaries in await AgentConnect.run(steps, runtime: runtime, binaries: binaries) },
+                 runtime: .current)
         }
     }
 
@@ -132,7 +133,7 @@ final class AutoRecallModel {
         failures[agent.id] = nil
         refused[agent.id] = nil
         let binaries = Set(wiring?.agents.compactMap(\.binary) ?? [])
-        switch await deps.run(action.steps, deps.installRoot, binaries) {
+        switch await deps.run(action.steps, deps.runtime, binaries) {
         case .done: break
         case .refused(let lines): refused[agent.id] = lines
         case .failed(let why): failures[agent.id] = why

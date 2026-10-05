@@ -327,6 +327,15 @@ class Settings(BaseSettings):
             return self.embedding_model
         if mode == "openrouter":
             return self.embedding_model_openrouter
+        if "embedding_model_local" not in self.model_fields_set:
+            # G182 — a release app bundles a small ONNX model (no torch) and a fresh
+            # bank is built with it; a developer checkout bundles none and keeps the
+            # default below. An explicit CICADA_EMBEDDING_MODEL_LOCAL always wins.
+            from api.services import onnx_embedder
+
+            bundled = onnx_embedder.default_model()
+            if bundled is not None:
+                return bundled.id
         return self.embedding_model_local
 
     def warn_if_degraded(self) -> None:

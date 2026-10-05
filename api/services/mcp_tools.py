@@ -109,7 +109,7 @@ class ToolContext:
     state_hint_sent: bool = False
     post: Callable[[str, dict], dict] | None = None
     headers: Callable[[], dict[str, str]] | None = None
-    backend_url: str = "http://127.0.0.1:8000"
+    backend_url: str = "http://127.0.0.1:8000"   # the stdio server passes CICADA_PORT's (G182)
     read_surface: str = "mcp"
     # G135 remote (R-R22..R-R25). Every default is the stdio server's behaviour,
     # so `mcp/server.py::_ctx` needs no change and the golden replies hold.

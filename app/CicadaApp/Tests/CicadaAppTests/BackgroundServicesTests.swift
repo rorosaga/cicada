@@ -33,7 +33,7 @@ final class BackgroundServicesTests: XCTestCase {
     private let root = URL(fileURLWithPath: "/x/cicada")
 
     func testTheBackendSpawnsInstallShsCommand() {
-        let command = BackendProcess.spawnCommand(installRoot: root)
+        let command = BackendProcess.spawnCommand(installRoot: root, port: 8000)
         XCTAssertEqual(command.executable.path, "/x/cicada/api/.venv/bin/python")
         XCTAssertEqual(command.arguments, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"])
     }
@@ -120,7 +120,7 @@ final class BackgroundServicesTests: XCTestCase {
 
     func testInstallWithNoHealthReadsApiEnv() async {
         let runner = FakeRunner()
-        let service = BackendAgentService(runner: runner, installRoot: root,
+        let service = BackendAgentService(runner: runner, runtime: .developer(codeRoot: root),
                                           plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
                                           memoryRoot: { nil },
                                           envFileContents: { "CICADA_MEMORY_PATH=/src/elsewhere/memory" },
@@ -132,7 +132,7 @@ final class BackgroundServicesTests: XCTestCase {
 
     func testInstallWithNoHealthAndNoEnvIsRefused() async {
         let runner = FakeRunner()
-        let service = BackendAgentService(runner: runner, installRoot: root,
+        let service = BackendAgentService(runner: runner, runtime: .developer(codeRoot: root),
                                           plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
                                           memoryRoot: { nil }, envFileContents: { nil }, onInstalled: {})
         await service.install()
@@ -153,7 +153,7 @@ final class BackgroundServicesTests: XCTestCase {
         let runner = FakeRunner()
         let plist = FileManager.default.temporaryDirectory.appendingPathComponent("agent-\(UUID()).plist")
         var handedOff = false
-        let service = BackendAgentService(runner: runner, installRoot: root, plistURL: plist, uid: 501,
+        let service = BackendAgentService(runner: runner, runtime: .developer(codeRoot: root), plistURL: plist, uid: 501,
                                           memoryRoot: { "/m/memory" }, onInstalled: { handedOff = true })
         runner.answers["/bin/launchctl print gui/501/com.cicada.backend"] = 113
         await service.refresh()
@@ -170,7 +170,7 @@ final class BackgroundServicesTests: XCTestCase {
     func testAFailedInstallSaysWhy() async {
         let runner = FakeRunner()
         runner.answers["/bin/bash /x/cicada/scripts/install-backend-agent.sh"] = 3
-        let service = BackendAgentService(runner: runner, installRoot: root,
+        let service = BackendAgentService(runner: runner, runtime: .developer(codeRoot: root),
                                           plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
                                           memoryRoot: { "/m/memory" }, onInstalled: {})
         await service.install()

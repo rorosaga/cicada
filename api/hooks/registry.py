@@ -18,6 +18,11 @@ G149 adds the recall hook (``api/hooks/recall.py``, registered under
 marker (:data:`MARKERS`), so installing one never collapses the other, and
 ``uninstall --hook recall`` removes only the recall entries.
 
+G182: a release app registers ``"$CICADA_HOME/bin/cicada-hook" capture|recall``
+instead of a script path; each script's markers include that form, so a
+release install UPDATES a checkout's entry (and back) rather than adding a
+second hook.
+
 Stdlib only; run by path (no ``api.*`` import).
 
     registry.py install   --settings <file> --event Stop --command "<cmd>"
@@ -37,8 +42,14 @@ from pathlib import Path
 
 MARKER = "api/hooks/capture.py"
 RECALL_MARKER = "api/hooks/recall.py"
-#: Every script Cicada registers, by the name ``uninstall --hook`` takes (G149).
-MARKERS = {"capture": MARKER, "recall": RECALL_MARKER}
+#: Every script Cicada registers, by the name ``uninstall --hook`` takes (G149),
+#: with each of the forms its command takes: a checkout's script path, and a
+#: release app's launcher (G182: ``"…/bin/cicada-hook" capture --harness …``).
+MARKERS = {
+    "capture": (MARKER, 'cicada-hook" capture '),
+    "recall": (RECALL_MARKER, 'cicada-hook" recall '),
+}
+_ALL_MARKERS = tuple(m for forms in MARKERS.values() for m in forms)
 DEFAULT_TIMEOUT_S = 5
 
 
@@ -80,11 +91,13 @@ def _markers_for(command: str) -> tuple[str, ...]:
     """The marker a command carries. An entry is "ours" for an install or a
     status only when it carries the SAME marker, so the recall hook and the
     Stop hook never collapse each other (G149)."""
-    found = tuple(m for m in MARKERS.values() if m in command)
-    return found or (MARKER,)
+    for forms in MARKERS.values():
+        if any(m in command for m in forms):
+            return forms
+    return MARKERS["capture"]
 
 
-def _ours(hook: dict, markers: tuple[str, ...] = tuple(MARKERS.values())) -> bool:
+def _ours(hook: dict, markers: tuple[str, ...] = _ALL_MARKERS) -> bool:
     return isinstance(hook, dict) and any(m in str(hook.get("command") or "") for m in markers)
 
 
@@ -141,7 +154,7 @@ def uninstall(path: Path, *, hook: str | None = None) -> int:
     """Remove Cicada's entries from every event: both scripts', or only
     ``hook``'s (``capture`` | ``recall``), so turning recall off never touches
     the Stop hook (G149 R-H11)."""
-    markers = (MARKERS[hook],) if hook else tuple(MARKERS.values())
+    markers = MARKERS[hook] if hook else _ALL_MARKERS
     if not path.exists():
         return 0
     data = load(path)
