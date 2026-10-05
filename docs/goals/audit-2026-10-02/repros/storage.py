@@ -11,7 +11,6 @@ import os
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 
@@ -52,34 +51,14 @@ def run(root: Path) -> None:
     target = root / "atomic-write.md"
     markdown_parser.write(target, {"id": "synthetic-page"}, "Original synthetic body.")
     original = target.read_bytes()
-    original_open = Path.open
-
-    class InterruptedWriter:
-        def __init__(self, stream):
-            self.stream = stream
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            self.stream.close()
-
-        def write(self, value):
-            self.stream.write(value[:20])
-            self.stream.flush()
-            raise OSError("synthetic interruption after partial write")
-
-    def interrupted_open(path, mode="r", *args, **kwargs):
-        stream = original_open(path, mode, *args, **kwargs)
-        if path == target and "w" in mode:
-            return InterruptedWriter(stream)
-        return stream
-
-    with patch.object(Path, "open", interrupted_open):
-        try:
-            markdown_parser.write(target, {"id": "synthetic-page"}, "Replacement synthetic body.")
-        except OSError:
-            pass
+    # Implementation-independent fault (revalidation 2026-10-05): a lone
+    # surrogate cannot be encoded, so the write fails after the old writer had
+    # already truncated the page. The first version of this probe patched
+    # `Path.open`, which an atomic writer no longer calls.
+    try:
+        markdown_parser.write(target, {"id": "synthetic-page"}, "Replacement \ud800 body.")
+    except (OSError, UnicodeError):
+        pass
     print(json.dumps({"finding": "A02", "old_file_preserved": target.read_bytes() == original,
                       "bytes_remaining": len(target.read_bytes())}))
 
