@@ -1,17 +1,14 @@
 # Cicada — TODO & handoff
 
-**2026-10-02 audit — revalidated 2026-10-05 on `efd5386e`, fixes in PRs to `dev`:**
-[`audit-2026-10-02/README.md`](audit-2026-10-02/README.md) (twelve findings, the revalidation table) and
-[`STATUS.md`](audit-2026-10-02/STATUS.md) (per finding: verdict, fix, PR, test numbers). A12 was already gone (G176).
-The fix PRs are:
-- **#168** — storage: atomic page writes, no-clobber episode ids, revision-safe retirement (A02/K01/A01);
-- **#169** — graph energy: rest when hidden, release closed graphs, end interrupted drags (A07–A09);
-- **#171** — symlink-safe duplication (A04);
-- **#172** — app consistency (A03/A05/A06);
-- **#173** — the shared SSE tick and the walkthrough clock (A10/A11).
-
-Each PR says what it measured and what it could not. Live app CPU after the fixes is **unmeasured** (it needs the
-owner's machine and word), and the Sleep page's 11.9 % stays with G176 follow-up 1.
+**2026-10-05 — `dev` after the audit (all merged):** the 2026-10-02 audit's fixes (#167–#173; per finding in
+[`audit-2026-10-02/STATUS.md`](audit-2026-10-02/STATUS.md); A12 was already gone with G176), the Sleep page's CPU
+(#170: 12.0% → about 1% of a core visible with the graph resting, ruling 18's player amendment), a shared-icon-fetch
+race (#175) and the agent's revision-checked `cicada_mark_processed` (#176, the A01 gap the audit disclosed). Still
+disclosed: MCP's dedup scan holds the episode lock; `ActivateBank`'s hydrate-before-switch window.
+**Owner priority next (2026-10-05):** **G180** — a `cicada` CLI beside the MCP, with the skill teaching it ("very
+important"); then **G181** (server mode: a bank on a server, the laptop app as its client, Sleep there) and **G182**
+(releases on `main` tied to the website's macOS download). G179 (message sync, iMessage first) waits on the Full Disk
+Access decision.
 
 > **If you are an agent picking this project up cold, read this section first.** It is the
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
