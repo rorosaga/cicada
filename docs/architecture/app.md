@@ -757,4 +757,11 @@ and cache as optional environment values, so a chip outside the main window rend
 click-through rather than trapping; the Ask sheet steps aside when the Reader
 opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).
 
+**Versions and builds (G182).** The repo's one `VERSION` file is the version everywhere: `bundle.sh` stamps it as
+`CFBundleShortVersionString`, `api/version.py` reads it for FastAPI's `app.version` (and so `/healthz`) and the MCP
+server's `serverInfo`, and `api/pyproject.toml` carries the same string (`test_version.py`). `CFBundleVersion` is the
+build number — the commit count, or `CICADA_BUILD_NUMBER` when a build passes one — so it only grows along `main`.
+Settings → General ends with a Version row ("Version 0.3.0 (1523)", `AppVersion`); when `/healthz` answers with a
+different version (an updated app beside a background service still running the old one) the row says so.
+
 ---

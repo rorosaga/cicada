@@ -86,8 +86,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Cicada</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Cicada</string>
-  <key>CFBundleShortVersionString</key><string>0.2</string>
-  <key>CFBundleVersion</key><string>0.2</string>
+  <key>CFBundleShortVersionString</key><string>0.0.0</string>
+  <key>CFBundleVersion</key><string>0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -114,6 +114,15 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# G182 — the version is the repo's one VERSION file (the API and the MCP server read the same file); the build number
+# is distinct and only ever grows: CI passes CICADA_BUILD_NUMBER (its run number), a local build counts commits.
+VERSION_FILE="$(cd ../.. && pwd)/VERSION"
+APP_VERSION="$(head -n1 "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+[ -n "$APP_VERSION" ] || { echo "✗ no version in $VERSION_FILE" >&2; exit 1; }
+BUILD_NUMBER="${CICADA_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
+plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP/Contents/Info.plist"
+
 # Stamp the checkout path that produced this bundle (G88). BackendProcess's
 # installRoot() prefers this over its .build/DerivedData path heuristic, so
 # an installed ~/Applications/Cicada.app resolves the memory dir + Connect
@@ -126,7 +135,7 @@ if [ -n "$REPO_ROOT" ]; then
   plutil -replace CicadaRepoRoot -string "$REPO_ROOT" "$APP/Contents/Info.plist"
 fi
 
-echo "✓ built $APP"
+echo "✓ built $APP ($APP_VERSION, build $BUILD_NUMBER)"
 if [ "$RUN" = "1" ]; then
   echo "→ launching…"
   open "$APP"
