@@ -382,6 +382,18 @@ let hubsOnlyMode = false;       // set true when the payload is the hubs-only ti
 let needsRedraw = false;
 let rafHandle = null;
 
+// Audit 2026-10-02 A07: the page is told when it is on screen (`setGraphActive`, from GraphView — the
+// Graph tab selected and its window not occluded, minimized or hidden). Inactive, no frame is requested
+// and the d3 timer is stopped; `simSuspended` remembers a simulation that was still moving so resume
+// continues it at its own alpha — never a reheat.
+let graphActive = true;
+let simSuspended = false;
+// A07: a pulse-only frame (physics settled, a pending node on screen) runs on a timer at ~30 fps, and
+// the ring's phase follows elapsed time, so it keeps the ~1 s period the per-frame step gave at 60 fps.
+const PULSE_FRAME_MS = 1000 / 30;
+const PULSE_CYCLES_PER_SECOND = 0.96;
+let pulseTimer = null;
+
 // ---------- Field accessors (defensive: server fields may be absent) ----------
 //
 // The new GraphNode fields land in a later backend wave. Until then they are
@@ -541,7 +553,8 @@ function init() {
         if (e.key === "Shift" && !panToggled) setPanMode(false);
     });
     // A Cmd-Tab or app switch while Shift is down never delivers the keyup.
-    window.addEventListener("blur", () => { if (!panToggled) setPanMode(false); });
+    // A09: and a drag whose release never arrives (an app switch mid-drag) ends here too.
+    window.addEventListener("blur", onWindowBlur);
 
     wireMouseEvents();
 
@@ -1127,6 +1140,7 @@ function startSimulation({ reheat = 1.0 } = {}) {
         .on("end", () => { simulation.stop(); });
 
     simulation.alpha(reheat).restart();
+    holdIfInactive();
 }
 
 function xAnchor(d) {
@@ -1202,6 +1216,7 @@ function setFocus(id, hops) {
     computeFocusSet();
     applyFocusPinning();
     if (simulation) simulation.alpha(0.4).restart();
+    holdIfInactive();
     if (focusNodeId) animateZoomToFocus();
     scheduleRedraw();
 }
@@ -1214,6 +1229,7 @@ function clearFocus() {
     focusNodeId = null;
     focusSet = null;
     if (simulation) simulation.alpha(0.2).restart();
+    holdIfInactive();
     scheduleRedraw();
     if (wasFocused) {
         try {
@@ -1292,22 +1308,75 @@ function focusOnNode(id) {
 // ---------- Render loop ----------
 
 function scheduleRedraw() {
-    if (needsRedraw) return;
+    if (needsRedraw || !graphActive) return;
     needsRedraw = true;
     rafHandle = requestAnimationFrame(() => {
+        rafHandle = null;
         needsRedraw = false;
-        if (anyPending) pulsePhase += 0.016;
+        if (!graphActive) return;
+        if (anyPending) pulsePhase = (performance.now() / 1000) * PULSE_CYCLES_PER_SECOND;
         draw();
         // Keep redrawing while the sim is still producing movement. Once
-        // alpha drops below alphaMin the sim stops on its own. We also keep
-        // scheduling frames when any visible node has a pending item so the
-        // pulse ring animates — gated on anyPending so idle graphs with no
-        // pending items still drop to zero CPU.
+        // alpha drops below alphaMin the sim stops on its own. A settled graph
+        // with a pending node ON SCREEN keeps the pulse ring going on a ~30 fps
+        // timer (A07); one with no pending item, or only off-screen ones,
+        // drops to zero CPU.
         const simActive = simulation && simulation.alpha() > simulation.alphaMin();
-        if (simActive || anyPending) {
+        if (simActive) {
             scheduleRedraw();
+        } else if (anyPending && pendingOnScreen()) {
+            schedulePulse();
         }
     });
+}
+
+function schedulePulse() {
+    if (pulseTimer !== null || !graphActive) return;
+    pulseTimer = setTimeout(() => { pulseTimer = null; scheduleRedraw(); }, PULSE_FRAME_MS);
+}
+
+// A07: is any pending node's ring inside the canvas? The ring reaches 16 px past the node.
+function pendingOnScreen() {
+    const k = transform.k;
+    for (const n of visibleNodes) {
+        if (!nodeHasPending(n) || n.x == null) continue;
+        const reach = nodeRadius(n) * k + 16;
+        const sx = n.x * k + transform.x, sy = n.y * k + transform.y;
+        if (sx > -reach && sx < width + reach && sy > -reach && sy < height + reach) return true;
+    }
+    return false;
+}
+
+// Swift → JS (A07): the Graph tab is on screen, or not. Inactive cancels the queued frame and pulse
+// timer, ends any drag (A09) and stops the d3 timer; active resumes a simulation that was still moving
+// at its own alpha and redraws once. Positions and the zoom transform are never touched.
+function setGraphActive(on) {
+    on = Boolean(on);
+    if (on === graphActive) return;
+    graphActive = on;
+    if (!on) {
+        cancelInteraction();
+        if (rafHandle !== null) cancelAnimationFrame(rafHandle);
+        rafHandle = null;
+        needsRedraw = false;
+        if (pulseTimer !== null) clearTimeout(pulseTimer);
+        pulseTimer = null;
+        holdIfInactive();
+        return;
+    }
+    if (simSuspended && simulation) {
+        simSuspended = false;
+        simulation.restart();
+    }
+    scheduleRedraw();
+}
+
+// Called after every `simulation.restart()`: an inactive graph never leaves the d3 timer running (a data
+// push from SSE while another tab is showing lays out once the person comes back).
+function holdIfInactive() {
+    if (graphActive || !simulation) return;
+    if (simulation.alpha() > simulation.alphaMin()) simSuspended = true;
+    simulation.stop();
 }
 
 function draw() {
@@ -1676,6 +1745,30 @@ function drawHoverLabel(n) {
 
 // ---------- Mouse / interaction ----------
 
+function onWindowBlur() {
+    if (!panToggled) setPanMode(false);
+    cancelInteraction();
+}
+
+// A09: one cleanup for a gesture that ends without its mouseup — blur, a lost release, a pointer cancel,
+// the graph going inactive. Unpins the node and drops its throw velocity, and lowers the hold's alpha
+// target to 0 without a restart: no release reheat, the simulation settles on its own.
+function cancelInteraction() {
+    if (draggingNode) {
+        draggingNode.fx = null;
+        draggingNode.fy = null;
+        draggingNode.vx = 0;
+        draggingNode.vy = 0;
+        draggingNode = null;
+        if (simulation) simulation.alphaTarget(0);
+    }
+    dragVX = 0;
+    dragVY = 0;
+    lastDragSample = null;
+    pressStart = null;
+    if (canvas) canvas.classList.remove("dragging");
+}
+
 function wireMouseEvents() {
     // Capture phase (3rd arg = true): in WebKit, capture listeners on the
     // target fire before bubble listeners, so these run before d3-zoom's
@@ -1695,6 +1788,8 @@ function wireMouseEvents() {
     // already null, so this is safe to also fire for an ordinary in-canvas
     // release (it just runs twice, second time as a no-op).
     window.addEventListener("mouseup", onMouseUp);
+    canvas.addEventListener("pointercancel", cancelInteraction);
+    canvas.addEventListener("lostpointercapture", cancelInteraction);
 }
 
 function screenToWorld(sx, sy) {
@@ -1799,6 +1894,8 @@ function onMouseDown(event) {
 }
 
 function onMouseMove(event) {
+    // A09: a drag that sees a move with no button held lost its release somewhere outside the page.
+    if (draggingNode && event.buttons === 0) cancelInteraction();
     const [sx, sy] = eventScreenXY(event);
     lastPointer = { sx, sy };
     if (!draggingNode) {
