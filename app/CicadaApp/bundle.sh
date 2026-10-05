@@ -150,6 +150,11 @@ if [ "$WITH_BACKEND" = "1" ]; then
   [ -x "$BACKEND_DIR/bin/cicada-backend" ] || { echo "✗ no assembled backend at $BACKEND_DIR" >&2; exit 1; }
   ditto "$BACKEND_DIR" "$APP/Contents/Resources/backend"
   plutil -replace CicadaDistribution -string release "$APP/Contents/Info.plist"
+  # The updater's trust anchor and source (phase 5): the Ed25519 public key whose private half signs each release
+  # zip in CI, and the GitHub repo whose latest release it reads. A fork sets CICADA_UPDATE_REPO and its own key.
+  plutil -replace CicadaUpdatePublicKey -string "$(tr -d '[:space:]' < "$REPO_ROOT_DIR/scripts/release/update-public-key.txt")" \
+    "$APP/Contents/Info.plist"
+  plutil -replace CicadaUpdateRepo -string "${CICADA_UPDATE_REPO:-rorosaga/cicada}" "$APP/Contents/Info.plist"
   # Symbols are 60% of the binary and nothing on a tester's Mac reads them.
   strip -x "$APP/Contents/MacOS/CicadaApp"
   "$REPO_ROOT_DIR/scripts/release/sign-app.sh" "$APP"

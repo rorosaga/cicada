@@ -1,0 +1,98 @@
+# G182 — build, sign and publish Cicada's macOS release.
+#
+# A `v*` tag (pushed only by `make release`, after the owner promotes dev to
+# main) builds the app with its backend, signs it ad hoc inside out, smoke-tests
+# it in a temp folder, zips it, signs the zip with Ed25519 and publishes a
+# GitHub Release with `latest.json`. A push to `ci/release-dry-run` or a manual
+# run does everything except publish, and uploads the result as an artifact.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["ci/release-dry-run"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26   # arm64, with Xcode 26 (the app uses the macOS 26 SDK)
+    timeout-minutes: 60
+    env:
+      REPO_URL: https://github.com/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the commit count
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Version
+        id: v
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          build="$(git rev-list --count HEAD)"
+          publish=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            [ "${GITHUB_REF#refs/tags/v}" = "$version" ] || { echo "tag ${GITHUB_REF#refs/tags/} != VERSION $version"; exit 1; }
+            publish=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Cicada $version (build $build), publish=$publish"
+
+      - name: Cache build inputs
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/cicada-release
+          key: cicada-release-${{ hashFiles('scripts/release/inputs.env') }}
+
+      - name: Build the app with its backend
+        env:
+          CICADA_BUILD_NUMBER: ${{ steps.v.outputs.build }}
+          CICADA_SIGN_IDENTITY: "-"
+        run: cd app/CicadaApp && ./bundle.sh --release --with-backend
+
+      - name: Smoke test in a temp folder
+        run: scripts/release/smoke-test.sh "app/CicadaApp/.build/release/Cicada.app" 18000
+
+      - name: Package and sign the update
+        env:
+          CICADA_UPDATE_SIGNING_KEY: ${{ secrets.CICADA_UPDATE_SIGNING_KEY }}
+          VERSION: ${{ steps.v.outputs.version }}
+          BUILD: ${{ steps.v.outputs.build }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          zip="dist/Cicada-$VERSION.zip"
+          ditto -c -k --keepParent "app/CicadaApp/.build/release/Cicada.app" "$zip"
+          sig="$(uv run --no-project --with cryptography python scripts/release/sign_update.py sign "$zip")"
+          uv run --no-project --with cryptography python scripts/release/sign_update.py verify "$zip" "$sig"
+          printf '%s\n' "$sig" > "$zip.sig"
+          python3 scripts/release/latest_json.py --version "$VERSION" --build "$BUILD" --zip "$zip" \
+            --signature "$sig" --repo-url "$REPO_URL" > dist/latest.json
+          cat dist/latest.json
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cicada-${{ steps.v.outputs.version }}-build${{ steps.v.outputs.build }}
+          path: dist/
+          retention-days: 14
+
+      - name: Publish the GitHub Release
+        if: steps.v.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/Cicada-$VERSION.zip dist/Cicada-$VERSION.zip.sig dist/latest.json \
+            --title "Cicada $VERSION" --generate-notes --verify-tag
