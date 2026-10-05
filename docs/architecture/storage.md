@@ -10,6 +10,18 @@ of truth** — the API reads and writes the same files the Sleep cycle does. At 
 (hundreds of entities) the LLM follows wikilinks; it doesn't need Cypher. Zero infrastructure,
 human-readable, portable, Obsidian-compatible.
 
+**Every page write is atomic** (audit 2026-10-02 A02): `markdown_parser.write` stages the whole
+document in a hidden sibling `.<name>.<random>.tmp` (never matched by a `*.md` scan), fsyncs it and
+`os.replace`s it over the page, keeping the page's permission bits and writing through a symlink to
+its target. A failed write leaves the old page byte-for-byte and removes the temp file. The
+directory is not fsynced: the guarantee is "never a torn or empty page", not "the rename survives a
+power cut". `markdown_parser.write_new` creates a page without ever replacing one (a hard link of the
+staged file, `FileExistsError` if the name is taken) — what new episodes use (K01, below).
+
+**A bank's boundary is its directory** (audit 2026-10-02 A04): exporting (`bank_registry.export_zip`) and
+duplicating (`duplicate_bank`) a bank never follow or copy a symlink, at any depth and whatever it points at, so a
+link inside a bank can never pull a file from outside it into an archive or a copy.
+
 ### Entity schema
 
 ```yaml
