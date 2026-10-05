@@ -558,31 +558,34 @@ def open_counts(memory_path: Path) -> dict[str, int]:
 
 
 def stamp(memory_path: Path) -> str:
-    """`sync_service`'s `backlog` component (R-B16): folders, item files and
-    the newest mtime, from a stat walk two levels deep — no parse, so
-    `GET /sync/version` stays well under 10 ms."""
+    """`sync_service`'s `backlog` component (R-B16): every project folder and
+    item file, from a stat walk two levels deep — no parse, so
+    `GET /sync/version` stays well under 10 ms. A fingerprint of names, sizes
+    and nanosecond mtimes (audit 2026-10-05 P2-9): "the newest mtime" stood
+    still for an edit beside a future-dated item."""
+    from api.services.bank_index import fingerprint
+
     root = Path(memory_path) / BACKLOG_DIR
-    dirs = files = newest = 0
+    rows: list[tuple[str, int, int]] = []
     try:
         with os.scandir(root) as outer:
             for d in outer:
                 if not d.is_dir():
                     continue
-                dirs += 1
-                # The folder's own mtime moves on any create, rename or
-                # unlink inside it, so a hand rename that keeps the file's
-                # mtime still moves the stamp (review round 1).
-                newest = max(newest, d.stat().st_mtime_ns)
+                # The folder's own row moves on any create, rename or unlink
+                # inside it, so a hand rename that keeps the file's mtime still
+                # moves the stamp (review round 1).
+                rows.append((d.name + "/", d.stat().st_mtime_ns, 0))
                 with os.scandir(d.path) as inner:
                     for e in inner:
                         if e.is_file() and e.name.endswith(".md"):
-                            files += 1
-                            newest = max(newest, e.stat().st_mtime_ns)
+                            st = e.stat()
+                            rows.append((f"{d.name}/{e.name}", st.st_mtime_ns, st.st_size))
     except OSError:
-        # Missing, a plain file, or unreadable: degrade to the partial counts
+        # Missing, a plain file, or unreadable: degrade to the partial walk
         # rather than raise into every sync read (review round 1).
         pass
-    return f"{dirs}:{files}:{newest}"
+    return fingerprint(rows)
 
 
 # --------------------------------------------------------------------------- #

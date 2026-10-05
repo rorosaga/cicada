@@ -260,7 +260,9 @@ def test_a_bare_carriage_return_can_never_forge_a_note(bank):
 
 def test_the_stamp_degrades_when_the_folder_is_not_one(bank):
     (bank / "backlog").write_text("not a folder", encoding="utf-8")
-    assert backlog.stamp(bank) == "0:0:0"
+    from api.services.bank_index import fingerprint
+
+    assert backlog.stamp(bank) == fingerprint([]), "an empty walk, never a raise (audit P2-9's fingerprint)"
     assert "backlog" in sync_service.components(bank)
 
 

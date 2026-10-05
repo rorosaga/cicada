@@ -81,6 +81,13 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
   (1,900 entities):
   - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
   - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
+- **A version stamp is a fingerprint, never "the newest mtime"** (audit 2026-10-05 P2-9). With one file dated in the
+  future, an edit to any other file left the max where it was: `/sync/version` stood still, every ETag built on it
+  answered 304 and the graph cache served the old page. The `entities`, `hubs`, `inbox`, `episodes` and `sources`
+  components, the `backlog` stamp and the graph cache key hash every file's name, size and nanosecond mtime
+  (`bank_index.dir_fingerprint`, over the same shared scan; ~2.6 ms of hashing for 10,000 files). The component
+  names are unchanged, so the app's `VersionVector` mapping is too — a value is opaque to the client, and each ETag
+  moves once when the new stamps first appear.
 - `GET /projects[/{id}/timeline]` serve absolute days (`tzName` is the machine zone they are bucketed
   in) and never a relative word; the client derives 'yesterday', 'overdue' and 'quiet' through
   `project_state.timeline_state` (its Swift twin shares `api/tests/fixtures/timeline_state.json`). A
