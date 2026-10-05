@@ -17,6 +17,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let runSetup = SettingsRowID("runSetup")
     // General → the app's version (G182)
     static let appVersion = SettingsRowID("appVersion")
+    // General → Install updates automatically (G182 phase 5), in the Version row's card
+    static let autoUpdate = SettingsRowID("autoUpdate")
     // General → In the background (round-4 D3, G143)
     static let openAtLogin = SettingsRowID("openAtLogin")
     // General → Startup → Show in menu bar (round-4 decision 6, R-HO16)

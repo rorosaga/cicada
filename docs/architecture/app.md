@@ -800,4 +800,26 @@ signature, notes URL) and publishes a GitHub Release with generated notes. A pus
 run does everything but publish and uploads the files as an artifact. The app carries the public key and the repo
 (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
+**Installing and updating a release (G182 phase 5).** Testers install with
+`curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the
+latest release's `latest.json`, downloads the zip with curl (no quarantine flag, so Gatekeeper doesn't block the
+not-yet-notarized app), checks its sha256 and `codesign --verify`, installs into `~/Applications` (else
+`/Applications`), moves an older copy to the Trash, quits only the copy it replaces, and opens the app. In the app,
+`UpdateService` runs only in a release (`CicadaRuntime.isRelease` and a stable path; a developer build never checks):
+20 s after launch and every 6 hours while Settings → General → *Install updates automatically* is on (default), and
+from Cicada → Check for Updates…, it reads GitHub's latest release and its `latest.json` (`UpdateChecker`; newer by
+semver, refusing a release that needs a newer macOS), downloads the zip, and `UpdateInstaller.stage` verifies size,
+sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
+checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
+installs when the person quits — or at once with *Restart to update* — never while Sleep is writing: a detached
+helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
+exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
+again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
+the helper just before it stops the service — and a busy answer defers the swap to the next quit
+(`~/.cicada/update-deferred.json`; the staged copy and its `.Cicada.app.update.json` sidecar are kept, so nothing is
+downloaded twice). Any failure puts the old copy back and leaves `~/.cicada/update-failed.json`, which the next launch
+shows once in the Version row ("couldn't be installed … You're still on 0.3.0"); a service that didn't start again is
+reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
+`~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
+
 ---

@@ -69,7 +69,8 @@ enum SettingsIndex {
     /// holds the entries to the pages — a task that adds a row adds it here
     /// in the same commit (R-O1).
     static let staticIDs: [SettingsRowID] = [
-        .appearance, .heroScene, .textSize, .runSetup, .appVersion, .openAtLogin, .showInMenuBar, .backgroundService,
+        .appearance, .heroScene, .textSize, .runSetup, .appVersion, .autoUpdate, .openAtLogin, .showInMenuBar,
+        .backgroundService,
         .guidedTour, .demoMemory,
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
@@ -101,6 +102,11 @@ enum SettingsIndex {
         SettingsEntry(.textSize, .general, Copy.textSize, keywords: ["zoom", "font", "bigger", "smaller", "larger", "scale"], detail: Copy.textSizeDetail),
         SettingsEntry(.runSetup, .general, Copy.setup, keywords: ["onboarding", "first run", "welcome", "start over"], detail: Copy.runSetupDetail),
         SettingsEntry(.appVersion, .general, Copy.versionTitle, keywords: ["version", "build", "about", "update", "release"]),
+        // G182 phase 5 — anchored on Version, its card-mate, because a developer build hides this row: a search for
+        // "update" lands on a row that is always there.
+        SettingsEntry(.autoUpdate, .general, Copy.Updates.autoTitle,
+                      keywords: ["update", "updates", "automatic", "upgrade", "new version", "check for updates", "install"],
+                      anchor: .appVersion),
         SettingsEntry(.openAtLogin, .general, Copy.openAtLogin, keywords: ["login", "startup", "start", "launch", "boot"]),
         SettingsEntry(.showInMenuBar, .general, Copy.showInMenuBar, keywords: ["menu bar", "status", "bookworm", "icon", "tray", "hide"], detail: Copy.showInMenuBarDetail),
         SettingsEntry(.backgroundService, .general, Copy.keepMemoryWorking, keywords: ["background", "launchd", "service", "closed", "always on", "sync"]),

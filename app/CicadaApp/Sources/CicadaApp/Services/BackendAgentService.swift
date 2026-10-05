@@ -203,6 +203,18 @@ final class BackendAgentService {
         await refresh()
     }
 
+    /// G182 phase 5 — after an update: the service's plist is there but launchd isn't running it (the updater's
+    /// bootstrap lost a race with its own bootout, or the helper was stopped mid-way). Runs the same install once — the
+    /// person chose the service, so it is restored, never installed fresh (no plist → `.missing` → nothing). Returns
+    /// whether the service is running afterwards.
+    @discardableResult
+    func reinstallIfStopped() async -> Bool {
+        await refresh()
+        guard state == .stopped else { return state == .running }
+        await install()
+        return state == .running
+    }
+
     /// G182 — on a release's launch: when the background service is already installed but its plist runs something
     /// other than the launcher (a checkout's venv, an older copy of the app), run the same install once so the
     /// person's choice follows the app. No plist → nothing (the service stays opt-in). Returns whether it ran.
