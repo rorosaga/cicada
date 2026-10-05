@@ -18,6 +18,10 @@ directory is not fsynced: the guarantee is "never a torn or empty page", not "th
 power cut". `markdown_parser.write_new` creates a page without ever replacing one (a hard link of the
 staged file, `FileExistsError` if the name is taken) — what new episodes use (K01, below).
 
+**A bank's boundary is its directory** (audit 2026-10-02 A04): exporting (`bank_registry.export_zip`) and
+duplicating (`duplicate_bank`) a bank never follow or copy a symlink, at any depth and whatever it points at, so a
+link inside a bank can never pull a file from outside it into an archive or a copy.
+
 ### Entity schema
 
 ```yaml

@@ -580,7 +580,8 @@ def duplicate_bank(root: Path, name: str, new_name: str) -> str:
     Excludes ``.git`` (a fresh ``git init`` is run in the copy so version
     history does not fork-share) and the top-level ``banks/`` container +
     ``banks.yaml`` (relevant only when the source is the legacy default at the
-    root). Returns the new slug.
+    root), and never follows or copies a symlink (audit A04, as export).
+    Returns the new slug.
     """
     root = Path(root)
     registry = _ensure_registry(root)
@@ -601,11 +602,21 @@ def duplicate_bank(root: Path, name: str, new_name: str) -> str:
     # Copy only memory content. When the source is the legacy default (== root),
     # we must NOT recurse into banks/ or copy banks.yaml.
     # G139 R-O19: nor the trash of deleted banks, which sits in the root too.
-    _ignore = shutil.ignore_patterns(
+    _by_name = shutil.ignore_patterns(
         ".git", BANKS_SUBDIR, REGISTRY_FILENAME, TRASH_DIRNAME, *DERIVED_ARTIFACTS
     )
+
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        # Audit A04: a symlink is skipped at any depth, whatever it points at —
+        # export's policy. `copytree` dereferences links by default, so a link
+        # inside the bank pulled a directory or file from OUTSIDE it into the
+        # copy as ordinary files.
+        return set(_by_name(directory, names)) | {n for n in names if os.path.islink(os.path.join(directory, n))}
+
     for child in src.iterdir():
         if child.name in (".git", BANKS_SUBDIR, REGISTRY_FILENAME, TRASH_DIRNAME):
+            continue
+        if child.is_symlink():
             continue
         if child.name in DERIVED_ARTIFACTS:
             # Rebuilt on first use; copying it would put a ~30 MB blob in the
