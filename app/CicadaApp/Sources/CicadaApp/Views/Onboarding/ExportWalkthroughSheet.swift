@@ -13,6 +13,8 @@ struct ExportWalkthroughSheet: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start = Date()
+    /// Audit A11 — the window's occlusion state; a hidden sheet spends no frames.
+    @State private var windowVisible = true
 
     var body: some View {
         let scene = ExportWalkthrough.scene(vendor)
@@ -20,17 +22,8 @@ struct ExportWalkthroughSheet: View {
             CicadaTheme.scrim.ignoresSafeArea().onTapGesture(perform: onClose)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 header(scene)
-                TimelineView(.animation(minimumInterval: SceneRunPolicy.frameInterval(lowPower: false))) { context in
-                    let frame = ExportWalkthrough.frame(at: context.date.timeIntervalSince(start), scene: scene,
-                                                        reduceMotion: reduceMotion)
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                        DrawnBrowser(scene: scene, frame: frame)
-                            .aspectRatio(16 / 8, contentMode: .fit)
-                        stepLine(scene, frame: frame)
-                    }
-                    .animation(CicadaMotion.walkthroughOverlay(reduceMotion: reduceMotion), value: frame.overlay)
-                    .animation(reduceMotion ? CicadaMotion.fade : nil, value: frame.step)
-                }
+                walkthrough(scene)
+                    .background { WindowVisibilityReader { windowVisible = $0 } }
                 Text(scene.honestLine).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                 footer(scene)
@@ -41,6 +34,32 @@ struct ExportWalkthroughSheet: View {
         }
         .onExitCommand(perform: onClose)
         .onChange(of: vendor) { _, _ in start = Date() }
+    }
+
+    /// A11 — the timeline follows `ExportWalkthrough.cadence`: paused while hidden, one frame per step under Reduce
+    /// Motion, the painted scenes' cadence (halved under Low Power) otherwise.
+    @ViewBuilder
+    private func walkthrough(_ scene: ExportScene) -> some View {
+        switch ExportWalkthrough.cadence(reduceMotion: reduceMotion, lowPower: SceneStore.shared.lowPower,
+                                         windowVisible: windowVisible) {
+        case .paused:
+            TimelineView(.animation(paused: true)) { context in walkthroughFrame(scene, at: context.date) }
+        case .steps(let step):
+            TimelineView(.periodic(from: start, by: step)) { context in walkthroughFrame(scene, at: context.date) }
+        case .animation(let interval):
+            TimelineView(.animation(minimumInterval: interval)) { context in walkthroughFrame(scene, at: context.date) }
+        }
+    }
+
+    private func walkthroughFrame(_ scene: ExportScene, at date: Date) -> some View {
+        let frame = ExportWalkthrough.frame(at: date.timeIntervalSince(start), scene: scene, reduceMotion: reduceMotion)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            DrawnBrowser(scene: scene, frame: frame)
+                .aspectRatio(16 / 8, contentMode: .fit)
+            stepLine(scene, frame: frame)
+        }
+        .animation(CicadaMotion.walkthroughOverlay(reduceMotion: reduceMotion), value: frame.overlay)
+        .animation(reduceMotion ? CicadaMotion.fade : nil, value: frame.step)
     }
 
     private func header(_ scene: ExportScene) -> some View {

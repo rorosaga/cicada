@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -693,14 +694,30 @@ def _mtime(path: Path) -> float:
 
 
 def _dir_mtime(path: Path) -> float:
-    """Max mtime across a directory's .md files + the dir itself."""
-    if not path.exists():
+    """Max mtime across a directory's .md files + the dir itself.
+
+    One ``os.scandir`` (audit A10) instead of ``glob`` plus a ``stat`` call per
+    file: the SSE loop stamps entities, hubs and three inbox directories every
+    second. The same set ``Path.glob("*.md")`` yields on Python 3.12 — hidden
+    names and a directory named ``*.md`` included — and the same answer for a
+    path that cannot be listed (its own mtime) or does not exist (0)."""
+    try:
+        latest = os.stat(path).st_mtime
+    except OSError:
         return 0.0
-    latest = _mtime(path)
-    for filepath in path.glob("*.md"):
-        m = _mtime(filepath)
-        if m > latest:
-            latest = m
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if not entry.name.endswith(".md"):
+                    continue
+                try:
+                    m = entry.stat().st_mtime
+                except OSError:
+                    continue
+                if m > latest:
+                    latest = m
+    except OSError:
+        pass
     return latest
 
 

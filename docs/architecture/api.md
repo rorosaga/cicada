@@ -73,6 +73,14 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
   call is still running (a process-local lock — two overlapping clicks would stage each other's
   half-written pages under their own trailers).
 - `GET /sync/version` is the cheap change-detector (<10 ms); `GET /sync/events` is the SSE stream.
+  Its idle cost is shared (audit 2026-10-02 A10): `sync_ticker.current` computes the version vector and the Sleep debt
+  at most once per 0.9 s per bank, and concurrent streams await that one computation. Its filesystem half runs in
+  worker threads under `bank_index.shared_scans()`, which lists each directory once per tick, and `sleep_debt.compute`
+  scans in a thread for `/sleep/status` too. Every tick is still a full scan, so an external in-place edit is seen on
+  the next tick. `/sync/version` and `/sleep/status` never read the shared tick. Measured on generated banks
+  (1,900 entities):
+  - 10,000 episodes: 42 → 24 ms per tick for one stream, and 169 → 25 ms for four.
+  - 2,000 episodes: 12 → 6 ms for one stream, and 50 → 6 ms for four.
 - `GET /projects[/{id}/timeline]` serve absolute days (`tzName` is the machine zone they are bucketed
   in) and never a relative word; the client derives 'yesterday', 'overdue' and 'quiet' through
   `project_state.timeline_state` (its Swift twin shares `api/tests/fixtures/timeline_state.json`). A

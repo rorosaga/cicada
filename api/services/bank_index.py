@@ -7,8 +7,10 @@ bodies are read lazily. The cache is process-local and disposable.
 """
 from __future__ import annotations
 
+import contextvars
 import os
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -46,7 +48,34 @@ def invalidate(memory_path: Path | None = None) -> None:
                 _cache.pop(key, None)
 
 
+#: Audit A10 — a per-tick memo of `_scan`, set only by `shared_scans()`. A ContextVar, not a thread-local: the SSE
+#: ticker's version walk and its debt walk run in two `asyncio.to_thread` calls, which copy the caller's context, so
+#: both see the same dict and `episodes/` is listed once per tick. Unset everywhere else: every other caller stays exact.
+_SCAN_MEMO: contextvars.ContextVar[dict | None] = contextvars.ContextVar("bank_index_scan_memo", default=None)
+
+
+@contextmanager
+def shared_scans():
+    """Within this block, each directory is listed and stat'ed once (audit A10)."""
+    token = _SCAN_MEMO.set({}) if _SCAN_MEMO.get() is None else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            _SCAN_MEMO.reset(token)
+
+
 def _scan(directory: Path) -> dict[str, tuple[int, int]]:
+    memo = _SCAN_MEMO.get()
+    if memo is not None:
+        key = str(directory)
+        if key not in memo:
+            memo[key] = _scan_uncached(directory)
+        return memo[key]
+    return _scan_uncached(directory)
+
+
+def _scan_uncached(directory: Path) -> dict[str, tuple[int, int]]:
     out: dict[str, tuple[int, int]] = {}
     try:
         with os.scandir(directory) as it:
