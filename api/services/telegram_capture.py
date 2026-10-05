@@ -542,7 +542,7 @@ def _default_save_episode(
     }
     if capture_kind:
         frontmatter["capture_kind"] = capture_kind
-    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, text)
+    episode_id = episode_ids.create_episode(episodes_dir, frontmatter, text)
     return {"status": "created", "episode_id": episode_id}
 
 

@@ -51,6 +51,7 @@ the stager, so every source that stages is covered, not only the folder route.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import threading
 from dataclasses import dataclass, field
@@ -315,11 +316,27 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
         fm["source_id"] = draft.source_id
         fm["source_updated_at"] = draft.source_updated_at
     _apply_common(fm, draft, stamps)
-    path = episodes_dir / f"{episode_id}.md"
-    markdown_parser.write(path, fm, body)
-    return path
+    # Audit K01: `date_counts` was seeded at the start of the call, and a writer
+    # in another process (an MCP server, the Stop hook) may have taken the id
+    # since; the create re-mints rather than replace that episode.
+    episode_id = episode_ids.create_episode(episodes_dir, fm, body)
+    date_counts[ep_date] = max(date_counts[ep_date], episode_ids.parse_episode_id(episode_id)[1])
+    return episodes_dir / f"{episode_id}.md"
 
 
+def _under_episode_lock(fn):
+    """Run one read-modify-write of an existing episode under the bank's
+    episode lock (audit A01): Sleep's retirement re-reads under the same lock,
+    so it sees this edit or retires before it — never flips a body it did not
+    read. Per operation, never per import: the Stop hook shares the lock."""
+    @functools.wraps(fn)
+    def locked(path, *args, **kwargs):
+        with episode_ids.episode_lock(Path(path).parent):
+            return fn(path, *args, **kwargs)
+    return locked
+
+
+@_under_episode_lock
 def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
     """Same file, same id, same original timestamp; new body, re-queued (G20)."""
     fm = dict(markdown_parser.parse(path).frontmatter)
@@ -334,6 +351,7 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, sta
     markdown_parser.write(path, fm, body)
 
 
+@_under_episode_lock
 def _refresh(path: Path, draft: EpisodeDraft) -> None:
     """Same body, changed metadata (an authorship flip, a returning file). A
     parser-only episode that is now owner-authored is queued; a queued one that
@@ -385,7 +403,7 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
     cannot disagree (R-B7) — for a tombstoned episode too, because an agent's
     words are never queued for Sleep (R-LS10) and a deletion never touched the
     queue. Returns whether the file changed. Runs under ``STAGE_LOCK``."""
-    with STAGE_LOCK:
+    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         before = dict(fm)
@@ -399,6 +417,7 @@ def reattribute(path: Path, *, extra: dict, queue_for_sleep: bool) -> bool:
         return True
 
 
+@_under_episode_lock
 def _restamp(path: Path, draft: EpisodeDraft) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
@@ -408,6 +427,7 @@ def _restamp(path: Path, draft: EpisodeDraft) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
+@_under_episode_lock
 def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
@@ -425,6 +445,7 @@ def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
+@_under_episode_lock
 def _tombstone(path: Path, at: str) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)

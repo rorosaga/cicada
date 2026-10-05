@@ -56,13 +56,23 @@ Seven rails hold across all of them:
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.
 - **Every writer mints ids through one rule** (G114, `api/services/episode_ids.py`):
-  `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and
-  `markdown_parser.write` overwrites on collision), and timestamps are aware UTC from
+  `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap), and timestamps are aware UTC from
   `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. Legacy files are not
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
   (G141 PJ-3b's Log; already processed, so Sleep never re-reads it).
+- **Unique across processes, revision-safe against Sleep** (audit 2026-10-02 K01/A01). A new episode
+  is created with `episode_ids.create_episode`, which never replaces a file: when another process
+  (a stdio MCP server, the Stop hook, the backend) took the minted id first, it mints again. Dedup
+  checks and every read-modify-write of an existing episode — transcript capture's
+  find-session-or-update, MCP `save_episode`'s hash check, each stager edit, rename, restamp and
+  tombstone, and Sleep's retirement — run under `episode_ids.episode_lock`, an `flock` on the
+  episodes directory's own descriptor (cross-process, re-entrant per thread, nothing created in the
+  bank), held for one operation and never for an import or a stage. Sleep records a
+  `body_revision` (sha256 of the text it extracted) per episode and flips `processed: true` only
+  when the file still holds that text; a session resumed or a source edited mid-cycle stays queued
+  for the next batch. Capture never waits on Sleep for longer than one episode's retirement.
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
