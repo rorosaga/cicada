@@ -188,6 +188,35 @@ check("a pointer cancel mid-drag releases the node", () => {
     assertReleased(t, node);
 });
 
+check("a cancelled drag keeps a node that focus mode froze pinned", () => {
+    const t = setup();
+    const node = press(t);
+    t.get(`focusNodeId = "h0"; focusSet = new Set(["h0"])`);
+    node.fx = 12; node.fy = 34;
+    t.sandbox.onWindowBlur();
+    assert.strictEqual(t.get("draggingNode"), null);
+    assert.strictEqual(node.fx, 12);
+    assert.strictEqual(node.fy, 34);
+});
+
+check("a pan that brings a pending node on screen restarts the pulse", () => {
+    const t = setup({ pending: true });
+    t.moveAway();
+    t.call("scheduleRedraw"); t.drain();
+    assert.strictEqual(t.timers.length, 0);
+    t.centerOn("h0");
+    t.call("scheduleRedraw"); t.drain();   // what the zoom handler does on every pan
+    assert.strictEqual(t.timers.length, 1);
+});
+
+check("a startSimulation while inactive never leaves the real d3 timer running", () => {
+    const t = setup();
+    t.call("setGraphActive", false);
+    t.call("startSimulation", { reheat: 0.5 });
+    assert.strictEqual(t.get("simSuspended"), true);
+    assert.strictEqual(t.get("simulation").alpha(), 0.5, "stopped in the same turn, before any tick");
+});
+
 // ---- the d3 timer really stops (real time, real d3 timer) ----
 
 (async () => {

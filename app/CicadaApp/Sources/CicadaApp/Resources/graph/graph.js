@@ -1755,8 +1755,12 @@ function onWindowBlur() {
 // target to 0 without a restart: no release reheat, the simulation settles on its own.
 function cancelInteraction() {
     if (draggingNode) {
-        draggingNode.fx = null;
-        draggingNode.fy = null;
+        // Focus mode freezes context nodes; a cancelled drag keeps that pin, as onMouseUp does.
+        const keepPinned = focusNodeId && focusSet && !focusSet.has(draggingNode.id);
+        if (!keepPinned) {
+            draggingNode.fx = null;
+            draggingNode.fy = null;
+        }
         draggingNode.vx = 0;
         draggingNode.vy = 0;
         draggingNode = null;

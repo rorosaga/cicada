@@ -69,6 +69,19 @@ final class GraphViewLifecycleTests: XCTestCase {
         XCTAssertEqual(GraphJS.setGraphActive(false), "setGraphActive(false)")
     }
 
+    func testAReopenedWindowsPageIsToldItsStateOnceItIsReady() {
+        // The view model's flag is app-wide and stays true after a window closes; a new page is not ready yet.
+        let vm = makeViewModel()
+        vm.isGraphReady = true
+        let coordinator = GraphView.Coordinator(viewModel: vm)
+        XCTAssertNil(coordinator.activeCall(wanted: false), "nothing is sent before this page reports ready")
+        XCTAssertNil(coordinator.lastActive, "and nothing is latched")
+        coordinator.isGraphReady = true
+        XCTAssertEqual(coordinator.activeCall(wanted: coordinator.wantsActive), "setGraphActive(false)")
+        XCTAssertNil(coordinator.activeCall(wanted: false), "latched: one push per change")
+        XCTAssertEqual(coordinator.activeCall(wanted: true), "setGraphActive(true)")
+    }
+
     func testTheCoordinatorHoldsTheWebViewWeakly() {
         let coordinator = GraphView.Coordinator(viewModel: makeViewModel())
         autoreleasepool {
