@@ -1,5 +1,12 @@
 # Goal: Memory Evolution (improvement wave)
 
+**2026-10-02 audit evidence, pending implementation triage:**
+[`Code and performance audit`](audit-2026-10-02/README.md),
+[`validation/probes`](audit-2026-10-02/VALIDATION.md) and
+[`handoff`](audit-2026-10-02/HANDOFF.md). Findings use temporary audit IDs A01–A12;
+existing G109/G114/G135/G177 work is cross-referenced, not duplicated. Fixes remain
+open and the supplied long-running CPU claim has not been verified live.
+
 Backlog distilled from Rodrigo's notes (2026-06-16). Triaged into three tracks:
 **APPLY** (buildable now, low architecture risk), **RESEARCH** (needs investigation —
 findings land in [`../inspiration/research/`](../inspiration/research/)), and **DECIDE**

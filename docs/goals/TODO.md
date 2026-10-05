@@ -1,5 +1,13 @@
 # Cicada — TODO & handoff
 
+**2026-10-02 isolated audit (documentation only; fixes open):**
+[`audit-2026-10-02/README.md`](audit-2026-10-02/README.md) records twelve storage/app/performance
+findings, existing G114/G135 capture-race evidence, test results and live-profiling limits.
+[`HANDOFF.md`](audit-2026-10-02/HANDOFF.md) carries the continuation prompt. Pick up by
+revalidating against current `dev` and reconciling existing G109/G114/G135/G177 rows;
+the reported sustained CPU percentages remain unverified. No new G IDs or shipped state
+are implied by this audit entry.
+
 > **If you are an agent picking this project up cold, read this section first.** It is the
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
 > the rulings that would be expensive to rediscover, and how work is run here.
