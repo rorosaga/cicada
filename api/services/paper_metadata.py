@@ -38,6 +38,7 @@ from typing import Awaitable, Callable
 from loguru import logger
 
 from api.services import bank_index, evidence, fact_sources, folder_source, markdown_parser, media_ingestor, papers
+from api.services import page_lock
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, strip_claims_block, write_claims
 
 ARXIV_API = "https://export.arxiv.org/api/query"
@@ -205,6 +206,7 @@ def has_pending(memory_path: Path) -> bool:
     return bool(_pending(memory_path, date.today()))
 
 
+@page_lock.locked
 def _mark_failed(memory_path: Path, entity_id: str, status: str, today: str) -> None:
     path = papers.page_path(memory_path, entity_id)
     parsed = markdown_parser.parse(path)
@@ -226,6 +228,7 @@ class _IndexOp:
     title: str | None = None
 
 
+@page_lock.locked
 def _apply(memory_path: Path, entity_id: str, meta: dict, *, source: str, today: str) -> _IndexOp | None:
     """Write one response onto its page; returns the index change it implies
     (a DOI learned from arXiv, a placeholder title replaced), if any."""
