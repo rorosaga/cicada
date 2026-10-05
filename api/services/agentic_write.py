@@ -35,7 +35,7 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, git_service, markdown_parser, telemetry
+from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, telemetry
 # Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
@@ -808,9 +808,14 @@ def mark_episodes_processed(memory_path: Path, ids: list[str], *, by: str = "age
         if ep_id not in id_set:
             continue
         try:
-            fm["processed"] = True
-            fm["processed_by"] = (by or "").strip() or "agent"
-            markdown_parser.write(filepath, fm, parsed.body)
+            # Re-read inside the episode lock (audit A01): a capture edit that
+            # landed since the scan is kept, never reverted by this write.
+            with episode_ids.episode_lock(episodes_dir):
+                parsed = markdown_parser.parse(filepath)
+                fm = parsed.frontmatter or {}
+                fm["processed"] = True
+                fm["processed_by"] = (by or "").strip() or "agent"
+                markdown_parser.write(filepath, fm, parsed.body)
             count += 1
         except Exception as exc:
             logger.warning(f"could not mark {filepath.name} processed: {exc}")

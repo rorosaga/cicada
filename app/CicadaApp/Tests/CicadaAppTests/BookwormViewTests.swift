@@ -28,11 +28,11 @@ final class BookwormViewTests: XCTestCase {
         XCTAssertTrue(room[..<stage.lowerBound].contains(".task(id: room.transition?.id)"))
     }
 
-    func testReadingCoverIsChosenInsideTheTimelineClosure() throws {
+    func testReadingCoverIsChosenInsideThePlayerClosure() throws {
         let source = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Common/BookwormView.swift")
         let text = try String(contentsOf: source)
-        let timeline = try XCTUnwrap(text.range(of: "TimelineView(SpriteFrameSchedule"))
-        let cover = try XCTUnwrap(text.range(of: "BookwormArt.coverIndex(at: context.date"))
+        let timeline = try XCTUnwrap(text.range(of: "SpriteLayerPlayer(tracks: tracks) { date in"))
+        let cover = try XCTUnwrap(text.range(of: "BookwormArt.coverIndex(at: date"))
         XCTAssertGreaterThan(cover.lowerBound, timeline.lowerBound)
         XCTAssertTrue(text.contains("BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit, mascot: mascot)"))
         XCTAssertTrue(text.contains("BookwormArt.clip(state, look: look, cover: cover, set: size.set, lighting: lighting, lampLit: lampLit, mascot: mascot)"))

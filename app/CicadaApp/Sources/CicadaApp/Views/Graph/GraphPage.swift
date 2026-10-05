@@ -20,6 +20,8 @@ struct GraphPage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var legendOpen = false
     @State private var findOpen = false
+    /// Audit A07 — the window's occlusion state: minimized, hidden or fully covered reads false.
+    @State private var windowVisible = true
 
     private var isVisible: Bool { selectedTab == .graph }
 
@@ -66,8 +68,9 @@ struct GraphPage: View {
         let inset = CicadaTheme.spacingLG
         let groupHeight = CicadaTheme.scaled(GraphControlGroup.height)
         return ZStack(alignment: .topLeading) {
-            GraphView()
+            GraphView(isActive: isVisible && windowVisible)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background { WindowVisibilityReader { windowVisible = $0 } }
 
             // G117 — a fresh bank's graph is never a literal blank canvas; `isLoading` gates on an empty cache
             // AND a fetch in flight, so this never flashes over the instant on-disk hydrate.

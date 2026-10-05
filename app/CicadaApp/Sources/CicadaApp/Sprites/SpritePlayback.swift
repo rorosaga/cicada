@@ -16,7 +16,9 @@ enum SpritePlaybackProfile: Equatable, Sendable {
     var slowdown: Double { self == .gentle ? CicadaMotion.spriteGentleSlowdown : 1 }
 }
 
-/// The union of the visible clips' frame boundaries, never a fixed frame rate.
+/// The union of the visible clips' frame boundaries, never a fixed frame rate. `SpriteLayerPlayer` arms its timer on
+/// these dates. Never hand it to a `TimelineView`: entries this close make SwiftUI lay the whole window out at the
+/// display rate (measured 2026-10-05; `SpriteLayerPlayer`'s note). The budget test still walks it as a schedule.
 struct SpriteFrameSchedule: TimelineSchedule {
     struct Track: Equatable { let origin: Date; let seconds: [TimeInterval]; let loops: Bool }
     let tracks: [Track]

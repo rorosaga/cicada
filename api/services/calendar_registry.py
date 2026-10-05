@@ -48,7 +48,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from api.services import episode_ids, episode_scrub, markdown_parser
+from api.services import episode_ids, episode_scrub
 
 CALENDARS_FILENAME = "calendars.yaml"
 CALENDAR_INDEX_FILENAME = "calendar_index.json"
@@ -369,7 +369,7 @@ def _write_calendar_episode(episodes_dir: Path, event: ICSEvent, calendar_url: s
         "event_end": event.dtend_iso,
         "calendar_url": calendar_url,
     }
-    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+    episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id
 
 

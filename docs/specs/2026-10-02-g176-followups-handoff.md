@@ -22,7 +22,8 @@ checkout — an auto-updater builds from it); never `make dev` or `install_app.s
 his installed app); never point a running Cicada at a bank without his word; never read memory/, ~/.cicada or
 ~/.claude/projects; privacy rule on every word; PRs to `dev`, merged only when the owner says so.
 
-1. THE SLEEP PAGE'S CPU (primary).
+1. THE SLEEP PAGE'S CPU (primary). — DONE 2026-10-05 on `perf/sleep-page-cpu`: 12.0% → 2.54% (TODO ruling 18's player
+   amendment). Skip to item 2; the hidden graph's web view is the audit's A07, not this item.
    Measured 2026-10-02 on the installed release build of origin/dev 0d745538, with the Sleep page visible (a dark,
    rainy room, lamp off): 11.9% of one core on average over 12 samples of 5 s (`top -l 13 -s 5 -pid <pid> -stats
    pid,cpu`), peak 14.4%. Ruling 18 and the 2026-10-01 spec (R-BW11) set the bar: at most 3% of one core, and within 2

@@ -24,6 +24,22 @@ above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules fol
 `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
 a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
+**The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
+every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
+selected *and* its window visible (`WindowVisibilityReader`: occluded, minimized or hidden reads
+false), pushed once per change as `setGraphActive(bool)`. Inactive, `graph.js` cancels its queued
+frame and pulse timer, ends any drag, and stops the d3 timer — a data push lays out later rather than
+in the background (`holdIfInactive` after every `restart`). Resuming continues a simulation that was
+still moving at its own alpha, never a reheat, and leaves positions and the zoom untouched. While
+visible, a settled graph redraws only for a pending node whose ring is on screen, on a ~30 fps timer
+with the phase taken from elapsed time (the ring keeps its ~1 s period). One `cancelInteraction`
+ends a gesture whose release never arrived (window blur, a move with no button held, a pointer
+cancel, going inactive): the node is unpinned, its throw velocity dropped, and the alpha target set to
+0 with no restart. `GraphView.Coordinator` holds the web view weakly (the content controller retains
+the coordinator) and `dismantleNSView` suspends the page and removes its handler, so a closed window
+releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
+`GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
+
 **Sync engine.** One `Store` holds a `Snapshot` per domain, hydrated instantly from a per-bank
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
@@ -397,6 +413,15 @@ and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep momen
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
 and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
 schedules, shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+**Moving frames are swapped on a layer, never through a `TimelineView` (2026-10-05).** `SpriteLayerPlayer` (an
+`NSViewRepresentable`) arms one timer per boundary of `SpriteFrameSchedule` and sets its layer's `contents` to the
+frame the caller's closure picks — `SpriteLayerView` for room props, `BookwormView` for the worm everywhere. Measured on
+macOS 26: a `TimelineView` whose entries fall under ~0.3 s apart makes SwiftUI lay the whole window out at the display
+rate (240 host layouts a second for 4 ticks a second), which is what held the Sleep page at ~12% of a core; a 1 s
+timeline still costs one whole-window render a second, so the wall clock's second hand is a layer too. Still frames, Reduce Motion, a paused host, an unseen window
+and `ImageRenderer` snapshots keep the plain SwiftUI image (a snapshot cannot draw a platform view), and mounting that
+image tears the player and its timer down. `SpriteLayerPlayerTests` pins one draw per boundary and bans
+`TimelineView(SpriteFrameSchedule` from the sources.
 Settings passes the room's pause to every sprite leaf as well as its clock and weather reader. The steady-state
 redraw test covers all 240 weather/time/mood/lamp combinations and sums independent leaves, including 60 clock ticks:
 rain's unchanged 48-frame loop now holds 100 ms (4.8 s total), giving a maximum of 1,758/minute against the 1,800 cap.
@@ -466,8 +491,10 @@ legend. No scenery action starts work; the window offers a link to its Settings 
 
 **The wall clock (owner amendment, 2026-10-02).** `RoomClockReading.indices(at:zone:)` maps civil time to
 sixty whole-pixel angles: hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their integer values.
-`RoomClock` is a separate inert leaf, with a `TimelineView(.periodic)` at `CicadaMotion.roomClockTick` (one second)
-only while its window/room is visible and its host is active; it never redraws the parent room. `room-clock` has
+`RoomClock` is a separate inert leaf, with a `TimelineView(.everyMinute)` for the hour and minute hands and its words,
+and the second hand on a `SpriteLayerPlayer` that wakes every whole second (`RoomClockReading.secondTrack`,
+`CicadaMotion.roomClockTick`), only while its window/room is visible and its host is active; a per-second timeline
+re-rendered the whole window each second (2026-10-05). It never redraws the parent room. `room-clock` has
 `face`, `hour`, `minute`, `second` and each `-night` variant. Night-or-rain lighting selects the dark dial/hands;
 black hour/minute hands and the thin red second hand use transparent state frames, not timed sprite loops.
 Normal ticks start on whole seconds; Reduce Motion removes the second hand and ticks on minute boundaries while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”

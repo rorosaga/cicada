@@ -1,5 +1,8 @@
 import datetime
+import errno
+import os
 import re
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,10 +69,86 @@ def parse(filepath: Path) -> ParsedMarkdown:
     return ParsedMarkdown(frontmatter=fm, body=split[1].strip())
 
 
-def write(filepath: Path, frontmatter: dict, body: str) -> None:
-    """Write a markdown file with YAML frontmatter."""
+def _render(frontmatter: dict, body: str) -> bytes:
     fm_str = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
-    filepath.write_text(f"---\n{fm_str}\n---\n\n{body}\n", encoding="utf-8")
+    return f"---\n{fm_str}\n---\n\n{body}\n".encode("utf-8")
+
+
+def _stage(target: Path, data: bytes) -> str:
+    """The whole document in a hidden sibling temp file, fsynced (audit A02).
+
+    ``.<name>.<random>.tmp`` never matches a ``*.md`` scan. Created with mode
+    ``0o666`` so the umask applies exactly as it did for ``Path.write_text``.
+    A failed write removes the temp file and re-raises."""
+    tmp = str(target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp"))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+    except BaseException:
+        _unlink_quietly(tmp)
+        raise
+    return tmp
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def write(filepath: Path, frontmatter: dict, body: str) -> None:
+    """Write a markdown file with YAML frontmatter — atomically (audit A02).
+
+    ``Path.write_text`` truncated the destination first, so an interrupted
+    write (a full disk, a killed process, a body that cannot be encoded) left
+    an empty or torn page where the old one was. The document is staged in a
+    temp file beside it and ``os.replace``d over it, so a reader sees the old
+    page or the new one, never half of either. An existing page keeps its
+    permission bits; a symlinked page is replaced at its target, so the link
+    survives as it did with ``write_text``. The file is fsynced; the directory
+    is not (the guarantee is "never a torn page", not "the rename survives a
+    power cut")."""
+    target = Path(os.path.realpath(filepath)) if os.path.islink(filepath) else Path(filepath)
+    data = _render(frontmatter, body)
+    tmp = _stage(target, data)
+    try:
+        try:
+            os.chmod(tmp, os.stat(target).st_mode & 0o7777)
+        except FileNotFoundError:
+            pass
+        os.replace(tmp, target)
+    except BaseException:
+        _unlink_quietly(tmp)
+        raise
+
+
+def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
+    """Create ``filepath`` with this document, never replacing a file (audit K01).
+
+    Raises ``FileExistsError`` when the name is taken. The staged temp file is
+    hard-linked to the destination — ``link`` refuses an existing name
+    atomically, across processes, with no lock — so the page appears complete
+    or not at all. A filesystem without hard links falls back to an
+    ``O_EXCL`` create, which still never replaces a file."""
+    target = Path(filepath)
+    data = _render(frontmatter, body)
+    tmp = _stage(target, data)
+    try:
+        os.link(tmp, target)
+    except FileExistsError:
+        raise
+    except OSError as exc:
+        if exc.errno not in (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EXDEV, errno.EMLINK):
+            raise
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+    finally:
+        _unlink_quietly(tmp)
 
 
 def _normalize_dates(fm: dict) -> None:

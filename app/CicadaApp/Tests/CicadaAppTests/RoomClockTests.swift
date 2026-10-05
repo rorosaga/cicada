@@ -75,9 +75,11 @@ final class RoomClockTests: XCTestCase {
         let root = SpriteTestAssets.root.appendingPathComponent("Sources/CicadaApp/Views/Sleep")
         let clock = try String(contentsOf: root.appendingPathComponent("RoomClock.swift"), encoding: .utf8)
         XCTAssertTrue(clock.contains("onScreen && windowVisible && !hostPaused"))
-        XCTAssertTrue(clock.contains("TimelineView(.periodic(from: RoomClockReading.secondBoundary(at: Date()), by: CicadaMotion.roomClockTick))"))
-        XCTAssertTrue(clock.contains("TimelineView(.everyMinute)"), "without seconds Reduce Motion updates at minute boundaries")
-        XCTAssertTrue(clock.contains("reading(at: context.date)"))
+        // 2026-10-05: a per-second timeline re-rendered the whole window each second; the second hand is a layer now.
+        XCTAssertFalse(clock.contains(".periodic("))
+        XCTAssertTrue(clock.contains("TimelineView(.everyMinute)"), "hours, minutes and the words move at minute boundaries")
+        XCTAssertTrue(clock.contains("reading(at: context.date, liveSeconds: !reduceMotion)"), "Reduce Motion keeps no second hand")
+        XCTAssertTrue(clock.contains("SpriteLayerPlayer(tracks: [RoomClockReading.secondTrack])"))
         XCTAssertTrue(clock.contains(".help(label)"))
         XCTAssertTrue(clock.contains(".accessibilityLabel(label)"))
         XCTAssertFalse(clock.contains("Button") || clock.contains("onTapGesture"))
@@ -87,5 +89,18 @@ final class RoomClockTests: XCTestCase {
         XCTAssertGreaterThan(RoomA11yOrder.window, RoomA11yOrder.clock)
         XCTAssertGreaterThan(RoomA11yOrder.clock, RoomA11yOrder.lamp)
         XCTAssertEqual(CicadaMotion.roomClockTick, 1)
+    }
+
+    func testTheSecondHandWakesOnEveryWholeSecond() {
+        let start = Date(timeIntervalSinceReferenceDate: 812_345_678.4)
+        var date = start
+        for second in 1...120 {
+            let next = SpriteLayerPlayerView.nextBoundary(after: date, tracks: [RoomClockReading.secondTrack])!
+            XCTAssertEqual(next.timeIntervalSinceReferenceDate, (start.timeIntervalSinceReferenceDate.rounded(.down)
+                + Double(second) + 0.0005), accuracy: 1e-6)
+            XCTAssertEqual(RoomClockReading.indices(at: next, zone: TimeZone(identifier: "UTC")!).second,
+                           RoomClockReading.indices(at: RoomClockReading.secondBoundary(at: next), zone: TimeZone(identifier: "UTC")!).second)
+            date = next
+        }
     }
 }

@@ -109,7 +109,7 @@ def record(
             **({"media_entity_id": linked_entity} if linked_entity else {}),
             **(session_frontmatter or {}),
         }
-        markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+        episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     via_clean = reading_asks.clean_via(via)
     row = {"at": episode_ids.utc_now_iso(), "checker": checker or "agent", "checker_kind": checker_kind,
            "ref": ref, "host": host, "outcome": outcome, "episode": episode_id}
