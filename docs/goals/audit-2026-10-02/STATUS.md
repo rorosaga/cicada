@@ -18,7 +18,7 @@ Revalidated on `dev` `efd5386e` (the revalidation table is in the README). Every
 | A12 | **gone** (G176) | none needed | — |
 
 Docs and probes: #167. Disclosed gaps that remain open:
-- the agent's `cicada_mark_processed` carries no revision;
+- ~~the agent's `cicada_mark_processed` carries no revision~~ — closed 2026-10-05 (`fix/agent-mark-processed-revision`);
 - MCP's dedup scan holds the lock;
 - `ActivateBank`'s hydrate-before-switch window.
 
