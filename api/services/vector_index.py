@@ -20,6 +20,9 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
+import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Callable
 
@@ -46,6 +49,55 @@ _warned_wal_failure = False
 # Episode bodies are split into overlapping passages before embedding so a
 # single multi-thousand-token conversation isn't embedded as one vector.
 EPISODE_CHUNK_CHARS = 4000
+
+# Audit 2026-10-05 P2-8: one query embedding per model, reused by every search
+# that asks within a minute — MCP recall's entity and episode legs, a multi-kind
+# search. Keyed by the model id, the table's width and a hash of the query (the
+# text is never kept), and emptied whenever a table is written; only a NAMED model is cached (an injected test embedder has no name to
+# key on). Process memory only, never written anywhere.
+QUERY_CACHE_TTL_S = 60.0
+QUERY_CACHE_SIZE = 16
+_QUERY_CACHE: "OrderedDict[tuple[str, str], tuple[float, np.ndarray]]" = OrderedDict()
+_QUERY_CACHE_LOCK = threading.Lock()
+
+
+def clear_query_cache() -> None:
+    with _QUERY_CACHE_LOCK:
+        _QUERY_CACHE.clear()
+
+
+def _cached_query_vector(model: str, dim, query: str, embed: Callable[[], np.ndarray]) -> np.ndarray:
+    # The table's width is part of the key: a table rebuilt at another width under the same model id must
+    # never be queried with a vector cached for the old one (it would match nothing, silently).
+    key = (f"{model}#{dim or ''}", hashlib.sha256(query.encode("utf-8", errors="surrogatepass")).hexdigest())
+    now = time.monotonic()
+    with _QUERY_CACHE_LOCK:
+        hit = _QUERY_CACHE.get(key)
+        if hit is not None and now - hit[0] < QUERY_CACHE_TTL_S:
+            _QUERY_CACHE.move_to_end(key)
+            return hit[1]
+    vec = embed()
+    with _QUERY_CACHE_LOCK:
+        _QUERY_CACHE[key] = (now, vec)
+        _QUERY_CACHE.move_to_end(key)
+        while len(_QUERY_CACHE) > QUERY_CACHE_SIZE:
+            _QUERY_CACHE.popitem(last=False)
+    return vec
+
+
+def _named(model: str | None) -> bool:
+    return bool(model) and model != "unknown"
+
+
+def _current_status(path: Path) -> str | None:
+    """A page's status as its markdown says NOW, or ``None`` when the page is
+    gone (audit 2026-10-05 P2-5: the stored metadata is as old as the last
+    sync, so a page the person dropped since would still read ``active``)."""
+    try:
+        fm = markdown_parser.parse(path).frontmatter or {}
+    except Exception:  # noqa: BLE001 — a missing or unreadable page is not a hit
+        return None
+    return str(fm.get("status", "active") or "active")
 EPISODE_CHUNK_OVERLAP = 200
 
 
@@ -108,28 +160,51 @@ class SqliteVecIndexer:
             if self.model_name is None:
                 self.model_name = resolved_model
 
-    def _query_embed_fn(self) -> EmbedFn:
-        """The embed_fn used for SEARCH queries.
+    def _query_embed_fn(self, kind: str | None = None, info: dict | None = None) -> tuple[EmbedFn, str | None]:
+        """The embed_fn — and its model — for a SEARCH query against ``kind``.
 
-        Per-bank embeddings: when this indexer wasn't handed an explicit
-        ``embed_fn`` and the on-disk index records the model it was BUILT with
-        (``index_meta.model``), embed the query with THAT model — not the global
-        ``Settings`` mode — so a bank built on embeddinggemma keeps querying with
-        embeddinggemma while a bank built on gemini-embedding-2 queries with
-        gemini, both correct at once. Falls back to the global ``embed_fn``
-        (``_ensure_embed_fn``) when an explicit fn was injected or the index is
-        unbuilt (no recorded model).
+        Per-bank and per-table (audit 2026-10-05 P2-4): every kind records the
+        model its vectors were built with (``model:<kind>``), and the kinds are
+        re-synced one after another, so after a model switch one table can hold
+        the new model's vectors while another still holds the old one's. The
+        query is embedded with the model of the table it searches — never the
+        bank-wide stamp, which only names whichever kind was rebuilt last.
+
+        An injected ``embed_fn`` is used as given when it names no model (a
+        hermetic test) or names the table's model; one that names a DIFFERENT
+        model is not used on that table. With nothing recorded (an unbuilt
+        index) the global configured embedder answers.
         """
-        if self._embed_fn is not None:
-            return self._embed_fn
-        recorded = (self.index_info() or {}).get("model")
-        if recorded and recorded != "unknown":
+        if info is None:
+            info = self.index_info(kind) if kind else self.index_info()
+        recorded = (info or {}).get("model")
+        if self._embed_fn is not None and (
+            not _named(self.model_name) or not _named(recorded) or recorded == self.model_name
+        ):
+            return self._embed_fn, (self.model_name if _named(self.model_name) else None)
+        if _named(recorded):
             from api.services.providers import resolve_embed_fn_for_model
 
             embed_fn, _model = resolve_embed_fn_for_model(recorded)
-            return embed_fn
+            return embed_fn, recorded
         self._ensure_embed_fn()
-        return self._embed_fn
+        return self._embed_fn, (self.model_name if _named(self.model_name) else None)
+
+    def _query_vector(self, query: str, kind: str | None = None) -> np.ndarray:
+        """``query`` embedded for ``kind``'s table — once per model (P2-8)."""
+        info = self.index_info(kind) if kind else self.index_info()
+        embed_fn, model = self._query_embed_fn(kind, info)
+
+        def embed() -> np.ndarray:
+            return self._checked(embed_fn([query], is_query=True), 1)[0]
+
+        if model is None:
+            key = id(embed_fn)
+            cache = self.__dict__.setdefault("_local_qvecs", {})
+            if (key, query) not in cache:
+                cache[(key, query)] = embed()
+            return cache[(key, query)]
+        return _cached_query_vector(model, (info or {}).get("dim"), query, embed)
 
     def _ensure_or_global(self) -> EmbedFn:
         """The build/document-side embed_fn (injected fn, else global config).
@@ -142,12 +217,17 @@ class SqliteVecIndexer:
         return self._embed_fn
 
     def _embed(self, texts: list[str], *, is_query: bool = False) -> np.ndarray:
-        embed_fn = self._query_embed_fn() if is_query else self._ensure_or_global()
-        vectors = np.asarray(embed_fn(texts, is_query=is_query), dtype=np.float32)
-        if vectors.ndim != 2 or vectors.shape[0] != len(texts):
-            raise ValueError(
-                f"embed_fn returned shape {vectors.shape} for {len(texts)} texts"
-            )
+        if is_query:
+            embed_fn, _model = self._query_embed_fn()
+        else:
+            embed_fn = self._ensure_or_global()
+        return self._checked(embed_fn(texts, is_query=is_query), len(texts))
+
+    @staticmethod
+    def _checked(raw, n: int) -> np.ndarray:
+        vectors = np.asarray(raw, dtype=np.float32)
+        if vectors.ndim != 2 or vectors.shape[0] != n:
+            raise ValueError(f"embed_fn returned shape {vectors.shape} for {n} texts")
         return vectors
 
     # ---------- connection ----------
@@ -348,6 +428,7 @@ class SqliteVecIndexer:
     def _write_index_meta(
         self, conn: sqlite3.Connection, *, model: str, dim: int, kind: str | None = None
     ) -> None:
+        clear_query_cache()   # a table changed: no cached query vector outlives it
         conn.execute(
             "CREATE TABLE IF NOT EXISTS index_meta (key TEXT PRIMARY KEY, value TEXT)"
         )
@@ -367,8 +448,14 @@ class SqliteVecIndexer:
             "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('dim', ?)", (str(dim),)
         )
 
-    def index_info(self) -> dict:
-        """Return ``{model, dim}`` recorded at build time, or ``{}`` if unbuilt."""
+    def kind_model(self, kind: str) -> str | None:
+        """The model ``kind``'s vectors were built with: its own ``model:<kind>``
+        stamp, else the bank-wide one (an index written before per-kind stamps)."""
+        return (self.index_info(kind) or {}).get("model")
+
+    def index_info(self, kind: str | None = None) -> dict:
+        """Return ``{model, dim}`` recorded at build time, or ``{}`` if unbuilt.
+        With ``kind``, that table's own stamp (falling back to the bank-wide one)."""
         if not self.db_path.exists():
             return {}
         conn = self._connect()
@@ -384,10 +471,16 @@ class SqliteVecIndexer:
         finally:
             conn.close()
         info: dict = {}
-        if "model" in kv:
-            info["model"] = kv["model"]
-        if "dim" in kv:
-            info["dim"] = int(kv["dim"])
+        model = kv.get(f"model:{kind}") if kind else None
+        dim = kv.get(f"dim:{kind}") if kind else None
+        if model is None and "model" in kv:
+            model = kv["model"]
+        if dim is None and "dim" in kv:
+            dim = kv["dim"]
+        if model is not None:
+            info["model"] = model
+        if dim is not None:
+            info["dim"] = int(dim)
         return info
 
     def _knn(
@@ -405,9 +498,10 @@ class SqliteVecIndexer:
         meta_table = f"meta_{kind}"
         if qvec is None:
             try:
-                qvec = self._embed([query], is_query=True)[0]
+                qvec = self._query_vector(query, kind)
             except Exception as exc:  # noqa: BLE001
-                logger.debug(f"vector search embed failed ({kind}): {exc}")
+                # The exception class only: a provider's error can echo its input (K9).
+                logger.debug(f"vector search embed failed ({kind}): {type(exc).__name__}")
                 return []
         cur = conn.execute(
             f"SELECT v.rowid, v.distance, m.text, m.metadata "
@@ -490,6 +584,7 @@ class SqliteVecIndexer:
             return []
         finally:
             conn.close()
+        results = self._as_pages_now(results)
         if include_archived:
             return results[:top_k]
         active = [r for r in results if r.get("metadata", {}).get("status") != "archived"]
@@ -498,31 +593,47 @@ class SqliteVecIndexer:
         archived = [r for r in results if r.get("metadata", {}).get("status") == "archived"]
         return (active + archived)[:top_k]
 
+    def _as_pages_now(self, results: list[dict]) -> list[dict]:
+        """Entity hits as the markdown says now (audit 2026-10-05 P2-5): a page
+        that is gone or ``dropped`` — the person's "never resurface" — is not a
+        hit at all, even with ``include_archived``; every other hit carries its
+        current status, so the archived tier is decided on today's page and not
+        on the last sync's copy."""
+        out: list[dict] = []
+        for r in results:
+            meta = dict(r.get("metadata") or {})
+            eid = str(meta.get("entity_id") or "")
+            path = self.entities_dir / f"{eid}.md" if eid else Path(str(meta.get("file_path") or ""))
+            status = _current_status(path) if str(path) else None
+            if status is None or status == "dropped":
+                continue
+            meta["status"] = status
+            out.append({**r, "metadata": meta})
+        return out
+
     def search_kinds(self, query: str, top_k_by_kind: dict[str, int]) -> dict[str, list[dict]]:
-        """KNN over several kinds with ONE query embedding (G136).
+        """KNN over several kinds with ONE query embedding per model (G136, P2-4).
 
         ``/search``'s hybrid mode wants the entity, claim and episode legs of
         one query at once; three ``search_*`` calls embed the same text three
-        times, and the embed is the dominant cost of a warm search (G58). Same
-        graceful degrade as :meth:`_search_kind`: a missing db, a missing
+        times, and the embed is the dominant cost of a warm search (G58). The
+        kinds are grouped by the model their table was built with — after a
+        partial model switch that is two embeds, never one in the wrong space.
+        Same graceful degrade as :meth:`_search_kind`: a missing db, a missing
         table or a failed embed gives empty lists, never a raise. No
         archived-tier or superseded filtering happens here — the caller ranks.
         """
         out: dict[str, list[dict]] = {kind: [] for kind in top_k_by_kind}
         if not top_k_by_kind or not self.db_path.exists():
             return out
-        try:
-            qvec = self._embed([query], is_query=True)[0]
-        except Exception as exc:  # noqa: BLE001
-            # The exception class only: a provider's error can echo its input,
-            # and the input is the person's query (K9).
-            logger.debug(f"vector search embed failed (search_kinds): {type(exc).__name__}")
-            return out
         conn = self._connect()
         try:
             for kind, top_k in top_k_by_kind.items():
                 try:
-                    out[kind] = self._knn(conn, kind, query, top_k, qvec=qvec)
+                    # Each kind's own model (P2-4); kinds that share one share a
+                    # single embed through the query cache (P2-8). A failed
+                    # embed empties that kind only.
+                    out[kind] = self._knn(conn, kind, query, top_k)
                 except sqlite3.OperationalError as exc:
                     logger.warning(
                         f"vector_index.search_kinds({kind!r}): query failed ({exc}); degrading to []"
