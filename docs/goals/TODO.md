@@ -37,7 +37,16 @@ two headless exports **120 files byte-identical**; documented worm-stage and par
 `make app` bundle **36 pairs + manifest, every hash matched**;
 `git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
 **Measured live 2026-10-02 (installed release build of 0d745538):** the Sleep page uses **11.9% of one core** on average
-(peak 14.4%; 12 samples of 5 s) against ruling 18's ≤ 3% — open, first in the follow-up handoff. Clicking the worm no
+(peak 14.4%; 12 samples of 5 s) against ruling 18's ≤ 3%. **Fixed 2026-10-05 (`perf/sleep-page-cpu`):** the cause was not
+the sprites but SwiftUI — a `TimelineView` with sub-0.3 s entries lays the whole window out at the display rate (120 fps
+measured on the page). Frames now swap on a layer (`SpriteLayerPlayer`): **12.0% → 2.54%** visible (release builds, same
+sunny-day room, 12 × 5 s), SwiftUI renders **120 → 2.6 a second**, **0.83%** hidden (the menu-bar worm's own timer; the
+room makes no work). With the clock's second hand on a layer too and the graph resting (audit #169): **1.03%** visible
+(90 s), **0 SwiftUI renders in 10 s**, the web processes at 0%; what is left is mostly the menu-bar worm (AppKit
+redraws the status item and its copy on each display for every frame, ~10 ms a frame). Still open on that page: the hidden graph's web view (~33% GPU + ~22% web-content process while
+any other page shows, audit A07), and the stage strip's 0.1 s pulse timeline (`SleepStageStrip`), which drives the same
+display-rate layout while a run is active. Home's painted scene and the export walkthrough use `.animation` timelines
+by design (≤ 30 fps content), so they pay the same per-frame window layout while visible. Clicking the worm no
 longer draws a focus ring (#165). Still to look at: the Sleep page in light and dark at 0.8×–1.4×. **Follow-ups:**
 `docs/specs/2026-10-02-g176-followups-handoff.md` (the CPU, the backend test failing on `dev`, the blocked
 auto-updater, Q1).
@@ -975,9 +984,17 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       environment/mood/lamp combination, computed from the sheets (sprite boundaries plus the clock's 60 ticks ≤ 1,800 per
       minute, tested in `SpriteClipTests`); mean CPU with the room frontmost stays ≤ 3 % of one core and within 2
       points of `dev`, measured by the owner on the demo bank before merge.
+      **Player amendment (2026-10-05, measured):** moving frames swap a layer's `contents` on a timer armed at each
+      boundary (`SpriteLayerPlayer`); no sprite plays through a `TimelineView`. On macOS 26 a `TimelineView` with
+      entries under ~0.3 s apart drives the whole window's layout at the display rate (240 host layouts a second
+      for 4 ticks a second in an isolated test; 120 renders a second on the Sleep page), so the boundary budget held
+      while the page still cost 12% of a core. After the change: 2.54% visible, 2.6 renders a second, 0.83% hidden
+      (the menu-bar worm). A 1 s timeline still re-renders the whole window once a second, so the wall clock's second
+      hand is a layer too and the leaf redraws once a minute: 1.03% visible with the graph resting, 0 renders in 10 s.
       **Wall-clock amendment (owner, 2026-10-02):** `room-clock` is state art selected from `Date()` and
       `TimeZone.current`, not a sprite loop. Hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their
-      integer values. Its own visible-only `TimelineView(.periodic)` ticks once per second; no room-wide timer.
+      integer values. Its own visible-only `TimelineView(.everyMinute)` moves hours and minutes, and a layer
+      (`SpriteLayerPlayer`) moves the second hand on every whole second (2026-10-05); no room-wide timer.
       Black hour/minute hands and a thin red second hand use dark variants in a dark room. Reduce Motion removes
       only the second hand; hour/minute keep time. Help and VoiceOver say “Wall clock, <system short time>”,
       after the window. The inert clock at `(94,34)`, 15 × 15, z1 clears every worm frame, the window, shade and pile;
