@@ -38,12 +38,13 @@ struct BookwormView: View {
             Group {
                 if let pair, pair.1.order.count > 1, profile != .still, !paused {
                     let tracks = playbackTracks(clip: pair.1, startedAt: start, profile: profile, mascot: mascot)
-                    TimelineView(SpriteFrameSchedule(tracks: tracks)) { context in
-                        // TimelineView re-evaluates this closure only: the cover must be chosen here.
-                        let cover = BookwormArt.coverIndex(at: context.date, profile: profile, mascot: mascot)
+                    // A layer swaps the frames; SwiftUI never re-renders the window for one (`SpriteLayerPlayer`).
+                    SpriteLayerPlayer(tracks: tracks) { date in
+                        // The player re-runs this closure only, once per boundary: the cover must be chosen here.
+                        let cover = BookwormArt.coverIndex(at: date, profile: profile, mascot: mascot)
                         let current = activeTransition.flatMap { BookwormArt.transitionClip($0.kind, lighting: lighting, lampLit: lampLit, mascot: mascot) }
                             ?? BookwormArt.clip(state, look: look, cover: cover, set: size.set, lighting: lighting, lampLit: lampLit, mascot: mascot)
-                        draw(current, at: context.date, startedAt: start, profile: profile, size: size, mascot: mascot)
+                        return image(current, at: date, startedAt: start, profile: profile, size: size, mascot: mascot)
                     }
                 } else {
                     draw(pair, at: SpriteClock.origin, startedAt: nil, profile: .still, size: size, mascot: mascot)
@@ -72,12 +73,29 @@ struct BookwormView: View {
         return tracks
     }
 
+    /// A once beat holds its last frame; everything else loops on the shared clock.
+    private static func step(_ clip: SpriteClip, at date: Date, startedAt: Date?, profile: SpritePlaybackProfile) -> Int {
+        startedAt.map { clip.onceStep(at: date, startedAt: $0, profile: profile) ?? max(0, clip.order.count - 1) }
+            ?? clip.loopStep(at: date, profile: profile)
+    }
+
+    /// The moving path's frame: the same choice `draw` makes, as the image a layer shows.
+    private func image(_ pair: (SpriteSheet, SpriteClip)?, at date: Date, startedAt: Date?,
+                       profile: SpritePlaybackProfile, size: BookwormSize, mascot: Mascot) -> CGImage? {
+        guard let (sheet, clip) = pair else { return nil }
+        let step = Self.step(clip, at: date, startedAt: startedAt, profile: profile)
+        if size.set == .small {
+            return BookwormRenderer.smallImage(state: state, frameStep: step, pointSize: size.size.width, mascot: mascot)
+                .cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        return sheet.frameImage(clip.order[step])
+    }
+
     @ViewBuilder
     private func draw(_ pair: (SpriteSheet, SpriteClip)?, at date: Date, startedAt: Date?,
                       profile: SpritePlaybackProfile, size: BookwormSize, mascot: Mascot) -> some View {
         if let (sheet, clip) = pair {
-            let step = startedAt.map { clip.onceStep(at: date, startedAt: $0, profile: profile) ?? max(0, clip.order.count - 1) }
-                ?? clip.loopStep(at: date, profile: profile)
+            let step = Self.step(clip, at: date, startedAt: startedAt, profile: profile)
             if size.set == .small {
                 Image(nsImage: BookwormRenderer.smallImage(state: state, frameStep: step, pointSize: size.size.width, mascot: mascot))
                     .interpolation(.none)

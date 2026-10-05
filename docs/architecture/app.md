@@ -397,6 +397,15 @@ and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep momen
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
 and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
 schedules, shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+**Moving frames are swapped on a layer, never through a `TimelineView` (2026-10-05).** `SpriteLayerPlayer` (an
+`NSViewRepresentable`) arms one timer per boundary of `SpriteFrameSchedule` and sets its layer's `contents` to the
+frame the caller's closure picks — `SpriteLayerView` for room props, `BookwormView` for the worm everywhere. Measured on
+macOS 26: a `TimelineView` whose entries fall under ~0.3 s apart makes SwiftUI lay the whole window out at the display
+rate (240 host layouts a second for 4 ticks a second), which is what held the Sleep page at ~12% of a core; a 1 s
+timeline (the wall clock) stays at one layout a second. Still frames, Reduce Motion, a paused host, an unseen window
+and `ImageRenderer` snapshots keep the plain SwiftUI image (a snapshot cannot draw a platform view), and mounting that
+image tears the player and its timer down. `SpriteLayerPlayerTests` pins one draw per boundary and bans
+`TimelineView(SpriteFrameSchedule` from the sources.
 Settings passes the room's pause to every sprite leaf as well as its clock and weather reader. The steady-state
 redraw test covers all 240 weather/time/mood/lamp combinations and sums independent leaves, including 60 clock ticks:
 rain's unchanged 48-frame loop now holds 100 ms (4.8 s total), giving a maximum of 1,758/minute against the 1,800 cap.
