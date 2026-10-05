@@ -527,6 +527,18 @@ in the bank's own git dir (a worktree's, never the shared common dir), says so o
 lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
 under its own author (R-B5).
 
+**One page writer at a time (audit 2026-10-05 P1-2).** A claim write is read → reconcile → write; atomic replacement
+keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
+cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
+by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
+`paper_metadata`'s page updates, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
+**and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
+reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
+the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
+lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
+Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
+
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
 overhead, no growing fields.
