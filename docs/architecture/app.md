@@ -788,4 +788,16 @@ mode, logs in `~/.cicada/logs`). `CICADA_PORT` (default 8000; the app also reads
 by the app, the backend, the MCP server, the hooks and the launchers. The bundled git is first on the backend's
 `PATH`; the app's own repo reads try the person's git first and the bundled one last.
 
+**Releases (G182 phase 4).** `make release VERSION=x.y.z` (`scripts/release/release.sh`, the owner's command, never an
+agent's) works in a temporary worktree: it bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on `dev`,
+merges `dev` into `main` with a merge commit, tags `vX.Y.Z`, and pushes dev, main and the tag in one atomic push
+(`--dry-run` pushes nothing). The tag starts `.github/workflows/release.yml` on `macos-26` (arm64, Xcode 26): it builds
+`bundle.sh --release --with-backend` with the commit count as the build number, runs `smoke-test.sh` on the result,
+zips it with `ditto -c -k --keepParent`, signs the zip's bytes with Ed25519 (`scripts/release/sign_update.py`, private
+key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified against the committed `update-public-key.txt` before
+anything is published), writes `latest.json` (`latest_json.py`: version, build, versioned asset URL, size, sha256,
+signature, notes URL) and publishes a GitHub Release with generated notes. A push to `ci/release-dry-run` or a manual
+run does everything but publish and uploads the files as an artifact. The app carries the public key and the repo
+(`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
+
 ---
