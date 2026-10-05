@@ -24,6 +24,10 @@ final class AppVersionTests: XCTestCase {
         XCTAssertFalse(v.differs(fromBackend: " "))
         XCTAssertTrue(v.differs(fromBackend: "0.2.9"))
         XCTAssertTrue(Copy.versionMismatch(backend: "0.2.9").contains("0.2.9"))
+        XCTAssertEqual(Copy.versionDetail(v, backend: "0.2.9"), Copy.versionMismatch(backend: "0.2.9"))
+        XCTAssertEqual(Copy.versionDetail(v, backend: "0.3.0"), "The app and your memory service match.")
+        XCTAssertEqual(Copy.versionDetail(v, backend: nil), "The version to quote when you report a problem.",
+                       "never claims a match before the backend answers")
     }
 
     func testTheRowIsIndexedOnGeneral() {

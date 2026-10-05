@@ -165,8 +165,7 @@ struct SettingsGeneralView: View {
                 // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
                 // background service still running the old one). Plain text, monospaced digits (DR-21).
                 SettingsRow(.appVersion, title: Copy.versionTitle,
-                            detail: appVersion.differs(fromBackend: backendVersion)
-                                ? Copy.versionMismatch(backend: backendVersion ?? "") : Copy.versionDetail) {
+                            detail: Copy.versionDetail(appVersion, backend: backendVersion)) {
                     Text(Copy.versionLine(appVersion))
                         .font(CicadaTheme.captionFont.monospacedDigit())
                         .foregroundStyle(CicadaTheme.textSecondary)
