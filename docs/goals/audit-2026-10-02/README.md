@@ -17,6 +17,38 @@ Read [validation and reproduction](VALIDATION.md) for commands, results and limi
 use [the handoff prompt](HANDOFF.md) to continue in a new session. Source line references
 below refer to the pinned revision; recheck them against any newer `dev`.
 
+## Revalidation on current `dev` (2026-10-05, `efd5386e`)
+
+The audit was written at `9f7d8f5b`, before G176 (PRs #164–#166). `git diff 9f7d8f5b efd5386e`
+touches **no file under `api/`** and, among the audited Swift/JS files, only `MenuBarManager.swift`
+and `BookwormView.swift`. Every other line reference below is still exact. The durable probes were
+rerun on `efd5386e` from a docs worktree with the existing API virtualenv, synthetic `/tmp` banks,
+`CICADA_CAPTURE=off` and dotenv disabled; their output was byte-identical to the audit's.
+
+| ID | Verdict on `efd5386e` | Evidence | Reconciled with |
+|---|---|---|---|
+| A01 | **Confirmed** | `storage.py`: `new_revision_marked_processed: true`, `remaining_queue: 0` | G104/G105 (resumed-session capture); new fix, no new G id |
+| A02 | **Confirmed** | `storage.py`: `old_file_preserved: false`, `bytes_remaining: 20` | — |
+| A03 | **Confirmed (static)** | `Store.swift` unchanged since the audit | — |
+| A04 | **Confirmed** | `storage.py`: `external_file_copied: true` | — |
+| A05/A06 | **Confirmed (static)** | `SourceMutations.swift`, `LookItUpSection.swift` unchanged | G61 (sources) |
+| A07 | **Confirmed** | `graph-loops.cjs`: pending node renders 120/120 frames and still queues one at alpha 0 | G109 (d3-force stays) |
+| A08 | **Confirmed (static)** | `GraphView.swift` unchanged; the ownership pattern is the probe's | G109 |
+| A09 | **Confirmed** | `graph-loops.cjs`: `alphaAfter400Ticks ≈ 0.1` with mouseup omitted | G109 |
+| A10 | **Confirmed (static)** | `sync.py`, `sync_service.py`, `bank_index.py`, `sleep_debt.py` unchanged; timings not rerun | — |
+| A11 | **Confirmed (static)** | `ExportWalkthroughSheet.swift:23` still asks `frameInterval(lowPower: false)` and has no visibility reader | G145 (walkthrough); G176 follow-up 1 owns the Sleep page CPU, not this sheet |
+| A12 | **Gone — fixed by G176** | `MenuBarManager.swift:38–40,207–222`: the chained frame timer only runs when `isVisible && !displaysAsleep && !reduceMotion` (pinned by `BookwormRendererTests.swift:93–95`); `BookwormView.swift:27,39,48–49`: Reduce Motion selects `.still` and draws one static frame with no `TimelineView`, and a hidden window pauses it | G176 |
+| K01 | **Confirmed** | `episode_ids.py:70–85` unchanged; no cross-process allocation lock exists | G114 (one id rule) / G135 (disclosed race, TODO "G135 … G114's standing rule") |
+
+**A11/A12 and the G176 Sleep-page CPU follow-up** (`docs/specs/2026-10-02-g176-followups-handoff.md`,
+item 1: 11.9 % of a core against ≤ 3 %) are one piece of work in the sense that both are animation
+clocks, but they do not overlap in code: A12 is already closed by G176, A11 is the Import
+walkthrough sheet, and the Sleep page's cost is per boundary inside the room's sprite layers.
+The Sleep-page item needs on-screen release-build profiling with the owner's word, so it stays
+with that handoff; it is not duplicated here.
+
+Status of each fix lives in [STATUS.md](STATUS.md).
+
 ## Main conclusion
 
 The highest priorities are protecting captured revisions and file writes, then stopping
