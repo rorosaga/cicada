@@ -11,7 +11,9 @@ import Observation
 ///
 /// **Never blank.** A failed or 304 answer keeps the last value; an error is shown only when there is nothing to show
 /// (DR-43). **Not keyed by bank**, so a bank switch empties it (`reset()`) — project ids repeat across banks — and an
-/// answer in flight across the switch is dropped by its epoch rather than painted under the new bank.
+/// answer in flight across the switch is dropped by its epoch rather than painted under the new bank. Within one bank,
+/// overlapping refreshes of one resource are ordered by `RequestGenerations` (audit 2026-10-05 P2-6): only the newest
+/// request's answer is kept, and a confirmed write's paint is cleared only by an answer requested after it was confirmed.
 @Observable
 @MainActor
 final class ProjectsCache {
@@ -38,6 +40,11 @@ final class ProjectsCache {
     @ObservationIgnored private var timelineETags: [String: String] = [:]
     @ObservationIgnored private var recent: [String] = []
     @ObservationIgnored private var epoch = 0
+    @ObservationIgnored private var generations = RequestGenerations()
+    /// The generation that was newest for its project when each overlay was confirmed — an answer requested no later
+    /// than that may predate the write, so it does not clear the paint.
+    @ObservationIgnored private var confirmedAt: [UUID: Int] = [:]
+    private static let listKey = "\u{0}list"
 
     init(api: any ProjectsAPI = APIClient.shared) { self.api = api }
 
@@ -66,45 +73,53 @@ final class ProjectsCache {
         timelineETags = [:]
         recent = []
         overlays = [:]
+        confirmedAt = [:]
         revisions = [:]   // `nextRevision` runs on: a revision from before the switch never matches one after it.
     }
 
     func refreshList() async {
         let started = epoch
+        let generation = generations.begin(Self.listKey)
         if list == nil { listPhase = .loading }
         do {
             // Never an ETag with nothing cached: a 304 would leave the page with nothing to draw.
             let answer = try await api.fetchProjects(etag: list == nil ? nil : listETag)
-            guard started == epoch else { return }
+            // A superseded answer is still taken when nothing is shown yet — never blank (DR-43).
+            guard started == epoch, generations.isLatest(Self.listKey, generation) || list == nil else { return }
             if let value = answer.value {
                 list = value
                 listETag = answer.etag
             }
             listPhase = .loaded
         } catch {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(Self.listKey, generation) else { return }
             listPhase = list == nil ? .failed(Copy.Projects.loadFailed(error)) : .loaded
         }
     }
 
     func refreshTimeline(_ id: String) async {
         let started = epoch
+        let generation = generations.begin(id)
         if timelines[id] == nil { timelinePhases[id] = .loading }
         do {
             let answer = try await api.fetchProjectTimeline(id: id, etag: timelines[id] == nil ? nil : timelineETags[id])
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(id, generation) || timelines[id] == nil else { return }
             if let value = answer.value { store(value, etag: answer.etag, for: id) }
-            // A fresh answer holds every write the server accepted before it; a 304 changes nothing.
-            if answer.value != nil { overlays[id]?.removeAll(where: \.confirmed) }
+            // Any answer — fresh or a 304 over what is cached — holds every write the server accepted before it was
+            // REQUESTED, so it settles a paint confirmed before then.
+            if answer.value != nil || answer.notModified {
+                overlays[id]?.removeAll { $0.confirmed && (confirmedAt[$0.id] ?? 0) < generation }
+                confirmedAt = confirmedAt.filter { key, _ in overlays.values.contains { $0.contains { $0.id == key } } }
+            }
             timelinePhases[id] = .loaded
         } catch APIError.httpError(404, _) {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(id, generation) else { return }
             timelines[id] = nil
             timelineETags[id] = nil
             timelinePhases[id] = .gone
             bump(id)
         } catch {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(id, generation) else { return }
             timelinePhases[id] = timelines[id] == nil ? .failed(Copy.Projects.loadFailed(error)) : .loaded
         }
     }
@@ -142,7 +157,10 @@ final class ProjectsCache {
     /// The server accepted it: the paint stays until the next fresh answer, which holds the write.
     func confirm(_ overlayId: UUID) {
         for key in overlays.keys {
-            if let i = overlays[key]?.firstIndex(where: { $0.id == overlayId }) { overlays[key]?[i].confirmed = true }
+            if let i = overlays[key]?.firstIndex(where: { $0.id == overlayId }) {
+                overlays[key]?[i].confirmed = true
+                confirmedAt[overlayId] = generations.current(key)
+            }
         }
     }
 }

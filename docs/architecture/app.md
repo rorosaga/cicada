@@ -44,7 +44,10 @@ releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
 backoff and falling back to polling while disconnected; each `version` event refreshes only the
-changed domains, always with `If-None-Match` so an unchanged domain costs a 304. View models are
+changed domains, always with `If-None-Match` so an unchanged domain costs a 304. A domain whose refresh failed stays
+pending; the server's 15 s `ping` retries it while connected (`Store.retryPending`, at most `maxPendingRetries` = 8
+heartbeats until the next version event re-arms it — a version event comes only when the vector moves, so before audit
+2026-10-05 P2-7 a failed refresh stayed stale on a healthy stream). View models are
 thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
 optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
@@ -368,7 +371,9 @@ the page's find row.
 progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
 `ProjectsCache` (app-level, in memory) revalidates them with the server's ETag when the page appears, a project opens, a
 write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a bank switch empties it (no
-`VersionVector` mapping, nothing on disk). The wire decodes leniently into local `Project*` types (the shared `Claim` is
+`VersionVector` mapping, nothing on disk). Overlapping refreshes of one resource keep only the newest request's answer,
+and a confirmed write's paint is cleared only by an answer requested after the confirm (`RequestGenerations`, audit
+2026-10-05 P2-6; `BacklogCache` the same). The wire decodes leniently into local `Project*` types (the shared `Claim` is
 untouched); derived state is `ProjectState`, the Swift twin of `project_state.timeline_state`, running the same
 `api/tests/fixtures/timeline_state.json`; every relative word comes from `RelativeDay` over `ISODay` in the viewer's
 calendar (a lint keeps the day words there), and midnight re-derives the page with no network. The story is derived off the main actor (`ProjectDerived`, keyed

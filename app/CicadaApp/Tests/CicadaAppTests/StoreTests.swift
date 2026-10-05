@@ -445,8 +445,15 @@ final class FakeSyncAPI: SyncAPI {
         XCTFail("entity fetch never parked on the gate", file: file, line: line)
     }
     func fetchSyncVersion() async throws -> VersionVector { syncVersion }
+    /// One live `/sync/events` connection to hand out (then the stream is "down" again).
+    var eventStream: AsyncThrowingStream<String, any Error>?
+
     func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse) {
-        throw APIError.serverUnreachable
+        guard let stream = eventStream else { throw APIError.serverUnreachable }
+        eventStream = nil
+        let ok = HTTPURLResponse(url: URL(string: "http://127.0.0.1:8000/sync/events")!, statusCode: 200,
+                                 httpVersion: nil, headerFields: nil)!
+        return (stream, ok)
     }
 }
 
@@ -1031,5 +1038,76 @@ final class StoreTests: XCTestCase {
         await store.refresh([.banks])
         XCTAssertEqual(store.bank, "B")
         XCTAssertEqual(store.consumption.value?.summary.costUsd, 1.5, "consumption survives the bank switch")
+    }
+}
+
+// MARK: - Audit 2026-10-05 P2-7: a failed refresh on a healthy stream
+
+extension StoreTests {
+    /// The server sends `version` only when the vector moves, so a refresh that failed while nothing else changed
+    /// had no retry path; the heartbeat retries it — a bounded number of times, re-armed by the next version event.
+    func testAHeartbeatRetriesAFailedRefreshABoundedNumberOfTimes() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.graph] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        await store.refresh([.graph])
+        XCTAssertEqual(api.calls.filter { $0 == .graph }.count, 1)
+
+        for _ in 0..<(Store.maxPendingRetries + 3) { await store.retryPending() }
+        XCTAssertEqual(api.calls.filter { $0 == .graph }.count, 1 + Store.maxPendingRetries,
+                       "a domain that keeps failing stops costing a request every heartbeat")
+
+        // A version event re-arms the retries; once the domain loads, the heartbeat asks for nothing.
+        api.replies[.graph] = nil
+        await store.apply(version: VersionVector(version: "v0", components: [:]))
+        XCTAssertNotNil(store.graph.value)
+        api.calls.removeAll()
+        await store.retryPending()
+        XCTAssertTrue(api.calls.isEmpty)
+    }
+
+    func testAHeartbeatRetrySaysNothingNewAndSkipsADomainStillInFlight() async throws {
+        let api = FakeSyncAPI()
+        api.replies[.graph] = .failure
+        let store = Store(cache: tempCache(), api: api)
+        await store.refresh([.graph])
+        XCTAssertNotNil(store.toast, "the first failure is said")
+        store.toast = nil
+        await store.retryPending()
+        XCTAssertNil(store.toast, "a heartbeat retry of the same failure raises no new toast")
+
+        // A healthy refresh still in flight is pending but has not failed: the heartbeat leaves it alone.
+        api.replies[.graph] = nil
+        api.gatedDomains = [.inbox]
+        let parked = Task { await store.refresh([.inbox]) }
+        var spins = 0
+        while api.gates[.inbox] == nil, spins < 10_000 { spins += 1; await Task.yield() }
+        api.calls.removeAll()
+        await store.retryPending()
+        XCTAssertEqual(api.calls, [.graph], "only the failed domain is asked again")
+        api.releaseGate(.inbox)
+        await parked.value
+    }
+
+    func testAPingOnTheLiveStreamRetriesWhatAFailedRefreshLeftPending() async throws {
+        let api = FakeSyncAPI()
+        api.onceReplies[.graph] = [.failure]
+        let (stream, events) = AsyncThrowingStream<String, any Error>.makeStream()
+        api.eventStream = stream
+        let store = Store(cache: tempCache(), api: api)
+        await store.refresh([.graph])
+        XCTAssertNil(store.graph.value, "the first fetch failed")
+
+        store.engine.start()
+        defer { store.engine.stop() }
+        var spins = 0
+        while !store.isConnected, spins < 10_000 { spins += 1; await Task.yield() }
+        XCTAssertTrue(store.isConnected)
+        events.yield("event: ping")
+        events.yield("data: {}")
+        events.yield("")
+        spins = 0
+        while store.graph.value == nil, spins < 100_000 { spins += 1; await Task.yield() }
+        XCTAssertNotNil(store.graph.value, "the heartbeat retried the pending domain")
     }
 }
