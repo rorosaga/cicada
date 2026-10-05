@@ -37,7 +37,9 @@ re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 bank and an invalidation generation across its fetch: an answer from a bank the person has since left is dropped
 (nil, nothing memoised), and one that started before `invalidateEntity`/`invalidateAllEntities` is fetched again. The
 entity card's sources are card-local, so their writes run through a card-local `SourceWriteQueue`, one at a time in
-the order made — a failure rolls back only its own change and a slow answer never overwrites a newer one. An add is
+the order made — a failure rolls back only its own change and a slow answer never overwrites a newer one; the card's
+list outlives an entity switch, so a write touches it only while the card is still on that entity (`isCurrent`). A
+queued edit paints when its turn comes, not at the click. An add is
 the `EntitySourceAdd` mutation: the draft stays in the field until the answer, a failure keeps it and toasts the
 server's sentence (`SourceDraft.afterAdd` decides what the field holds), and a second ⏎ on pending text is ignored.
 

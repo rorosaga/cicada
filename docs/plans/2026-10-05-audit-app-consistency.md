@@ -5,9 +5,8 @@ Source: [`docs/goals/audit-2026-10-02/README.md`](../goals/audit-2026-10-02/READ
 
 ## Rulings
 
-- **R1 (A03).** `Store` keeps an `entityGeneration` counter, bumped by `hydrate` (every bank load), by
-  `invalidateAllEntities` and by `invalidateEntity(id)`. `invalidateEntity(id)` also bumps a per-id counter in
-  `entityInvalidations`. `entity(_:)` captures `(bank, generation, per-id)` before awaiting the fetch and re-checks
+- **R1 (A03).** `Store` keeps an `entityGeneration` counter, bumped by `hydrate` (every bank load) and by
+  `invalidateAllEntities`. `invalidateEntity(id)` bumps a per-id counter in `entityInvalidations` instead. `entity(_:)` captures `(bank, generation, per-id)` before awaiting the fetch and re-checks
   all three after it:
   - The bank changed: return `nil` and cache nothing. The answer belongs to another bank, and a card asking under
     the new bank asks again.
@@ -18,9 +17,12 @@ Source: [`docs/goals/audit-2026-10-02/README.md`](../goals/audit-2026-10-02/READ
 - **R2 (A05).** `SourceWriteQueue` is a `@MainActor` serial chain owned by the Look-it-up section (card-local
   `@State`, so one per open page). Every source write (`EntitySourceWrite`) and every add (A06) runs through it in
   submission order. Each mutation's optimistic step therefore snapshots the list as the previous write left it, so
-  its rollback restores only its own change, and a slow first response can no longer overwrite a newer one. A
-  card for another entity, or a closed card, has its own queue; a late write lands in its own dead binding,
-  never in a newer card.
+  its rollback restores only its own change, and a slow first response can no longer overwrite a newer one.
+  - **Review fix:** the card's `sources` `@State` outlives an entity switch, so both mutations take an `isCurrent`
+    closure (`activeEntityId == id`). A write made on A touches the list only while the card is still on A.
+  - **Accepted cost:** a queued edit paints when its turn comes, not at the click.
+  - **Known gap:** `ActivateBank` hydrates before the server switches, so a fetch in that gap can still return the
+    old bank's body until the next full graph push invalidates it. This predates the change.
 - **R3 (A06).** An add becomes the `EntitySourceAdd` mutation through `Store.perform`, so a failure toasts the
   server's sentence (`SourceWriteFailure.message`, the same as an edit) and nothing is painted that would need
   rolling back. `SyncAPI` gains `addEntitySource`; `APIClient` already implements it. The field keeps the draft
@@ -30,7 +32,7 @@ Source: [`docs/goals/audit-2026-10-02/README.md`](../goals/audit-2026-10-02/READ
   - it landed and they typed something new: their new text;
   - it failed: what they have now, or the submitted text if they cleared the field.
 
-  A second ⏎ on the same pending text is ignored.
+  A second ⏎ on the same pending text is ignored. `pendingAdd` is cleared only by its own add's answer.
 
 ## Tests (first)
 

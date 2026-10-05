@@ -11,6 +11,8 @@ struct LookItUpSection: View {
     @Binding var sources: [EntitySource]
     /// Opens another page's card (the card's own `navigate(to:)`) — a source's "Open page ›".
     var navigate: (String) -> Void = { _ in }
+    /// Audit A05 review — the card is still on `entityId`; the card's `sources` outlives an entity switch.
+    var isCurrent: () -> Bool = { true }
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @State private var newRef = ""
@@ -139,10 +141,11 @@ struct LookItUpSection: View {
         // A link typed on a brand page is its official site: the person's own word, trusted at once (G61 S3-b).
         let predicate = addsSite && ref.lowercased().hasPrefix("http")
             && !sources.contains { $0.isOfficialSite && ($0.trusted ?? true) } ? "website" : nil
-        let mutation = EntitySourceAdd(entityId: entityId, ref: ref, predicate: predicate, sources: $sources)
+        let mutation = EntitySourceAdd(entityId: entityId, ref: ref, predicate: predicate, sources: $sources,
+                                       isCurrent: isCurrent)
         writes.run {
             let landed = await store.perform(mutation)
-            pendingAdd = nil
+            if pendingAdd == ref { pendingAdd = nil }
             newRef = SourceDraft.afterAdd(submitted: ref, current: newRef.trimmed == ref ? ref : newRef, landed: landed)
             if landed {
                 await SiteIconStore.shared.forget(entity: entityId)   // a 404 from before this site was trusted is stale
@@ -154,7 +157,8 @@ struct LookItUpSection: View {
     /// One edit, painted at once and rolled back with the server's sentence (`EntitySourceWrite`), queued behind
     /// this page's earlier writes (audit A05).
     private func write(_ change: SourceChange, on source: EntitySource) {
-        let mutation = EntitySourceWrite(entityId: entityId, source: source, change: change, sources: $sources)
+        let mutation = EntitySourceWrite(entityId: entityId, source: source, change: change, sources: $sources,
+                                         isCurrent: isCurrent)
         writes.run {
             let landed = await store.perform(mutation)
             if landed { await SiteIconStore.shared.forget(entity: entityId) }   // "Use this site" makes its mark available

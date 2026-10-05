@@ -133,6 +133,43 @@ final class SourceWriteOrderTests: XCTestCase {
         XCTAssertEqual(box.sources, afterBoth)
     }
 
+    func testAWriteAnsweredAfterTheCardMovedToAnotherEntityLeavesThatEntitysList() async throws {
+        let (store, api, box, binding) = try setup()
+        let first = try XCTUnwrap(box.sources.first)
+        var onEntity = "bob-example"
+        api.sourceReplies = [.success([]), .failure(APIError.serverUnreachable)]
+        api.gateWrites = true
+        let write = EntitySourceWrite(entityId: "bob-example", source: first, change: .remove, sources: binding,
+                                      isCurrent: { onEntity == "bob-example" })
+        let task = Task { await store.perform(write) }
+        await api.waitForParkedWrite()
+        // The person moves the card to another page; the card refetches that page's list.
+        onEntity = "alpha-project"
+        let otherList = Array(box.sources.suffix(2))
+        box.sources = otherList
+        api.gateWrites = false
+        api.releaseWriteGate()
+        _ = await task.value
+        XCTAssertEqual(box.sources, otherList, "bob-example's answer never lands on alpha-project's card")
+
+        // A failure's rollback must not restore bob-example's list onto it either.
+        onEntity = "bob-example"
+        box.sources = try SourcesFixtures.load()
+        let second = try XCTUnwrap(box.sources.last)
+        api.gateWrites = true
+        let failing = EntitySourceWrite(entityId: "bob-example", source: second, change: .remove, sources: binding,
+                                        isCurrent: { onEntity == "bob-example" })
+        let task2 = Task { await store.perform(failing) }
+        await api.waitForParkedWrite()
+        onEntity = "alpha-project"
+        box.sources = otherList
+        api.gateWrites = false
+        api.releaseWriteGate()
+        let landed = await task2.value
+        XCTAssertFalse(landed)
+        XCTAssertEqual(box.sources, otherList)
+    }
+
     func testAFailedAddToastsTheServersSentenceAndLeavesTheList() async throws {
         let (store, api, box, binding) = try setup()
         let before = box.sources
