@@ -260,6 +260,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Three gates, not one:** `CICADA_ALLOW_CONNECTOR_FETCH` (opt-out) gates every fetch Sleep starts on its own — a click
   the person made never is; `CICADA_ALLOW_FEED_FETCH` (opt-in) gates RSS/ICS; `CICADA_ALLOW_LOGO_FETCH=off` disables logos.
   Every server-side fetch of someone else's URL goes through `net_guard`.
+- **Update check (G182):** release builds only, behind Settings → General's *Install updates automatically* (on by
+  default; off = only Check for Updates… asks); a download installs only after its sha256 and Ed25519 signature verify.
 - **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible and Settings is closed, at 4 s / ≤ 64 KB / no cookies or identifiers; see `docs/architecture/network.md`.
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
