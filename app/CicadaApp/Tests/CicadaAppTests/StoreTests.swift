@@ -90,7 +90,8 @@ final class FakeSyncAPI: SyncAPI {
     /// Parks the next write until `releaseWriteGate()`, so a test can inspect
     /// the Store while a mutation is mid-flight.
     var gateWrites = false
-    private var writeGate: CheckedContinuation<Void, Never>?
+    /// Every write parked on the gate (audit A05: two unserialised writes both park, and both must be released).
+    private var writeGates: [CheckedContinuation<Void, Never>] = []
     /// Set once a gated write has actually parked.
     private(set) var writeIsParked = false
     /// When true, a write from a cancelled task throws `CancellationError` before it is recorded, as
@@ -99,10 +100,10 @@ final class FakeSyncAPI: SyncAPI {
     var honorsCancellation = false
 
     func releaseWriteGate() {
-        let g = writeGate
-        writeGate = nil
+        let gates = writeGates
+        writeGates = []
         writeIsParked = false
-        g?.resume()
+        gates.forEach { $0.resume() }
     }
 
     /// Spins (bounded) until a gated write has parked.
@@ -120,7 +121,7 @@ final class FakeSyncAPI: SyncAPI {
         if gateWrites {
             await withCheckedContinuation { c in
                 writeIsParked = true
-                writeGate = c
+                writeGates.append(c)
             }
         }
         if failWrites { throw APIError.serverUnreachable }
@@ -252,8 +253,19 @@ final class FakeSyncAPI: SyncAPI {
     var sourceReply: [EntitySource] = []
     var sourceError: (any Error)?
 
+    /// Audit A05 — answers consumed one per source write, ahead of `sourceReply`/`sourceError`.
+    var sourceReplies: [Result<[EntitySource], any Error>] = []
+
     func changeEntitySource(entityId: String, source: EntitySource, change: SourceChange) async throws -> [EntitySource] {
         try await record("changeEntitySource:\(entityId):\(source.ref):\(change)")
+        if !sourceReplies.isEmpty { return try sourceReplies.removeFirst().get() }
+        if let sourceError { throw sourceError }
+        return sourceReply
+    }
+
+    func addEntitySource(entityId: String, ref: String, predicate: String?) async throws -> [EntitySource] {
+        try await record("addEntitySource:\(entityId):\(ref):\(predicate ?? "-")")
+        if !sourceReplies.isEmpty { return try sourceReplies.removeFirst().get() }
         if let sourceError { throw sourceError }
         return sourceReply
     }
@@ -400,8 +412,37 @@ final class FakeSyncAPI: SyncAPI {
     }
     func fetchEntity(id: String) async throws -> Entity {
         entityFetches += 1
-        guard let e = entities[id] else { throw APIError.httpError(404, "missing") }
+        // The server answers with what it holds when the request arrives; the gate only delays the answer (A03).
+        let answer = entities[id]
+        if gateEntityFetch {
+            await withCheckedContinuation { c in
+                entityFetchParked = true
+                entityGate = c
+            }
+        }
+        guard let e = answer else { throw APIError.httpError(404, "missing") }
         return e
+    }
+
+    /// Audit A03 — parks the next entity fetch until `releaseEntityGate()`.
+    var gateEntityFetch = false
+    private var entityGate: CheckedContinuation<Void, Never>?
+    private(set) var entityFetchParked = false
+
+    func releaseEntityGate() {
+        let g = entityGate
+        entityGate = nil
+        entityFetchParked = false
+        gateEntityFetch = false
+        g?.resume()
+    }
+
+    func waitForParkedEntityFetch(file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<200_000 {
+            if entityFetchParked { return }
+            await Task.yield()
+        }
+        XCTFail("entity fetch never parked on the gate", file: file, line: line)
     }
     func fetchSyncVersion() async throws -> VersionVector { syncVersion }
     func syncEventLines() async throws -> (AsyncThrowingStream<String, any Error>, HTTPURLResponse) {

@@ -49,6 +49,16 @@ thin projections and **never blank** — always last-known-good. Writes go throu
 optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
+**A late answer never lands in the wrong place** (audit 2026-10-02 A03/A05/A06). `Store.entity(_:)` compares the
+bank and an invalidation generation across its fetch: an answer from a bank the person has since left is dropped
+(nil, nothing memoised), and one that started before `invalidateEntity`/`invalidateAllEntities` is fetched again. The
+entity card's sources are card-local, so their writes run through a card-local `SourceWriteQueue`, one at a time in
+the order made — a failure rolls back only its own change and a slow answer never overwrites a newer one; the card's
+list outlives an entity switch, so a write touches it only while the card is still on that entity (`isCurrent`). A
+queued edit paints when its turn comes, not at the click. An add is
+the `EntitySourceAdd` mutation: the draft stays in the field until the answer, a failure keeps it and toasts the
+server's sentence (`SourceDraft.afterAdd` decides what the field holds), and a second ⏎ on pending text is ignored.
+
 **Ruling (2026-09-28, TODO ruling 12): plan usage and model prices show on the Sleep page's Details and its engine
 menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
 in the app") for those two surfaces only: no cost tiles, no `$`/token columns and no cost-per-day chart elsewhere, and

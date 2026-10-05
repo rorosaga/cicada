@@ -45,6 +45,10 @@ final class Store {
     var entities: [String: Entity] = [:]
     private var entityLRU: [String] = []
     private let entityCacheLimit = 200
+    /// Audit A03 — bumped by every bank load and full invalidation; `entityInvalidations` counts per-id
+    /// invalidations. `entity(_:)` compares both across its fetch, so a late answer never repopulates the memo.
+    @ObservationIgnored private var entityGeneration = 0
+    @ObservationIgnored private var entityInvalidations: [String: Int] = [:]
 
     /// Inbox item ids hidden by an optimistic `InboxResolve` (§5.4). An id is
     /// dropped only once a refreshed snapshot no longer contains it — if a 304
@@ -192,6 +196,7 @@ final class Store {
         // switch would render under the new bank's node of the same name.
         entities.removeAll()
         entityLRU.removeAll()
+        entityGeneration += 1   // audit A03: an entity read still in flight belongs to the bank it started in
         // A latched failure belongs to the bank it happened in — carrying it
         // into a freshly-hydrated bank that hasn't even attempted a fetch yet
         // would show a stale error before anything really failed here.
@@ -597,25 +602,42 @@ final class Store {
     // MARK: - Entities
 
     /// Full entity body, memoised (LRU, 200 entries).
+    ///
+    /// Audit A03: the fetch suspends, and while it is out the bank can change (`hydrate`) or the body can be
+    /// invalidated by a mutation. The answer is checked against both after the await: one from another bank is
+    /// dropped (nil, nothing cached — a caller under the new bank asks again), and one that started before an
+    /// invalidation is fetched again, so a pre-mutation body never repopulates the memo.
     func entity(_ id: String) async -> Entity? {
         if let cached = entities[id] {
             touchEntity(id)
             return cached
         }
-        do {
-            let entity = try await api.fetchEntity(id: id)
+        for _ in 0..<3 {
+            let startBank = bank
+            let startGeneration = entityGeneration
+            let startInvalidations = entityInvalidations[id, default: 0]
+            let entity: Entity
+            do {
+                entity = try await api.fetchEntity(id: id)
+            } catch {
+                return nil
+            }
+            guard bank == startBank else { return nil }
+            guard entityGeneration == startGeneration, entityInvalidations[id, default: 0] == startInvalidations else {
+                continue
+            }
             entities[id] = entity
             touchEntity(id)
             return entity
-        } catch {
-            return nil
         }
+        return nil
     }
 
     /// Drop a cached entity so the next read refetches (post-mutation).
     func invalidateEntity(_ id: String) {
         entities[id] = nil
         entityLRU.removeAll { $0 == id }
+        entityInvalidations[id, default: 0] += 1
     }
 
     /// Drop every cached body — used when the whole graph snapshot is replaced
@@ -623,6 +645,7 @@ final class Store {
     func invalidateAllEntities() {
         entities.removeAll()
         entityLRU.removeAll()
+        entityGeneration += 1
     }
 
     private func touchEntity(_ id: String) {
