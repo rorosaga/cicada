@@ -10,6 +10,10 @@ of truth** — the API reads and writes the same files the Sleep cycle does. At 
 (hundreds of entities) the LLM follows wikilinks; it doesn't need Cypher. Zero infrastructure,
 human-readable, portable, Obsidian-compatible.
 
+**A bank's boundary is its directory** (audit 2026-10-02 A04): exporting (`bank_registry.export_zip`) and
+duplicating (`duplicate_bank`) a bank never follow or copy a symlink, at any depth and whatever it points at, so a
+link inside a bank can never pull a file from outside it into an archive or a copy.
+
 ### Entity schema
 
 ```yaml
