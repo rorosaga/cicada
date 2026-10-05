@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_debt, sleep_drain, sleep_paused, sync_service
+from api.services import sleep_drain, sleep_paused, sync_service, sync_ticker
 from api.services.sleep_cycle import get_sleep_state, progress_pct
 
 router = APIRouter(prefix="/sync")
@@ -20,6 +20,9 @@ POLL_SECONDS = 1.0
 # that interval is torn down client-side and the app falls back to polling.
 # It must also stay below any proxy's idle timeout if one is ever put in front.
 PING_SECONDS = 15.0
+# A tick younger than this is shared with every other subscriber of the bank (audit A10): below POLL_SECONDS, so
+# each stream still sees a fresh computation every poll.
+SHARED_TICK_SECONDS = 0.9 * POLL_SECONDS
 
 
 @router.get("/version")
@@ -39,7 +42,9 @@ async def events(settings: Settings = Depends(get_settings)):
         last_sleep = None
         since_ping = 0.0
         while True:
-            info = await run_in_threadpool(sync_service.version, settings.memory_path, get_sleep_state())
+            # Audit A10: one version + debt computation per bank per tick, shared by every subscriber, off the loop.
+            tick = await sync_ticker.current(settings.memory_path, settings, max_age=SHARED_TICK_SECONDS)
+            info = tick.info
             if info.version != last:
                 last = info.version
                 yield _event("version", {"version": info.version, "components": info.components})
@@ -51,7 +56,7 @@ async def events(settings: Settings = Depends(get_settings)):
             # loop just to watch these two numbers move. `sleep_debt.compute`
             # is cheap (a cached frontmatter scan + one bounded git-log read)
             # and safe on every tick per its own docstring.
-            debt = await sleep_debt.compute(settings.memory_path, settings)
+            debt = tick.debt
             progress = progress_pct(state)
             # Sleep page v5: the run of THIS bank only (a lingering one of another is hidden), the
             # paused record from its stat-keyed cache, and the drain's compact block with the live

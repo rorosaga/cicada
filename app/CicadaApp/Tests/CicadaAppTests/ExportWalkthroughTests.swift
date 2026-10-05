@@ -77,6 +77,40 @@ final class ExportWalkthroughTests: XCTestCase {
                        CGSize(width: -700, height: -400))
     }
 
+    /// Audit A11 — no frames while hidden, one per step under Reduce Motion, the painted scenes' cadence otherwise
+    /// and halved under Low Power (the sheet used to ask the full rate whatever the power state or visibility).
+    func testTheWalkthroughsClockFollowsVisibilityPowerAndReduceMotion() {
+        XCTAssertEqual(ExportWalkthrough.cadence(reduceMotion: false, lowPower: false, windowVisible: false), .paused)
+        XCTAssertEqual(ExportWalkthrough.cadence(reduceMotion: true, lowPower: false, windowVisible: false), .paused)
+        XCTAssertEqual(ExportWalkthrough.cadence(reduceMotion: true, lowPower: false, windowVisible: true),
+                       .steps(CicadaMotion.walkthroughStep))
+        XCTAssertEqual(ExportWalkthrough.cadence(reduceMotion: false, lowPower: false, windowVisible: true),
+                       .animation(SceneRunPolicy.frameInterval(lowPower: false)))
+        XCTAssertEqual(ExportWalkthrough.cadence(reduceMotion: false, lowPower: true, windowVisible: true),
+                       .animation(SceneRunPolicy.frameInterval(lowPower: true)))
+        XCTAssertGreaterThan(SceneRunPolicy.frameInterval(lowPower: true), SceneRunPolicy.frameInterval(lowPower: false))
+    }
+
+    /// Under Reduce Motion a frame is static between step changes, so a step-boundary schedule shows every step.
+    func testReduceMotionStepsChangeOnlyAtStepBoundaries() {
+        let scene = ExportWalkthrough.scene(.claude)
+        let step = CicadaMotion.walkthroughStep
+        for i in 0..<scene.steps.count {
+            let atBoundary = ExportWalkthrough.frame(at: Double(i) * step, scene: scene, reduceMotion: true)
+            let justBefore = ExportWalkthrough.frame(at: Double(i + 1) * step - 0.01, scene: scene, reduceMotion: true)
+            XCTAssertEqual(atBoundary.step, i)
+            XCTAssertEqual(justBefore.step, i, "nothing changes between boundaries")
+        }
+    }
+
+    func testTheSheetReadsThePowerPolicyAndTheWindowsVisibility() throws {
+        let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Onboarding/ExportWalkthroughSheet.swift") })
+        let text = try String(contentsOf: file, encoding: .utf8)
+        XCTAssertFalse(text.contains("frameInterval(lowPower: false)"), "the sheet no longer pins the full rate")
+        XCTAssertTrue(text.contains("WindowVisibilityReader"))
+        XCTAssertTrue(text.contains("ExportWalkthrough.cadence("))
+    }
+
     /// Never a screenshot or a copy of a vendor's UI: the vendor appears only as its real mark and name.
     func testTheSheetDrawsAWireframeAndTheVendorsRealMark() throws {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Onboarding/ExportWalkthroughSheet.swift") })

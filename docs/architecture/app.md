@@ -129,7 +129,9 @@ tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-si
 (a browser's; a chat export shows its progress and never an ×). Nothing is pre-ticked and nothing is read before a
 tick. The Import rows are one table (`ImportCatalog`: supported installed browsers, Calendar, Apple Notes — a
 one-time read — Wispr Flow when present, the chat drop zone and *See how* per provider, a drawn walkthrough over
-`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`); Contacts sits under *Calendar & contacts* and
+`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`; its clock is `ExportWalkthrough.cadence` — paused
+while the window is hidden, one frame per step under Reduce Motion, the painted scenes' cadence halved under Low Power,
+audit A11); Contacts sits under *Calendar & contacts* and
 Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each one `ImportEntry` and one driver over
 its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
