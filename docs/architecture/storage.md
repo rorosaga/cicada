@@ -391,7 +391,18 @@ is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, o
 asymmetric query/document prompts — in a developer checkout. A release app (G182) bundles the int8 ONNX export of
 `BAAI/bge-small-en-v1.5` (384-dim, no torch, `api/services/onnx_embedder.py`, found through `CICADA_BUNDLED_MODELS`)
 and a fresh bank there is built with it unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
-queried with it (the recorded model, as for every bank). The index is **derived and disposable** — synced by Sleep from
+queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
+(`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Memory → Search model,
+kept in `$CICADA_HOME/embedding-models.json`, outside every bank), else the model its index already records when this
+Mac can run it and no `CICADA_EMBEDDING_*` was set explicitly, else the configured default — so a change of default
+never silently re-embeds a bank, and an explicit setting keeps its old meaning. A bank whose recorded model this Mac
+can't run is rebuilt with the default at its next sync — except one built with the larger model, which keeps its
+vectors (search reads words) until the person installs it or picks another model (Settings says so). EmbeddingGemma is the optional larger model
+in a release: `POST /embeddings/install` installs sentence-transformers and torch with the bundled pip into
+`$CICADA_HOME/extras/site-packages` (exactly the hashed packages in `api/data/extras-requirements.lock`, at the
+developer lock's versions, `--no-deps`; `sitecustomize` appends it after the bundled packages, so a shared one always
+resolves to the bundled copy; a failed install leaves nothing behind) and downloads the model once with the person's own Hugging Face token, used for
+that request only and never stored or logged; it then loads from its local folder (`$CICADA_HOME/models.json`). The index is **derived and disposable** — synced by Sleep from
 markdown, safe to delete at any time. **The sync is incremental** (`SqliteVecIndexer._sync_kind`): each
 row keeps a stable `key` and the `hash` of the text that was embedded, so a cycle embeds only new and
 changed texts, removes deleted ones and refreshes a page's metadata in place without an embed; a missing

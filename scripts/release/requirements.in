@@ -24,3 +24,6 @@ numpy
 onnxruntime
 tokenizers
 certifi
+# The optional larger search model (G182 phase 3) installs its runtime with pip into
+# ~/.cicada/extras at the person's request.
+pip

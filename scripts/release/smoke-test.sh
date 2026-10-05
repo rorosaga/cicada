@@ -15,6 +15,7 @@
 set -euo pipefail
 
 SRC="${1:?usage: smoke-test.sh <Cicada.app> [port]}"
+SRC="$(cd "$(dirname "$SRC")" && pwd)/$(basename "$SRC")"
 PORT="${2:-18000}"
 WORK="$(mktemp -d)"
 BACKEND_PID=""
@@ -34,6 +35,9 @@ if curl -fs "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
 fi
 
 APP="$WORK/Cicada.app"
+# Never from inside a checkout: `python -` puts the working directory first on sys.path, and the repo's own
+# api/ would stand in for the app's (the bug this test once missed).
+cd "$WORK"
 ditto "$SRC" "$APP"
 codesign --verify --strict --deep "$APP" || fail "the copied app's signature does not verify"
 pass "signature verifies ($(codesign -dv "$APP" 2>&1 | sed -n 's/^Signature=//p' | head -1))"
@@ -113,19 +117,26 @@ ls "$CICADA_MEMORY_PATH/episodes/"*.md >/dev/null 2>&1 || fail "no episode file 
 pass "MCP server answers, lists its tools and saved an episode"
 
 # Embeddings with the bundled model: index the bank, then find the episode by meaning.
-run "$CICADA_HOME/bin/cicada-python" - "$CICADA_MEMORY_PATH" <<'PY' > "$WORK/embed.out" 2>&1 || { cat "$WORK/embed.out" >&2; fail "embedding with the bundled model failed"; }
+run "$CICADA_HOME/bin/cicada-python" -P - "$CICADA_MEMORY_PATH" <<'PY' > "$WORK/embed.out" 2>&1 || { cat "$WORK/embed.out" >&2; fail "embedding with the bundled model failed"; }
 import sys
 from pathlib import Path
+import api
 from api.config import get_settings
+from api.services import providers
 from api.services.vector_index import SqliteVecIndexer
 bank = Path(sys.argv[1])
+assert "/Contents/Resources/backend/app/" in api.__file__, f"imported {api.__file__}, not the app's code"
+assert "sentence_transformers" not in sys.modules
 model = get_settings().resolved_embedding_model
 assert model == "BAAI/bge-small-en-v1.5", model
 idx = SqliteVecIndexer(bank)
 idx.index_episodes()
 info = idx.index_info()
-hits = idx.search_episodes("growing vegetables", top_k=3)
+hits = SqliteVecIndexer(bank).search_episodes("growing vegetables", top_k=3)  # a fresh indexer: the query path
 assert hits, "no episode found"
+fn, mid = providers.cached_embed_fn_for_model(model)  # the cached query embedder the API and MCP use
+assert fn(["a question"], is_query=True).shape == (1, 384) and mid == model
+assert "sentence_transformers" not in sys.modules, "the bundled model must never import sentence-transformers"
 top = hits[0]
 print(f"    model {info.get('model')} ({info.get('dim') or info.get('dimensions')} dims), "
       f"top hit {top.get('id') or top.get('path') or sorted(top)} at distance {top.get('distance', top.get('score'))}")

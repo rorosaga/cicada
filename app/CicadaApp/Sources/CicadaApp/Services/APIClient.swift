@@ -2510,6 +2510,27 @@ actor APIClient {
     /// the same `ensure_fresh` every read path calls).
     func fetchSearchIndexStatus() async throws -> SearchIndexStatus { try await get("/maintenance/search-index") }
 
+    // MARK: Search model (G182 phase 3)
+
+    /// `GET /embeddings` — which model the active bank's vectors use, what the next index sync
+    /// builds with, the models this Mac can run and the larger model's install. Not a Store
+    /// domain, no ETag; Settings → Memory polls it only while an install runs.
+    func fetchEmbeddings() async throws -> EmbeddingsStatus { try await get("/embeddings") }
+
+    /// `POST /embeddings/choice` — `nil` goes back to the default. 400 for a model Cicada does not
+    /// offer, 409 "not installed" or "Sleep is running" (both a sentence in `detail`).
+    func chooseEmbeddingModel(_ id: String?) async throws -> EmbeddingsStatus {
+        try await post("/embeddings/choice", body: ["model": id.map { $0 as Any } ?? NSNull()])
+    }
+
+    /// `POST /embeddings/install` (202) — the person's own read-access token rides this one request
+    /// body and nothing else: never a header, a query, a log line, UserDefaults or the Keychain, and
+    /// nothing here keeps it once the request is built. 400 for a token that is not shaped like
+    /// one, 409 while an install already runs.
+    func installLargerEmbeddingModel(token: String) async throws -> EmbeddingsStatus {
+        try await post("/embeddings/install", body: ["hfToken": token])
+    }
+
     /// `GET /memory/decay-suggestions` (G147) — the per-type pace suggestions and the pace
     /// already chosen. Not a Store domain, no ETag.
     func fetchDecayTuning() async throws -> DecayTuningResponse { try await get("/memory/decay-suggestions") }

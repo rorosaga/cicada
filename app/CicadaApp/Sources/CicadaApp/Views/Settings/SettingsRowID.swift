@@ -86,6 +86,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     static let transcripts = SettingsRowID("transcripts")
     // Memory (Task 6)
     static let searchIndex = SettingsRowID("searchIndex")
+    // Memory → Search model (G182 phase 3)
+    static let searchModel = SettingsRowID("searchModel")
     static let enrichLinks = SettingsRowID("enrichLinks")
     static let fadePace = SettingsRowID("fadePace")
     // Advanced (Task 6)
