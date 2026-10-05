@@ -22,7 +22,8 @@ struct AgentSetupSteps: View {
     /// `Set(wiring.agents.compactMap(\.binary))` from the one `/agents/wiring` answer the host holds —
     /// `AgentConnect.run`'s policy argument, never the steps' own argv[0]s (R-FA15).
     let binaries: Set<String>
-    let home: String
+    /// G182 — the allowlist's shapes, and the MCP command and memory default "Set up Claude" writes.
+    let runtime: CicadaRuntime
     let memoryRoot: String?
     /// The app's own Cursor install link (`AgentSetupCatalog`), never a URL off the wire.
     let deeplink: URL?
@@ -198,7 +199,7 @@ struct AgentSetupSteps: View {
         running = true
         connectCaption = nil
         Task { @MainActor in
-            let result = await AgentConnect.run(steps, installRoot: BackendProcess.installRoot(), binaries: binaries)
+            let result = await AgentConnect.run(steps, runtime: runtime, binaries: binaries)
             running = false
             switch result {
             case .done:
@@ -220,12 +221,12 @@ struct AgentSetupSteps: View {
         }
     }
 
-    /// Built from the same python / server / memory root as `AgentSetupCatalog` — the wire's `config` is never
+    /// Built from the same MCP command / memory root as `AgentSetupCatalog` — the wire's `config` is never
     /// trusted for a path or a value (R-FA15).
     private func setUpClaude() {
-        let memory = memoryRoot.flatMap { $0.isEmpty ? nil : $0 } ?? home + "/memory"
-        let server = ClaudeDesktopConfig.server(python: home + "/api/.venv/bin/python",
-                                                script: home + "/mcp/server.py", memory: memory)
+        let memory = memoryRoot.flatMap { $0.isEmpty ? nil : $0 } ?? runtime.memoryRootDefault
+        let server = ClaudeDesktopConfig.server(command: runtime.mcpCommand.command, args: runtime.mcpCommand.args,
+                                                memory: memory)
         let result = ClaudeDesktopConfig.apply(server: server, at: ClaudeDesktopConfig.configURL())
         let problem: Bool = switch result {
         case .done, .alreadySetUp: false

@@ -311,4 +311,6 @@ The rest of the paste-prompt install story is G76 in the backlog.
 `scripts/install-backend-agent.sh` is the one source of the `com.cicada.backend` plist; `install.sh` step 6 calls it
 behind its healthy-skip guard, and the app runs it from Settings → General (G143). `BackendProcess` spawns
 `python -m uvicorn`, never the venv's `uvicorn` script. `make login-item` is the old developer path; the app's switch
-is the supported one.
+is the supported one. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
+`~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
+(`docs/architecture/app.md`, "The release app").

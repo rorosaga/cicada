@@ -1272,7 +1272,8 @@ enum BookmarkSyncError: Error, LocalizedError, Equatable {
 actor APIClient {
     static let shared = APIClient()
 
-    private let baseURL = "http://127.0.0.1:8000"
+    /// G182 — `http://127.0.0.1:<port>`, the port the backend was started on (`CICADA_PORT`, `cicada.port`, 8000).
+    private let baseURL = CicadaRuntime.current.backendURL
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         return d
@@ -1292,7 +1293,7 @@ actor APIClient {
     /// `session` is an init parameter (default: the real, cache-disabled
     /// configuration below) purely so tests can hand in a
     /// `URLProtocol`-backed session instead of hitting a real backend on
-    /// 127.0.0.1:8000 — `APIClient.shared` always uses the default.
+    /// 127.0.0.1 — `APIClient.shared` always uses the default.
     init(session: URLSession? = nil) {
         if let session {
             self.session = session
