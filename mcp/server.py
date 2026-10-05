@@ -616,7 +616,7 @@ TOOLS = [
     },
     {
         "name": "cicada_pending",
-        "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
+        "description": "List Cicada episodes not yet consolidated into the knowledge graph (processed: false), each with its rev (the version of its text). Use this to see what raw conversation material is waiting, then use cicada_write_claim to consolidate atomic facts out of it yourself, and cicada_mark_processed once you're done with an episode — this lets an agent do its own lightweight consolidation between Sleep cycles.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -629,7 +629,7 @@ TOOLS = [
     },
     {
         "name": "cicada_mark_processed",
-        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. The mark is attributed — the episode is stamped processed_by with your harness name (or 'agent'), distinct from the 'sleep' stamp a Sleep cycle writes. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net.",
+        "description": "Mark episodes as processed (processed: true) after you have consolidated their facts via cicada_write_claim. The mark is attributed — the episode is stamped processed_by with your harness name (or 'agent'), distinct from the 'sleep' stamp a Sleep cycle writes. Only mark an episode processed once you have actually extracted what's worth keeping from it — an unmarked episode is still picked up by the next Sleep cycle as a safety net. An episode is marked only if its text is still the rev cicada_pending listed (a conversation that kept going since is left for the next pass), so list episodes with cicada_pending before marking them.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -637,6 +637,11 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "The episode ids to mark processed (e.g. ['ep_2026-07-02_001']).",
+                },
+                "revisions": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": "Optional: episode id → the rev cicada_pending showed for it. Without it, the rev this session last listed is used.",
                 },
             },
             "required": ["episode_ids"],
@@ -1040,7 +1045,7 @@ def handle_tool(name: str, arguments: dict) -> str:
     elif name == "cicada_pending":
         return handle_pending(arguments.get("limit"))
     elif name == "cicada_mark_processed":
-        return handle_mark_processed(arguments.get("episode_ids"))
+        return handle_mark_processed(arguments.get("episode_ids"), arguments.get("revisions"))
     elif name == "cicada_repo_context":
         return handle_repo_context(arguments.get("entity_id"), arguments.get("path"))
     elif name == "cicada_resolve_inbox":
@@ -1220,8 +1225,14 @@ def handle_ask(query, top_k=6) -> str:
     return mcp_tools.ask(_ctx(), query, top_k)
 
 
+#: Episode id → the revision ``cicada_pending`` last listed in this process (one stdio session; pending and
+#: mark_processed never go remote). The mark retires only that text (A01), so a conversation that kept going after
+#: the agent read it stays queued.
+_LISTED_REVISIONS: dict[str, str] = {}
+
+
 def handle_pending(limit) -> str:
-    """List unprocessed episodes for the agent's own consolidation loop."""
+    """List unprocessed episodes for the agent's own consolidation loop, each with the rev its mark must match."""
     from api.services import agentic_write
 
     try:
@@ -1235,13 +1246,18 @@ def handle_pending(limit) -> str:
 
     lines = [f"{len(episodes)} unprocessed episode(s):"]
     for ep in episodes:
+        ep_id = str(ep.get("id"))
+        _LISTED_REVISIONS[ep_id] = ep["revision"]
         snippet = (ep.get("content") or "")[:300].strip().replace("\n", " ")
-        lines.append(f"- `{ep.get('id')}` — {ep.get('title', '')}: {snippet}")
+        lines.append(f"- `{ep_id}` (rev `{agentic_write.revision_tag(ep['revision'])}`) — {ep.get('title', '')}: {snippet}")
     return "\n".join(lines)
 
 
-def handle_mark_processed(episode_ids) -> str:
-    """Flip processed:true on the given episode ids.
+def handle_mark_processed(episode_ids, revisions=None) -> str:
+    """Flip processed:true on the given episode ids — only where the text is still the revision the agent read.
+
+    The revision is the one passed in ``revisions``, else the one ``cicada_pending`` listed in this session; an id
+    with neither is refused rather than retired unchecked (audit A01's gap for agents, closed 2026-10-05).
 
     Stamps ``processed_by`` with this process's harness name (G48 session
     identity — ``claude-code``, or whatever ``CICADA_SESSION_HARNESS`` said)
@@ -1253,11 +1269,34 @@ def handle_mark_processed(episode_ids) -> str:
 
     if not isinstance(episode_ids, list) or not episode_ids:
         return "episode_ids is required (a non-empty array of episode ids)."
+    given = revisions if isinstance(revisions, dict) else {}
+
+    checks: dict[str, str] = {}
+    unlisted: list[str] = []
+    for raw in episode_ids:
+        ep_id = str(raw or "").strip()
+        if not ep_id:
+            continue
+        revision = str(given.get(ep_id) or _LISTED_REVISIONS.get(ep_id) or "")
+        if revision:
+            checks[ep_id] = revision
+        else:
+            unlisted.append(ep_id)
 
     harness = (SESSION.harness or "").strip()
     by = harness if harness and harness != "unknown" else "agent"
-    count = agentic_write.mark_episodes_processed(get_memory_path(), episode_ids, by=by)
-    return f"Marked {count} episode(s) as processed (processed_by: {by})."
+    result = agentic_write.mark_episodes_processed(get_memory_path(), checks, by=by)
+    lines = [f"Marked {len(result.marked)} episode(s) as processed (processed_by: {by})."]
+    if result.changed:
+        lines.append("Not marked, changed since you listed them (new turns arrived): "
+                     + ", ".join(f"`{i}`" for i in result.changed)
+                     + ". Run cicada_pending again, consolidate what is new, then mark them.")
+    if unlisted:
+        lines.append("Not marked, not listed by cicada_pending in this session and no rev given: "
+                     + ", ".join(f"`{i}`" for i in unlisted) + ". List them with cicada_pending first.")
+    if result.missing:
+        lines.append("Not found: " + ", ".join(f"`{i}`" for i in result.missing) + ".")
+    return "\n".join(lines)
 
 
 def handle_repo_context(entity_id: str | None, path: str | None) -> str:

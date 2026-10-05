@@ -75,9 +75,12 @@ Seven rails hold across all of them:
   when the file still holds that text; a session resumed or a source edited mid-cycle stays queued
   for the next run (the drain in progress counts it settled — its earlier revision was filed — so a
   growing conversation never keeps one drain re-reading it). Capture never waits on Sleep for longer
-  than one episode's retirement. Disclosed: the agent's `cicada_mark_processed` shares the lock but
-  carries no revision (an agent that read an older revision can still retire a newer one), and MCP's
-  hash dedup reads every episode while holding the lock.
+  than one episode's retirement. **An agent's mark is revision-checked too (2026-10-05):**
+  `cicada_pending` shows each episode's `rev` and the MCP process remembers it; `cicada_mark_processed`
+  (`agentic_write.mark_episodes_processed`) retires an episode only while its text is still that rev
+  (or one passed in `revisions`), refuses an id it never listed, and reports a conversation that kept
+  going as changed, left for the next pass. Disclosed: MCP's hash dedup reads every episode while
+  holding the lock.
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`

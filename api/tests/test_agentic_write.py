@@ -19,7 +19,7 @@ import re
 import sys
 from pathlib import Path
 
-from api.services import agentic_write, markdown_parser, owner_identity, predicates
+from api.services import agentic_write, episode_ids, markdown_parser, owner_identity, predicates
 from api.services.claims import Claim, parse_claims, write_claims
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -260,6 +260,20 @@ def _write_episode(memory_path, ep_id, title, content, processed):
     )
 
 
+def _listed(memory_path, *ids):
+    """The revisions `list_unprocessed_episodes` hands back for these ids — what an agent read."""
+    by_id = {ep["id"]: ep["revision"] for ep in agentic_write.list_unprocessed_episodes(memory_path, limit=500)}
+    return {i: by_id[i] for i in ids}
+
+
+def _append_turns(memory_path, ep_id, more):
+    """A capture edit in place: the same conversation kept going (G104), so it is unprocessed again."""
+    path = memory_path / "episodes" / f"{ep_id}.md"
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter or {}, processed=False)
+    markdown_parser.write(path, fm, parsed.body + more)
+
+
 def test_list_unprocessed_episodes_returns_only_unprocessed(tmp_path):
     _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
     _write_episode(tmp_path, "ep_2026-01-02_001", "Second", "raw chunk two", True)
@@ -283,8 +297,8 @@ def test_mark_episodes_processed_flips_flag(tmp_path):
     _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
     _write_episode(tmp_path, "ep_2026-01-02_001", "Second", "raw chunk two", False)
 
-    count = agentic_write.mark_episodes_processed(tmp_path, ["ep_2026-01-01_001"])
-    assert count == 1
+    result = agentic_write.mark_episodes_processed(tmp_path, _listed(tmp_path, "ep_2026-01-01_001"))
+    assert result.marked == ["ep_2026-01-01_001"]
 
     fm1 = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-01_001.md").frontmatter
     fm2 = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-02_001.md").frontmatter
@@ -297,8 +311,8 @@ def test_mark_episodes_processed_flips_flag(tmp_path):
 
 def test_mark_episodes_processed_missing_ids_returns_zero(tmp_path):
     _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
-    count = agentic_write.mark_episodes_processed(tmp_path, ["ep_does_not_exist"])
-    assert count == 0
+    result = agentic_write.mark_episodes_processed(tmp_path, {"ep_does_not_exist": "0" * 64})
+    assert result.marked == [] and result.missing == ["ep_does_not_exist"]
 
 
 def test_mark_episodes_processed_stamps_processed_by_agent_by_default(tmp_path):
@@ -309,7 +323,7 @@ def test_mark_episodes_processed_stamps_processed_by_agent_by_default(tmp_path):
     _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
     _write_episode(tmp_path, "ep_2026-01-02_001", "Second", "raw chunk two", False)
 
-    agentic_write.mark_episodes_processed(tmp_path, ["ep_2026-01-01_001"])
+    agentic_write.mark_episodes_processed(tmp_path, _listed(tmp_path, "ep_2026-01-01_001"))
 
     fm1 = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-01_001.md").frontmatter
     fm2 = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-02_001.md").frontmatter
@@ -321,7 +335,7 @@ def test_mark_episodes_processed_stamps_processed_by_agent_by_default(tmp_path):
 def test_mark_episodes_processed_accepts_an_explicit_by(tmp_path):
     _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
 
-    agentic_write.mark_episodes_processed(tmp_path, ["ep_2026-01-01_001"], by="claude-code")
+    agentic_write.mark_episodes_processed(tmp_path, _listed(tmp_path, "ep_2026-01-01_001"), by="claude-code")
 
     fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-01_001.md").frontmatter
     assert fm["processed"] is True
@@ -432,6 +446,7 @@ def test_cicada_mark_processed_stamps_the_harness_when_known(tmp_path, monkeypat
         server.SessionIdentity(session_id="ses_test_fixed", harness="claude-code", project_dir=None),
     )
     _write_episode(tmp_path, "ep_2026-02-01_001", "Standup", "we discussed X", False)
+    server.handle_tool("cicada_pending", {})
 
     server.handle_tool("cicada_mark_processed", {"episode_ids": ["ep_2026-02-01_001"]})
 
@@ -450,11 +465,79 @@ def test_cicada_mark_processed_falls_back_to_agent_for_an_unknown_harness(tmp_pa
         server.SessionIdentity(session_id="ses_test_fixed", harness="unknown", project_dir=None),
     )
     _write_episode(tmp_path, "ep_2026-02-01_001", "Standup", "we discussed X", False)
+    server.handle_tool("cicada_pending", {})
 
     server.handle_tool("cicada_mark_processed", {"episode_ids": ["ep_2026-02-01_001"]})
 
     fm = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter
     assert fm["processed_by"] == "agent"
+
+
+def test_list_unprocessed_episodes_hands_back_each_revision(tmp_path):
+    _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
+    [ep] = agentic_write.list_unprocessed_episodes(tmp_path)
+    assert ep["revision"] == episode_ids.body_revision(ep["content"])
+
+
+def test_a_conversation_that_kept_going_is_not_retired_unread(tmp_path):
+    """Audit A01, the agent's half (closed 2026-10-05): an agent lists an episode, the same conversation
+    gains turns, the agent marks what it read — the new turns must stay queued, not be retired unread."""
+    _write_episode(tmp_path, "ep_2026-01-01_001", "Standup", "we discussed X", False)
+    read = _listed(tmp_path, "ep_2026-01-01_001")
+    _append_turns(tmp_path, "ep_2026-01-01_001", "\n\nuser: and then Y")
+
+    result = agentic_write.mark_episodes_processed(tmp_path, read)
+
+    assert result.marked == [] and result.changed == ["ep_2026-01-01_001"]
+    parsed = markdown_parser.parse(tmp_path / "episodes" / "ep_2026-01-01_001.md")
+    assert parsed.frontmatter["processed"] is False
+    assert parsed.body.endswith("and then Y")
+    # The next pass reads the new text and can retire it.
+    again = agentic_write.mark_episodes_processed(tmp_path, _listed(tmp_path, "ep_2026-01-01_001"))
+    assert again.marked == ["ep_2026-01-01_001"]
+
+
+def test_a_revision_tag_matches_and_a_too_short_one_does_not(tmp_path):
+    _write_episode(tmp_path, "ep_2026-01-01_001", "First", "raw chunk one", False)
+    full = _listed(tmp_path, "ep_2026-01-01_001")["ep_2026-01-01_001"]
+    short = agentic_write.mark_episodes_processed(tmp_path, {"ep_2026-01-01_001": full[:6]})
+    assert short.marked == []
+    tag = agentic_write.mark_episodes_processed(tmp_path, {"ep_2026-01-01_001": agentic_write.revision_tag(full)})
+    assert tag.marked == ["ep_2026-01-01_001"]
+
+
+def test_cicada_pending_shows_each_rev_and_mark_refuses_what_moved_on(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    _write_episode(tmp_path, "ep_2026-02-01_001", "Standup", "we discussed X", False)
+    _write_episode(tmp_path, "ep_2026-02-02_001", "Retro", "we discussed Z", False)
+
+    pending_out = server.handle_tool("cicada_pending", {})
+    [first] = [ep for ep in agentic_write.list_unprocessed_episodes(tmp_path) if ep["id"] == "ep_2026-02-01_001"]
+    assert f"rev `{agentic_write.revision_tag(first['revision'])}`" in pending_out
+
+    _append_turns(tmp_path, "ep_2026-02-01_001", "\n\nuser: one more thing")
+    out = server.handle_tool("cicada_mark_processed", {"episode_ids": ["ep_2026-02-01_001", "ep_2026-02-02_001"]})
+
+    assert "Marked 1" in out
+    assert "changed since you listed them" in out and "ep_2026-02-01_001" in out
+    assert markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter["processed"] is False
+    assert markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-02_001.md").frontmatter["processed"] is True
+
+
+def test_cicada_mark_processed_refuses_an_episode_never_listed_unless_a_rev_is_given(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(tmp_path))
+    server = _load_server()
+    _write_episode(tmp_path, "ep_2026-02-01_001", "Standup", "we discussed X", False)
+
+    refused = server.handle_tool("cicada_mark_processed", {"episode_ids": ["ep_2026-02-01_001"]})
+    assert "Marked 0" in refused and "List them with cicada_pending first" in refused
+    assert markdown_parser.parse(tmp_path / "episodes" / "ep_2026-02-01_001.md").frontmatter["processed"] is False
+
+    rev = agentic_write.revision_tag(_listed(tmp_path, "ep_2026-02-01_001")["ep_2026-02-01_001"])
+    ok = server.handle_tool("cicada_mark_processed",
+                            {"episode_ids": ["ep_2026-02-01_001"], "revisions": {"ep_2026-02-01_001": rev}})
+    assert "Marked 1" in ok
 
 
 def test_write_claim_accepts_an_explicit_origin(tmp_path):
