@@ -51,6 +51,33 @@ def test_a_failed_rewrite_leaves_the_original_bytes_intact(tmp_path):
     assert _stray_temps(tmp_path) == []
 
 
+def test_a_failed_replace_leaves_the_original_and_no_temp_file(tmp_path, monkeypatch):
+    page = tmp_path / "alpha-project.md"
+    markdown_parser.write(page, {"id": "alpha-project"}, "Original synthetic body.")
+    original = page.read_bytes()
+
+    def failing_replace(src, dst):
+        raise OSError("synthetic failure at the rename")
+
+    monkeypatch.setattr(markdown_parser.os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        markdown_parser.write(page, {"id": "alpha-project"}, "Replacement synthetic body.")
+    assert page.read_bytes() == original
+    assert _stray_temps(tmp_path) == []
+
+
+def test_staging_files_are_ignored_by_every_bank(tmp_path):
+    from api.services import bank_registry
+
+    bank = tmp_path / "bank"
+    bank_registry.scaffold_bank(bank)
+    (bank / "episodes").mkdir(exist_ok=True)
+    (bank / "episodes" / ".ep_2026-10-05_001.md.0a1b2c3d.tmp").write_text("partial", encoding="utf-8")
+    status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=bank,
+                            capture_output=True, text=True, check=True).stdout
+    assert ".tmp" not in status
+
+
 def test_a_rewrite_keeps_the_permission_bits(tmp_path):
     page = tmp_path / "alpha-project.md"
     markdown_parser.write(page, {"id": "alpha-project"}, "One.")

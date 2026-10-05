@@ -69,10 +69,15 @@ Seven rails hold across all of them:
   find-session-or-update, MCP `save_episode`'s hash check, each stager edit, rename, restamp and
   tombstone, and Sleep's retirement — run under `episode_ids.episode_lock`, an `flock` on the
   episodes directory's own descriptor (cross-process, re-entrant per thread, nothing created in the
-  bank), held for one operation and never for an import or a stage. Sleep records a
+  bank), held for one operation and never for an import or a stage. Staging temp files match
+  `.*.tmp`, which every bank's ignore rules carry (`bank_registry.DERIVED_ARTIFACTS`). Sleep records a
   `body_revision` (sha256 of the text it extracted) per episode and flips `processed: true` only
   when the file still holds that text; a session resumed or a source edited mid-cycle stays queued
-  for the next batch. Capture never waits on Sleep for longer than one episode's retirement.
+  for the next run (the drain in progress counts it settled — its earlier revision was filed — so a
+  growing conversation never keeps one drain re-reading it). Capture never waits on Sleep for longer
+  than one episode's retirement. Disclosed: the agent's `cicada_mark_processed` shares the lock but
+  carries no revision (an agent that read an older revision can still retire a newer one), and MCP's
+  hash dedup reads every episode while holding the lock.
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`

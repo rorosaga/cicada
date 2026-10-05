@@ -84,6 +84,9 @@ DERIVED_ARTIFACTS = (
     "search_index.db",
     "search_index.db-wal",
     "search_index.db-shm",
+    # Audit A02/K01: an atomic page write's staging file (`markdown_parser._stage`)
+    # and the other temp-then-replace writers' — never a page, never versioned.
+    ".*.tmp",
 )
 
 _EXCLUDE_HEADER = "# Cicada: derived, rebuildable artifacts - never versioned (G99, G136)"

@@ -144,8 +144,9 @@ def episode_lock(episodes_dir: Path) -> Iterator[None]:
     re-entrant within a thread and orders threads of one process. Hold it for
     one short operation only — a dedup check plus its create, or one
     read-modify-write of an existing episode — never for a whole import or a
-    Sleep stage: the Stop hook waits on it with a 3 s budget. Lock order is
-    always a writer's own process lock first, this one second."""
+    Sleep stage. ``flock`` waits without a timeout, and the Stop hook's request
+    has a 3 s budget, so every holder must stay short. Lock order is always a
+    writer's own process lock first, this one second."""
     episodes_dir = Path(episodes_dir)
     episodes_dir.mkdir(parents=True, exist_ok=True)
     key = os.path.realpath(episodes_dir)

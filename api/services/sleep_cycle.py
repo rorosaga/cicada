@@ -2814,9 +2814,11 @@ def _mark_episodes_processed(episodes: list[dict]) -> int:
     source-keyed edit rewrites the same episode with ``processed: false``.
     Each file is re-read under ``episode_ids.episode_lock`` — the critical
     section every capture writer holds for its own read-modify-write — and
-    retired only when its body is still the revision Sleep selected; a newer
-    revision stays queued for the next batch. A dict without a ``revision``
-    (a caller that built it by hand) retires as before.
+    retired only when its body is still the revision Sleep selected. A newer
+    revision stays ``processed: false`` for the NEXT run: the drain in progress
+    counts the id settled (its earlier revision was filed), so a conversation
+    that keeps growing can never keep one drain re-reading it. A dict without
+    a ``revision`` (a caller that built it by hand) retires as before.
     """
     retired = 0
     for ep in episodes:
