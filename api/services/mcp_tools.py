@@ -3116,8 +3116,6 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     """Save content as a new episode for the next Sleep cycle."""
     import hashlib
 
-    from datetime import timezone
-
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
@@ -3125,21 +3123,40 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     episodes_dir.mkdir(parents=True, exist_ok=True)
 
     today = datetime.now().strftime("%Y-%m-%d")
-    # ID = max existing suffix + 1 (NOT count+1): count-based numbering collides
-    # and overwrites if any same-day episode was deleted/consolidated away.
-    # One rule for every writer lives in episode_ids (G114 R1).
-    episode_id = episode_ids.next_episode_id(episodes_dir, today)
 
     # R-N3 / R-LS6: an agent-saved note is scrubbed like every other writer,
     # before the hash so the dedup key describes the stored text.
     content = episode_scrub.scrub_body(content, writer="mcp", bank=memory_path.name)
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
-    # Check for duplicates
+    # Audit K01: the dedup check and the create are one step across processes —
+    # a stdio MCP server and the backend each save into this bank.
+    with episode_ids.episode_lock(episodes_dir):
+        episode_id = _save_new_episode(ctx, episodes_dir, today, content, content_hash, title)
+    if episode_id is None:
+        return f"Episode already exists (duplicate detected by content hash)."
+
+    if ctx.is_remote:
+        # R-R11: a remote episode commits alone, under its app. Stdio's episode
+        # save stays uncommitted (byte-identical to before G135, by ruling).
+        agent_commits.commit_write(
+            memory_path, subject=ctx.commit_subject,
+            lines=[f"episodes/{episode_id}.md: created (trigger: {ctx.trigger})"],
+            paths=[f"episodes/{episode_id}.md"], author=ctx.author, session=ctx.session_id)
+
+    return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
+
+
+def _save_new_episode(ctx: ToolContext, episodes_dir: Path, today: str, content: str,
+                      content_hash: str, title: str | None) -> str | None:
+    """The dedup check and the create, called under ``episode_lock``; the id
+    written, or None for a duplicate. ID = max existing suffix + 1 (NOT
+    count+1), one rule for every writer (G114 R1), and the create never
+    replaces a file another process wrote under the same id (audit K01)."""
     for filepath in episodes_dir.glob("*.md"):
         text = filepath.read_text(encoding="utf-8")
         if f"content_hash: {content_hash}" in text:
-            return f"Episode already exists (duplicate detected by content hash)."
+            return None
 
     # Real UTC timestamp — the previous `datetime.now().isoformat() + "Z"` stamped
     # naive LOCAL time but labeled it UTC, corrupting the temporal reasoning the
@@ -3151,7 +3168,7 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     # — `title: Q3: roadmap` is invalid YAML), which then stalls the whole Sleep
     # cycle when the loader hits the malformed episode.
     frontmatter = {
-        "id": episode_id,
+        "id": episode_ids.next_episode_id(episodes_dir, today),
         "timestamp": timestamp,
         # R-R25: `origin` stays in G9's closed vocabulary; `source` says remote.
         "source": "mcp-remote" if ctx.is_remote else "mcp",
@@ -3162,28 +3179,7 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
         # G48: which conversation produced this episode. Additive + inert.
         **ctx.session_frontmatter(),
     }
-    filepath = episodes_dir / f"{episode_id}.md"
-    try:
-        from api.services import markdown_parser
-
-        markdown_parser.write(filepath, frontmatter, content)
-    except Exception:
-        # Fallback if the API package isn't importable: dump YAML directly so a
-        # colon/quote in the title still can't produce invalid frontmatter.
-        import yaml
-
-        fm_str = yaml.safe_dump(frontmatter, default_flow_style=False, sort_keys=False).strip()
-        filepath.write_text(f"---\n{fm_str}\n---\n\n{content}\n", encoding="utf-8")
-
-    if ctx.is_remote:
-        # R-R11: a remote episode commits alone, under its app. Stdio's episode
-        # save stays uncommitted (byte-identical to before G135, by ruling).
-        agent_commits.commit_write(
-            memory_path, subject=ctx.commit_subject,
-            lines=[f"episodes/{episode_id}.md: created (trigger: {ctx.trigger})"],
-            paths=[f"episodes/{episode_id}.md"], author=ctx.author, session=ctx.session_id)
-
-    return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
+    return episode_ids.create_episode(episodes_dir, frontmatter, content)
 
 
 def nudge_visible(fm: dict, *, wanted, today: str, skipped=frozenset(), stem: str = "") -> bool:

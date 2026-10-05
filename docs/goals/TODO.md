@@ -583,8 +583,9 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
   would take Sleep's hunks on that page under the agent's name) — a cycle that starts between that
   probe and the commit is still the narrow residual window, and a probe that times out leaves the
   page dirty (the pre-G135 behaviour); remote writes are
-  serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
-  race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
+  serialised in-process; a writer in another process (the app's paste, a stdio agent) that mints the
+  same episode id no longer replaces it — `episode_ids.create_episode` re-mints (audit 2026-10-02 K01,
+  `fix/audit-storage-integrity`); a bookmark or pasted link to a LAN page
   is saved with its URL-derived title and never fetched (R-R10).
 - **G61 phase 2 (S0–S2), disclosed not fixed:** save-time `media_ingestor.enrich` (the person's own
   save or paste) still reads a page on `_TIMEOUT` (5 s) with `resp.text[:_MAX_READ]` (the whole body
