@@ -21,4 +21,6 @@ enum CicadaTiming {
     /// Round-4 D5 — how long a Copy button reads "Copied" before it reads Copy again (`CommandBox`'s 1.5 s). A
     /// confirmation's dwell, not motion, so Reduce Motion leaves it alone.
     static let copiedConfirmation: TimeInterval = 1.5
+    /// How long a toast (`Store.toast`) stays before it clears itself.
+    static let toastDwell: TimeInterval = 4
 }

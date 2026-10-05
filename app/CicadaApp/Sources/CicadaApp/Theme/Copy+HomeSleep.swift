@@ -109,6 +109,26 @@ extension Copy {
 
     /// Details (R-HS15): Last cycle's rows, the readout's keys, and the untitled episode.
     enum SleepDetailsWords {
+        /// Owner 2026-10-05 — a click on a queued row copies what Sleep would read, and says what it copied.
+        static func copied(_ kind: String?) -> String {
+            switch kind {
+            case "conversation": "Conversation ID copied"
+            case "link": "Link copied"
+            case "links": "Links copied"
+            case "path": "Path copied"
+            default: "Episode ID copied"
+            }
+        }
+        /// The row's tooltip and VoiceOver hint: what a click copies.
+        static func copyHint(_ kind: String?) -> String {
+            switch kind {
+            case "conversation": "Click to copy the conversation ID"
+            case "link": "Click to copy the link"
+            case "links": "Click to copy the tab links"
+            case "path": "Click to copy the file path"
+            default: "Click to copy the episode ID"
+            }
+        }
         static let failedTitle = "Sleep cycle error"
         static let cancelledTitle = "Cancelled"
         static let cancelledText = "Stopped cleanly before any writes — nothing was lost."

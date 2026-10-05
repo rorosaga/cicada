@@ -449,9 +449,9 @@ struct ContentView: View {
         if let message = ReadWords.walledToast(result.fresh) { store.toast = message }
     }
 
-    /// Transient capsule for `store.toast`, auto-clearing after 4 s. Keyed on
-    /// the message so a second toast restarts the timer instead of inheriting
-    /// the first one's remaining time.
+    /// Transient capsule for `store.toast`, auto-clearing after its dwell (4 s; a copy confirmation's 1.5 s).
+    /// Keyed on the store's toast serial so every toast — the same words twice included — restarts the
+    /// timer instead of inheriting the last one's remaining time.
     @ViewBuilder
     private var toastBanner: some View {
         if let toast = store.toast {
@@ -465,8 +465,8 @@ struct ContentView: View {
                 .floatingSurface(in: Capsule())
                 .padding(.bottom, 22)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-                .task(id: toast) {
-                    try? await Task.sleep(for: .seconds(4))
+                .task(id: store.toastSerial) {
+                    try? await Task.sleep(for: .seconds(store.toastDwell))
                     guard !Task.isCancelled else { return }
                     store.toast = nil
                 }
