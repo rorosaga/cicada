@@ -9,6 +9,9 @@ data/
 !/api/data/
 /api/data/*
 !/api/data/recommended_skills.json
+# G182: shipped data the release app reads — the predicate seed and the optional search model's hashed lock.
+!/api/data/predicates-seed.yaml
+!/api/data/extras-requirements.lock
 
 # Raw chat-export corpus used to consolidate the memory graph (claude/gemini/openai).
 # ~200MB of personal conversations; kept local for source-grounded re-consolidation

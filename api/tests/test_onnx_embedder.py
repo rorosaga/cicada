@@ -82,3 +82,18 @@ def test_pooling_normalises_and_prefixes_queries(tmp_path):
     assert seen == ["Q: a", "Q: b"]
     assert out.shape == (2, 2) and np.allclose(out[0], [0.6, 0.8])
     assert emb([], is_query=False).shape == (0, 2)
+
+
+def test_the_cached_query_embedder_never_imports_sentence_transformers(monkeypatch, tmp_path):
+    """G182 phase 3 fix: `cached_embed_fn_for_model` always passes a factory, and a release app has no torch."""
+    import sys
+
+    _model(tmp_path)
+    monkeypatch.setenv("CICADA_BUNDLED_MODELS", str(tmp_path))
+    monkeypatch.setitem(sys.modules, "sentence_transformers", None)  # any import attempt raises
+    providers.clear_embed_cache()
+    try:
+        fn, mid = providers.cached_embed_fn_for_model(onnx_embedder.DEFAULT_ID, Settings())
+        assert isinstance(fn, onnx_embedder.OnnxEmbedder) and mid == onnx_embedder.DEFAULT_ID
+    finally:
+        providers.clear_embed_cache()

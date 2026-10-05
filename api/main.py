@@ -24,6 +24,7 @@ from api.routers import (
     consumption,
     contributors,
     conversations,
+    embeddings,
     entities,
     episodes,
     graph,
@@ -251,3 +252,4 @@ app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
+app.include_router(embeddings.router, tags=["embeddings"])

@@ -94,6 +94,17 @@ rm -rf "$SITE/litellm/proxy/_experimental/out" "$SITE/litellm/proxy/swagger" \
   "$SITE"/sympy "$SITE"/mpmath "$SITE"/sympy-*.dist-info "$SITE"/mpmath-*.dist-info \
   "$SITE/onnxruntime/transformers" "$SITE/onnxruntime/quantization" "$SITE/onnxruntime/tools" \
   "$SITE"/hf_xet "$SITE"/hf_xet-*.dist-info "$SITE"/bin
+cat > "$SITE/sitecustomize.py" <<'PY'
+# Cicada (G182): the optional larger search model's packages live in ~/.cicada/extras,
+# outside the signed app. Appended after the bundled site-packages, so a shared package
+# always resolves to the bundled copy.
+import os
+import site
+
+_extras = os.environ.get("CICADA_EXTRAS_SITE", "")
+if _extras and os.path.isdir(_extras):
+    site.addsitedir(_extras)
+PY
 ok "$(find "$SITE" -maxdepth 1 -name '*.dist-info' | wc -l | tr -d ' ') packages"
 
 # --- 3. Cicada's code -----------------------------------------------------------
@@ -176,10 +187,10 @@ export CICADA_DISTRIBUTION=release
 : "${CICADA_PORT:=8000}"; export CICADA_PORT
 export CICADA_BUNDLED_MODELS="$CICADA_BACKEND_DIR/models"
 CICADA_PYTHON="$CICADA_BACKEND_DIR/python/bin/python3.12"
-# The code, then the optional extras the person installed from Settings (phase 3),
-# which live outside the signed app.
 PYTHONPATH="$CICADA_BACKEND_DIR/app"
-if [ -d "$CICADA_HOME/extras/site-packages" ]; then PYTHONPATH="$PYTHONPATH:$CICADA_HOME/extras/site-packages"; fi
+# The optional larger search model's runtime, installed from Settings outside the signed app;
+# sitecustomize.py appends it AFTER the bundled packages, so it never shadows one of them.
+CICADA_EXTRAS_SITE="$CICADA_HOME/extras/site-packages"; export CICADA_EXTRAS_SITE
 # Bytecode is cached outside the signed app (nothing may be written inside it).
 PYTHONPYCACHEPREFIX="$CICADA_HOME/cache/pycache"
 export PYTHONPATH PYTHONPYCACHEPREFIX PYTHONNOUSERSITE=1 PYTHONUTF8=1

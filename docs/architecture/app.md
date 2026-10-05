@@ -822,4 +822,12 @@ shows once in the Version row ("couldn't be installed … You're still on 0.3.0"
 reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
 `~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
 
+**Settings → Memory → Search model (G182 phase 3).** A row in the Search index card (DR-37): a picker of the models
+`GET /embeddings` offers — *Small* (built in) and *Larger* (EmbeddingGemma) — and a line saying what this memory
+searches with now, that a change takes effect at the next Sleep (which re-reads the memory once), or how an install
+is going. Choosing a model this Mac doesn't have opens `LargerSearchModelSheet`: why a token is needed (the model's
+license is accepted on Hugging Face, so the person's own read token downloads it once), links to accept the license
+and create a token, a secure field, Install. The token goes only in the one request body and is cleared from the view
+at once; nothing stores it. The row polls while an install runs and is disabled while Sleep writes (DR-41).
+
 ---

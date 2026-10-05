@@ -75,7 +75,7 @@ enum SettingsIndex {
         .ownerName, .ownerHandle, .ownerEmail, .ownerPage,
         .memoryLocation, .banks, .bankExport, .bankDelete, .telemetry,
         .outboundConnectors, .outboundFeeds, .outboundLogos, .credentials, .remoteAccess, .transcripts,
-        .searchIndex, .enrichLinks, .fadePace,
+        .searchIndex, .searchModel, .enrichLinks, .fadePace,
         .sleepRuns, .sleepTime, .sleepInterval, .sleepEngine,
         .scenerySource, .sceneryTime, .sceneryWeather, .sceneryPreview,
         .mascot,
@@ -131,6 +131,8 @@ enum SettingsIndex {
         SettingsEntry(.transcripts, .privacy, Copy.transcriptsTitle, keywords: ["transcripts", "conversations", "claude code"], detail: Copy.transcriptsFact),
         // Memory
         SettingsEntry(.searchIndex, .memory, Copy.searchIndexTitle, keywords: ["search", "index", "rebuild", "find"]),
+        SettingsEntry(.searchModel, .memory, Copy.SearchModel.title,
+                      keywords: ["model", "embedding", "embeddings", "semantic", "meaning", "larger", "smaller", "download", "vectors"]),
         SettingsEntry(.enrichLinks, .memory, Copy.enrichLinksTitle, keywords: ["links", "previews", "descriptions", "bookmarks"], detail: Copy.enrichLinksDetail),
         SettingsEntry(.fadePace, .memory, Copy.fadePaceTitle,
                       keywords: ["fade", "decay", "forget", "archive", "pace", "still tracking", "slower", "faster"],
