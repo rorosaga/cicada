@@ -42,6 +42,9 @@ struct SettingsGeneralView: View {
     @Environment(SetupRunner.self) private var runner
     @Environment(LoginItemService.self) private var loginItems
     @Environment(BackendAgentService.self) private var backendAgent
+    /// G182 — `/healthz`'s version, read once per visit; nil until it answers (never a mismatch).
+    @State private var backendVersion: String?
+    private let appVersion = AppVersion.current()
 
     private var appearance: Binding<AppearancePreference> {
         Binding(get: { AppearancePreference.stored(appearanceRaw) }, set: { appearanceRaw = $0.rawValue })
@@ -157,6 +160,20 @@ struct SettingsGeneralView: View {
                             router.activateMainWindow()
                         }
                     }
+                }
+                SettingsDivider()
+                // G182 — the version a tester reports; the backend's only when it differs (an updated app beside a
+                // background service still running the old one). Plain text, monospaced digits (DR-21).
+                SettingsRow(.appVersion, title: Copy.versionTitle,
+                            detail: appVersion.differs(fromBackend: backendVersion)
+                                ? Copy.versionMismatch(backend: backendVersion ?? "") : Copy.versionDetail) {
+                    Text(Copy.versionLine(appVersion))
+                        .font(CicadaTheme.captionFont.monospacedDigit())
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .textSelection(.enabled)
+                }
+                .task(id: store.isConnected) {
+                    if let health = try? await APIClient.shared.fetchHealth() { backendVersion = health.version }
                 }
             }
             // G152 + G117 round 4 — the tour's replay and the demo's door, in their own view (one line here).

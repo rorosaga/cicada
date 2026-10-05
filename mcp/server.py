@@ -38,6 +38,8 @@ from api.services import episode_ids  # noqa: E402,F401
 # public and the install is portable. Imported from its one documented home
 # rather than retyped, so `mcp/` holds no name literal of its own.
 from api.services.owner_identity import LEGACY_OBSERVER  # noqa: E402
+# G182 — the one VERSION file, the same string /healthz and the app report.
+from api.version import __version__  # noqa: E402
 
 # G140 Q-R11: one pattern, not an enum — JSON Schema ANDs an `enum` with a
 # `pattern`, and the librarian skill's `external:<name>` (a named third party)
@@ -805,7 +807,7 @@ def initialize_result(params: dict) -> dict:
     result = {
         "protocolVersion": "2024-11-05",
         "capabilities": {"tools": {}},
-        "serverInfo": {"name": "cicada-bookworm", "version": "0.1.0"},
+        "serverInfo": {"name": "cicada-bookworm", "version": __version__},
     }
     try:
         result["instructions"] = _handshake_text(delivery="initialize")
