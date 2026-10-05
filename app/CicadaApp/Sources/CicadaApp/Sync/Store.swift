@@ -86,8 +86,26 @@ final class Store {
 
     /// Transient one-line error surfaced by the UI. Set only when a refresh
     /// fails *and* we had nothing to show — a failed background refresh over
-    /// good data stays silent.
-    var toast: String?
+    /// good data stays silent. Every set restarts its timer (`toastSerial`), and a plain set keeps the
+    /// standard dwell; `flash` is the brief one a copy confirmation uses.
+    var toast: String? {
+        didSet {
+            toastDwell = pendingToastDwell ?? CicadaTiming.toastDwell
+            pendingToastDwell = nil
+            toastSerial &+= 1
+        }
+    }
+    /// How long the current toast stays before `ContentView` clears it.
+    private(set) var toastDwell: TimeInterval = CicadaTiming.toastDwell
+    /// Bumps on every toast, so the same words twice in a row still restart the timer.
+    private(set) var toastSerial = 0
+    @ObservationIgnored private var pendingToastDwell: TimeInterval?
+
+    /// A brief confirmation ("Link copied") — the copied-confirmation dwell, not an error's.
+    func flash(_ message: String) {
+        pendingToastDwell = CicadaTiming.copiedConfirmation
+        toast = message
+    }
 
     /// Persistent (non-auto-clearing), per-domain failure reason — latched
     /// by `refreshOne` the same moment it sets `toast`, cleared the moment

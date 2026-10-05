@@ -89,6 +89,20 @@ particular context" and is never a facet: a satellite needs two real contexts. T
 after a page's last section (`write_claims`, the one writer), so **every reader strips it before
 sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
 
+**A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
+the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the
+winner, a node object that named the loser repointed, and its observer, trust, sessions, evidence, validity and
+supersedes/superseded_by untouched (a `page` span that cited the loser keeps naming it — its offsets and hash are
+into that text, which git holds). An id the winner already uses is kept as `<id>-from-<loser>` (the loser's own
+supersession links follow; a re-run after a crash finds its earlier copy); a claim identical once re-subjected is kept
+once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
+the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. Before the loser's
+page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
+source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
+loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
+rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
+the fence. `episodes/` is never rewritten.
+
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
 document's *evidence text* (the body as `markdown_parser.parse` returns it, with the ```claims fence
@@ -512,6 +526,18 @@ A folder, paper or Wispr commit that still fails keeps its paths in `cicada-pend
 in the bank's own git dir (a worktree's, never the shared common dir), says so on its channel, and
 lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
 under its own author (R-B5).
+
+**One page writer at a time (audit 2026-10-05 P1-2).** A claim write is read → reconcile → write; atomic replacement
+keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
+cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
+by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
+`paper_metadata`'s page updates, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
+**and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
+reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
+the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
+lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
+Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

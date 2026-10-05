@@ -419,7 +419,7 @@ ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's capti
 cycle · What's waiting · Readout · Past nights) in D's list grammar — section labels over rows, no
 cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows, and, while videos are
 queued, one Videos row in What's waiting (`VideosWaitingRow`, G162: the queue wording and *Choose videos ›*, starting
-nothing) — closed by
+nothing). Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05) — closed by
 default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure

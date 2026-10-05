@@ -1894,31 +1894,51 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             int(target.frontmatter.get("version", 1) or 1) + 1
         )
 
+        from api.services.claims import MalformedClaimsBlockError, parse_claims
+        from api.services.entity_merge import append_note, merge_entities, rename_references
+
+        try:
+            # Strict, before anything moves: a corrupt fence aborts the merge
+            # rather than being rewritten as "no claims" (audit 2026-10-05 P1-1).
+            parse_claims(target.body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            raise HTTPException(409, f"'{target_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
+
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
             note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
-            new_body = (target.body or "").rstrip() + note
+            new_body = append_note(target.body, note)
             markdown_parser.write(target_path, target.frontmatter, new_body)
             path.unlink()
             entity_id = target_path.stem
         else:
             # Survivor == the cleaner mention: keep the cleaner name/id.
             survivor_path = target_path.parent / f"{survivor_slug}.md"
+            target_name = target.frontmatter.get("name")
             target.frontmatter["name"] = survivor
             note = (
                 f"\n\n_Merged '{target_path.stem}' into this entity "
                 f"(kept the cleaner name '{survivor}')._"
             )
 
-            if survivor_path.exists() and survivor_path != target_path:
-                # A file already lives at the survivor slug — append into it,
-                # never overwrite. Carry the source target's episodes forward.
+            if survivor_path.exists() and not survivor_path.samefile(target_path):
+                # A file already lives at the survivor slug — fold the target
+                # into it through the one merge primitive, never overwrite:
+                # its prose, its claims with their provenance and history, and
+                # every reference elsewhere follow (audit 2026-10-05 P1-1 — this
+                # branch used to keep a note and the episode list and delete
+                # the rest). Then the mention's own episode and date.
+                try:
+                    merge_entities(settings.memory_path, loser_id=target_path.stem, winner_id=survivor_path.stem)
+                except MalformedClaimsBlockError as exc:
+                    raise HTTPException(
+                        409, f"'{survivor_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
                 existing = markdown_parser.parse(survivor_path)
                 eps = list(existing.frontmatter.get("source_episodes", []) or [])
-                for ep in target.frontmatter.get("source_episodes", []) or []:
-                    if ep not in eps:
-                        eps.append(ep)
-                existing.frontmatter["source_episodes"] = eps
+                if source_episode and source_episode not in eps:
+                    eps.append(source_episode)
+                if eps:
+                    existing.frontmatter["source_episodes"] = eps
                 ex_last = str(
                     existing.frontmatter.get("last_referenced", "") or ""
                 ).strip()
@@ -1929,17 +1949,18 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 existing.frontmatter["version"] = (
                     int(existing.frontmatter.get("version", 1) or 1) + 1
                 )
-                merged_body = (existing.body or "").rstrip() + note
+                merged_body = append_note(existing.body, note)
                 markdown_parser.write(
                     survivor_path, existing.frontmatter, merged_body
                 )
-                # Remove the now-absorbed source target via git so history follows.
-                await _git_remove(settings.memory_path, target_path)
             else:
                 # Rename the source target file to the survivor's cleaner slug.
-                new_body = (target.body or "").rstrip() + note
-                markdown_parser.write(target_path, target.frontmatter, new_body)
+                # Its claims, its edges and every other page's references move
+                # with it — the old id stops existing, like a merge's loser.
+                old_id, old_name = target_path.stem, str(target_name or target_path.stem)
+                markdown_parser.write(target_path, target.frontmatter, append_note(target.body, note))
                 await _git_move(settings.memory_path, target_path, survivor_path)
+                rename_references(settings.memory_path, old_id, old_name, survivor_path.stem, survivor)
 
             path.unlink()
             entity_id = survivor_slug

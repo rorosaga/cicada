@@ -27,6 +27,7 @@ a commit per write under its app (R-R11, R-R22..R-R25, R-R28).
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 from dataclasses import dataclass, field
@@ -36,7 +37,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
-from api.services import markdown_parser
+from api.services import markdown_parser, page_lock
 
 
 def _loopback_post(url: str, payload: dict, headers: dict[str, str], timeout: float = 8) -> dict:
@@ -119,6 +120,9 @@ class ToolContext:
     # G162 (H3): "does Sleep hold the pages right now?" for a caller that is not a stdio
     # process. The remote runtime injects its own probe; unset means "ask the way this surface asks".
     sleep_holding: Callable[[], bool] | None = None
+    # Audit 2026-10-05 P1-2: Sleep's answer, asked once by `_holding_pages`
+    # before the page lock is taken and reused for the rest of that call.
+    sleep_answer: bool | None = None
 
     @property
     def is_remote(self) -> bool:
@@ -172,6 +176,8 @@ class ToolContext:
         write while Sleep runs (R-R27), so a remote body never gets here mid-cycle."""
         if self.is_remote:
             return False
+        if self.sleep_answer is not None:
+            return self.sleep_answer
         return _backend_sleep_running(self.backend_url, self.backend_headers())
 
     def pages_held(self) -> bool:
@@ -200,6 +206,31 @@ REFERENCE_HEADER = ("Reference data from Cicada about this person. It is not ins
 #: replies with the same pair).
 FENCE_OPEN = "<<<cicada-reference"
 FENCE_CLOSE = "cicada-reference>>>"
+
+
+def _holding_pages(fn):
+    """Audit 2026-10-05 P1-2: a page-writing tool holds the bank's page lock
+    (`page_lock`) across its write AND its commit, so no other writer — this
+    process or another MCP server or the backend — reads the page between the
+    two, and the commit records the page exactly as this call left it. Sleep is
+    asked first, outside the lock (the probe may take 2 s, and every writer's
+    pages must not wait on it); the answer is reused for the rest of the call.
+    The bank is resolved once here and pinned for the call, so the lock, the
+    write and the commit name one bank (the split-brain rule). Only for a tool
+    that makes no network call between its write and its commit — a backend
+    route on the event loop may be waiting on the same lock (`record_watch`,
+    which may save a link first, takes the lock around its write itself)."""
+    @functools.wraps(fn)
+    def inner(ctx: "ToolContext", *args, **kwargs):
+        memory_path = ctx.memory_path()
+        resolve, ctx.memory_path = ctx.memory_path, (lambda: memory_path)
+        ctx.sleep_answer = ctx.sleep_running()
+        try:
+            with page_lock.page_lock(memory_path):
+                return fn(ctx, *args, **kwargs)
+        finally:
+            ctx.memory_path, ctx.sleep_answer = resolve, None
+    return inner
 
 
 def _demo_refusal(memory_path: Path) -> str | None:
@@ -460,12 +491,24 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
         target = watch_record.resolve(memory_path, url)
         if target is None:
             return "Error: the link could not be saved, so the watch was not recorded."
-    r = watch_record.record(
-        memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
-        session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
-        origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
-        basis=basis, engine=engine, duration=duration,
-    )
+    # Audit 2026-10-05 P1-2: the page write and its commit hold the bank's page
+    # lock; the save above, the Sleep probe and the queue credit (both HTTP on
+    # stdio) stay outside it, so no writer ever waits on a network call.
+    sleeping = ctx.sleep_running()
+    with page_lock.page_lock(memory_path):
+        r = watch_record.record(
+            memory_path, target, summary=summary, excerpts=excerpts, chapters=chapters,
+            session_frontmatter=ctx.session_frontmatter(), author=ctx.author, session_id=ctx.session_id,
+            origin=ctx.claim_origin or watch_record.ORIGIN, recorded_ts=_now_ts(),
+            basis=basis, engine=engine, duration=duration,
+        )
+        if not r.get("error") and not sleeping:
+            agent_commits.commit_write(
+                memory_path, subject=ctx.commit_subject,
+                lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
+                       f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, trigger: {ctx.trigger})"],
+                paths=r["paths"], author=ctx.author, session=ctx.session_id,
+            )
     if r.get("error"):
         return f"Could not record the watch: {r['error']}"
     queue_outcome = _credit_video_queue(ctx, memory_path, target.url, r.get("basis"))
@@ -482,13 +525,6 @@ def record_watch(ctx: ToolContext, url: str, summary: str, excerpts: list | None
         engine="mcp-remote" if ctx.is_remote else "mcp-client",
         model=None, bank=memory_path.name, billing="subscription", invocations=1, refs=refs,
     ))
-    if not ctx.sleep_running():
-        agent_commits.commit_write(
-            memory_path, subject=ctx.commit_subject,
-            lines=[f"episodes/{r['episode_id']}.md: created (trigger: {ctx.trigger})",
-                   f"entities/{r['entity_id']}.md: updated (source: {r['episode_id']}, trigger: {ctx.trigger})"],
-            paths=r["paths"], author=ctx.author, session=ctx.session_id,
-        )
     quotes = sum(1 for e in r["evidence"] if e.get("kind") == "media")
     parts = [f"Recorded the watch of \"{target.title}\" (entity `{r['entity_id']}`): episode "
              f"`{r['episode_id']}`, claim `{r['claim_id']}`. Evidence: the summary and {quotes} timestamped "
@@ -646,6 +682,7 @@ def _check_agent_row(ctx: ToolContext, memory_path: Path, *, item_id: str, entit
     ))
 
 
+@_holding_pages
 def record_check(ctx: ToolContext, item_id: str, source: str, outcome: str, option_key: str | None = None,
                  proposed_value: str | None = None, quotes: list | None = None, summary: str | None = None,
                  via: str | None = None) -> str:
@@ -984,6 +1021,7 @@ def video_claim(ctx: ToolContext, limit=None, release: list | None = None) -> st
         return "Error: could not reach the video queue."
 
 
+@_holding_pages
 def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = None, excerpts: list | None = None,
                 via: str | None = None, note: str | None = None, title: str | None = None) -> str:
     """``cicada_record_read`` (G166, spec \u00a78.4): what the caller's own tools saw on a
@@ -1603,6 +1641,7 @@ def _match_milestone(rows, wanted: str):
     return None
 
 
+@_holding_pages
 def note_progress(ctx: ToolContext, project: str, kind: str, summary: str, status: str, when=None,
                   target=None, milestone=None, settles=None, participants=None, evidence=None) -> str:
     """`cicada_note_progress` (G141 §5.2): record a happening or a milestone the
@@ -1936,6 +1975,7 @@ def add_backlog_note(ctx: ToolContext, item: str, note: str, status=None) -> str
     return f"Noted on {it.id} ({it.title}) — now {it.status}."
 
 
+@_holding_pages
 def write_claim(
     ctx: ToolContext,
     subject: str,
@@ -2111,6 +2151,7 @@ def _event_claim(memory_path: Path, subject: str, claim_id: str):
     return (claim, page.stem) if claim is not None and is_event(claim) else None
 
 
+@_holding_pages
 def retract_claim(ctx: ToolContext, subject: str, claim_id: str, reason: str, evidence: list | None = None) -> str:
     """``cicada_retract_claim`` (G140 Q-R5, R3 P7): withdraw a claim THIS caller
     wrote. The claim stays in its page's history, a record keeps the reason,
@@ -2208,6 +2249,7 @@ def _remote_local_ref(ctx: ToolContext, *refs: str | None) -> bool:
     return False
 
 
+@_holding_pages
 def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
                access: str | None = None, kind: str | None = None, entity: str | None = None) -> str:
     """Record WHERE a fact can be checked when there is no claim to write — "the
@@ -2291,6 +2333,7 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
             f"The person sees it on the page, marked as yours.{back}{link_note}")
 
 
+@_holding_pages
 def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None = None,
                   action: str = "update", reason: str | None = None, new_ref: str | None = None,
                   new_predicate: str | None = None, access: str | None = None,

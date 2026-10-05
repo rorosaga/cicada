@@ -105,6 +105,9 @@ enum OriginIconography {
         // stamp. It had no case at all, so it read as "Saved-link" — a
         // `.capitalized` id, visibly not a product name.
         case "saved-link": "Saved link"
+        // A page saved before origins were stamped, or from an uploaded link list (`source: url`, no origin):
+        // its own word, never `"url".capitalized` ("Url", owner 2026-10-05).
+        case "url": "Link"
         // G105: hook-driven harness capture. Product names, not ids — the
         // Sleep queue's "Catching up on" block reads these aloud. `codex`,
         // `claude-desktop` and `cursor` belong to this group too and are

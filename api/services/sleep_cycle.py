@@ -2778,6 +2778,8 @@ def list_all_episodes(memory_path: Path) -> list[dict]:
             # for every queued episode and every pre-G114 processed one.
             "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
             "filepath": filepath,
+            # What a click on the row copies and the day it shows (`episode_copy`, owner 2026-10-05).
+            "frontmatter": fm,
         })
     results.sort(key=_episode_sort_key)  # by instant, same key as the cycle's queue (G114 R2)
     return results

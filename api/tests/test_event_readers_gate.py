@@ -26,6 +26,7 @@ EXEMPT = {
     "api/services/page_read.py": "a writer; closes only the previous read's own `describes` claim by id (G166)",
     "api/services/reading_walls.py": "current-only: asks whether a live `describes` claim exists (valid_to unset)",
     "api/services/inbox_service.py": "a resolver: closes the claims a question names",
+    "api/services/entity_merge.py": "a merge: carries every claim — events and records too — unchanged but its subject",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",
                    "api/services/search_service.py", "api/services/search_index.py")
