@@ -3109,7 +3109,7 @@ def resolve_inbox(
     except Exception as e:
         return (
             f"Could not resolve {item_id} ({type(e).__name__}: {e}). "
-            "Is the Cicada backend running on 127.0.0.1:8000?"
+            f"Is the Cicada backend running on {ctx.backend_url.removeprefix('http://')}?"
         )
 
     status = result.get("status", "unknown")

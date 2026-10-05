@@ -8,7 +8,7 @@ enum LauncherInstaller {
     /// The script for one entry point. The bundle path is single-quoted with an embedded `'` spelled `'\''` (the
     /// `SnippetEscape.shell` idiom), so a path with a space or a quote is one word. The message names the path the
     /// person can check; `127` is the shell's own "not found".
-    static func launcherScript(name: String, bundlePath: String, port: Int) -> String {
+    static func launcherScript(name: String, bundlePath: String, port: Int, home: String? = nil) -> String {
         let target = CicadaRuntime.bundledBin(bundlePath: bundlePath).appendingPathComponent(name).path
         return """
         #!/bin/sh
@@ -20,9 +20,19 @@ enum LauncherInstaller {
           exit 127
         fi
         : "${CICADA_PORT:=\(port)}"; export CICADA_PORT
-        exec "$target" "$@"
+        \(home.map { ": \"${CICADA_HOME:=\(doubleQuotedValue($0))}\"; export CICADA_HOME\n" } ?? "")exec "$target" "$@"
 
         """
+    }
+
+    /// A value inside `"${VAR:=…}"`: double-quote context, so `\`, `"`, `$` and a backtick are escaped.
+    static func doubleQuotedValue(_ s: String) -> String {
+        var out = ""
+        for c in s {
+            if "\\\"$`".contains(c) { out.append("\\") }
+            out.append(c)
+        }
+        return out
     }
 
     static func singleQuoted(_ s: String) -> String {
@@ -42,14 +52,17 @@ enum LauncherInstaller {
     /// never thrown: a launcher that cannot be written must not stop the app opening.
     @discardableResult
     static func install(runtime: CicadaRuntime, fileManager: FileManager = .default) -> Outcome {
-        guard runtime.isRelease else { return .skipped }
+        // A developer build writes nothing; neither does a copy macOS runs from a temporary place (G182 review,
+        // finding 4) — its launchers would point at a path gone after the next reboot or eject.
+        guard runtime.isRelease, runtime.launchersAreStable else { return .skipped }
         let binDir = runtime.binDir
         do {
             try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
             var wrote: [String] = []
             for name in CicadaRuntime.launcherNames {
                 let url = binDir.appendingPathComponent(name)
-                let body = Data(launcherScript(name: name, bundlePath: runtime.bundlePath, port: runtime.port).utf8)
+                let body = Data(launcherScript(name: name, bundlePath: runtime.bundlePath, port: runtime.port,
+                                                     home: runtime.cicadaHome.path).utf8)
                 let mode = (try? fileManager.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)?.intValue
                 if fileManager.contents(atPath: url.path) == body, mode == 0o755 { continue }
                 let temp = binDir.appendingPathComponent(".\(name).\(UUID().uuidString).tmp")

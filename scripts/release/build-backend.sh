@@ -169,6 +169,8 @@ cat > "$OUT/bin/cicada-env" <<'EOF'
 # inside Cicada.app (the ~/.cicada/bin shims exec it by absolute path).
 CICADA_BACKEND_DIR="$(cd "$(dirname "$0")/.." && pwd -P)"
 export CICADA_BACKEND_DIR
+# An agent's own Python settings must never steer the bundled interpreter.
+unset PYTHONHOME PYTHONSTARTUP VIRTUAL_ENV
 export CICADA_DISTRIBUTION=release
 : "${CICADA_HOME:=$HOME/.cicada}"; export CICADA_HOME
 : "${CICADA_PORT:=8000}"; export CICADA_PORT

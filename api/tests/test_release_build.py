@@ -41,6 +41,19 @@ def test_the_lock_is_hashed_and_torch_free():
     assert "/var/folders" not in lock and "/tmp/" not in lock
 
 
+def test_the_lock_keeps_the_developer_locks_versions():
+    """Ruling 3: where the two sets overlap, the release runs what the developer lock runs."""
+    lock = (RELEASE / "requirements.lock").read_text(encoding="utf-8")
+    release = {n.lower().replace("_", "-"): v for n, v in re.findall(r"^([A-Za-z0-9_.-]+)==([^ \\\n]+)", lock, re.M)}
+    uv = tomllib.loads((ROOT / "api" / "uv.lock").read_text(encoding="utf-8"))
+    dev: dict[str, set[str]] = {}
+    for p in uv["package"]:
+        if "version" in p:  # a package can be forked per platform marker (numpy is): any locked version counts
+            dev.setdefault(p["name"].lower().replace("_", "-"), set()).add(p["version"])
+    drift = {n: (v, sorted(dev[n])) for n, v in release.items() if n in dev and v not in dev[n]}
+    assert not drift, f"re-run scripts/release/lock-requirements.sh: {drift}"
+
+
 def test_build_backend_never_bundles_untracked_files_or_torch():
     script = (RELEASE / "build-backend.sh").read_text(encoding="utf-8")
     assert "git ls-files" in script and "^api/\\.env" in script, "a person's api/.env can never ride along"

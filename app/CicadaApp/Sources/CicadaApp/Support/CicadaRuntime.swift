@@ -36,6 +36,10 @@ struct CicadaRuntime: Equatable, Sendable {
     let memoryRootDefault: String
 
     var isRelease: Bool { distribution == .release }
+    /// False while macOS runs the app from a temporary place — a quarantined download it translocated, or a mounted
+    /// disk image. Launchers and a re-pointed background service aimed there would break at the next reboot or eject,
+    /// so neither is written until the app runs from a real folder (phase-2 review, finding 4).
+    var launchersAreStable: Bool { !bundlePath.contains("/AppTranslocation/") && !bundlePath.hasPrefix("/Volumes/") }
 
     /// The code root as every allowlist compares it (`standardizedFileURL.path`, the `AgentConnectPolicy` rule).
     var root: String { codeRoot.standardizedFileURL.path }
@@ -78,7 +82,12 @@ struct CicadaRuntime: Equatable, Sendable {
     /// The app's own backend child. Developer: install.sh's `python -m uvicorn` (round-4 D3), on this port.
     /// Release: the launcher, which reads the port from `CICADA_PORT` in its environment.
     var backendSpawn: (executable: URL, arguments: [String]) {
-        if isRelease { return (URL(fileURLWithPath: launcher("cicada-backend")), []) }
+        if isRelease {
+            // From a temporary place no launcher is written; run the bundle's own script for this session.
+            let path = launchersAreStable ? launcher("cicada-backend")
+                : bundledBin.appendingPathComponent("cicada-backend").path
+            return (URL(fileURLWithPath: path), [])
+        }
         return BackendProcess.spawnCommand(installRoot: codeRoot, port: port)
     }
 
@@ -102,7 +111,9 @@ struct CicadaRuntime: Equatable, Sendable {
             && fileExists(bundledBin(bundlePath: bundle).appendingPathComponent("cicada-backend").path)
         let home = environment["CICADA_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? homeDirectory.appendingPathComponent(".cicada")
-        let port = Self.port(environment: environment, stored: storedPort)
+        // The `cicada.port` default is a release's alone: a developer's launchd plist is written by install.sh on 8000
+        // (or `CICADA_PORT`), and an app that followed a stored port there would spawn a second backend beside it.
+        let port = Self.port(environment: environment, stored: release ? storedPort : 0)
         if release {
             let code = URL(fileURLWithPath: bundle).appendingPathComponent("Contents/Resources/backend/app")
             return CicadaRuntime(distribution: .release, bundlePath: bundle, codeRoot: code, cicadaHome: home, port: port,

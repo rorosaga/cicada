@@ -19,8 +19,11 @@ PORT="${2:-18000}"
 WORK="$(mktemp -d)"
 BACKEND_PID=""
 cleanup() {
-  [ -n "$BACKEND_PID" ] && kill "$BACKEND_PID" 2>/dev/null && wait "$BACKEND_PID" 2>/dev/null
+  local status=$?
+  set +e
+  if [ -n "$BACKEND_PID" ]; then kill "$BACKEND_PID" 2>/dev/null; wait "$BACKEND_PID" 2>/dev/null; fi
   rm -rf "$WORK"
+  exit "$status"   # the run's own result, never the SIGTERM status of the backend it stopped
 }
 trap cleanup EXIT
 pass() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -52,6 +55,7 @@ if [ ! -x "\$target" ]; then
   exit 127
 fi
 : "\${CICADA_PORT:=$PORT}"; export CICADA_PORT
+: "\${CICADA_HOME:=$CICADA_HOME}"; export CICADA_HOME
 exec "\$target" "\$@"
 EOF
   chmod 755 "$CICADA_HOME/bin/$name"

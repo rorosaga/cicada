@@ -19,7 +19,7 @@
 #                         # inside out (scripts/release/sign-app.sh — ad hoc unless
 #                         # CICADA_SIGN_IDENTITY names a Developer ID). Never used by make dev,
 #                         # install_app.sh or the dev auto-updater, whose builds are unchanged.
-#   CICADA_BACKEND_DIR=<dir> reuses an already assembled backend instead of building one.
+#   CICADA_PREBUILT_BACKEND=<dir> reuses an already assembled backend instead of building one.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -141,8 +141,10 @@ if [ "$WITH_BACKEND" = "1" ]; then
   # G182 — the installable app. No checkout path is stamped: the app finds its backend inside itself
   # (CicadaRuntime), and its memory lives in ~/cicada/memory, never in the bundle.
   REPO_ROOT_DIR="$(cd ../.. && pwd)"
-  BACKEND_DIR="${CICADA_BACKEND_DIR:-$PWD/.build/release-backend/backend}"
-  if [ -z "${CICADA_BACKEND_DIR:-}" ]; then
+  # Not CICADA_BACKEND_DIR: the installed app's launchers export that name, so a build started from anything the
+  # backend spawned would silently reuse the installed backend.
+  BACKEND_DIR="${CICADA_PREBUILT_BACKEND:-$PWD/.build/release-backend/backend}"
+  if [ -z "${CICADA_PREBUILT_BACKEND:-}" ]; then
     "$REPO_ROOT_DIR/scripts/release/build-backend.sh" "$BACKEND_DIR"
   fi
   [ -x "$BACKEND_DIR/bin/cicada-backend" ] || { echo "✗ no assembled backend at $BACKEND_DIR" >&2; exit 1; }

@@ -44,7 +44,8 @@ final class LauncherInstallerTests: XCTestCase {
         for name in CicadaRuntime.launcherNames {
             let path = runtime.binDir.appendingPathComponent(name).path
             XCTAssertEqual(fm.contents(atPath: path),
-                           Data(LauncherInstaller.launcherScript(name: name, bundlePath: runtime.bundlePath, port: 8000).utf8))
+                           Data(LauncherInstaller.launcherScript(name: name, bundlePath: runtime.bundlePath, port: 8000,
+                                                               home: runtime.cicadaHome.path).utf8))
             let mode = try XCTUnwrap(fm.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber).intValue
             XCTAssertEqual(mode, 0o755, name)
         }
@@ -115,5 +116,16 @@ final class LauncherInstallerTests: XCTestCase {
         return (process.terminationStatus,
                 String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
                 String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+    }
+}
+
+/// G182 review, finding 6 — a non-default home travels in the launcher, so a hook an agent runs reads the right token.
+final class LauncherHomeTests: XCTestCase {
+    func testTheHomeIsBakedInAndEscaped() {
+        let script = LauncherInstaller.launcherScript(name: "cicada-hook", bundlePath: "/Applications/Cicada.app",
+                                                      port: 8000, home: "/Users/x/my $home")
+        XCTAssertTrue(script.contains(#": "${CICADA_HOME:=/Users/x/my \$home}"; export CICADA_HOME"#), script)
+        XCTAssertFalse(LauncherInstaller.launcherScript(name: "cicada-hook", bundlePath: "/A.app", port: 8000)
+            .contains("CICADA_HOME"))
     }
 }

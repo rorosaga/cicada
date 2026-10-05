@@ -309,23 +309,69 @@ final class CicadaRuntimeTests: XCTestCase {
 final class BackendAgentReleaseTests: XCTestCase {
     private let launcher = "/Users/x/.cicada/bin/cicada-backend"
 
-    private func plist(_ program: [Any]?) -> Data {
+    private func plist(_ program: [Any]?, env: [String: String]? = nil) -> Data {
         var object: [String: Any] = ["Label": "com.cicada.backend"]
         if let program { object["ProgramArguments"] = program }
+        if let env { object["EnvironmentVariables"] = env }
         return try! PropertyListSerialization.data(fromPropertyList: object, format: .xml, options: 0)
     }
 
-    func testNeedsMigration() {
-        XCTAssertFalse(BackendAgentPolicy.needsMigration(plistData: nil, launcher: launcher), "no plist: stays opt-in")
-        XCTAssertTrue(BackendAgentPolicy.needsMigration(
-            plistData: plist(["/R/cicada/api/.venv/bin/python", "-m", "uvicorn", "api.main:app"]), launcher: launcher))
-        XCTAssertTrue(BackendAgentPolicy.needsMigration(
-            plistData: plist(["/Applications/Old.app/Contents/Resources/backend/bin/cicada-backend"]), launcher: launcher))
-        XCTAssertFalse(BackendAgentPolicy.needsMigration(plistData: plist([launcher]), launcher: launcher))
-        XCTAssertFalse(BackendAgentPolicy.needsMigration(plistData: Data("not a plist".utf8), launcher: launcher))
-        XCTAssertFalse(BackendAgentPolicy.needsMigration(plistData: plist(nil), launcher: launcher))
-        XCTAssertFalse(BackendAgentPolicy.needsMigration(plistData: plist([]), launcher: launcher))
-        XCTAssertFalse(BackendAgentPolicy.needsMigration(plistData: plist([42]), launcher: launcher))
+    private func plan(_ data: Data?, runtime: CicadaRuntime = CicadaRuntimeTests.release(),
+                      exists: Set<String> = []) -> BackendAgentPolicy.Migration? {
+        BackendAgentPolicy.migration(plistData: data, runtime: runtime, fileExists: { exists.contains($0) })
+    }
+
+    func testMigrationPlan() {
+        let runtime = CicadaRuntimeTests.release()
+        let home = runtime.cicadaHome.path
+        let current = ["CICADA_PORT": "8000", "CICADA_HOME": home]
+        XCTAssertNil(plan(nil), "no plist: stays opt-in")
+        XCTAssertEqual(plan(plist(["/R/cicada/api/.venv/bin/python", "-m", "uvicorn"],
+                                  env: ["CICADA_MEMORY_PATH": "/Users/x/work/memory"])),
+                       .init(memoryPath: "/Users/x/work/memory"), "a gone checkout: migrate, keeping its bank")
+        XCTAssertEqual(plan(plist(["/Applications/Old.app/Contents/Resources/backend/bin/cicada-backend"])),
+                       .init(memoryPath: nil))
+        XCTAssertNil(plan(plist([launcher], env: current)))
+        XCTAssertEqual(plan(plist([launcher], env: ["CICADA_PORT": "18000", "CICADA_HOME": home])),
+                       .init(memoryPath: nil), "another port: launchd would serve beside the app's backend")
+        XCTAssertEqual(plan(plist([launcher], env: ["CICADA_PORT": "8000", "CICADA_HOME": "/elsewhere"])),
+                       .init(memoryPath: nil), "another home")
+        XCTAssertNil(plan(Data("not a plist".utf8)))
+        XCTAssertNil(plan(plist(nil)))
+        XCTAssertNil(plan(plist([])))
+        XCTAssertNil(plan(plist([42])))
+    }
+
+    func testALiveCheckoutsPlistIsLeftAlone() {
+        let venv = "/Users/x/code/cicada/api/.venv/bin/python"
+        XCTAssertNil(plan(plist([venv, "-m", "uvicorn"]), exists: [venv]),
+                     "opening a release once never takes over a source install's backend")
+    }
+
+    func testATranslocatedCopyWritesNoLaunchersAndMigratesNothing() async {
+        let moved = "/private/var/folders/x/AppTranslocation/ABC/d/Cicada.app"
+        let runtime = CicadaRuntimeTests.release(bundle: moved)
+        XCTAssertFalse(runtime.launchersAreStable)
+        XCTAssertFalse(CicadaRuntimeTests.release(bundle: "/Volumes/Cicada/Cicada.app").launchersAreStable)
+        XCTAssertTrue(CicadaRuntimeTests.release().launchersAreStable)
+        XCTAssertEqual(LauncherInstaller.install(runtime: runtime), .skipped)
+        XCTAssertEqual(runtime.backendSpawn.executable.path, moved + "/Contents/Resources/backend/bin/cicada-backend",
+                       "this session runs the bundle's own script")
+        let runner = FakeRunner()
+        let ran = await service(runtime, runner: runner).migrateIfNeeded(
+            readPlist: { _ in self.plist(["/R/api/.venv/bin/python"]) }, fileExists: { _ in false })
+        XCTAssertFalse(ran)
+        XCTAssertTrue(runner.runs.isEmpty)
+    }
+
+    func testAMigrationFallsBackToTheOldPlistsBank() async {
+        let runner = FakeRunner()
+        let agent = service(CicadaRuntimeTests.release(), runner: runner, live: nil)
+        await agent.migrateIfNeeded(readPlist: { _ in
+            self.plist(["/gone/api/.venv/bin/python"], env: ["CICADA_MEMORY_PATH": "/Users/x/work/memory"]) },
+            fileExists: { _ in false })
+        XCTAssertEqual(runner.runs.first { $0.argv.first == "/bin/bash" }?.env["CICADA_MEMORY_PATH"],
+                       "/Users/x/work/memory", "never an empty ~/cicada/memory while the old bank exists")
     }
 
     func testAReleaseInstallPointsTheScriptAtTheLauncher() {
@@ -357,7 +403,8 @@ final class BackendAgentReleaseTests: XCTestCase {
         let runner = FakeRunner()
         let runtime = CicadaRuntimeTests.release()
         let agent = service(runtime, runner: runner)
-        let ran = await agent.migrateIfNeeded(readPlist: { _ in self.plist(["/R/api/.venv/bin/python", "-m", "uvicorn"]) })
+        let ran = await agent.migrateIfNeeded(readPlist: { _ in self.plist(["/R/api/.venv/bin/python", "-m", "uvicorn"]) },
+                                              fileExists: { _ in false })
         XCTAssertTrue(ran)
         let install = runner.runs.first { $0.argv.first == "/bin/bash" }
         XCTAssertEqual(install?.argv, BackendAgentPolicy.installArgv(installRoot: runtime.codeRoot))
@@ -368,7 +415,7 @@ final class BackendAgentReleaseTests: XCTestCase {
     func testTheLiveBackendsBankWinsDuringMigration() async {
         let runner = FakeRunner()
         let agent = service(CicadaRuntimeTests.release(), runner: runner, live: "/live/memory")
-        await agent.migrateIfNeeded(readPlist: { _ in self.plist(["/R/api/.venv/bin/python"]) })
+        await agent.migrateIfNeeded(readPlist: { _ in self.plist(["/R/api/.venv/bin/python"]) }, fileExists: { _ in false })
         XCTAssertEqual(runner.runs.first { $0.argv.first == "/bin/bash" }?.env["CICADA_MEMORY_PATH"], "/live/memory")
     }
 
@@ -376,7 +423,8 @@ final class BackendAgentReleaseTests: XCTestCase {
         let runner = FakeRunner()
         let release = service(CicadaRuntimeTests.release(), runner: runner)
         let none = await release.migrateIfNeeded(readPlist: { _ in nil })
-        let current = await release.migrateIfNeeded(readPlist: { _ in self.plist([self.launcher]) })
+        let current = await release.migrateIfNeeded(readPlist: { _ in
+            self.plist([self.launcher], env: ["CICADA_PORT": "8000", "CICADA_HOME": "/Users/x/.cicada"]) })
         let developer = BackendAgentService(runner: runner, runtime: .developer(codeRoot: URL(fileURLWithPath: "/R")),
                                             plistURL: URL(fileURLWithPath: "/nonexistent/agent.plist"), uid: 501,
                                             memoryRoot: { "/m" }, envFileContents: { nil }, onInstalled: {})

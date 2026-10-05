@@ -60,7 +60,11 @@ MAIN="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutabl
 count=0
 while IFS= read -r -d '' f; do
   [ "$f" = "$MAIN" ] && continue
-  codesign "${args[@]}" "$f" 2>&1 | { grep -v ': replacing existing signature$' || true; }
+  # An executable (the interpreter, git) runs as its own process under the hardened runtime, so it carries the
+  # entitlements too; a library takes its host's.
+  extra=()
+  if [ -x "$f" ] && [[ "$f" != *.so ]] && [[ "$f" != *.dylib ]]; then extra=(${app_args[@]+"${app_args[@]}"}); fi
+  codesign "${args[@]}" ${extra[@]+"${extra[@]}"} "$f" 2>&1 | { grep -v ': replacing existing signature$' || true; }
   count=$((count + 1))
 done < <(list_macho "$APP/Contents"; printf '\0')
 echo "  signed $count nested Mach-O files ($([ "$IDENTITY" = "-" ] && echo "ad hoc" || echo "$IDENTITY"))"

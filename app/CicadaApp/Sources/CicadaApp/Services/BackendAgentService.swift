@@ -104,14 +104,33 @@ enum BackendAgentPolicy {
     }
 
     /// G182 — a plist written before this build (a venv python, or an older copy of the app) still runs whatever it
-    /// named, so a person who chose the background service is quietly left on the old backend. True only when the
-    /// plist exists, parses, and its `ProgramArguments[0]` is not exactly the launcher; nothing on disk, or nothing
-    /// readable, is never a reason to install (the service stays opt-in).
-    static func needsMigration(plistData: Data?, launcher: String) -> Bool {
+    /// named, so a person who chose the background service is quietly left on the old backend. A plan only when the
+    /// plist exists, parses, and either runs something other than the launcher or carries another port or home than
+    /// this app's (a backend launchd keeps on the old port would run beside the one the app spawns — two schedulers
+    /// on one bank). Nothing on disk, or nothing readable, is never a reason to install (the service stays opt-in).
+    /// A plist that runs a checkout's venv python that still exists is a developer's own setup and is left alone:
+    /// opening a release once must not take over a source install's backend (phase-2 review, finding 3).
+    struct Migration: Equatable {
+        /// The bank the old plist served — the fallback when the live backend doesn't answer, so a migration never
+        /// re-points the service at an empty `~/cicada/memory` (split-brain; phase-2 review, finding 1).
+        let memoryPath: String?
+    }
+
+    static func migration(plistData: Data?, runtime: CicadaRuntime,
+                          fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) })
+        -> Migration? {
         guard let plistData,
               let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
-              let program = (plist["ProgramArguments"] as? [Any])?.first as? String else { return false }
-        return program != launcher
+              let program = (plist["ProgramArguments"] as? [Any])?.first as? String else { return nil }
+        if program.hasSuffix("/api/.venv/bin/python"), fileExists(program) { return nil }
+        let env = plist["EnvironmentVariables"] as? [String: Any] ?? [:]
+        let launcher = runtime.binDir.appendingPathComponent("cicada-backend").path
+        let port = (env["CICADA_PORT"] as? String) ?? String(CicadaRuntime.defaultPort)
+        let defaultHome = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cicada").path
+        let home = (env["CICADA_HOME"] as? String) ?? defaultHome
+        if program == launcher, port == String(runtime.port), home == runtime.cicadaHome.path { return nil }
+        let memory = (env["CICADA_MEMORY_PATH"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return Migration(memoryPath: memory)
     }
 }
 
@@ -156,8 +175,9 @@ final class BackendAgentService {
                                          plistExists: FileManager.default.fileExists(atPath: plistURL.path))
     }
 
-    /// From the person's click on Install, or `migrateIfNeeded` keeping a choice they already made.
-    func install() async {
+    /// From the person's click on Install, or `migrateIfNeeded` keeping a choice they already made (with the bank
+    /// the old plist served as the fallback memory path).
+    func install(previousMemory: String? = nil) async {
         let argv = BackendAgentPolicy.installArgv(installRoot: installRoot)
         guard BackendAgentPolicy.isAllowed(argv, installRoot: installRoot) else {
             state = .failed(Copy.backgroundRefused)
@@ -165,7 +185,7 @@ final class BackendAgentService {
         }
         state = .installing
         // G182 — a release has no `api/.env`; its fallback is the backend's own default, never a bundle path.
-        let fallback = runtime.isRelease ? runtime.memoryRootDefault
+        let fallback = runtime.isRelease ? (previousMemory ?? runtime.memoryRootDefault)
             : BackendAgentPolicy.envFileMemoryPath(envFileContents())
         guard let memory = BackendAgentPolicy.memoryPath(live: await memoryRoot(), envFile: fallback) else {
             state = .failed(Copy.backgroundNeedsBackend)
@@ -187,11 +207,12 @@ final class BackendAgentService {
     /// other than the launcher (a checkout's venv, an older copy of the app), run the same install once so the
     /// person's choice follows the app. No plist → nothing (the service stays opt-in). Returns whether it ran.
     @discardableResult
-    func migrateIfNeeded(readPlist: (URL) -> Data? = { try? Data(contentsOf: $0) }) async -> Bool {
-        guard runtime.isRelease, state != .installing else { return false }
-        let launcher = runtime.binDir.appendingPathComponent("cicada-backend").path
-        guard BackendAgentPolicy.needsMigration(plistData: readPlist(plistURL), launcher: launcher) else { return false }
-        await install()
+    func migrateIfNeeded(readPlist: (URL) -> Data? = { try? Data(contentsOf: $0) },
+                         fileExists: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }) async -> Bool {
+        guard runtime.isRelease, runtime.launchersAreStable, state != .installing else { return false }
+        guard let plan = BackendAgentPolicy.migration(plistData: readPlist(plistURL), runtime: runtime,
+                                                      fileExists: fileExists) else { return false }
+        await install(previousMemory: plan.memoryPath)
         return true
     }
 }
