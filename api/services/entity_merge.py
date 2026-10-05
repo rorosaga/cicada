@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from api.services import markdown_parser, entity_body
+from api.services import markdown_parser, entity_body, page_lock
 from api.services.claims import (
     Claim, MalformedClaimsBlockError, parse_claims, strip_claims_block, write_claims,
 )
@@ -262,6 +262,7 @@ def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
     return repointed
 
 
+@page_lock.locked
 def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str, new_name: str) -> list[str]:
     """After a page moved from ``old_id`` to ``new_id`` (the inbox's
     keep-the-cleaner-name merge): its own claims, ``related`` and wikilinks
@@ -293,6 +294,7 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
     return paths + repoint_references(memory_path, old_id, old_name, new_id, new_name)
 
 
+@page_lock.locked
 def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
                    *, author: str = "user") -> dict:
     """Fold ``loser_id`` into ``winner_id`` and delete the loser's page.

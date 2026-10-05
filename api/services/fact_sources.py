@@ -49,6 +49,7 @@ from datetime import date
 from pathlib import Path
 
 from api.services import markdown_parser
+from api.services import page_lock
 
 KIND_URL = "url"
 KIND_PATH = "path"
@@ -427,6 +428,7 @@ def propose_site(frontmatter: dict, ref: str, *, added_by: str = "agent", added_
     return True
 
 
+@page_lock.locked
 def add_source(
     memory_path: Path,
     entity_id: str,
@@ -533,6 +535,7 @@ def add_source(
     return entry
 
 
+@page_lock.locked
 def delete_source(memory_path: Path, entity_id: str, index: int, *, remembered_by: str | None = None) -> bool:
     """Remove the source at ``index``. Returns whether anything was removed.
 
@@ -568,6 +571,7 @@ class ChangeResult:
     message: str = ""
 
 
+@page_lock.locked
 def change_source(
     memory_path: Path,
     entity_id: str,
