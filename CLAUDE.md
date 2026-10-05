@@ -307,6 +307,8 @@ is revisited only on the trigger its row names.
 
 ## Installation & Setup
 
+**Testers install a release** with `scripts/install-release.sh` (curl | bash; G182) — releases, the signing key and
+the later Developer ID steps are in [`docs/RELEASING.md`](docs/RELEASING.md). From source:
 `install.sh` is the source of truth; `install.md` is the paste-into-your-agent path for a fresh Mac
 (clone → `./install.sh` → `make install-app` → open the app; G76), and it never loops `make doctor`.
 The rest of the paste-prompt install story is G76 in the backlog.
