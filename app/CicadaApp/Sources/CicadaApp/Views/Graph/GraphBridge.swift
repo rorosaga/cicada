@@ -56,4 +56,5 @@ enum GraphJS {
     static func setSelectedNode(_ id: String?) -> String { "setSelectedNode(\(id.map(literal) ?? "null"))" }
     static func revealNode(_ id: String) -> String { "revealNode(\(literal(id)))" }
     static func setFocus(_ id: String, hops: Int) -> String { "setFocus(\(literal(id)), \(hops))" }
+    static func setGraphActive(_ on: Bool) -> String { "setGraphActive(\(on))" }
 }

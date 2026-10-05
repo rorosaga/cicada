@@ -24,6 +24,22 @@ above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules fol
 `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
 a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
+**The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
+every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
+selected *and* its window visible (`WindowVisibilityReader`: occluded, minimized or hidden reads
+false), pushed once per change as `setGraphActive(bool)`. Inactive, `graph.js` cancels its queued
+frame and pulse timer, ends any drag, and stops the d3 timer — a data push lays out later rather than
+in the background (`holdIfInactive` after every `restart`). Resuming continues a simulation that was
+still moving at its own alpha, never a reheat, and leaves positions and the zoom untouched. While
+visible, a settled graph redraws only for a pending node whose ring is on screen, on a ~30 fps timer
+with the phase taken from elapsed time (the ring keeps its ~1 s period). One `cancelInteraction`
+ends a gesture whose release never arrived (window blur, a move with no button held, a pointer
+cancel, going inactive): the node is unpinned, its throw velocity dropped, and the alpha target set to
+0 with no restart. `GraphView.Coordinator` holds the web view weakly (the content controller retains
+the coordinator) and `dismantleNSView` suspends the page and removes its handler, so a closed window
+releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
+`GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
+
 **Sync engine.** One `Store` holds a `Snapshot` per domain, hydrated instantly from a per-bank
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
