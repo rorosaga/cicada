@@ -12,12 +12,19 @@ Machine-local (``sleep_local``), ids and enums only — never a title.
 """
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 
 from api.services import sleep_local
 
 FILE = "parked.json"
+
+
+#: Audit A10 review — `valid()` prunes the store inside a read, and since the Sleep-debt scan moved to worker
+#: threads it can run beside another `valid()` or a `park()` on the event loop. One lock orders every
+#: read-modify-write, so a prune never overwrites a park made meanwhile and two writers never share the temp file.
+_LOCK = threading.RLock()
 
 
 def _path(memory_path: Path, *, create: bool = False) -> Path:
@@ -46,39 +53,42 @@ def _save(memory_path: Path, data: dict[str, dict]) -> None:
 
 
 def park(memory_path: Path, episode_id: str, reason: str, attempts: int) -> None:
-    stamp = _stamp(memory_path, episode_id)
-    if stamp is None:
-        return
-    data = load(memory_path)
-    data[episode_id] = {"reason": reason, "attempts": int(attempts),
-                        "parked_at": int(time.time()), "stamp": stamp}
-    _save(memory_path, data)
+    with _LOCK:
+        stamp = _stamp(memory_path, episode_id)
+        if stamp is None:
+            return
+        data = load(memory_path)
+        data[episode_id] = {"reason": reason, "attempts": int(attempts),
+                            "parked_at": int(time.time()), "stamp": stamp}
+        _save(memory_path, data)
 
 
 def unpark(memory_path: Path, ids=None) -> list[str]:
     """Release ``ids`` (all when ``None``); returns the ones that were parked."""
-    data = load(memory_path)
-    gone = [i for i in (list(data) if ids is None else [i for i in ids if i in data])]
-    for i in gone:
-        data.pop(i, None)
-    if gone:
-        _save(memory_path, data)
-    return gone
+    with _LOCK:
+        data = load(memory_path)
+        gone = [i for i in (list(data) if ids is None else [i for i in ids if i in data])]
+        for i in gone:
+            data.pop(i, None)
+        if gone:
+            _save(memory_path, data)
+        return gone
 
 
 def valid(memory_path: Path) -> dict[str, dict]:
     """The parked conversations that are still parked: the file exists and has not
     changed since. A changed one is dropped from the store here (it is read again)."""
-    data = load(memory_path)
-    if not data:
-        return {}
-    keep: dict[str, dict] = {}
-    for i, entry in data.items():
-        if _stamp(memory_path, i) == entry.get("stamp"):
-            keep[i] = entry
-    if len(keep) != len(data):
-        _save(memory_path, keep)
-    return keep
+    with _LOCK:
+        data = load(memory_path)
+        if not data:
+            return {}
+        keep: dict[str, dict] = {}
+        for i, entry in data.items():
+            if _stamp(memory_path, i) == entry.get("stamp"):
+                keep[i] = entry
+        if len(keep) != len(data):
+            _save(memory_path, keep)
+        return keep
 
 
 def ids(memory_path: Path) -> set[str]:

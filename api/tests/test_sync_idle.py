@@ -148,8 +148,10 @@ def test_the_shared_tick_equals_the_unshared_computation(tmp_path):
     bank = _bank(tmp_path)
 
     async def both():
+        from api.services.sleep_cycle import get_sleep_state
+
         tick = await sync_ticker.current(bank, None, max_age=0.0)
-        info = sync_service.version(bank, None)
+        info = sync_service.version(bank, get_sleep_state())
         debt = await sleep_debt.compute(bank)
         return tick, info, debt
 
@@ -179,3 +181,69 @@ def test_the_sse_loop_uses_the_shared_tick(tmp_path, monkeypatch):
     first = asyncio.run(two_clients())
     assert all(e.startswith("event: version") for e in first)
     assert calls["n"] == 1, "two subscribers, one computation"
+
+
+def test_a_late_joining_stream_polls_when_the_shared_tick_is_a_second_old(tmp_path):
+    bank = _bank(tmp_path)
+
+    async def go():
+        tick = await sync_ticker.current(bank, None, max_age=5.0)
+        fresh = sync_ticker.next_poll_delay(tick, 1.0)
+        object.__setattr__(tick, "at", tick.at - 0.6)   # handed a tick computed 0.6 s ago
+        late = sync_ticker.next_poll_delay(tick, 1.0)
+        object.__setattr__(tick, "at", tick.at - 5.0)
+        stale = sync_ticker.next_poll_delay(tick, 1.0)
+        return fresh, late, stale
+
+    fresh, late, stale = asyncio.run(go())
+    assert 0.9 < fresh <= 1.0
+    assert 0.3 < late < 0.45, "a change is seen no later than one poll after the tick that missed it"
+    assert stale == 0.05
+
+
+def test_dir_stamps_cover_the_same_files_as_glob(tmp_path):
+    import os
+
+    from api.services import graph_builder
+
+    d = tmp_path / "entities"
+    d.mkdir()
+    (d / "a.md").write_text("a", encoding="utf-8")
+    hidden = d / ".h.md"
+    hidden.write_text("h", encoding="utf-8")
+    future = time.time() + 100
+    os.utime(hidden, (future, future))
+    assert graph_builder.dir_mtime(d) == pytest.approx(future), "a hidden .md moves the stamp, as glob did"
+    assert graph_builder.dir_mtime(tmp_path / "missing") == 0.0
+    f = tmp_path / "plain.txt"
+    f.write_text("x", encoding="utf-8")
+    assert graph_builder.dir_mtime(f) == pytest.approx(f.stat().st_mtime)
+
+
+def test_a_prune_never_overwrites_a_park_made_meanwhile(tmp_path, monkeypatch):
+    from api.services import sleep_parked
+
+    bank = _bank(tmp_path, episodes=3)
+    sleep_parked.park(bank, "ep_2026-10-05_001", "other", 2)
+    real_stamp = sleep_parked._stamp
+    in_prune, release = threading.Event(), threading.Event()
+
+    def slow_stamp(memory_path, episode_id):
+        if threading.current_thread().name == "pruner":
+            in_prune.set()
+            release.wait(5)
+        return real_stamp(memory_path, episode_id)
+
+    monkeypatch.setattr(sleep_parked, "_stamp", slow_stamp)
+    # Make the first entry stale so `valid()` prunes and saves.
+    (bank / "episodes" / "ep_2026-10-05_001.md").write_text("changed", encoding="utf-8")
+    pruner = threading.Thread(target=sleep_parked.valid, args=(bank,), name="pruner")
+    pruner.start()
+    assert in_prune.wait(5)
+    parker = threading.Thread(target=sleep_parked.park, args=(bank, "ep_2026-10-05_002", "other", 2))
+    parker.start()
+    time.sleep(0.1)
+    release.set()
+    pruner.join(5)
+    parker.join(5)
+    assert "ep_2026-10-05_002" in sleep_parked.load(bank)

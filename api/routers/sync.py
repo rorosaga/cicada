@@ -44,6 +44,10 @@ async def events(settings: Settings = Depends(get_settings)):
         while True:
             # Audit A10: one version + debt computation per bank per tick, shared by every subscriber, off the loop.
             tick = await sync_ticker.current(settings.memory_path, settings, max_age=SHARED_TICK_SECONDS)
+            # Phase-lock onto the shared tick: a stream handed a tick computed `age` seconds ago polls again when it
+            # is POLL_SECONDS old, so every stream of a bank converges on one computation per second and none
+            # sees a change later than it would have alone (audit A10 review).
+            next_poll = sync_ticker.next_poll_delay(tick, POLL_SECONDS)
             info = tick.info
             if info.version != last:
                 last = info.version
@@ -53,9 +57,10 @@ async def events(settings: Settings = Depends(get_settings)):
             # G106 amendment: Rested % and Progress % are both "SSE-driven,
             # continuous" — computed fresh every tick alongside the existing
             # status fields so the mascot screen never needs its own poll
-            # loop just to watch these two numbers move. `sleep_debt.compute`
-            # is cheap (a cached frontmatter scan + one bounded git-log read)
-            # and safe on every tick per its own docstring.
+            # loop just to watch these two numbers move. The debt comes from
+            # the same shared tick as the version (audit A10): one
+            # `sleep_debt.compute` per bank per second, whatever the number
+            # of streams.
             debt = tick.debt
             progress = progress_pct(state)
             # Sleep page v5: the run of THIS bank only (a lingering one of another is hidden), the
@@ -130,8 +135,8 @@ async def events(settings: Settings = Depends(get_settings)):
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"
                 since_ping = 0.0
-            await asyncio.sleep(POLL_SECONDS)
-            since_ping += POLL_SECONDS
+            await asyncio.sleep(next_poll)
+            since_ping += next_poll
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

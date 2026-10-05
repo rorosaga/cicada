@@ -23,10 +23,10 @@ half. Branch `fix/audit-sync-idle`.
   - A per-(event loop, bank) `asyncio.Lock` makes concurrent subscribers await the one computation instead of
     duplicating it. Keying by loop keeps it safe across test clients.
   - `/sync/version` and `/sleep/status` are untouched: exact, per request.
-- **R2 — off the event loop.** The whole filesystem half of a tick runs in one worker thread: `version` plus the
-  debt queue scan. Only the HEAD-keyed `git log` read stays on the loop, as an awaited subprocess.
+- **R2 — off the event loop.** The filesystem half of a tick runs in worker threads, in two `asyncio.to_thread`
+  calls made one after the other: `version`, then the debt queue scan. Only the HEAD-keyed `git log` read stays on the loop, as an awaited subprocess.
   `sleep_debt.compute` itself also moves its scan to a thread, so `/sleep/status` stops blocking the loop too.
-- **R3 — one scan per directory per tick.** `bank_index.shared_scans()` is a thread-local memo of `_scan`, active
+- **R3 — one scan per directory per tick.** `bank_index.shared_scans()` is a ContextVar memo of `_scan` (`to_thread` copies the context), active
   only inside the ticker's worker call. `version`'s `dir_stamp(episodes)` and debt's `files(episodes)` then share
   one `scandir` of the directory. Outside the context nothing changes, so every other caller stays exact.
 - **R4 — cheaper stamps.** `graph_builder._dir_mtime` moves from `Path.glob` + `Path.stat` per file to one
@@ -39,8 +39,8 @@ half. Branch `fix/audit-sync-idle`.
 visibility reader.
 - It now reads `SceneStore.shared.lowPower` (the policy the painted scenes and sprites use) and a
   `WindowVisibilityReader`, so the `TimelineView` is paused while the window is hidden.
-- Under Reduce Motion the frame only changes at step boundaries, so the timeline asks for a schedule of those
-  boundaries (`ExportWalkthrough.stepBoundaries`) instead of animation cadence.
+- Under Reduce Motion the frame only changes at step boundaries, so the timeline asks for a `.periodic` schedule of
+  those boundaries (`ExportWalkthrough.cadence`) instead of animation cadence.
 - The looping tutorial stays as it is (the audit: "animation never completes" is not a finding).
 - **A12 is gone** (G176). The Sleep page's 11.9 % is G176 follow-up 1's, not this PR's.
 
@@ -62,3 +62,14 @@ visibility reader.
 - The full API suite, compared with `dev`.
 - `swift test`.
 - `idle-sync.py` before and after on the same generated banks, plus a fanout measurement with 4 subscribers.
+
+## Review fixes
+
+- **R5 — phase lock.** A stream handed a tick of age `a` polls again after `POLL_SECONDS − a`
+  (`sync_ticker.next_poll_delay`). Streams converge on one computation per second, and none sees a change more
+  than one poll late. A shared tick alone could add up to 0.9 s.
+- **R6 — `sleep_parked` lock.** `valid()` prunes the parked store inside a read. Now that the debt scan runs in
+  worker threads, one `RLock` orders `park`, `unpark` and `valid`, so a prune never overwrites a park made
+  meanwhile.
+- **R7 — `_dir_mtime`** keeps `glob("*.md")`'s exact set on Python 3.12: hidden names and directories named `*.md`
+  included, the path's own mtime when it can't be listed.

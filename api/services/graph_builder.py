@@ -698,13 +698,17 @@ def _dir_mtime(path: Path) -> float:
 
     One ``os.scandir`` (audit A10) instead of ``glob`` plus a ``stat`` call per
     file: the SSE loop stamps entities, hubs and three inbox directories every
-    second. Same set as ``glob("*.md")``: hidden names are skipped."""
+    second. The same set ``Path.glob("*.md")`` yields on Python 3.12 — hidden
+    names and a directory named ``*.md`` included — and the same answer for a
+    path that cannot be listed (its own mtime) or does not exist (0)."""
     try:
         latest = os.stat(path).st_mtime
+    except OSError:
+        return 0.0
+    try:
         with os.scandir(path) as it:
             for entry in it:
-                name = entry.name
-                if name.startswith(".") or not name.endswith(".md"):
+                if not entry.name.endswith(".md"):
                     continue
                 try:
                     m = entry.stat().st_mtime
@@ -713,7 +717,7 @@ def _dir_mtime(path: Path) -> float:
                 if m > latest:
                     latest = m
     except OSError:
-        return 0.0
+        pass
     return latest
 
 

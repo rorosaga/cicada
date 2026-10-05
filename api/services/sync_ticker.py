@@ -42,6 +42,13 @@ def reset() -> None:
     _locks.clear()
 
 
+def next_poll_delay(tick: Tick, poll_seconds: float) -> float:
+    """How long a stream waits before asking again: until the tick it was handed is ``poll_seconds`` old, so a
+    stream that joined mid-interval shares the next computation instead of trailing it by up to ``max_age``."""
+    age = time.monotonic() - tick.at
+    return min(poll_seconds, max(0.05, poll_seconds - age))
+
+
 async def current(memory_path: Path, settings, *, max_age: float) -> Tick:
     """The bank's tick, recomputed when older than ``max_age`` seconds."""
     key = str(memory_path)
