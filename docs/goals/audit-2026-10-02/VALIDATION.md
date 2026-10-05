@@ -65,6 +65,10 @@ Observed outputs on the pinned code:
 {"finding":"A04","external_file_copied":true,"copied_alias_is_symlink":false}
 ```
 
+Revalidation 2026-10-05 (`efd5386e`): byte-identical output. The A02 probe now uses an implementation-independent
+fault, an unencodable body, because its first version patched `Path.open`, which an atomic writer no longer calls. On
+`efd5386e` it prints `old_file_preserved: false, bytes_remaining: 0`.
+
 For A07: no-pending case renders one frame and has no queued frames left. Both pending
 cases render 120 frames and retain one queued frame at alpha zero, including the
 synthetically hidden document. For A09: `draggingStillActive = true`, `alphaTarget = 0.1`,

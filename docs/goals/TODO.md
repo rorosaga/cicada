@@ -1,12 +1,17 @@
 # Cicada — TODO & handoff
 
-**2026-10-02 isolated audit (documentation only; fixes open):**
-[`audit-2026-10-02/README.md`](audit-2026-10-02/README.md) records twelve storage/app/performance
-findings, existing G114/G135 capture-race evidence, test results and live-profiling limits.
-[`HANDOFF.md`](audit-2026-10-02/HANDOFF.md) carries the continuation prompt. Pick up by
-revalidating against current `dev` and reconciling existing G109/G114/G135/G177 rows;
-the reported sustained CPU percentages remain unverified. No new G IDs or shipped state
-are implied by this audit entry.
+**2026-10-02 audit — revalidated 2026-10-05 on `efd5386e`, fixes in PRs to `dev`:**
+[`audit-2026-10-02/README.md`](audit-2026-10-02/README.md) (twelve findings, the revalidation table) and
+[`STATUS.md`](audit-2026-10-02/STATUS.md) (per finding: verdict, fix, PR, test numbers). A12 was already gone (G176).
+The fix PRs are:
+- **#168** — storage: atomic page writes, no-clobber episode ids, revision-safe retirement (A02/K01/A01);
+- **#169** — graph energy: rest when hidden, release closed graphs, end interrupted drags (A07–A09);
+- **#171** — symlink-safe duplication (A04);
+- **#172** — app consistency (A03/A05/A06);
+- **#173** — the shared SSE tick and the walkthrough clock (A10/A11).
+
+Each PR says what it measured and what it could not. Live app CPU after the fixes is **unmeasured** (it needs the
+owner's machine and word), and the Sleep page's 11.9 % stays with G176 follow-up 1.
 
 > **If you are an agent picking this project up cold, read this section first.** It is the
 > compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,

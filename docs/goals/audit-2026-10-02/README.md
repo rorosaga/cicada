@@ -1,6 +1,6 @@
 # Cicada code and performance audit — 2026-10-02
 
-**Status: audit complete; fixes not implemented; live CPU attribution pending.**
+**Status: audit complete; revalidated 2026-10-05; fixes in PRs to `dev` (see [STATUS.md](STATUS.md)); live CPU after the fixes unmeasured.**
 
 Audited revision: `9f7d8f5ba19f3a399543cf63f9c843ad319591e6` (`dev` at worktree creation).
 Isolated branch: `audit-2026-10-02`; worktree: `<repo>/.worktrees/audit-2026-10-02`.

@@ -1,11 +1,15 @@
 # Goal: Memory Evolution (improvement wave)
 
-**2026-10-02 audit evidence, pending implementation triage:**
-[`Code and performance audit`](audit-2026-10-02/README.md),
-[`validation/probes`](audit-2026-10-02/VALIDATION.md) and
-[`handoff`](audit-2026-10-02/HANDOFF.md). Findings use temporary audit IDs A01–A12;
-existing G109/G114/G135/G177 work is cross-referenced, not duplicated. Fixes remain
-open and the supplied long-running CPU claim has not been verified live.
+**2026-10-02 audit (revalidated 2026-10-05):** [`audit`](audit-2026-10-02/README.md),
+[`validation/probes`](audit-2026-10-02/VALIDATION.md), [`status`](audit-2026-10-02/STATUS.md). Temporary ids A01–A12
+and K01. Each fix is noted on the row it belongs to:
+- G114 (K01/A01/A02);
+- G109 (A07–A09);
+- G58 (A03, A10);
+- G61 (A05/A06);
+- G145 (A11).
+
+No new G ids. The long-running CPU claim was not verified live.
 
 Backlog distilled from Rodrigo's notes (2026-06-16). Triaged into three tracks:
 **APPLY** (buildable now, low architecture risk), **RESEARCH** (needs investigation —
