@@ -1050,9 +1050,16 @@ struct EpisodeQueueItem: Codable, Identifiable {
     /// field, and for an episode whose body genuinely is empty.
     let chars: Int
     let processed: Bool
+    /// Owner 2026-10-05 — what a click on the row copies (`episode_copy` on the backend): a page's link, a
+    /// conversation's session id, a tab group's links, a folder file's path, else the episode id. Nil on an older
+    /// backend, which copies the episode id.
+    let copyKind: String?
+    let copyValue: String?
+    /// The day the row ends with: a captured conversation's last capture, else when it was added.
+    let changedAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, timestamp, source, origin, title, preview, chars, processed
+        case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -1065,6 +1072,9 @@ struct EpisodeQueueItem: Codable, Identifiable {
         preview = try c.decode(String.self, forKey: .preview)
         chars = try c.decodeIfPresent(Int.self, forKey: .chars) ?? 0
         processed = try c.decode(Bool.self, forKey: .processed)
+        copyKind = try c.decodeIfPresent(String.self, forKey: .copyKind)
+        copyValue = try c.decodeIfPresent(String.self, forKey: .copyValue)
+        changedAt = try c.decodeIfPresent(String.self, forKey: .changedAt)
     }
 }
 

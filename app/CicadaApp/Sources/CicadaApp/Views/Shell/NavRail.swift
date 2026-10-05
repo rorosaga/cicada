@@ -44,7 +44,9 @@ struct NavRail: View {
         .padding(.bottom, CicadaTheme.spacingMD)
         .frame(width: ShellMetrics.navWidth(labelled: labelled))
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(CicadaTheme.bgRail)
+        // The rail starts under the titlebar (owner 2026-10-05): a bare `.background(color)` ignores the safe area
+        // and ran the rail's fill up behind the traffic lights. The titlebar band stays the window's own surface.
+        .background(CicadaTheme.bgRail, ignoresSafeAreaEdges: [])
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Copy.pages)
     }
