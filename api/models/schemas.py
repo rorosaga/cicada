@@ -2621,6 +2621,12 @@ class EpisodeQueueItem(CamelModel):
     # `cicada_mark_processed`. Optional so an older app build keeps decoding,
     # and null for every episode processed before the stamp existed.
     processed_by: Optional[str] = None
+    # Owner 2026-10-05 — a click on the row copies `copy_value` (`episode_copy`: a page's link, a conversation's
+    # session id, a tab group's links, a folder file's path, else the episode id), named by `copy_kind`; the row
+    # ends with `changed_at`'s day (a conversation's last capture, else when it was added). Optional for older apps.
+    copy_kind: Optional[str] = None
+    copy_value: Optional[str] = None
+    changed_at: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
