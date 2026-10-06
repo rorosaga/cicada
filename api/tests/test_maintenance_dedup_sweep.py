@@ -257,3 +257,25 @@ def test_a_merge_whose_commit_fails_is_put_back(tmp_path, monkeypatch):
     assert (memory / "entities" / "esta.md").exists()
     assert _git(memory, "status", "--porcelain") == ""
     config.get_settings.cache_clear()
+
+
+def test_a_sweep_spends_no_judge_call_once_sleep_is_writing(tmp_path, monkeypatch):
+    client, memory = _git_bank(_client(tmp_path, monkeypatch, candidate_pairs=[
+        ("esa", "esta", 0.95), ("esa", "bob-example", 0.9)]))
+    _write_entity(memory / "entities", "bob-example", "bob-example")
+    state = {"writing": False}
+    monkeypatch.setattr(sleep_cycle, "get_sleep_state",
+                        lambda: SimpleNamespace(status="running", drain_run=True, writing=state["writing"]))
+    calls = []
+
+    def judge(a_body, b_body, a_id, b_id):
+        calls.append((a_id, b_id))
+        state["writing"] = True
+        return {"verdict": "different", "confidence": 0.9, "winner": None}
+
+    monkeypatch.setattr(dedup_sweep_module, "_default_judge_fn", lambda settings: judge)
+    resp = client.post("/maintenance/dedup-sweep", json={"dryRun": False})
+    assert resp.status_code == 200, resp.text
+    assert calls == [("esa", "esta")]
+    assert resp.json()["stoppedForSleep"] is True
+    config.get_settings.cache_clear()

@@ -94,7 +94,8 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     skipped_rejected = 0
     stopped_for_sleep = False
     for a, b in pairs:
-        if stopped_for_sleep:
+        if stopped_for_sleep or (not dry_run and may_write is not None and not may_write()):
+            stopped_for_sleep = True   # no judge call spent on a merge that could not land
             break
         if a in gone or b in gone:
             continue
@@ -163,7 +164,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     }
 
 
-def commit_message(paths: list[str], loser: str, winner: str, today: date, engine: str | None = None) -> str:
+def commit_message(paths: list[str], loser: str, today: date, engine: str | None = None) -> str:
     """``Dedup sweep <date>``, one manifest line per path the merge wrote or
     removed, ``Cicada-Author: cicada``, and the judge's engine when known."""
     removed = f"entities/{loser}.md"
@@ -184,7 +185,7 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
             return True
         try:
             git_service.commit_paths_sync(
-                memory_path, commit_message(paths, loser, winner, date.today(), engine), paths)
+                memory_path, commit_message(paths, loser, date.today(), engine), paths)
         except Exception as exc:  # noqa: BLE001 — logged by class, the pages are restored
             logger.warning("dedup_sweep: merge commit failed (%s); restoring its pages", type(exc).__name__)
             _restore(memory_path, paths)
