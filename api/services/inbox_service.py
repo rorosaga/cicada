@@ -1604,9 +1604,10 @@ def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
 
 async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settings: Settings) -> "_Synthesis | None":
     """The conflict answer's prose rewrite — the one model call an inbox answer makes — run BEFORE the bank's write
-    admission is taken (G183 round 1: no admission spans a model call). It plans the answer on the page as it is
-    now and synthesizes from that; the admitted pass plans again on the page as it is then and uses the prose only
-    when the planned body is byte-identical (``_Synthesis.basis``) — otherwise the safe fallback, never stale prose.
+    admission is taken (G183 round 1: no admission spans a model call). It plans the answer on the page and item as
+    they are now and synthesizes from that; the admitted pass plans again and uses the prose only when every input
+    it was made from and for is unchanged (``_synthesis_basis``: item, pick, entity, body, sentence, date) —
+    otherwise the safe fallback, never prose made for another answer or another page.
     None for anything that is not a conflict answer with a sentence, and for any plan this pass cannot make (the
     admitted pass raises it properly)."""
     if (request.action or "").strip().lower() in ("defer", "remind_later", "skip"):
@@ -1635,12 +1636,20 @@ async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settin
         )
     except Exception:  # noqa: BLE001 — the fallback below is the answer's floor
         new_body = None
-    return _Synthesis(basis=plan.entity.body, new_body=new_body) if new_body else None
+    return _Synthesis(basis=_synthesis_basis(item_id, request, plan), new_body=new_body) if new_body else None
+
+
+def _synthesis_basis(item_id: str, request: InboxResolveRequest, plan: "_ConflictPlan") -> tuple:
+    """Everything the prose was made from and for (fix round 2): the item and the person's pick, the entity and its
+    name and type, the planned body (claims written), the selected-answer sentence and the date. Prose is reused only
+    when every part is the same when the answer is written — a changed option label, item or page gets the fallback."""
+    return (item_id, (request.option_key or "").strip(), (request.answer or "").strip(), plan.entity_id, plan.name,
+            str(plan.entity.frontmatter.get("type", "concept")), plan.entity.body, plan.sentence, plan.today)
 
 
 @dataclass
 class _Synthesis:
-    basis: str      # the planned body (claims written) the prose was synthesized from
+    basis: tuple    # `_synthesis_basis` of the plan the prose was synthesized from
     new_body: str
 
 
@@ -1661,8 +1670,8 @@ class _ConflictPlan:
 async def _resolve_conflict(path, parsed, request, settings, synthesis: "_Synthesis | None" = None,
                             ) -> tuple[str, bool, list[str]]:
     """Claim-aware conflict adjudication, written inside the bank's write admission. ``synthesis`` is the prose
-    rewrite made before admission (:func:`_conflict_synthesis`); it is used only when the page planned now matches
-    the one it was made from — no model call is made here."""
+    rewrite made before admission (:func:`_conflict_synthesis`); it is used only when the answer planned now has the
+    same inputs it was made for (:func:`_synthesis_basis`) — no model call is made here."""
     from api.services.claims import write_claims
 
     plan = _conflict_plan(path, parsed, request, settings)
@@ -1677,7 +1686,7 @@ async def _resolve_conflict(path, parsed, request, settings, synthesis: "_Synthe
 
     new_body = None
     if sentence:
-        if synthesis is not None and synthesis.basis == entity.body:
+        if synthesis is not None and synthesis.basis == _synthesis_basis(path.stem, request, plan):
             new_body = synthesis.new_body
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.

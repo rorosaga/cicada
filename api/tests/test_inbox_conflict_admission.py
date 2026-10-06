@@ -84,3 +84,22 @@ def test_a_window_that_opens_during_the_model_call_refuses_the_write(memory, mon
         _resolve(memory)
     assert err.value.status_code == 409
     assert _page(memory) == before and (memory / "inbox" / "conflict-review.md").exists()
+
+
+def test_prose_made_for_a_different_answer_is_never_used(memory, monkeypatch):
+    """Fix round 2, finding 2: the option's label changed while the model wrote — same page body, different answer."""
+    item = memory / "inbox" / "conflict-review.md"
+
+    async def synth(**kw):
+        parsed = markdown_parser.parse(item)
+        fm = dict(parsed.frontmatter)
+        fm["options"] = [{"key": "a", "label": "postgres-example", "claim_id": None},
+                         {"key": "b", "label": "other", "claim_id": None}]
+        markdown_parser.write(item, fm, parsed.body)
+        return "## Summary\nUses sqlite-vec (confirmed by user).\n"
+
+    monkeypatch.setattr(conflict_resolver, "_synthesize_entity_update", synth)
+    assert _resolve(memory)["status"] == "resolved"
+    page = _page(memory)
+    assert "sqlite-vec (confirmed by user)" not in page, "prose for the old answer"
+    assert "postgres-example" in page, "the answer the item holds now lands (the fallback)"

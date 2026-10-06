@@ -610,7 +610,8 @@ replace), at the run's start nothing is flushed or read, and the tail is skipped
 an open window. **No admission spans a model call or a network fetch:** the dedup sweep takes it per merge (before the
 page lock, through the commit or the put-back, `may_write` asked once inside; only a stale answer before each judge
 call); an inbox conflict answer synthesizes its prose before admission and, admitted, re-plans on the page as it is
-then, using the prose only if that planned body is unchanged (else the dedup-guarded fallback); a link save
+then, using the prose only if every input it was made for is unchanged — the item, the pick, the entity, the
+planned body, the answer sentence, the date (else the dedup-guarded fallback); a link save
 (`POST /sources/save`, `cicada_save_url`, a remote `cicada_record_watch`'s save) fetches with no hold
 (`media_ingestor.prepare_one`) and writes and commits inside one (`write_prepared`, the index checked again). The
 remote runtime resolves the bank once per call and admits, gates, writes and commits that one bank. **Disclosed

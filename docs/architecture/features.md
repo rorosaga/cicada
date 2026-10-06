@@ -57,7 +57,8 @@ time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`. Every resolve door answers
 409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)), asked under the bank's write admission and held
 through the answer's commit, so a window waits for the answer (`storage.md`, "Write admission"); a conflict answer's
-prose rewrite is a model call made before admission and used only when the page did not move meanwhile. Between a
+prose rewrite is a model call made before admission and used only when the item, the pick and the page are what it
+was made for. Between a
 drain's batches it commits alone.
 
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
