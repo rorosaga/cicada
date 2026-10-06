@@ -182,12 +182,30 @@ def _load(memory_path: Path) -> dict[str, list]:
     return out
 
 
+#: How long a bank's git verdict on the index is reused (two `git` reads per check).
+EXCLUSION_TTL_S = 60.0
+_EXCLUSION: dict[str, tuple[float, str]] = {}
+
+
+def _protected(memory_path: Path) -> bool:
+    """Git itself says the index is ignored and untracked (or there is no git).
+    A doubtful answer is "no": the index then stays in memory."""
+    key = os.path.realpath(memory_path)
+    hit = _EXCLUSION.get(key)
+    if hit and time.monotonic() - hit[0] < EXCLUSION_TTL_S:
+        return hit[1] in ("excluded", "no_git")
+    state = bank_registry.derived_exclusion_state(memory_path, INDEX_FILE)
+    if state == "unprotected":
+        bank_registry.ensure_derived_excluded(memory_path)       # info/exclude only, never a tracked file
+        state = bank_registry.derived_exclusion_state(memory_path, INDEX_FILE)
+    _EXCLUSION[key] = (time.monotonic(), state)
+    return state in ("excluded", "no_git")
+
+
 def _persist(memory_path: Path, entries: dict[str, list], bank_paths) -> None:
-    """Write the index only where it is protected; else memory only."""
-    if bank_registry.derived_exclusion_state(memory_path, INDEX_FILE) == "unprotected":
-        bank_registry.ensure_derived_excluded(memory_path)
-        if bank_registry.derived_exclusion_state(memory_path, INDEX_FILE) == "unprotected":
-            return
+    """Write the index only where git is known to ignore it; else memory only."""
+    if not _protected(memory_path):
+        return
     home = continuity_sessions.continuity_home(bank_paths)
     if home is None:
         return
@@ -264,6 +282,7 @@ def reset() -> None:
     """Forget every in-memory index (tests)."""
     with _MEMO_LOCK:
         _MEMO.clear()
+    _EXCLUSION.clear()
 
 
 # --- selection ---------------------------------------------------------------

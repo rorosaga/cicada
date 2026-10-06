@@ -215,28 +215,40 @@ def ensure_derived_excluded(path: Path) -> bool:
 # --- Resolution (the load-bearing path) ------------------------------------
 
 
-def derived_exclusion_state(path: Path, name: str) -> str:
-    """Whether git would ignore ``name`` in this bank: ``excluded`` (the exact
-    line is in ``info/exclude`` or the bank's ``.gitignore``), ``no_git`` (no
-    ``.git`` at all — nothing can track it) or ``unprotected`` (a git checkout
-    that does not ignore it, or one whose git dir cannot be read).
+def derived_exclusion_state(path: Path, name: str, *, lock_timeout: float = 0.2, timeout: float = 2.0) -> str:
+    """Whether git would ignore ``name`` in this bank, as GIT decides it:
+    ``excluded`` (``git check-ignore`` matches it — every rule file, negations
+    and precedence included — and it is not already tracked), ``no_git`` (no
+    ``.git`` at all: nothing can track it) or ``unprotected`` (anything else,
+    including any doubt: git missing, a timeout, the bank's lock busy).
 
-    G110 (critique finding 34): :func:`ensure_derived_excluded` answers False
-    both when nothing was needed and when its write failed, so a caller about
-    to create a NEW derived file checks the result here instead. Reads only;
-    never raises."""
+    G110 fix round 1 (review finding 2): an exact positive line can be undone by
+    a later ``!name`` in ``.gitignore``, which also outranks ``info/exclude``;
+    reading the files ourselves is not proof. The bank is Cicada's own
+    repository, never a declared one; the two reads run under the bank's
+    git write lock (``git_service.write_lock``), so no writer's ``add`` races
+    the verdict, with ``GIT_OPTIONAL_LOCKS=0`` like every read. Never raises."""
+    from api.services import git_service
+
     path = Path(path)
-    dot = path / ".git"
-    if not dot.exists():
+    if not (path / ".git").exists():
         return "no_git"
-    for candidate in ((_git_dir(path) or Path("/nonexistent")) / "info" / "exclude", path / ".gitignore"):
-        try:
-            raw = candidate.read_bytes() if candidate.is_file() else b""
-        except OSError:
-            continue
-        if name in {line.strip() for line in raw.decode("utf-8", errors="surrogateescape").splitlines()}:
-            return "excluded"
-    return "unprotected"
+    lock = git_service.write_lock(path)
+    if not lock.acquire(timeout=lock_timeout):
+        return "unprotected"
+    try:
+        env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
+        ignored = subprocess.run(["git", "check-ignore", "-q", "--no-index", "--", name], cwd=str(path),
+                                 capture_output=True, timeout=timeout, env=env)
+        if ignored.returncode != 0:
+            return "unprotected"
+        tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", name], cwd=str(path),
+                                 capture_output=True, timeout=timeout, env=env)
+        return "unprotected" if tracked.returncode == 0 else "excluded"
+    except (OSError, subprocess.SubprocessError):
+        return "unprotected"
+    finally:
+        lock.release()
 
 
 def registry_path(root: Path) -> Path:
