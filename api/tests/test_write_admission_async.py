@@ -296,3 +296,23 @@ def test_the_backend_drains_admitted_writes_at_shutdown(monkeypatch):
     with TestClient(main.app):
         pass
     assert calls == [main.SHUTDOWN_DRAIN_S]
+
+
+@pytest.mark.parametrize("failure", ["body", "acquire", "refuse"])
+def test_every_failing_transaction_releases_exactly_once(bank, window, monkeypatch, failure):
+    calls = []
+    real = write_admission._release
+    monkeypatch.setattr(write_admission, "_release", lambda *a: calls.append(a) or real(*a))
+
+    async def body():
+        raise ValueError("synthetic")
+
+    if failure == "acquire":
+        def unavailable(key):
+            raise write_admission.AdmissionUnavailable(13, "synthetic")
+        monkeypatch.setattr(write_admission, "_open_locks", unavailable)
+    if failure == "refuse":
+        window["writing"] = True
+    with pytest.raises((ValueError, write_admission.AdmissionUnavailable, write_admission.SleepHolding)):
+        asyncio.run(write_admission.run_admitted(bank, body, refuse=write_admission.SleepHolding))
+    assert write_admission.holders(bank) == 0 and len(calls) == 1
