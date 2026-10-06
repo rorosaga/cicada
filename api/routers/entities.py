@@ -224,7 +224,7 @@ def _page_guard() -> None:
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, PAGE_BUSY)
+        raise SleepWriting(PAGE_BUSY)
 
 
 def _rewrite_page_and_commit(memory_path: Path, entity_id: str, mutate, message: str) -> dict:

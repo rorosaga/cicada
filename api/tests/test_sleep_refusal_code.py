@@ -14,7 +14,8 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.services import sleep_cycle, sleep_refusal
 
-ROUTERS = Path(__file__).resolve().parents[1] / "routers"
+API = Path(__file__).resolve().parents[1]
+SCANNED = [API / "routers", API / "services"]
 
 
 @pytest.fixture
@@ -71,10 +72,11 @@ def _raises_plain_409_under_is_writing(tree: ast.AST) -> list[int]:
     return bad
 
 
-def test_every_router_guard_raises_the_shared_refusal():
+def test_every_guard_raises_the_shared_refusal():
+    """Routers and services alike (re-review finding 4: the inbox's two checks live in `inbox_service`)."""
     offenders = {}
-    for path in sorted(ROUTERS.glob("*.py")):
+    for path in sorted(p for d in SCANNED for p in d.rglob("*.py")):
         lines = _raises_plain_409_under_is_writing(ast.parse(path.read_text()))
         if lines:
-            offenders[path.name] = lines
+            offenders[str(path.relative_to(API))] = lines
     assert offenders == {}, "a Sleep-window refusal must raise `sleep_refusal.SleepWriting` (its code is the contract)"

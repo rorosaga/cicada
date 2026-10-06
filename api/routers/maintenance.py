@@ -61,7 +61,7 @@ async def run_dedup_sweep(
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+        raise SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")
     memory_path = settings.memory_path   # resolved once (the split-brain rule)
     report = await run_in_threadpool(
         dedup_sweep,
