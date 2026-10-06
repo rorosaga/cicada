@@ -1,7 +1,7 @@
 """Which embedding model each bank is built with, and the optional larger one (G182 phase 3).
 
 Owner's decision (2026-10-05): a fresh install embeds with a small, open, ungated
-model on a light runtime — the release app bundles ``BAAI/bge-small-en-v1.5`` as ONNX
+model on a light runtime — the release app bundles ``intfloat/multilingual-e5-small`` as ONNX
 (``onnx_embedder``) — and EmbeddingGemma (torch + sentence-transformers, gated on
 Hugging Face) becomes an optional download for whoever wants it. Each bank keeps the
 model it was built with: queries already use the recorded model
@@ -64,7 +64,7 @@ class ModelInfo:
 
 
 CATALOG: tuple[ModelInfo, ...] = (
-    ModelInfo(SMALL_ID, "Small", 384, "Built in. Quick, and good for most memories.", False),
+    ModelInfo(SMALL_ID, "Small", 384, "Built in. Quick, reads about 100 languages, good for most memories.", False),
     ModelInfo(LARGE_ID, "Larger", 768, "Finds looser matches. A one-time download of about 2 GB.", True),
 )
 

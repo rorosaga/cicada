@@ -12,13 +12,14 @@ from api.config import Settings
 from api.services import onnx_embedder, providers
 
 
-def _model(root: Path, name: str = "bge-small-en-v1.5", model_id: str = onnx_embedder.DEFAULT_ID) -> Path:
+def _model(root: Path, name: str = "multilingual-e5-small", model_id: str = onnx_embedder.DEFAULT_ID) -> Path:
     d = root / name
     d.mkdir(parents=True)
     (d / "model.onnx").write_bytes(b"onnx")
     (d / "tokenizer.json").write_text("{}")
-    (d / onnx_embedder.MANIFEST).write_text(json.dumps({"id": model_id, "dimensions": 384, "pooling": "cls",
-                                                         "normalize": True, "query_prefix": "Q: "}))
+    (d / onnx_embedder.MANIFEST).write_text(json.dumps({"id": model_id, "dimensions": 384, "pooling": "mean",
+                                                         "normalize": True, "query_prefix": "Q: ",
+                                                         "document_prefix": "D: "}))
     return d
 
 
@@ -31,8 +32,8 @@ def test_a_bundled_model_is_found_by_its_manifest(monkeypatch, tmp_path):
     _model(tmp_path)
     (tmp_path / "incomplete").mkdir()
     monkeypatch.setenv("CICADA_BUNDLED_MODELS", str(tmp_path))
-    spec = onnx_embedder.find("baai/BGE-small-en-v1.5")
-    assert spec and spec.dimensions == 384 and spec.query_prefix == "Q: "
+    spec = onnx_embedder.find("INTFLOAT/Multilingual-E5-small")
+    assert spec and spec.dimensions == 384 and spec.query_prefix == "Q: " and spec.document_prefix == "D: "
     assert [s.id for s in onnx_embedder.available()] == [onnx_embedder.DEFAULT_ID]
 
 
@@ -82,6 +83,34 @@ def test_pooling_normalises_and_prefixes_queries(tmp_path):
     assert seen == ["Q: a", "Q: b"]
     assert out.shape == (2, 2) and np.allclose(out[0], [0.6, 0.8])
     assert emb([], is_query=False).shape == (0, 2)
+
+
+def test_documents_carry_their_own_instruction_and_mean_pooling_ignores_padding(tmp_path):
+    """e5 (the bundled multilingual model, owner 2026-10-06) reads "query: " / "passage: " and mean-pools."""
+    spec = onnx_embedder.ModelSpec(id="m", path=tmp_path, dimensions=2, pooling="mean", normalize=False,
+                                   max_tokens=8, query_prefix="query: ", document_prefix="passage: ")
+    emb = onnx_embedder.OnnxEmbedder(spec)
+    seen = []
+
+    class Enc:
+        ids, attention_mask, type_ids = [1, 1, 0], [1, 1, 0], [0, 0, 0]
+
+    class Tok:
+        def encode_batch(self, batch):
+            seen.extend(batch)
+            return [Enc() for _ in batch]
+
+    class Sess:
+        def run(self, _out, feed):
+            b = feed["input_ids"].shape[0]
+            return [np.tile(np.array([[[2.0, 4.0], [4.0, 0.0], [100.0, 100.0]]], dtype=np.float32), (b, 1, 1))]
+
+    emb._tokenizer, emb._session, emb._inputs = Tok(), Sess(), {"input_ids", "attention_mask"}
+    out = emb(["a note"])
+    assert seen == ["passage: a note"]
+    assert np.allclose(out[0], [3.0, 2.0]), "the padded position never enters the mean"
+    emb(["a question"], is_query=True)
+    assert seen[-1] == "query: a question"
 
 
 def test_the_cached_query_embedder_never_imports_sentence_transformers(monkeypatch, tmp_path):

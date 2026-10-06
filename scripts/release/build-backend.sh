@@ -161,12 +161,13 @@ cat > "$MODEL_OUT/cicada-model.json" <<EOF
 {
   "id": "$MODEL_ID",
   "dimensions": 384,
-  "pooling": "cls",
+  "pooling": "mean",
   "normalize": true,
   "max_tokens": 512,
-  "query_prefix": "Represent this sentence for searching relevant passages: ",
+  "query_prefix": "query: ",
+  "document_prefix": "passage: ",
   "source": "https://huggingface.co/$MODEL_REPO/tree/$MODEL_REVISION",
-  "license": "MIT (BAAI/bge-small-en-v1.5)"
+  "license": "MIT (intfloat/multilingual-e5-small)"
 }
 EOF
 ok "$(du -sh "$MODEL_OUT" | cut -f1)"

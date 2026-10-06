@@ -14,7 +14,7 @@ from api.services import onnx_embedder, providers
 
 
 def _bundle(root: Path) -> None:
-    d = root / "bge-small-en-v1.5"
+    d = root / "multilingual-e5-small"
     d.mkdir(parents=True)
     (d / "model.onnx").write_bytes(b"x")
     (d / "tokenizer.json").write_text("{}")
@@ -82,11 +82,11 @@ def test_the_large_model_in_a_release_needs_its_download(env, monkeypatch, tmp_p
 
 def test_the_build_side_routes_through_the_banks_model(env, monkeypatch):
     seen = {}
-    monkeypatch.setattr(em, "build_model", lambda bank, settings, environ=None: "BAAI/bge-small-en-v1.5")
+    monkeypatch.setattr(em, "build_model", lambda bank, settings, environ=None: em.SMALL_ID)
     monkeypatch.setattr(providers, "resolve_embed_fn_for_model",
                         lambda mid, settings=None, **kw: (seen.setdefault("mid", mid), mid))
     fn, mid = providers.resolve_embed_fn(Settings(), memory_path=env)
-    assert seen["mid"] == mid == "BAAI/bge-small-en-v1.5"
+    assert seen["mid"] == mid == em.SMALL_ID == "intfloat/multilingual-e5-small"
 
 
 def test_status_and_routes(env, monkeypatch, tmp_path):
