@@ -347,3 +347,37 @@ def test_an_explicit_session_id_missed_by_an_incomplete_search_says_so(bank):
                               session=sid(1), allow_full_parse=0)
     text = continuity.full_text(ctx)
     assert "could not establish" in text and "No captured session in this bank matches" not in text
+
+
+# --- fix round 1, finding 6: lock and write failures stay inside the index -------
+
+
+@pytest.mark.parametrize("fail", ["open", "flock", "write", "replace"])
+def test_index_io_failures_fall_back_to_memory(bank, monkeypatch, fail):
+    import errno
+    import fcntl as real_fcntl
+
+    from api.services import continuity_sessions
+
+    write_session(bank, 1, A_TURNS_SHORT)
+
+    def boom(*a, **k):
+        raise OSError(errno.ENOLCK, "no locks available")
+
+    if fail == "open":
+        monkeypatch.setattr(continuity_sessions, "open_lock", boom)
+    elif fail == "flock":
+        monkeypatch.setattr(continuity.fcntl, "flock", boom)
+    elif fail == "write":
+        monkeypatch.setattr(continuity.Path, "write_text", boom)
+    else:
+        monkeypatch.setattr(continuity.os, "replace", boom)
+    snap = _refresh(bank)
+    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
+    assert not (bank / continuity.INDEX_FILE).exists() and not list(bank.glob(".*.tmp"))
+    ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=CWD)
+    assert "ep_2026-09-03_001" in continuity.full_text(ctx)
+    assert real_fcntl is not None
+
+
+A_TURNS_SHORT = [("user", "a"), ("assistant", "b")]

@@ -222,8 +222,10 @@ def _persist(memory_path: Path, entries: dict[str, list], bank_paths) -> None:
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return      # another refresh is writing; this snapshot stays in memory
+        except OSError:
+            # Contention (another refresh is writing) or a filesystem without locks
+            # (review finding 6): either way this snapshot stays in memory.
+            return
         target = _index_path(memory_path)
         tmp = target.with_name(f".{INDEX_FILE}.{secrets.token_hex(4)}.tmp")
         try:
