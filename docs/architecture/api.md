@@ -37,6 +37,10 @@ the same files (F1's context filter and fence strip); an entity node's hash also
 while Sleep runs and each commits alone over its own pages as `Cicada-Author: user`,
 `user/companion_app`.
 
+`GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
+(G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
+the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
+
 `GET /videos/state` and `GET /videos/summary` (G162) ETag over `entities`+`episodes`+`sources`+`videoQueue` with
 `extra` = `<name>|video-1` (`video_state.VIDEO_SHAPE`, which also rides both provenance ETags) and are **not** Store
 domains (the app's `VideoStateCache` revalidates on `VideoRefresh`, no `VersionVector` mapping). The `videoQueue`

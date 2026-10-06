@@ -243,13 +243,16 @@ struct SleepEventPayload: Codable, Equatable {
     /// current backend means "no paused run" while an older one's means "unknown" (the REST status then decides).
     var paused: SleepPausedSSE? = nil
     var pausedKnown: Bool = false
+    /// G177 — Sleep's write window (`sleep_cycle.is_writing`), which flips between a drain's batches with no status
+    /// change; `nil` on an older backend (`ProjectWriteGate` then reads `status`).
+    var writing: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case status, cycleId, stage, totalStages, progress, error
         case progressPct, restedPct, volumePct, agePct
         case unprocessedCount, hasRunBefore, hoursSinceLastCycle
         case queueByOrigin, readByOrigin, drain
-        case parkedCount, readableCount, paused
+        case parkedCount, readableCount, paused, writing
     }
 
     init(status: String, cycleId: String? = nil, stage: Int = 0,
@@ -289,6 +292,7 @@ struct SleepEventPayload: Codable, Equatable {
         readableCount = (try? c.decodeIfPresent(Int.self, forKey: .readableCount)) ?? nil
         pausedKnown = c.contains(.paused)
         paused = (try? c.decodeIfPresent(SleepPausedSSE.self, forKey: .paused)) ?? nil
+        writing = (try? c.decodeIfPresent(Bool.self, forKey: .writing)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -312,6 +316,7 @@ struct SleepEventPayload: Codable, Equatable {
         try c.encodeIfPresent(parkedCount, forKey: .parkedCount)
         try c.encodeIfPresent(readableCount, forKey: .readableCount)
         if pausedKnown { try c.encode(paused, forKey: .paused) }
+        try c.encodeIfPresent(writing, forKey: .writing)
     }
 }
 

@@ -128,9 +128,29 @@ final class ProjectWritesTests: XCTestCase {
                            inbox: .init(total: 0, byKind: [:]), episodes: .init(unprocessed: 0, lastIngestedAt: nil),
                            lastSleepAt: nil, nextSleepAt: nil)
         }
-        XCTAssertTrue(ProjectWriteGate.blocked(status("running")))
+        XCTAssertTrue(ProjectWriteGate.blocked(status("running")), "an older backend sends no `writing`: running decides")
         XCTAssertFalse(ProjectWriteGate.blocked(status("idle")))
         XCTAssertFalse(ProjectWriteGate.blocked(nil))
+    }
+
+    /// G177 — the gate follows Sleep's write window, not `running`: a person-started drain runs for hours but the
+    /// server accepts writes between its batches, so the controls come back there.
+    func testTheGateFollowsTheWriteWindow() throws {
+        func status(_ sleep: String, writing: Bool?) -> StatusSnapshot {
+            var s = StatusSnapshot(sleep: .init(status: sleep, stage: 1, totalStages: 5, cycleId: "c", error: nil),
+                                   inbox: .init(total: 0, byKind: [:]), episodes: .init(unprocessed: 0, lastIngestedAt: nil),
+                                   lastSleepAt: nil, nextSleepAt: nil)
+            s.sleep.writing = writing
+            return s
+        }
+        XCTAssertFalse(ProjectWriteGate.blocked(status("running", writing: false)), "between a drain's batches")
+        XCTAssertTrue(ProjectWriteGate.blocked(status("running", writing: true)), "inside a batch's write window")
+        XCTAssertFalse(ProjectWriteGate.blocked(status("idle", writing: false)))
+
+        let wire = #"{"sleep":{"status":"running","stage":1,"totalStages":5,"writing":false},"inbox":{"total":0,"byKind":{}},"episodes":{"unprocessed":0}}"#
+        let decoded = try JSONDecoder().decode(StatusSnapshot.self, from: Data(wire.utf8))
+        XCTAssertEqual(decoded.sleep.writing, false)
+        XCTAssertFalse(ProjectWriteGate.blocked(decoded))
     }
 
     /// Final review — a `reinforced` answer names a claim that was already there (claim_reconciler rule 2), so the

@@ -114,6 +114,10 @@ struct StatusSnapshot: Codable, Equatable {
         var totalStages: Int
         var cycleId: String?
         var error: String?
+        /// G177 — Sleep holds the bank's pages right now (`sleep_cycle.is_writing`): the whole of a plain cycle, only
+        /// a batch's window in a person-started drain. `nil` from an older backend and the on-disk cache; the write
+        /// controls then fall back to `status` (`ProjectWriteGate`).
+        var writing: Bool? = nil
     }
     struct Inbox: Codable, Equatable {
         var total: Int

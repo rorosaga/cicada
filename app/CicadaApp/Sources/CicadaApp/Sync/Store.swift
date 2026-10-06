@@ -513,7 +513,8 @@ final class Store {
             stage: event.stage,
             totalStages: event.totalStages,
             cycleId: event.cycleId,
-            error: event.error
+            error: event.error,
+            writing: event.writing
         )
         status.value = snapshot
         pushStatus(snapshot)
