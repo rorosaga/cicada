@@ -40,8 +40,13 @@ extension Store {
 
     /// Hold an answer for the Undo window. A previous hold is sent NOW, without waiting, so the next
     /// question paints this frame; it moves to `sendingInboxIds` first so it never flashes back.
+    ///
+    /// G183(d) — refused while a bank switch is in flight (false, with a toast): the server may already be on
+    /// the new bank, so the answer could only be sent into the wrong one. The question stays where it is.
+    @discardableResult
     func hold(_ resolve: InboxResolve, label: String, shortLabel: String, question: String,
-              kind: InboxKind, channel: String?) {
+              kind: InboxKind, channel: String?) -> Bool {
+        if refusesWriteWhileSwitching() { return false }
         if let previous = heldResolve {
             heldResolve = nil
             sendingInboxIds.insert(previous.id)
@@ -58,6 +63,7 @@ extension Store {
             guard !Task.isCancelled else { return }
             await self?.expire(token: token)
         }
+        return true
     }
 
     /// Undo inside the window: nothing was sent, so nothing is reverted. Returns the id to reopen.
@@ -95,17 +101,18 @@ extension Store {
         }
     }
 
-    /// Send the held answer now: the window's end, a bank switch, the window closing, quit.
-    func flushHeld() async {
+    /// Send the held answer now: the window's end, a bank switch, the window closing, quit. `duringSwitch` is
+    /// `Store.activateBank`'s own drain, the one send a switch in flight lets through (R-DI3).
+    func flushHeld(duringSwitch: Bool = false) async {
         guard let held = heldResolve else { return }
         graceTask?.cancel()
         graceTask = nil
         heldResolve = nil
         sendingInboxIds.insert(held.id)
-        await send(held)
+        await send(held, duringSwitch: duringSwitch)
     }
 
-    private func send(_ held: ResolveGrace) async {
+    private func send(_ held: ResolveGrace, duringSwitch: Bool = false) async {
         defer { sendingInboxIds.remove(held.id) }
         guard held.bank == bank else {
             toast = Copy.Inbox.answerNotSaved
@@ -115,7 +122,7 @@ extension Store {
         // already closed it, and a POST would 404 into a "reverted" toast. No snapshot at all (a cache
         // miss) is not evidence of that, so it still sends.
         if let items = inbox.value, !items.contains(where: { $0.id == held.id }) { return }
-        _ = await perform(held.resolve)
+        _ = await perform(held.resolve, duringSwitch: duringSwitch)
         await onHeldResolveSent?()
     }
 }

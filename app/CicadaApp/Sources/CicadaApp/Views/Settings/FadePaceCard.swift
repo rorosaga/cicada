@@ -69,6 +69,7 @@ struct FadePaceCard: View {
     }
 
     private func write(_ changes: [String: Double?]) {
+        guard !store.refusesWriteWhileSwitching() else { return }   // the tuning is per bank (G183(d))
         busy = true
         Task { @MainActor in
             defer { busy = false }

@@ -249,7 +249,7 @@ final class MutationTests: XCTestCase {
     func testActivateBankWaitsForTheServerThenHydrates() async throws {
         let (store, api) = try await twoBankStore()
         api.gateWrites = true
-        let inFlight = Task { await store.perform(ActivateBank(name: "B")) }
+        let inFlight = Task { await store.activateBank("B") }
         await api.waitForParkedWrite()
 
         XCTAssertEqual(store.bank, "A", "the bank does not move before the server answers")
@@ -277,7 +277,7 @@ final class MutationTests: XCTestCase {
         let sentence = "Cicada is reading — stop it first, or wait for it to finish, then switch."
         api.writeError = APIError.httpError(409, #"{"detail":"\#(sentence)"}"#)
         api.gateWrites = true
-        let inFlight = Task { await store.perform(ActivateBank(name: "B")) }
+        let inFlight = Task { await store.activateBank("B") }
         await api.waitForParkedWrite()
         XCTAssertEqual(store.bank, "A")
         api.releaseWriteGate()
@@ -296,7 +296,7 @@ final class MutationTests: XCTestCase {
     func testActivateBankFailureKeepsTheGenericWords() async throws {
         let (store, api) = try await twoBankStore()
         api.failWrites = true
-        let ok = await store.perform(ActivateBank(name: "B"))
+        let ok = await store.activateBank("B")
         XCTAssertFalse(ok)
         XCTAssertEqual(store.bank, "A")
         XCTAssertEqual(store.toast, "Couldn't switch project — reverted")
@@ -331,7 +331,7 @@ final class MutationTests: XCTestCase {
         let store = Store(cache: tempCache(), api: api)
         let sentence = "Cicada is reading — stop it first, or wait for it to finish, then switch."
         api.writeError = APIError.httpError(409, #"{"detail":"\#(sentence)"}"#)
-        let ok = await store.perform(ActivateBank(name: "B"))
+        let ok = await store.activateBank("B")
         XCTAssertFalse(ok)
         XCTAssertEqual(store.toast, sentence)
     }
@@ -434,7 +434,7 @@ final class MutationTests: XCTestCase {
             from: Data(#"{"banks":[{"name":"A"},{"name":"B","active":true}],"active":"B"}"#.utf8)))
         api.calls.removeAll()
 
-        let ok = await store.perform(ActivateBank(name: "B"))
+        let ok = await store.activateBank("B")
         XCTAssertTrue(ok)
         // `.askHistory` (G52) has no server endpoint to reconcile against —
         // `Store.refresh` skips it explicitly — so it never generates an API

@@ -9,17 +9,15 @@ import Foundation
 /// the follow-up refresh of `refreshDomains` (or, for the connection paths, a
 /// `fresh: true` probe the view model already owns).
 ///
-/// `optimistic`/`rollback` are `async` (the brief's sketch had them sync)
-/// because `ActivateBank` has to `await store.hydrate(bank:)` to swap the
-/// target bank's cached snapshots in — everything else awaits nothing.
+/// `optimistic`/`rollback` are `async` (the brief's sketch had them sync):
+/// a held answer's send and a hydrate are awaited inside some of them. A bank
+/// switch is not a `Mutation` — it is the serialized `Store.activateBank`
+/// transition (G183(d)), which holds every `perform` while it waits.
 @MainActor
 protocol Mutation {
     func optimistic(_ store: Store) async
     func request(_ api: any SyncAPI) async throws
     func rollback(_ store: Store) async
-    /// Applied once the server has confirmed, before the reconcile — for a change that must not be painted ahead of
-    /// the server (a bank switch, G183(d)). Most mutations paint in `optimistic` and leave this empty.
-    func confirmed(_ store: Store) async
     /// Shown as a toast when the request fails and the change is reverted.
     var failureMessage: String { get }
     /// Reconciled after the server confirms. Empty when the caller owns the
@@ -29,7 +27,6 @@ protocol Mutation {
 
 extension Mutation {
     var refreshDomains: Set<SyncDomain> { [] }
-    func confirmed(_ store: Store) async {}
 }
 
 /// Reference cell letting a value-type `Mutation` stash the state it captured
@@ -457,60 +454,6 @@ struct UnsubscribeCalendar: Mutation {
 }
 
 // MARK: - Banks
-
-/// Switch the active bank — confirmed first (G183(d)). Until the server answers, the Store keeps the bank it is on:
-/// the bank switch is the one write that cannot be painted ahead of the server, because every request made in the
-/// meantime would go to the bank the server is still on while the app showed the other, and a refusal (409 while
-/// Sleep reads) would leave the app briefly on a bank the server never switched to. While it waits only
-/// `Store.switchingBank` is set, so the switcher can show a quiet in-progress state.
-///
-/// On the confirmation the target bank hydrates from its on-disk cache (domains it never cached come back empty —
-/// `Store.hydrate`'s reset-on-miss rule — for the ~one round-trip until the reconcile lands) and the roster's flag
-/// moves; on a refusal nothing has changed, and the toast is the server's own sentence (`BankSwitchFailure`).
-struct ActivateBank: Mutation {
-    let name: String
-    private let failure = MutationMemo<any Error>()
-
-    init(name: String) { self.name = name }
-
-    func optimistic(_ store: Store) async {
-        // DR-42 (R-DI3) — a held answer is sent before the bank moves: the POST goes to the bank that
-        // is active on the server, and `hydrate` clears every hide. Every switch path is this mutation.
-        await store.flushHeld()
-        store.switchingBank = name
-    }
-
-    func request(_ api: any SyncAPI) async throws {
-        do { try await api.activateBank(name: name) }
-        catch { failure.value = error; throw error }
-    }
-
-    func confirmed(_ store: Store) async {
-        store.switchingBank = nil
-        // An SSE `version` that landed first may already have moved the Store here (`Store.refresh`'s own
-        // `active != previous` fan-out); hydrating again would only drop what that reconcile fetched.
-        if store.bank != name {
-            store.bank = name
-            await store.hydrate(bank: name)
-        }
-        if let roster = store.banks.value, roster.active != name {
-            store.banks.value = BanksResponse(
-                banks: roster.banks.map { $0.settingActive($0.name == name) },
-                active: name
-            )
-        }
-    }
-
-    func rollback(_ store: Store) async {
-        store.switchingBank = nil
-    }
-
-    var failureMessage: String { BankSwitchFailure.message(failure.value) }
-    /// Every domain, not just `.banks`. `confirmed` already moved `store.bank`, so `Store.refresh`'s own bank-switch
-    /// fan-out (keyed off `active != previous`) can never fire here — this mutation owns the post-switch reconcile.
-    /// `refresh` walks `SyncDomain.allCases` with `.banks` first, exactly as `refreshAll` does.
-    var refreshDomains: Set<SyncDomain> { Set(SyncDomain.allCases) }
-}
 
 /// A refused switch in words. While Consolidate reads, the run is pinned to its bank, so the server answers
 /// 409 with a sentence written for the person ("Cicada is reading — stop it first, …"); every other failure

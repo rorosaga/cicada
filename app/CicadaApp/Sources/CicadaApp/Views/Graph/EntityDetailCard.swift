@@ -785,6 +785,7 @@ struct EntityDetailCard: View {
 
     private func setDecay(_ option: DecayClass) {
         guard option != entity.decayClass else { return }
+        guard !store.refusesWriteWhileSwitching() else { return }   // G183(d): the page may be the other bank's
         pendingDecayClass = option  // optimistic: the chip flips immediately
         Task {
             do {

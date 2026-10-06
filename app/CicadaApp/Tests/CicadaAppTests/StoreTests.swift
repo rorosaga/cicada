@@ -115,9 +115,47 @@ final class FakeSyncAPI: SyncAPI {
         XCTFail("write never parked on the gate", file: file, line: line)
     }
 
+    // MARK: Bank-aware server (G183(d))
+
+    /// When set, the fake models the server's active bank: `activateBank` moves it BEFORE answering (as
+    /// `routers/banks.py` does, ahead of its migrations), every write is also logged with the bank it landed in
+    /// (`bankWrites`), and `/banks` answers a roster naming it unless a reply is canned.
+    var serverBank: String?
+    var bankNames: [String] = ["A", "B", "C"]
+    /// "write@bank" for every write while `serverBank` is set — the bank the server was on when it arrived.
+    var bankWrites: [String] = []
+    /// A per-target refusal: the server answers it without moving.
+    var activateErrors: [String: Error] = [:]
+    /// Parks every activation AFTER the server has moved, until `releaseActivate()`.
+    var gateActivate = false
+    private var activateGates: [CheckedContinuation<Void, Never>] = []
+    private(set) var parkedActivations = 0
+
+    func roster(active: String) -> BanksResponse {
+        BanksResponse(banks: bankNames.map {
+            MemoryBank(name: $0, active: $0 == active, entityCount: 0, episodeCount: 0, createdAt: "2026-10-01",
+                       description: nil)
+        }, active: active)
+    }
+
+    func releaseActivate() {
+        guard !activateGates.isEmpty else { return }
+        parkedActivations -= 1
+        activateGates.removeFirst().resume()
+    }
+
+    func waitForParkedActivations(_ count: Int, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<200_000 {
+            if parkedActivations >= count { return }
+            await Task.yield()
+        }
+        XCTFail("activation never parked", file: file, line: line)
+    }
+
     private func record(_ what: String) async throws {
         if honorsCancellation { try Task.checkCancellation() }
         writes.append(what)
+        if let serverBank { bankWrites.append("\(what)@\(serverBank)") }
         if gateWrites {
             await withCheckedContinuation { c in
                 writeIsParked = true
@@ -181,8 +219,21 @@ final class FakeSyncAPI: SyncAPI {
         try await record("syncChromiumBookmarks:\(browser)")
         return BookmarkSyncResult(new: 1, skipped: 0, sources: [])
     }
-    func activateBank(name: String) async throws {
+    func activateBank(name: String) async throws -> BanksResponse? {
         try await record("activateBank:\(name)")
+        if let refusal = activateErrors[name] { throw refusal }
+        guard serverBank != nil else { return nil }
+        serverBank = name
+        // The answer is the roster as of this switch: a newer switch from another client while it is parked does
+        // not change it — the adversarial order, an OLDER answer arriving after a newer SSE observation.
+        let answer = roster(active: name)
+        if gateActivate {
+            await withCheckedContinuation { c in
+                activateGates.append(c)
+                parkedActivations += 1
+            }
+        }
+        return answer
     }
     func triggerSleep() async throws -> SleepTriggerResponse {
         try await record("triggerSleep")
@@ -372,7 +423,11 @@ final class FakeSyncAPI: SyncAPI {
         return result
     }
     func fetchBanks(etag: String?) async throws -> Conditional<BanksResponse> {
-        try answer(.banks, fallback: try decodeFixture(banksJSON))
+        if let serverBank, replies[.banks] == nil, onceReplies[.banks]?.isEmpty ?? true {
+            calls.append(.banks)
+            return Conditional(value: roster(active: serverBank), etag: "\"banks-\(serverBank)\"", notModified: false)
+        }
+        return try answer(.banks, fallback: try decodeFixture(banksJSON))
     }
     func fetchSources(etag: String?) async throws -> Conditional<[MediaFeedItem]> {
         try answer(.sources, fallback: [])
@@ -687,7 +742,7 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(api.entityFetches, 1)
         XCTAssertNotNil(store.entities["x"])
 
-        // Switch banks. `ActivateBank.optimistic` runs `hydrate(bank:)`, which
+        // Switch banks. `Store.activateBank` runs `hydrate(bank:)` on the confirmation, which
         // is where the cache must be dropped.
         let bodyB: Entity = try decodeFixture("""
         {"id":"x","name":"B's X","type":"project","status":"active","confidence":0.4,
@@ -695,7 +750,7 @@ final class StoreTests: XCTestCase {
          "markdownContent":"# From bank B"}
         """)
         api.entities["x"] = bodyB
-        _ = await store.perform(ActivateBank(name: "B"))
+        _ = await store.activateBank("B")
 
         XCTAssertTrue(store.entities.isEmpty, "the entity cache must not cross banks")
         let readB = await store.entity("x")

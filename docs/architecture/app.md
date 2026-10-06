@@ -591,12 +591,22 @@ by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, r
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
-**A bank switch is confirmed first (G183(d)), the one `Mutation` not painted ahead of the server.** `ActivateBank` sends a
-held answer (R-DI3), sets only `Store.switchingBank`, and posts the switch; the Store's `bank`, its snapshots and the
-roster flag move in `confirmed` (the `Mutation` step `Store.perform` runs after a success, before the reconcile), which
-hydrates the target bank from its cache. Until then every request still reads the bank the server is on, and a refusal
-leaves the Store untouched. While it waits the command bar's switcher keeps the current name, disabled at 45 % with
-"Switching to <bank>…" in `.help` (DR-41) — no spinner, no animation (DR-60).
+**A bank switch is one serialized transition, confirmed first (G183(d)).** `Store.activateBank` is the only door (the
+switcher, the find palette and the intake card reach it through `BanksViewModel.activate`); it is not a `Mutation`.
+It reserves `Store.bankSwitch` (a generation and the target) before its first await, so a second switch from any door
+is refused with "Switching memory — try again in a moment." and never interleaved. It then sends the old bank's held
+answer and waits for any answer already on the wire (R-DI3), and posts the switch. **The server moves its active bank
+before it answers** (`routers/banks.py`, ahead of the migrations), so for that interval the server and the Store
+disagree: every bank-scoped write is refused with the same words — `Store.perform`, a new inbox answer (`Store.hold`,
+the question stays open), the entity card's Fades chip and Fade pace (`refusesWriteWhileSwitching`). Refused rather
+than queued: a write replayed afterwards would land in the new bank, and the old one can no longer be reached. On the
+answer the Store moves to the bank the server's returned roster names and hydrates it from cache — unless `refresh`'s
+own fan-out saw the server move somewhere else meanwhile (`bankSeenDuringSwitch`), when the server's roster decides
+and the older answer is never put on screen — reconciles the roster, releases writes (only the owning generation
+clears the marker) and reconciles the other domains. A refusal changes nothing and toasts the server's sentence. While
+it waits the command bar's switcher keeps the current name, disabled at 45 % with "Switching to <bank>…" in `.help`
+(DR-41) — no spinner, no animation (DR-60). Other direct writes (a saved link, settings that are not per bank) are not
+held: a capture lands in whichever bank the server is on, and the rest name no bank.
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

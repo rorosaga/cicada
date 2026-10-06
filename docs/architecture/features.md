@@ -97,7 +97,7 @@ questions alone at full width; a click narrows them to the triage column and ope
 question drops under 440, and when neither the question's 440 nor the Reader's 360 fits they share the width, so
 nothing is pushed off-window. **One tap answers, and Undo is a send delay** (`ResolveGrace`, in the `Store`): the
 answer leaves `visibleInbox` at once and `POST /inbox/{id}/resolve` waits 5 s (`CicadaTiming.undoWindow`), sent
-early by the next answer, `ActivateBank` (before the bank moves), the window closing and quit (`.terminateLater`,
+early by the next answer, `Store.activateBank` (before the switch is posted; a new answer is refused while it waits), the window closing and quit (`.terminateLater`,
 ≤ 3 s) — an undone answer makes no commit, claim or G113 event; a page switch does not send. A refused answer comes
 back with a toast; one refused while Sleep holds the pages says Sleep is running (`SleepRefusal`, app.md *Sync engine*). Every kind renders in
 the card (`FocusCardVariant`), options come from the server (a follow-up's 30-day "not now" is its own option), the

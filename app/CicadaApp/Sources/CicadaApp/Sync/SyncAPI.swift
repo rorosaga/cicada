@@ -109,7 +109,9 @@ protocol SyncAPI: Sendable {
     func syncBookmarks(chromeData: Data?, safariData: Data?, folders: [String]?) async throws -> BookmarkSyncResult
     /// Round 4 (C9) — one Chromium-family browser beyond Chrome, posted as `chromium: [{browser, dataB64}]`.
     func syncChromiumBookmarks(browser: String, data: Data) async throws -> BookmarkSyncResult
-    func activateBank(name: String) async throws
+    /// The roster the server answers with (`BankListResponse`) — its `active` is the bank the server is on now, which
+    /// a newer switch may already have moved past this one (G183(d)). `nil` when the body would not decode.
+    func activateBank(name: String) async throws -> BanksResponse?
     func triggerSleep() async throws -> SleepTriggerResponse
     /// Sleep page v5 — `POST /sleep/trigger {"continue": true}`: resume the paused run. Only the Sleep page's
     /// Continue sends it (`SleepViewModel.continueRun`, pinned by `SleepV5DoorsTests`). No default: a conformer that

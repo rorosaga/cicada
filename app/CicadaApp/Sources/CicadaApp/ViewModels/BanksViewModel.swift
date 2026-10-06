@@ -51,7 +51,7 @@ final class BanksViewModel {
     @discardableResult
     func activate(_ name: String) async -> Bool {
         errorMessage = nil
-        let ok = await store.perform(ActivateBank(name: name))
+        let ok = await store.activateBank(name)
         if !ok { errorMessage = store.toast }
         return ok
     }
