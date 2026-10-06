@@ -192,8 +192,6 @@ class _Builder:
     # -- turns ------------------------------------------------------------------
     def user(self, text: str, ts: str | None) -> None:
         self.boundary()
-        if any(line.lstrip().startswith(recall_text.INJECTION_PREFIX) for line in text.splitlines()):
-            self.note_like_turns += 1
         self._add("user", text, ts)
 
     def assistant_text(self, text: str, ts: str | None, model=None, effort=None) -> None:
@@ -239,6 +237,11 @@ class _Builder:
             self.refused_turns += 1
             return
         self.turns.append(Turn(role=role, text=cleaned, ts=ts, model=model, effort=effort))
+        if role == "user" and any(line.lstrip().startswith(recall_text.INJECTION_PREFIX)
+                                  for line in cleaned.splitlines()):
+            # Counted on the cleaned text of a turn that was KEPT — what the body
+            # actually holds (review finding 9).
+            self.note_like_turns += 1
         self.total_chars += len(cleaned)
         self.kept[role] += 1
         if ts:

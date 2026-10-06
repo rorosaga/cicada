@@ -351,3 +351,22 @@ def test_a_note_like_line_inside_a_person_turn_is_kept_and_counted():
     text = "I pasted this:\n" + recall_text.INJECTION_PREFIX + " at session start ...\nplease fix it"
     conv = tx.extract_claude_code([_line("user", text)])
     assert conv.summary["note_like_turns"] == 1 and "please fix it" in conv.turns[0].text
+
+
+# --- fix round 1, finding 9: only text that reaches the body is counted ----------
+
+
+def test_a_note_like_turn_refused_by_the_cap_is_not_counted():
+    # The header on a later line, so the existing G149 block rule keeps the block and the CAP refuses it.
+    lines = [_line("user", "short"), _line("user", "see:\n" + recall_text.INJECTION_PREFIX + " at session start ...")]
+    conv = tx.extract_claude_code(lines, session_cap=40)
+    assert len(conv.turns) == 1 and conv.summary["refused_turns"] == 1
+    assert conv.summary["note_like_turns"] == 0
+
+
+def test_a_note_header_removed_by_cleaning_is_not_counted():
+    fenced = "look:\n```\n" + recall_text.INJECTION_PREFIX + " at session start\n```\nthanks"
+    truncated = "x " * 1100 + "\n" + recall_text.INJECTION_PREFIX + " at session start"
+    conv = tx.extract_claude_code([_line("user", fenced), _line("user", truncated)])
+    assert all(recall_text.INJECTION_PREFIX not in t.text for t in conv.turns)
+    assert conv.summary["note_like_turns"] == 0
