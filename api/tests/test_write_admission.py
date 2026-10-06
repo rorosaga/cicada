@@ -209,3 +209,33 @@ def test_a_writer_in_another_process_delays_the_flip(bank, window):
     finally:
         proc.kill()
         proc.wait(5)
+
+
+# --- Fix round 1, finding 5: a bank with no .git still coordinates across processes; an unusable lock fails closed --
+
+
+def test_a_writer_in_another_process_delays_the_flip_on_a_bank_without_git(tmp_path, window):
+    plain = tmp_path / "plain"
+    (plain / "entities").mkdir(parents=True)
+    root = str(Path(__file__).resolve().parents[2])
+    proc = subprocess.Popen([sys.executable, "-c", _HOLDER, str(plain), root],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        assert _flip(plain, window, log_after=10, give_up_after=0.2) is False, "the other process's hold is seen"
+        assert not list(plain.rglob("*.lock")), "nothing is created inside the bank"
+    finally:
+        proc.kill()
+        proc.wait(5)
+
+
+def test_a_lock_that_cannot_be_opened_fails_closed(bank, window):
+    (bank / ".git").chmod(0)
+    try:
+        with pytest.raises(write_admission.AdmissionUnavailable):
+            with write_admission.admitted(bank):
+                pass
+        assert write_admission.holders(bank) == 0
+        assert write_admission.wait_for_writers(bank, give_up_after=0.2) is False, "Sleep cannot confirm: no window"
+    finally:
+        (bank / ".git").chmod(0o755)

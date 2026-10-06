@@ -16,10 +16,12 @@ flag and refuses. Closing the window needs nothing. The wait is bounded — logg
 ``WAIT_MAX_S`` Sleep proceeds with a warning (a stopped-but-alive agent process must not stall every night's
 consolidation; a dead process's lock is released by the kernel).
 
-**Across processes** (the stdio MCP server writes pages too) the hold is also an ``flock(LOCK_SH)`` on the bank's
-``.git`` path — nothing is created, and it is a different inode from the bank directory ``page_lock`` locks. Sleep's
-side tries ``LOCK_EX`` without blocking until it succeeds, then lets go at once. A bank with no ``.git`` is counted in
-this process only. Keyed by the resolved path, so ``bank``, ``bank/`` and a symlink are one bank.
+**Across processes** (the stdio MCP server writes pages too) the hold is also an ``flock(LOCK_SH)``: on the bank's
+``.git`` path when it has one (nothing created; a different inode from the bank directory ``page_lock`` locks), else on
+``$CICADA_HOME/sleep/<bank>/admission.lock`` (outside the bank; processes must share ``CICADA_HOME``). Sleep's side tries
+``LOCK_EX`` without blocking until it succeeds, then lets go at once. A lock that exists but cannot be opened fails
+closed: the writer gets :class:`AdmissionUnavailable`, and Sleep does not open its window. Keyed by the resolved path,
+so ``bank``, ``bank/`` and a symlink are one bank.
 
 **Lock order:** admission, then ``page_lock``, then git's write lock, then ``episode_lock`` — Sleep never waits for
 admission while it holds any of them. Awake capture never takes admission.
@@ -69,12 +71,32 @@ def _bank(key: str) -> _Bank:
         return _BANKS.setdefault(key, _Bank())
 
 
-def _open_git(key: str) -> int | None:
-    """A descriptor on the bank's ``.git`` (a directory, or a worktree's file); None when there is none."""
+class AdmissionUnavailable(OSError):
+    """The bank's admission lock exists but cannot be opened: no writer may assume it is admitted (fail closed)."""
+
+
+#: The lock file for a bank with no ``.git``: in the bank's machine-local folder, never inside the bank.
+SIDECAR = "admission.lock"
+
+
+def _open_lock(key: str) -> int | None:
+    """A descriptor on the bank's admission inode, or None for a bank that does not exist (nothing to protect, and
+    a lock never creates a bank). The bank's ``.git`` (a directory, or a worktree's file) when it has one; otherwise
+    ``$CICADA_HOME/sleep/<bank>/admission.lock`` — the same folder Sleep's sidecars use, so every process that shares
+    ``CICADA_HOME`` meets on one inode. Any other failure raises :class:`AdmissionUnavailable`: a writer that cannot
+    coordinate must not write as if it had, and Sleep cannot confirm the bank is free."""
+    git = os.path.join(key, ".git")
     try:
-        return os.open(os.path.join(key, ".git"), os.O_RDONLY)
-    except OSError:
-        return None
+        if os.path.lexists(git):
+            return os.open(git, os.O_RDONLY)
+        if not os.path.isdir(key):
+            return None
+        from api.services import sleep_local
+
+        lock = sleep_local.bank_dir(Path(key)) / SIDECAR
+        return os.open(lock, os.O_RDONLY | os.O_CREAT, 0o600)
+    except OSError as exc:
+        raise AdmissionUnavailable(exc.errno, f"the bank's write admission cannot be opened ({type(exc).__name__})")
 
 
 def holders(memory_path) -> int:
@@ -87,20 +109,40 @@ def shared(memory_path) -> Iterator[None]:
     """Hold the bank's admission shared — for a writer whose answer to "is Sleep holding the pages?" changes what it
     writes rather than refusing (it asks :func:`holding` inside). Most writers want :func:`admitted`."""
     key = _key(memory_path)
+    fd = _acquire(key)
+    try:
+        yield
+    finally:
+        _release(key, fd)
+
+
+def _acquire(key: str) -> int | None:
+    """One shared hold, taken in the calling thread (it may wait for the instant Sleep holds ``LOCK_EX``, so never
+    on the event loop — :func:`run_admitted` calls it off the loop)."""
     bank = _bank(key)
     with bank.cond:
         bank.holders += 1
-    fd = _open_git(key)
     try:
+        fd = _open_lock(key)
         if fd is not None:
-            fcntl.flock(fd, fcntl.LOCK_SH)   # waits only for the instant Sleep holds LOCK_EX
-        yield
-    finally:
-        if fd is not None:
-            os.close(fd)   # closing the descriptor releases its lock
-        with bank.cond:
-            bank.holders -= 1
-            bank.cond.notify_all()
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH)
+            except BaseException:
+                os.close(fd)
+                raise
+        return fd
+    except BaseException:
+        _release(key, None)
+        raise
+
+
+def _release(key: str, fd: int | None) -> None:
+    if fd is not None:
+        os.close(fd)   # closing the descriptor releases its lock
+    bank = _bank(key)
+    with bank.cond:
+        bank.holders -= 1
+        bank.cond.notify_all()
 
 
 def holding() -> bool:
@@ -170,7 +212,11 @@ def wait_for_writers(memory_path, *, log_after: float = WAIT_LOG_S, give_up_afte
             if not waited(bank.holders):
                 return False
             bank.cond.wait(_POLL_S)
-    fd = _open_git(key)
+    try:
+        fd = _open_lock(key)
+    except AdmissionUnavailable as exc:
+        logger.warning(f"Sleep cannot confirm no write is in progress ({exc.strerror}); it will not read the pages")
+        return False
     if fd is None:
         return True
     try:
