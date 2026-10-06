@@ -10,6 +10,8 @@ fails is put back from HEAD. ``may_write`` is asked before every merge: once
 Sleep's write window opens, the sweep stops merging (``stopped_for_sleep``)."""
 from __future__ import annotations
 import logging
+import os
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Callable
@@ -93,6 +95,7 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
     rejected = merge_rejections.load_rejected(memory_path)
     skipped_rejected = 0
     stopped_for_sleep = False
+    skipped_dirty, failed = [], []
     for a, b in pairs:
         if stopped_for_sleep or (not dry_run and may_write is not None and not may_write()):
             stopped_for_sleep = True   # no judge call spent on a merge that could not land
@@ -126,12 +129,15 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
                     # batch has loaded the pages this merge would rewrite.
                     stopped_for_sleep = True
                     applied = "stopped"
-                elif _merge_and_commit(memory_path, loser, winner, engine):
-                    merged.append((loser, winner))
-                    applied = "merged"
-                    gone.add(loser)
                 else:
-                    applied = "failed"
+                    applied = _merge_and_commit(memory_path, loser, winner, engine)
+                    if applied == MERGED:
+                        merged.append((loser, winner))
+                        gone.add(loser)
+                    elif applied == DIRTY:
+                        skipped_dirty.append((loser, winner))
+                    else:
+                        failed.append((loser, winner))
             elif verdict in ("same", "unsure"):
                 # Either genuinely uncertain, or "same" with a high enough
                 # confidence but a winner that isn't one of the two
@@ -161,6 +167,8 @@ def dedup_sweep(memory_path: Path, settings, *, judge_fn=None, embed_fn=None,
         "candidate_pairs": len(pairs),
         "skipped_rejected": skipped_rejected,
         "stopped_for_sleep": stopped_for_sleep,
+        "skipped_dirty": skipped_dirty,
+        "failed": failed,
     }
 
 
@@ -174,23 +182,74 @@ def commit_message(paths: list[str], loser: str, today: date, engine: str | None
                                             authors=[AUTHOR], engine=engine)
 
 
-def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | None) -> bool:
+MERGED, DIRTY, FAILED = "merged", "dirty", "failed"
+GRAPH = "graph_edges.yaml"
+
+
+def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
     """One merge and its own commit under the page lock (page → git order).
-    False when the merge or its commit failed; a failed commit's paths are put
-    back from HEAD so nothing is left dirty under no one's name."""
+
+    A merge commits only what is wholly its own (G183(e)): a merge whose winner
+    or loser is already dirty is refused before anything is written, and one
+    that turns out to change another dirty path (a page that names the loser,
+    the graph) is put back byte-for-byte and refused — never committed under
+    ``cicada`` with someone else's edit inside. ``DIRTY`` then; the next sweep
+    retries once that writer has committed."""
+    memory_path = Path(memory_path)
     with page_lock.page_lock(memory_path):
-        result = merge_entities(memory_path, loser_id=loser, winner_id=winner)
-        paths = list(dict.fromkeys(result.get("paths") or []))
-        if not (Path(memory_path) / ".git").exists():
-            return True
+        if not (memory_path / ".git").exists():
+            merge_entities(memory_path, loser_id=loser, winner_id=winner)
+            return MERGED
+        dirty = git_service.dirty_paths_sync(memory_path, "entities", GRAPH)
+        if {f"entities/{loser}.md", f"entities/{winner}.md"} & dirty:
+            return DIRTY
+        snap = _snapshot(memory_path)
+        merge_entities(memory_path, loser_id=loser, winner_id=winner)
+        changed = _changed(memory_path, snap)
+        if set(changed) & dirty:
+            _put_back(memory_path, snap, changed)
+            return DIRTY
         try:
             git_service.commit_paths_sync(
-                memory_path, commit_message(paths, loser, date.today(), engine), paths)
+                memory_path, commit_message(changed, loser, date.today(), engine), changed)
         except Exception as exc:  # noqa: BLE001 — logged by class, the pages are restored
             logger.warning("dedup_sweep: merge commit failed (%s); restoring its pages", type(exc).__name__)
-            _restore(memory_path, paths)
-            return False
-    return True
+            _restore(memory_path, changed)
+            return FAILED
+    return MERGED
+
+
+def _snapshot(memory_path: Path) -> dict[str, bytes | None]:
+    """Every byte a merge can change: each page, and the graph (``None``: absent)."""
+    snap: dict[str, bytes | None] = {
+        f"entities/{p.name}": p.read_bytes() for p in (memory_path / "entities").glob("*.md")}
+    graph = memory_path / GRAPH
+    snap[GRAPH] = graph.read_bytes() if graph.is_file() else None
+    return snap
+
+
+def _changed(memory_path: Path, snap: dict[str, bytes | None]) -> list[str]:
+    """The paths whose bytes differ from ``snap`` now (a page that appeared counts too)."""
+    now = _snapshot(memory_path)
+    return sorted(rel for rel in set(snap) | set(now) if snap.get(rel) != now.get(rel))
+
+
+def _put_back(memory_path: Path, snap: dict[str, bytes | None], paths: list[str]) -> None:
+    """Restore each path's snapshot bytes, atomically (``None``: remove it)."""
+    for rel in paths:
+        target = memory_path / rel
+        data = snap.get(rel)
+        if data is None:
+            target.unlink(missing_ok=True)
+            continue
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".restore")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            os.replace(tmp, target)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
 
 def _restore(memory_path: Path, paths: list[str]) -> None:

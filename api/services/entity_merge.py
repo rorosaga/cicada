@@ -237,7 +237,9 @@ def repoint_references(memory_path: Path, old_id: str, old_name: str, new_id: st
 def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
     """Repoint ``graph_edges.yaml`` endpoints old -> new, dropping the self-loops
     and duplicates that creates. The number of endpoints moved, or ``None``
-    when there is no edges file (nothing written)."""
+    when nothing was written: no edges file, or no endpoint named ``old_id``
+    (G183(e): an untouched graph is never rewritten, so it never enters a
+    merge's manifest — or its commit)."""
     edges_file = Path(memory_path) / "graph_edges.yaml"
     if not edges_file.exists():
         return None
@@ -247,6 +249,8 @@ def repoint_edges(memory_path: Path, old_id: str, new_id: str) -> int | None:
         for end in ("source", "target"):
             if e.get(end) == old_id:
                 e[end] = new_id; repointed += 1
+    if not repointed:
+        return None
     seen = set()
     cleaned = []
     for e in data.get("edges", []):
