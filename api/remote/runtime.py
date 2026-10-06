@@ -129,6 +129,11 @@ class ConversationState:
         self._entry(handle)[2] = bool(value)
 
 
+#: Write tools that fetch before they write (a link's metadata): they take the bank's write admission themselves,
+#: around the write only, and re-ask the Sleep gate inside it (G183 round 1).
+SELF_ADMITTED = frozenset({"cicada_save_url", "cicada_record_watch"})
+
+
 def _sleep_running() -> bool:
     """Asked inside the bank's write admission for a write (`RemoteRuntime.call`, G183); for a queue-only tool's lease
     judgement (`ToolContext.pages_held`) an answer that may be stale is enough."""
@@ -284,9 +289,16 @@ class RemoteRuntime:
         writes = tool in catalog.WRITE_TOOLS and _writes_bank(tool, arguments)
         memory_path = self._memory_path()   # resolved ONCE: admitted, gated, written and committed (G183 round 1)
         # G183: a write holds the bank's write admission from its "busy" answer through its commit, so a Sleep
-        # window cannot open in between (R-R27's refusal is then the whole truth for the call).
-        with write_admission.shared(memory_path) if writes else contextlib.nullcontext():
-            return self._call(connector, tool, arguments, writes, memory_path)
+        # window cannot open in between (R-R27's refusal is then the whole truth for the call). A tool that fetches
+        # first (`SELF_ADMITTED`) is gated here on a stale answer and takes the hold itself around its write,
+        # asking again there: no admission spans a fetch.
+        held = writes and tool not in SELF_ADMITTED
+        try:
+            with write_admission.shared(memory_path) if held else contextlib.nullcontext():
+                return self._call(connector, tool, arguments, writes, memory_path)
+        except write_admission.SleepHolding:
+            self._record(connector, tool, "busy", BUSY_TEXT, memory_path)
+            return BUSY_TEXT, "busy"
 
     def _call(self, connector: catalog.Connector, tool: str, arguments: dict | None,
               writes: bool, memory_path: Path) -> tuple[str, str]:
@@ -303,6 +315,8 @@ class RemoteRuntime:
         else:
             try:
                 text, status = self._run(connector, tool, dict(arguments or {}), today, memory_path), "ok"
+            except write_admission.SleepHolding:
+                raise   # the window opened during a self-admitted tool's fetch: `call` answers busy
             except Exception as exc:  # noqa: BLE001 — never a stack trace to a cloud app
                 logger.warning(f"remote tool {tool} failed for connector {connector.id}: {type(exc).__name__}")
                 text, status = f"Error: that didn't work ({type(exc).__name__}).", "error"

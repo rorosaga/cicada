@@ -52,6 +52,7 @@ from api.services import (
     source_overview,
     sync_service,
     sync_state,
+    write_admission,
 )
 from api.services.connectors import ADAPTERS
 from api.services.media_ingestor import MAX_BATCH, RawItem
@@ -118,9 +119,19 @@ async def save_source(
         harness=request.harness,
         project_dir=request.project_dir,
     )
-    idx = media_ingestor.load_url_index(memory_path)
+    # G183 round 1: the link's metadata is fetched with no admission held; the files are written and committed
+    # inside the bank's write admission (held, never refused — a person's save is capture). A save that lands
+    # inside Sleep's window still writes its new page and commits it alone, at once.
     async with httpx.AsyncClient() as client:
-        result = await media_ingestor.ingest_one(item, memory_path, client, idx)
+        prepared = await media_ingestor.prepare_one(
+            item, memory_path, client, media_ingestor.load_url_index(memory_path))
+    return await write_admission.run_admitted(
+        memory_path, lambda: _write_saved_source(memory_path, item, prepared, request))
+
+
+async def _write_saved_source(memory_path, item, prepared, request) -> SourceSaveResponse:
+    idx = media_ingestor.load_url_index(memory_path)
+    result = media_ingestor.write_prepared(prepared, memory_path, idx)
     media_ingestor.save_url_index(memory_path, idx)
 
     if result.status == "created":

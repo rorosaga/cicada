@@ -182,3 +182,83 @@ def test_a_remote_write_lands_in_the_bank_it_was_admitted_on(tmp_path, monkeypat
     assert result["out"][1] == "ok", result
     assert list((bank_a / "backlog").rglob("*.md")), "written where it was admitted"
     assert not (bank_b / "backlog").exists(), "never in the bank Sleep may have opened"
+
+
+# --- Fix round 1, findings 3 and 8: a link save fetches outside admission and writes its page inside -----------------
+
+from api.services import media_ingestor, sleep_cycle
+
+
+@pytest.fixture
+def save_spy(monkeypatch):
+    seen: dict[str, list] = {"fetch": [], "write": []}
+    bank_of: dict = {}
+
+    async def enrich(url, client, from_bookmark_file=False):
+        seen["fetch"].append(write_admission.holders(bank_of["bank"]))
+        if bank_of.get("on_fetch"):
+            bank_of["on_fetch"]()
+        return media_ingestor.MediaMeta(title="Example page", description="", site="example.com", media_type="url")
+
+    real = media_ingestor.write_media_entity
+
+    def write_media_entity(*a, **k):
+        seen["write"].append(write_admission.holders(bank_of["bank"]))
+        return real(*a, **k)
+
+    monkeypatch.setattr(media_ingestor, "enrich", enrich)
+    monkeypatch.setattr(media_ingestor, "write_media_entity", write_media_entity)
+    return seen, bank_of
+
+
+def test_the_save_route_fetches_outside_admission_and_writes_inside(tmp_path, monkeypatch, save_spy):
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    seen, bank_of = save_spy
+    memory = bank_of["bank"] = _bank(tmp_path)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    try:
+        resp = TestClient(main.app).post("/sources/save", json={"url": "https://example.com/a"})
+    finally:
+        config.get_settings.cache_clear()
+    assert resp.status_code == 200, resp.text
+    assert seen == {"fetch": [0], "write": [1]}
+
+
+def test_a_remote_save_fetches_outside_admission_and_writes_inside(tmp_path, monkeypatch, save_spy):
+    seen, bank_of = save_spy
+    memory = bank_of["bank"] = _bank(tmp_path)
+    runtime = RemoteRuntime(memory_path=lambda: memory, post=lambda p, d: {}, sleep_running=write_admission.holding)
+    text, status = runtime.call(_connector(), "cicada_save_url", {"url": "https://example.com/a"})
+    assert status == "ok", text
+    assert seen == {"fetch": [0], "write": [1]}
+
+
+def test_a_window_opening_during_a_remote_save_fetch_refuses_the_write(tmp_path, monkeypatch, save_spy):
+    seen, bank_of = save_spy
+    memory = bank_of["bank"] = _bank(tmp_path)
+    state = {"writing": False}
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: state["writing"])
+
+    def open_window():
+        state["writing"] = True
+        assert write_admission.wait_for_writers(memory, give_up_after=1) is True, "the fetch holds nothing"
+
+    bank_of["on_fetch"] = open_window
+    pages = sorted(p.name for p in (memory / "entities").iterdir())
+    runtime = RemoteRuntime(memory_path=lambda: memory, post=lambda p, d: {}, sleep_running=write_admission.holding)
+    assert runtime.call(_connector(), "cicada_save_url", {"url": "https://example.com/a"}) == (BUSY_TEXT, "busy")
+    assert seen["write"] == [] and sorted(p.name for p in (memory / "entities").iterdir()) == pages
+
+
+def test_a_stdio_save_with_the_backend_down_fetches_outside_admission_and_writes_inside(tmp_path, save_spy):
+    seen, bank_of = save_spy
+    memory = bank_of["bank"] = _bank(tmp_path)
+    ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="ses_2026-10-06_c0ffee00",
+                                harness="claude-code", backend_url="http://127.0.0.1:9")
+    out = mcp_tools.save_url(ctx, "https://example.com/a", None)
+    assert not out.startswith("Error"), out
+    assert seen == {"fetch": [0], "write": [1]}
