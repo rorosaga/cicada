@@ -10,7 +10,7 @@ enum ShellMetrics {
     static let sidebarWidth: CGFloat = 208
     static let railCell: CGFloat = 36          // at a 40 pt pitch (a 4 pt gap)
     static let sidebarRow: CGFloat = 32
-    static let railInset: CGFloat = CicadaTheme.railInset   // (56 − 36) / 2
+    static let railInset: CGFloat = 10         // (56 − 36) / 2
     static let commandBarWidth: CGFloat = 520
     static let commandBarHeight: CGFloat = 32
 

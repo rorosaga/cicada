@@ -80,17 +80,16 @@ final class NavRailTests: XCTestCase {
     }
 
     /// Owner 2026-10-06 — "the 90 degree cut corner of the side panel doesnt look that good." The content's top-leading
-    /// corner is rounded concentric with the window's own (26 pt on macOS 26), one rail inset in, by the rail's fill.
-    func testTheContentCornerIsConcentricWithTheWindow() throws {
-        if #available(macOS 26, *) {
-            XCTAssertEqual(CicadaTheme.windowCornerRadius, 26)
-            XCTAssertEqual(CicadaTheme.contentCornerRadius, 16)
+    /// corner is a rounded join at one fixed radius (DR-12: radii do not scale), drawn by the rail's own fill, in both rail
+    /// widths and at every zoom.
+    func testTheContentCornerIsARoundedJoinAtOneFixedRadius() throws {
+        XCTAssertEqual(CicadaTheme.contentCornerRadius, CicadaTheme.radiusLarge)
+        for scale in [0.8, 1.0, 1.4] {
+            CicadaTheme.uiScale = scale
+            XCTAssertEqual(CicadaTheme.contentCornerRadius, 16, "radii stay put under zoom (scale \(scale))")
         }
-        XCTAssertEqual(CicadaTheme.concentric(inner: CicadaTheme.contentCornerRadius, padding: ShellMetrics.railInset),
-                       max(CicadaTheme.windowCornerRadius, CicadaTheme.cornerRadiusSmall + ShellMetrics.railInset))
-        XCTAssertGreaterThanOrEqual(CicadaTheme.contentCornerRadius, CicadaTheme.cornerRadiusSmall)
         // The fillet is the corner square minus the rounded content: its outer corner is filled, its inner one clear.
-        let r: CGFloat = 16
+        let r = CicadaTheme.contentCornerRadius
         let side = RailCornerFillet.extent(r)
         let path = RailCornerFillet(radius: r).path(in: CGRect(x: 0, y: 0, width: side, height: side))
         XCTAssertTrue(path.contains(CGPoint(x: 1, y: 1)), "the corner itself is the rail's")
@@ -98,9 +97,13 @@ final class NavRailTests: XCTestCase {
         XCTAssertFalse(path.contains(CGPoint(x: side - 1, y: 1)), "along the titlebar's edge, past the curve, is the page")
         XCTAssertLessThanOrEqual(path.boundingRect.maxX, side, "the fill never leaves its corner square")
         XCTAssertLessThanOrEqual(path.boundingRect.maxY, side)
+        // One view draws the rail and the labelled sidebar, so the join rides whichever edge the page starts at.
         let text = try source("Views/Shell/NavRail.swift")
         XCTAssertTrue(text.contains("RailCornerFillet(radius: CicadaTheme.contentCornerRadius)"))
+        XCTAssertTrue(text.contains(".overlay(alignment: .topTrailing)"), "at the rail's trailing edge, whatever its width")
         XCTAssertTrue(text.contains(".allowsHitTesting(false)"))
+        XCTAssertFalse(try source("Theme/CicadaTheme.swift").contains("windowCornerRadius"),
+                       "no claimed concentricity with the window's corner")
     }
 
     func testTheSplitViewIsGone() throws {
