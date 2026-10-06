@@ -94,7 +94,7 @@ enum CicadaMotion {
     static let revealMaxRows = 8
     /// One nod of a brand mark on hover (`MarkHover`).
     static let markNodDuration: TimeInterval = 0.32
-    /// The rail glyph's subtle hover nod (`IconHover(subtle:)`).
+    /// A glyph's hover nod (`IconHover`).
     static let iconNodDuration: TimeInterval = 0.24
     /// The window-wide drop veil fading in (I1).
     static let dropVeilDuration: TimeInterval = 0.18
@@ -329,10 +329,15 @@ struct HoverLift: ViewModifier {
 
 // MARK: - Icon hover (R-M13)
 
-/// A glyph acknowledges the pointer once: a wiggle on macOS 15+ (`.wiggle`
-/// is 15-only), a bounce on 14; and, when `selected` turns true, one bounce.
-/// Never repeating — the one indefinite symbol motion in this app is a true
-/// state (the Sleep pulse), not a hover.
+/// A glyph acknowledges the pointer once with a small grow-and-settle of the
+/// whole glyph (scale 1 → 1.05 → 1, no rotation); when `selected` turns true,
+/// one bounce. Never repeating — the one indefinite symbol motion in this app
+/// is a true state (the Sleep pulse), not a hover.
+///
+/// One motion everywhere (owner, 2026-10-06: the help icon "wiggles way too
+/// much" — make every icon match the side panel). SF Symbols' per-layer
+/// `.wiggle` was the default until then; its strength cannot be set, so it is
+/// gone rather than tuned. The rail had moved to this nod on 2026-09-30.
 ///
 /// Reduce Motion is enforced by never changing the trigger (`nextBump`), with
 /// `symbolEffectsRemoved` inside the effects as a second guard: R9 could not
@@ -343,14 +348,10 @@ struct IconHover: ViewModifier {
     /// target the glyph sits in (a sidebar row).
     var hovering: Bool?
     var selected: Bool = false
-    /// The rail's gentler acknowledgement (owner, 2026-09-30: "they move too much … a bit more subtle"): a small
-    /// grow-and-settle of the whole glyph — scale 1 → 1.05 → 1, no rotation — instead of SF Symbols' per-layer wiggle,
-    /// whose strength cannot be set.
-    var subtle: Bool = false
 
     /// No tilt at all (owner, 2026-09-30, after the first nod: it still read as a jiggle): the glyph only grows a touch
     /// and settles.
-    static let subtleScaleKeys: [CGFloat] = [1.05, 1]
+    static let scaleKeys: [CGFloat] = [1.05, 1]
 
     @State private var hoverBumps = 0
     @State private var selectBumps = 0
@@ -362,7 +363,7 @@ struct IconHover: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        hoverMotion(content.symbolEffectsRemoved(reduceMotion))
+        nod(content.symbolEffectsRemoved(reduceMotion))
             .symbolEffect(.bounce.up.byLayer, options: .nonRepeating, value: selectBumps)
             .onHover { inside in
                 guard hovering == nil else { return }
@@ -376,44 +377,17 @@ struct IconHover: ViewModifier {
             }
     }
 
-    @ViewBuilder
-    private func hoverMotion(_ view: some View) -> some View {
-        if subtle { nod(view) } else { wiggle(view) }
-    }
-
-    /// The subtle variant: one small keyframed grow-and-settle of the whole glyph per entry (`hoverBumps` is already held at
-    /// its value under Reduce Motion, so nothing moves then).
+    /// One small keyframed grow-and-settle of the whole glyph per entry (`hoverBumps` is already held at its value under
+    /// Reduce Motion, so nothing moves then).
     private func nod(_ view: some View) -> some View {
         view.keyframeAnimator(initialValue: CGFloat(1), trigger: hoverBumps) { glyph, scale in
             glyph.scaleEffect(scale)
         } keyframes: { _ in
             KeyframeTrack {
-                CubicKeyframe(Self.subtleScaleKeys[0], duration: CicadaMotion.iconNodDuration * 0.4)
-                CubicKeyframe(Self.subtleScaleKeys[1], duration: CicadaMotion.iconNodDuration * 0.6)
+                CubicKeyframe(Self.scaleKeys[0], duration: CicadaMotion.iconNodDuration * 0.4)
+                CubicKeyframe(Self.scaleKeys[1], duration: CicadaMotion.iconNodDuration * 0.6)
             }
         }
-    }
-
-    /// `.wiggle` is macOS 15 API, and `#available` is only a runtime check:
-    /// the symbol must exist in the SDK too (M1 final review, measured against
-    /// MacOSX14.4: "type 'DiscreteSymbolEffect' has no member 'wiggle'"). The
-    /// compile-time guard tests the SDK — SwiftUI's module version is 6.x from
-    /// the 15 SDK on — so a macOS 14 SDK still builds, with the bounce.
-    @ViewBuilder
-    private func wiggle(_ view: some View) -> some View {
-        #if canImport(SwiftUI, _version: 6.0)
-        if #available(macOS 15, *) {
-            view.symbolEffect(.wiggle.byLayer, options: .nonRepeating, value: hoverBumps)
-        } else {
-            bounce(view)
-        }
-        #else
-        bounce(view)
-        #endif
-    }
-
-    private func bounce(_ view: some View) -> some View {
-        view.symbolEffect(.bounce.up.byLayer, options: .nonRepeating, value: hoverBumps)
     }
 }
 
@@ -492,8 +466,8 @@ extension View {
 
     /// See `IconHover`. `iconHover()` follows the glyph's own hover;
     /// `iconHover(hovering: rowIsHovered, selected: isSelected)` a larger target's.
-    func iconHover(hovering: Bool? = nil, selected: Bool = false, subtle: Bool = false) -> some View {
-        modifier(IconHover(hovering: hovering, selected: selected, subtle: subtle))
+    func iconHover(hovering: Bool? = nil, selected: Bool = false) -> some View {
+        modifier(IconHover(hovering: hovering, selected: selected))
     }
 
     /// See `MarkHover` — for brand marks (rasters); glyphs use `iconHover()`.
