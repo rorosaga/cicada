@@ -167,3 +167,32 @@ def test_release_sh_bumps_merges_tags_and_pushes_atomically(tmp_path):
     assert _git(work, "rev-parse", "--abbrev-ref", "HEAD") == "main", "the checkout it ran from is never switched"
     again = subprocess.run([str(script), "0.4.0", "--yes"], cwd=work, env=env, capture_output=True, text=True)
     assert again.returncode == 1 and "already exists" in again.stderr
+
+
+def test_a_pr_to_main_must_come_from_dev_and_carry_an_untagged_greater_version():
+    """Nothing but a release reaches main: the PR check fails any other head branch, or a VERSION CI would not publish."""
+    wf, on = _workflow("release-check.yml")
+    assert on["pull_request"]["branches"] == ["main"]
+    assert "push" not in on, "only the release PR is checked here; release.yml owns main"
+    assert wf["permissions"] == {"contents": "read"}
+    job = wf["jobs"]["release-pr"]
+    assert job["runs-on"] == "ubuntu-latest", "cheap"
+    script = "\n".join(s.get("run", "") for s in job["steps"])
+    env = {k: v for s in job["steps"] for k, v in (s.get("env") or {}).items()}
+    assert env["HEAD_REF"] == "${{ github.head_ref }}" and env["HEAD_REPO"] == "${{ github.event.pull_request.head.repo.full_name }}"
+    assert '[ "$HEAD_REF" = "dev" ]' in script and '[ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]' in script
+    assert "check_version.py agree" in script
+    assert "git ls-remote --tags --refs origin 'refs/tags/v*'" in script and "check_version.py plan <" in script
+    assert '[ "$status" = "new" ]' in script, "an already-released VERSION is refused at the PR, not discovered at merge"
+
+
+def test_the_pr_check_head_branch_rule_runs_as_written(tmp_path):
+    """Execute the head-branch step's shell with the values GitHub would pass."""
+    wf, _ = _workflow("release-check.yml")
+    step = next(s for s in wf["jobs"]["release-pr"]["steps"] if s.get("name") == "The head branch is dev")
+    def run(head, repo):
+        env = {**os.environ, "HEAD_REF": head, "HEAD_REPO": repo, "GITHUB_REPOSITORY": "owner-example/cicada"}
+        return subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
+    assert run("dev", "owner-example/cicada").returncode == 0
+    assert run("feat/alpha-project", "owner-example/cicada").returncode != 0
+    assert run("dev", "bob-example/cicada").returncode != 0, "a fork's dev is not this repo's dev"
