@@ -84,6 +84,9 @@ DERIVED_ARTIFACTS = (
     "search_index.db",
     "search_index.db-wal",
     "search_index.db-shm",
+    # G110 slice 1a: the continuity metadata index (`continuity.py`) — derived
+    # from the episodes' heads, rebuilt on demand, never versioned.
+    "continuity_index.json",
     # Audit A02/K01: an atomic page write's staging file (`markdown_parser._stage`)
     # and the other temp-then-replace writers' — never a page, never versioned.
     ".*.tmp",
@@ -210,6 +213,30 @@ def ensure_derived_excluded(path: Path) -> bool:
 
 
 # --- Resolution (the load-bearing path) ------------------------------------
+
+
+def derived_exclusion_state(path: Path, name: str) -> str:
+    """Whether git would ignore ``name`` in this bank: ``excluded`` (the exact
+    line is in ``info/exclude`` or the bank's ``.gitignore``), ``no_git`` (no
+    ``.git`` at all — nothing can track it) or ``unprotected`` (a git checkout
+    that does not ignore it, or one whose git dir cannot be read).
+
+    G110 (critique finding 34): :func:`ensure_derived_excluded` answers False
+    both when nothing was needed and when its write failed, so a caller about
+    to create a NEW derived file checks the result here instead. Reads only;
+    never raises."""
+    path = Path(path)
+    dot = path / ".git"
+    if not dot.exists():
+        return "no_git"
+    for candidate in ((_git_dir(path) or Path("/nonexistent")) / "info" / "exclude", path / ".gitignore"):
+        try:
+            raw = candidate.read_bytes() if candidate.is_file() else b""
+        except OSError:
+            continue
+        if name in {line.strip() for line in raw.decode("utf-8", errors="surrogateescape").splitlines()}:
+            return "excluded"
+    return "unprotected"
 
 
 def registry_path(root: Path) -> Path:
