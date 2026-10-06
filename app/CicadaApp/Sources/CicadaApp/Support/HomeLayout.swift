@@ -12,6 +12,10 @@ enum HomeLayout {
     static let columnWidth: CGFloat = 760
     static let fieldWidth: CGFloat = 640
     static let headlineTop: CGFloat = 8
+    /// With the band off (G189(a)) the headline is the first content: it takes the room pages' title inset (24 pt,
+    /// `PageHeader`'s top), well inside DR-26's 120 pt.
+    static let headlineTopWithoutBand: CGFloat = 24
+    static func headlineTopInset(showsBand: Bool) -> CGFloat { showsBand ? headlineTop : headlineTopWithoutBand }
     static let headlineBottom: CGFloat = 20
     static let blockGap: CGFloat = 24
     static let labelGap: CGFloat = 6

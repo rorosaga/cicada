@@ -48,14 +48,14 @@ struct HomeView: View {
             VStack(spacing: 0) {
                 // DR-13 — paint only: no word, no number and nothing over it (`HomeBandLayoutTests`). The framing owns
                 // the band's height, crop and fade (C10).
-                HomeHeroBand()
+                if HomeBandLayout.showsBand { HomeHeroBand() }
                 VStack(spacing: 0) {
                     // R-HS2 — the headline is the row under the band, on the window (DR-50), in the room pages'
                     // title (DR-17): one line, the mock's words.
                     PageTitle(Copy.homeHeadline)
                         .multilineTextAlignment(.center)
                         .accessibilityAddTraits(.isHeader)
-                        .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
+                        .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
                         .padding(.bottom, CicadaTheme.scaled(HomeLayout.headlineBottom))
                     fieldColumn(showsResults: showsResults)
                         .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))
@@ -90,7 +90,7 @@ struct HomeView: View {
                     if tipShown && tipPlacement == .side {
                         AppearanceTip()
                             .frame(width: CicadaTheme.scaled(AppearanceTipLayout.width))
-                            .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTop))
+                            .padding(.top, CicadaTheme.scaled(HomeLayout.headlineTopInset(showsBand: HomeBandLayout.showsBand)))
                             .padding(.trailing, CicadaTheme.scaled(AppearanceTipLayout.edgeInset))
                     }
                 }
