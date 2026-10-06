@@ -194,20 +194,22 @@ async def capture_transcript_endpoint(
     # No real bank to fall back to: the service is handed the demo path and
     # refuses it unread, so the refusal lands in the ledger like any other.
     memory_path = target.path if target is not None else settings.memory_path
-    result = await asyncio.to_thread(
-        capture_transcript,
-        memory_path,
-        harness=req.harness,
-        session_id=req.session_id,
-        transcript_path=req.transcript_path,
-        cwd=req.cwd,
-        keep_assistant=settings.capture_assistant_replies,
-        bank=memory_path.name,
-        effort=req.effort,
-        # G110: the continuity registry's every-bank guard needs the root and
-        # every configured bank, resolved once for this request.
-        bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
-    )
+    def _capture():
+        return capture_transcript(
+            memory_path,
+            harness=req.harness,
+            session_id=req.session_id,
+            transcript_path=req.transcript_path,
+            cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies,
+            bank=memory_path.name,
+            effort=req.effort,
+            # G110: the continuity registry's every-bank guard needs the root and
+            # every configured bank — resolved once, off the event loop.
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
+        )
+
+    result = await asyncio.to_thread(_capture)
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
             raise HTTPException(status_code=409, detail=demo_guard.HOOK_REFUSAL)

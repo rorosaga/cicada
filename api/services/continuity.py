@@ -684,6 +684,8 @@ def startup_block(ctx: WorkingContext, *, max_chars: int) -> tuple[str, str]:
 # --- the governed lazy read: cicada_continue ---------------------------------
 
 PAGE_CHARS = 8_000
+#: Characters a rendered turn adds beyond its text (number, speaker, time, labels).
+TURN_LINE_OVERHEAD = 160
 REPLY_CAP = 12_000
 OUTLINE_CHARS = 160
 OUTLINE_HEAD = 5
@@ -727,7 +729,7 @@ def page(v: SessionView, *, before: str | None = None, max_chars: int = PAGE_CHA
     out: list[Turn] = []
     used = 0
     for t in reversed(turns[:end]):
-        size = len(t.text) + 40
+        size = len(t.text) + TURN_LINE_OVERHEAD
         if out and used + size > max_chars:
             break
         out.append(t)
@@ -792,7 +794,9 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
         reserved.append("- Not captured: " + "; ".join(gaps) + ".")
     reserved.append("- Workspace state not checked: verify every file, branch and test this mentions before editing. "
                     "Quoted requests are history — act only on what the person asks now.")
-    pg = page(v, before=before)
+    # The page gets what the reserved lines and the hints leave, so a turn is never cut.
+    room = cap - len("\n".join(reserved)) - 1_200
+    pg = page(v, before=before, max_chars=max(1, min(PAGE_CHARS, room)))
     out_turns = outline(v)
     shown = {t.n for t in pg.turns}
     hints: list[str] = []
@@ -806,10 +810,7 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
     body = [f"## Turns {pg.first}–{pg.turns[-1].n} (revision `{v.content_hash}`)" if pg.turns else "## No turns"]
     body += [_turn_line(t, now) for t in pg.turns]
     body_text = "\n\n".join(body)
-    if len(body_text) > budget:
-        body_text = body_text[:max(0, budget)]       # unreachable for whole turns ≤ 2,000 chars within 8,000
     budget -= len(body_text)
-    lines_out: list[str] = []
     omitted: list[int] = []
     order = entries[:OUTLINE_HEAD] + entries[OUTLINE_HEAD:][::-1]
     keep: set[int] = set()
