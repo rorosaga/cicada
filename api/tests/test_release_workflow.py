@@ -72,19 +72,62 @@ def test_latest_json_names_the_versioned_asset(tmp_path):
         lj.build("0.3", "1", archive, "x", "https://x")
 
 
-def test_the_workflow_builds_on_tags_and_publishes_only_from_a_tag():
-    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8"))
-    on = wf[True] if True in wf else wf["on"]  # PyYAML reads the bare key `on` as True
-    assert on["push"]["tags"] == ["v*"] and on["push"]["branches"] == ["ci/release-dry-run"]
-    assert "workflow_dispatch" in on
+def _workflow(name="release.yml"):
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8"))
+    return wf, (wf[True] if True in wf else wf["on"])  # PyYAML reads the bare key `on` as True
+
+
+def test_a_push_to_main_releases_and_no_tag_ever_starts_a_run():
+    """Ruling 19: merging the release PR is the release; nobody tags by hand, so a tag triggers nothing."""
+    wf, on = _workflow()
+    assert on["push"]["branches"] == ["main", "ci/release-dry-run"]
+    assert "tags" not in on["push"]
+    assert "workflow_dispatch" in on, "a manual run on main is the recovery path after a failed run"
+    assert wf["concurrency"] == {"group": "release", "cancel-in-progress": False}
+    assert wf["permissions"] == {"contents": "read"}, "only the publish job may write"
+
+
+def test_the_plan_job_judges_the_version_before_any_mac_is_used():
+    wf, _ = _workflow()
+    plan = wf["jobs"]["plan"]
+    assert plan["runs-on"] == "ubuntu-latest"
+    script = "\n".join(s.get("run", "") for s in plan["steps"])
+    assert "check_version.py agree" in script
+    assert "git ls-remote --tags --refs origin 'refs/tags/v*'" in script, "the remote's tags, not a stale checkout's"
+    assert "check_version.py plan <" in script and "check_version.py plan --dry-run" in script
+    assert 'refs/heads/main' in script and "already released" in script
+    build = wf["jobs"]["build"]
+    assert build["needs"] == "plan" and build["if"] == "needs.plan.outputs.build == 'true'"
+
+
+def test_the_build_job_builds_signs_and_checks_every_stamp():
+    wf, _ = _workflow()
     job = wf["jobs"]["build"]
     assert job["runs-on"].startswith("macos-26")
+    assert "permissions" not in job, "the Mac that builds never holds a write token"
     steps = {s.get("name", s.get("uses", "")): s for s in job["steps"]}
-    assert steps["Publish the GitHub Release"]["if"] == "steps.v.outputs.publish == 'true'"
+    assert "--info-plist app/CicadaApp/.build/release/Cicada.app/Contents/Info.plist" in steps["The app's version agrees"]["run"]
+    package = steps["Package and sign the update"]["run"]
+    assert "check_version.py agree --latest-json dist/latest.json" in package
+    assert 'cp "$zip" dist/Cicada-macos-arm64.zip' in package, "the stable name the website links"
     text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     assert "--with-backend" in text and "smoke-test.sh" in text and "ditto -c -k --keepParent" in text
-    assert "secrets.CICADA_UPDATE_SIGNING_KEY" in text and "--generate-notes" in text
+    assert "secrets.CICADA_UPDATE_SIGNING_KEY" in text
     assert "fetch-depth: 0" in text, "the build number is the commit count"
+
+
+def test_only_the_publish_job_advertises_and_only_from_main():
+    wf, _ = _workflow()
+    job = wf["jobs"]["publish"]
+    assert job["needs"] == ["plan", "build"] and job["if"] == "needs.plan.outputs.publish == 'true'"
+    assert job["permissions"] == {"contents": "write"}
+    run = job["steps"][-1]["run"]
+    assert run.startswith("scripts/release/publish.sh") and '"$GITHUB_SHA"' in run, "the tag lands on the merged commit"
+    env = job["steps"][-1]["env"]
+    assert env["LATEST"] == "${{ needs.plan.outputs.latest }}" and env["PREVIOUS"] == "${{ needs.plan.outputs.previous }}"
+    text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    for banned in ("git push", "git tag", "--force", "--clobber", "gh release create"):
+        assert banned not in text, f"{banned}: publication goes through publish.sh only"
 
 
 def _git(cwd, *args):
