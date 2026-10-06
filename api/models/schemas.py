@@ -2075,6 +2075,9 @@ class StatusSleep(CamelModel):
     total_stages: int = 5
     cycle_id: Optional[str] = None
     error: Optional[str] = None
+    # G177 — Sleep holds the bank's pages right now (`sleep_cycle.is_writing`). The app's write controls key off
+    # this, not `status`: a person-started drain is `running` for hours but accepts writes between its batches.
+    writing: bool = False
 
 
 class StatusInbox(CamelModel):

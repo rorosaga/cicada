@@ -26,6 +26,7 @@ enum PictureActions {
 
     /// F-11 — "It opens an NSOpenPanel for images."
     static func change(id: String, name: String, type: EntityType, store: Store, inputs: PictureInputs?) {
+        let bank = store.bank   // G183(d): the bank the person chose this entity in, before the panel and the preparation
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
@@ -33,33 +34,39 @@ enum PictureActions {
         panel.message = Copy.People.pickMessage(name)
         panel.prompt = Copy.People.pickPrompt
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await upload(fileURL: url, id: id, type: type, store: store, inputs: inputs) }
+        Task { await upload(fileURL: url, id: id, type: type, bank: bank, store: store, inputs: inputs) }
     }
 
-    static func upload(fileURL: URL, id: String, type: EntityType, store: Store, inputs: PictureInputs?) async {
+    /// `bank` is the bank the person acted in, captured before anything is awaited (G183(d)): the preparation runs
+    /// detached, a switch can complete meanwhile, and the write must still name — and be refused in — that bank.
+    static func upload(fileURL: URL, id: String, type: EntityType, bank: String, store: Store,
+                       inputs: PictureInputs?) async {
         let prepared = await Task.detached(priority: .userInitiated) { () -> Result<PreparedPicture, PictureImport.Failure> in
             do { return .success(try PictureImport.prepare(fileURL: fileURL)) } catch {
                 return .failure(error as? PictureImport.Failure ?? .unreadable)
             }
         }.value
-        await send(prepared, id: id, type: type, store: store, inputs: inputs)
+        await send(prepared, id: id, type: type, bank: bank, store: store, inputs: inputs)
     }
 
-    static func upload(data: Data, id: String, type: EntityType, store: Store, inputs: PictureInputs?) async {
+    static func upload(data: Data, id: String, type: EntityType, bank: String, store: Store,
+                       inputs: PictureInputs?) async {
         let prepared = await Task.detached(priority: .userInitiated) { () -> Result<PreparedPicture, PictureImport.Failure> in
             do { return .success(try PictureImport.prepare(data: data)) } catch {
                 return .failure(error as? PictureImport.Failure ?? .unreadable)
             }
         }.value
-        await send(prepared, id: id, type: type, store: store, inputs: inputs)
+        await send(prepared, id: id, type: type, bank: bank, store: store, inputs: inputs)
     }
 
     private static func send(_ prepared: Result<PreparedPicture, PictureImport.Failure>, id: String, type: EntityType,
-                             store: Store, inputs: PictureInputs?) async {
+                             bank: String, store: Store, inputs: PictureInputs?) async {
         switch prepared {
         case .success(let picture):
-            await store.perform(EntityPictureWrite(entityId: id, type: type, bank: store.bank, action: .upload(picture),
-                                                   inputs: inputs, store: store))
+            await BankScope.bound(to: bank) {
+                await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .upload(picture),
+                                                       inputs: inputs, store: store))
+            }
         case .failure(let failure):
             store.toast = Copy.People.importFailed(failure)
         }
@@ -71,11 +78,17 @@ enum PictureActions {
         case .change, .add:
             change(id: id, name: name, type: type, store: store, inputs: inputs)
         case .useInitials:
-            Task { await store.perform(EntityPictureWrite(entityId: id, type: type, bank: store.bank, action: .useInitials,
-                                                          inputs: inputs, store: store)) }
+            let bank = store.bank
+            store.bankTask {
+                await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .useInitials,
+                                                       inputs: inputs, store: store))
+            }
         case .remove, .useDetected:
-            Task { await store.perform(EntityPictureWrite(entityId: id, type: type, bank: store.bank, action: .clear,
-                                                          inputs: inputs, store: store)) }
+            let bank = store.bank
+            store.bankTask {
+                await store.perform(EntityPictureWrite(entityId: id, type: type, bank: bank, action: .clear,
+                                                       inputs: inputs, store: store))
+            }
         }
     }
 }

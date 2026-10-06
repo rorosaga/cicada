@@ -51,6 +51,7 @@ from api.services import (
     wispr_flow,
 )
 from api.routers.capture import refuse_capture_into_demo
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -99,7 +100,7 @@ async def register_folder(req: FolderRegisterRequest, settings: Settings = Depen
         # `paths:` onto one Stage 5 may be rewriting, or a new page Sleep's
         # `git add -A` would sweep under the model's name. Adding a folder is a
         # person's click, so asking again in a minute is the honest answer.
-        raise HTTPException(409, "Cicada is tidying up your memory right now — add the folder again in a minute.")
+        raise SleepWriting("Cicada is tidying up your memory right now — add the folder again in a minute.")
     device = local_refs.current_device_id()
     name = req.label if req.project_name is None else req.project_name
     project_id, created = await run_in_threadpool(
@@ -326,7 +327,7 @@ async def sync_contacts_local(req: ContactsLocalSyncRequest, settings: Settings 
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, contacts_local.SLEEP_REFUSAL)
+        raise SleepWriting(contacts_local.SLEEP_REFUSAL)
     if len(req.contacts) > contacts_local.MAX_CONTACTS:
         raise HTTPException(413, f"at most {contacts_local.MAX_CONTACTS} contacts per sync")
     try:

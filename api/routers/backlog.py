@@ -34,6 +34,7 @@ from api.models.schemas import (BacklogImportRequest, BacklogImportResponse, Bac
                                 BacklogItemPatch, BacklogItemSummary, BacklogLink, BacklogListResponse,
                                 BacklogNoteCreate, BacklogNoteModel)
 from api.services import backlog, backlog_import, git_service, handshake, sync_service, when
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -58,7 +59,7 @@ def _guard() -> None:
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, BUSY)
+        raise SleepWriting(BUSY)
 
 
 def _project(memory_path, project_id: str) -> tuple[str, dict]:

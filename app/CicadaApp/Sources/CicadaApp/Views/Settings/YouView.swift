@@ -70,10 +70,13 @@ struct YouView: View {
         }
         problem = nil
         guard let change = draft.update(from: saved) else { return }
+        let origin = BankScope.onScreen   // G183(d): the owner page lives in this bank
         Task { @MainActor in
             do {
-                saved = try await APIClient.shared.updateOwnerSettings(
-                    name: change.name, handle: change.handle, email: change.email)
+                saved = try await BankScope.bound(to: origin) {
+                    try await APIClient.shared.updateOwnerSettings(name: change.name, handle: change.handle,
+                                                                   email: change.email)
+                }
             } catch {
                 problem = AddSourceSheet.friendlyError(error)
             }

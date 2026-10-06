@@ -55,7 +55,7 @@ struct ReadingOptionsSheet: View {
                     // R-HS10's precedent: a native menu picker.
                     Picker(Copy.SleepV5.saveProgressEvery, selection: Binding(
                         get: { options.batchSize },
-                        set: { size in Task { await sleepVM.updateRunOptions(.batchSize(size)) } })) {
+                        set: { size in sleepVM.bankTask { await sleepVM.updateRunOptions(.batchSize(size)) } })) {
                         ForEach(options.batchSizeChoices, id: \.self) { Text(Copy.SleepV5.everyN($0)).tag($0) }
                     }
                     .labelsHidden()
@@ -75,7 +75,7 @@ struct ReadingOptionsSheet: View {
                 row(title: Copy.SleepV5.continueAfterReset, caption: caption) {
                     Toggle(Copy.SleepV5.continueAfterReset, isOn: Binding(
                         get: { options.continueAfterReset },
-                        set: { on in Task { await sleepVM.updateRunOptions(.continueAfterReset(on)) } }))
+                        set: { on in sleepVM.bankTask { await sleepVM.updateRunOptions(.continueAfterReset(on)) } }))
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .controlSize(.small)

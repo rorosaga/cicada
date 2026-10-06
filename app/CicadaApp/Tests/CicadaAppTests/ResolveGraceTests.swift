@@ -133,11 +133,11 @@ final class ResolveGraceTests: XCTestCase {
         XCTAssertEqual(store.heldResolve?.id, "inbox-002")
     }
 
-    /// R-DI3 — every bank switch is `ActivateBank`; it sends the held answer before the bank moves.
+    /// R-DI3 — every bank switch is `Store.activateBank`; it sends the held answer before the bank moves.
     func testABankSwitchSendsTheHeldAnswerFirst() async throws {
         let (store, api) = try makeStore()
         hold(store, "inbox-001")
-        _ = await store.perform(ActivateBank(name: "work"))
+        _ = await store.activateBank("work")
         XCTAssertEqual(Array(api.writes.prefix(2)), ["resolveInbox:inbox-001:resolve:b:nil", "activateBank:work"])
     }
 

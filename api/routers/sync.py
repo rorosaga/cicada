@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
-from api.services import sleep_drain, sleep_paused, sync_service, sync_ticker
+from api.services import sleep_cycle, sleep_drain, sleep_paused, sync_service, sync_ticker
 from api.services.sleep_cycle import get_sleep_state, progress_pct
 
 router = APIRouter(prefix="/sync")
@@ -70,6 +70,8 @@ async def events(settings: Settings = Depends(get_settings)):
             if ds is not None and getattr(ds, "memory_path", None) not in (None, settings.memory_path):
                 ds = None
             drain_sse = sleep_drain.to_sse(ds, debt.unprocessed_count)
+            # G177 — the write window the app's controls follow; it flips between batches with no status change.
+            writing = sleep_cycle.writing_of(state)
             paused = (None if state.status == "running" and not getattr(state, "tail_only", False)
                       else sleep_paused.get_paused(settings.memory_path))
             paused_sse = ({
@@ -112,6 +114,7 @@ async def events(settings: Settings = Depends(get_settings)):
                 # A pause appears, is armed or is cleared without any status change (Sleep page v5).
                 paused_sse and tuple(paused_sse.items()),
                 debt.parked_count,
+                writing,
             )
             if sleep_key != last_sleep:
                 last_sleep = sleep_key
@@ -131,6 +134,7 @@ async def events(settings: Settings = Depends(get_settings)):
                     "parkedCount": debt.parked_count,
                     "readableCount": debt.readable_count,
                     "paused": paused_sse,
+                    "writing": writing,
                 })
             if since_ping >= PING_SECONDS:
                 yield "event: ping\ndata: {}\n\n"
