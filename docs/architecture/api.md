@@ -76,8 +76,8 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
   go through between a drain's batches:** `PUT /entities/{id}/decay`, `PATCH /entities/{id}/repos` (which commits only
   its page, never `git add -A`), every `POST /inbox/{id}/resolve` action — a defer too — and the deprecated
   `/nudges/{id}/resolve` and `/clarifications/{id}` that route through it, and `POST /maintenance/dedup-sweep` (a dry
-  run too; G183). Each re-asks under its locks (the inbox after its awaited snapshot), before writing; Sleep takes
-  neither lock, so admission stays non-atomic — this narrows but does not close the race (`storage.md`, "Residual
+  run too; G183). Each re-asks under its locks (the inbox after its awaited snapshot), before writing; Sleep's
+  window transition takes neither lock (its commits do take the git write lock), so admission stays non-atomic — this narrows but does not close the race (`storage.md`, "Residual
   race"). The decay and repo rewrites run write → scoped commit as one page-lock section in a worker thread, an edit
   already on the page committed apart first. The sweep answers `stoppedForSleep`, `skippedDirty`, `skippedUnsafe`,
   `failed` and `recoveryFailed` beside its merges.

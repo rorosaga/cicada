@@ -583,8 +583,11 @@ Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) 
 opens *after* a writer's last check overlaps everything that writer does next, and there is no time bound on that: the
 exposure is the rest of its transaction — the sweep's footprint scan, merge, commit and any recovery, plus waits for a
 lock and git's index-lock retries. Sleep can load a pre-write page and later rewrite it, or sweep the write into its
-batch commit under the Sleep author. The sweep confines the damage to its own footprint: a page Sleep writes outside it
-is neither committed nor put back. Closing the race needs shared admission coordination between Sleep and these writers
+batch commit under the Sleep author. The sweep limits its commit and its rollback to the footprint frozen at planning: a
+page written outside it is neither committed nor put back, and a merge that returns a path outside it stops the sweep —
+but a write outside the snapshot that the merge itself then makes (say, a reference to the loser that an unguarded writer
+added after the footprint was planned, which the repoint pass rewrites) is left for recovery by hand, reported as
+`recoveryFailed`. Closing the race needs shared admission coordination between Sleep and these writers
 and/or revision-safe read-modify-write (a write that refuses when the page changed since it was read) — Sleep taking a
 lock at two separate points (its load and its commit) would not by itself protect a stale read between them. Out of this
 slice.

@@ -232,8 +232,8 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
     the transaction raises :class:`RecoveryFailed`.
 
     ``may_write`` is re-asked once the page lock and again once the git lock is
-    held (``STOPPED``). Sleep itself takes neither lock, so admission is not
-    atomic — disclosed in ``docs/architecture/storage.md``, "Residual race"."""
+    held (``STOPPED``). Sleep's window transition takes neither lock (its
+    commits do take the git write lock), so admission is not atomic — disclosed in ``docs/architecture/storage.md``, "Residual race"."""
     memory_path = Path(memory_path)
     with page_lock.page_lock(memory_path):
         if may_write is not None and not may_write():
