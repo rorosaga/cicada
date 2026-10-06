@@ -191,7 +191,40 @@ def test_acceptance_5_two_sessions_active_together_ask_once_and_an_id_resolves(e
     assert "task two" in out and "task one" not in out
 
 
-@pytest.mark.xfail(strict=True, raises=ImportError, reason="T10 (optional, needs approval): Sleep does not yet count a "
-                                                           "continued session's agent restatement once")
-def test_acceptance_5_sleep_counts_a_lineage_once():
-    from api.services.entity_resolver import lineage_units  # noqa: F401
+@pytest.mark.xfail(strict=True, reason="T10 (optional, needs approval): Sleep counts a continued session's restatement "
+                                       "as a second conversation; this flips to XPASS (and fails, strict) when T10 lands")
+def test_acceptance_5_sleep_counts_a_lineage_once(env, monkeypatch):
+    """Behavioural, on today's Stage 2 counting (`entity_resolver.resolve`, the
+    promotion threshold of 2 conversations): session A mentions a name once;
+    session B — which Cicada pointed at A (`continues: A`) — has the agent
+    restate it. One work stream, one mention: the name must not be promoted on
+    that alone. Today it is (two episode ids), so this is a strict xfail."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from api.services import entity_resolver
+
+    class _NoIndex:
+        def __init__(self, *_a, **_k):
+            raise RuntimeError("no vector store in this test")
+
+    monkeypatch.setattr(entity_resolver, "SqliteVecIndexer", _NoIndex)
+    memory = env["memory"]
+    for sub in ("entities", "inbox"):
+        (memory / sub).mkdir(exist_ok=True)
+    a = _capture(env, A, [("user", "The demo day for alpha-project is set.", _ts(60)),
+                          ("assistant", "Noted the demo day.", _ts(59))])
+    b = _capture(env, B, [("user", "continue", _ts(40)),
+                          ("assistant", "From the last session: the demo day is set.", _ts(39))])
+    fp = _episode(env, b)
+    doc = markdown_parser.parse(fp)
+    markdown_parser.write(fp, {**doc.frontmatter, "continues": a.episode_id}, doc.body)
+    mention = {"name": "Demo Day Example", "type": "event", "confidence": 0.8}
+    extracted = [{"episode_id": ep, "relationships": [],
+                  "entities": [{**mention, "source_episode": ep}]} for ep in (a.episode_id, b.episode_id)]
+    settings = SimpleNamespace(memory_path=memory, litellm_model="m", litellm_disambiguation_model="m",
+                               archive_threshold=0.2, decay_nudge_threshold=0.4, sleep_promotion_threshold=2,
+                               link_enrich_enabled=False)
+    result = asyncio.run(entity_resolver.resolve(extracted, [], settings))
+    created = [c for c in result["changes"] if c.get("action") == "create"]
+    assert created == [], "a restatement inside one lineage counted as a second conversation"
