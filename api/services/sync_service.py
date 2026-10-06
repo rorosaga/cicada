@@ -20,7 +20,7 @@ from api.services import (backlog, bank_index, logo_service, markdown_parser, re
 from api.services.calendar_registry import CALENDARS_FILENAME
 from api.services.feed_registry import FEEDS_FILENAME
 from api.services.folder_source import FOLDERS_FILENAME
-from api.services.graph_builder import dir_mtime, file_mtime, inbox_mtime
+from api.services.graph_builder import file_mtime, inbox_stamp
 from api.services.sync_state import SYNC_STATE_FILENAME
 from api.services.wispr_flow import SETTINGS_FILENAME as WISPR_SETTINGS_FILENAME
 
@@ -63,7 +63,7 @@ def git_head(memory_path: Path) -> str:
 # on the ``/sync/version`` hot path (the SSE loop polls it once a second, and
 # every ETag check for graph/inbox/sources/origins/banks calls it), so the
 # YAML parse below must not run per call -- only when the inbox actually moves.
-_DEFER_CACHE: dict[str, tuple[float, bool]] = {}
+_DEFER_CACHE: dict[str, tuple[str, bool]] = {}
 
 
 def _scan_inbox_for_pending_defer(mp: Path) -> bool:
@@ -82,7 +82,7 @@ def _scan_inbox_for_pending_defer(mp: Path) -> bool:
     return False
 
 
-def _inbox_has_pending_defer(mp: Path, mtime: float) -> bool:
+def _inbox_has_pending_defer(mp: Path, mtime) -> bool:
     """True when any *pending* inbox item carries a ``remind_after`` date.
 
     ``load_inbox``'s ``is_deferred`` filter (api/services/inbox_service.py)
@@ -92,10 +92,9 @@ def _inbox_has_pending_defer(mp: Path, mtime: float) -> bool:
     whenever such an item exists makes the ETag re-validate daily instead of
     serving a stale 304 forever once a deferred item's due date arrives.
 
-    Cached on ``mtime`` (``graph_builder.inbox_mtime``, which folds in the
-    inbox dir's own mtime as well as every ``*.md`` inside it), so a defer, an
-    undelete, a resolve or any other inbox write invalidates it while a quiet
-    inbox costs one dict lookup.
+    Cached on the inbox's stamp (``graph_builder.inbox_stamp``, a fingerprint
+    of every ``*.md`` in it), so a defer, an undelete, a resolve or any other
+    inbox write invalidates it while a quiet inbox costs one dict lookup.
     """
     key = str(mp)
     cached = _DEFER_CACHE.get(key)
@@ -164,20 +163,22 @@ def _reading_component(mp: Path) -> str:
 
 def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
     mp = Path(memory_path)
-    ep_count, ep_max = bank_index.dir_stamp(mp, "episodes")
-    src_count, src_max = bank_index.dir_stamp(mp, "sources")
-    inbox_stamp = inbox_mtime(mp)
-    inbox_component = f"{inbox_stamp:.6f}"
-    if _inbox_has_pending_defer(mp, inbox_stamp):
+    # Audit 2026-10-05 P2-9: every directory component is a fingerprint of its
+    # files' names, sizes and nanosecond mtimes (`bank_index.dir_fingerprint`,
+    # one shared scan) — "the newest mtime" stood still for an edit beside a
+    # future-dated file, and the app's ETags answered 304 over a changed page.
+    stamp = inbox_stamp(mp)
+    inbox_component = stamp
+    if _inbox_has_pending_defer(mp, stamp):
         # Cheap: today's date is enough to force a re-validate once a day: the
         # exact remind_after value doesn't matter, only that "today" advanced.
         inbox_component += f":{date.today().isoformat()}"
     return {
-        "entities": f"{dir_mtime(mp / 'entities'):.6f}",
+        "entities": bank_index.dir_fingerprint(mp / "entities"),
         "edges": f"{file_mtime(mp / 'graph_edges.yaml'):.6f}",
-        "hubs": f"{dir_mtime(mp / 'hubs'):.6f}",
+        "hubs": bank_index.dir_fingerprint(mp / "hubs"),
         "inbox": inbox_component,
-        "episodes": f"{ep_count}:{ep_max}",
+        "episodes": bank_index.dir_fingerprint(mp / "episodes"),
         # G150 R-B16: every backlog item's stamp (a stat walk, no parse) — the
         # Projects page's backlog reads and `_state.md`'s `backlog_open` move
         # on it; nothing in `entities`/`episodes` notices a backlog write.
@@ -193,7 +194,7 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         # component. So does `sources/wispr_flow.json` (G134): turning the
         # source on adds a channel row the same way (R-LS29).
         "sources": (
-            f"{src_count}:{src_max}"
+            f"{bank_index.dir_fingerprint(mp / 'sources')}"
             f":{file_mtime(mp / 'sources' / 'url_index.json'):.6f}"
             f":{file_mtime(mp / 'sources' / FOLDERS_FILENAME):.6f}"
             f":{file_mtime(mp / 'sources' / WISPR_SETTINGS_FILENAME):.6f}"

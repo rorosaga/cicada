@@ -8,6 +8,7 @@ bodies are read lazily. The cache is process-local and disposable.
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import os
 import threading
 from contextlib import contextmanager
@@ -83,7 +84,9 @@ def _scan_uncached(directory: Path) -> dict[str, tuple[int, int]]:
                 if entry.is_file() and entry.name.endswith(".md"):
                     st = entry.stat()
                     out[entry.name] = (st.st_mtime_ns, st.st_size)
-    except FileNotFoundError:
+    except OSError:
+        # Missing, a plain file, unreadable: an empty listing, never a raise into
+        # /sync/version or an ETag (the old max-mtime stamp's contract).
         pass
     return out
 
@@ -149,6 +152,30 @@ def dir_stamp(memory_path: Path, subdir: str) -> tuple[int, int]:
     """(file count, max mtime_ns) — a cheap change stamp, no parsing."""
     current = _scan(Path(memory_path) / subdir)
     return len(current), max((m for m, _ in current.values()), default=0)
+
+
+def fingerprint(entries) -> str:
+    """``<count>.<hash>`` over ``(name, mtime_ns, size)`` rows — moves when any
+    row is added, removed, renamed, resized or re-stamped. No ``:`` in it, so a
+    component that appends ``:<extra>`` stays parseable."""
+    h = hashlib.blake2b(digest_size=8)
+    n = 0
+    for name, mtime_ns, size in sorted(entries):
+        h.update(f"{name}\0{mtime_ns}\0{size}\n".encode("utf-8", errors="surrogatepass"))
+        n += 1
+    return f"{n}.{h.hexdigest()}"
+
+
+def dir_fingerprint(directory: Path) -> str:
+    """A directory's ``*.md`` files as a change stamp (audit 2026-10-05 P2-9).
+
+    "The newest mtime" missed an edit whenever any other file was dated later
+    — a future-dated file, a clock that stepped back — so a version or an ETag
+    built on it never moved. This fingerprints every file's name, size and
+    nanosecond mtime instead, from the same scan everything else uses (one per
+    directory per SSE tick under :func:`shared_scans`, audit A10). No parse."""
+    current = _scan(Path(directory))
+    return fingerprint((name, m, size) for name, (m, size) in current.items())
 
 
 def is_warm(memory_path: Path, subdir: str) -> bool:
