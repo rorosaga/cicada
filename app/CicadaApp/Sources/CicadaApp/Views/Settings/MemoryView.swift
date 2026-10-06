@@ -150,7 +150,7 @@ struct MemoryView: View {
             do {
                 try await work()
             } catch APIError.httpError(409, let message) {
-                onError(message.localizedCaseInsensitiveContains("sleep") ? Copy.sleepIsRunning : Copy.alreadyRunning)
+                onError(SleepRefusal.matches(APIError.httpError(409, message)) ? Copy.sleepIsRunning : Copy.alreadyRunning)
             } catch {
                 onError(AddSourceSheet.friendlyError(error))
             }

@@ -55,6 +55,7 @@ from api.services.claims import strip_claims_block
 from api.services.hub_builder import _one_line_summary
 from api.services.id_utils import build_name_index, resolve_entity_id
 from api.services.wikilink_resolver import extract_wikilinks
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -200,7 +201,7 @@ def _source_guard() -> None:
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, SOURCE_BUSY)
+        raise SleepWriting(SOURCE_BUSY)
 
 
 def _picture_guard() -> None:
@@ -209,7 +210,7 @@ def _picture_guard() -> None:
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, PICTURE_BUSY)
+        raise SleepWriting(PICTURE_BUSY)
 
 
 def _entity_page(settings: Settings, entity_id: str) -> Path:

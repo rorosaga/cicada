@@ -79,6 +79,25 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(store.toast, "Couldn't resolve that item — reverted")
     }
 
+    /// G177 review finding 3 — the stable code decides; an older backend's refusal is known by its exact opening words
+    /// only, never by "sleep" anywhere in the body (a page id can say it).
+    func testSleepRefusalKeysOffTheCodeThenTheKnownSentences() {
+        func conflict(_ body: String) -> APIError { .httpError(409, body) }
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"code":"sleep_writing","detail":"Anything at all"}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"Sleep is updating your memory — try answering again in a moment."}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"Sleep is writing this project, try again in a moment"}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"Sleep is running — try again when it finishes"}"#)))
+        XCTAssertTrue(SleepRefusal.matches(conflict(#"{"detail":"a Sleep cycle is running and writes the same pages — retry when it finishes"}"#)))
+
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"detail":"Cannot resolve inbox-001: the claims block in entities/sleep-study.md is malformed."}"#)))
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"detail":"claims block on sleep-study will not parse"}"#)))
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"detail":"'sleep-hygiene' has an unreadable claims block; repair it before merging"}"#)))
+        XCTAssertFalse(SleepRefusal.matches(conflict(#"{"code":"other","detail":"x","note":"Sleep is running"}"#)), "an extra field is not the detail")
+        XCTAssertFalse(SleepRefusal.matches(conflict("Sleep is running — not JSON")), "a body that is not the envelope")
+        XCTAssertFalse(SleepRefusal.matches(APIError.httpError(400, #"{"code":"sleep_writing","detail":"x"}"#)), "409 only")
+        XCTAssertFalse(SleepRefusal.matches(nil))
+    }
+
     /// The entity card's Fades chip: a refusal while Sleep writes says so; anything else says the change did not land.
     func testDecayChangeFailureWords() {
         XCTAssertEqual(DecayChangeFailure.message(APIError.httpError(409, #"{"detail":"Sleep is updating your memory — try again in a moment."}"#)),

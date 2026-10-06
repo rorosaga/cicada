@@ -48,7 +48,7 @@ from api.routers import (
     status,
     sync,
 )
-from api.services import bank_registry, search_index, sleep_scheduler
+from api.services import bank_registry, search_index, sleep_refusal, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
@@ -208,6 +208,9 @@ app = FastAPI(
 # doors to leave open. Native clients (URLSession, the MCP server, curl) send no
 # Origin at all and are unaffected; the bearer scheme is untouched.
 LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+
+# G177 — every "Sleep holds the pages" refusal carries a stable `code` beside its sentence (`sleep_refusal`).
+app.add_exception_handler(sleep_refusal.SleepWriting, sleep_refusal.handler)
 
 app.add_middleware(
     CORSMiddleware,

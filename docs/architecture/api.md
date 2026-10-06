@@ -41,6 +41,12 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
 
+**A Sleep-window refusal has a stable code.** Every route guarded by `sleep_cycle.is_writing()` raises
+`sleep_refusal.SleepWriting` (an `HTTPException`, so a direct caller still reads `.detail`); the handler in `api/main.py`
+answers `409 {"code": "sleep_writing", "detail": "<the route's sentence>"}`. Clients key off the code — never off
+"sleep" in the body, since other 409s name pages (`claims block on <id>`) — and `detail` stays a string for older
+clients. `test_sleep_refusal_code.py` scans `api/routers/` so a new guard cannot raise a plain 409.
+
 `GET /videos/state` and `GET /videos/summary` (G162) ETag over `entities`+`episodes`+`sources`+`videoQueue` with
 `extra` = `<name>|video-1` (`video_state.VIDEO_SHAPE`, which also rides both provenance ETags) and are **not** Store
 domains (the app's `VideoStateCache` revalidates on `VideoRefresh`, no `VersionVector` mapping). The `videoQueue`

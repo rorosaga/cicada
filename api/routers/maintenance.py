@@ -25,6 +25,7 @@ from api.models.schemas import (
 )
 from api.services import search_index
 from api.services.dedup_sweep import dedup_sweep
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -101,8 +102,7 @@ async def run_enrich_links(
     if _enrich_lock.locked():
         raise HTTPException(409, "a link backfill is already running — retry when it finishes")
     if sleep_cycle.is_writing():
-        raise HTTPException(
-            409,
+        raise SleepWriting(
             "a Sleep cycle is running and writes the same media pages — retry when it finishes",
         )
     if not settings.link_enrich_enabled:
@@ -145,7 +145,7 @@ async def link_sources(settings: Settings = Depends(get_settings)):
     if _links_lock.locked():
         raise HTTPException(409, "a source-link pass is already running — retry when it finishes")
     if sleep_cycle.is_writing():
-        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+        raise SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")
     async with _links_lock:
         memory_path = settings.memory_path
         skip: frozenset[str] = frozenset()
@@ -191,7 +191,7 @@ async def verify_sites(
     if _sites_lock.locked():
         raise HTTPException(409, "a site check is already running — retry when it finishes")
     if sleep_cycle.is_writing():
-        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+        raise SleepWriting("a Sleep cycle is running and writes the same pages — retry when it finishes")
     async with _sites_lock:
         memory_path = settings.memory_path
         skip: frozenset[str] = frozenset()
@@ -252,7 +252,7 @@ async def rebuild_search_index(settings: Settings = Depends(get_settings)):
     if _index_lock.locked():
         raise HTTPException(409, "A rebuild is already running.")
     if sleep_cycle.is_writing():
-        raise HTTPException(409, "A Sleep cycle is running and rebuilds the index itself.")
+        raise SleepWriting("A Sleep cycle is running and rebuilds the index itself.")
     # Resolved once: a bank switch mid-rebuild must not make the status below
     # describe a different bank than the one just rebuilt (the split-brain rule).
     memory_path = settings.memory_path

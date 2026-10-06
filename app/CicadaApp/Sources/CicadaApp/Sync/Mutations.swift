@@ -95,13 +95,25 @@ struct InboxResolve: Mutation {
     var refreshDomains: Set<SyncDomain> { [.inbox] }
 }
 
-/// A 409 whose detail names Sleep: the server's "Sleep is updating your memory" refusals (`sleep_cycle.is_writing`)
-/// all say so, while its other 409s (a claims block that will not parse, a run already going) do not.
-/// `MemoryView.run`'s precedent.
+/// A refusal because Sleep holds the pages (`sleep_cycle.is_writing`): a 409 whose envelope carries
+/// `code: "sleep_writing"` (`api/services/sleep_refusal.py`, G177). An older backend sends no code, so its refusals
+/// are known by their exact opening words only — never by "sleep" anywhere in the body, since the other 409s (a claims
+/// block that will not parse, a merge) name pages whose ids can say it (review finding 3).
 enum SleepRefusal {
+    static let code = "sleep_writing"
+    /// The opening words of every Sleep-window refusal the backend sent before the code existed.
+    static let legacyOpenings = [
+        "Sleep is updating your memory", "Sleep is writing", "Sleep is running",
+        "a Sleep cycle is running", "A Sleep cycle is running", "Cicada is tidying up your memory right now",
+    ]
+
     static func matches(_ error: (any Error)?) -> Bool {
-        guard case .httpError(409, let body)? = error as? APIError else { return false }
-        return body.localizedCaseInsensitiveContains("sleep")
+        guard case .httpError(409, let body)? = error as? APIError,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        if let code = object["code"] as? String { return code == Self.code }
+        guard let detail = object["detail"] as? String else { return false }
+        return legacyOpenings.contains { detail.hasPrefix($0) }
     }
 }
 
