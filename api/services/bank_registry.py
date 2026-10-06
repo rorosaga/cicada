@@ -84,9 +84,6 @@ DERIVED_ARTIFACTS = (
     "search_index.db",
     "search_index.db-wal",
     "search_index.db-shm",
-    # G110 slice 1a: the continuity metadata index (`continuity.py`) — derived
-    # from the episodes' heads, rebuilt on demand, never versioned.
-    "continuity_index.json",
     # Audit A02/K01: an atomic page write's staging file (`markdown_parser._stage`)
     # and the other temp-then-replace writers' — never a page, never versioned.
     ".*.tmp",
@@ -213,42 +210,6 @@ def ensure_derived_excluded(path: Path) -> bool:
 
 
 # --- Resolution (the load-bearing path) ------------------------------------
-
-
-def derived_exclusion_state(path: Path, name: str, *, lock_timeout: float = 0.2, timeout: float = 2.0) -> str:
-    """Whether git would ignore ``name`` in this bank, as GIT decides it:
-    ``excluded`` (``git check-ignore`` matches it — every rule file, negations
-    and precedence included — and it is not already tracked), ``no_git`` (no
-    ``.git`` at all: nothing can track it) or ``unprotected`` (anything else,
-    including any doubt: git missing, a timeout, the bank's lock busy).
-
-    G110 fix round 1 (review finding 2): an exact positive line can be undone by
-    a later ``!name`` in ``.gitignore``, which also outranks ``info/exclude``;
-    reading the files ourselves is not proof. The bank is Cicada's own
-    repository, never a declared one; the two reads run under the bank's
-    git write lock (``git_service.write_lock``), so no writer's ``add`` races
-    the verdict, with ``GIT_OPTIONAL_LOCKS=0`` like every read. Never raises."""
-    from api.services import git_service
-
-    path = Path(path)
-    if not (path / ".git").exists():
-        return "no_git"
-    lock = git_service.write_lock(path)
-    if not lock.acquire(timeout=lock_timeout):
-        return "unprotected"
-    try:
-        env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"}
-        ignored = subprocess.run(["git", "check-ignore", "-q", "--no-index", "--", name], cwd=str(path),
-                                 capture_output=True, timeout=timeout, env=env)
-        if ignored.returncode != 0:
-            return "unprotected"
-        tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", name], cwd=str(path),
-                                 capture_output=True, timeout=timeout, env=env)
-        return "unprotected" if tracked.returncode == 0 else "excluded"
-    except (OSError, subprocess.SubprocessError):
-        return "unprotected"
-    finally:
-        lock.release()
 
 
 def registry_path(root: Path) -> Path:

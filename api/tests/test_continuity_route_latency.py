@@ -71,10 +71,9 @@ def _start(client, i):
 
 def _cold(big):
     continuity.reset()
-    try:
-        (big["memory"] / continuity.INDEX_FILE).unlink()
-    except FileNotFoundError:
-        pass
+    target = continuity.index_path(big["memory"], (big["memory"],))
+    if target is not None:
+        target.unlink(missing_ok=True)
     shutil.rmtree(big["home"] / "handshake", ignore_errors=True)
 
 

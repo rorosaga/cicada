@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.remote import catalog
 from api.remote.runtime import RemoteRuntime
-from api.services import bank_registry, hook_recall, media_ingestor, reading_asks, reading_service, reading_settings, recall_text
+from api.services import hook_recall, media_ingestor, reading_asks, reading_service, reading_settings, recall_text
 from api.services import transcript_extract
 from test_hook_context_route import URL, _body, _clean  # noqa: F401 — autouse cleanup
 from test_hook_recall import _index, bank  # noqa: F401
@@ -126,11 +126,9 @@ def test_the_note_is_never_captured_back_as_the_persons_words(client, bank):
 def test_nothing_is_written_to_state_or_the_bank(client, bank):
     enable()
     _ask(bank)
-    # G110: a derived index (never versioned, rebuilt on demand) may appear; nothing else may.
-    derived = set(bank_registry.DERIVED_ARTIFACTS)
-    before = {p.name for p in bank.rglob("*") if p.is_file()} - derived
+    before = {p.name for p in bank.rglob("*") if p.is_file()}
     client.post(URL, json=_body(None, event="session_start"))
-    assert {p.name for p in bank.rglob("*") if p.is_file()} - derived == before
+    assert {p.name for p in bank.rglob("*") if p.is_file()} == before
     assert "reading queue" not in (bank / "_state.md").read_text()
 
 

@@ -1,8 +1,9 @@
-"""G110 slice 1a T3: the disposable continuity index (plan C2).
+"""G110 slice 1a T3: the disposable continuity index (plan C2, as amended in
+fix round 2).
 
-Heads only inside a hook request; filter by the exact folder before any
-order; persisted only when git is known to ignore it and a lock outside every
-bank exists; otherwise in memory; never an error."""
+Heads only inside a hook request; filter by the exact folder before any order;
+persisted beside the registry in the guarded continuity home — never inside a
+bank, and no git anywhere on this path — else in memory; never an error."""
 from __future__ import annotations
 
 import json
@@ -15,7 +16,7 @@ import time
 import pytest
 
 from _continuity_fixtures import CWD, at, sid, write_other_episode, write_session
-from api.services import bank_registry, continuity, markdown_parser
+from api.services import continuity, continuity_sessions, markdown_parser
 
 GIT = shutil.which("git")
 
@@ -63,16 +64,6 @@ def test_a_deleted_episode_drops_its_row(bank):
     assert _refresh(bank).rows == {}
 
 
-@pytest.mark.parametrize("junk", ['{"schema": 99, "entries": {}}', "[]", "not json",
-                                  '{"schema": 1, "entries": {"ep_x.md": [1, 2, {"id": "../x"}]}}'])
-def test_a_wrong_or_corrupt_index_is_rebuilt(bank, junk):
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    (bank / continuity.INDEX_FILE).write_text(junk)
-    continuity.reset()
-    snap = _refresh(bank)
-    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
-
-
 def test_an_oversized_head_is_unreadable_and_never_fully_parsed_in_a_hook(bank, monkeypatch):
     write_session(bank, 1, [("user", "a"), ("assistant", "b")], extra_meta={"zz_note": "x" * 20_000}, start=100)
     write_session(bank, 2, [("user", "c"), ("assistant", "d")], start=0)
@@ -107,171 +98,6 @@ def test_concurrent_refreshes_read_the_same_rows(bank):
     for t in threads:
         t.join()
     assert len(out) == 4 and all(o == out[0] for o in out) and len(out[0]) == 40
-
-
-def test_no_git_persists_the_index(bank):
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    _refresh(bank)
-    doc = json.loads((bank / continuity.INDEX_FILE).read_text())
-    assert doc["schema"] == 1 and "ep_2026-09-03_001.md" in doc["entries"]
-    assert not list(bank.glob(".*.tmp"))
-
-
-@pytest.mark.skipif(GIT is None, reason="git not installed")
-def test_a_git_bank_is_excluded_before_the_index_exists_and_stays_clean(bank):
-    subprocess.run([GIT, "init", "-q", str(bank)], check=True)
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    _refresh(bank)
-    assert (bank / continuity.INDEX_FILE).exists()
-    assert bank_registry.derived_exclusion_state(bank, continuity.INDEX_FILE) == "excluded"
-    status = subprocess.run([GIT, "-C", str(bank), "status", "--porcelain", "--untracked-files=all"],
-                            capture_output=True, text=True, check=True).stdout
-    assert continuity.INDEX_FILE not in status
-
-
-@pytest.mark.skipif(GIT is None, reason="git not installed")
-def test_an_unprotectable_git_bank_keeps_the_index_in_memory(bank, monkeypatch):
-    subprocess.run([GIT, "init", "-q", str(bank)], check=True)
-    monkeypatch.setattr(bank_registry, "_append_exclude", lambda *a, **k: False)   # the write "failed"
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    snap = _refresh(bank)
-    assert snap.rows and not (bank / continuity.INDEX_FILE).exists()
-    assert _refresh(bank).rows                        # served from memory
-
-
-def test_a_home_inside_the_bank_creates_no_lock_and_no_file(bank, monkeypatch):
-    monkeypatch.setenv("CICADA_HOME", str(bank / "home"))
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    snap = _refresh(bank)
-    assert snap.rows and not (bank / continuity.INDEX_FILE).exists() and not (bank / "home").exists()
-
-
-def test_derived_exclusion_state(tmp_path):
-    plain = tmp_path / "plain"
-    plain.mkdir()
-    assert bank_registry.derived_exclusion_state(plain, "x.json") == "no_git"
-    if GIT:
-        repo = tmp_path / "repo"
-        subprocess.run([GIT, "init", "-q", str(repo)], check=True)
-        assert bank_registry.derived_exclusion_state(repo, "x.json") == "unprotected"
-        (repo / ".gitignore").write_text("x.json\n")
-        assert bank_registry.derived_exclusion_state(repo, "x.json") == "excluded"
-
-
-def test_the_index_is_a_derived_artifact():
-    assert continuity.INDEX_FILE in bank_registry.DERIVED_ARTIFACTS
-
-
-# --- fix round 1, finding 2: git itself decides whether the index is ignored ----
-
-
-def _git(repo, *args):
-    return subprocess.run([GIT, "-C", str(repo), *args], capture_output=True, text=True, check=True).stdout
-
-
-@pytest.mark.skipif(GIT is None, reason="git not installed")
-@pytest.mark.parametrize("where", ["gitignore", "exclude"])
-def test_a_later_negation_keeps_the_index_in_memory(bank, where):
-    subprocess.run([GIT, "init", "-q", str(bank)], check=True)
-    if where == "gitignore":
-        (bank / ".gitignore").write_text("continuity_index.json\n!continuity_index.json\n")
-    else:
-        (bank / ".git" / "info").mkdir(parents=True, exist_ok=True)
-        (bank / ".git" / "info" / "exclude").write_text("continuity_index.json\n")
-        (bank / ".gitignore").write_text("!continuity_index.json\n")
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    assert bank_registry.derived_exclusion_state(bank, continuity.INDEX_FILE) == "unprotected"
-    snap = _refresh(bank)
-    assert snap.rows and not (bank / continuity.INDEX_FILE).exists()
-    assert continuity.INDEX_FILE not in _git(bank, "status", "--porcelain", "--untracked-files=all")
-
-
-@pytest.mark.skipif(GIT is None, reason="git not installed")
-def test_an_already_tracked_index_is_never_written(bank):
-    subprocess.run([GIT, "init", "-q", str(bank)], check=True)
-    _git(bank, "config", "user.email", "t@example.com")
-    _git(bank, "config", "user.name", "t")
-    (bank / continuity.INDEX_FILE).write_text("{}")
-    _git(bank, "add", "-f", continuity.INDEX_FILE)
-    _git(bank, "commit", "-qm", "tracked by mistake")
-    (bank / ".git" / "info" / "exclude").write_text("continuity_index.json\n")
-    assert bank_registry.derived_exclusion_state(bank, continuity.INDEX_FILE) == "unprotected"
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    assert _refresh(bank).rows
-    assert (bank / continuity.INDEX_FILE).read_text() == "{}"      # left exactly as it was
-
-
-@pytest.mark.skipif(GIT is None, reason="git not installed")
-def test_a_busy_bank_lock_is_treated_as_unprotected(bank):
-    from api.services import git_service
-
-    subprocess.run([GIT, "init", "-q", str(bank)], check=True)
-    (bank / ".gitignore").write_text("continuity_index.json\n")
-    lock = git_service.write_lock(bank)
-    done = threading.Event()
-    result = {}
-
-    def hold():
-        with lock:
-            done.wait(2)
-
-    t = threading.Thread(target=hold)
-    t.start()
-    time.sleep(0.05)
-    try:
-        result["state"] = bank_registry.derived_exclusion_state(bank, continuity.INDEX_FILE, lock_timeout=0.05)
-    finally:
-        done.set()
-        t.join()
-    assert result["state"] == "unprotected"
-    assert bank_registry.derived_exclusion_state(bank, continuity.INDEX_FILE) == "excluded"
-
-
-# --- fix round 1, finding 3: the index lock and the index never follow a symlink --
-
-
-def test_a_symlinked_index_lock_keeps_the_index_in_memory(bank):
-    from api.services import continuity_sessions
-
-    home = continuity_sessions.continuity_home((bank,))
-    victim = bank / "victim.md"
-    victim.write_text("bank page")
-    os.chmod(victim, 0o644)
-    (home / f"{continuity_sessions.bank_file_id(bank)}.index.lock").symlink_to(victim)
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    snap = _refresh(bank)
-    assert snap.rows and not (bank / continuity.INDEX_FILE).exists()
-    assert victim.read_text() == "bank page" and (victim.stat().st_mode & 0o777) == 0o644
-
-
-def test_a_symlinked_index_file_is_never_read(bank, tmp_path):
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    outside = tmp_path / "planted.json"
-    outside.write_text(json.dumps({"schema": 1, "entries": {"ep_2026-09-03_999.md": [1, 2, None]}}))
-    (bank / continuity.INDEX_FILE).symlink_to(outside)
-    continuity.reset()
-    snap = _refresh(bank)
-    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
-    assert json.loads(outside.read_text())["entries"] == {"ep_2026-09-03_999.md": [1, 2, None]}
-
-
-# --- fix round 1, finding 4: the persisted index survives a restart -------------
-
-
-def test_a_persisted_index_is_reused_after_a_restart_without_rereading_heads(bank, monkeypatch):
-    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
-    write_session(bank, 2, [("user", "c"), ("assistant", "d")], extra_meta={"zz_note": "x" * 20_000})
-    tool = _refresh(bank, allow_full_parse=20)                  # the tool recovers the oversized head
-    assert len(tool.rows) == 2 and (bank / continuity.INDEX_FILE).exists()
-    continuity._MEMO.clear()                                    # a new process: nothing in memory
-    reads = []
-    real = continuity.read_head
-    monkeypatch.setattr(continuity, "read_head", lambda p: reads.append(p) or real(p))
-    hook = _refresh(bank, deadline=time.monotonic() + 5)        # hook mode: no full parse allowed
-    assert reads == [] and hook.complete and len(hook.rows) == 2
-
-
-# --- fix round 1, finding 5: a failed scan is never an authoritative absence ----
 
 
 def test_a_scan_error_keeps_the_known_rows_and_is_incomplete(bank, monkeypatch):
@@ -349,15 +175,128 @@ def test_an_explicit_session_id_missed_by_an_incomplete_search_says_so(bank):
     assert "could not establish" in text and "No captured session in this bank matches" not in text
 
 
-# --- fix round 1, finding 6: lock and write failures stay inside the index -------
+A_TURNS_SHORT = [("user", "a"), ("assistant", "b")]
+
+
+A_TURNS_SHORT = [("user", "a"), ("assistant", "b")]
+
+
+def _index(bank):
+    return continuity.index_path(bank, (bank,))
+
+
+@pytest.mark.parametrize("junk", ['{"schema": 99, "entries": {}}', "[]", "not json",
+                                  '{"schema": 1, "entries": {"ep_x.md": [1, 2, {"id": "../x"}]}}'])
+def test_a_wrong_or_corrupt_index_is_rebuilt(bank, junk):
+    write_session(bank, 1, A_TURNS_SHORT)
+    _index(bank).write_text(junk)
+    continuity.reset()
+    snap = _refresh(bank)
+    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
+
+
+# --- fix round 2: the index lives beside the registry, never in a bank --------
+
+
+def test_the_index_is_written_beside_the_registry_never_in_the_bank(bank):
+    write_session(bank, 1, A_TURNS_SHORT)
+    _refresh(bank)
+    target = _index(bank)
+    assert target.parent == continuity_sessions.continuity_home((bank,))
+    assert target.name == f"{continuity_sessions.bank_file_id(bank)}.index.json"
+    doc = json.loads(target.read_text())
+    assert doc["schema"] == 1 and "ep_2026-09-03_001.md" in doc["entries"]
+    assert (target.stat().st_mode & 0o777) == 0o600
+    assert not [p for p in bank.rglob("*") if "index" in p.name or p.name.endswith(".tmp")]
+
+
+@pytest.mark.skipif(GIT is None, reason="git not installed")
+def test_a_git_bank_stays_clean_and_no_git_runs(bank, monkeypatch):
+    subprocess.run([GIT, "init", "-q", str(bank)], check=True)
+    write_session(bank, 1, A_TURNS_SHORT)
+    before = subprocess.run([GIT, "-C", str(bank), "status", "--porcelain", "--untracked-files=all"],
+                            capture_output=True, text=True, check=True).stdout
+
+    def no_git(*a, **k):
+        raise AssertionError("no git on the continuity path")
+
+    monkeypatch.setattr(subprocess, "run", no_git)
+    snap = _refresh(bank)
+    monkeypatch.undo()
+    assert snap.rows
+    after = subprocess.run([GIT, "-C", str(bank), "status", "--porcelain", "--untracked-files=all"],
+                           capture_output=True, text=True, check=True).stdout
+    assert after == before
+
+
+def test_an_older_in_bank_index_is_ignored_and_never_deleted(bank):
+    write_session(bank, 1, A_TURNS_SHORT)
+    stale = bank / "continuity_index.json"
+    stale.write_text(json.dumps({"schema": 1, "entries": {"ep_2026-09-03_999.md": [1, 2, None]}}))
+    snap = _refresh(bank)
+    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
+    assert stale.exists() and "ep_2026-09-03_999.md" in stale.read_text()
+
+
+@pytest.mark.parametrize("where", ["bank", "root", "alias"])
+def test_a_home_inside_a_bank_creates_nothing_and_keeps_the_index_in_memory(tmp_path, monkeypatch, where):
+    continuity.reset()
+    root = tmp_path / "memory"
+    bank = root / "banks" / "alpha"
+    (bank / "episodes").mkdir(parents=True)
+    write_session(bank, 1, A_TURNS_SHORT)
+    if where == "alias":
+        link = tmp_path / "alias"
+        link.symlink_to(bank, target_is_directory=True)
+        home = link / "home"
+    else:
+        home = (bank if where == "bank" else root) / "home"
+    monkeypatch.setenv("CICADA_HOME", str(home))
+    snap = continuity.refresh_index(bank, bank_paths=(root, bank), deadline=None)
+    assert snap.rows and continuity.index_path(bank, (root, bank)) is None and not home.exists()
+    assert continuity.refresh_index(bank, bank_paths=(root, bank), deadline=None).rows    # from memory
+
+
+def test_the_index_survives_a_restart_without_rereading_heads(bank, monkeypatch):
+    write_session(bank, 1, A_TURNS_SHORT)
+    write_session(bank, 2, [("user", "c"), ("assistant", "d")], extra_meta={"zz_note": "x" * 20_000})
+    tool = _refresh(bank, allow_full_parse=20)                  # the tool recovers the oversized head
+    assert len(tool.rows) == 2 and _index(bank).exists()
+    continuity._MEMO.clear()                                    # a new process: nothing in memory
+    reads = []
+    real = continuity.read_head
+    monkeypatch.setattr(continuity, "read_head", lambda p: reads.append(p) or real(p))
+    hook = _refresh(bank, deadline=time.monotonic() + 5)        # hook mode: no full parse allowed
+    assert reads == [] and hook.complete and len(hook.rows) == 2
+
+
+def test_a_symlinked_index_lock_keeps_the_index_in_memory(bank):
+    home = continuity_sessions.continuity_home((bank,))
+    victim = bank / "victim.md"
+    victim.write_text("bank page")
+    os.chmod(victim, 0o644)
+    (home / f"{continuity_sessions.bank_file_id(bank)}.index.lock").symlink_to(victim)
+    write_session(bank, 1, A_TURNS_SHORT)
+    snap = _refresh(bank)
+    assert snap.rows and not _index(bank).exists()
+    assert victim.read_text() == "bank page" and (victim.stat().st_mode & 0o777) == 0o644
+
+
+def test_a_symlinked_index_file_is_never_read_or_written_through(bank, tmp_path):
+    write_session(bank, 1, A_TURNS_SHORT)
+    outside = tmp_path / "planted.json"
+    planted = json.dumps({"schema": 1, "entries": {"ep_2026-09-03_999.md": [1, 2, None]}})
+    outside.write_text(planted)
+    _index(bank).symlink_to(outside)
+    continuity.reset()
+    snap = _refresh(bank)
+    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
+    assert outside.read_text() == planted
 
 
 @pytest.mark.parametrize("fail", ["open", "flock", "write", "replace"])
 def test_index_io_failures_fall_back_to_memory(bank, monkeypatch, fail):
     import errno
-    import fcntl as real_fcntl
-
-    from api.services import continuity_sessions
 
     write_session(bank, 1, A_TURNS_SHORT)
 
@@ -369,15 +308,12 @@ def test_index_io_failures_fall_back_to_memory(bank, monkeypatch, fail):
     elif fail == "flock":
         monkeypatch.setattr(continuity.fcntl, "flock", boom)
     elif fail == "write":
-        monkeypatch.setattr(continuity.Path, "write_text", boom)
+        monkeypatch.setattr(continuity.json, "dump", boom)
     else:
         monkeypatch.setattr(continuity.os, "replace", boom)
     snap = _refresh(bank)
     assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
-    assert not (bank / continuity.INDEX_FILE).exists() and not list(bank.glob(".*.tmp"))
+    home = continuity_sessions.continuity_home((bank,))
+    assert not _index(bank).exists() and not list(home.glob(".*.tmp"))
     ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=CWD)
     assert "ep_2026-09-03_001" in continuity.full_text(ctx)
-    assert real_fcntl is not None
-
-
-A_TURNS_SHORT = [("user", "a"), ("assistant", "b")]

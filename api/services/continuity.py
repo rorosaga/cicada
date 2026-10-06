@@ -17,17 +17,20 @@ capture stores as ``project_dir``. No folding, no prefix matching, no
 repository key, no ``.git`` read: every note says the workspace state was not
 checked.
 
-**The index** (``<bank>/continuity_index.json``) maps every ``ep_*.md`` to
+**The index** (``$CICADA_HOME/continuity/<bank-id>.index.json``, beside the
+registry, never inside a bank) maps every ``ep_*.md`` to
 ``(mtime_ns, size, row | "unreadable" | null)``. A row is read from the
 episode's HEAD only — the bytes up to its first top-level ``turns:`` key or the
 frontmatter's close, capped at ``HEAD_CAP`` — never a full parse inside a hook
 request. A head that cannot be read that way is ``unreadable`` and makes the
 search *incomplete*; only the stdio tool (no hook budget) may fully parse a few.
-The index is persisted only when git is known to ignore it
-(``bank_registry.derived_exclusion_state``) and a lock outside every bank is
-available (``continuity_sessions.continuity_home``); otherwise it lives in
-this process's memory. It is never an error and never an authoritative
-absence.
+The index lives in the registry's guarded home
+(``continuity_sessions.continuity_home``: never inside the memory root or any
+configured bank) and is opened like the registry — no symlink followed, regular
+files only. With no safe home, or any I/O failure, it lives in this process's
+memory. No git runs anywhere on this path. It is never an error and never an
+authoritative absence. (An older build kept it in the bank as
+``continuity_index.json``; such a file is ignored, never read and never deleted.)
 
 Engine-free, read-only on the bank's markdown, and never logs a path, a title
 or a turn.
@@ -48,10 +51,11 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from api.services import bank_registry, continuity_sessions, episode_ids, evidence, markdown_parser
+from api.services import continuity_sessions, episode_ids, evidence, markdown_parser
 
 SCHEMA = 1
-INDEX_FILE = "continuity_index.json"
+#: The index file's suffix in the continuity home: ``<bank-id>.index.json``.
+INDEX_SUFFIX = ".index.json"
 #: A larger index file is not read (it is rebuilt from the heads instead).
 INDEX_MAX_BYTES = 64 * 1024 * 1024
 HEAD_CAP = 16_384
@@ -154,17 +158,25 @@ def _full_row(path: Path) -> dict | str | None:
         return UNREADABLE
 
 
-def _index_path(memory_path: Path) -> Path:
-    return Path(memory_path) / INDEX_FILE
+def index_path(memory_path: Path, bank_paths) -> Path | None:
+    """``<continuity home>/<bank-id>.index.json`` — or None when there is no
+    safe home (a ``CICADA_HOME`` inside a bank): then memory only."""
+    home = continuity_sessions.continuity_home(bank_paths)
+    if home is None:
+        return None
+    return home / f"{continuity_sessions.bank_file_id(memory_path)}{INDEX_SUFFIX}"
 
 
-def _load(memory_path: Path) -> dict[str, list]:
+def _load(memory_path: Path, bank_paths) -> dict[str, list]:
     key = os.path.realpath(memory_path)
     with _MEMO_LOCK:
         if key in _MEMO:
             return dict(_MEMO[key])
+    path = index_path(memory_path, bank_paths)
+    if path is None:
+        return {}
     try:
-        raw = continuity_sessions.read_regular(_index_path(memory_path), INDEX_MAX_BYTES)
+        raw = continuity_sessions.read_regular(path, INDEX_MAX_BYTES)
         doc = json.loads(raw.decode("utf-8")) if raw and len(raw) <= INDEX_MAX_BYTES else {}
     except (OSError, ValueError):
         return {}
@@ -187,34 +199,30 @@ def _load(memory_path: Path) -> dict[str, list]:
     return out
 
 
-#: How long a bank's git verdict on the index is reused (two `git` reads per check).
-EXCLUSION_TTL_S = 60.0
-_EXCLUSION: dict[str, tuple[float, str]] = {}
-
-
-def _protected(memory_path: Path) -> bool:
-    """Git itself says the index is ignored and untracked (or there is no git).
-    A doubtful answer is "no": the index then stays in memory."""
-    key = os.path.realpath(memory_path)
-    hit = _EXCLUSION.get(key)
-    if hit and time.monotonic() - hit[0] < EXCLUSION_TTL_S:
-        return hit[1] in ("excluded", "no_git")
-    state = bank_registry.derived_exclusion_state(memory_path, INDEX_FILE)
-    if state == "unprotected":
-        bank_registry.ensure_derived_excluded(memory_path)       # info/exclude only, never a tracked file
-        state = bank_registry.derived_exclusion_state(memory_path, INDEX_FILE)
-    _EXCLUSION[key] = (time.monotonic(), state)
-    return state in ("excluded", "no_git")
+def _write_index(target: Path, entries: dict[str, list]) -> None:
+    """A whole-file replace beside the registry: a fresh 0600 temp file (never
+    through a symlink), then ``os.replace``. Raises ``OSError``."""
+    tmp = target.with_name(f".{target.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"schema": SCHEMA, "entries": entries}, fh)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _persist(memory_path: Path, entries: dict[str, list], bank_paths) -> None:
-    """Write the index only where git is known to ignore it; else memory only."""
-    if not _protected(memory_path):
+    """Write the index beside the registry, under its own non-blocking lock;
+    no safe home, contention or any I/O failure keeps it in memory only."""
+    target = index_path(memory_path, bank_paths)
+    if target is None:
         return
-    home = continuity_sessions.continuity_home(bank_paths)
-    if home is None:
-        return
-    lock = home / f"{continuity_sessions.bank_file_id(memory_path)}.index.lock"
+    lock = target.with_name(f"{continuity_sessions.bank_file_id(memory_path)}.index.lock")
     try:
         fd = continuity_sessions.open_lock(lock)       # never through a symlink (review finding 3)
     except OSError:
@@ -226,16 +234,10 @@ def _persist(memory_path: Path, entries: dict[str, list], bank_paths) -> None:
             # Contention (another refresh is writing) or a filesystem without locks
             # (review finding 6): either way this snapshot stays in memory.
             return
-        target = _index_path(memory_path)
-        tmp = target.with_name(f".{INDEX_FILE}.{secrets.token_hex(4)}.tmp")
         try:
-            tmp.write_text(json.dumps({"schema": SCHEMA, "entries": entries}), encoding="utf-8")
-            os.replace(tmp, target)
+            _write_index(target, entries)
         except OSError:
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+            pass
     finally:
         os.close(fd)
 
@@ -249,7 +251,7 @@ def refresh_index(memory_path: Path, *, bank_paths, deadline: float | None,
     many unreadable heads."""
     memory_path = Path(memory_path)
     episodes = memory_path / "episodes"
-    old = _load(memory_path)
+    old = _load(memory_path, bank_paths)
     entries: dict[str, list] = {}
     pending = 0
     scan = []
@@ -305,7 +307,6 @@ def reset() -> None:
     """Forget every in-memory index (tests)."""
     with _MEMO_LOCK:
         _MEMO.clear()
-    _EXCLUSION.clear()
 
 
 # --- selection ---------------------------------------------------------------
