@@ -71,7 +71,14 @@ phrase ("6 months ago") so staleness is visible before choosing; `age_days` is d
 never stored. Legacy flat `options: [str]` still render.
 
 **Dedup + time.** Items are keyed `(entity_id, predicate)`. A second competing value **merges** into
-the open item as another option instead of writing a duplicate. Each Sleep,
+the open item as another option instead of writing a duplicate. **A predicate fold is asked once per pair per bank
+(G98/G115):** Stage 3 raises `normalization` only when a synonym in `_predicates.yaml` maps a label onto a *different*
+predicate — a label kept as its own slug (`uses dataset` → `uses-dataset`) is formatting, never a question.
+`write_claim_nudges` keys the item by `(slug(raw), canonical)`: a later claim folded the same way joins the open item's
+`covered_claims`, and a pair the person answered "Correct fold" to (`_predicates.yaml` `confirmed_folds`, committed with
+the answer) is never asked again; "Wrong fold" repoints every covered claim. The claim write itself never changes. A
+one-shot bank migration (`dedup_normalization_items`, marker `inbox/.deduped_normalization`) cleared the items raised
+before the fix. Each Sleep,
 `inbox_questions.refresh_open_questions` bumps re-mentioned options, auto-resolves questions the
 user answered organically, escalates a question whose every option has been silent for
 `inbox_stale_after_days` (90) by inserting "Neither anymore", and keeps deferred items out of
