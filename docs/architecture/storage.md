@@ -389,7 +389,9 @@ argument the schema rejects is a bug** — every argument it names must exist in
 `api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
 is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
 asymmetric query/document prompts — in a developer checkout. A release app (G182) bundles the int8 ONNX export of
-`BAAI/bge-small-en-v1.5` (384-dim, no torch, `api/services/onnx_embedder.py`, found through `CICADA_BUNDLED_MODELS`)
+`intfloat/multilingual-e5-small` (384-dim, ~100 languages, `query: ` / `passage: ` prompts from its manifest, mean
+pooling, no torch; owner 2026-10-06 chose it over the English-only `bge-small-en-v1.5`; `api/services/onnx_embedder.py`,
+found through `CICADA_BUNDLED_MODELS`)
 and a fresh bank there is built with it unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
 queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
 (`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Memory → Search model,

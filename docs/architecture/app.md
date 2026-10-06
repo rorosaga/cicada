@@ -768,9 +768,10 @@ different version (an updated app beside a background service still running the 
 `scripts/release/build-backend.sh` (python-build-standalone CPython 3.12 for arm64; the release dependency set from
 `scripts/release/requirements.lock`, hashed, no torch; Cicada's tracked `api/`, `mcp/`, `skills/`, `SKILL.md`,
 `VERSION` and agent script; dugite-native git, pruned, with its GPLv2 `COPYING` and a source pointer; the int8 ONNX
-`BAAI/bge-small-en-v1.5`), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
+`intfloat/multilingual-e5-small`, owner 2026-10-06), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
 `CicadaRepoRoot`), strips the binary and signs every Mach-O ad hoc, inside out, never `--deep`
-(`scripts/release/sign-app.sh`). 347 MB unzipped, 138 MB zipped (0.3.0). Nothing is written inside the signed app:
+(`scripts/release/sign-app.sh`). 347 MB unzipped, 138 MB zipped with the English-only model; the multilingual
+model adds about 95 MB (113 MB model and 16 MB tokenizer against 34 MB). Nothing is written inside the signed app:
 bytecode goes to `~/.cicada/cache/pycache`. `scripts/release/smoke-test.sh <app>` copies a build to a temp folder and
 proves it there with a temporary home, bank and port (health and version, the bundled git, an MCP save, the bundled
 model through sqlite-vec, a hook, a launcher that fails loudly when its app moved). `CicadaRuntime` decides the

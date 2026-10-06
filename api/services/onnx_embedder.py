@@ -1,11 +1,11 @@
 """The bundled embedding model: an ONNX export run with onnxruntime, no torch (G182).
 
-A release app ships one small, ungated model (``BAAI/bge-small-en-v1.5``, 384
-dimensions) under ``Contents/Resources/backend/models/<name>/`` and its launchers
+A release app ships one small, ungated, multilingual model
+(``intfloat/multilingual-e5-small``, 384 dimensions; owner 2026-10-06) under ``Contents/Resources/backend/models/<name>/`` and its launchers
 point ``CICADA_BUNDLED_MODELS`` there. Each model directory holds ``model.onnx``,
 ``tokenizer.json`` and a ``cicada-model.json`` manifest naming the model id, its
-pooling, whether vectors are normalised and the query instruction, so this module
-needs no per-model code.
+pooling, whether vectors are normalised and the instructions a query and a document
+each carry (e5's ``query: `` / ``passage: ``), so this module needs no per-model code.
 
 A developer checkout has no bundled model (the variable is unset) and keeps
 EmbeddingGemma through sentence-transformers; a bank records the model it was
@@ -24,7 +24,7 @@ import numpy as np
 BUNDLED_MODELS_ENV = "CICADA_BUNDLED_MODELS"
 MANIFEST = "cicada-model.json"
 #: The id a release app's fresh bank is built with.
-DEFAULT_ID = "BAAI/bge-small-en-v1.5"
+DEFAULT_ID = "intfloat/multilingual-e5-small"
 _BATCH = 32
 
 
@@ -37,6 +37,7 @@ class ModelSpec:
     normalize: bool
     max_tokens: int
     query_prefix: str
+    document_prefix: str = ""
 
 
 def model_dirs(environ=os.environ) -> list[Path]:
@@ -64,6 +65,7 @@ def _read_spec(directory: Path) -> ModelSpec | None:
         normalize=bool(meta.get("normalize", True)),
         max_tokens=int(meta.get("max_tokens") or 512),
         query_prefix=str(meta.get("query_prefix") or ""),
+        document_prefix=str(meta.get("document_prefix") or ""),
     )
 
 
@@ -124,7 +126,7 @@ class OnnxEmbedder:
         self._load()
         if not texts:
             return np.zeros((0, self.spec.dimensions or 0), dtype=np.float32)
-        prefix = self.spec.query_prefix if is_query else ""
+        prefix = self.spec.query_prefix if is_query else self.spec.document_prefix
         chunks: list[np.ndarray] = []
         for start in range(0, len(texts), _BATCH):
             batch = [prefix + (t or "") for t in texts[start : start + _BATCH]]
