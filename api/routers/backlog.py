@@ -22,7 +22,6 @@ validity — it picks the project, the author, the clock and the status code.
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
 
@@ -55,13 +54,13 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-@asynccontextmanager
-async def _admitted(memory_path):
-    """The write's admission (G183), then this process's one-write lock: 409 when Sleep holds the pages, asked once
-    the hold is taken, so a window cannot open until the write and its commit are done."""
-    with write_admission.admitted(memory_path, refuse=lambda: HTTPException(409, BUSY)):
-        async with _write_lock:
-            yield
+def _busy() -> HTTPException:
+    return HTTPException(409, BUSY)
+
+
+#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — in
+#: the transaction's own task, through this process's one-write lock and the commit — so a window cannot open between.
+_admitted = write_admission.route(refuse=_busy)
 
 
 def _project(memory_path, project_id: str) -> tuple[str, dict]:
@@ -174,10 +173,11 @@ async def get_backlog_item(project_id: str, item_id: str, request: Request, resp
 
 
 @router.post("/projects/{project_id}/backlog", response_model=BacklogItemModel)
+@_admitted
 async def add_backlog_item(project_id: str, body: BacklogItemCreate, settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
-    async with _admitted(mp):
+    async with _write_lock:
         result = await run_in_threadpool(
             backlog.add_item, mp, project=stem, title=body.title, description=body.description,
             triage=body.triage, paid=body.paid, author=backlog.USER, now=_now(), tz_name=_tz())
@@ -187,11 +187,12 @@ async def add_backlog_item(project_id: str, body: BacklogItemCreate, settings: S
 
 
 @router.post("/backlog/{project_id}/{item_id}/notes", response_model=BacklogItemModel)
+@_admitted
 async def add_backlog_note(project_id: str, item_id: str, body: BacklogNoteCreate,
                            settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
-    async with _admitted(mp):
+    async with _write_lock:
         result = await run_in_threadpool(
             backlog.add_note, mp, project=stem, item=item_id, note=body.note, status=body.status,
             author=backlog.USER, now=_now(), tz_name=_tz())
@@ -201,12 +202,13 @@ async def add_backlog_note(project_id: str, item_id: str, body: BacklogNoteCreat
 
 
 @router.patch("/backlog/{project_id}/{item_id}", response_model=BacklogItemModel)
+@_admitted
 async def change_backlog_item(project_id: str, item_id: str, body: BacklogItemPatch,
                               settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
     stem, _ = _project(mp, project_id)
     links = None if body.links is None else [link.model_dump(by_alias=False) for link in body.links]
-    async with _admitted(mp):
+    async with _write_lock:
         result = await run_in_threadpool(
             backlog.update_item, mp, project=stem, item=item_id, title=body.title, status=body.status,
             triage=body.triage, paid=body.paid, links=links, author=backlog.USER, now=_now(), tz_name=_tz())
@@ -216,6 +218,7 @@ async def change_backlog_item(project_id: str, item_id: str, body: BacklogItemPa
 
 
 @router.post("/projects/{project_id}/backlog/import", response_model=BacklogImportResponse)
+@_admitted
 async def import_backlog(project_id: str, body: BacklogImportRequest, settings: Settings = Depends(get_settings)):
     """R-B15's live path: one `Backlog import` commit as the person, or none —
     an id already on the backlog is skipped, so a second post changes nothing."""
@@ -223,7 +226,7 @@ async def import_backlog(project_id: str, body: BacklogImportRequest, settings: 
     stem, _ = _project(mp, project_id)
     if len(body.markdown) > backlog_import.MAX_CHARS:
         raise HTTPException(413, "That file is too large to import")
-    async with _admitted(mp):
+    async with _write_lock:
         report = await run_in_threadpool(
             backlog_import.import_markdown, mp, project=stem, text=body.markdown, prefix=body.prefix,
             author=backlog.USER, now=_now(), tz_name=_tz())

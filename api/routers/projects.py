@@ -26,7 +26,6 @@ and only this router (and the synthetic demo) may set it (R-PJB13).
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -136,13 +135,13 @@ def _now() -> datetime:
     return datetime.now(when.zone(_tz()))
 
 
-@asynccontextmanager
-async def _admitted(memory_path):
-    """The write's admission (G183), then this process's one-write lock: 409 when Sleep holds the pages, asked once
-    the hold is taken, so a window cannot open until the write and its commit are done."""
-    with write_admission.admitted(memory_path, refuse=lambda: HTTPException(409, BUSY)):
-        async with _write_lock:
-            yield
+def _busy() -> HTTPException:
+    return HTTPException(409, BUSY)
+
+
+#: The route's write admission (G183): 409 while Sleep holds the pages, asked once the hold is taken and held — in
+#: the transaction's own task, through this process's one-write lock and the commit — so a window cannot open between.
+_admitted = write_admission.route(refuse=_busy)
 
 
 def _on(raw: str | None, today: date) -> date:
@@ -240,10 +239,11 @@ def _observer(memory_path: Path, settings: Settings) -> str:
 
 
 @router.post("/projects/{project_id}/milestones", response_model=ProjectWriteResponse)
+@_admitted
 async def add_milestone(project_id: str, body: MilestoneCreate, settings: Settings = Depends(get_settings)):
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
-    async with _admitted(mp):
+    async with _write_lock:
         today = _now().date()
         result = await run_in_threadpool(
             progress.set_milestone, mp, subject=stem, name=body.name, target=body.target,
@@ -257,6 +257,7 @@ async def add_milestone(project_id: str, body: MilestoneCreate, settings: Settin
 
 
 @router.patch("/projects/{project_id}/milestones/{slug}", response_model=ProjectWriteResponse)
+@_admitted
 async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
                            settings: Settings = Depends(get_settings)):
     """A move, a new state, a rename — or a move and a rename together (the
@@ -265,7 +266,7 @@ async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
     renames the milestone that promotion opened."""
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
-    async with _admitted(mp):
+    async with _write_lock:
         today = _now().date()
         page, is_due = _find_slot(mp, stem, slug)
         on = _on(body.on, today)
@@ -298,6 +299,7 @@ async def change_milestone(project_id: str, slug: str, body: MilestonePatch,
 
 
 @router.post("/projects/{project_id}/happenings", response_model=ProjectWriteResponse)
+@_admitted
 async def log_happening(project_id: str, body: HappeningCreate, settings: Settings = Depends(get_settings)):
     """The Log. R-PJB15: one time phrase is cut from wherever it sits and
     becomes the day (basis `stated`); two are refused, as is a vaguer time word
@@ -321,7 +323,7 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
         raise HTTPException(400, "Say what happened")
     if when.has_relative(claim_text):
         raise HTTPException(422, TWO_DAYS)
-    async with _admitted(mp):
+    async with _write_lock:
         now = _now()
         today = now.date()
         if phrase:
@@ -355,6 +357,7 @@ async def log_happening(project_id: str, body: HappeningCreate, settings: Settin
 
 
 @router.post("/projects/{project_id}/threads/{claim_id}", response_model=ProjectWriteResponse)
+@_admitted
 async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
                         settings: Settings = Depends(get_settings)):
     """An open thread's answer. Done/dropped writes its own born-closed
@@ -364,7 +367,7 @@ async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
     stem = _project_stem(mp, project_id)
     if body.status not in ("done", "ongoing", "dropped"):
         raise HTTPException(400, "A thread is done, still going or dropped")
-    async with _admitted(mp):
+    async with _write_lock:
         today = _now().date()
         page, thread = _find_event(mp, stem, claim_id)
         if thread.predicate != HAPPENED or thread.status != "ongoing" or thread.valid_to is not None:
@@ -383,6 +386,7 @@ async def settle_thread(project_id: str, claim_id: str, body: ThreadSettle,
 
 
 @router.post("/projects/{project_id}/withdraw", response_model=ProjectWriteResponse)
+@_admitted
 async def withdraw_happening(project_id: str, body: WithdrawRequest, settings: Settings = Depends(get_settings)):
     """"Not right". R-PJB28: happenings only — withdrawing a milestone state
     could leave its slot with no open head. When the claim was not the
@@ -390,7 +394,7 @@ async def withdraw_happening(project_id: str, body: WithdrawRequest, settings: S
     one ids-and-enums ledger row, never the sentence."""
     mp = settings.memory_path
     stem = _project_stem(mp, project_id)
-    async with _admitted(mp):
+    async with _write_lock:
         today = _now().date()
         page, target = _find_event(mp, stem, body.claim_id)
         if target.predicate == MILESTONE:

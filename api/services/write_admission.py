@@ -6,9 +6,10 @@ change was then overwritten or swept into Sleep's batch commit under Sleep's aut
 
 **A guarded writer** takes admission *shared* around its check, its page writes and its own commit —
 :func:`admitted` asks ``is_writing()`` once the hold is taken and refuses (the caller's own 409 or sentence) when Sleep
-holds the pages. Shared holds never wait on each other; they are counted, not owned by a thread, so an ``async`` route
-may hold one across its own short awaits (a scoped commit in the threadpool) and a worker thread under it may take it
-again. **Never across a model call or a network fetch** — a long networked job checks per write, or is a disclosed probe.
+holds the pages. Shared holds never wait on each other; they are counted, not owned by a thread. An ``async`` writer uses
+:func:`run_admitted` / :func:`route`: its transaction runs in its own task, shielded from the request, with the flock
+taken off the loop — so a cancelled request cannot release the hold while its worker still writes. :func:`shared` and
+:func:`admitted` are for synchronous code in a worker thread (never inside an ``async def``; a test keeps it so). **Never across a model call or a network fetch** — a long networked job checks per write, or is a disclosed probe.
 
 **Sleep** sets its flag first and then calls :func:`wait_for_writers` off the event loop: it returns once no shared
 hold is left, so every writer that saw the window shut has finished its write and commit, and every later one sees the
@@ -28,6 +29,7 @@ admission while it holds any of them. Awake capture never takes admission.
 """
 from __future__ import annotations
 
+import asyncio
 import fcntl
 import functools
 import logging
@@ -36,9 +38,10 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Awaitable, Callable, Iterator, TypeVar
 
 logger = logging.getLogger(__name__)
+T = TypeVar("T")
 
 #: Sleep says it is waiting after this long, and proceeds after the second.
 WAIT_LOG_S = 5.0
@@ -171,16 +174,61 @@ def admitted(memory_path, *, refuse: Callable[[], BaseException] | None = None) 
         yield
 
 
+async def _acquire_off_loop(key: str) -> int | None:
+    """:func:`_acquire` in a worker thread, so the event loop never waits on a flock. If the awaiting task is
+    cancelled meanwhile, the hold the thread then gets is released when it arrives — never leaked."""
+    fut = asyncio.get_running_loop().run_in_executor(None, _acquire, key)
+    try:
+        return await asyncio.shield(fut)
+    except asyncio.CancelledError:
+        fut.add_done_callback(lambda f: None if f.cancelled() or f.exception() else _release(key, f.result()))
+        raise
+
+
+async def run_admitted(memory_path, body: Callable[[], Awaitable[T]], *,
+                       refuse: Callable[[], BaseException] | None = None) -> T:
+    """Run ``await body()`` as ONE admitted transaction — the async door (fix round 1, findings 2 and 7).
+
+    The transaction runs in its own task, shielded from the caller: a cancelled request does not stop the threadpool
+    worker it was awaiting, so the hold must last until that worker and the commit after it are done — it is released
+    in the transaction's own ``finally``, never in the cancelled caller's. The flock is taken off the loop. With
+    ``refuse``, Sleep holding the pages raises it before ``body`` runs. ``body`` must not await a model call or a
+    network fetch (do that first, then re-check inside)."""
+    key = _key(memory_path)
+
+    async def transaction():
+        fd = await _acquire_off_loop(key)
+        try:
+            if refuse is not None and holding():
+                raise refuse()
+            return await body()
+        finally:
+            _release(key, fd)
+
+    task = asyncio.ensure_future(transaction())
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.add_done_callback(_abandoned)
+        raise
+
+
+def _abandoned(task: "asyncio.Task") -> None:
+    """A transaction whose caller went away still finishes; its failure is logged (by class), never lost silently."""
+    if not task.cancelled() and task.exception() is not None:
+        logger.warning(f"an admitted write finished after its request was cancelled and failed: "
+                       f"{type(task.exception()).__name__}")
+
+
 def route(*, refuse: Callable[[], BaseException] | None = None):
-    """An ``async`` backend route as one admitted transaction — the bank is its ``settings`` argument's
-    ``memory_path``, resolved once. With ``refuse``, :func:`admitted` (its 409 while Sleep holds the pages); without,
-    :func:`shared`, for a route whose write changes shape inside instead (it asks :func:`holding`)."""
+    """An ``async`` backend route as one admitted transaction (:func:`run_admitted`) — the bank is its ``settings``
+    argument's ``memory_path``, resolved once. With ``refuse``, its 409 while Sleep holds the pages; without, a hold
+    that never refuses, for a route whose write changes shape inside instead (it asks :func:`holding`)."""
     def wrap(fn):
         @functools.wraps(fn)
         async def admitted_route(*args, **kwargs):
-            memory_path = kwargs["settings"].memory_path
-            with (admitted(memory_path, refuse=refuse) if refuse is not None else shared(memory_path)):
-                return await fn(*args, **kwargs)
+            return await run_admitted(kwargs["settings"].memory_path, lambda: fn(*args, **kwargs), refuse=refuse)
+        admitted_route.__write_admission__ = "admitted" if refuse is not None else "held"
         return admitted_route
     return wrap
 

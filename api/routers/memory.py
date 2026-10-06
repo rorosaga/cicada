@@ -43,7 +43,7 @@ async def put_decay_tuning(
     """
     from api.services import write_admission
 
-    with write_admission.admitted(settings.memory_path, refuse=lambda: HTTPException(409, BUSY)):
+    async def transaction():
         async with _write_lock:
             try:
                 tuning = decay_tuning.merge(decay_tuning.load(settings.memory_path), changes)
@@ -56,4 +56,6 @@ async def put_decay_tuning(
                     authors=["user"],
                 )
                 await git_service.commit_paths(settings.memory_path, message, [decay_tuning.FILE])
+
+    await write_admission.run_admitted(settings.memory_path, transaction, refuse=lambda: HTTPException(409, BUSY))
     return DecayTuningResponse(**await decay_tuning.overview(settings.memory_path))

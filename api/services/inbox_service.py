@@ -901,8 +901,9 @@ async def resolve(
     and its commit: a window cannot open in between."""
     from api.services import write_admission
 
-    with write_admission.admitted(settings.memory_path, refuse=lambda: HTTPException(409, SLEEP_BUSY)):
-        return await _resolve_admitted(item_id, request, settings)
+    return await write_admission.run_admitted(
+        settings.memory_path, lambda: _resolve_admitted(item_id, request, settings),
+        refuse=lambda: HTTPException(409, SLEEP_BUSY))
 
 
 async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings) -> dict:

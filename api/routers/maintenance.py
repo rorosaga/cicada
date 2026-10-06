@@ -170,7 +170,8 @@ async def link_sources(settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
     # Engine-free and bounded, so the pass holds the bank's write admission through its commit (G183).
     busy = lambda: HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")  # noqa: E731
-    with write_admission.admitted(memory_path, refuse=busy):
+
+    async def transaction():
         async with _links_lock:
             skip: frozenset[str] = frozenset()
             if (memory_path / ".git").exists():
@@ -184,6 +185,9 @@ async def link_sources(settings: Settings = Depends(get_settings)):
                 except Exception:
                     await asyncio.to_thread(source_links.restore, memory_path, report)
                     raise HTTPException(500, "the links could not be committed; nothing was changed")
+            return report
+
+    report = await write_admission.run_admitted(memory_path, transaction, refuse=busy)
     return {"linked": report.linked, "pages": len(report.paths)}
 
 

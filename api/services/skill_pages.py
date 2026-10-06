@@ -160,10 +160,10 @@ async def ensure(memory_path: Path, skill_id: str, *, catalog: dict | None = Non
     entity_id = page_id(entry)
     if demo_guard.is_demo(memory_path):
         return PageResult("demo", entity_id)
-    # The bank's write admission (G183) is held from the "busy" answer through the commit: a Sleep window cannot open
-    # between them. Shared, never refused here — "busy" is this writer's own answer.
-    with write_admission.shared(memory_path):
-        return await _ensure_admitted(memory_path, entry, entity_id, today)
+    # The bank's write admission (G183) is held from the "busy" answer through the commit, in the transaction's own
+    # task: a Sleep window cannot open between them. Never refused here — "busy" is this writer's own answer.
+    return await write_admission.run_admitted(
+        memory_path, lambda: _ensure_admitted(memory_path, entry, entity_id, today))
 
 
 async def _ensure_admitted(memory_path: Path, entry: dict, entity_id: str, today: date | None) -> PageResult:
