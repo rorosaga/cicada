@@ -57,10 +57,13 @@ step below keeps that safe.
 3. **Publish** (ubuntu, the only job with write access; `scripts/release/publish.sh`): judges `VERSION` again against
    the live tags (a re-run reuses the plan job's answer, and a newer release may exist by then), and checks that its
    commit is still **main's tip** — only the commit at main's tip may publish. Then it creates the GitHub Release as a
-   **draft** at the merged commit, titled `Cicada X.Y.Z`, with `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
-   `Cicada-macos-arm64.zip`; notes are a fixed header (Apple silicon, macOS 14+, not notarized yet → Open Anyway; the
-   install line) followed by notes generated from the PRs merged since the previous tag. It checks every asset's name
-   and size, checks main's tip once more, and only then publishes the draft — which is when GitHub creates the tag.
+   **draft** at the merged commit, titled `Cicada X.Y.Z`, and owns it by the id GitHub returns (never by looking it up
+   again: the releases list lags). It uploads `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
+   `Cicada-macos-arm64.zip` to that id; notes are a fixed header (Apple silicon, macOS 14+, not notarized yet → Open
+   Anyway; the install line) followed by notes generated from the PRs merged since the previous tag. It reads the
+   draft back (tag, target, every asset's name and size), checks main's tip once more, and only then publishes it,
+   spelling out the tag and the commit — which is when GitHub creates the tag. Finally the release must read back
+   public under `vX.Y.Z`, and the repo's real `vX.Y.Z` tag must point at the merged commit.
    A run whose commit was superseded on `main` publishes nothing, deletes only the draft it made, and ends green
    ("superseded by <sha> — that run releases main").
 
@@ -72,8 +75,11 @@ carry different versions, the older version is never published — its changes s
 it always resolves to the newest release, so no release needs a website edit.
 
 **A failed run advertises nothing.** A build or verification failure stops before the publish job: no tag, no release.
-A publish failure deletes the draft it made (a draft has no tag yet, so no tag is touched). A published release is
-never edited, re-uploaded to or deleted, and nothing force-pushes.
+A publish failure before publication deletes the draft this run created, by its id, and nothing else (a draft has no
+tag yet, so no tag is touched). A published release is never edited, re-uploaded to or deleted, and nothing
+force-pushes. If the release reads back under the wrong tag after publication, or `vX.Y.Z` turns out to point at
+another commit, the run fails loudly and leaves everything as it is: the log says what to check by hand (open the
+release; if it is wrong, mark it a draft again, fix the tag, and re-run the Release workflow on `main`).
 
 **To recover from a failed run:**
 

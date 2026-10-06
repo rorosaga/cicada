@@ -811,14 +811,18 @@ size, sha256, signature, notes URL) and `Cicada-macos-arm64.zip`, the same bytes
 as `releases/latest/download/Cicada-macos-arm64.zip` — and a **publish** job, the only one with write access
 (`scripts/release/publish.sh`): the version judged again against the live tags (a re-run reuses a stale plan) and the
 commit checked to still be main's tip (only the tip publishes; a superseded run ends green and deletes only its own
-draft, so of two release merges in flight only the newer ships), a draft release at the merged commit with all four
-assets and notes (`release-notes-header.md` + notes generated since the previous tag), every asset checked by name and
-size, main's tip checked again, then published (by release id, since two drafts may share a tag) — GitHub creates the
-tag only then — and marked latest only when it is the highest version. A failure deletes the draft it made (a draft has
-no tag, so no tag is touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual
-run off `main` does everything but publish and uploads the files as an artifact; a re-run or a manual run on `main`
-re-attempts an untagged `VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app
-carries the public key and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
+draft, so of two release merges in flight only the newer ships), a draft release at the merged commit created through
+the REST API and owned by the id in its response (never rediscovered through the lagging releases list; two drafts may
+share a tag), all four assets uploaded to that id with notes (`release-notes-header.md` + notes generated since the
+previous tag), the draft read back by id (tag, target, every asset's name and size), main's tip checked again, then
+published by a PATCH that spells out `tag_name` and `target_commitish` (one that omits `tag_name` drops the tag) —
+GitHub creates the tag only then — and marked latest only when it is the highest version; the release must then read
+back public under `vX.Y.Z` and the remote tag must point at the merged commit, else the run fails loudly and touches
+nothing. A failure before publication deletes the id it created and nothing else (a draft has no tag, so no tag is
+touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual run off `main` does
+everything but publish and uploads the files as an artifact; a re-run or a manual run on `main` re-attempts an untagged
+`VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app carries the public key
+and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
 
 **Installing and updating a release (G182 phase 5).** Testers install with
 `curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the

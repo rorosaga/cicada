@@ -13,12 +13,15 @@
 # 3. Only the commit at main's tip may publish — checked before the draft is made and again just before it is
 #    published. A superseded run exits 0 ("that run releases main") and deletes only the draft it made. So if two
 #    release merges land before the first publishes, only the newer one ships.
-# 4. The release is made as a draft at <commit-sha> — GitHub creates the tag only when a draft is published — every
-#    asset is checked by name and size, and then it is published and marked latest.
-# Releases are addressed by id, never by tag: runs for different commits may overlap, and GitHub lets two drafts
-# share a tag name. "This run's draft" is the draft with this tag *and* this commit as its target (runs for one
-# commit never overlap). Any failure deletes it, so a failed run advertises nothing; a draft has no tag, so no tag is
-# ever deleted here. A published release is never edited, deleted or re-uploaded to.
+# 4. The draft is created through the REST API and owned by the id in that response — never rediscovered through the
+#    releases list, which lags. Each asset is uploaded to that id, and the draft is read back by id (tag, target,
+#    every asset's name and size) before anything is advertised.
+# 5. Publication is a PATCH of that id spelling out tag_name and target_commitish (a PATCH that omits tag_name drops
+#    the tag), draft=false and make_latest. GitHub creates the tag then. Afterwards the release must read back public
+#    under vX.Y.Z, and the remote's real tag must point at <commit-sha>; anything else fails loudly — a public release
+#    is never deleted, retagged or re-uploaded to; the log says what a human must check.
+# Any failure before publication deletes the id this run created and nothing else; a draft has no tag, so no tag is
+# ever deleted here. The releases list is read once, for drafts an earlier failed run of this same commit left behind.
 set -euo pipefail
 
 VERSION="${1:?usage: publish.sh X.Y.Z <commit-sha> <dist-dir>}"
@@ -26,6 +29,7 @@ SHA="${2:?usage: publish.sh X.Y.Z <commit-sha> <dist-dir>}"
 DIST="${3:?usage: publish.sh X.Y.Z <commit-sha> <dist-dir>}"
 : "${GH_REPO:?set GH_REPO to owner/repo}"
 REMOTE="${CICADA_RELEASE_REMOTE:-origin}"
+POLL_DELAY="${CICADA_PUBLISH_POLL_DELAY:-3}"
 TAG="v$VERSION"
 API="repos/$GH_REPO/releases"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -40,29 +44,12 @@ for f in "${FILES[@]}"; do [ -s "$f" ] || die "missing or empty: $f"; done
 cmp -s "$DIST/Cicada-$VERSION.zip" "$DIST/$STABLE" || die "$STABLE is not the same bytes as Cicada-$VERSION.zip"
 
 WORK="$(mktemp -d)"
-CREATED=0
+ID=""            # the release this run created, from the create response; the only one it may delete
+PUBLISHED=0
 
-# Every release, fetched fresh; any error stops the run (a failed lookup is never read as "no release").
-fetch_releases() {
-  gh api --paginate --slurp "$API?per_page=100" > "$WORK/releases.json" || die "couldn't list $GH_REPO's releases"
-}
-# From the last fetch: `published` → yes|no for vX.Y.Z; `mine` → the ids of this run's drafts (this tag, this commit).
-query() {
-  python3 - "$1" "$TAG" "$SHA" "$WORK/releases.json" <<'PY'
-import json, sys
-mode, tag, sha, path = sys.argv[1:]
-named = [r for page in json.load(open(path)) for r in page if r.get("tag_name") == tag]
-if mode == "published":
-    print("yes" if any(not r["draft"] for r in named) else "no")
-else:
-    print(" ".join(str(r["id"]) for r in named if r["draft"] and r.get("target_commitish") == sha))
-PY
-}
-delete_mine() {
-  local id
-  fetch_releases
-  for id in $(query mine); do gh api -X DELETE "$API/$id" > /dev/null; done
-}
+# A field of a JSON file: json FILE KEY.
+json() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1]))[sys.argv[2]]; print(json.dumps(v) if isinstance(v,bool) else v)' "$1" "$2"; }
+
 # True when main has moved past this run's commit; SUPERSEDED_BY names the tip.
 SUPERSEDED_BY=""
 superseded() {
@@ -72,19 +59,39 @@ superseded() {
   SUPERSEDED_BY="$tip"
   [ "$tip" != "$SHA" ]
 }
+
+# Delete release $1 only while it is still a draft.
+delete_draft() {
+  gh api "$API/$1" > "$WORK/check.json" || { echo "! couldn't read release $1 — check it by hand" >&2; return 1; }
+  if [ "$(json "$WORK/check.json" draft)" = true ]; then
+    gh api -X DELETE "$API/$1" > /dev/null
+  else
+    echo "! release $1 is public — not touched; check it by hand on the Releases page" >&2
+  fi
+}
+
 cleanup() {
   local status=$?
-  if [ "$status" -ne 0 ] && [ "$CREATED" = 1 ]; then
-    echo "✗ publishing $TAG failed — deleting this run's draft so nothing is advertised" >&2
-    delete_mine || true
+  if [ "$status" -ne 0 ] && [ -n "$ID" ] && [ "$PUBLISHED" = 0 ]; then
+    echo "✗ publishing $TAG failed — deleting the draft this run created (id $ID) so nothing is advertised" >&2
+    delete_draft "$ID" || true
   fi
   rm -rf "$WORK"
   exit "$status"
 }
 trap cleanup EXIT
 
-fetch_releases
-[ "$(query published)" = yes ] && { echo "$TAG is already released — nothing to publish"; exit 0; }
+# The list, once: a published vX.Y.Z, and drafts an earlier failed run of this commit left. Any error stops the run.
+gh api --paginate --slurp "$API?per_page=100" > "$WORK/releases.json" || die "couldn't list $GH_REPO's releases"
+python3 - "$TAG" "$SHA" "$WORK/releases.json" > "$WORK/listing.txt" <<'PY'
+import json, sys
+tag, sha, path = sys.argv[1:]
+named = [r for page in json.load(open(path)) for r in page if r.get("tag_name") == tag]
+print("published=" + ("yes" if any(not r["draft"] for r in named) else "no"))
+print("leftovers=" + " ".join(str(r["id"]) for r in named if r["draft"] and r.get("target_commitish") == sha))
+PY
+[ "$(sed -n 's/^published=//p' "$WORK/listing.txt")" = yes ] && { echo "$TAG is already released — nothing to publish"; exit 0; }
+leftovers="$(sed -n 's/^leftovers=//p' "$WORK/listing.txt")"
 
 # The version against the live tags, now.
 printf '%s\n' "$VERSION" > "$WORK/VERSION"
@@ -101,47 +108,87 @@ if superseded; then
   exit 0
 fi
 
-leftover="$(query mine)"
-if [ -n "$leftover" ]; then
-  echo "! a draft $TAG for this commit was left by an earlier failed run; it was never published — replacing it"
-  for id in $leftover; do gh api -X DELETE "$API/$id" > /dev/null; done
-fi
+for id in $leftovers; do
+  echo "! a draft $TAG for this commit (id $id) was left by an earlier failed run; it was never published — replacing it"
+  delete_draft "$id"
+done
 
-notes=(--notes-file "$HERE/release-notes-header.md" --generate-notes)
-[ -n "$PREVIOUS" ] && notes+=(--notes-start-tag "$PREVIOUS")
+# Notes: the fixed header, then GitHub's notes for the PRs merged since the previous tag.
+notes_args=(-f tag_name="$TAG" -f target_commitish="$SHA")
+[ -n "$PREVIOUS" ] && notes_args+=(-f previous_tag_name="$PREVIOUS")
+gh api -X POST "$API/generate-notes" "${notes_args[@]}" > "$WORK/notes.json"
+python3 - "$TAG" "$SHA" "Cicada $VERSION" "$HERE/release-notes-header.md" "$WORK/notes.json" > "$WORK/create.json" <<'PY'
+import json, sys
+tag, sha, name, header, notes = sys.argv[1:]
+body = open(header, encoding="utf-8").read().rstrip() + "\n\n" + json.load(open(notes))["body"]
+json.dump({"tag_name": tag, "target_commitish": sha, "name": name, "body": body, "draft": True}, sys.stdout)
+PY
 
-CREATED=1
-gh release create "$TAG" "${FILES[@]}" --draft --target "$SHA" --title "Cicada $VERSION" "${notes[@]}"
+gh api -X POST "$API" --input "$WORK/create.json" > "$WORK/created.json"
+ID="$(json "$WORK/created.json" id)"
+[[ "$ID" =~ ^[0-9]+$ ]] || die "the create response carried no release id"
+upload_url="$(json "$WORK/created.json" upload_url)"
+upload_url="${upload_url%%\{*}"
+[[ "$upload_url" == https://*"/releases/$ID/assets" ]] || die "release $ID's upload URL isn't its own: $upload_url"
 
-fetch_releases
-ids="$(query mine)"
-[[ "$ids" =~ ^[0-9]+$ ]] || die "expected exactly one draft $TAG at ${SHA:0:12}, found: ${ids:-none}"
-ID="$ids"
+for f in "${FILES[@]}"; do
+  gh api -X POST "$upload_url?name=$(basename "$f")" -H "Content-Type: application/octet-stream" --input "$f" \
+    > /dev/null
+done
 
-# Every asset is there, at its exact size, before anything is advertised.
-gh api "$API/$ID" > "$WORK/release.json"
-python3 - "$WORK/release.json" "${FILES[@]}" <<'PY'
+# The draft, read back by id, before anything is advertised: its tag, its target, every asset at its exact size.
+gh api "$API/$ID" > "$WORK/draft.json"
+python3 - "$TAG" "$SHA" "$WORK/draft.json" "${FILES[@]}" <<'PY'
 import json, os, sys
-release = json.load(open(sys.argv[1]))
-have = {a["name"]: a["size"] for a in release["assets"]}
-want = {os.path.basename(p): os.path.getsize(p) for p in sys.argv[2:]}
-wrong = [f"{name} ({have.get(name, 'missing')} bytes, expected {size})" for name, size in want.items()
-         if have.get(name) != size]
-if not release["draft"] or wrong:
-    sys.exit("the draft's assets are wrong: " + ", ".join(wrong or ["not a draft"]))
+tag, sha, path, files = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+r = json.load(open(path))
+problems = []
+if r.get("tag_name") != tag: problems.append(f"tag {r.get('tag_name')!r}, expected {tag}")
+if r.get("target_commitish") != sha: problems.append(f"target {r.get('target_commitish')!r}, expected {sha}")
+if r.get("draft") is not True: problems.append("not a draft")
+have = {a["name"]: a["size"] for a in r.get("assets", [])}
+for p in files:
+    name, size = os.path.basename(p), os.path.getsize(p)
+    if have.get(name) != size:
+        problems.append(f"{name} is {have.get(name, 'missing')} bytes, expected {size}")
+if problems:
+    sys.exit("the draft is wrong: " + "; ".join(problems))
 PY
 
 if superseded; then
   echo "$TAG: ${SHA:0:12} was superseded by ${SUPERSEDED_BY:0:12} on main while drafting — that run releases main;" \
-       "deleting this run's draft, nothing published here"
-  delete_mine
-  CREATED=0
+       "deleting this run's draft (id $ID), nothing published here"
+  delete_draft "$ID"
+  ID=""
   exit 0
 fi
 
-gh api -X PATCH "$API/$ID" -F draft=false -f make_latest="$LATEST" > /dev/null
-gh api "$API/$ID" > "$WORK/release.json"
-python3 -c 'import json,sys; sys.exit(0 if not json.load(open(sys.argv[1]))["draft"] else 1)' "$WORK/release.json" \
-  || die "$TAG did not publish"
-CREATED=0
-echo "✓ published $TAG at ${SHA:0:12} (latest=$LATEST)"
+# Publish. From here the release may be public: nothing below deletes, retags or re-uploads.
+gh api -X PATCH "$API/$ID" -f tag_name="$TAG" -f target_commitish="$SHA" -F draft=false -f make_latest="$LATEST" \
+  > /dev/null
+PUBLISHED=1
+
+gh api "$API/$ID" > "$WORK/published.json"
+got_tag="$(json "$WORK/published.json" tag_name)"
+got_draft="$(json "$WORK/published.json" draft)"
+if [ "$got_tag" != "$TAG" ] || [ "$got_draft" != false ]; then
+  die "release $ID reads back as tag '$got_tag', draft=$got_draft — expected $TAG, public. Nothing was retagged or" \
+      "overwritten. By hand: open the release, and if it is public under the wrong tag, unpublish it (mark it draft)" \
+      "and re-run the Release workflow on main."
+fi
+
+# The remote's real tag, peeled, must be this commit (an existing tag would have won over target_commitish).
+tag_sha=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  git ls-remote "$REMOTE" "refs/tags/$TAG" "refs/tags/$TAG^{}" > "$WORK/tag.txt"
+  tag_sha="$(awk -v t="refs/tags/$TAG" '$2==t"^{}"{p=$1} $2==t{l=$1} END{print (p!="" ? p : l)}' "$WORK/tag.txt")"
+  [ -n "$tag_sha" ] && break
+  sleep "$POLL_DELAY"
+done
+[ -n "$tag_sha" ] || die "release $ID is public but $TAG did not appear on $REMOTE. Nothing was retagged. By hand:" \
+  "check the release's tag on GitHub before telling anyone about $TAG."
+[ "$tag_sha" = "$SHA" ] || die "$TAG points at ${tag_sha:0:12}, not this run's ${SHA:0:12}. The release is public;" \
+  "nothing was retagged or overwritten. By hand: decide which commit $TAG should name; if it is wrong, unpublish the" \
+  "release, fix the tag, and re-run the Release workflow on main."
+
+echo "✓ published $TAG at ${SHA:0:12} (release $ID, latest=$LATEST)"
