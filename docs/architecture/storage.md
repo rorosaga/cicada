@@ -101,7 +101,19 @@ page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikili
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
 rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
-the fence. `episodes/` is never rewritten.
+the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
+/maintenance/dedup-sweep` with `dryRun: false` runs each merge as one transaction under the page lock **and** the bank's
+git write lock, from its footprint check through its commit or recovery (never across the judge's model call). The
+footprint — `entity_merge.merge_footprint`: winner, loser, `graph_edges.yaml` when an edge names the loser, and every page
+naming the loser, found by `_repoint_page`, the same matcher `repoint_references` writes with — is known before any write.
+The merge is refused untouched when a footprint path is unsafe to put back (`skippedUnsafe`: unmerged index stages, a
+symlink, not a regular file) or dirty (`skippedDirty`), so nothing another writer left uncommitted is ever committed as
+`cicada`. Only the footprint is snapshotted (bytes, permission bits, stage-0 index entry or absence). The merge must write
+only inside it; the paths it wrote whose bytes changed are committed — `Dedup sweep <date>`, `<path>: updated|removed
+(merged, trigger: maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:` the judge's engine. A failed merge
+or commit gets the footprint back as found, never HEAD's version, and nothing outside it is read or written (`failed`);
+a write outside the footprint, a put-back that cannot be done, or a HEAD that moved inside the transaction stops the
+sweep (`recoveryFailed`). `repoint_edges` leaves an untouched graph alone. A dry run writes and commits nothing.
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
@@ -566,13 +578,29 @@ under its own author (R-B5).
 keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
 by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
-`paper_metadata`'s page updates, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`paper_metadata`'s page updates, the dedup sweep's merges (each across its commit), the app's decay-class and
+repo-link rewrites, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
 the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
 lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
 Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
+**Residual race (disclosed, G183):** the window guards are an admission check, not isolation, and admission is **not
+atomic**. The sweep re-asks `is_writing()` once it holds the page lock and again once it holds the git write lock, the
+decay/repo routes once they hold the page lock, an inbox answer after its awaited snapshot — each before writing. But
+Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without either lock, so a window that
+opens *after* a writer's last check overlaps everything that writer does next, and there is no time bound on that: the
+exposure is the rest of its transaction — the sweep's footprint scan, merge, commit and any recovery, plus waits for a
+lock and git's index-lock retries. Sleep can load a pre-write page and later rewrite it, or sweep the write into its
+batch commit under the Sleep author. The sweep limits its commit and its rollback to the footprint frozen at planning: a
+page written outside it is neither committed nor put back, and a merge that returns a path outside it stops the sweep —
+but a write outside the snapshot that the merge itself then makes (say, a reference to the loser that an unguarded writer
+added after the footprint was planned, which the repoint pass rewrites) is left for recovery by hand, reported as
+`recoveryFailed`. Closing the race needs shared admission coordination between Sleep and these writers
+and/or revision-safe read-modify-write (a write that refuses when the page changed since it was read) — Sleep taking a
+lock at two separate points (its load and its commit) would not by itself protect a stale read between them. Out of this
+slice.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

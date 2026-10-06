@@ -202,8 +202,9 @@ picking the project up cold.
 ## Status
 
 Cicada started as a BSc capstone thesis at IE University and is now a personal project with a
-larger goal: a port between a human's experience and the agents that will act on it. `main` is
-the promoted branch; `dev` is where work happens, and PRs open against `dev`.
+larger goal: a port between a human's experience and the agents that will act on it. `dev` is
+where work happens, and PRs open against `dev`; `main` holds only releases — a release is a `dev` → `main` PR, and
+merging it publishes the GitHub Release.
 
 What works today: the full Awake/Sleep loop, the claim layer, decay classes, the unified inbox
 with Claude Code-style questions, a sync engine that keeps the app live over SSE, consumption

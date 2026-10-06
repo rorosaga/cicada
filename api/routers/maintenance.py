@@ -49,13 +49,27 @@ async def run_dedup_sweep(
 
     ``dry_run`` (default true) never writes: candidate pairs the judge would
     merge come back under ``proposed`` instead of being merged. Set
-    ``dry_run: false`` to actually perform the high-confidence merges.
+    ``dry_run: false`` to actually perform the high-confidence merges — each
+    one its own ``cicada`` commit of exactly the paths it wrote or removed
+    (``Dedup sweep <date>``, trigger ``maintenance/dedup-sweep``; G183(e)).
+
+    409 while Sleep holds the pages (G177's ``is_writing``), a dry run too —
+    it reads the pages a batch is rewriting. A window that opens mid-sweep
+    stops the merging (``stoppedForSleep``). Off the event loop: the judge is
+    a model call per pair.
     """
-    report = dedup_sweep(
-        settings.memory_path,
+    from api.services import sleep_cycle
+
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, "a Sleep cycle is running and writes the same pages — retry when it finishes")
+    memory_path = settings.memory_path   # resolved once (the split-brain rule)
+    report = await run_in_threadpool(
+        dedup_sweep,
+        memory_path,
         settings,
         dry_run=request.dry_run,
         limit=request.limit,
+        may_write=lambda: not sleep_cycle.is_writing(),
     )
     return MaintenanceDedupSweepResponse(
         dry_run=request.dry_run,
@@ -72,6 +86,11 @@ async def run_dedup_sweep(
             MaintenanceNudgePair(a=a, b=b) for a, b in report.get("nudged", [])
         ],
         skipped_rejected=report.get("skipped_rejected", 0),
+        stopped_for_sleep=report.get("stopped_for_sleep", False),
+        skipped_dirty=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("skipped_dirty", [])],
+        skipped_unsafe=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("skipped_unsafe", [])],
+        failed=[MaintenanceMergePair(loser=l, winner=w) for l, w in report.get("failed", [])],
+        recovery_failed=report.get("recovery_failed", False),
     )
 
 

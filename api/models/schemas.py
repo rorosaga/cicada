@@ -3466,6 +3466,19 @@ class MaintenanceDedupSweepResponse(CamelModel):
     # rejected pair never re-reaches the judge at all, so it is neither
     # merged, proposed, nor nudged.
     skipped_rejected: int = 0
+    # G183(e) — Sleep's write window opened mid-sweep, so the merging stopped
+    # there; the pairs after it were not judged. Retry when Sleep finishes.
+    stopped_for_sleep: bool = False
+    # G183(e) fix round 1 — merges refused because they would change a path
+    # another writer left uncommitted (put back untouched; retried next sweep),
+    # merges whose write or commit failed and were put back exactly, and
+    # whether a put-back itself failed (the sweep stopped there).
+    skipped_dirty: list[MaintenanceMergePair] = []
+    # Fix round 2 — merges refused because a path they would write could not be
+    # put back exactly (unmerged index stages, a symlink, not a regular file).
+    skipped_unsafe: list[MaintenanceMergePair] = []
+    failed: list[MaintenanceMergePair] = []
+    recovery_failed: bool = False
 
 
 class MaintenanceEnrichLinksResponse(CamelModel):

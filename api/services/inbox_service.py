@@ -882,10 +882,25 @@ def _emit_resolution(
         logger.debug("resolution ledger write failed", exc_info=True)
 
 
+#: G177/G183(a) — the answer every resolve door (``/inbox``, and the deprecated
+#: ``/nudges`` and ``/clarifications``) gives while Sleep holds the pages.
+SLEEP_BUSY = "Sleep is updating your memory — try answering again in a moment."
+
+
 async def resolve(
     item_id: str, request: InboxResolveRequest, settings: Settings
 ) -> dict:
-    """Resolve an inbox item by routing on its ``kind``. Returns a status dict."""
+    """Resolve an inbox item by routing on its ``kind``. Returns a status dict.
+
+    409 while Sleep holds the pages (``sleep_cycle.is_writing``, G177): an answer
+    rewrites entity pages and the item itself, and one written between a batch's
+    read and its commit would be lost or swept into that commit under the
+    model's name. A defer too — the item file rides the same ``git add -A``.
+    Between a drain's batches it goes through and commits alone."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, SLEEP_BUSY)
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
@@ -932,6 +947,11 @@ async def resolve(
     from api.services import git_service as _git_service
 
     before = await _git_service.snapshot_dirty(settings.memory_path)
+    # Re-asked after the await and before any page write: a window can open while
+    # the snapshot was read (G183(a) round 1). Sleep takes no page lock, so a
+    # window opening after this still overlaps the answer — storage.md says so.
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, SLEEP_BUSY)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     if kind == "decay":
