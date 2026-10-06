@@ -1,6 +1,6 @@
 # Audit 2026-10-05 — status (2026-10-06)
 
-The owner's code audit of `dev` at `3d28cd0c`. Every finding was reproduced with a regression test that failed on the
+The owner's code audit of `dev` at `3d28cd0c` (the report: [`README.md`](README.md)). Every finding was reproduced with a regression test that failed on the
 unfixed code, fixed, reviewed by a separate agent against CLAUDE.md's rails, and merged to `dev`.
 
 | ID | Finding | Reproduced | Outcome | PR |

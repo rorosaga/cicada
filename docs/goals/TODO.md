@@ -21,7 +21,10 @@ pointing at the latest release; Intel builds (none).
 [`audit-2026-10-02/STATUS.md`](audit-2026-10-02/STATUS.md); A12 was already gone with G176), the Sleep page's CPU
 (#170: 12.0% → about 1% of a core visible with the graph resting, ruling 18's player amendment), a shared-icon-fetch
 race (#175) and the agent's revision-checked `cicada_mark_processed` (#176, the A01 gap the audit disclosed). Still
-disclosed: MCP's dedup scan holds the episode lock; `ActivateBank`'s hydrate-before-switch window.
+disclosed — now backlog rows (2026-10-06): **G183** write-safety gaps (page-lock coverage, a follow-up's missed
+commit file, MCP's dedup scan holding the episode lock, `ActivateBank` running ahead of the server; the dedup sweep's
+uncommitted merges on G21), **G184** app energy left (the stage strip's 0.1 s pulse, the painted scenes' frame clocks,
+the menu-bar worm), **G185** the `test_cycle_usage` failure; G182 lists what the release has never exercised.
 **Owner priority next (2026-10-05):** **G180** — a `cicada` CLI beside the MCP, with the skill teaching it ("very
 important"); then **G181** (server mode: a bank on a server, the laptop app as its client, Sleep there) and **G182**
 (releases on `main` tied to the website's macOS download). G179 (message sync, iMessage first) waits on the Full Disk
