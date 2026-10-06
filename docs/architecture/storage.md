@@ -389,7 +389,9 @@ pages in focus in the last 14 days, people, recent conversations (G140, schema v
 every remote scope set. Contract item 3 names `cicada_note_progress` (G141 PJ-3a; remotely only when the
 connection holds it). Delivered four ways: the MCP `initialize` result's
 `instructions` (which Claude Code truncates), the `cicada_handshake` tool, `GET /handshake`, and the
-SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Contract item 8 tells an
+SessionStart hook's `additionalContext` under a "From Cicada" header (G149). Since G110 slice 1a that whole
+SessionStart note — header, primer, the continuity block, the reading sentence — is measured as one string inside the
+1,800 tokens (`recall_text.compose_note`); the primer is built with a 300-token reserve when a block rides beside it. Contract item 8 tells an
 agent what a "From Cicada" note is. **R12: a primer naming an
 argument the schema rejects is a bug** — every argument it names must exist in the tool schema.
 `SKILL.md` points at the generated text rather than restating the contract — one prose source.

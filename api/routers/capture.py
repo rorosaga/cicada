@@ -13,14 +13,14 @@ import asyncio
 import os
 import secrets as _secrets_mod
 import time
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, continuity_sessions, demo_guard, hook_recall
+from api.services import bank_registry, continuity_sessions, demo_guard, episode_ids, hook_recall
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -230,7 +230,11 @@ class HookContextRequest(BaseModel):
     Snake_case like ``TranscriptCaptureRequest``, because the sender is a stdlib
     script. The prompt rides in this JSON body and nowhere else, never a query
     string, so uvicorn's access line can never hold it (G136 R22, R-H1).
-    ``cwd`` is accepted and unused (R-H17)."""
+
+    G110 slice 1a: ``cwd`` is now the folder a continuity block is matched on —
+    an exact string, never logged, never stored (the registry keeps its hash).
+    ``source`` is the harness's SessionStart kind; it is ``Any`` so a value a
+    newer harness invents still answers 200 (normalized in the handler)."""
 
     event: Literal["session_start", "user_prompt_submit"]
     harness: Literal["claude-code", "codex"]
@@ -238,6 +242,7 @@ class HookContextRequest(BaseModel):
     cwd: str | None = Field(None, max_length=4096)
     prompt: str | None = Field(None, max_length=hook_recall.PROMPT_MAX_CHARS)
     model: str | None = Field(None, max_length=200)
+    source: Any = None
 
 
 @router.post("/capture/hook-context")
@@ -256,13 +261,16 @@ async def hook_context_endpoint(req: HookContextRequest, settings: Settings = De
     came back (R-H7). Nothing here logs the prompt: a failure is logged by its
     class name alone (K9, R-H10)."""
     started = time.perf_counter()
+    arrived = episode_ids.utc_now_iso()   # G110: the event's own time, before any work
+    source = req.source if isinstance(req.source, str) and req.source in hook_recall.SESSION_SOURCES else None
     budget = hook_recall.PRIMER_BUDGET_S if req.event == "session_start" else hook_recall.PROMPT_BUDGET_S
     deadline = time.monotonic() + budget
     bank = None
     try:
         result, bank = await asyncio.wait_for(asyncio.to_thread(
             hook_recall.respond, settings.memory_root, event=req.event, harness=req.harness,
-            session_id=req.session_id, prompt=req.prompt or "", deadline=deadline), timeout=budget)
+            session_id=req.session_id, prompt=req.prompt or "", deadline=deadline, cwd=req.cwd, source=source,
+            start=arrived), timeout=budget)
         if req.event == "user_prompt_submit":
             hook_recall.RECENT.remember(req.session_id, result.injected)
     except TimeoutError:

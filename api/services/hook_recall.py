@@ -35,8 +35,11 @@ from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
 
+from loguru import logger
+
 from api.services import (
-    bank_registry, handshake, mcp_tools, recall_text, search_index, state_dictionary, telemetry, text_fold,
+    bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, recall_text, search_index,
+    state_dictionary, telemetry, text_fold,
 )
 
 # Budgets (R-H5, R-H6).
@@ -77,6 +80,19 @@ SEMANTIC_CHARS = 2_000
 
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
            "timeout", "error", "reading")
+# G110 slice 1a (plan C4): where the last session in this folder stopped.
+#: SessionStart sources that get a continuity block; resume/compact/fork carry their own history.
+CONTINUITY_SOURCES = (None, "startup", "clear")
+SESSION_SOURCES = ("startup", "resume", "clear", "compact", "fork")
+#: Tokens the primer leaves free when a block will ride beside it.
+CONTINUITY_RESERVE = 300
+#: The registry's slice of a request's deadline; the time kept after assembly
+#: for composition; the least left for the post-assembly `continues` write.
+REGISTRY_SLICE_S = 0.05
+ASSEMBLY_RESERVE_S = 0.12
+CONTINUES_MIN_S = 0.03
+CONTINUITY_STATES = ("latest", "explicit", "ambiguous", "none", "skipped_source", "no_room", "deadline", "error")
+REGISTRY_STATES = ("ok", "busy", "skipped", "error", "unavailable", "none")
 
 #: Folded words that name nothing (R-H2, R-H3): English and Spanish function
 #: words plus the verbs and nouns every coding prompt uses. A name made only of
@@ -108,6 +124,10 @@ class Injection:
     injected: tuple[str, ...] = ()
     reason: str = "no_match"
     inbox_id: str | None = None
+    # G110: enums for the ledger, request-scoped (never a shared counter).
+    continuity: str = "none"
+    rendering: str = "none"
+    registry: str = "none"
 
     @property
     def tokens(self) -> int:
@@ -514,6 +534,21 @@ def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, eve
     beside the page note rather than inside its 400-token budget: it is one
     sentence, and it is what makes the person's "Ask an agent" reach an agent that
     was never told to look."""
+    line, seen = reading_line_for(memory_path, session_id, event=event, deadline=deadline)
+    if line is None:
+        return inj
+    READING_SEEN.remember(session_id, *seen)
+    if inj.text:
+        return replace(inj, text=f"{inj.text}\n\n{line}")
+    return replace(inj, text=f"{recall_text.READING_HEADER}\n{line}", reason="reading")
+
+
+def reading_line_for(memory_path: Path, session_id: str, *, event: str,
+                     deadline: float | None = None) -> tuple[str | None, tuple[int, int] | None]:
+    """The reading sentence this request would carry, and the ``(waiting,
+    asks)`` to remember IF it is sent — the caller remembers only what it
+    actually returns (G110: the SessionStart compositor may drop it, and then
+    the first prompt must still hear it)."""
     from api.services import reading_queue
 
     asks, derived = reading_queue.counts(memory_path, warm_only=True,
@@ -531,35 +566,101 @@ def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, eve
         READING_SEEN.remember(session_id, told, asks)
         told_asks = asks
     if waiting <= 0:
-        return inj
+        return None, None
     if event == "user_prompt_submit" and told > 0:
         new_ask = asks > told_asks
         grew = known and waiting - told >= READING_SEEN.REPEAT_STEP
         if not (new_ask or grew):
-            return inj
-    line = recall_text.reading_line(waiting)
-    READING_SEEN.remember(session_id, waiting, asks)
-    if inj.text:
-        return replace(inj, text=f"{inj.text}\n\n{line}")
-    return Injection(f"{recall_text.READING_HEADER}\n{line}", inj.injected, "reading", inj.inbox_id)
+            return None, None
+    return recall_text.reading_line(waiting), (waiting, asks)
+
+
+def _slice(deadline: float, seconds: float) -> float:
+    return min(deadline, time.monotonic() + seconds)
+
+
+def session_start_note(memory_path: Path, *, harness: str, session_id: str, cwd: str | None, source: str | None,
+                       bank_paths, deadline: float) -> Injection:
+    """The whole SessionStart note (G110 slice 1a, plan C4): the primer, where
+    the last session in this folder stopped, and the reading sentence — one
+    compositor, measured as the final string, inside ``handshake.MAX_TOKENS``.
+
+    The block is assembled only for ``startup``/``clear`` (or no ``source``)
+    and a ``cwd``; it reads the pinned ``memory_path`` only. When a block is
+    sent for one session (not a question) and time remains, the registry
+    records ``continues`` for this session (first write wins)."""
+    ctx, state = None, "skipped_source"
+    if source in CONTINUITY_SOURCES and cwd:
+        try:
+            ctx = continuity.assemble(memory_path, bank_paths=bank_paths, harness=harness, session_id=session_id,
+                                      cwd=cwd, deadline=deadline - ASSEMBLY_RESERVE_S)
+            state = "none"
+        except Exception as exc:  # noqa: BLE001 — K9: the class, never the message
+            logger.warning(f"hook-context: continuity failed ({type(exc).__name__})")
+            state = "error"
+    has_block = ctx is not None and (ctx.chosen is not None or ctx.selection.kind == "ambiguous")
+    variant = harness if harness in handshake.VARIANTS else "generic"
+    primer, _meta = handshake.load_or_build(Path(memory_path), variant=variant,
+                                            reserve=CONTINUITY_RESERVE if has_block else 0)
+    line, seen = reading_line_for(memory_path, session_id, event="session_start", deadline=deadline)
+    block_for = (lambda room: continuity.startup_block(ctx, max_chars=room)) if has_block else None
+    text, rendering, reading_kept = recall_text.compose_note(recall_text.PRIMER_HEADER, primer, block_for=block_for,
+                                                             reading=line, max_tokens=handshake.MAX_TOKENS)
+    if reading_kept and seen:
+        READING_SEEN.remember(session_id, *seen)
+    if has_block:
+        if rendering == "none":
+            state = "no_room"
+        else:
+            state = ctx.selection.kind
+    elif ctx is not None and not ctx.complete:
+        state = "deadline"
+    if rendering not in ("none", "ambiguous") and ctx is not None and ctx.chosen is not None \
+            and deadline - time.monotonic() >= CONTINUES_MIN_S:
+        # Its own slice, short of the deadline: a held lock never costs the note.
+        continuity_sessions.apply(memory_path, bank_paths=bank_paths, harness=harness, session_id=session_id,
+                                  events={"continues": ctx.chosen.episode_id},
+                                  deadline=_slice(deadline - CONTINUES_MIN_S / 2, REGISTRY_SLICE_S))
+    return Injection(text, (), "primer", continuity=state, rendering=rendering)
 
 
 def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: str,
-            deadline: float) -> tuple[Injection, str | None]:
+            deadline: float, cwd: str | None = None, source: str | None = None,
+            start: str | None = None) -> tuple[Injection, str | None]:
     """The route's one worker call: the bank a capture would write into
-    (``bank_registry.capture_bank``, R-H16), then the primer or the note.
-    SessionStart resets the session's window (R-H7): after compact or clear
-    the earlier notes are gone from the model's context."""
-    target = bank_registry.capture_bank(Path(root))
+    (``bank_registry.capture_bank``, R-H16) — resolved ONCE and pinned for the
+    whole request — then the primer or the note. SessionStart resets the
+    session's window (R-H7): after compact or clear the earlier notes are gone
+    from the model's context.
+
+    G110 slice 1a: before any assembly, one bounded registry transaction records
+    the session start (``started_at``, the cwd's hash) or the prompt's arrival
+    (``last_prompt_at``) — ``start`` is the request's arrival time — inside a
+    slice of the deadline; a busy or slow registry never costs the answer."""
+    root = Path(root)
+    target = bank_registry.capture_bank(root)
     if target is None:
         return Injection.none("no_bank"), None
+    bank_paths = continuity_sessions.bank_paths_for(root)
+    start = start or episode_ids.utc_now_iso()
     if event == "session_start":
         RECENT.reset(session_id)
         READING_SEEN.remember(session_id, 0, 0)
-        return with_reading_note(session_primer(target.path, harness), target.path, session_id, event=event,
-                                 deadline=deadline), target.name
+        events = {"started_at": start}
+        if cwd:
+            events["cwd_hash"] = continuity_sessions.cwd_hash(cwd)
+        registry = continuity_sessions.apply(target.path, bank_paths=bank_paths, harness=harness,
+                                             session_id=session_id, events=events,
+                                             deadline=_slice(deadline, REGISTRY_SLICE_S))
+        note = session_start_note(target.path, harness=harness, session_id=session_id, cwd=cwd,
+                                  source=source if source in SESSION_SOURCES else None, bank_paths=bank_paths,
+                                  deadline=deadline)
+        return replace(note, registry=registry), target.name
+    registry = continuity_sessions.apply(target.path, bank_paths=bank_paths, harness=harness, session_id=session_id,
+                                         events={"last_prompt_at": start}, deadline=_slice(deadline, REGISTRY_SLICE_S))
     note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline)
-    return with_reading_note(note, target.path, session_id, event=event, deadline=deadline), target.name
+    note = with_reading_note(note, target.path, session_id, event=event, deadline=deadline)
+    return replace(note, registry=registry), target.name
 
 
 LATENCY_BUCKETS = ((50, "<50"), (100, "50-100"), (200, "100-200"), (300, "200-300"))
@@ -588,7 +689,12 @@ def record(event: str, harness: str, result: Injection, *, latency_ms: int, mode
                   "inbox": result.inbox_id is not None,
                   "tokens": _bucket(result.tokens, TOKEN_BUCKETS, ">400"),
                   "latency": _bucket(latency_ms, LATENCY_BUCKETS, ">300"),
-                  "model": _model_id(model)}))
+                  "model": _model_id(model),
+                  # G110: request-scoped enums only.
+                  "continuity": result.continuity if result.continuity in CONTINUITY_STATES else "none",
+                  "rendering": result.rendering if result.rendering in ("full", "compact", "pointer", "ambiguous",
+                                                                          "none") else "none",
+                  "registry": result.registry if result.registry in REGISTRY_STATES else "none"}))
     except Exception:  # noqa: BLE001
         pass
 

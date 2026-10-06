@@ -511,9 +511,9 @@ def _assemble(state: dict | None, variant: str, bank: str, tz: str | None = None
     return "\n\n".join([_WHAT, _PRELUDE[variant], contract, _now_block(state, bank, tz=tz), capabilities])
 
 
-def _fit(assemble, state: dict | None) -> str:
+def _fit(assemble, state: dict | None, max_tokens: int = MAX_TOKENS) -> str:
     text = assemble(state)
-    if len(text) // 4 <= MAX_TOKENS or state is None:
+    if len(text) // 4 <= max_tokens or state is None:
         return text
     slim = dict(state)
     # G140 Q-R13: current rows before standing ones, the working agreements
@@ -522,16 +522,16 @@ def _fit(assemble, state: dict | None) -> str:
     for key in ("people", "focus", "conversations", "standing"):
         slim[key] = []
         text = assemble(slim)
-        if len(text) // 4 <= MAX_TOKENS:
+        if len(text) // 4 <= max_tokens:
             return text
     # G141 §10.3: the slim path drops `now:` before it drops anything of a project.
     slim["projects"] = [{k: v for k, v in p.items() if k != "now"} for p in slim.get("projects", []) or []]
     text = assemble(slim)
-    if len(text) // 4 <= MAX_TOKENS:
+    if len(text) // 4 <= max_tokens:
         return text
     slim["projects"] = [{**p, "one_liner": ""} for p in slim.get("projects", []) or []]
     text = assemble(slim)
-    if len(text) // 4 <= MAX_TOKENS:
+    if len(text) // 4 <= max_tokens:
         return text
     slim["preferences"] = [{**p, "one_liner": ""} for p in slim.get("preferences", []) or []]
     return assemble(slim)
@@ -539,8 +539,13 @@ def _fit(assemble, state: dict | None) -> str:
 
 def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
           bridges: tuple[str, ...] = (), reading: bool = False, methods: tuple[str, ...] = (),
-          reading_tools: str | None = None) -> str:
+          reading_tools: str | None = None, max_tokens: int = MAX_TOKENS) -> str:
     """Pure: the primer for a parsed state (or none) and a variant.
+
+    ``max_tokens`` (G110): what ``_fit`` aims at — ``MAX_TOKENS`` less the
+    SessionStart reserve when a continuity block will ride in the same note.
+    ``_fit`` is not a hard cap (a fixed part it cannot trim stays); the hook's
+    compositor measures the whole note (``recall_text.compose_note``).
 
     The state block is the only elastic part (the contract is verbatim by
     ruling); when the chars/4 proxy overshoots ``MAX_TOKENS`` rows are
@@ -571,7 +576,8 @@ def build(state: dict | None, *, variant: str, bank: str, tz: str | None = None,
     variant = variant if variant in VARIANTS else "generic"
     bridges = tuple(bridges)[: skill_catalog.MAX_BRIDGE_LINES]
     methods = tuple(methods)[: skill_catalog.MAX_METHOD_LINES]
-    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools), state)
+    return _fit(lambda st: _assemble(st, variant, bank, tz, bridges, reading, methods, reading_tools), state,
+                max_tokens)
 
 
 def build_remote(state: dict | None, *, tools: frozenset[str], bank: str, tz: str | None = None,
@@ -608,7 +614,7 @@ def _state_age_hours(state: dict | None) -> int | None:
 
 def load_or_build(
     memory_path: Path, client_name: str | None = None, *, variant: str | None = None,
-    tools: frozenset[str] | None = None, cache_dir: Path | None = None,
+    tools: frozenset[str] | None = None, cache_dir: Path | None = None, reserve: int = 0,
 ) -> tuple[str, dict]:
     """The primer for this bank + client, from cache when the state file is unchanged.
 
@@ -622,6 +628,11 @@ def load_or_build(
     ``variant`` (G135 R-R15) is the caller's explicit choice and wins over
     ``client_name``. The remote connector always passes ``"remote"`` with its
     ``tools``. Omitted, stdio is unchanged: ``variant_for(client_name)``.
+
+    ``reserve`` (G110 slice 1a): tokens kept free for a continuity block in the
+    SessionStart note — the local primer is fitted to ``MAX_TOKENS - reserve``,
+    and the reserve is part of the cache key and file name. Remote primers
+    ignore it.
     """
     memory_path = Path(memory_path)
     path = state_dictionary.state_path(memory_path)
@@ -664,9 +675,13 @@ def load_or_build(
         # The bridge set is part of the text, so it is part of the key: installing
         # or removing a bridged skill must never serve yesterday's primer.
         key = f"{CONTRACT_VERSION}:{variant}:{stamp}:{tz_key}:{skill_catalog.fingerprint(bridges)}:{reading_key}:{skill_catalog.fingerprint(methods)}:{hashlib.sha256((reading_tools or '').encode('utf-8')).hexdigest()[:6]}"
+        reserve = max(0, int(reserve or 0))
+        if reserve:
+            key += f":rv{reserve}"
+            cache_name = f"{variant}.rv{reserve}"
         make = lambda st: build(  # noqa: E731
             st, variant=variant, bank=memory_path.name, tz=tz, bridges=bridges, reading=reading, methods=methods,
-            reading_tools=reading_tools)
+            reading_tools=reading_tools, max_tokens=MAX_TOKENS - reserve)
     cache_dir = Path(cache_dir) if cache_dir is not None else _cache_dir()
     cache_file = cache_dir / f"{memory_path.name}.{cache_name}.json"
     state = state_dictionary.read_state(memory_path)
