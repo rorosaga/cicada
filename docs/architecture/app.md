@@ -91,8 +91,8 @@ page's own header with an `esc` keycap and a close ×. It is modal: the shell un
 scrim click close it. `AppRouter.openSettings(_:row:)` is the one door (`SettingsSectionLink`, the gear, ⌘,), every
 hand-off to a page closes it, and `cicada.settingsSection` is only its remembered selection — the `Settings{}` scene
 and its cross-window seeds are gone. Privacy & data exports a bank and moves one to `<root>/.trash/`, but never
-switches banks (that is the command bar's); Memory has no "Look for duplicates" until the dedup endpoint stops
-blocking the event loop and commits what it merges (R-O17). Memory also holds
+switches banks (that is the command bar's); Memory has no "Look for duplicates" yet (R-O17) — the dedup endpoint
+now runs off the event loop and commits what it merges (G183(e)), so the button is the remaining half. Memory also holds
 G147's *How things fade*: pace suggestions from the person's own "Still tracking…?" answers
 (Apply · Not now — the latter per viewer) and each chosen per-type pace (Reset). Search is `SettingsIndex` over `QuickMatch` — the
 palette's one ranker — and landing always selects, scrolls, washes (the selected fill and the focus ring) and
