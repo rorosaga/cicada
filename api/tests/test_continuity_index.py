@@ -269,3 +269,81 @@ def test_a_persisted_index_is_reused_after_a_restart_without_rereading_heads(ban
     monkeypatch.setattr(continuity, "read_head", lambda p: reads.append(p) or real(p))
     hook = _refresh(bank, deadline=time.monotonic() + 5)        # hook mode: no full parse allowed
     assert reads == [] and hook.complete and len(hook.rows) == 2
+
+
+# --- fix round 1, finding 5: a failed scan is never an authoritative absence ----
+
+
+def test_a_scan_error_keeps_the_known_rows_and_is_incomplete(bank, monkeypatch):
+    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
+    assert _refresh(bank).complete
+    real = os.scandir
+
+    def denied(path):
+        if str(path).endswith("episodes"):
+            raise PermissionError(13, "denied")
+        return real(path)
+
+    monkeypatch.setattr(continuity.os, "scandir", denied)
+    snap = _refresh(bank)
+    assert not snap.complete and [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"]
+
+
+def test_a_missing_episodes_directory_is_a_complete_empty_answer(tmp_path, monkeypatch):
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    continuity.reset()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    snap = continuity.refresh_index(empty, bank_paths=(empty,), deadline=None)
+    assert snap.rows == {} and snap.complete
+
+
+def test_a_file_that_vanishes_between_listing_and_stat_costs_only_itself(bank, monkeypatch):
+    write_session(bank, 1, [("user", "a"), ("assistant", "b")])
+    write_session(bank, 2, [("user", "c"), ("assistant", "d")])
+    real = os.scandir
+
+    class Entry:
+        def __init__(self, e):
+            self._e, self.name, self.path = e, e.name, e.path
+
+        def is_file(self, follow_symlinks=True):
+            return self._e.is_file(follow_symlinks=follow_symlinks)
+
+        def stat(self, follow_symlinks=True):
+            if self.name == "ep_2026-09-03_002.md":
+                raise FileNotFoundError(2, "gone")
+            return self._e.stat(follow_symlinks=follow_symlinks)
+
+    class Scan:
+        def __init__(self, path):
+            self._it = real(path)
+
+        def __enter__(self):
+            return (Entry(e) for e in self._it)
+
+        def __exit__(self, *a):
+            self._it.close()
+
+    monkeypatch.setattr(continuity.os, "scandir", Scan)
+    snap = _refresh(bank)
+    assert [r["id"] for r in snap.rows.values()] == ["ep_2026-09-03_001"] and snap.complete
+
+
+def test_an_explicit_episode_beyond_the_parse_allowance_is_looked_up_directly(bank):
+    for i in range(21):
+        write_session(bank, i + 1, [("user", f"q{i}"), ("assistant", "ok")], extra_meta={"zz": "x" * 20_000},
+                      start=i)
+    ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=CWD,
+                              session="ep_2026-09-03_001", allow_full_parse=continuity.TOOL_UNREADABLE_PARSES)
+    assert ctx.selection.kind == "explicit" and ctx.chosen.episode_id == "ep_2026-09-03_001"
+
+
+def test_an_explicit_session_id_missed_by_an_incomplete_search_says_so(bank):
+    for i in range(21):
+        write_session(bank, i + 1, [("user", f"q{i}"), ("assistant", "ok")], extra_meta={"zz": "x" * 20_000},
+                      start=i)
+    ctx = continuity.assemble(bank, bank_paths=(bank,), harness=None, session_id=None, cwd=CWD,
+                              session=sid(1), allow_full_parse=0)
+    text = continuity.full_text(ctx)
+    assert "could not establish" in text and "No captured session in this bank matches" not in text

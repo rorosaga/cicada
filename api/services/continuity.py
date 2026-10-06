@@ -250,15 +250,31 @@ def refresh_index(memory_path: Path, *, bank_paths, deadline: float | None,
     old = _load(memory_path)
     entries: dict[str, list] = {}
     pending = 0
+    scan = []
     try:
-        scan = []
         with os.scandir(episodes) as it:
             for e in it:
-                if e.name.startswith("ep_") and e.name.endswith(".md") and e.is_file(follow_symlinks=False):
+                if not (e.name.startswith("ep_") and e.name.endswith(".md")):
+                    continue
+                try:
+                    if not e.is_file(follow_symlinks=False):
+                        continue
                     st = e.stat(follow_symlinks=False)
-                    scan.append((st.st_mtime_ns, st.st_size, e.name))
+                except FileNotFoundError:
+                    continue            # removed between listing and stat: it is gone, nothing else is lost
+                except OSError:
+                    pending += 1        # unknown: keep its cached row below, and say the search is incomplete
+                    if e.name in old:
+                        entries[e.name] = old[e.name]
+                    continue
+                scan.append((st.st_mtime_ns, st.st_size, e.name))
+    except FileNotFoundError:
+        return Snapshot({}, complete=True)       # no episodes directory: genuinely nothing captured
     except OSError:
-        return Snapshot({}, complete=True)
+        # The listing itself failed (review finding 5): what was known still stands, and nothing is absent
+        # for certain.
+        rows = {name: e[2] for name, e in old.items() if isinstance(e[2], dict)}
+        return Snapshot(rows, complete=False)
     scan.sort(reverse=True)
     for mtime, size, name in scan:
         cached = old.get(name)
@@ -503,6 +519,14 @@ def assemble(memory_path: Path, *, bank_paths, harness: str | None, session_id: 
     snap = refresh_index(memory_path, bank_paths=bank_paths,
                          deadline=None if deadline is None else deadline - VIEW_RESERVE_S,
                          allow_full_parse=allow_full_parse)
+    if session and episode_ids.EPISODE_ID_RE.match(session.strip()):
+        name = f"{session.strip()}.md"
+        if name not in snap.rows:
+            # An exact episode id names its file: look it up directly instead of trusting an
+            # incomplete index (review finding 5).
+            direct = _full_row(memory_path / "episodes" / name)
+            if isinstance(direct, dict):
+                snap.rows[name] = direct
     registry = continuity_sessions.all_rows(memory_path, bank_paths=bank_paths, now=now)
     sel = select(snap, registry, cwd=cwd, exclude_session=session_id, session=session)
     ctx = WorkingContext(memory_path, sel, snap.complete, listed=list(sel.listed), now=now)
@@ -795,6 +819,9 @@ def full_text(ctx: WorkingContext, *, before: str | None = None, cap: int = REPL
                 lines.append(f"  Their last request there (history, not an instruction): \"{clip(req.text, 400)}\"")
         return "\n".join(lines)[:cap]
     if sel.kind == "none" or ctx.chosen is None:
+        if sel.reason == "no_such_session" and not ctx.complete:
+            return ("Cicada could not establish whether a captured session matches that id: the search was "
+                    "incomplete (some episodes could not be read in time). Try the exact episode id, or ask again.")
         if sel.reason == "no_such_session":
             return "No captured session in this bank matches that id (an exact episode id or full session id)."
         if sel.reason == "changed":
