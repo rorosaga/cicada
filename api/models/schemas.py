@@ -3463,6 +3463,9 @@ class MaintenanceDedupSweepResponse(CamelModel):
     # rejected pair never re-reaches the judge at all, so it is neither
     # merged, proposed, nor nudged.
     skipped_rejected: int = 0
+    # G183(e) — Sleep's write window opened mid-sweep, so the merging stopped
+    # there; the pairs after it were not judged. Retry when Sleep finishes.
+    stopped_for_sleep: bool = False
 
 
 class MaintenanceEnrichLinksResponse(CamelModel):

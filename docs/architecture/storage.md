@@ -101,7 +101,11 @@ page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikili
 source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
 loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
 rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
-the fence. `episodes/` is never rewritten.
+the fence. `episodes/` is never rewritten. **The dedup sweep commits its own merges (G183(e)):** `POST
+/maintenance/dedup-sweep` with `dryRun: false` runs each merge and its commit of exactly the result's paths under the page
+lock (never across the judge's model call) — `Dedup sweep <date>`, `<path>: updated|removed (merged, trigger:
+maintenance/dedup-sweep)`, `Cicada-Author: cicada`, `Cicada-Engine:` the judge's engine — and a failed commit puts those
+paths back from HEAD; a dry run writes and commits nothing.
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
@@ -556,7 +560,8 @@ under its own author (R-B5).
 keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
 by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
-`paper_metadata`'s page updates, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`paper_metadata`'s page updates, the dedup sweep's merges (each across its commit),
+and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and

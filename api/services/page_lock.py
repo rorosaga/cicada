@@ -10,7 +10,7 @@ within a thread, nothing created inside the bank for git to see.
 
 **What holds it.** Every agent-surface write of a page: ``agentic_write``'s
 claim write and withdrawal, ``progress``'s event writes, ``fact_sources``'
-source writes, ``paper_metadata``'s page updates and ``entity_merge``. The MCP
+source writes, ``paper_metadata``'s page updates and ``entity_merge`` (the dedup sweep holds it across each merge's commit). The MCP
 tools hold it across the write AND its ``agent_commits.commit_write``, so a page
 is committed as the writer left it. **Lock order:** this lock, then git's
 per-bank write lock (taken inside the commit), then ``episode_lock`` — never
