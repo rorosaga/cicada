@@ -262,3 +262,68 @@ def test_a_stdio_save_with_the_backend_down_fetches_outside_admission_and_writes
     out = mcp_tools.save_url(ctx, "https://example.com/a", None)
     assert not out.startswith("Error"), out
     assert seen == {"fetch": [0], "write": [1]}
+
+
+# --- Fix round 1, finding 8: the owner page and the reading ask's save are admitted page writers --------------------
+
+
+def _client_on(memory, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
+    config.get_settings.cache_clear()
+    return TestClient(main.app)
+
+
+def test_the_owner_page_write_is_refused_inside_the_window(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+    before = sorted(p.name for p in (memory / "entities").iterdir())
+    try:
+        resp = _client_on(memory, monkeypatch).put("/settings/owner", json={"name": "Alex Example"})
+    finally:
+        config.get_settings.cache_clear()
+    assert resp.status_code == 409, resp.text
+    assert sorted(p.name for p in (memory / "entities").iterdir()) == before
+
+
+def test_the_owner_page_write_holds_admission_through_its_commit(tmp_path, monkeypatch):
+    from api.services import git_service
+
+    memory = _bank(tmp_path)
+    seen = []
+    real = git_service.commit_paths
+
+    async def commit_paths(memory_path, message, paths):
+        seen.append(write_admission.holders(memory))
+        return await real(memory_path, message, paths)
+
+    monkeypatch.setattr(git_service, "commit_paths", commit_paths)
+    try:
+        resp = _client_on(memory, monkeypatch).put("/settings/owner", json={"name": "Alex Example"})
+    finally:
+        config.get_settings.cache_clear()
+    assert resp.status_code == 200, resp.text
+    assert seen == [1]
+
+
+def test_a_reading_ask_saves_its_link_inside_admission(tmp_path, monkeypatch):
+    from api.services import reading_service
+
+    memory = _bank(tmp_path)
+    seen = []
+    real = media_ingestor.write_media_entity
+    monkeypatch.setattr(media_ingestor, "write_media_entity",
+                        lambda *a, **k: seen.append(write_admission.holders(memory)) or real(*a, **k))
+    monkeypatch.setattr(reading_service.reading_settings, "agent_enabled", lambda: True)
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(reading_service.reading_hosts, "agent_may_read", lambda url, enabled: SimpleNamespace(
+        ok=True, cls="open", reason="", host="example.com", host_class="open"))
+    import asyncio
+
+    out = asyncio.run(reading_service.ask(memory, "https://example.com/an-article"))
+    assert out["saved"] is True
+    assert seen == [1]
