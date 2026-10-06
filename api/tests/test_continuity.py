@@ -217,3 +217,24 @@ def test_a_later_session_that_cannot_be_read_is_not_called_uncaptured(bank, how)
     text, _ = continuity.startup_block(ctx, max_chars=1800)
     assert "nothing from it was captured" not in text
     assert "Cicada could not tell whether a later session here" in text
+
+
+# --- fix round 1, finding 10: activity is the conversation's own time -----------
+
+
+def test_a_late_recapture_never_makes_an_old_session_look_recent(bank):
+    """Plan r4 C1 as amended in fix round 1: activity is the last kept turn's own
+    time (the capture time only when no turn has one), or a later prompt. A
+    session last spoken in at T but re-captured at T+100 (a Stop on resume with no
+    new turn, a re-render after an upgrade) must not outrank one spoken in at T+50."""
+    write_session(bank, 1, [("user", "old"), ("assistant", "ok")], start=0,
+                  extra_meta={"captured_at": at(100)})
+    write_session(bank, 2, [("user", "newer"), ("assistant", "ok")], start=50)
+    assert _ctx(bank).chosen.episode_id == "ep_2026-09-03_002"
+
+
+def test_an_untimed_session_falls_back_to_its_capture_time(bank):
+    write_session(bank, 1, [("user", "untimed"), ("assistant", "ok")], untimed=True,
+                  extra_meta={"captured_at": at(200)})
+    write_session(bank, 2, [("user", "timed"), ("assistant", "ok")], start=50)
+    assert _ctx(bank).chosen.episode_id == "ep_2026-09-03_001"
