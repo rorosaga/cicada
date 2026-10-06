@@ -204,3 +204,95 @@ def _own_body(fn):
         yield node
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
             stack.extend(ast.iter_child_nodes(node))
+
+
+# --- Fix round 2, finding 4: no teardown separates a hold from its worker; a closed loop strands no count ------------
+
+
+def _wait_until(pred, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while not pred():
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+
+
+def test_loop_teardown_does_not_release_the_hold_before_the_worker_and_commit(bank, window, monkeypatch):
+    started, release = threading.Event(), threading.Event()
+    call = _picture(monkeypatch, started, release)
+    settings = SimpleNamespace(memory_path=bank)
+    head = _git(bank, "rev-parse", "HEAD").strip()
+
+    async def request_then_shutdown():
+        task = asyncio.ensure_future(call(settings))
+        assert await asyncio.to_thread(started.wait, 10)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # returning tears this loop down: every task still on it is cancelled
+
+    asyncio.run(request_then_shutdown())
+    assert write_admission.holders(bank) == 1, "the worker still writes: its transaction still holds the bank"
+    assert write_admission.wait_for_writers(bank, log_after=10, give_up_after=0.2) is False
+    release.set()
+    _wait_until(lambda: write_admission.holders(bank) == 0)
+    assert _git(bank, "rev-parse", "HEAD").strip() != head, "the write was committed, not left dirty"
+    assert "Cicada-Author: user" in _git(bank, "log", "-1", "--format=%B")
+    assert _git(bank, "status", "--porcelain") == ""
+    assert write_admission.wait_for_writers(bank, give_up_after=5) is True
+
+
+def test_a_late_acquisition_on_a_closed_loop_releases_itself(bank, window):
+    import fcntl
+    import os
+
+    from api.services import sleep_local
+
+    lock = sleep_local.bank_dir(bank) / write_admission.SIDECAR
+    fd = os.open(lock, os.O_RDONLY | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)   # Sleep's instant, stretched: the shared acquisition blocks in its thread
+    loop = asyncio.new_event_loop()
+    try:
+        task = loop.create_task(write_admission._acquire_off_loop(write_admission._key(bank)))
+        loop.run_until_complete(asyncio.sleep(0.1))
+        task.cancel()
+        loop.run_until_complete(asyncio.gather(task, return_exceptions=True))
+    finally:
+        loop.close()                  # no callback on this loop can ever run again
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    _wait_until(lambda: write_admission.holders(bank) == 0)
+    assert write_admission.wait_for_writers(bank, give_up_after=5) is True
+
+
+def test_drain_waits_for_live_transactions(bank, window):
+    release = threading.Event()
+
+    async def body():
+        await asyncio.to_thread(release.wait, 10)
+        return "done"
+
+    results: list = []
+
+    def caller():
+        results.append(asyncio.run(write_admission.run_admitted(bank, body)))
+
+    t = threading.Thread(target=caller)
+    t.start()
+    _wait_until(lambda: write_admission.holders(bank) == 1)
+    assert write_admission.drain(timeout=0.2) is False, "a transaction is still writing"
+    release.set()
+    assert write_admission.drain(timeout=10) is True
+    t.join(10)
+    assert results == ["done"]
+
+
+def test_the_backend_drains_admitted_writes_at_shutdown(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api import main
+
+    calls = []
+    monkeypatch.setattr(write_admission, "drain", lambda timeout=None: calls.append(timeout) or True)
+    with TestClient(main.app):
+        pass
+    assert calls == [main.SHUTDOWN_DRAIN_S]

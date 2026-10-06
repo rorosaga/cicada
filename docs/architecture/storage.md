@@ -598,10 +598,12 @@ server, another process, is admitted too. A lock that exists but cannot be opene
 admission and keeps the hold through its page writes and its own commit: synchronous code in a worker thread uses
 `admitted()` (refuses with the writer's own 409 or sentence) or `shared()` + `holding()` (a writer whose answer changes
 shape: folder and Wispr Flow syncs, skill pages, the stdio MCP tools whose in-window write stays uncommitted for
-Sleep); **async code uses `run_admitted()` / `route()`**, which runs the transaction in its own task, shielded from the
-request, with the flock taken off the event loop — so a cancelled request cannot release the hold while its threadpool
-worker still writes, and the loop never waits on a flock (a lint keeps `shared()`/`admitted()` out of every `async
-def`). Sleep **sets its flag first, then waits** (`wait_for_writers`, off the loop): every writer that saw the window
+Sleep); **async code uses `run_admitted()` / `route()`**, which runs the transaction on the *writer loop* — one
+long-lived loop in a daemon thread, in a copy of the caller's context — with the flock taken off any loop: neither a
+cancelled request nor its loop's teardown cancels the transaction, so its hold lasts until its threadpool workers and
+its commit are done; a hold that lands after its waiter is gone releases itself in the worker thread (no callback on a
+loop that may be closed); the backend's shutdown drains live transactions (30 s) before the process goes; and no
+request loop waits on a flock (a lint keeps `shared()`/`admitted()` out of every `async def`). Sleep **sets its flag first, then waits** (`wait_for_writers`, off the loop): every writer that saw the window
 shut took its hold before the flag, so it finishes its write and commit before Sleep reads a page, and every later one
 sees the flag and refuses. The flip runs at the run's start, at a drain batch's Stage 2 and at the tail; closing the
 window takes nothing. The wait is **bounded and honest**: logged past 5 s; past 60 s (or with an unopenable lock) it

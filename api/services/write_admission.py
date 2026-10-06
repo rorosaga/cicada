@@ -7,8 +7,9 @@ change was then overwritten or swept into Sleep's batch commit under Sleep's aut
 **A guarded writer** takes admission *shared* around its check, its page writes and its own commit —
 :func:`admitted` asks ``is_writing()`` once the hold is taken and refuses (the caller's own 409 or sentence) when Sleep
 holds the pages. Shared holds never wait on each other; they are counted, not owned by a thread. An ``async`` writer uses
-:func:`run_admitted` / :func:`route`: its transaction runs in its own task, shielded from the request, with the flock
-taken off the loop — so a cancelled request cannot release the hold while its worker still writes. :func:`shared` and
+:func:`run_admitted` / :func:`route`: its transaction runs on the writer loop (a daemon thread nothing tears down),
+with the flock taken off any loop — so neither a cancelled request nor its loop's shutdown can release the hold while
+its worker still writes, and a hold that lands after its waiter is gone releases itself. :func:`shared` and
 :func:`admitted` are for synchronous code in a worker thread (never inside an ``async def``; a test keeps it so).
 **Never across a model call or a network fetch:** fetch or synthesize first, then take the hold and check again (a
 link save, an inbox conflict answer); a long networked job that cannot is a disclosed probe (``probe()``).
@@ -33,6 +34,8 @@ admission while it holds any of them. Awake capture never takes admission.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextvars
 import fcntl
 import functools
 import logging
@@ -185,50 +188,136 @@ def admitted(memory_path, *, refuse: Callable[[], BaseException] | None = None) 
         yield
 
 
-async def _acquire_off_loop(key: str) -> int | None:
-    """:func:`_acquire` in a worker thread, so the event loop never waits on a flock. If the awaiting task is
-    cancelled meanwhile, the hold the thread then gets is released when it arrives — never leaked."""
-    fut = asyncio.get_running_loop().run_in_executor(None, _acquire, key)
+class _Handoff:
+    """Who releases a shared hold that arrives after its waiter was cancelled: whichever side comes second, under a
+    thread lock — never a callback on an event loop that may be closed by then (fix round 2)."""
+    __slots__ = ("lock", "fds", "taken", "abandoned")
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.fds: list[int] | None = None
+        self.taken = False
+        self.abandoned = False
+
+
+async def _acquire_off_loop(key: str) -> list[int]:
+    """:func:`_acquire` in a worker thread, so no event loop waits on a flock. A hold that lands after the waiter was
+    cancelled is released by the worker thread itself (or by the cancelled waiter if it landed first)."""
+    handoff = _Handoff()
+
+    def acquire() -> list[int] | None:
+        fds = _acquire(key)
+        with handoff.lock:
+            if handoff.abandoned:
+                _release(key, fds)
+                return None
+            handoff.fds, handoff.taken = fds, True
+        return fds
+
+    fut = asyncio.get_running_loop().run_in_executor(None, acquire)
     try:
         return await asyncio.shield(fut)
     except asyncio.CancelledError:
-        fut.add_done_callback(lambda f: None if f.cancelled() or f.exception() else _release(key, f.result()))
+        with handoff.lock:
+            if handoff.taken:
+                _release(key, handoff.fds)   # it landed; nobody will use it
+            else:
+                handoff.abandoned = True     # the worker thread releases it when it lands
         raise
+
+
+# --- The writer loop: where every async admitted transaction runs (fix round 2, finding 4) -----------------------
+#
+# A shield keeps a cancelled request from cancelling its transaction, but not the request loop's own teardown, which
+# cancels every task on it — the transaction's `finally` then released the hold while its threadpool worker still
+# wrote. So transactions run on one long-lived loop in a daemon thread that nothing tears down: a request's loop
+# going away cancels only its wait, and the hold is released when the transaction — workers and commit — is done.
+# The caller's context (a pinned bank, …) is carried into the task. The loop-bound primitives a body uses (its route's
+# asyncio.Lock) are only ever used inside transactions, so they bind to this loop alone.
+
+_WRITER: tuple[asyncio.AbstractEventLoop, threading.Thread] | None = None
+_WRITER_GUARD = threading.Lock()
+_LIVE: set[concurrent.futures.Future] = set()
+_LIVE_GUARD = threading.Lock()
+
+
+def _writer_loop() -> asyncio.AbstractEventLoop:
+    global _WRITER
+    with _WRITER_GUARD:
+        if _WRITER is None or not _WRITER[1].is_alive() or _WRITER[0].is_closed():
+            loop = asyncio.new_event_loop()
+            thread = threading.Thread(target=loop.run_forever, name="cicada-write-admission", daemon=True)
+            thread.start()
+            _WRITER = (loop, thread)
+        return _WRITER[0]
+
+
+def _settle(done: concurrent.futures.Future, task: "asyncio.Task") -> None:
+    try:
+        if task.cancelled():
+            done.cancel()
+        elif task.exception() is not None:
+            done.set_exception(task.exception())
+        else:
+            done.set_result(task.result())
+    except concurrent.futures.InvalidStateError:
+        pass
+
+
+def drain(timeout: float | None = None) -> bool:
+    """Wait for every live admitted transaction to finish (the backend's shutdown calls it). True when none is left."""
+    with _LIVE_GUARD:
+        live = list(_LIVE)
+    if not live:
+        return True
+    _done, pending = concurrent.futures.wait(live, timeout=timeout)
+    return not pending
 
 
 async def run_admitted(memory_path, body: Callable[[], Awaitable[T]], *,
                        refuse: Callable[[], BaseException] | None = None) -> T:
-    """Run ``await body()`` as ONE admitted transaction — the async door (fix round 1, findings 2 and 7).
+    """Run ``await body()`` as ONE admitted transaction — the async door (fix rounds 1 and 2).
 
-    The transaction runs in its own task, shielded from the caller: a cancelled request does not stop the threadpool
-    worker it was awaiting, so the hold must last until that worker and the commit after it are done — it is released
-    in the transaction's own ``finally``, never in the cancelled caller's. The flock is taken off the loop. With
-    ``refuse``, Sleep holding the pages raises it before ``body`` runs. ``body`` must not await a model call or a
-    network fetch (do that first, then re-check inside)."""
+    The transaction runs on the writer loop, in a copy of the caller's context: neither a cancelled request nor its
+    loop's teardown can cancel it, and its hold — taken off any loop, released in the transaction's own ``finally`` —
+    lasts until the body's workers and commit are done. With ``refuse``, Sleep holding the pages raises it before
+    ``body`` runs. ``body`` must not await a model call or a network fetch (do that first, then re-check inside)."""
     key = _key(memory_path)
+    context = contextvars.copy_context()
+    done: concurrent.futures.Future = concurrent.futures.Future()
 
     async def transaction():
-        fd = await _acquire_off_loop(key)
+        fds = await _acquire_off_loop(key)
         try:
             if refuse is not None and holding():
                 raise refuse()
             return await body()
         finally:
-            _release(key, fd)
+            _release(key, fds)
 
-    task = asyncio.ensure_future(transaction())
+    loop = _writer_loop()
+    with _LIVE_GUARD:
+        _LIVE.add(done)
+
+    def forget(f) -> None:
+        with _LIVE_GUARD:
+            _LIVE.discard(f)
+
+    done.add_done_callback(forget)
+    loop.call_soon_threadsafe(
+        lambda: loop.create_task(transaction(), context=context).add_done_callback(lambda t: _settle(done, t)))
     try:
-        return await asyncio.shield(task)
+        return await asyncio.shield(asyncio.wrap_future(done))
     except asyncio.CancelledError:
-        task.add_done_callback(_abandoned)
+        done.add_done_callback(_abandoned)
         raise
 
 
-def _abandoned(task: "asyncio.Task") -> None:
+def _abandoned(done: concurrent.futures.Future) -> None:
     """A transaction whose caller went away still finishes; its failure is logged (by class), never lost silently."""
-    if not task.cancelled() and task.exception() is not None:
+    if not done.cancelled() and done.exception() is not None:
         logger.warning(f"an admitted write finished after its request was cancelled and failed: "
-                       f"{type(task.exception()).__name__}")
+                       f"{type(done.exception()).__name__}")
 
 
 def route(*, refuse: Callable[[], BaseException] | None = None):

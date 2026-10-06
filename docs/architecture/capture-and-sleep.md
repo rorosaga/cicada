@@ -226,7 +226,7 @@ rewrites) through its commit, plus the run's start and its tail. Stage 1's engin
 page, so the *server* accepts page writes there and a stdio agent's claim **commits alone under its own harness** there instead of being
 swept by the next batch's `git add -A` under the Sleep author. The refusal is asked **under admission** (G183,
 `write_admission`): a guarded writer asks it holding the bank's write admission and keeps the hold through its own
-commit (an async writer's hold lives in its own shielded task, so a cancelled request cannot drop it early); Sleep opens
+commit (an async writer's transaction runs on the writer loop, so neither a cancelled request nor its loop's teardown can drop it early); Sleep opens
 a window (the run's start, a batch's Stage 2, the tail) by setting its flag and then waiting, off the loop, until no
 holder is left — so a writer that saw the window shut commits before Sleep reads a page, and every later one refuses.
 The wait is bounded: past 60 s Sleep reads nothing — the drain stops as a `busy` pause, a run's start reads nothing,
