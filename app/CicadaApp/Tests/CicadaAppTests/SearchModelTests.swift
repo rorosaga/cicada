@@ -4,7 +4,7 @@ import XCTest
 /// G182 phase 3 — Settings → Memory → Search model: the wire, the token's one road out, the
 /// detail line in words and the pick routing.
 final class SearchModelTests: XCTestCase {
-    static let small = "BAAI/bge-small-en-v1.5"
+    static let small = "intfloat/multilingual-e5-small"
     static let large = "google/embeddinggemma-300m"
     static let token = "hf_exampleTokenValue1234567890"
 
@@ -24,10 +24,10 @@ final class SearchModelTests: XCTestCase {
     }
 
     private static let reply = """
-    {"model": "BAAI/bge-small-en-v1.5", "nextModel": "google/embeddinggemma-300m", "choice": "google/embeddinggemma-300m",
+    {"model": "intfloat/multilingual-e5-small", "nextModel": "google/embeddinggemma-300m", "choice": "google/embeddinggemma-300m",
      "release": true,
      "models": [
-       {"id": "BAAI/bge-small-en-v1.5", "label": "Small", "dimensions": 384, "detail": "Built in.", "needsDownload": false, "available": true},
+       {"id": "intfloat/multilingual-e5-small", "label": "Small", "dimensions": 384, "detail": "Built in.", "needsDownload": false, "available": true},
        {"id": "google/embeddinggemma-300m", "label": "Larger", "dimensions": 768, "detail": "About 2 GB.", "needsDownload": true, "available": false}
      ],
      "install": {"state": "installing", "step": "Downloading the model (about 1.2 GB)", "error": ""}}
@@ -260,7 +260,7 @@ final class SearchModelMissingTests: XCTestCase {
     func testABankBuiltWithAMissingModelSaysSearchUsesWords() {
         let status = EmbeddingsStatus(
             model: "google/embeddinggemma-300m",
-            models: [EmbeddingModelOption(id: "BAAI/bge-small-en-v1.5", label: "Small", dimensions: 384, detail: "",
+            models: [EmbeddingModelOption(id: "intfloat/multilingual-e5-small", label: "Small", dimensions: 384, detail: "",
                                           needsDownload: false, available: true),
                      EmbeddingModelOption(id: "google/embeddinggemma-300m", label: "Larger", dimensions: 768, detail: "",
                                           needsDownload: true, available: false)])

@@ -128,7 +128,7 @@ bank = Path(sys.argv[1])
 assert "/Contents/Resources/backend/app/" in api.__file__, f"imported {api.__file__}, not the app's code"
 assert "sentence_transformers" not in sys.modules
 model = get_settings().resolved_embedding_model
-assert model == "BAAI/bge-small-en-v1.5", model
+assert model == "intfloat/multilingual-e5-small", model
 idx = SqliteVecIndexer(bank)
 idx.index_episodes()
 info = idx.index_info()
