@@ -14,11 +14,13 @@ MARKER = 'cicada-system-benchmark-v1'
 REPO = Path(__file__).resolve().parents[2]
 
 
-def _no_symlinks(path: Path) -> None:
+def _no_symlinks(path: Path, *, allow_internal: bool = False) -> None:
     if any(p.is_symlink() for p in (path, *path.parents)):
         raise ValueError('benchmark paths must not contain a symlink')
-    if path.exists() and any(p.is_symlink() for p in path.rglob('*')):
-        raise ValueError('benchmark directories must not contain a symlink')
+    if path.exists():
+        for child in path.rglob('*'):
+            if child.is_symlink() and not (allow_internal and child.resolve().is_relative_to(path)):
+                raise ValueError('benchmark directories must not contain an escaping symlink')
 
 
 def _owned(value: str, marker: str) -> Path:
@@ -27,7 +29,7 @@ def _owned(value: str, marker: str) -> Path:
         (path / marker).write_text(json.dumps({'kind': MARKER}) + '\n')
     else:
         path = Path(value).expanduser().absolute()
-        _no_symlinks(path)
+        _no_symlinks(path, allow_internal=marker == '_bench_home.yaml')
         try:
             data = json.loads((path / marker).read_text())
         except (OSError, ValueError) as exc:
@@ -58,6 +60,7 @@ def isolated_env(bank: Path, home: Path, engine: str) -> dict[str, str]:
         'CICADA_ALLOW_LOGO_FETCH': 'off', 'CICADA_TELEMETRY': 'off',
         'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
         'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1',
+        'PYTHONPATH': str(REPO),
     })
     return env
 
@@ -90,12 +93,12 @@ def main(argv: list[str] | None = None) -> int:
         if config_path.is_relative_to(bank) or config_path.is_relative_to(home):
             raise ValueError('config must be outside both bank and home')
         config = json.loads(config_path.read_text())
-        if set(config) != {'batch_size', 'embedding_model'} or config['batch_size'] != 2:
+        if not isinstance(config, dict) or set(config) != {'batch_size', 'embedding_model'} or type(config['batch_size']) is not int or config['batch_size'] != 2:
             raise ValueError('small config requires batch_size=2 and embedding_model only')
         if not isinstance(config['embedding_model'], str) or not config['embedding_model'].strip():
             raise ValueError('embedding_model must be explicit')
-        if args.engine == 'fake' and args.model != 'deterministic-v1':
-            raise ValueError('fake engine requires --model deterministic-v1')
+        if args.engine == 'fake' and (args.model != 'deterministic-v1' or config['embedding_model'] != 'fake-hash-v1'):
+            raise ValueError('fake engine requires --model deterministic-v1 and embedding_model=fake-hash-v1')
         if args.engine == 'codex' and config['embedding_model'] == 'fake-hash-v1':
             raise ValueError('subscription runs require a real local embedding model')
         launch = {**vars(args), 'bank_dir': str(bank), 'home': str(home),
@@ -107,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         # must sign in explicitly in this isolated home using Cicada's adapter.
         return subprocess.run(
             [sys.executable, '-m', 'benchmarks.system.workload'],
-            input=json.dumps(launch), text=True, cwd=REPO,
+            input=json.dumps(launch), text=True, cwd=home,
             env=isolated_env(bank, home, args.engine), check=False,
         ).returncode
     except (OSError, ValueError) as exc:
