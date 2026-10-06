@@ -53,7 +53,7 @@ def _row(bank, session=ME):  # noqa: F811
     return continuity_sessions.get(bank, "claude-code", session, bank_paths=(bank,))
 
 
-@pytest.mark.parametrize("source", ["startup", "clear", None])
+@pytest.mark.parametrize("source", ["startup", "clear"])
 def test_a_new_session_hears_where_the_last_one_here_stopped(client, bank, source):  # noqa: F811
     write_session(bank, 1, A_TURNS)
     data = _start(client, source=source)
@@ -67,7 +67,7 @@ def test_a_new_session_hears_where_the_last_one_here_stopped(client, bank, sourc
     assert row["cwd_hash"] == continuity_sessions.cwd_hash(CWD)
 
 
-@pytest.mark.parametrize("source", ["resume", "compact", "fork"])
+@pytest.mark.parametrize("source", ["resume", "compact", "fork", None])
 def test_resume_compact_and_fork_carry_their_own_history(client, bank, source):  # noqa: F811
     write_session(bank, 1, A_TURNS)
     note = _start(client, source=source)["additionalContext"]
@@ -80,7 +80,7 @@ def test_an_unknown_source_answers_200_and_is_treated_as_unknown(client, bank): 
     write_session(bank, 1, A_TURNS)
     r = client.post(URL, json={"event": "session_start", "harness": "claude-code", "session_id": ME,
                                "cwd": CWD, "source": ["not", "a", "string"]})
-    assert r.status_code == 200 and "Where the last session" in r.json()["additionalContext"]
+    assert r.status_code == 200 and "Where the last session" not in r.json()["additionalContext"]   # unknown: closed
     r = client.post(URL, json={"event": "session_start", "harness": "claude-code", "session_id": sid(78),
                                "cwd": CWD, "source": "x" * 40})
     assert r.status_code == 200

@@ -81,8 +81,10 @@ SEMANTIC_CHARS = 2_000
 REASONS = ("injected", "primer", "no_terms", "no_match", "recently_shown", "index_not_ready", "no_bank",
            "timeout", "error", "reading")
 # G110 slice 1a (plan C4): where the last session in this folder stopped.
-#: SessionStart sources that get a continuity block; resume/compact/fork carry their own history.
-CONTINUITY_SOURCES = (None, "startup", "clear")
+#: SessionStart sources that get a continuity block; resume/compact/fork carry their
+#: own history, and a missing or unknown source is treated as unknown — no block
+#: (fail closed: an older hook that never sends it must not inject into a resume).
+CONTINUITY_SOURCES = ("startup", "clear")
 SESSION_SOURCES = ("startup", "resume", "clear", "compact", "fork")
 #: Tokens the primer leaves free when a block will ride beside it.
 CONTINUITY_RESERVE = 300
@@ -585,8 +587,8 @@ def session_start_note(memory_path: Path, *, harness: str, session_id: str, cwd:
     the last session in this folder stopped, and the reading sentence — one
     compositor, measured as the final string, inside ``handshake.MAX_TOKENS``.
 
-    The block is assembled only for ``startup``/``clear`` (or no ``source``)
-    and a ``cwd``; it reads the pinned ``memory_path`` only. When a block is
+    The block is assembled only for ``startup``/``clear`` (never for a missing
+    or unknown ``source``) and a ``cwd``; it reads the pinned ``memory_path`` only. When a block is
     sent for one session (not a question) and time remains, the registry
     records ``continues`` for this session (first write wins)."""
     ctx, state = None, "skipped_source"
