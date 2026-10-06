@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from fastapi import HTTPException
 from api.config import Settings
 from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
+    bank_index,
     decay_policy,
     fact_sources,
     inbox_context,
@@ -278,6 +280,53 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
     return str(fm.get("status", "active") or "active") in ("archived", "dropped")
 
 
+def _hidden(
+    memory_path: Path, *, kind: str, entity_id: str, remind_after: str | None,
+    today: str, include_deferred: bool = False,
+) -> bool:
+    """The one rule for a parsed item that is on disk but not served.
+
+    :func:`load_inbox` and :func:`served_counts` both ask it, so the menu bar's
+    count can never again include cards the inbox will not show (49 counted
+    against 35 listed on 2026-10-06: 14 items whose subject was archived,
+    dropped or gone).
+    """
+    if not include_deferred and remind_after and inbox_questions.is_deferred(
+        {"remind_after": remind_after}, today
+    ):
+        return True
+    return _subject_gone(memory_path, entity_id, kind)
+
+
+def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
+    """How many items :func:`load_inbox` serves, in total and by kind.
+
+    Reads frontmatter through ``bank_index`` (cached, mtime-gated) instead of
+    building every item. A file with no ``kind`` falls back to
+    :func:`load_inbox` itself rather than guessing ``_item_from_file``'s
+    ``"decay"`` default; a malformed file is absent from both paths.
+    """
+    today = str(date.today())
+    total = 0
+    by_kind: Counter = Counter()
+    for f in bank_index.files(memory_path, "inbox"):
+        if not f.stem.startswith("inbox-"):
+            continue
+        fm = f.frontmatter
+        if "kind" not in fm:
+            items = load_inbox(memory_path)
+            return len(items), dict(Counter(i.kind.value for i in items))
+        kind = str(fm["kind"])
+        if _hidden(
+            memory_path, kind=kind, entity_id=str(fm.get("entity_id", "") or ""),
+            remind_after=_opt_str(fm.get("remind_after")), today=today,
+        ):
+            continue
+        total += 1
+        by_kind[kind] += 1
+    return total, dict(by_kind)
+
+
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
     """Load inbox items, sorted: pending first, then priority desc, date desc.
 
@@ -315,11 +364,10 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
-        if not include_deferred and item.remind_after and inbox_questions.is_deferred(
-            {"remind_after": item.remind_after}, today
+        if _hidden(
+            memory_path, kind=item.kind.value, entity_id=item.entity_id,
+            remind_after=item.remind_after, today=today, include_deferred=include_deferred,
         ):
-            continue
-        if _subject_gone(memory_path, item.entity_id, item.kind):
             continue
         items.append(item)
     # pending first, then priority desc, then created_date desc.

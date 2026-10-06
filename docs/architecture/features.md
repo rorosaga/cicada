@@ -56,6 +56,12 @@ time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
+**A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
+one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
+on disk. `inbox_service.served_counts` applies the same `_hidden` predicate over `bank_index`
+frontmatter, and it is the only source of `/status`'s `inbox.total`/`byKind` (the menu bar) and the
+hub's pending count — on 2026-10-06 the raw file count said 49 while the inbox served 35.
+
 **Question object (G60).** Every item carries `question`, `options: [{key, label, description, …}]`,
 `allow_other`, `allow_defer`, `predicate` and an optional `hint`. Descriptions lead with the age
 phrase ("6 months ago") so staleness is visible before choosing; `age_days` is derived at read time,
