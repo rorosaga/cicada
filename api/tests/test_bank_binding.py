@@ -268,3 +268,113 @@ def test_a_malformed_body_is_parsed_before_the_bank_check(bank):
     stale = {bank_binding.HEADER: "other-bank", "Content-Type": "application/json"}
     assert c.put("/sleep/schedule", headers=stale, content=b"{").status_code == 422
     assert c.put("/sleep/schedule", headers=stale, content=b'{"mode": 7}').json()["code"] == "bank_mismatch"
+
+
+# --- Targeted fix: the pin never leaks into unattended work ---------------------------------------------------------
+
+
+def test_a_schedule_saved_in_a_request_fires_in_the_bank_active_when_it_fires(two_banks, monkeypatch):
+    """The reviewer's reproduction, with the real `PUT /sleep/schedule`, the bank dependency, a real AsyncIOScheduler
+    and `_run_if_idle` — only the cron is a date trigger 0.3 s away and Sleep's run is an observation stub. The schedule
+    is saved while `default` is active, `beta` is activated before it fires, and the scheduled run resolves beta (the
+    ACTIVE bank) with no pin: the request's pin never reached the scheduler's callbacks."""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+
+    import httpx
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.date import DateTrigger
+
+    from api.services import bank_registry, sleep_cycle, sleep_scheduler
+
+    root = two_banks
+    seen: list[dict] = []
+
+    async def run():
+        done = asyncio.Event()
+
+        async def observed_run(settings, *args, **kwargs):
+            pin = bank_registry._PINNED.get()
+            seen.append({"path": settings.memory_path, "pin": pin.name if pin else None,
+                         "user_triggered": kwargs.get("user_triggered")})
+            done.set()
+
+        monkeypatch.setattr(sleep_cycle, "run", observed_run)
+        monkeypatch.setattr(sleep_scheduler, "CronTrigger",
+                            lambda **kw: DateTrigger(run_date=datetime.now(timezone.utc) + timedelta(seconds=0.3)))
+        scheduler = AsyncIOScheduler()
+        scheduler.start()
+        monkeypatch.setattr(main.app.state, "scheduler", scheduler, raising=False)
+        try:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=main.app), base_url="http://test") as c:
+                saved = await asyncio.create_task(c.put("/sleep/schedule", json={"mode": "daily", "hour": 4, "minute": 5},
+                                                        headers={bank_binding.HEADER: "default"}))
+                assert saved.status_code == 200, saved.text
+                bank_registry.activate_bank(root, "beta")      # before the job fires
+                await asyncio.wait_for(done.wait(), 5)
+        finally:
+            scheduler.shutdown(wait=False)
+
+    asyncio.run(run())
+    assert seen == [{"path": bank_registry.bank_dir(root, "beta"), "pin": None, "user_triggered": False}]
+
+
+def test_every_scheduler_entry_point_drops_a_pin_it_was_handed(two_banks, monkeypatch):
+    """A callback that already carries a request's context (scheduled before this fix, or by a path not yet wrapped)
+    is cleaned at the job's own entry: each job resolves the bank active when it runs."""
+    import asyncio
+
+    from api.services import bank_registry, sleep_autocontinue, sleep_cycle, sleep_scheduler
+
+    root = two_banks
+    settings = config.get_settings()
+    seen = []
+
+    async def observed_run(settings, *args, **kwargs):
+        seen.append(settings.memory_path)
+
+    monkeypatch.setattr(sleep_cycle, "run", observed_run)
+    monkeypatch.setattr(sleep_scheduler, "_paused_for_the_person", lambda mp: False)
+
+    async def stale_job(job, *args):
+        bank_registry.pin_request_bank(root)            # the request that scheduled it: `default`
+        bank_registry.activate_bank(root, "beta")       # the switch, before it fires
+        try:
+            await job(*args)
+            return bank_registry._PINNED.get()
+        finally:
+            bank_registry.activate_bank(root, "default")
+
+    assert asyncio.run(stale_job(sleep_scheduler._run_if_idle, settings)) is None
+    assert seen == [bank_registry.bank_dir(root, "beta")]
+    assert asyncio.run(stale_job(sleep_scheduler._run_after_intake_if_settled, settings)) is None
+    assert asyncio.run(stale_job(sleep_autocontinue._fire, str(root), "no-such-run")) is None
+
+
+def test_registration_hands_the_scheduler_an_unpinned_context(two_banks):
+    """What APScheduler captures is the context `add_job` is called in: `register_job` and the auto-continue arming
+    call it in an unpinned copy, so neither the wakeup nor the timer carries a request's pin."""
+    import asyncio
+
+    from api.services import bank_registry, sleep_autocontinue, sleep_scheduler
+    from api.services.sleep_scheduler import ScheduleConfig
+
+    root = two_banks
+    captured = []
+
+    class Recorder:
+        def remove_job(self, *_):
+            pass
+
+        def add_job(self, *args, **kwargs):
+            captured.append(bank_registry._PINNED.get())
+
+    async def request():
+        bank_registry.pin_request_bank(root)
+        sleep_scheduler.register_job(Recorder(), config.get_settings(), ScheduleConfig(mode="daily", hour=4, minute=5))
+        sleep_autocontinue._add_job(Recorder(), str(root), 2_000_000_000, {"run_id": "r1", "paused_at_ts": 1})
+        return bank_registry._PINNED.get()
+
+    still = asyncio.run(request())
+    assert captured == [None, None]
+    assert still is not None and still.name == "default", "the request itself keeps its own pin"

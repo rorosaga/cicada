@@ -52,8 +52,15 @@ app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in
   Reads are pinned too. Not pinned: the routes that change the active bank (`/banks/{name}/activate`, `/banks/demo`,
   `/banks/leave-demo`), bank CRUD that names its bank (`POST /banks`, duplicate, rename, import,
   `DELETE /banks/{name}` — a rename moves the active bank's directory) and the SSE stream `/sync/events` (it follows
-  switches while open). Work that is not a request — the scheduler, a scheduled Sleep — resolves the active bank as
-  before; a task a request starts (a person-started Sleep run) inherits that request's pin.
+  switches while open). Work that outlives its request is classified: a person-started Sleep run (a
+  BackgroundTask of `/sleep/trigger`, `/sleep/parked/retry`) KEEPS the pin — it finishes in the bank it started in,
+  and a switch is refused while it reads — and so do background work that is handed an explicit `memory_path` (the
+  intake job, the bookmark enrichment, the paper resolver, the search-index / reading warmers; a `threading.Thread`
+  starts with an empty context anyway). Unattended work CLEARS it: every scheduler job (`_run_if_idle`,
+  `_run_after_intake_if_settled`, auto-continue's `_fire`) calls `bank_registry.unpin()` first, and `register_job` /
+  the auto-continue arming call `add_job` through `bank_registry.run_unpinned`, so APScheduler's wakeup and timer
+  callbacks never capture a request's pin — a schedule saved in A fires in the bank active when it fires. The remote
+  listener's serving task starts in `bank_registry.unpinned_context()` (each request it serves gets a fresh context).
 - *The check.* The app names the bank an operation STARTED in, percent-encoded UTF-8, on every POST/PUT/PATCH/DELETE
   (`X-Cicada-Bank`). A mutating request whose named bank is not the pinned one is answered
   `409 {"code": "bank_mismatch", "detail": "Memory switched before this was saved — nothing was written."}` before

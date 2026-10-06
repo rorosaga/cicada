@@ -29,6 +29,7 @@ import os
 import shutil
 import subprocess
 import time
+import contextvars
 import zipfile
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -267,6 +268,27 @@ def pin_request_bank(root: Path) -> PinnedBank:
     pin = PinnedBank(Path(root), name, path)
     _PINNED.set(pin)
     return pin
+
+
+def unpin() -> None:
+    """Drop this context's pin, so the work that follows resolves the active bank when it runs. Called first by every
+    unattended entry point (a scheduler job): a callback can carry a copy of the request context that scheduled it,
+    and the bank it must use is the one active when it FIRES, not when it was registered."""
+    _PINNED.set(None)
+
+
+def unpinned_context() -> contextvars.Context:
+    """A copy of the current context with no pin — to register a scheduler job, or start a long-lived task, from inside
+    a request without handing it that request's bank."""
+    ctx = contextvars.copy_context()
+    ctx.run(_PINNED.set, None)
+    return ctx
+
+
+def run_unpinned(fn, /, *args, **kwargs):
+    """Call ``fn`` in an unpinned copy of the current context: anything it schedules (APScheduler's wakeup and timer
+    callbacks, ``call_soon``/``call_later``) captures that clean context, not the request's pin."""
+    return unpinned_context().run(fn, *args, **kwargs)
 
 
 def resolve_active_bank_path(root: Path) -> Path:
