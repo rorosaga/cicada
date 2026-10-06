@@ -137,6 +137,7 @@ extension Copy.Graph {
     static let lastMentioned = "Last mentioned"
     static let fades = "Fades"
     static let fadesHelp = "How fast this fades when it stops coming up — the more weeks it came up in, the slower"
+    static let fadesNotChanged = "Couldn't change how this fades — try again"
 
     // Beliefs
     static let beliefTimelineHelp = "How this belief changed over time"

@@ -246,9 +246,19 @@ def components(memory_path: Path, *, sleep_state=None) -> dict[str, str]:
         "bank": mp.name,
         # A paused run (Sleep page v5) is not a status: it lives in a machine-local sidecar, so
         # Pause, Continue, End, a restart and an armed auto-continue move this on their own.
+        # G177 — the write window too: the app's write controls follow `writing`, which flips between a drain's
+        # batches with no status change, and `/status` has no ETag of its own to move.
         "sleep": (f"{getattr(sleep_state, 'status', 'idle')}:{getattr(sleep_state, 'cycle_id', '') or ''}"
-                  f"{_paused_token(mp)}"),
+                  f"{_writing_token(sleep_state)}{_paused_token(mp)}"),
     }
+
+
+def _writing_token(sleep_state) -> str:
+    if sleep_state is None:
+        return ""
+    from api.services import sleep_cycle
+
+    return ":writing" if sleep_cycle.writing_of(sleep_state) else ""
 
 
 def _paused_token(mp: Path) -> str:

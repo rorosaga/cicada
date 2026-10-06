@@ -16,8 +16,8 @@ import SwiftUI
 /// card of its own): a `PillPicker` of the backend's catalog labels, the detail line in words
 /// (`SearchModelLogic.detail`), and a model not on this Mac yet routed to `LargerSearchModelSheet`
 /// instead of switching (`SearchModelLogic.route`). While Sleep writes the picker is disabled at 45 %
-/// with the reason in `.help` (DR-41), keyed off the same `ProjectWriteGate` as every other write
-/// control. No monospace anywhere on the row (DR-19).
+/// with the reason in `.help` (DR-41), for the whole run (`ProjectWriteGate.sleepRunning`): the server
+/// refuses a switch while any run goes, since a drain re-syncs the index between its batches. No monospace anywhere on the row (DR-19).
 struct MemoryView: View {
     @Environment(Store.self) private var store
     @State private var index: SearchIndexStatus?
@@ -79,7 +79,7 @@ struct MemoryView: View {
 
     @ViewBuilder
     private var searchModelRow: some View {
-        let sleeping = ProjectWriteGate.blocked(store.status.value)
+        let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
         SettingsRow(.searchModel, title: Copy.SearchModel.title, detail: modelNote ?? SearchModelLogic.detail(embeddings)) {
             if let embeddings, !embeddings.models.isEmpty {
                 PillPicker(title: Copy.SearchModel.title,
@@ -114,7 +114,7 @@ struct MemoryView: View {
 
     private func pick(_ id: String) {
         guard let status = embeddings else { return }
-        switch SearchModelLogic.route(picked: id, status: status, sleepWriting: ProjectWriteGate.blocked(store.status.value)) {
+        switch SearchModelLogic.route(picked: id, status: status, sleepWriting: ProjectWriteGate.sleepRunning(store.status.value)) {
         case .nothing:
             break
         case .blocked:
@@ -150,7 +150,7 @@ struct MemoryView: View {
             do {
                 try await work()
             } catch APIError.httpError(409, let message) {
-                onError(message.localizedCaseInsensitiveContains("sleep") ? Copy.sleepIsRunning : Copy.alreadyRunning)
+                onError(SleepRefusal.matches(APIError.httpError(409, message)) ? Copy.sleepIsRunning : Copy.alreadyRunning)
             } catch {
                 onError(AddSourceSheet.friendlyError(error))
             }

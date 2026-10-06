@@ -49,7 +49,10 @@ pending; the server's 15 s `ping` retries it while connected (`Store.retryPendin
 heartbeats until the next version event re-arms it — a version event comes only when the vector moves, so before audit
 2026-10-05 P2-7 a failed refresh stayed stale on a healthy stream). View models are
 thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
-optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
+optimistic apply, rollback with a toast on failure. A Sleep-window refusal (`SleepRefusal`: a 409 with `code: "sleep_writing"`,
+or from an older backend one of its exact known opening sentences — never "sleep" anywhere in the body) toasts "Sleep is running — try again when it finishes." from an inbox answer (`InboxResolve`) and
+the entity card's Fades chip (`DecayChangeFailure`, which until G177 failed silently); any other failure keeps its own
+words, never a 409's raw detail. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
 **A late answer never lands in the wrong place** (audit 2026-10-02 A03/A05/A06). `Store.entity(_:)` compares the
@@ -412,8 +415,13 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
   the links, Add a note. The third column is one slot: the Reader, else a backlog item, else an entity's card.
 - **Writes** are `ProjectWrite` mutations through `Store.perform`: painted where the answer is known (a thread settled
   or restated, a milestone done, renamed or added, a withdrawal), rolled back with the server's own 409/422 sentence
-  (a 400's or 404's detail is never shown — it names ids), disabled while Sleep runs; nothing relative is sent as a
-  value. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
+  (a 400's or 404's detail is never shown — it names ids), disabled while Sleep holds the pages; nothing relative is
+  sent as a value. `ProjectWriteGate.blocked` (Projects, Backlog) reads `sleep.writing` from `/status` and the SSE `sleep` event —
+  the server's own refusal predicate, so a person-started drain gives the controls back between its batches (G177) —
+  and falls back to `status == "running"` when an older backend sends no `writing`. `ProjectWriteGate.sleepRunning`
+  (the whole run) stays on the search-model switch, whose route refuses while any run goes, and on what stops the
+  backend (the background install, Restart to update and the updater's cached check), since that ends a drain between
+  batches too. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
 
 **Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
 animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
@@ -588,6 +596,40 @@ by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, r
 (`Store.onBankChanged`). `PriceLintTests` keeps `$` and token literals out of every other Sleep
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
+**A write is bound to the bank it started in (G183(d)); the switch around it is one serialized transition.**
+*The safety net is the server's.* Every request runs in one bank, pinned when it starts (a switch while it awaits a
+lock or a commit leaves it finishing there), and a write names the bank it STARTED in: `APIClient` sends it on every
+POST/PUT/PATCH/DELETE (`X-Cicada-Bank`, `BankScope`), and the server refuses a write whose bank is no longer active
+before its handler runs (`bank_mismatch`; both in api.md). The bank named is a `@TaskLocal` origin, captured at the
+person's action, before anything is awaited: `Store.bankTask` captures the bank on screen synchronously and starts the
+work bound to it (the schedule, the reading options, the reserve, Getting started's schedule question, the Safari tab
+and bookmark imports, a feed or calendar removal, a backlog add, a picture's initials or removal); a picture upload
+captures it before its detached preparation and builds its write from it (`PictureActions.upload(…, bank:)`, the drop
+too); the Fades chip, Fade pace and the owner save capture it before their task; `Store.perform` binds the bank at
+admission unless an enclosing binding already named one (so work queued across a switch keeps its own); a held answer
+carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; and
+`SleepViewModel.updateSchedule` / `updateRunOptions` honour an enclosing origin. Work that binds nothing names the bank
+on screen at send time (`BankScope.onScreen`, kept by the app's `Store`) — during a switch still the old bank while the
+server is on the new one, so it too is refused rather than misfiled; such work started in A that first sends after
+the app reached B would name B (the binding rule above is what prevents that, site by site). On `bank_mismatch`
+`Store.perform` rolls back and toasts "Memory switched — try that again" (the Fades chip and Fade pace say the same).
+*The UX is the Store's.* `Store.switchBank` is the one transition for every route that changes the active bank: a
+switch by name (`Store.activateBank`, reached by the switcher, the find palette and the intake card through
+`BanksViewModel.activate`), entering the demo (`LiveSetupEffects.createDemoBank`) and leaving it (`DemoMode.liveExit`).
+It reserves `Store.bankSwitch` (a generation and the target) before its first await, so a second switch from any door
+is refused with "Switching memory — try again in a moment." and never interleaved. It sends the held answer and waits
+for every answer already accepted — queued by the next tap or on the wire — so each lands in the bank it was made in
+(R-DI3); an answer is never dropped by the switch, a late one is refused by the server and its question reopens, and
+the "sent" callback runs only for an answer that landed. While the switch waits, new `Store.perform` writes, a new
+inbox answer, the Fades chip and Fade pace are refused with the switching words; other direct writes are not held by
+the Store — the server's check covers them. On the answer the Store moves to the bank the returned roster names and
+hydrates it from cache, unless `refresh`'s fan-out saw the server move somewhere else meanwhile
+(`bankSeenDuringSwitch`; then the server's roster decides and the older answer is never shown); it reconciles the
+roster, releases writes (only the owning generation clears the marker) and reconciles the other domains. A failure
+changes nothing and is said by its door. The switcher keeps the current name while it waits, disabled at 45 % with
+"Switching to <bank>…" in `.help` (DR-41) — no spinner, no animation (DR-60). **Not covered:** reads are not
+bank-bound — a GET answered by the new bank during the switch can be painted and cached under the old one until the
+next reconcile (re-review finding 3, left open).
 
 **Mascot states (G107).** `BookwormState` gained `reading` for this page only —
 `deriveSleepPageMood` returns it where the menu bar's `deriveBookwormState` returns `.curious`, and

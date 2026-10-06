@@ -44,6 +44,7 @@ from api.services.claim_reconciler import is_human
 from api.services.claims import HAPPENED, MILESTONE, Claim, MalformedClaimsBlockError, is_event, parse_claims
 from api.services.id_utils import resolve_entity_file
 from api.services.transclusion_resolver import claim_to_model
+from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
 
@@ -139,7 +140,7 @@ def _guard() -> None:
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, BUSY)
+        raise SleepWriting(BUSY)
 
 
 def _on(raw: str | None, today: date) -> date:

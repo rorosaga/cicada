@@ -163,7 +163,7 @@ struct ProjectBacklogSection: View {
         guard !title.isEmpty, !writesBlocked else { return }
         let why = newWhy.trimmingCharacters(in: .whitespacesAndNewlines)
         cancel()
-        Task {
+        store.bankTask {   // G183(d): bound to the bank the item was added in
             let write = BacklogWrite(projectId: projectId, action: .add(title: title, description: why), cache: cache)
             let ok = await store.perform(write)
             await cache.refreshList(projectId)

@@ -133,12 +133,20 @@ enum ProjectWriteFailure {
     }
 }
 
-/// R-PP20 — while Sleep runs every Projects write answers 409 (`_guard`, `routers/projects.py`), so the controls say
-/// so before a click (DR-41: disabled, with the reason in `.help`). It keys off `running`, not the server's finer
-/// `writing` (G177): `/status` does not carry that, so during a person-started drain these controls stay disabled for
-/// the whole run even though the server would accept a write between batches.
+/// R-PP20 — while Sleep holds the pages every Projects write answers 409 (`_guard`, `routers/projects.py`), so the
+/// controls say so before a click (DR-41: disabled, with the reason in `.help`). G177: it keys off the server's
+/// `writing` (`/status` and the SSE `sleep` event), the same predicate as the refusal, so a person-started drain gives
+/// the controls back between its batches; an older backend that sends no `writing` falls back to `running`.
 enum ProjectWriteGate {
-    static func blocked(_ status: StatusSnapshot?) -> Bool { status?.sleep.status == "running" }
+    static func blocked(_ status: StatusSnapshot?) -> Bool {
+        guard let sleep = status?.sleep else { return false }
+        return sleep.writing ?? (sleep.status == "running")
+    }
+
+    /// The whole run, write window or not — for the controls whose server half refuses while any run goes (the search
+    /// model: a drain re-syncs the index between its batches, `routers/embeddings.py`) or that stop the backend (the
+    /// background install, Restart to update: a stopped backend ends the run, between batches too).
+    static func sleepRunning(_ status: StatusSnapshot?) -> Bool { status?.sleep.status == "running" }
 }
 
 /// R-PP21 — the Log's confirmation: the day the server chose, with its distance, and how it was decided.

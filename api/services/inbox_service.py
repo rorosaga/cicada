@@ -29,6 +29,7 @@ from api.services import (
     telemetry,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.sleep_refusal import SleepWriting
 
 logger = logging.getLogger(__name__)
 
@@ -900,7 +901,7 @@ async def resolve(
     from api.services import sleep_cycle
 
     if sleep_cycle.is_writing():
-        raise HTTPException(409, SLEEP_BUSY)
+        raise SleepWriting(SLEEP_BUSY)
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
@@ -951,7 +952,7 @@ async def resolve(
     # the snapshot was read (G183(a) round 1). Sleep takes no page lock, so a
     # window opening after this still overlaps the answer — storage.md says so.
     if sleep_cycle.is_writing():
-        raise HTTPException(409, SLEEP_BUSY)
+        raise SleepWriting(SLEEP_BUSY)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     if kind == "decay":

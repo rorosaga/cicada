@@ -74,7 +74,12 @@ class RemoteListener:
         config = uvicorn.Config(app, http=_QuietH11, ws="none", lifespan="on", log_config=None)
         server = _EmbeddedServer(config)
         self._server, self.port = server, sock.getsockname()[1]
-        self._task = asyncio.create_task(server.serve(sockets=[sock]), name="cicada-remote")
+        # G183(d): started from a request (`PUT /remote/settings`); the listener lives on, so it must not carry that
+        # request's bank pin (each request it serves runs in a fresh context anyway).
+        from api.services import bank_registry
+
+        self._task = asyncio.create_task(server.serve(sockets=[sock]), name="cicada-remote",
+                                         context=bank_registry.unpinned_context())
         for _ in range(250):
             if server.started or self._task.done():
                 break

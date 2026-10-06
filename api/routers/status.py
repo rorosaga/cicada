@@ -19,6 +19,7 @@ from api.services import (
     env_overrides,
     git_service,
     inbox_service,
+    sleep_cycle,
     sleep_debt,
     sleep_scheduler,
     sync_service,
@@ -126,6 +127,7 @@ async def get_status(settings: Settings = Depends(get_settings)):
             total_stages=state.total_stages,
             cycle_id=state.cycle_id,
             error=state.error,
+            writing=sleep_cycle.writing_of(state),
         ),
         inbox=StatusInbox(total=total, by_kind=by_kind),
         episodes=StatusEpisodes(

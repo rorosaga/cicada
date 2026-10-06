@@ -171,7 +171,7 @@ struct CicadaApp: App {
         if runtime.isRelease { Task { @MainActor in await backendAgent.migrateIfNeeded() } }
         // G182 phase 5 — checks and installs only in a release run from a real folder, never while Sleep writes.
         let updates = UpdateService.live(runtime: runtime,
-                                         isSleepWriting: { [store] in ProjectWriteGate.blocked(store.status.value) },
+                                         isSleepWriting: { [store] in ProjectWriteGate.sleepRunning(store.status.value) },
                                          repairService: { [backendAgent] in await backendAgent.reinstallIfStopped() })
         _updates = State(initialValue: updates)
         Task { @MainActor in updates.start() }
