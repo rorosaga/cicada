@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -901,12 +902,17 @@ async def resolve(
     and its commit: a window cannot open in between."""
     from api.services import write_admission
 
+    # An early answer only (the admitted pass asks again): no model call is spent while Sleep holds the pages.
+    if write_admission.probe():
+        raise HTTPException(409, SLEEP_BUSY)
+    synthesis = await _conflict_synthesis(item_id, request, settings)   # the model call, outside admission
     return await write_admission.run_admitted(
-        settings.memory_path, lambda: _resolve_admitted(item_id, request, settings),
+        settings.memory_path, lambda: _resolve_admitted(item_id, request, settings, synthesis),
         refuse=lambda: HTTPException(409, SLEEP_BUSY))
 
 
-async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings) -> dict:
+async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings: Settings,
+                            synthesis: "_Synthesis | None" = None) -> dict:
     path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
     if not path.exists():
         raise HTTPException(404, f"Inbox item {item_id} not found")
@@ -961,7 +967,7 @@ async def _resolve_admitted(item_id: str, request: InboxResolveRequest, settings
         entity_id, skipped = await _resolve_removal(path, parsed, request, settings)
     elif kind == "conflict":
         entity_id, skipped, extra_lines = await _resolve_conflict(
-            path, parsed, request, settings
+            path, parsed, request, settings, synthesis
         )
     elif kind == "divergence":
         entity_id, skipped, extra_lines = await _resolve_divergence(
@@ -1393,7 +1399,7 @@ def _close_today(old, *, by, today: str) -> None:
     old.valid_to = today
 
 
-async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+def _conflict_plan(path, parsed, request, settings) -> "_ConflictPlan":
     """Claim-aware conflict adjudication (§2.4).
 
     The chosen option decides what happens in the ``claims`` block FIRST — a
@@ -1409,13 +1415,12 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
     (409) with the page untouched and the question kept.
     """
     from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, write_claims
-    from api.services.conflict_resolver import _synthesize_entity_update
 
     fm_item = parsed.frontmatter
     entity_id = str(fm_item.get("entity_id", "") or "")
 
     if request.action == "skip":
-        return entity_id, True, []
+        return _ConflictPlan(entity_id, skipped=True)
 
     # Legacy pre-G60 conflict items carry neither `options` nor `question` —
     # there is nothing to pick from, so the strict "optionKey or answer
@@ -1442,8 +1447,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
         # exist — Stage 3 already kept every value open, so dismissing touches
         # no claim. Its G113 R3 grade is `overruled`, and that is right: the
         # belief overruled is the extractor's "these values conflict".
-        path.unlink()
-        return entity_id, False, []
+        return _ConflictPlan(entity_id, unlink=True)
 
     predicate_raw = str(fm_item.get("predicate", "") or "description")
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
@@ -1474,8 +1478,7 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     if not entity_path.exists():
         # Nothing to write into; clear the question rather than stranding it.
-        path.unlink()
-        return entity_id, False, extra_lines
+        return _ConflictPlan(entity_id, unlink=True, extra_lines=extra_lines)
 
     entity = markdown_parser.parse(entity_path)
     fm = entity.frontmatter
@@ -1595,20 +1598,87 @@ async def _resolve_conflict(path, parsed, request, settings) -> tuple[str, bool,
 
     entity.body = write_claims(entity.body, claim_list)
 
+    return _ConflictPlan(entity_id, extra_lines=extra_lines, entity_path=entity_path, entity=entity,
+                         claim_list=claim_list, sentence=sentence, name=name, today=today)
+
+
+async def _conflict_synthesis(item_id: str, request: InboxResolveRequest, settings: Settings) -> "_Synthesis | None":
+    """The conflict answer's prose rewrite — the one model call an inbox answer makes — run BEFORE the bank's write
+    admission is taken (G183 round 1: no admission spans a model call). It plans the answer on the page as it is
+    now and synthesizes from that; the admitted pass plans again on the page as it is then and uses the prose only
+    when the planned body is byte-identical (``_Synthesis.basis``) — otherwise the safe fallback, never stale prose.
+    None for anything that is not a conflict answer with a sentence, and for any plan this pass cannot make (the
+    admitted pass raises it properly)."""
+    if (request.action or "").strip().lower() in ("defer", "remind_later", "skip"):
+        return None
+    path = _inbox_dir(settings.memory_path) / f"{item_id}.md"
+    try:
+        parsed = markdown_parser.parse(path)
+        if str(parsed.frontmatter.get("kind", "decay")) != "conflict":
+            return None
+        plan = _conflict_plan(path, parsed, request, settings)
+    except Exception:  # noqa: BLE001 — a 4xx/409 is the admitted pass's to raise
+        return None
+    if plan.entity is None or not plan.sentence:
+        return None
+    from api.services import conflict_resolver
+
+    try:
+        new_body = await conflict_resolver._synthesize_entity_update(
+            entity_name=plan.name,
+            entity_type=plan.entity.frontmatter.get("type", "concept"),
+            existing_body=plan.entity.body,
+            new_description=plan.sentence,
+            new_history_entries=[],
+            source_reference_date=plan.today,
+            settings=settings,
+        )
+    except Exception:  # noqa: BLE001 — the fallback below is the answer's floor
+        new_body = None
+    return _Synthesis(basis=plan.entity.body, new_body=new_body) if new_body else None
+
+
+@dataclass
+class _Synthesis:
+    basis: str      # the planned body (claims written) the prose was synthesized from
+    new_body: str
+
+
+@dataclass
+class _ConflictPlan:
+    entity_id: str
+    skipped: bool = False
+    unlink: bool = False
+    extra_lines: list = field(default_factory=list)
+    entity_path: Path | None = None
+    entity: object = None
+    claim_list: list = field(default_factory=list)
+    sentence: str = ""
+    name: str = ""
+    today: str = ""
+
+
+async def _resolve_conflict(path, parsed, request, settings, synthesis: "_Synthesis | None" = None,
+                            ) -> tuple[str, bool, list[str]]:
+    """Claim-aware conflict adjudication, written inside the bank's write admission. ``synthesis`` is the prose
+    rewrite made before admission (:func:`_conflict_synthesis`); it is used only when the page planned now matches
+    the one it was made from — no model call is made here."""
+    from api.services.claims import write_claims
+
+    plan = _conflict_plan(path, parsed, request, settings)
+    if plan.skipped:
+        return plan.entity_id, True, []
+    if plan.unlink:
+        path.unlink()
+        return plan.entity_id, False, plan.extra_lines
+    entity, sentence, claim_list = plan.entity, plan.sentence, plan.claim_list
+    fm, today, entity_path = entity.frontmatter, plan.today, plan.entity_path
+    entity_id, extra_lines = plan.entity_id, plan.extra_lines
+
     new_body = None
     if sentence:
-        try:
-            new_body = await _synthesize_entity_update(
-                entity_name=name,
-                entity_type=fm.get("type", "concept"),
-                existing_body=entity.body,
-                new_description=sentence,
-                new_history_entries=[],
-                source_reference_date=today,
-                settings=settings,
-            )
-        except Exception:
-            new_body = None
+        if synthesis is not None and synthesis.basis == entity.body:
+            new_body = synthesis.new_body
         if not new_body:
             # Safe fallback: dedup guard instead of blind append.
             new_body = (

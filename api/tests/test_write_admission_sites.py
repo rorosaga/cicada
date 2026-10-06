@@ -95,6 +95,7 @@ PROBE_SITES = {
     "api/routers/embeddings.py": "the search model choice — a derived index, never a page",
     "api/routers/videos.py": "the video queue's lease judgement — the queue lives outside every bank",
     "api/services/video_queue.py": "the same lease judgement and the sync stamp",
+    "api/services/inbox_service.py": "the early 409 before an answer's model call; the admitted write asks again",
     "api/services/paper_metadata.py": "a long networked run's stop check; its writes are left to the tail (disclosed)",
 }
 
