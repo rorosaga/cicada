@@ -239,3 +239,37 @@ def test_a_lock_that_cannot_be_opened_fails_closed(bank, window):
         assert write_admission.wait_for_writers(bank, give_up_after=0.2) is False, "Sleep cannot confirm: no window"
     finally:
         (bank / ".git").chmod(0o755)
+
+
+def test_creating_git_under_a_live_holder_does_not_change_who_sleep_waits_for(tmp_path, window):
+    """Fix round 2, finding 3: a holder took the bank's lock before it had a .git; scaffolding git afterwards must
+    not move admission to a lock that holder does not hold."""
+    plain = tmp_path / "plain"
+    (plain / "entities").mkdir(parents=True)
+    root = str(Path(__file__).resolve().parents[2])
+    proc = subprocess.Popen([sys.executable, "-c", _HOLDER, str(plain), root],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        assert _flip(plain, window, log_after=10, give_up_after=0.2) is False
+        subprocess.run(["git", "init", "-q", str(plain)], check=True)
+        assert write_admission.wait_for_writers(plain, log_after=10, give_up_after=0.2) is False, \
+            "the holder that predates .git is still seen"
+    finally:
+        proc.kill()
+        proc.wait(5)
+    assert write_admission.wait_for_writers(plain, give_up_after=5) is True
+
+
+def test_a_git_bank_is_still_coordinated_by_its_git_even_across_different_homes(bank, window, tmp_path):
+    """The .git lock stays: two processes that do not share CICADA_HOME still meet on a git bank."""
+    root = str(Path(__file__).resolve().parents[2])
+    env = {**__import__("os").environ, "CICADA_HOME": str(tmp_path / "other-home")}
+    proc = subprocess.Popen([sys.executable, "-c", _HOLDER, str(bank), root],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        assert _flip(bank, window, log_after=10, give_up_after=0.2) is False
+    finally:
+        proc.kill()
+        proc.wait(5)

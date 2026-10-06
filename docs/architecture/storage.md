@@ -589,9 +589,10 @@ reverse. **Not under it yet:**
 Sleep's own page writes (they run inside the write window, which every guarded writer now waits out or refuses) and
 the inbox's other resolvers.
 **Write admission (G183):** the window guards are an admission, not a bare check. `write_admission` is one per-bank
-admission: an in-process count of holders plus an `flock` (`LOCK_SH` per holder) on the bank's `.git` path — nothing
-created, a different inode from the page lock's — or, for a bank with no `.git`, on
-`$CICADA_HOME/sleep/<bank>/admission.lock` (outside the bank; processes must share `CICADA_HOME`), so the stdio MCP
+admission: an in-process count of holders plus an `flock` (`LOCK_SH` per holder) always on
+`$CICADA_HOME/sleep/<bank>/admission.lock` (outside the bank — the bank's stable identity, so scaffolding git under a
+live holder does not move admission) and also on the bank's `.git` path when it has one (nothing created, a different
+inode from the page lock's; processes that do not share `CICADA_HOME` still meet on a git bank), so the stdio MCP
 server, another process, is admitted too. A lock that exists but cannot be opened **fails closed**: the writer gets
 `AdmissionUnavailable`, and Sleep does not open its window. A guarded writer asks `is_writing()` only once it holds
 admission and keeps the hold through its page writes and its own commit: synchronous code in a worker thread uses

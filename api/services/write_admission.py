@@ -19,9 +19,10 @@ flag and refuses. Closing the window needs nothing. The wait is bounded — logg
 ``WAIT_MAX_S`` it answers False: Sleep then reads and writes nothing and pauses the run (``busy``), keeping its frozen
 work for Continue. A timed-out wait is never treated as an open window (a paused process can resume and write).
 
-**Across processes** (the stdio MCP server writes pages too) the hold is also an ``flock(LOCK_SH)``: on the bank's
-``.git`` path when it has one (nothing created; a different inode from the bank directory ``page_lock`` locks), else on
-``$CICADA_HOME/sleep/<bank>/admission.lock`` (outside the bank; processes must share ``CICADA_HOME``). Sleep's side tries
+**Across processes** (the stdio MCP server writes pages too) the hold is also an ``flock(LOCK_SH)``: always on
+``$CICADA_HOME/sleep/<bank>/admission.lock`` (outside the bank — its stable identity, unchanged when git is scaffolded
+under a holder), and also on the bank's ``.git`` path when it has one (nothing created; a different inode from the
+bank directory ``page_lock`` locks), so processes that do not share ``CICADA_HOME`` still meet on a git bank. Sleep's side tries
 ``LOCK_EX`` without blocking until it succeeds, then lets go at once. A lock that exists but cannot be opened fails
 closed: the writer gets :class:`AdmissionUnavailable`, and Sleep does not open its window. Keyed by the resolved path,
 so ``bank``, ``bank/`` and a symlink are one bank.
@@ -84,24 +85,33 @@ class AdmissionUnavailable(OSError):
 SIDECAR = "admission.lock"
 
 
-def _open_lock(key: str) -> int | None:
-    """A descriptor on the bank's admission inode, or None for a bank that does not exist (nothing to protect, and
-    a lock never creates a bank). The bank's ``.git`` (a directory, or a worktree's file) when it has one; otherwise
-    ``$CICADA_HOME/sleep/<bank>/admission.lock`` — the same folder Sleep's sidecars use, so every process that shares
-    ``CICADA_HOME`` meets on one inode. Any other failure raises :class:`AdmissionUnavailable`: a writer that cannot
-    coordinate must not write as if it had, and Sleep cannot confirm the bank is free."""
-    git = os.path.join(key, ".git")
+def _open_locks(key: str) -> list[int]:
+    """Descriptors on the bank's admission inodes — none for a bank that does not exist (nothing to protect, and a
+    lock never creates a bank). ALWAYS ``$CICADA_HOME/sleep/<bank>/admission.lock``, the bank's stable identity for
+    its whole life (fix round 2: a holder that took the lock before the bank had a ``.git`` must still be seen after
+    git is scaffolded); PLUS the bank's ``.git`` (a directory, or a worktree's file) when it has one, so two processes
+    that do not share ``CICADA_HOME`` still meet on a git bank. Any other failure raises
+    :class:`AdmissionUnavailable`: a writer that cannot coordinate must not write as if it had, and Sleep cannot
+    confirm the bank is free."""
+    if not os.path.isdir(key):
+        return []
+    fds: list[int] = []
     try:
-        if os.path.lexists(git):
-            return os.open(git, os.O_RDONLY)
-        if not os.path.isdir(key):
-            return None
         from api.services import sleep_local
 
-        lock = sleep_local.bank_dir(Path(key)) / SIDECAR
-        return os.open(lock, os.O_RDONLY | os.O_CREAT, 0o600)
+        fds.append(os.open(sleep_local.bank_dir(Path(key)) / SIDECAR, os.O_RDONLY | os.O_CREAT, 0o600))
+        git = os.path.join(key, ".git")
+        if os.path.lexists(git):
+            fds.append(os.open(git, os.O_RDONLY))
+        return fds
     except OSError as exc:
+        _close_all(fds)
         raise AdmissionUnavailable(exc.errno, f"the bank's write admission cannot be opened ({type(exc).__name__})")
+
+
+def _close_all(fds) -> None:
+    for fd in fds or ():
+        os.close(fd)   # closing a descriptor releases its lock
 
 
 def holders(memory_path) -> int:
@@ -121,29 +131,28 @@ def shared(memory_path) -> Iterator[None]:
         _release(key, fd)
 
 
-def _acquire(key: str) -> int | None:
+def _acquire(key: str) -> list[int]:
     """One shared hold, taken in the calling thread (it may wait for the instant Sleep holds ``LOCK_EX``, so never
-    on the event loop — :func:`run_admitted` calls it off the loop)."""
+    on the event loop — :func:`run_admitted` calls it off the loop). Returns the held descriptors."""
     bank = _bank(key)
     with bank.cond:
         bank.holders += 1
     try:
-        fd = _open_lock(key)
-        if fd is not None:
-            try:
+        fds = _open_locks(key)
+        try:
+            for fd in fds:   # always in the same order: the sidecar, then .git
                 fcntl.flock(fd, fcntl.LOCK_SH)
-            except BaseException:
-                os.close(fd)
-                raise
-        return fd
+        except BaseException:
+            _close_all(fds)
+            raise
+        return fds
     except BaseException:
         _release(key, None)
         raise
 
 
-def _release(key: str, fd: int | None) -> None:
-    if fd is not None:
-        os.close(fd)   # closing the descriptor releases its lock
+def _release(key: str, fds: list[int] | None) -> None:
+    _close_all(fds)
     bank = _bank(key)
     with bank.cond:
         bank.holders -= 1
@@ -266,20 +275,23 @@ def wait_for_writers(memory_path, *, log_after: float | None = None, give_up_aft
                 return False
             bank.cond.wait(_POLL_S)
     try:
-        fd = _open_lock(key)
+        fds = _open_locks(key)
     except AdmissionUnavailable as exc:
         logger.warning(f"Sleep cannot confirm no write is in progress ({exc.strerror}); it will not read the pages")
         return False
-    if fd is None:
-        return True
     try:
         while True:
+            taken = 0
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                for fd in fds:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    taken += 1
                 return True   # no holder anywhere; let go at once (closing below)
             except BlockingIOError:
+                for fd in fds[:taken]:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
                 if not waited(1):
                     return False
                 time.sleep(_POLL_S)
     finally:
-        os.close(fd)
+        _close_all(fds)
