@@ -219,9 +219,10 @@ sources, memory, maintenance — the dedup sweep since G183(e) —, the remote c
 holds the bank for its whole run, as before; a drain holds it only from a batch's Stage 2 (which loads the pages Stage 5
 rewrites) through its commit, plus the run's start and its tail. Stage 1's engine calls and the gaps between batches touch no
 page, so the *server* accepts page writes there and a stdio agent's claim **commits alone under its own harness** there instead of being
-swept by the next batch's `git add -A` under the Sleep author. The refusal is an admission check, not isolation: the
-writers re-ask it once they hold the page lock (G183), but Sleep enters a window without that lock, so a window that
-opens after the check can still overlap a millisecond write — see `storage.md`, "Residual race". A claim written *inside* a window still stands uncommitted
+swept by the next batch's `git add -A` under the Sleep author. The refusal is a non-atomic admission check, not isolation:
+the writers re-ask it under their locks (G183), but Sleep enters a window without them, so a window that opens after a
+writer's last check overlaps the rest of that writer's transaction, lock waits included, with no time bound — see
+`storage.md`, "Residual race". A claim written *inside* a window still stands uncommitted
 and rides that batch's commit (minutes, the pre-drain exposure); bank switching, export and delete still answer 409 for the
 whole run (the run is pinned to its bank), and `activate`'s sentence is shown as the toast. A batch that commits with the
 plan's breaker tripped stops the drain only while frozen ids are still waiting; with none left it is a finished run (the

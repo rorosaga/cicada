@@ -576,13 +576,18 @@ reuses the answer, and `record_watch`'s link save and queue credit stay outside.
 the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
 lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
 Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
-**Residual race (disclosed, G183 fix round 1):** the window guards are an admission check, not isolation. The sweep and
-the decay/repo routes re-ask `is_writing()` once they hold the page lock, and an inbox answer after its awaited snapshot,
-before writing — but Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without taking the
-page lock, so a window that opens *after* that check still overlaps the write: Sleep can load the pre-write page and
-later rewrite it, or sweep the write into its batch commit under the Sleep author. The window is milliseconds wide (one
-page write and its commit). Closing it needs Sleep to take the page lock around Stage 2's load and its commit — out of
-this slice.
+**Residual race (disclosed, G183):** the window guards are an admission check, not isolation, and admission is **not
+atomic**. The sweep re-asks `is_writing()` once it holds the page lock and again once it holds the git write lock, the
+decay/repo routes once they hold the page lock, an inbox answer after its awaited snapshot — each before writing. But
+Sleep enters its window (`_state.writing = True`, then Stage 2 loads the pages) without either lock, so a window that
+opens *after* a writer's last check overlaps everything that writer does next, and there is no time bound on that: the
+exposure is the rest of its transaction — the sweep's footprint scan, merge, commit and any recovery, plus waits for a
+lock and git's index-lock retries. Sleep can load a pre-write page and later rewrite it, or sweep the write into its
+batch commit under the Sleep author. The sweep confines the damage to its own footprint: a page Sleep writes outside it
+is neither committed nor put back. Closing the race needs shared admission coordination between Sleep and these writers
+and/or revision-safe read-modify-write (a write that refuses when the page changed since it was read) — Sleep taking a
+lock at two separate points (its load and its commit) would not by itself protect a stale read between them. Out of this
+slice.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
