@@ -1,31 +1,89 @@
-# G182 — build, sign and publish Cicada's macOS release.
+# G182 — a merge to main is a release (TODO ruling 19).
 #
-# A `v*` tag (pushed only by `make release`, after the owner promotes dev to
-# main) builds the app with its backend, signs it ad hoc inside out, smoke-tests
-# it in a temp folder, zips it, signs the zip with Ed25519 and publishes a
-# GitHub Release with `latest.json`. A push to `ci/release-dry-run` or a manual
-# run does everything except publish, and uploads the result as an artifact.
+# A push to `main` (the merge of a dev → main release PR) publishes `VERSION`: the plan job checks every version
+# stamp agrees and reads the remote's v* tags — already tagged: nothing to publish, the run is green; not greater
+# than the latest tag: the run fails. Otherwise the build job builds the app with its backend, signs it ad hoc
+# inside out, smoke-tests it in a temp folder, zips it and signs the zip with Ed25519, and the publish job
+# (scripts/release/publish.sh) judges the version again against the live tags, drafts the GitHub Release at the
+# merged commit, checks every asset, and only then publishes it — which is when GitHub creates the tag. Only the
+# commit at main's tip may publish: if two release merges land before the first publishes, only the newer ships.
+# Nobody tags by hand, and a failed run advertises nothing.
+#
+# A push to `ci/release-dry-run`, or a manual run from any branch but main, does everything except publish and
+# uploads the result as an artifact. A re-run, or a manual run on main, re-attempts publishing an untagged VERSION —
+# and publishes only while main's tip is still that commit.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
-    branches: ["ci/release-dry-run"]
+    branches: ["main", "ci/release-dry-run"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
+# One group per commit on main, so a run never cancels or replaces a run for a different commit: GitHub replaces a
+# *pending* run when another joins its group, even with cancel-in-progress false — and a re-run of an old commit
+# joins as a newcomer. Runs for different commits may therefore overlap; publish.sh keeps that safe (only the commit at
+# main's tip publishes, the version is judged against the live tags, releases are addressed by id, and an existing
+# release is a green no-op). Dry runs queue per ref in their own groups.
 concurrency:
-  group: release-${{ github.ref }}
+  group: ${{ github.ref == 'refs/heads/main' && format('release-{0}', github.sha) || format('release-dry-run-{0}', github.ref) }}
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every version stamp agrees
+        run: python3 scripts/release/check_version.py agree
+
+      - name: Plan
+        id: plan
+        run: |
+          set -euo pipefail
+          on_main=false
+          [ "$GITHUB_REF" = "refs/heads/main" ] && on_main=true
+          git ls-remote --tags --refs origin 'refs/tags/v*' > "$RUNNER_TEMP/tags.txt"
+          if $on_main; then
+            python3 scripts/release/check_version.py plan < "$RUNNER_TEMP/tags.txt" > "$RUNNER_TEMP/plan.txt"
+          else
+            python3 scripts/release/check_version.py plan --dry-run < "$RUNNER_TEMP/tags.txt" > "$RUNNER_TEMP/plan.txt"
+          fi
+          cat "$RUNNER_TEMP/plan.txt" >> "$GITHUB_OUTPUT"
+          version="$(sed -n 's/^version=//p' "$RUNNER_TEMP/plan.txt")"
+          status="$(sed -n 's/^status=//p' "$RUNNER_TEMP/plan.txt")"
+          if $on_main && [ "$status" = "released" ]; then
+            echo "v$version is already released — nothing to publish."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif $on_main; then
+            echo "Releasing v$version."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Dry run of $version ($status): builds and signs, publishes nothing."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: macos-26   # arm64, with Xcode 26 (the app uses the macOS 26 SDK)
     timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.v.outputs.artifact }}
     env:
       REPO_URL: https://github.com/${{ github.repository }}
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,17 +95,11 @@ jobs:
         id: v
         run: |
           set -euo pipefail
-          version="$(tr -d '[:space:]' < VERSION)"
+          [ "$(tr -d '[:space:]' < VERSION)" = "$VERSION" ] || { echo "VERSION changed since the plan"; exit 1; }
           build="$(git rev-list --count HEAD)"
-          publish=false
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            [ "${GITHUB_REF#refs/tags/v}" = "$version" ] || { echo "tag ${GITHUB_REF#refs/tags/} != VERSION $version"; exit 1; }
-            publish=true
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
-          echo "Cicada $version (build $build), publish=$publish"
+          echo "artifact=Cicada-$VERSION-build$build" >> "$GITHUB_OUTPUT"
+          echo "Cicada $VERSION (build $build)"
 
       - name: Cache build inputs
         uses: actions/cache@v4
@@ -61,13 +113,15 @@ jobs:
           CICADA_SIGN_IDENTITY: "-"
         run: cd app/CicadaApp && ./bundle.sh --release --with-backend
 
+      - name: The app's version agrees
+        run: python3 scripts/release/check_version.py agree --info-plist app/CicadaApp/.build/release/Cicada.app/Contents/Info.plist
+
       - name: Smoke test in a temp folder
         run: scripts/release/smoke-test.sh "app/CicadaApp/.build/release/Cicada.app" 18000
 
       - name: Package and sign the update
         env:
           CICADA_UPDATE_SIGNING_KEY: ${{ secrets.CICADA_UPDATE_SIGNING_KEY }}
-          VERSION: ${{ steps.v.outputs.version }}
           BUILD: ${{ steps.v.outputs.build }}
         run: |
           set -euo pipefail
@@ -79,20 +133,36 @@ jobs:
           printf '%s\n' "$sig" > "$zip.sig"
           python3 scripts/release/latest_json.py --version "$VERSION" --build "$BUILD" --zip "$zip" \
             --signature "$sig" --repo-url "$REPO_URL" > dist/latest.json
+          python3 scripts/release/check_version.py agree --latest-json dist/latest.json
+          # The same bytes under a name that never changes: .../releases/latest/download/Cicada-macos-arm64.zip.
+          cp "$zip" dist/Cicada-macos-arm64.zip
           cat dist/latest.json
           ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Cicada-${{ steps.v.outputs.version }}-build${{ steps.v.outputs.build }}
+          name: ${{ steps.v.outputs.artifact }}
           path: dist/
           retention-days: 14
+          overwrite: true   # "Re-run all jobs" uploads again under the same name
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: dist/
 
       - name: Publish the GitHub Release
-        if: steps.v.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.v.outputs.version }}
-        run: |
-          gh release create "v$VERSION" dist/Cicada-$VERSION.zip dist/Cicada-$VERSION.zip.sig dist/latest.json \
-            --title "Cicada $VERSION" --generate-notes --verify-tag
+          GH_REPO: ${{ github.repository }}
+        run: scripts/release/publish.sh "${{ needs.plan.outputs.version }}" "$GITHUB_SHA" dist

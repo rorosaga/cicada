@@ -4,34 +4,102 @@ How a version of Cicada gets from `dev` to a tester's Mac (G182). Plan and rulin
 [`docs/plans/2026-10-05-g182-releases.md`](plans/2026-10-05-g182-releases.md).
 
 **Two channels.** `dev` is the developer channel: the owner's Mac follows it through `scripts/dev/auto-update.sh`, and
-every build from a checkout (`make dev`, `make install-app`) is a *developer build* that never updates itself. A
-**release** is a promotion of `dev` to `main`, a `vX.Y.Z` tag, and a GitHub Release built by CI. Installed release
-apps update themselves from it.
+every build from a checkout (`make dev`, `make install-app`) is a *developer build* that never updates itself. `main`
+holds only releases (TODO ruling 19): **a release is a pull request from `dev` to `main`, and merging it is the
+release.** CI then tags `vX.Y.Z` at the merge commit, builds, verifies and publishes the GitHub Release. Nobody tags by
+hand. Installed release apps update themselves from it.
+
+**`VERSION` is the one version.** It is plain semver (`0.4.0`), and everything that stamps a version must equal it:
+`api/pyproject.toml`, uv.lock's `cicada-api` entry, the app's `CFBundleShortVersionString` (stamped by `bundle.sh`),
+the tag, the release title (`Cicada X.Y.Z`) and `latest.json`. `scripts/release/check_version.py` is the one judge —
+CI, the release PR check and `make release` all ask it — and any disagreement fails the run.
 
 ## Cut a release (owner)
 
 1. **Check `dev` is ready.** Suites green (`api/.venv/bin/python -m pytest api/tests -q -p no:cacheprovider`,
    `cd app/CicadaApp && swift test`), and the last dry run green (below). Optional: `make release-app` builds the
    installable app on this Mac and smoke-tests it in a temp folder; it installs nothing.
-2. **Run `make release VERSION=x.y.z`.** It works in a temporary worktree — your checkout is never switched — and:
-   bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on `dev`; merges `dev` into `main` ("Release
-   vX.Y.Z"); tags `vX.Y.Z`; shows what it will push and asks; then pushes dev, main and the tag in one atomic push.
-   `scripts/release/release.sh x.y.z --dry-run` does everything but push. Use the next minor (`0.4.0`) for features,
-   the next patch (`0.3.1`) for fixes; the first release is `0.3.0` (`make release VERSION=0.3.0` publishes the
-   version already in `VERSION`).
-3. **Watch CI:** `gh run watch $(gh run list --workflow=release.yml -L1 --json databaseId -q '.[0].databaseId')`.
-   The tag runs `.github/workflows/release.yml` on `macos-26`: build with the backend → smoke test in a temp folder →
-   zip → Ed25519 signature (checked against the committed public key) → `latest.json` → a GitHub Release with
-   generated notes, `Cicada-x.y.z.zip`, its `.sig` and `latest.json`. About 10 minutes.
-4. **Send testers the install line** (next section). Installed apps pick the release up within six hours, or at once
-   from Cicada → Check for Updates….
+2. **Bump the version: `make release VERSION=x.y.z`.** It works in a temporary worktree — your checkout is never
+   switched — and bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on a `release/vx.y.z` branch off
+   `origin/dev`, shows what it will push and asks, then pushes that branch and opens a PR to `dev` titled
+   `chore(release): x.y.z`. It refuses a version that already has a tag or is not greater than the latest one. Use
+   the next minor (`0.4.0`) for features, the next patch (`0.3.1`) for fixes. Merge that PR into `dev` as usual. If
+   `dev` already says the version you want (the first release: `VERSION` is 0.3.0 and nothing is tagged), there is
+   nothing to bump — skip to step 3.
+3. **Open the release PR: `make release-pr`.** It opens `dev` → `main` titled `Release vX.Y.Z`, refusing a version
+   that is already released (and pointing at the PR when one is already open). The **Release PR** check
+   (`.github/workflows/release-check.yml`) fails the PR unless its head is this repo's `dev`, every version stamp
+   agrees, and `VERSION` is untagged and greater than the latest tag.
+4. **Merge it with *Create a merge commit*.** That is the release. (A squash or rebase would give `main` commits `dev`
+   does not have, and the next release PR would carry them back.)
+5. **Watch CI:** `gh run watch $(gh run list --workflow=release.yml -L1 --json databaseId -q '.[0].databaseId')`.
+   About 10 minutes. Then send testers the install line (next section). Installed apps pick the release up within six
+   hours, or at once from Cicada → Check for Updates….
 
-**A hotfix for an older line** (after a newer release exists) must not become "latest", or every app would be offered
-it: publish it with `gh release create … --latest=false` by hand.
+Both commands take `--dry-run` (`scripts/release/release.sh bump x.y.z --dry-run`, `… pr --dry-run`): every check, no
+push, no PR. Neither ever pushes `main`, creates a tag or force-pushes.
+
+## What CI does on `main`
+
+`.github/workflows/release.yml` runs on every push to `main`. Runs for one commit queue behind each other; runs for
+different commits never cancel or replace each other (`concurrency: release-<sha>`), and may overlap — the publish
+step below keeps that safe.
+
+1. **Plan** (ubuntu, seconds). Every version stamp agrees; then the remote's `v*` tags decide. `v$VERSION` already
+   tagged → "already released", nothing is built or published, and the run is **green** (so re-running a merge, or a
+   merge that carries no bump, is harmless). `VERSION` not greater than the latest tag → the run **fails**.
+   Otherwise it releases, and the new release becomes "latest".
+2. **Build** (`macos-26`, arm64, Xcode 26): `bundle.sh --release --with-backend` with the commit count as the build
+   number → the app's `CFBundleShortVersionString` checked against `VERSION` → `smoke-test.sh` in a temp folder (its
+   `/healthz` must report `VERSION` too) → zip → Ed25519 signature (checked against the committed public key) →
+   `latest.json` (checked against `VERSION`) → `Cicada-macos-arm64.zip`, the same bytes under a name that never
+   changes. Uploaded as a run artifact.
+3. **Publish** (ubuntu, the only job with write access; `scripts/release/publish.sh`): judges `VERSION` again against
+   the live tags (a re-run reuses the plan job's answer, and a newer release may exist by then), and checks that its
+   commit is still **main's tip** — only the commit at main's tip may publish. Then it creates the GitHub Release as a
+   **draft** at the merged commit, titled `Cicada X.Y.Z`, and owns it by the id GitHub returns (never by looking it up
+   again: the releases list lags). It uploads `Cicada-X.Y.Z.zip`, its `.sig`, `latest.json` and
+   `Cicada-macos-arm64.zip` to that id; notes are a fixed header (Apple silicon, macOS 14+, not notarized yet → Open
+   Anyway; the install line) followed by notes generated from the PRs merged since the previous tag. It reads the
+   draft back (tag, target, every asset's name and size), checks main's tip once more, and only then publishes it,
+   spelling out the tag and the commit — which is when GitHub creates the tag. Finally the release must read back
+   public under `vX.Y.Z`, and the repo's real `vX.Y.Z` tag must point at the merged commit.
+   A run whose commit was superseded on `main` publishes nothing, deletes only the draft it made, and ends green
+   ("superseded by <sha> — that run releases main").
+
+**Only the newest release merge ships.** If two release merges land on `main` before the first one publishes, the
+first run finds itself superseded and publishes nothing; the newer commit's run releases its `VERSION`. Should the two
+carry different versions, the older version is never published — its changes ship inside the newer one.
+
+**The website's download link** is `https://github.com/rorosaga/cicada/releases/latest/download/Cicada-macos-arm64.zip`:
+it always resolves to the newest release, so no release needs a website edit.
+
+**A failed run advertises nothing.** A build or verification failure stops before the publish job: no tag, no release.
+A publish failure before publication deletes the draft this run created, by its id, and nothing else (a draft has no
+tag yet, so no tag is touched). A published release is never edited, re-uploaded to or deleted, and nothing
+force-pushes. If the release reads back under the wrong tag after publication, or `vX.Y.Z` turns out to point at
+another commit, the run fails loudly and leaves everything as it is: the log says what to check by hand (open the
+release; if it is wrong, mark it a draft again, fix the tag, and re-run the Release workflow on `main`).
+
+**To recover from a failed run:**
+
+- **The failure was transient** (a runner, network or GitHub error) and the code is fine: re-run it (*Re-run all
+  jobs*, *Re-run failed jobs*, or Actions → Release → Run workflow → `main`). A re-run builds the same commit and
+  publishes **only while main's tip is still that commit**; if anything has merged to `main` since, it ends green
+  without publishing, and the newer commit's run is the one that releases.
+- **The release needs a fix:** a re-run cannot pick it up — it always rebuilds its own commit. Merge the fix into
+  `dev`, then run `make release-pr` again and merge that PR: it is a new commit on `main`, and since the version is
+  still untagged it may keep the same `VERSION`; its run releases the fixed code.
+- A draft left behind by a cancelled run is never public; the next run for that commit replaces it, and any other
+  commit's run leaves it alone (delete it by hand from the Releases page if it lingers).
+
+**A hotfix for an older line** (after a newer release exists) is never published by CI and never becomes "latest", or
+every app would be offered a downgrade: CI fails a `VERSION` that isn't greater than the latest tag. Build it with a
+dry run and publish it by hand with `gh release create … --latest=false` (an owner decision, case by case).
 
 **Dry run without releasing:** push any commit to `ci/release-dry-run` (`git push -f origin HEAD:ci/release-dry-run`)
-or run the workflow from the Actions tab. It builds, smoke-tests and signs, and uploads the zip, `.sig` and
-`latest.json` as an artifact — nothing is published.
+or run the workflow from the Actions tab on any branch but `main`. It builds, smoke-tests and signs, and uploads the
+zip, `.sig`, `latest.json` and the stable-name zip as an artifact — nothing is published, whatever the tags say.
 
 ## What testers run
 
@@ -46,8 +114,8 @@ with `codesign --verify`, puts Cicada.app in `~/Applications` (or `/Applications
 and opens it. Files `curl` downloads carry no quarantine flag, so macOS opens the app without asking even though it is
 not notarized yet.
 
-**From the browser instead:** download `Cicada-x.y.z.zip` from the Releases page, unzip it, drag Cicada into
-Applications and open it. Because a browser marks the download as quarantined and the app isn't notarized yet, macOS
+**From the browser instead:** download `Cicada-macos-arm64.zip` (or `Cicada-x.y.z.zip`, the same file) from the
+Releases page, unzip it, drag Cicada into Applications and open it. Because a browser marks the download as quarantined and the app isn't notarized yet, macOS
 refuses the first time ("Apple could not verify…"). Open **System Settings → Privacy & Security**, scroll to Security,
 click **Open Anyway** next to Cicada, and confirm. (Control-click → Open no longer bypasses this on macOS 15 and later.)
 Once a Developer ID is in place this step disappears.
@@ -72,10 +140,10 @@ built with.
 
 ## Before the first release (owner)
 
-- `make release VERSION=0.3.0` — `VERSION` is already 0.3.0, so it promotes `dev` as is (no bump commit).
+- `VERSION` already says 0.3.0 and nothing is tagged, so the first release needs no bump: `make release-pr`, then merge.
+- `main` trails `dev` but its own commits are old promotion merges, so the release PR merges cleanly.
 - The dry runs so far were pushed to `ci/release-dry-run`; that branch is deleted after use and recreated by the next
   `git push -f origin HEAD:ci/release-dry-run`.
-- Promotion merges are `--no-ff`, so `main`'s history shows each release as one merge.
 
 ## The update signing key
 
