@@ -8,6 +8,7 @@ under it (each site says why).
 from __future__ import annotations
 
 import ast
+import subprocess
 import time
 from pathlib import Path
 
@@ -478,6 +479,7 @@ HOLDING_SITES = {
     "api/routers/local_sources.py": "folder update/sync and Wispr Flow: inside their route()'s hold",
     "api/services/skill_pages.py": "inside ensure()'s run_admitted",
     "api/remote/runtime.py": "the remote gate: inside call()'s hold or a self-admitted tool's own",
+    "api/routers/state.py": "GET /state's cursor refresh: inside its run_admitted",
 }
 
 
@@ -615,3 +617,85 @@ def test_a_stdio_save_the_backend_refused_is_not_written_directly(tmp_path, monk
     out = mcp_tools.save_url(ctx, "https://example.com/a", None)
     assert "Sleep" in out and not out.startswith("Saved")
     assert seen == {"fetch": [], "write": []}, "no fallback write behind the backend's refusal"
+
+
+# --- Fix round 2, finding 6: GET routes that write are inventoried too; GET /state refreshes only when admitted -----
+
+#: A GET whose code names a write (the pattern below) is listed here with its class. A new one fails until classified.
+GET_WRITE_PATTERN = r"commit|markdown_parser\.write|\.save\(|save_|write_|ensure_fresh|record\(|\.write\(|unlink|mkdir"
+GET_ROUTES: dict[str, tuple[str, str]] = {
+    "GET /state": (HELD, "refreshes and commits _state.md (a cursor) inside admission; skipped while Sleep holds "
+                         "the pages — the tail refreshes it then"),
+    "GET /inbox": (NONE, "names a commit in a comment only"),
+    "GET /entities/{entity_id}/history": (NONE, "reads commits"),
+    "GET /entities/{entity_id}/history/{commit_hash}/diff": (NONE, "reads a commit"),
+    "GET /entities/{entity_id}/provenance": (NONE, "reads commits"),
+    "GET /contributors/commits": (NONE, "reads commits"),
+    "GET /contributors/calendar": (NONE, "reads commits"),
+    "GET /contributors/top-entities": (NONE, "reads commits"),
+    "GET /sleep/history/{commit}": (NONE, "reads a commit"),
+    "GET /handshake": (OUTSIDE, "the telemetry ledger row (outside every bank) and the primer cache"),
+    "GET /banks/{name}/export": (OUTSIDE, "a temporary archive outside the bank, removed after it is sent"),
+    "GET /sources/folders": (NONE, "builds response records"),
+    "GET /maintenance/search-index": (OUTSIDE, "the derived search index (never tracked, never a page)"),
+}
+
+
+def test_every_get_route_that_names_a_write_is_classified():
+    import re
+
+    from fastapi.routing import APIRoute
+
+    from api import main
+
+    flagged = {f"GET {r.path}" for r in main.app.routes
+               if isinstance(r, APIRoute) and "GET" in r.methods
+               and re.search(GET_WRITE_PATTERN, _src(r.endpoint))}
+    assert sorted(flagged - set(GET_ROUTES)) == [], "a GET that names a write: classify it in GET_ROUTES"
+    assert sorted(set(GET_ROUTES) - flagged) == [], "a stale GET_ROUTES entry"
+    for route, (cls, _why) in GET_ROUTES.items():
+        if cls in (ADMITTED, HELD):
+            endpoint = next(r.endpoint for r in main.app.routes
+                            if isinstance(r, APIRoute) and f"GET {r.path}" == route)
+            assert "run_admitted(" in _src(endpoint), route
+
+
+def _state_client(tmp_path, monkeypatch):
+    from api.services import state_dictionary
+
+    memory = _bank(tmp_path)
+    calls: list[int] = []
+    real = state_dictionary.refresh_and_commit
+
+    async def refresh_and_commit(memory_path, settings=None, **kw):
+        calls.append(write_admission.holders(memory))
+        return await real(memory_path, settings, **kw)
+
+    monkeypatch.setattr(state_dictionary, "refresh_and_commit", refresh_and_commit)
+    return memory, calls, _client_on(memory, monkeypatch)
+
+
+def test_get_state_refreshes_inside_admission(tmp_path, monkeypatch):
+    memory, calls, client = _state_client(tmp_path, monkeypatch)
+    try:
+        resp = client.get("/state")
+    finally:
+        config.get_settings.cache_clear()
+    assert resp.status_code == 200, resp.text
+    assert calls == [1], "the refresh and its commit hold the bank's admission"
+
+
+def test_get_state_inside_the_window_serves_the_file_and_writes_nothing(tmp_path, monkeypatch):
+    memory, calls, client = _state_client(tmp_path, monkeypatch)
+    try:
+        assert client.get("/state").status_code == 200       # writes and commits _state.md
+        head = subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
+                                            text=True).stdout
+        monkeypatch.setattr(sleep_cycle, "is_writing", lambda: True)
+        resp = client.get("/state?refresh=true")
+    finally:
+        config.get_settings.cache_clear()
+    assert resp.status_code == 200, resp.text
+    assert calls == [1], "no refresh while Sleep holds the pages"
+    assert subprocess.run(["git", "-C", str(memory), "rev-parse", "HEAD"], capture_output=True,
+                                        text=True).stdout == head

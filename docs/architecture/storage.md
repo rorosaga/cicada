@@ -627,8 +627,10 @@ a response and stops, but the pages it wrote before the window stay uncommitted 
 batch commit; batch intake (upload, RSS, bookmarks, Safari tabs, feed polls, connector syncs, Telegram saves) creates
 new media pages between fetches without admission, so a page written inside a window can ride a batch commit. Inside a
 window a stdio agent's claim still writes and rides the batch commit (in-window attribution is a DECIDE); Sleep's own
-stages take no page lock. `test_write_admission_sites.py` is the inventory: every non-GET route and MCP tool is
-classified (admitted, held, per-write, probe, intake, capture, registry, outside, sleep, banks, none) with its reason,
+stages take no page lock. `GET /state`'s refresh of `_state.md` (a cursor that commits alone) runs inside admission
+and is skipped while Sleep holds the pages — the file is served as it is, and the run's tail refreshes it.
+`test_write_admission_sites.py` is the inventory: every non-GET route, every GET whose code names a write, and every
+MCP tool is classified (admitted, held, per-write, probe, intake, capture, registry, outside, sleep, banks, none) with its reason,
 and the admitted ones are checked to take admission in their code.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
