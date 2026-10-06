@@ -398,6 +398,17 @@ async def _git_remove(memory_path: Path, target: Path) -> None:
             target.unlink()
 
 
+def _merge_manifest(paths: list[str], *, removed: str) -> list[str]:
+    """One manifest line per file a merge answer wrote or removed (audit
+    2026-10-05 P1-3: the resolution commits exactly its manifest's files)."""
+    trigger = "inbox/merge_suggestion/resolved:merge"
+    lines = []
+    for rel in dict.fromkeys(paths):
+        verb = "removed (merged)" if rel == removed else "updated"
+        lines.append(f"{rel}: {verb} (trigger: {trigger})")
+    return lines
+
+
 # ---------- Resolution dispatch ----------
 
 
@@ -867,6 +878,12 @@ async def resolve(
     )
     feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
 
+    # Audit 2026-10-05 P1-3: what the uncommitted pages and items hold BEFORE the
+    # answer writes, so an edit already on a page the answer rewrites is
+    # committed apart from it, never as the person's.
+    from api.services import git_service as _git_service
+
+    before = await _git_service.snapshot_dirty(settings.memory_path)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     if kind == "decay":
@@ -923,13 +940,17 @@ async def resolve(
         f"inbox/{kind}/resolved:{label}",
         extra_lines,
         change=change,
+        # The item file the answer retired; the page and every manifest line's
+        # file are read from the manifest itself — nothing else is committed.
+        paths=[path.relative_to(settings.memory_path).as_posix()],
+        before=before,
     )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
     # person's answer. Runs AFTER the commit on purpose: `commit_resolution`
-    # is `git add -A`, and refreshing first would attribute the projection
-    # to the person's answer. It commits its own rewrite for the mirror
+    # used to be `git add -A` (audit P1-3 scoped it to the answer's own files),
+    # and the projection is not the person's answer. It commits its own rewrite for the mirror
     # reason (final review, 2026-09-03): a rewrite left dirty was reproduced
     # riding in the NEXT resolution's `Cicada-Author: user` commit — the
     # G85-class smear R2/R3 exist to prevent — so `refresh_and_commit`, not
@@ -1929,7 +1950,8 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 # branch used to keep a note and the episode list and delete
                 # the rest). Then the mention's own episode and date.
                 try:
-                    merge_entities(settings.memory_path, loser_id=target_path.stem, winner_id=survivor_path.stem)
+                    merged = merge_entities(settings.memory_path, loser_id=target_path.stem,
+                                            winner_id=survivor_path.stem)
                 except MalformedClaimsBlockError as exc:
                     raise HTTPException(
                         409, f"'{survivor_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
@@ -1953,6 +1975,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 markdown_parser.write(
                     survivor_path, existing.frontmatter, merged_body
                 )
+                merge_lines = _merge_manifest(merged["paths"], removed=f"entities/{target_path.stem}.md")
             else:
                 # Rename the source target file to the survivor's cleaner slug.
                 # Its claims, its edges and every other page's references move
@@ -1960,10 +1983,13 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 old_id, old_name = target_path.stem, str(target_name or target_path.stem)
                 markdown_parser.write(target_path, target.frontmatter, append_note(target.body, note))
                 await _git_move(settings.memory_path, target_path, survivor_path)
-                rename_references(settings.memory_path, old_id, old_name, survivor_path.stem, survivor)
+                renamed = rename_references(settings.memory_path, old_id, old_name, survivor_path.stem, survivor)
+                merge_lines = _merge_manifest([f"entities/{old_id}.md", *renamed],
+                                              removed=f"entities/{old_id}.md")
 
             path.unlink()
             entity_id = survivor_slug
+            return entity_id, False, merge_lines
 
     elif action == "skip":
         return entity_id, True, []
