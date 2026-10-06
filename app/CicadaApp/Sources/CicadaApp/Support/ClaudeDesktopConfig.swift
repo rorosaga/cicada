@@ -14,7 +14,13 @@ enum ClaudeDesktopConfig {
     }
 
     static func server(python: String, script: String, memory: String) -> [String: Any] {
-        ["command": python, "args": [script], "env": ["CICADA_MEMORY_PATH": memory]]
+        server(command: python, args: [script], memory: memory)
+    }
+
+    /// G182 — the runtime's MCP command: `python mcp/server.py` in a developer build, the launcher alone (no args)
+    /// in a release.
+    static func server(command: String, args: [String], memory: String) -> [String: Any] {
+        ["command": command, "args": args, "env": ["CICADA_MEMORY_PATH": memory]]
     }
 
     enum Reason: Equatable { case notJSON, notAnObject, serversNotAnObject }

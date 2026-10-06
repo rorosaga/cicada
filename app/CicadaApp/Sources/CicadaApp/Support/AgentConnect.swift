@@ -76,9 +76,10 @@ enum AgentConnectOutcome: Equatable {
 /// a hook install (the Stop hook's command under `Stop`, the recall hook's
 /// under `SessionStart` / `UserPromptSubmit`, G149), and removing only the
 /// recall hook — each pinned to the checkout the app itself was built from
-/// (`BackendProcess.installRoot()`). The backend hands the argv over
+/// (`CicadaRuntime.codeRoot`), or in a release to the stable launchers in
+/// `~/.cicada/bin` (G182). The backend hands the argv over
 /// (`GET /agents/wiring`), but a response the app cannot vouch for — another
-/// checkout, another verb, one extra token — runs nothing.
+/// checkout, the other build's shape, another verb, one extra token — runs nothing.
 enum AgentConnectPolicy {
     /// Each harness's Stop-hook settings file and the harness id install.sh's
     /// `hook_command` names for it (`install.sh:312, 318`).
@@ -89,17 +90,19 @@ enum AgentConnectPolicy {
     /// G149 — the events the recall hook is registered under (R-H11: one command for both).
     static let recallEvents: Set<String> = ["SessionStart", "UserPromptSubmit"]
 
-    static func isAllowed(_ argv: [String], installRoot: URL, binaries: Set<String>) -> Bool {
-        let root = installRoot.standardizedFileURL.path
-        let python = root + "/api/.venv/bin/python"
+    /// G182 — every shape comes from `runtime` (`mcpCommand`, `registryArgv`, `hookCommand`), so a developer build
+    /// accepts only the checkout's venv commands and a release only its launchers.
+    static func isAllowed(_ argv: [String], runtime: CicadaRuntime, binaries: Set<String>) -> Bool {
         guard let head = argv.first else { return false }
         if binaries.contains(head), ["claude", "codex"].contains(URL(fileURLWithPath: head).lastPathComponent) {
-            guard argv.count >= 7, Array(argv[1...3]) == ["mcp", "add", "cicada"],
+            let mcp = runtime.mcpCommand
+            guard argv.count >= 6, Array(argv[1...3]) == ["mcp", "add", "cicada"],
                   let dashes = argv.firstIndex(of: "--"),
-                  Array(argv[(dashes + 1)...]) == [python, root + "/mcp/server.py"] else { return false }
+                  Array(argv[(dashes + 1)...]) == [mcp.command] + mcp.args else { return false }
             return argv[4..<dashes].allSatisfy { ["--scope", "user", "--env"].contains($0) || $0.hasPrefix("CICADA_MEMORY_PATH=") }
         }
-        guard head == python, argv.count >= 2, argv[1] == root + "/api/hooks/registry.py" else { return false }
+        let registry = runtime.registryArgv
+        guard argv.count >= 2, Array(argv[0...1]) == registry else { return false }
         // G149 — remove only Cicada's recall entries (`--hook recall`) from a harness settings file.
         if argv.count == 7, argv[2] == "uninstall" {
             return argv[3] == "--settings" && !argv[4].contains("/../")
@@ -113,10 +116,9 @@ enum AgentConnectPolicy {
         // byte for byte, for the event it belongs to — a substring check would
         // let an appended `; curl … | sh` through.
         if argv[6] == "Stop" {
-            return argv[8] == "\"\(python)\" \"\(root)/api/hooks/capture.py\" --harness \(harness)"
+            return argv[8] == runtime.hookCommand(kind: "capture", harness: harness)
         }
-        return recallEvents.contains(argv[6])
-            && argv[8] == "\"\(python)\" \"\(root)/api/hooks/recall.py\" --harness \(harness)"
+        return recallEvents.contains(argv[6]) && argv[8] == runtime.hookCommand(kind: "recall", harness: harness)
     }
 }
 
@@ -147,10 +149,10 @@ enum AgentConnect {
         return first ?? Copy.intakeFailed
     }
 
-    static func run(_ steps: [AgentWiringStep], installRoot: URL, binaries: Set<String>,
+    static func run(_ steps: [AgentWiringStep], runtime: CicadaRuntime, binaries: Set<String>,
                     runner: AgentProcessRunning = LiveAgentProcessRunner(),
                     base: [String: String] = ProcessInfo.processInfo.environment) async -> AgentConnectOutcome {
-        guard steps.allSatisfy({ AgentConnectPolicy.isAllowed($0.argv, installRoot: installRoot, binaries: binaries) }) else {
+        guard steps.allSatisfy({ AgentConnectPolicy.isAllowed($0.argv, runtime: runtime, binaries: binaries) }) else {
             return .refused(steps.map(\.display))
         }
         for step in steps {

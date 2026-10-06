@@ -13,7 +13,7 @@ struct AgentsPage: View {
     @State private var selected = "claude-code"
     @State private var linkFor: RemoteApp?
     @Environment(AppRouter.self) private var router
-    private let home = BackendProcess.installRoot().path
+    private let runtime = CicadaRuntime.current
 
     private var entry: AgentCatalogEntry { AgentCatalog.entry(for: selected) ?? AgentCatalog.featured[0] }
     private var agentWiring: AgentWiring? { model.wiring?.agents.first { $0.id == entry.id } }
@@ -41,9 +41,9 @@ struct AgentsPage: View {
                     connected: live.connected.contains(entry.id),
                     footer: entry.id == "codex" ? Copy.autoRecallCodexTrust : nil,
                     binaries: Set(model.wiring?.agents.compactMap(\.binary) ?? []),
-                    home: home,
+                    runtime: runtime,
                     memoryRoot: model.memoryRoot,
-                    deeplink: AgentSetupCatalog.all(home: home, memoryRoot: model.memoryRoot)
+                    deeplink: AgentSetupCatalog.all(runtime: runtime, memoryRoot: model.memoryRoot)
                         .first { $0.id == "cursor" }?.deeplink?.url,
                     onConnected: { Task { await model.refreshWiring() } },
                     onOpenFromAnywhere: { _ = router.openSettings(.remote) },
