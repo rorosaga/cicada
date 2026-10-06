@@ -287,9 +287,10 @@ def _parse_time(value: str | None) -> datetime | None:
 
 
 def activity(row: dict, registry_row: dict | None) -> str:
-    """Captured activity, never file mtime: the last kept turn, the capture
-    time, or a later prompt the registry saw."""
-    stamps = [row.get("last_turn_at"), row.get("captured_at"), (registry_row or {}).get("last_prompt_at")]
+    """Captured activity, never file mtime: the last kept turn's own time
+    (the capture time only when no turn carried one — a re-capture can run
+    long after the conversation), or a later prompt the registry saw."""
+    stamps = [row.get("last_turn_at") or row.get("captured_at"), (registry_row or {}).get("last_prompt_at")]
     return max((s for s in stamps if s), default="")
 
 

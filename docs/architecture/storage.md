@@ -456,6 +456,21 @@ tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never emb
 **The query is never logged**: not by loguru, and not by uvicorn's access log (`api/main.py` strips the
 query string of `/search` and `/conversations/recent`, G136 R22).
 
+### Continuity index and session registry (G110 slice 1a)
+`<bank>/continuity_index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
+row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `project_dir`, `captured_at`,
+`last_turn_at`, `processed`, `processed_by`) read from at most 16 KB up to the first `turns:` key — never a full parse
+inside a hook. It is in `bank_registry.DERIVED_ARTIFACTS`; it is written only when
+`bank_registry.derived_exclusion_state` confirms git ignores it (`info/exclude` or `.gitignore`) or the bank has no
+git, staged as an ignored `.*.tmp`; otherwise it stays in process memory. Its lock lives beside the registry, never in
+a bank. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
+
+The **continuity registry** (`api/services/continuity_sessions.py`, `$CICADA_HOME/continuity/<bank slug>-<hash8>.json`)
+is outside every bank — `continuity_home` refuses a `CICADA_HOME` that resolves (symlinks followed) inside the memory
+root or any configured bank. One row per harness session: the harness, `sha256(cwd)[:16]` (never the path),
+`started_at` (earliest), `last_prompt_at` (latest), `continues` (one episode id, first write wins). Ids, a hash and
+times only; monotone merges; one bounded `flock` transaction per request; 30-day expiry, ≤ 1,000 rows, files 0600.
+
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
 **IDs and enums only — never claim text, query text or answer text.** The `read` kind (G124) records
