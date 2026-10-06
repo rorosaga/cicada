@@ -44,7 +44,10 @@ releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
 backoff and falling back to polling while disconnected; each `version` event refreshes only the
-changed domains, always with `If-None-Match` so an unchanged domain costs a 304. View models are
+changed domains, always with `If-None-Match` so an unchanged domain costs a 304. A domain whose refresh failed stays
+pending; the server's 15 s `ping` retries it while connected (`Store.retryPending`, at most `maxPendingRetries` = 8
+heartbeats until the next version event re-arms it — a version event comes only when the vector moves, so before audit
+2026-10-05 P2-7 a failed refresh stayed stale on a healthy stream). View models are
 thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
 optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
@@ -368,7 +371,9 @@ the page's find row.
 progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
 `ProjectsCache` (app-level, in memory) revalidates them with the server's ETag when the page appears, a project opens, a
 write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a bank switch empties it (no
-`VersionVector` mapping, nothing on disk). The wire decodes leniently into local `Project*` types (the shared `Claim` is
+`VersionVector` mapping, nothing on disk). Overlapping refreshes of one resource keep only the newest request's answer,
+and a confirmed write's paint is cleared only by an answer requested after the confirm (`RequestGenerations`, audit
+2026-10-05 P2-6; `BacklogCache` the same). The wire decodes leniently into local `Project*` types (the shared `Claim` is
 untouched); derived state is `ProjectState`, the Swift twin of `project_state.timeline_state`, running the same
 `api/tests/fixtures/timeline_state.json`; every relative word comes from `RelativeDay` over `ISODay` in the viewer's
 calendar (a lint keeps the day words there), and midnight re-derives the page with no network. The story is derived off the main actor (`ProjectDerived`, keyed
@@ -756,5 +761,78 @@ stale too, never "couldn't open". The entity card's "Where this came from" (Cont
 and cache as optional environment values, so a chip outside the main window renders without a
 click-through rather than trapping; the Ask sheet steps aside when the Reader
 opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).
+
+**Versions and builds (G182).** The repo's one `VERSION` file is the version everywhere: `bundle.sh` stamps it as
+`CFBundleShortVersionString`, `api/version.py` reads it for FastAPI's `app.version` (and so `/healthz`) and the MCP
+server's `serverInfo`, and `api/pyproject.toml` carries the same string (`test_version.py`). `CFBundleVersion` is the
+build number — the commit count, or `CICADA_BUILD_NUMBER` when a build passes one — so it only grows along `main`.
+Settings → General ends with a Version row ("Version 0.3.0 (1523)", `AppVersion`); when `/healthz` answers with a
+different version (an updated app beside a background service still running the old one) the row says so.
+
+**The release app (G182 phase 2).** `bundle.sh --release --with-backend` builds the installable app: it runs
+`scripts/release/build-backend.sh` (python-build-standalone CPython 3.12 for arm64; the release dependency set from
+`scripts/release/requirements.lock`, hashed, no torch; Cicada's tracked `api/`, `mcp/`, `skills/`, `SKILL.md`,
+`VERSION` and agent script; dugite-native git, pruned, with its GPLv2 `COPYING` and a source pointer; the int8 ONNX
+`BAAI/bge-small-en-v1.5`), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
+`CicadaRepoRoot`), strips the binary and signs every Mach-O ad hoc, inside out, never `--deep`
+(`scripts/release/sign-app.sh`). 347 MB unzipped, 138 MB zipped (0.3.0). Nothing is written inside the signed app:
+bytecode goes to `~/.cicada/cache/pycache`. `scripts/release/smoke-test.sh <app>` copies a build to a temp folder and
+proves it there with a temporary home, bank and port (health and version, the bundled git, an MCP save, the bundled
+model through sqlite-vec, a hook, a launcher that fails loudly when its app moved). `CicadaRuntime` decides the
+distribution once at launch (the plist stamp plus the bundled launcher on disk); a developer build — `make dev`,
+`install_app.sh`, the auto-updater — has no stamp and behaves exactly as before. A release writes
+`~/.cicada/bin/cicada-{backend,mcp,hook,python}` on every launch (`LauncherInstaller`, atomic, 0755), each a few lines
+that exec the matching script inside whichever copy of the app opened last and exit 127 with a sentence when it is
+gone; MCP registrations, the Stop and recall hooks and the launchd plist name only those paths
+(`api/services/runtime_layout.py` and `CicadaRuntime` hold the same shapes; `AgentConnectPolicy` accepts exactly the
+running distribution's). The hook registry knows both forms as Cicada's own, so one entry per script survives a switch
+between a source install and the app. Memory defaults to `~/cicada/memory`, never inside the bundle. The background
+service stays opt-in; a release re-points an existing `com.cicada.backend` plist at its launcher
+(`BackendAgentPolicy.needsMigration`, then the bundled `install-backend-agent.sh` in its `CICADA_BACKEND_PROGRAM`
+mode, logs in `~/.cicada/logs`). `CICADA_PORT` (default 8000; the app also reads the `cicada.port` default) is honoured
+by the app, the backend, the MCP server, the hooks and the launchers. The bundled git is first on the backend's
+`PATH`; the app's own repo reads try the person's git first and the bundled one last.
+
+**Releases (G182 phase 4).** `make release VERSION=x.y.z` (`scripts/release/release.sh`, the owner's command, never an
+agent's) works in a temporary worktree: it bumps `VERSION`, `api/pyproject.toml` and uv.lock's project line on `dev`,
+merges `dev` into `main` with a merge commit, tags `vX.Y.Z`, and pushes dev, main and the tag in one atomic push
+(`--dry-run` pushes nothing). The tag starts `.github/workflows/release.yml` on `macos-26` (arm64, Xcode 26): it builds
+`bundle.sh --release --with-backend` with the commit count as the build number, runs `smoke-test.sh` on the result,
+zips it with `ditto -c -k --keepParent`, signs the zip's bytes with Ed25519 (`scripts/release/sign_update.py`, private
+key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified against the committed `update-public-key.txt` before
+anything is published), writes `latest.json` (`latest_json.py`: version, build, versioned asset URL, size, sha256,
+signature, notes URL) and publishes a GitHub Release with generated notes. A push to `ci/release-dry-run` or a manual
+run does everything but publish and uploads the files as an artifact. The app carries the public key and the repo
+(`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
+
+**Installing and updating a release (G182 phase 5).** Testers install with
+`curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the
+latest release's `latest.json`, downloads the zip with curl (no quarantine flag, so Gatekeeper doesn't block the
+not-yet-notarized app), checks its sha256 and `codesign --verify`, installs into `~/Applications` (else
+`/Applications`), moves an older copy to the Trash, quits only the copy it replaces, and opens the app. In the app,
+`UpdateService` runs only in a release (`CicadaRuntime.isRelease` and a stable path; a developer build never checks):
+20 s after launch and every 6 hours while Settings → General → *Install updates automatically* is on (default), and
+from Cicada → Check for Updates…, it reads GitHub's latest release and its `latest.json` (`UpdateChecker`; newer by
+semver, refusing a release that needs a newer macOS), downloads the zip, and `UpdateInstaller.stage` verifies size,
+sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
+checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
+installs when the person quits — or at once with *Restart to update* — never while Sleep is writing: a detached
+helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
+exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
+again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
+the helper just before it stops the service — and a busy answer defers the swap to the next quit
+(`~/.cicada/update-deferred.json`; the staged copy and its `.Cicada.app.update.json` sidecar are kept, so nothing is
+downloaded twice). Any failure puts the old copy back and leaves `~/.cicada/update-failed.json`, which the next launch
+shows once in the Version row ("couldn't be installed … You're still on 0.3.0"); a service that didn't start again is
+reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
+`~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
+
+**Settings → Memory → Search model (G182 phase 3).** A row in the Search index card (DR-37): a picker of the models
+`GET /embeddings` offers — *Small* (built in) and *Larger* (EmbeddingGemma) — and a line saying what this memory
+searches with now, that a change takes effect at the next Sleep (which re-reads the memory once), or how an install
+is going. Choosing a model this Mac doesn't have opens `LargerSearchModelSheet`: why a token is needed (the model's
+license is accepted on Hugging Face, so the person's own read token downloads it once), links to accept the license
+and create a token, a secure field, Install. The token goes only in the one request body and is cleared from the view
+at once; nothing stores it. The row polls while an install runs and is disabled while Sleep writes (DR-41).
 
 ---

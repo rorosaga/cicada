@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -474,7 +475,7 @@ def _user_avatar_url(handle: str | None) -> str | None:
 #: literal of any of them spawned anywhere else in `api/` or `mcp/`.
 WRITE_SUBCOMMANDS = frozenset({
     "add", "apply", "checkout", "cherry-pick", "clean", "commit", "merge", "mv",
-    "reset", "restore", "revert", "rm", "stash", "update-index",
+    "reset", "restore", "revert", "rm", "stash", "update-index", "update-ref", "read-tree",
 })
 #: Waits between tries while ANOTHER process holds the index (R-B2): five tries
 #: in about two seconds. A terminal's `git add` takes milliseconds; an editor left
@@ -563,6 +564,181 @@ def commit_changes_sync(memory_path, message: str) -> str | None:
             return None  # Nothing to commit
         _git_sync(memory_path, "commit", "-m", message)
         return _git_sync(memory_path, "rev-parse", "HEAD").strip()
+
+
+def _git_env_sync(memory_path: Path, env: dict, *args: str) -> str:
+    """One git command against a PRIVATE index (``GIT_INDEX_FILE``), called with
+    the bank's write lock held. Nothing else contends for that index, so there
+    is no lock to retry."""
+    try:
+        proc = subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True, env=env)
+    except OSError as exc:
+        raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
+    if proc.returncode != 0:
+        raise GitError(f"git {' '.join(args)} failed: {proc.stderr.decode(errors='replace')}")
+    return proc.stdout.decode(errors="replace")
+
+
+def _commit_kept_apart_sync(memory_path: Path, contents: dict[str, bytes | None], message: str) -> bool:
+    """Commit ``contents`` — what these paths held BEFORE a writer touched them —
+    as their own commit, without touching the working tree (audit 2026-10-05
+    P1-3). Built in a private index from HEAD, so nothing else staged rides in;
+    then the real index's entries for these paths are reset to the new HEAD.
+    ``None`` is "the file was deleted". Called with the write lock held.
+    Returns whether a commit was made."""
+    git_dir = Path(_git_sync(memory_path, "rev-parse", "--absolute-git-dir").strip())
+    try:
+        head = _git_sync(memory_path, "rev-parse", "--verify", "-q", "HEAD^{commit}").strip()
+    except GitError:
+        head = ""   # an unborn branch: the kept-apart commit is the first one
+    index = git_dir / "cicada-kept-apart.index"
+    env = {**os.environ, "GIT_INDEX_FILE": str(index)}
+    try:
+        index.unlink(missing_ok=True)
+        if head:
+            _git_env_sync(memory_path, env, "read-tree", head)
+        for rel, data in contents.items():
+            if data is None:
+                _git_env_sync(memory_path, env, "update-index", "--force-remove", "--", rel)
+                continue
+            fd, tmp = tempfile.mkstemp(prefix="cicada-kept-")
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                blob = _git_env_sync(memory_path, env, "hash-object", "-w", f"--path={rel}", tmp).strip()
+            finally:
+                os.unlink(tmp)
+            mode = "100644"
+            if head:
+                listed = _git_sync(memory_path, "ls-tree", head, "--", rel).split()
+                mode = listed[0] if listed and listed[0] in ("100644", "100755") else mode
+            _git_env_sync(memory_path, env, "update-index", "--add", "--cacheinfo", f"{mode},{blob},{rel}")
+        tree = _git_env_sync(memory_path, env, "write-tree").strip()
+        if head and tree == _git_sync(memory_path, "rev-parse", f"{head}^{{tree}}").strip():
+            return False
+        commit = _git_env_sync(memory_path, env, "commit-tree", tree, *(["-p", head] if head else []),
+                               "-m", message).strip()
+        _git_sync(memory_path, "update-ref", "HEAD", commit, *([head] if head else []))
+        # The real index still holds the old HEAD's entries for these paths: bring them to the new HEAD, or
+        # the next status would read the kept edit as staged in reverse. The working tree is never touched.
+        _git_sync(memory_path, "reset", "-q", "HEAD", "--", *contents)
+        return True
+    finally:
+        index.unlink(missing_ok=True)
+
+
+def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, bytes | None] | None = None,
+                        kept_subject: str | None = None, kept_trigger: str = "kept-apart") -> None:
+    """Commit exactly ``paths`` (memory-relative) — never ``git add -A`` — under the
+    bank's write lock (audit 2026-10-05 P1-3). A path that is gone is committed
+    as a removal when git knows it and skipped when it never existed.
+
+    ``before`` is what the dirty paths held before the writer ran
+    (:func:`snapshot_dirty`): an edit already on a path this commit takes is
+    committed FIRST, alone, as ``kept_subject`` (one manifest line per file it
+    really holds) with no author trailer — it was
+    not this writer's, and Cicada does not guess whose it was — so the writer's
+    commit carries only its own change. A path the writer did not change keeps
+    its uncommitted edit uncommitted."""
+    memory_path = Path(memory_path)
+    paths = list(dict.fromkeys(str(p) for p in paths or () if p))
+    if not paths:
+        return
+    with write_lock(memory_path):
+        missing = [p for p in paths if not (memory_path / p).exists()]
+        known = set()
+        if missing:
+            # Known to git if the index OR HEAD has it: a `git mv` (the inbox's
+            # keep-the-cleaner-name rename) has already taken the old path out of
+            # the index, and its removal must still be committed here.
+            known = {r for r in _git_sync(memory_path, "ls-files", "-z", "--", *missing).split("\0") if r}
+            try:
+                known |= {r for r in _git_sync(memory_path, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--",
+                                               *missing).split("\0") if r}
+            except GitError:
+                pass   # an unborn branch: nothing in HEAD
+        stage = [p for p in paths if p not in missing or p in known]
+        if not stage:
+            return
+        kept = {}
+        for rel in stage:
+            if before is None or rel not in before:
+                continue
+            now = (memory_path / rel).read_bytes() if (memory_path / rel).is_file() else None
+            if now != before[rel]:
+                kept[rel] = before[rel]
+            else:
+                stage = [p for p in stage if p != rel]   # untouched by this writer: not its to commit
+        if kept:
+            kept_message = build_commit_message(
+                kept_subject or f"Uncommitted edit kept apart {date.today().isoformat()}",
+                [f"{p}: updated (trigger: {kept_trigger})" for p in sorted(kept)],
+            )
+            _commit_kept_apart_sync(memory_path, kept, kept_message)
+        if not stage:
+            return
+        # `git add` refuses a path that is in neither the tree nor the index (a
+        # renamed-away page); `git commit -- <path>` still records its removal.
+        indexed = {r for r in _git_sync(memory_path, "ls-files", "-z", "--", *stage).split("\0") if r}
+        addable = [p for p in stage if (memory_path / p).exists() or p in indexed]
+        if addable:
+            _git_sync(memory_path, "add", "-A", "--", *addable)
+        if not _git_sync(memory_path, "status", "--porcelain", "--", *stage).strip():
+            return
+        _git_sync(memory_path, "commit", "-m", message, "--", *stage)
+
+
+#: What a resolution can rewrite: pages, its own item, and the bank's root files (`_merge_rejected.yaml`, the
+#: predicate map, `graph_edges.yaml`). `snapshot_dirty` reads only these — never a dirty episode's text.
+_TOUCHABLE_DIRS = ("entities/", "inbox/", "nudges/", "clarifications/")
+
+
+async def dirty_paths(memory_path: Path) -> frozenset[str]:
+    """Every path `git status` reports as changed or untracked, relative to the
+    bank root. `-z` so a name is never C-quoted; `--untracked-files=all` so a
+    new page is listed by name, not folded into its directory; a rename's
+    second record (its source) is kept too. Raises `GitError` rather than
+    `porcelain_status`'s empty string, so an unreadable tree never reads as a
+    clean one."""
+    out = await _run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
+    records = out.split("\0")
+    dirty: set[str] = set()
+    i = 0
+    while i < len(records):
+        rec = records[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        dirty.add(rec[3:])
+        if rec[0] in "RC" or rec[1] in "RC":
+            if i < len(records) and records[i]:
+                dirty.add(records[i])
+            i += 1
+    return frozenset(dirty)
+
+
+async def snapshot_dirty(memory_path: Path) -> dict[str, bytes | None] | None:
+    """What every uncommitted page, inbox item and root file holds right now —
+    taken before a resolution writes, so :func:`commit_touched_sync` can keep an
+    edit that was already there apart from the person's answer. ``None`` when
+    the tree cannot be read (no repo: nothing to commit anyway)."""
+    memory_path = Path(memory_path)
+    if not (memory_path / ".git").exists():
+        return None
+    try:
+        dirty = await dirty_paths(memory_path)
+    except GitError:
+        return None
+    out: dict[str, bytes | None] = {}
+    for rel in dirty:
+        if "/" in rel and not rel.startswith(_TOUCHABLE_DIRS):
+            continue
+        path = memory_path / rel
+        try:
+            out[rel] = path.read_bytes() if path.is_file() else None
+        except OSError:
+            out[rel] = None
+    return out
 
 
 async def _run_git(memory_path: Path, *args: str) -> str:
@@ -1367,6 +1543,8 @@ async def commit_resolution(
     extra_lines: list[str] | None = None,
     *,
     change: str = "updated",
+    paths: list[str] | None = None,
+    before: dict[str, bytes | None] | None = None,
 ) -> None:
     """Commit after an inbox (nudge/clarification/conflict) resolution.
 
@@ -1380,6 +1558,13 @@ async def commit_resolution(
     ``status active`` so ``_infer_change_type``'s existing ``"status"`` branch
     classifies the commit as ``statusChange`` — an enum the app already decodes
     — instead of inventing a new change type.
+
+    Audit 2026-10-05 P1-3: it commits ONLY the files the answer wrote — the
+    entity's page, every manifest line's file and ``paths`` (the item file) —
+    never ``git add -A``: an unrelated dirty episode or page is not the
+    person's answer. An edit already on one of those files before the answer
+    (``before``, from :func:`snapshot_dirty`) is committed first on its own,
+    with no author claimed (:func:`commit_touched_sync`).
     """
     date_str = date.today().isoformat()
     # trigger is "inbox/<kind>/resolved[:<label>]" — tag the kind into the
@@ -1404,7 +1589,10 @@ async def commit_resolution(
             body_lines.append(line)
     # An inbox resolution is a user/companion-app action -> attribute to "user".
     message = build_commit_message(subject, body_lines, authors=["user"])
-    await commit_changes(memory_path, message)
+    touched = [line.split(": ", 1)[0].strip() for line in body_lines if ": " in line]
+    touched += list(paths or [])
+    await asyncio.to_thread(commit_touched_sync, memory_path, message, touched, before=before,
+                            kept_subject=f"Uncommitted edit kept apart {date_str}", kept_trigger="inbox/kept-apart")
 
 
 # G147 — the manifest line `commit_resolution` writes for a decay answer. Its

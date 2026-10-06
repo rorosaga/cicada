@@ -147,9 +147,19 @@ def episode_lock(episodes_dir: Path) -> Iterator[None]:
     Sleep stage. ``flock`` waits without a timeout, and the Stop hook's request
     has a 3 s budget, so every holder must stay short. Lock order is always a
     writer's own process lock first, this one second."""
-    episodes_dir = Path(episodes_dir)
-    episodes_dir.mkdir(parents=True, exist_ok=True)
-    key = os.path.realpath(episodes_dir)
+    with dir_lock(episodes_dir):
+        yield
+
+
+@contextmanager
+def dir_lock(directory: Path) -> Iterator[None]:
+    """The mechanism behind :func:`episode_lock` and ``page_lock.page_lock``:
+    an exclusive, cross-process, re-entrant ``flock`` on a directory's own
+    descriptor, with a per-directory ``RLock`` in front. Each directory is its
+    own lock (keyed by its resolved path)."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    key = os.path.realpath(directory)
     with _THREAD_LOCKS_GUARD:
         rlock = _THREAD_LOCKS.setdefault(key, threading.RLock())
     with rlock:
@@ -174,6 +184,11 @@ def episode_lock(episodes_dir: Path) -> Iterator[None]:
                     os.close(fd)
             else:
                 _HELD[key] = (depth - 1, fd)
+
+
+def dir_lock_held(directory: Path) -> bool:
+    """Does THIS process hold :func:`dir_lock` on ``directory``? (a test seam)"""
+    return _HELD.get(os.path.realpath(directory), (0, -1))[0] > 0
 
 
 def body_revision(body: str) -> str:

@@ -9,7 +9,7 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help install doctor app run-app install-app dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help install doctor app run-app install-app release-app release dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
@@ -18,6 +18,8 @@ help:
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
 	  '  make install-app           # release-build, install ~/Applications/Cicada.app' \
 	  '  make dev                   # rebuild (debug) + reinstall + relaunch the app — the devloop command' \
+	  '  make release-app           # build the installable app with its backend (G182; nothing installed)' \
+	  '  make release VERSION=x.y.z # owner only: bump, merge dev into main, tag, push (CI publishes)' \
 	  '  make login-item            # add Cicada to macOS Login Items (opt-in)' \
 	  '  make no-login-item         # remove Cicada from macOS Login Items' \
 	  '  make backfill-structural MEMORY=/path/to/memory  # structural entity backfill' \
@@ -60,6 +62,20 @@ run-app:
 # below is the everyday loop.
 install-app:
 	cd app/CicadaApp && ./install_app.sh --release
+
+# G182 — the installable app (its own Python, code, git and model), built into
+# app/CicadaApp/.build/release/Cicada.app and smoke-tested in a temp folder.
+# Installs nothing and never opens the app.
+release-app:
+	cd app/CicadaApp && ./bundle.sh --release --with-backend
+	scripts/release/smoke-test.sh app/CicadaApp/.build/release/Cicada.app
+
+# G182 — cut a release: bump VERSION on dev, merge dev into main, tag vX.Y.Z,
+# push all three at once; the tag makes CI build and publish the GitHub
+# Release. The owner runs this; see docs/RELEASING.md.
+release:
+	@if [ -z "$(VERSION)" ]; then echo "usage: make release VERSION=x.y.z"; exit 2; fi
+	scripts/release/release.sh $(VERSION)
 
 # The everyday devloop command (G88): rebuild debug (fast), reinstall over
 # ~/Applications/Cicada.app, relaunch. This replaces `swift build &&

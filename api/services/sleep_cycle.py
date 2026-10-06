@@ -903,27 +903,8 @@ async def _refresh_state_safely(memory_path: Path, settings: Settings) -> None:
 
 
 async def _dirty_paths(memory_path: Path) -> frozenset[str]:
-    """Every path `git status` reports as changed or untracked, relative to the
-    bank root. `-z` so a name is never C-quoted; `--untracked-files=all` so a
-    new page is listed by name, not folded into its directory; a rename's
-    second record (its source) is kept too. Raises `GitError` rather than
-    `porcelain_status`'s empty string, so an unreadable tree never reads as a
-    clean one."""
-    out = await git_service._run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
-    records = out.split("\0")
-    dirty: set[str] = set()
-    i = 0
-    while i < len(records):
-        rec = records[i]
-        i += 1
-        if len(rec) < 4:
-            continue
-        dirty.add(rec[3:])
-        if rec[0] in "RC" or rec[1] in "RC":
-            if i < len(records) and records[i]:
-                dirty.add(records[i])
-            i += 1
-    return frozenset(dirty)
+    """Every path `git status` reports as changed or untracked (`git_service.dirty_paths`)."""
+    return await git_service.dirty_paths(memory_path)
 
 
 async def _expire_claims_safely(memory_path: Path) -> None:

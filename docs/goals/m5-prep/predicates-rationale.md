@@ -1,6 +1,6 @@
 # Predicate Normalization — Rationale & Audit Seed (M5 prep)
 
-Companion to `predicates-seed.yaml`. This is a DESIGN/DATA artifact only — no code, no
+Companion to `predicates-seed.yaml` (moved to `api/data/predicates-seed.yaml`, 2026-10-05, so a release bundle carries it). This is a DESIGN/DATA artifact only — no code, no
 commits. It documents how the seed was derived, the evidence (frequency table), and the
 explicit list of predicates left UNFOLDED for the mandatory normalization-audit nudge.
 

@@ -30,6 +30,21 @@ extension Copy {
     static let setup = "Setup"
     static let runSetupAgain = "Run setup again"
     static let runSetupDetail = "Walk through the first steps for this memory again."
+    // G182 — the app's own version; the backend's beside it only when the two differ.
+    static let versionTitle = "Version"
+    static func versionLine(_ version: AppVersion) -> String {
+        guard let short = version.short else { return "Development build" }
+        return version.build.map { "Version \(short) (\($0))" } ?? "Version \(short)"
+    }
+    static func versionMismatch(backend: String) -> String {
+        "Your memory service is still on version \(backend). Quit Cicada and open it again to bring them in line."
+    }
+    /// What the row says under the version: the mismatch when there is one, a match only once the backend answered.
+    static func versionDetail(_ version: AppVersion, backend: String?) -> String {
+        if version.differs(fromBackend: backend), let backend { return versionMismatch(backend: backend) }
+        if version.short != nil, backend == version.short { return "The app and your memory service match." }
+        return "The version to quote when you report a problem."
+    }
 
     // MARK: General → In the background (round-4 D3, G143)
     // No price, token or cost words here (the 2026-09-03 ruling, DR-59).

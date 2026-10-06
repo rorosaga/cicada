@@ -11,7 +11,9 @@ disclosure (cluster pages → entity pages → episodic sources).
 
 **Recall (G140).** Three legs fused by one RRF (`search_service.rrf_fuse`): the stored vectors, the
 FTS lexical leg (names, aliases and prose, word by word), and current claims mapped to their
-subject — so an alias or a relationship label reaches its page. The top three pages carry a bounded
+subject — so an alias or a relationship label reaches its page. Each leg is filtered against the pages as their
+markdown says now before fusion (`_live_pages`): a page that is gone or `dropped` is never ranked, suggested in the
+hints block or rendered (audit 2026-10-05 P2-5). The top three pages carry a bounded
 "Changed recently" block (claims closed in the last 30 days, ≤ 5 lines);
 `cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,

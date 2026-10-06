@@ -41,6 +41,7 @@ from api.services import decay_policy, entity_body, episode_ids, git_service, ma
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
 from api.services import evidence as evidence_mod
+from api.services import page_lock
 from api.services.claim_reconciler import is_human, reconcile_stage3
 from api.services.claims import (EVENT_PREDICATES, RETRACT_PREDICATE, Claim, MalformedClaimsBlockError,
                                  parse_claims, write_claims)
@@ -265,6 +266,7 @@ def _iso_date(value) -> str | None:
         return None
 
 
+@page_lock.locked
 def write_claim(
     memory_path: Path,
     subject: str,
@@ -667,6 +669,7 @@ def _withdrawal_record(target: Claim, claims: list[Claim], *, reason: str, autho
     )
 
 
+@page_lock.locked
 def retract_claim(
     memory_path: Path,
     subject: str,

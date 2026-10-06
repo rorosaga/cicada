@@ -71,7 +71,11 @@ user answered organically, escalates a question whose every option has been sile
 **Resolve is claim-aware.** Picking an option supersedes every losing claim (`valid_to` +
 `superseded_by`); "both" keeps them open with a `context` qualifier; "neither"/free text writes a
 `user_stated` claim that closes them; `defer` writes `remind_after`. All commit with
-`Cicada-Author: user`.
+`Cicada-Author: user` — **only the files the answer wrote** (the entity's page, every manifest line's file, the item;
+audit 2026-10-05 P1-3), never `git add -A`. An uncommitted edit already on one of those files is snapshotted before the
+answer runs (`git_service.snapshot_dirty`) and committed first, on its own, with no author claimed ("Uncommitted edit
+kept apart", built in a private index so nothing staged rides in — `commit_touched_sync`); an unrelated dirty file
+stays dirty.
 
 **Every resolution is a verdict (G113).** The commit trigger names the action taken
 (`inbox/<kind>/resolved:<label>`; a deferral stays `inbox/deferred`), decay `archive`/`keep_active`

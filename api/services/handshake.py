@@ -40,7 +40,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import agent_methods, skill_catalog, state_dictionary
+from api.services import agent_methods, runtime_layout, skill_catalog, state_dictionary
 from api.services.auth import cicada_home
 
 # Bump when the contract or capability copy changes: the cache key carries
@@ -207,7 +207,7 @@ def _remote_capabilities(tools: frozenset[str]) -> str:
 # path — the token location is stated relative to $CICADA_HOME.
 HOOK_POINTER = (
     "Cicada memory is connected: before anything else call the `cicada_handshake` MCP tool "
-    "(or GET http://127.0.0.1:8000/handshake with the bearer token in $CICADA_HOME/api_token) "
+    f"(or GET {runtime_layout.backend_url()}/handshake with the bearer token in $CICADA_HOME/api_token) "
     "and follow the contract it returns."
 )
 

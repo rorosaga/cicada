@@ -12,18 +12,32 @@
 #   ./bundle.sh           # build (debug) + assemble Cicada.app, print its path
 #   ./bundle.sh --release # optimized build
 #   ./bundle.sh --run     # build, assemble, and launch
+#   ./bundle.sh --release --with-backend
+#                         # the installable app (G182): carries its own Python, code, git and
+#                         # embedding model (scripts/release/build-backend.sh), is stamped
+#                         # CicadaDistribution=release instead of a checkout path, and is signed
+#                         # inside out (scripts/release/sign-app.sh — ad hoc unless
+#                         # CICADA_SIGN_IDENTITY names a Developer ID). Never used by make dev,
+#                         # install_app.sh or the dev auto-updater, whose builds are unchanged.
+#   CICADA_PREBUILT_BACKEND=<dir> reuses an already assembled backend instead of building one.
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
 CONFIG="debug"
 RUN=0
+WITH_BACKEND=0
 for arg in "$@"; do
   case "$arg" in
     --release) CONFIG="release" ;;
     --run) RUN=1 ;;
+    --with-backend) WITH_BACKEND=1 ;;
   esac
 done
+if [ "$WITH_BACKEND" = "1" ] && [ "$CONFIG" != "release" ]; then
+  echo "✗ --with-backend builds the installable app; pass --release too" >&2
+  exit 2
+fi
 
 echo "→ swift build ($CONFIG)…"
 swift build -c "$CONFIG"
@@ -86,8 +100,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Cicada</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>Cicada</string>
-  <key>CFBundleShortVersionString</key><string>0.2</string>
-  <key>CFBundleVersion</key><string>0.2</string>
+  <key>CFBundleShortVersionString</key><string>0.0.0</string>
+  <key>CFBundleVersion</key><string>0</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -114,6 +128,40 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# G182 — the version is the repo's one VERSION file (the API and the MCP server read the same file); the build number
+# is distinct and only ever grows: CI passes CICADA_BUILD_NUMBER (its run number), a local build counts commits.
+VERSION_FILE="$(cd ../.. && pwd)/VERSION"
+APP_VERSION="$(head -n1 "$VERSION_FILE" 2>/dev/null | tr -d '[:space:]')"
+[ -n "$APP_VERSION" ] || { echo "✗ no version in $VERSION_FILE" >&2; exit 1; }
+BUILD_NUMBER="${CICADA_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
+plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP/Contents/Info.plist"
+
+if [ "$WITH_BACKEND" = "1" ]; then
+  # G182 — the installable app. No checkout path is stamped: the app finds its backend inside itself
+  # (CicadaRuntime), and its memory lives in ~/cicada/memory, never in the bundle.
+  REPO_ROOT_DIR="$(cd ../.. && pwd)"
+  # Not CICADA_BACKEND_DIR: the installed app's launchers export that name, so a build started from anything the
+  # backend spawned would silently reuse the installed backend.
+  BACKEND_DIR="${CICADA_PREBUILT_BACKEND:-$PWD/.build/release-backend/backend}"
+  if [ -z "${CICADA_PREBUILT_BACKEND:-}" ]; then
+    "$REPO_ROOT_DIR/scripts/release/build-backend.sh" "$BACKEND_DIR"
+  fi
+  [ -x "$BACKEND_DIR/bin/cicada-backend" ] || { echo "✗ no assembled backend at $BACKEND_DIR" >&2; exit 1; }
+  ditto "$BACKEND_DIR" "$APP/Contents/Resources/backend"
+  plutil -replace CicadaDistribution -string release "$APP/Contents/Info.plist"
+  # The updater's trust anchor and source (phase 5): the Ed25519 public key whose private half signs each release
+  # zip in CI, and the GitHub repo whose latest release it reads. A fork sets CICADA_UPDATE_REPO and its own key.
+  plutil -replace CicadaUpdatePublicKey -string "$(tr -d '[:space:]' < "$REPO_ROOT_DIR/scripts/release/update-public-key.txt")" \
+    "$APP/Contents/Info.plist"
+  plutil -replace CicadaUpdateRepo -string "${CICADA_UPDATE_REPO:-rorosaga/cicada}" "$APP/Contents/Info.plist"
+  # Symbols are 60% of the binary and nothing on a tester's Mac reads them.
+  strip -x "$APP/Contents/MacOS/CicadaApp"
+  "$REPO_ROOT_DIR/scripts/release/sign-app.sh" "$APP"
+  echo "✓ built $APP ($APP_VERSION, build $BUILD_NUMBER, release with backend, $(du -sh "$APP" | cut -f1))"
+  exit 0
+fi
+
 # Stamp the checkout path that produced this bundle (G88). BackendProcess's
 # installRoot() prefers this over its .build/DerivedData path heuristic, so
 # an installed ~/Applications/Cicada.app resolves the memory dir + Connect
@@ -126,7 +174,7 @@ if [ -n "$REPO_ROOT" ]; then
   plutil -replace CicadaRepoRoot -string "$REPO_ROOT" "$APP/Contents/Info.plist"
 fi
 
-echo "✓ built $APP"
+echo "✓ built $APP ($APP_VERSION, build $BUILD_NUMBER)"
 if [ "$RUN" = "1" ]; then
   echo "→ launching…"
   open "$APP"

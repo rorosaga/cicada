@@ -72,7 +72,7 @@ final class AutoRecallTests: XCTestCase {
         XCTAssertEqual(fixture.cases.count, 6, "a table test over nothing passes vacuously")
         let installRoot = URL(fileURLWithPath: fixture.root)
         for c in fixture.cases {
-            XCTAssertTrue(AgentConnectPolicy.isAllowed(c.argv, installRoot: installRoot, binaries: []),
+            XCTAssertTrue(AgentConnectPolicy.isAllowed(c.argv, runtime: .developer(codeRoot: installRoot), binaries: []),
                           c.argv.joined(separator: " "))
         }
     }
@@ -97,12 +97,12 @@ final class AutoRecallTests: XCTestCase {
             [python, registry, "uninstall", "--settings", settings, "--hook", "recall", "--extra"],
         ]
         for argv in refused {
-            XCTAssertFalse(AgentConnectPolicy.isAllowed(argv, installRoot: root, binaries: []),
+            XCTAssertFalse(AgentConnectPolicy.isAllowed(argv, runtime: .developer(codeRoot: root), binaries: []),
                            argv.joined(separator: " "))
         }
         XCTAssertTrue(AgentConnectPolicy.isAllowed(
             [python, registry, "install", "--settings", settings, "--event", "Stop", "--command", capture],
-            installRoot: root, binaries: []), "the Stop hook's shape is unchanged")
+            runtime: .developer(codeRoot: root), binaries: []), "the Stop hook's shape is unchanged")
     }
 
     func testTurnOnRunsTheStepsWithCaptureOffAndReloads() async {
@@ -117,9 +117,9 @@ final class AutoRecallTests: XCTestCase {
         let runner = RecordingRunner()
         let model = AutoRecallModel(deps: .init(
             fetch: { fetches += 1; return fetches == 1 ? before : after },
-            run: { steps, root, binaries in
-                await AgentConnect.run(steps, installRoot: root, binaries: binaries, runner: runner, base: [:]) },
-            installRoot: root))
+            run: { steps, runtime, binaries in
+                await AgentConnect.run(steps, runtime: runtime, binaries: binaries, runner: runner, base: [:]) },
+            runtime: .developer(codeRoot: root)))
         await model.load()
         XCTAssertEqual(model.rows.map { AutoRecall.state(of: $0) }, [.off])
         await model.perform(model.rows[0])
@@ -134,17 +134,17 @@ final class AutoRecallTests: XCTestCase {
                                       python: python, repo: root.path, memory: "/M")
         let model = AutoRecallModel(deps: .init(
             fetch: { bad },
-            run: { steps, root, binaries in await AgentConnect.run(steps, installRoot: root, binaries: binaries) },
-            installRoot: root))
+            run: { steps, runtime, binaries in await AgentConnect.run(steps, runtime: runtime, binaries: binaries) },
+            runtime: .developer(codeRoot: root)))
         await model.load()
         await model.perform(model.rows[0])
         XCTAssertNotNil(model.refused["claude-code"])
         let failing = AutoRecallModel(deps: .init(fetch: { bad }, run: { _, _, _ in .failed("It broke.") },
-                                                  installRoot: root))
+                                                  runtime: .developer(codeRoot: root)))
         await failing.load()
         await failing.perform(failing.rows[0])
         XCTAssertEqual(failing.failures["claude-code"], "It broke.")
-        let offline = AutoRecallModel(deps: .init(fetch: { nil }, run: { _, _, _ in .done }, installRoot: root))
+        let offline = AutoRecallModel(deps: .init(fetch: { nil }, run: { _, _, _ in .done }, runtime: .developer(codeRoot: root)))
         await offline.load()
         XCTAssertTrue(offline.loaded && offline.rows.isEmpty, "never blank-after-good: nil keeps the last answer")
         XCTAssertEqual(AutoRecall.lead(loaded: offline.loaded, wiring: offline.wiring), Copy.foundBackendDown,

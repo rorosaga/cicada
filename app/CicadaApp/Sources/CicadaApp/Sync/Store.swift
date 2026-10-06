@@ -153,6 +153,13 @@ final class Store {
     /// that failed is retried by the next version event or poll tick instead
     /// of being stranded behind an already-committed version vector.
     @ObservationIgnored private var pendingDomains: Set<SyncDomain> = []
+    /// Audit 2026-10-05 P2-7 — heartbeat retries spent since the last version event (`retryPending`).
+    @ObservationIgnored private var pendingRetries = 0
+    /// True while `retryPending` runs: a failure it meets was already said once, so it raises no new toast.
+    @ObservationIgnored private var heartbeatRetry = false
+    /// How many heartbeats may retry what a failed refresh left pending before the Store waits for the next version
+    /// event. The server pings every 15 s (`routers/sync.py`), so eight cover two minutes.
+    static let maxPendingRetries = 8
     /// Domains whose refresh was coalesced into an in-flight one and must
     /// re-run once it finishes.
     @ObservationIgnored private var wantsRefresh: Set<SyncDomain> = []
@@ -418,7 +425,7 @@ final class Store {
                 guard refreshEpoch == startEpoch else { return }
                 if self[keyPath: kp].isEmpty {
                     let message = "Couldn't load \(domain.rawValue)"
-                    toast = message
+                    if !heartbeatRetry { toast = message }   // said once, not on every heartbeat (P2-7)
                     domainErrors[domain] = message
                 }
                 Self.logger.notice("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -466,7 +473,7 @@ final class Store {
                 guard refreshEpoch == startEpoch else { return }
                 if status.isEmpty {
                     let message = "Couldn't load status"
-                    toast = message
+                    if !heartbeatRetry { toast = message }
                     // `refreshOne` latches this for every other domain;
                     // `refreshStatus` has its own loop and must latch it too,
                     // or `SleepQueueCard.loadState` (which reads
@@ -611,10 +618,48 @@ final class Store {
     func apply(version newVersion: VersionVector) async {
         pendingDomains.formUnion(newVersion.changedDomains(since: version))
         version = newVersion
+        pendingRetries = 0
         // Domains left over from a failed earlier refresh ride along: the
         // version is already committed, so this is their only retry path.
         guard !pendingDomains.isEmpty else { return }
         await refresh(pendingDomains)
+    }
+
+    /// A heartbeat on a healthy stream (`SyncEngine`, `event: ping`). The server sends a `version` event only when
+    /// the vector moves, so a refresh that failed while nothing else changed had no retry path at all — the page
+    /// stayed stale on a connection that was fine (audit 2026-10-05 P2-7). Bounded: after `maxPendingRetries`
+    /// heartbeats a domain that keeps failing waits for the next version event, which re-arms the count.
+    func retryPending() async {
+        // A domain is pending from the moment its refresh starts; one still in flight has not failed yet.
+        let owed = pendingDomains.filter { !isInFlight($0) }
+        guard !owed.isEmpty else {
+            if pendingDomains.isEmpty { pendingRetries = 0 }
+            return
+        }
+        guard pendingRetries < Self.maxPendingRetries else { return }
+        pendingRetries += 1
+        heartbeatRetry = true
+        defer { heartbeatRetry = false }
+        await refresh(owed)
+    }
+
+    private func isInFlight(_ domain: SyncDomain) -> Bool {
+        switch domain {
+        case .graph: graph.isRefreshing
+        case .inbox: inbox.isRefreshing
+        case .banks: banks.isRefreshing
+        case .sources: sources.isRefreshing
+        case .channels: channels.isRefreshing
+        case .feeds: feeds.isRefreshing
+        case .calendars: calendars.isRefreshing
+        case .contributors: contributors.isRefreshing
+        case .origins: origins.isRefreshing
+        case .connections: connections.isRefreshing
+        case .status: status.isRefreshing
+        case .consumption: consumption.isRefreshing
+        case .sourcesOverview: sourcesOverview.isRefreshing
+        case .askHistory, .quickRecents: false
+        }
     }
 
     // MARK: - Entities
