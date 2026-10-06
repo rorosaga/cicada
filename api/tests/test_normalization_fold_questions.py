@@ -280,3 +280,55 @@ def test_wrong_fold_repoints_every_covered_claim(tmp_path):
     assert _predicate(memory, "beta-baseline", "clm_b") == "built-with"
     assert predicates.load_normalizer(memory)("built with") == "built-with"
     assert _git(memory, "status", "--porcelain").strip() == ""
+
+
+# ---------------------------------------------------------------- the migration
+
+
+def _write_item(memory, num, entity_id, claim_id, raw, canonical, status="pending"):
+    markdown_parser.write(memory / "inbox" / f"inbox-{num:03d}.md", {
+        "kind": "normalization", "required_input": "choice", "status": status, "priority": 0.3,
+        "entity_id": entity_id, "entity_name": entity_id, "title": f"Confirm a predicate fold for {entity_id}",
+        "created_date": "2026-10-07", "options": ["Correct fold", "Wrong fold — keep separate"],
+        "claim_id": claim_id, "raw_predicate": raw, "canonical_predicate": canonical,
+        "trigger": "sleep/conflict_resolution",
+    }, f"Predicate '{raw}' was auto-folded to canonical '{canonical}'. Confirm this fold is correct.")
+
+
+def test_migration_retires_slug_only_items_and_collapses_pairs(tmp_path):
+    from api.services.inbox_migration import dedup_normalization_items
+
+    memory = _bank(tmp_path)
+    _git(memory, "init", "-q")
+    _git(memory, "config", "user.email", "t@example.com")
+    _git(memory, "config", "user.name", "t")
+    _write_item(memory, 1, "alpha-project", "clm_1", "uses dataset", "uses-dataset")
+    _write_item(memory, 2, "alpha-project", "clm_2", "built with", "uses")
+    _write_item(memory, 3, "bob-example", "clm_3", "Trained On", "trained-on")
+    _write_item(memory, 4, "beta-baseline", "clm_4", "Built With", "uses")
+    _write_item(memory, 5, "gamma-store", "clm_5", "used", "uses")
+    markdown_parser.write(memory / "inbox" / "inbox-006.md",
+                          {"kind": "decay", "status": "pending", "entity_id": "alpha-project"}, "x")
+
+    removed = dedup_normalization_items(memory)
+    stems = sorted(p.stem for p in (memory / "inbox").glob("inbox-*.md"))
+    assert removed == 3
+    assert stems == ["inbox-002", "inbox-005", "inbox-006"]
+    fm = markdown_parser.parse(memory / "inbox" / "inbox-002.md").frontmatter
+    assert fm["covered_claims"] == [{"entity_id": "beta-baseline", "claim_id": "clm_4"}]
+    assert (memory / "inbox" / ".deduped_normalization").exists()
+    # committed, scoped to inbox/ only — the unrelated bank files stay untracked
+    assert _git(memory, "ls-files").split() == [f"inbox/{s}.md" for s in stems]
+    # marker-guarded: a second run is free and touches nothing
+    _write_item(memory, 7, "delta-paper", "clm_7", "uses dataset", "uses-dataset")
+    assert dedup_normalization_items(memory) == 0
+    assert (memory / "inbox" / "inbox-007.md").exists()
+
+
+def test_bank_migrations_run_the_fold_cleanup(tmp_path):
+    from api.services.bank_migrations import run_bank_migrations
+
+    memory = _bank(tmp_path)
+    _write_item(memory, 1, "alpha-project", "clm_1", "uses dataset", "uses-dataset")
+    run_bank_migrations(memory)
+    assert not (memory / "inbox" / "inbox-001.md").exists()

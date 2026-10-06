@@ -373,3 +373,90 @@ def dedup_decay_items(memory_path: Path) -> int:
 
     marker.write_text("v1")
     return removed
+
+
+_FOLD_DEDUP_MARKER = ".deduped_normalization"
+
+
+def dedup_normalization_items(memory_path: Path) -> int:
+    """Clear the predicate-fold questions Sleep raised before G98/G115. Idempotent.
+
+    Until then Stage 3 raised "Confirm a predicate fold" for a label's own slug
+    (``uses dataset`` -> ``uses-dataset``, a formatting change, no fold at all)
+    and once per claim for a real fold. Every ``status: pending`` normalization
+    item whose two sides are the same slug is deleted — it never asked a real
+    question and its claim is untouched; the rest are grouped by their
+    ``(raw -> canonical)`` pair, the oldest kept (it keeps its age) with every
+    sibling's claims folded into its ``covered_claims``. An item carrying no
+    pair is left alone. Its own marker; commits scoped to ``inbox/`` only.
+
+    Never raises. Returns the number of files removed.
+    """
+    from api.services.inbox_generator import fold_claims
+    from api.services.predicates import fold_key
+
+    memory_path = Path(memory_path)
+    inbox = memory_path / "inbox"
+    if not inbox.exists():
+        return 0
+    marker = inbox / _FOLD_DEDUP_MARKER
+    if marker.exists():
+        return 0
+
+    try:
+        removed = 0
+        groups: dict[tuple[str, str], list[Path]] = {}
+        for filepath in sorted(inbox.glob("inbox-*.md")):
+            try:
+                fm = markdown_parser.parse(filepath).frontmatter
+            except Exception:
+                continue
+            if str(fm.get("kind", "") or "") != "normalization":
+                continue
+            if str(fm.get("status", "pending") or "pending") != "pending":
+                continue
+            key = fold_key(str(fm.get("raw_predicate") or ""), str(fm.get("canonical_predicate") or ""))
+            if not (key[0] and key[1]):
+                continue
+            if key[0] == key[1]:
+                filepath.unlink()
+                removed += 1
+                continue
+            groups.setdefault(key, []).append(filepath)
+
+        today = str(date.today())
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            survivor, duplicates = members[0], members[1:]
+            parsed = markdown_parser.parse(survivor)
+            fm = parsed.frontmatter
+            covered = fold_claims(fm)
+            for dup in duplicates:
+                try:
+                    dup_fm = markdown_parser.parse(dup).frontmatter
+                except Exception:
+                    dup_fm = {}
+                covered += [c for c in fold_claims(dup_fm) if c not in covered]
+            extra = [{"entity_id": e, "claim_id": c} for e, c in covered[1:]]
+            if extra:
+                fm["covered_claims"] = extra
+            fm["updated_date"] = today
+            markdown_parser.write(survivor, fm, parsed.body)
+            for dup in duplicates:
+                dup.unlink()
+                removed += 1
+    except Exception as e:
+        logger.error(f"Predicate-fold inbox cleanup FAILED — leaving inbox/ as it is: {e}")
+        return 0
+
+    if removed:
+        try:
+            _commit_dedup(memory_path, removed)
+        except Exception as e:
+            # Same contract as dedup_open_items: no marker on a failed commit.
+            logger.warning(f"Predicate-fold inbox cleanup commit skipped: {e}")
+            return removed
+
+    marker.write_text("v1")
+    return removed
