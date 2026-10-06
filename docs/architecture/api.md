@@ -41,16 +41,31 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
 
-**A write names its bank (`X-Cicada-Bank`, G183(d)).** The app sends the bank an operation STARTED in, percent-encoded,
-on every POST/PUT/PATCH/DELETE. One app-wide dependency (`bank_binding.require_same_bank`, in `api/main.py`) compares it
-with the active bank's name (`bank_registry.active_bank_name`, the roster's `active`) and, on a difference, answers
-`409 {"code": "bank_mismatch", "detail": "Memory switched before this was saved — nothing was written."}` before the
-handler runs — nothing is read or written. The server moves its active bank before it answers a switch (and a long
-operation can outlive one), so this is the choke point that keeps a write out of the wrong bank; the app's own
-serialized switch is only the UX. A request without the header (the hooks, the MCP server, curl, an older app)
-behaves exactly as before. Exempt, by route template (`bank_binding.EXEMPT`): the routes that change the active bank
-(`/banks/{name}/activate`, `/banks/demo`, `/banks/leave-demo`) and bank CRUD that names its bank in the path or creates
-one (`POST /banks`, duplicate, rename, import, `DELETE /banks/{name}`). Reads are never checked.
+**A request runs in one bank, and a write only in the bank it was made in (`bank_binding`, G183(d)).** One
+app-wide dependency (`bank_binding.require_same_bank`, beside `require_token` in `api/main.py`) does two things:
+- *The pin.* The active bank is resolved ONCE when the request starts and pinned for the rest of it
+  (`bank_registry.pin_request_bank`, a ContextVar). `Settings.memory_path`, `bank_registry.active_bank_name`,
+  `capture_bank` and the intake's target resolution answer the pinned bank, and the ContextVar follows the request
+  into `run_in_threadpool` / `asyncio.to_thread` and into tasks it starts — so a switch while a request awaits a lock,
+  a thread or its commit leaves it finishing in its own bank (`test_bank_binding.py` replays a picture upload parked on
+  the real picture lock across an activation: upload and commit land in the original bank, nothing in the other).
+  Reads are pinned too. Not pinned: the routes that change the active bank (`/banks/{name}/activate`, `/banks/demo`,
+  `/banks/leave-demo`), bank CRUD that names its bank (`POST /banks`, duplicate, rename, import,
+  `DELETE /banks/{name}` — a rename moves the active bank's directory) and the SSE stream `/sync/events` (it follows
+  switches while open). Work that is not a request — the scheduler, a scheduled Sleep — resolves the active bank as
+  before; a task a request starts (a person-started Sleep run) inherits that request's pin.
+- *The check.* The app names the bank an operation STARTED in, percent-encoded UTF-8, on every POST/PUT/PATCH/DELETE
+  (`X-Cicada-Bank`). A mutating request whose named bank is not the pinned one is answered
+  `409 {"code": "bank_mismatch", "detail": "Memory switched before this was saved — nothing was written."}` before
+  its handler runs. FastAPI parses the body before app dependencies (malformed JSON is a 422 whatever the header says,
+  and a multipart upload is read first), so the refusal comes after body parsing but before schema validation and
+  before anything is read or written. The name is compared exactly as decoded — never stripped or normalised, since
+  two banks may differ only by a Unicode space; a header that is not UTF-8 matches no bank. A request without the
+  header (the hooks, the MCP server, curl, an older app) is never checked. Not checked: bank CRUD (above), an intake
+  import with an explicit `?bank=` (it names its target; without it the import writes into the active bank and is
+  checked), the read-only `POST /intake/sniff`, and an engine connection's login, logout, key and preferences
+  (machine-global, in `~/.cicada`). Reads are never checked. `bank_binding.EXEMPT` lists every exemption by route
+  template, and a test keeps each pointing at a real route.
 
 **A Sleep-window refusal has a stable code.** Every route guarded by `sleep_cycle.is_writing()` raises
 `sleep_refusal.SleepWriting` (an `HTTPException`, so a direct caller still reads `.detail`); the handler in `api/main.py`

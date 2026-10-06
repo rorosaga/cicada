@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import time
 import zipfile
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -216,34 +217,68 @@ def registry_path(root: Path) -> Path:
     return Path(root) / REGISTRY_FILENAME
 
 
-def resolve_active_bank_path(root: Path) -> Path:
-    """Return the on-disk dir for the active bank.
+@dataclass(frozen=True)
+class PinnedBank:
+    """The bank one request runs in (G183(d), ``bank_binding``): resolved once, when the request starts."""
 
-    Legacy fallback: missing registry, or an active bank that is legacy /
-    unknown, resolves to ``root`` unchanged. This keeps every pre-banks install
-    and every test tmp dir behaving exactly as before.
-    """
+    root: Path
+    name: str
+    path: Path
+
+
+#: Set by ``bank_binding.require_same_bank`` for the request it runs in. A ContextVar, so it follows the request into
+#: ``run_in_threadpool`` / ``asyncio.to_thread`` and into tasks the request starts, and never leaks into another request.
+_PINNED: ContextVar[PinnedBank | None] = ContextVar("cicada_pinned_bank", default=None)
+
+
+def _pinned(root: Path) -> PinnedBank | None:
+    pin = _PINNED.get()
+    return pin if pin is not None and pin.root == Path(root) else None
+
+
+def current_active(root: Path) -> tuple[str, Path]:
+    """``(name, dir)`` of the active bank from ONE registry read, ignoring any pin — what a request is pinned to.
+
+    The name is ``list_banks``' ``active`` (the roster the app names banks by); the dir follows the legacy fallbacks:
+    a missing or corrupt registry, or an active bank that is legacy or unknown, resolves to ``root`` unchanged."""
     root = Path(root)
     reg_file = registry_path(root)
     if not reg_file.exists():
-        return root
-
+        return DEFAULT_BANK, root
     try:
         registry = _read_registry_file(reg_file)
     except Exception:
         # A corrupt registry must never break path resolution — degrade to
         # legacy behavior rather than crash every request.
-        return root
-
+        return DEFAULT_BANK, root
     active = registry.get("active")
     banks = registry.get("banks", {}) or {}
+    name = str(active) if active and banks else DEFAULT_BANK
     record = banks.get(active)
-    if not record:
+    if not record or record.get("legacy"):
         # Unknown / dangling active pointer degrades gracefully to the root.
-        return root
-    if record.get("legacy"):
-        return root
-    return root / BANKS_SUBDIR / active
+        return name, root
+    return name, root / BANKS_SUBDIR / active
+
+
+def pin_request_bank(root: Path) -> PinnedBank:
+    """Pin the active bank, as it is now, for the rest of this request's context."""
+    name, path = current_active(root)
+    pin = PinnedBank(Path(root), name, path)
+    _PINNED.set(pin)
+    return pin
+
+
+def resolve_active_bank_path(root: Path) -> Path:
+    """Return the on-disk dir for the active bank — the request's pinned bank inside a request (G183(d)), so a
+    switch while the request awaits a lock, a thread or a commit never moves its writes into another bank.
+
+    Legacy fallback: missing registry, or an active bank that is legacy /
+    unknown, resolves to ``root`` unchanged. This keeps every pre-banks install
+    and every test tmp dir behaving exactly as before.
+    """
+    pin = _pinned(root)
+    return pin.path if pin is not None else current_active(root)[1]
 
 
 def bank_dir(root: Path, name: str) -> Path:
@@ -277,9 +312,10 @@ def _read_registry_file(reg_file: Path) -> dict[str, Any]:
 
 
 def active_bank_name(root: Path) -> str:
-    """The active bank's name as the roster reports it (``list_banks``' ``active``) — what the app names a write's bank
-    by (``bank_binding``). Read-only, like ``load_registry``."""
-    return str(load_registry(Path(root)).get("active") or DEFAULT_BANK)
+    """The active bank's name as the roster reports it (``list_banks``' ``active``) — the request's pinned bank inside
+    a request (G183(d)). Read-only, like ``load_registry``."""
+    pin = _pinned(root)
+    return pin.name if pin is not None else current_active(root)[0]
 
 
 def load_registry(root: Path) -> dict[str, Any]:
@@ -569,8 +605,7 @@ def capture_bank(root: Path) -> CaptureBank | None:
     recently, or ``None`` when there is none to choose (R-CS12). Resolved per
     call from ``banks.yaml``, like every bank path (the split-brain rule)."""
     root = Path(root)
-    registry = load_registry(root)
-    active = str(registry.get("active") or DEFAULT_BANK)
+    active = active_bank_name(root)   # pin-aware, with the path below: one bank, never two halves of a switch
     path = resolve_active_bank_path(root)
     if not demo_guard.is_demo(path):
         return CaptureBank(active, path)
