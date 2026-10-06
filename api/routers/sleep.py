@@ -27,6 +27,7 @@ from api.models.schemas import (
 )
 from api.services import (
     bank_index,
+    episode_copy,
     git_service,
     sleep_autocontinue,
     sleep_debt,
@@ -349,9 +350,12 @@ async def sleep_queue(
 async def sleep_episodes(settings: Settings = Depends(get_settings)):
     """Return every episode (queued + processed), sorted by frontmatter timestamp."""
     items: list[EpisodeQueueItem] = []
+    roots = episode_copy.folder_roots(settings.memory_path)
     for ep in list_all_episodes(settings.memory_path):
         body = (ep.get("body") or "").lstrip()
         preview = body[:200].strip()
+        fm = ep.get("frontmatter") or {}
+        kind, value = episode_copy.copy_target(fm, ep.get("body") or "", roots)
         items.append(
             EpisodeQueueItem(
                 id=ep["id"],
@@ -363,6 +367,9 @@ async def sleep_episodes(settings: Settings = Depends(get_settings)):
                 chars=len(ep.get("body") or ""),
                 processed=ep.get("processed", False),
                 processed_by=ep.get("processed_by"),
+                copy_kind=kind,
+                copy_value=value or ep["id"],
+                changed_at=episode_copy.changed_at(fm) or ep.get("timestamp", ""),
             )
         )
     return items

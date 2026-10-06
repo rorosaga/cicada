@@ -24,14 +24,43 @@ above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules fol
 `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
 a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
+**The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
+every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
+selected *and* its window visible (`WindowVisibilityReader`: occluded, minimized or hidden reads
+false), pushed once per change as `setGraphActive(bool)`. Inactive, `graph.js` cancels its queued
+frame and pulse timer, ends any drag, and stops the d3 timer — a data push lays out later rather than
+in the background (`holdIfInactive` after every `restart`). Resuming continues a simulation that was
+still moving at its own alpha, never a reheat, and leaves positions and the zoom untouched. While
+visible, a settled graph redraws only for a pending node whose ring is on screen, on a ~30 fps timer
+with the phase taken from elapsed time (the ring keeps its ~1 s period). One `cancelInteraction`
+ends a gesture whose release never arrived (window blur, a move with no button held, a pointer
+cancel, going inactive): the node is unpinned, its throw velocity dropped, and the alpha target set to
+0 with no restart. `GraphView.Coordinator` holds the web view weakly (the content controller retains
+the coordinator) and `dismantleNSView` suspends the page and removes its handler, so a closed window
+releases its graph. Regression nets: `Tests/graph/graph-lifecycle.test.js` and
+`GraphViewLifecycleTests`. Capture, SSE and the menu-bar worm are untouched by any of this.
+
 **Sync engine.** One `Store` holds a `Snapshot` per domain, hydrated instantly from a per-bank
 on-disk cache before the first network round-trip, so the app renders real data cold even with the
 backend down. A `SyncEngine` holds one SSE connection to `GET /sync/events`, reconnecting with
 backoff and falling back to polling while disconnected; each `version` event refreshes only the
-changed domains, always with `If-None-Match` so an unchanged domain costs a 304. View models are
+changed domains, always with `If-None-Match` so an unchanged domain costs a 304. A domain whose refresh failed stays
+pending; the server's 15 s `ping` retries it while connected (`Store.retryPending`, at most `maxPendingRetries` = 8
+heartbeats until the next version event re-arms it — a version event comes only when the vector moves, so before audit
+2026-10-05 P2-7 a failed refresh stayed stale on a healthy stream). View models are
 thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
 optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
+
+**A late answer never lands in the wrong place** (audit 2026-10-02 A03/A05/A06). `Store.entity(_:)` compares the
+bank and an invalidation generation across its fetch: an answer from a bank the person has since left is dropped
+(nil, nothing memoised), and one that started before `invalidateEntity`/`invalidateAllEntities` is fetched again. The
+entity card's sources are card-local, so their writes run through a card-local `SourceWriteQueue`, one at a time in
+the order made — a failure rolls back only its own change and a slow answer never overwrites a newer one; the card's
+list outlives an entity switch, so a write touches it only while the card is still on that entity (`isCurrent`). A
+queued edit paints when its turn comes, not at the click. An add is
+the `EntitySourceAdd` mutation: the draft stays in the field until the answer, a failure keeps it and toasts the
+server's sentence (`SourceDraft.afterAdd` decides what the field holds), and a second ⏎ on pending text is ignored.
 
 **Ruling (2026-09-28, TODO ruling 12): plan usage and model prices show on the Sleep page's Details and its engine
 menu — and nowhere else yet.** This supersedes the 2026-09-03 ruling ("prices and token usage are not shown anywhere
@@ -100,7 +129,9 @@ Settings' local-folder picker — and check only the chosen file or folder
 (`IntakeRouter.refusedRoot(of:)`); a watched folder that *contains* a refused root is still walked
 (open, G125).
 
-**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band —
+**Home (G108; Direction D, DS-3b; F-09, round 4).** The front door at ⌘1: a 208 pt living band, **currently off** behind
+`HomeBandLayout.showsBand = false` (G189(a), 2026-10-06; the code stays, the headline row is Home's first content at the room
+pages' 24 pt top inset) —
 `PaintedScene(.hero(band:))`, the one component Home, the Welcome and onboarding's panes share (C10) — painting the
 person's Scene (Settings → General: Automatic · Day · Afternoon · Night; Automatic follows `SceneClock`, NOAA's sun
 over the Mac's time zone's tzdb point, no location; the afternoon is the last two hours before sunset through civil
@@ -129,7 +160,9 @@ tick starts that source at once** through the one turn-on (`FoundTurnOn`; app-si
 (a browser's; a chat export shows its progress and never an ×). Nothing is pre-ticked and nothing is read before a
 tick. The Import rows are one table (`ImportCatalog`: supported installed browsers, Calendar, Apple Notes — a
 one-time read — Wispr Flow when present, the chat drop zone and *See how* per provider, a drawn walkthrough over
-`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`); Contacts sits under *Calendar & contacts* and
+`ExportWalkthrough`'s data opening `WalkthroughVendor.exportURL`; its clock is `ExportWalkthrough.cadence` — paused
+while the window is hidden, one frame per step under Reduce Motion, the painted scenes' cadence halved under Low Power,
+audit A11); Contacts sits under *Calendar & contacts* and
 Chrome's open tab groups as a sub-row under Chrome (only where Chrome is), each one `ImportEntry` and one driver over
 its own reader (`ContactsReader.connect`, `TabGroupWatcher.enable`), which Home's Getting started registers too. Every row, the topbar's count, You're set and Home's Getting started read one projection,
 `SetupProgress`, over `SetupRunner`, `SyncActivity` and the channels. Agents reuse `AgentSelector` /
@@ -340,7 +373,9 @@ the page's find row.
 progressive columns over `GET /projects` and `GET /projects/{id}/timeline`, which are **not** Store domains —
 `ProjectsCache` (app-level, in memory) revalidates them with the server's ETag when the page appears, a project opens, a
 write lands, or a sync event moves `entities`/`episodes`/`inbox`/`bank`, and a bank switch empties it (no
-`VersionVector` mapping, nothing on disk). The wire decodes leniently into local `Project*` types (the shared `Claim` is
+`VersionVector` mapping, nothing on disk). Overlapping refreshes of one resource keep only the newest request's answer,
+and a confirmed write's paint is cleared only by an answer requested after the confirm (`RequestGenerations`, audit
+2026-10-05 P2-6; `BacklogCache` the same). The wire decodes leniently into local `Project*` types (the shared `Claim` is
 untouched); derived state is `ProjectState`, the Swift twin of `project_state.timeline_state`, running the same
 `api/tests/fixtures/timeline_state.json`; every relative word comes from `RelativeDay` over `ISODay` in the viewer's
 calendar (a lint keeps the day words there), and midnight re-derives the page with no network. The story is derived off the main actor (`ProjectDerived`, keyed
@@ -386,7 +421,7 @@ ruling-4 previews; the "Runs on …" caption retired into it, and Cancel's capti
 cycle · What's waiting · Readout · Past nights) in D's list grammar — section labels over rows, no
 cards; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows, and, while videos are
 queued, one Videos row in What's waiting (`VideosWaitingRow`, G162: the queue wording and *Choose videos ›*, starting
-nothing) — closed by
+nothing). Each queued episode row (`EpisodeRow`, also in the spine popover) is one button: a click copies what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — with a brief toast (`Store.flash`); its meta line names that target and it ends with its day (`changedAt`: a conversation's last capture, else when it arrived; owner 2026-10-05) — closed by
 default, remembered per viewer
 (`cicada.sleep.detailsOpen`) and not built while closed. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
@@ -397,6 +432,15 @@ and its pixel-size fly, the bean bag, mood-edge yawn/stretch and the Sleep momen
 perk, talk, cheer), transient and never contradicting state. **Environment art (2026-10-02)** is the time, base weather
 and room lighting, independent of the worm. The sheet player loads once, caches failures, uses per-frame boundary
 schedules, shows key frames under Reduce Motion, plays every frame at half speed under Low Power and rests unseen.
+**Moving frames are swapped on a layer, never through a `TimelineView` (2026-10-05).** `SpriteLayerPlayer` (an
+`NSViewRepresentable`) arms one timer per boundary of `SpriteFrameSchedule` and sets its layer's `contents` to the
+frame the caller's closure picks — `SpriteLayerView` for room props, `BookwormView` for the worm everywhere. Measured on
+macOS 26: a `TimelineView` whose entries fall under ~0.3 s apart makes SwiftUI lay the whole window out at the display
+rate (240 host layouts a second for 4 ticks a second), which is what held the Sleep page at ~12% of a core; a 1 s
+timeline still costs one whole-window render a second, so the wall clock's second hand is a layer too. Still frames, Reduce Motion, a paused host, an unseen window
+and `ImageRenderer` snapshots keep the plain SwiftUI image (a snapshot cannot draw a platform view), and mounting that
+image tears the player and its timer down. `SpriteLayerPlayerTests` pins one draw per boundary and bans
+`TimelineView(SpriteFrameSchedule` from the sources.
 Settings passes the room's pause to every sprite leaf as well as its clock and weather reader. The steady-state
 redraw test covers all 240 weather/time/mood/lamp combinations and sums independent leaves, including 60 clock ticks:
 rain's unchanged 48-frame loop now holds 100 ms (4.8 s total), giving a maximum of 1,758/minute against the 1,800 cap.
@@ -466,8 +510,10 @@ legend. No scenery action starts work; the window offers a link to its Settings 
 
 **The wall clock (owner amendment, 2026-10-02).** `RoomClockReading.indices(at:zone:)` maps civil time to
 sixty whole-pixel angles: hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their integer values.
-`RoomClock` is a separate inert leaf, with a `TimelineView(.periodic)` at `CicadaMotion.roomClockTick` (one second)
-only while its window/room is visible and its host is active; it never redraws the parent room. `room-clock` has
+`RoomClock` is a separate inert leaf, with a `TimelineView(.everyMinute)` for the hour and minute hands and its words,
+and the second hand on a `SpriteLayerPlayer` that wakes every whole second (`RoomClockReading.secondTrack`,
+`CicadaMotion.roomClockTick`), only while its window/room is visible and its host is active; a per-second timeline
+re-rendered the whole window each second (2026-10-05). It never redraws the parent room. `room-clock` has
 `face`, `hour`, `minute`, `second` and each `-night` variant. Night-or-rain lighting selects the dark dial/hands;
 black hour/minute hands and the thin red second hand use transparent state frames, not timed sprite loops.
 Normal ticks start on whole seconds; Reduce Motion removes the second hand and ticks on minute boundaries while hour/minute keep time. Help and VoiceOver share “Wall clock, <time>”
@@ -717,5 +763,97 @@ stale too, never "couldn't open". The entity card's "Where this came from" (Cont
 and cache as optional environment values, so a chip outside the main window renders without a
 click-through rather than trapping; the Ask sheet steps aside when the Reader
 opens (the Belief Timeline is inline in its tab since DS-3a), and a bank switch closes it and empties the cache (episode ids repeat across banks).
+
+**Versions and builds (G182).** The repo's one `VERSION` file is the version everywhere: `bundle.sh` stamps it as
+`CFBundleShortVersionString`, `api/version.py` reads it for FastAPI's `app.version` (and so `/healthz`) and the MCP
+server's `serverInfo`, and `api/pyproject.toml` carries the same string (`test_version.py`). `CFBundleVersion` is the
+build number — the commit count, or `CICADA_BUILD_NUMBER` when a build passes one — so it only grows along `main`.
+Settings → General ends with a Version row ("Version 0.3.0 (1523)", `AppVersion`); when `/healthz` answers with a
+different version (an updated app beside a background service still running the old one) the row says so.
+
+**The release app (G182 phase 2).** `bundle.sh --release --with-backend` builds the installable app: it runs
+`scripts/release/build-backend.sh` (python-build-standalone CPython 3.12 for arm64; the release dependency set from
+`scripts/release/requirements.lock`, hashed, no torch; Cicada's tracked `api/`, `mcp/`, `skills/`, `SKILL.md`,
+`VERSION` and agent script; dugite-native git, pruned, with its GPLv2 `COPYING` and a source pointer; the int8 ONNX
+`intfloat/multilingual-e5-small`, owner 2026-10-06), copies it to `Contents/Resources/backend/`, stamps `CicadaDistribution=release` (and no
+`CicadaRepoRoot`), strips the binary and signs every Mach-O ad hoc, inside out, never `--deep`
+(`scripts/release/sign-app.sh`). 347 MB unzipped, 138 MB zipped with the English-only model; the multilingual
+model adds about 95 MB (113 MB model and 16 MB tokenizer against 34 MB). Nothing is written inside the signed app:
+bytecode goes to `~/.cicada/cache/pycache`. `scripts/release/smoke-test.sh <app>` copies a build to a temp folder and
+proves it there with a temporary home, bank and port (health and version, the bundled git, an MCP save, the bundled
+model through sqlite-vec, a hook, a launcher that fails loudly when its app moved). `CicadaRuntime` decides the
+distribution once at launch (the plist stamp plus the bundled launcher on disk); a developer build — `make dev`,
+`install_app.sh`, the auto-updater — has no stamp and behaves exactly as before. A release writes
+`~/.cicada/bin/cicada-{backend,mcp,hook,python}` on every launch (`LauncherInstaller`, atomic, 0755), each a few lines
+that exec the matching script inside whichever copy of the app opened last and exit 127 with a sentence when it is
+gone; MCP registrations, the Stop and recall hooks and the launchd plist name only those paths
+(`api/services/runtime_layout.py` and `CicadaRuntime` hold the same shapes; `AgentConnectPolicy` accepts exactly the
+running distribution's). The hook registry knows both forms as Cicada's own, so one entry per script survives a switch
+between a source install and the app. Memory defaults to `~/cicada/memory`, never inside the bundle. The background
+service stays opt-in; a release re-points an existing `com.cicada.backend` plist at its launcher
+(`BackendAgentPolicy.needsMigration`, then the bundled `install-backend-agent.sh` in its `CICADA_BACKEND_PROGRAM`
+mode, logs in `~/.cicada/logs`). `CICADA_PORT` (default 8000; the app also reads the `cicada.port` default) is honoured
+by the app, the backend, the MCP server, the hooks and the launchers. The bundled git is first on the backend's
+`PATH`; the app's own repo reads try the person's git first and the bundled one last.
+
+**Releases (G182 phase 4; TODO ruling 19).** A release is a `dev` → `main` PR, and merging it is the release. `VERSION`
+is the one version: `scripts/release/check_version.py` holds `api/pyproject.toml`, uv.lock's `cicada-api` entry, the
+built app's `CFBundleShortVersionString` and `latest.json` to it, and judges it against the remote's `v*` tags (already
+tagged → publish nothing; not greater than the latest → fail). The owner's two commands open PRs and nothing else
+(`scripts/release/release.sh`; never pushes `main`, never tags, never force-pushes; `--dry-run`): `make release
+VERSION=x.y.z` bumps the version files on `release/vx.y.z` off `origin/dev` and opens its PR to `dev`; `make release-pr`
+opens `dev` → `main` "Release vX.Y.Z". `.github/workflows/release-check.yml` fails a PR to `main` whose head isn't this
+repo's `dev` or whose `VERSION` CI would not publish. A push to `main` runs `.github/workflows/release.yml` (one
+concurrency group per commit, so a run never cancels or replaces another commit's): a **plan** job on ubuntu (stamps
+agree, tags decide), a **build** job on `macos-26` (arm64, Xcode 26) — `bundle.sh --release --with-backend` with the
+commit count as the build number, the Info.plist version check, `smoke-test.sh`, a `ditto -c -k --keepParent` zip, its
+Ed25519 signature (`scripts/release/sign_update.py`, private key in the `CICADA_UPDATE_SIGNING_KEY` secret, verified
+against the committed `update-public-key.txt`), `latest.json` (`latest_json.py`: version, build, versioned asset URL,
+size, sha256, signature, notes URL) and `Cicada-macos-arm64.zip`, the same bytes under a stable name the website links
+as `releases/latest/download/Cicada-macos-arm64.zip` — and a **publish** job, the only one with write access
+(`scripts/release/publish.sh`): the version judged again against the live tags (a re-run reuses a stale plan) and the
+commit checked to still be main's tip (only the tip publishes; a superseded run ends green and deletes only its own
+draft, so of two release merges in flight only the newer ships), a draft release at the merged commit created through
+the REST API and owned by the id in its response (never rediscovered through the lagging releases list; two drafts may
+share a tag), all four assets uploaded to that id with notes (`release-notes-header.md` + notes generated since the
+previous tag), the draft read back by id (tag, target, every asset's name and size), main's tip checked again, then
+published by a PATCH that spells out `tag_name` and `target_commitish` (one that omits `tag_name` drops the tag) —
+GitHub creates the tag only then — and marked latest only when it is the highest version; the release must then read
+back public under `vX.Y.Z` and the remote tag must point at the merged commit, else the run fails loudly and touches
+nothing. A failure before publication deletes the id it created and nothing else (a draft has no tag, so no tag is
+touched); a published release is never touched again. A push to `ci/release-dry-run` or a manual run off `main` does
+everything but publish and uploads the files as an artifact; a re-run or a manual run on `main` re-attempts an untagged
+`VERSION` only while main's tip is still its commit (a fix ships as a new release PR). The app carries the public key
+and the repo (`CicadaUpdatePublicKey`, `CicadaUpdateRepo` in Info.plist) for the updater.
+
+**Installing and updating a release (G182 phase 5).** Testers install with
+`curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash`: it reads the
+latest release's `latest.json`, downloads the zip with curl (no quarantine flag, so Gatekeeper doesn't block the
+not-yet-notarized app), checks its sha256 and `codesign --verify`, installs into `~/Applications` (else
+`/Applications`), moves an older copy to the Trash, quits only the copy it replaces, and opens the app. In the app,
+`UpdateService` runs only in a release (`CicadaRuntime.isRelease` and a stable path; a developer build never checks):
+20 s after launch and every 6 hours while Settings → General → *Install updates automatically* is on (default), and
+from Cicada → Check for Updates…, it reads GitHub's latest release and its `latest.json` (`UpdateChecker`; newer by
+semver, refusing a release that needs a newer macOS), downloads the zip, and `UpdateInstaller.stage` verifies size,
+sha256 and the Ed25519 signature against `CicadaUpdatePublicKey` (`UpdateVerifier`, CryptoKit) before unzipping,
+checks the bundle id, distribution and version and `codesign --verify`, and copies it beside the installed app. It
+installs when the person quits — or at once with *Restart to update* — never while Sleep is writing: a detached
+helper (`posix_spawn` in its own session) waits for the app to exit, boots out `com.cicada.backend` if its plist
+exists, swaps the two copies by rename in the same folder, moves the old one to the Trash, bootstraps the service
+again (three tries) and relaunches. The backend is asked fresh whether Sleep is writing — by the app at hand-off and by
+the helper just before it stops the service — and a busy answer defers the swap to the next quit
+(`~/.cicada/update-deferred.json`; the staged copy and its `.Cicada.app.update.json` sidecar are kept, so nothing is
+downloaded twice). Any failure puts the old copy back and leaves `~/.cicada/update-failed.json`, which the next launch
+shows once in the Version row ("couldn't be installed … You're still on 0.3.0"); a service that didn't start again is
+reinstalled once on that launch. The zip must be one of the same release's own assets, over https. The new copy rewrites the
+`~/.cicada/bin` launchers when it opens. Log: `~/.cicada/logs/update.log`.
+
+**Settings → Memory → Search model (G182 phase 3).** A row in the Search index card (DR-37): a picker of the models
+`GET /embeddings` offers — *Small* (built in) and *Larger* (EmbeddingGemma) — and a line saying what this memory
+searches with now, that a change takes effect at the next Sleep (which re-reads the memory once), or how an install
+is going. Choosing a model this Mac doesn't have opens `LargerSearchModelSheet`: why a token is needed (the model's
+license is accepted on Hugging Face, so the person's own read token downloads it once), links to accept the license
+and create a token, a secure field, Install. The token goes only in the one request body and is cleared from the view
+at once; nothing stores it. The row polls while an install runs and is disabled while Sleep writes (DR-41).
 
 ---

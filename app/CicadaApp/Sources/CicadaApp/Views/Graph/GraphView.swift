@@ -18,12 +18,22 @@ final class ClickableWebView: WKWebView {
 }
 
 struct GraphView: NSViewRepresentable {
+    /// Audit 2026-10-02 A07: the Graph tab is selected and its window is on screen (not occluded, minimized or
+    /// hidden). graph.js stops requesting frames and stops the d3 timer while this is false (`setGraphActive`).
+    var isActive: Bool = true
     @Environment(GraphViewModel.self) private var viewModel
     @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> WKWebView {
+        Self.makeWebView(coordinator: context.coordinator)
+    }
+
+    /// The page and its one message handler. The coordinator holds the view weakly (A08): the content
+    /// controller retains the coordinator, so a strong reference back made a cycle that kept every graph
+    /// web view — and its render loop — alive after its window went away.
+    static func makeWebView(coordinator: Coordinator) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.userContentController.add(context.coordinator, name: "cicada")
+        config.userContentController.add(coordinator, name: Coordinator.handlerName)
 
         let webView = ClickableWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
@@ -35,11 +45,28 @@ struct GraphView: NSViewRepresentable {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }
 
-        context.coordinator.webView = webView
+        coordinator.webView = webView
         return webView
     }
 
+    /// A08: SwiftUI removes the view — suspend the page's loop, drop the handler and the reference.
+    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        teardown(webView, coordinator: coordinator)
+    }
+
+    static func teardown(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.evaluateJavaScript(GraphJS.setGraphActive(false), completionHandler: nil)
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: Coordinator.handlerName)
+        webView.stopLoading()
+        coordinator.webView = nil
+    }
+
     func updateNSView(_ webView: WKWebView, context: Context) {
+        // A07: one push per change of on-screen state, gated on THIS page being ready (`activeCall`).
+        if let call = context.coordinator.activeCall(wanted: isActive) {
+            webView.evaluateJavaScript(call, completionHandler: nil)
+        }
+
         // Mirror the toolbar's sticky pan mode into graph.js. Idempotent on the
         // JS side, so re-sending on every update is harmless; only push once
         // the page is ready (before that, graph.js has no setPanToggle yet).
@@ -152,7 +179,12 @@ struct GraphView: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, WKScriptMessageHandler {
+        static let handlerName = "cicada"
         var lastPanMode = false
+        /// A07 — the last on-screen state pushed to `setGraphActive`; nil until the page is ready.
+        var lastActive: Bool?
+        /// A07 — what `GraphView(isActive:)` last asked for, pushed again when the page reports ready.
+        var wantsActive = true
         var lastHoverSuppressed = false
         /// Latched so a theme push happens once per actual flip, never on
         /// every unrelated `updateNSView` (R11).
@@ -161,7 +193,7 @@ struct GraphView: NSViewRepresentable {
         var lastSelected: String?
         var hasPushedSelection = false
         let viewModel: GraphViewModel
-        var webView: WKWebView?
+        weak var webView: WKWebView?
         var isGraphReady = false
         private var hasPushedInitialData = false
 
@@ -180,6 +212,9 @@ struct GraphView: NSViewRepresentable {
                     isGraphReady = true
                     viewModel.isGraphReady = true
                     pushGraphData()
+                    if let call = activeCall(wanted: wantsActive) {
+                        webView?.evaluateJavaScript(call, completionHandler: nil)
+                    }
                 case .nodeClicked(let id):
                     viewModel.selectEntity(id: id)
                 case .hubExpanded(let id):
@@ -196,6 +231,17 @@ struct GraphView: NSViewRepresentable {
                     print("Graph JS error: \(detail)")
                 }
             }
+        }
+
+        /// The `setGraphActive` call to send, or nil, latching what it returns. Gated on this coordinator's own
+        /// `isGraphReady`, never the view model's: that flag is app-wide and stays true after a window closes, so a
+        /// reopened window's new page would be sent the call before graph.js defines it — and the latch would then
+        /// swallow every later push (review of audit A07).
+        func activeCall(wanted: Bool) -> String? {
+            wantsActive = wanted
+            guard isGraphReady, lastActive != wanted else { return nil }
+            lastActive = wanted
+            return GraphJS.setGraphActive(wanted)
         }
 
         private func pushGraphData() {

@@ -332,9 +332,11 @@ def capture_transcript(
         conv = extract(harness, fh, keep_assistant=keep_assistant)
     kept = conv.summary["kept"]
 
-    with _lock:
-        episodes_dir = memory_path / "episodes"
-        episodes_dir.mkdir(parents=True, exist_ok=True)
+    episodes_dir = memory_path / "episodes"
+    # Audit K01/A01: the process lock orders this backend's threads; the episode
+    # lock makes find-or-create one step across processes (one episode per
+    # session, G104) and fences the update against Sleep's retirement.
+    with _lock, episode_ids.episode_lock(episodes_dir):
         if not conv.turns:
             _record(harness, session_id, "empty", conv, bank)
             return CaptureResult("empty", None, 0, 0, conv.summary)
@@ -363,8 +365,8 @@ def capture_transcript(
             if cwd:
                 fm["project_dir"] = cwd
             _place_turns(fm, _agent_fields(_turn_sidecar(conv, body), None, effort, _last_offset(conv, body)))
+            episode_id = episode_ids.create_episode(episodes_dir, fm, body)
             path_out = episodes_dir / f"{episode_id}.md"
-            markdown_parser.write(path_out, fm, body)
             _episode_cache[(str(episodes_dir.resolve()), harness, session_id)] = path_out
             _record(harness, session_id, "created", conv, bank)
             logger.info(f"capture: created {episode_id} from {harness} session ({len(conv.turns)} turns)")

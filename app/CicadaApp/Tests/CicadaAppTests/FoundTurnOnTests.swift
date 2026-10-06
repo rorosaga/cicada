@@ -17,7 +17,7 @@ final class FoundTurnOnTests: XCTestCase {
                       sync: Result<String, Error> = .success("412 bookmarks saved"),
                       readiness: FoundItem.Readiness? = .ready,
                       opened: @escaping (URL) -> Void = { _ in }, drop: IntakeOutcome? = nil) -> FoundTurnOnDeps {
-        FoundTurnOnDeps(wiring: { wiring }, installRoot: URL(fileURLWithPath: "/R"),
+        FoundTurnOnDeps(wiring: { wiring }, runtime: .developer(codeRoot: URL(fileURLWithPath: "/R")),
                         connect: { _, _, _ in connect }, syncBrowser: { _ in try sync.get() },
                         readiness: { _ in readiness }, open: opened, commitDrop: { _ in drop }, refresh: {})
     }
@@ -46,7 +46,7 @@ final class FoundTurnOnTests: XCTestCase {
     func testNoStepsReprobesAndAHealthyAnswerIsOn() async {
         var current = unprobed()
         var refreshes = 0
-        let d = FoundTurnOnDeps(wiring: { current }, installRoot: URL(fileURLWithPath: "/R"),
+        let d = FoundTurnOnDeps(wiring: { current }, runtime: .developer(codeRoot: URL(fileURLWithPath: "/R")),
                                 connect: { _, _, _ in XCTFail("nothing to run"); return .done },
                                 syncBrowser: { _ in "" }, readiness: { _ in nil }, open: { _ in },
                                 commitDrop: { _ in nil },

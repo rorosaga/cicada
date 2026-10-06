@@ -119,7 +119,7 @@ def _write_episode(memory_path: Path, target: Target, body: str, session_fm: dic
         "media_entity_id": target.entity_id,
         **session_fm,
     }
-    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+    episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id, True
 
 

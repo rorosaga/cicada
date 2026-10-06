@@ -1,6 +1,6 @@
 [project]
 name = "cicada-api"
-version = "0.1.0"
+version = "0.3.0"
 description = "Cicada companion app backend — filesystem-backed API for the personal knowledge graph"
 readme = "README.md"
 requires-python = ">=3.12"

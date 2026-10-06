@@ -314,7 +314,8 @@ def _recorded_model(memory_path: Path) -> str | None:
     from api.services.vector_index import SqliteVecIndexer
 
     try:
-        model = (SqliteVecIndexer(memory_path).index_info() or {}).get("model")
+        # The ENTITY table's model — the one the hook queries (audit 2026-10-05 P2-4).
+        model = SqliteVecIndexer(memory_path).kind_model("entities")
     except Exception:  # noqa: BLE001 — no vectors is an ordinary state
         model = None
     with _MODELS_LOCK:
@@ -327,13 +328,14 @@ def _semantic_ranks(memory_path: Path, prompt: str) -> dict[str, int] | None:
     embedder runs on this Mac and is already loaded (R-H4)."""
     from api.services import providers
 
-    embed = providers.warm_local_embed_fn(_recorded_model(memory_path))
+    model = _recorded_model(memory_path)
+    embed = providers.warm_local_embed_fn(model)
     if embed is None:
         return None
     from api.services.vector_index import SqliteVecIndexer
 
     try:
-        rows = SqliteVecIndexer(memory_path, embed_fn=embed).search_kinds(
+        rows = SqliteVecIndexer(memory_path, embed_fn=embed, model_name=model).search_kinds(
             prompt_window(prompt)[:SEMANTIC_CHARS], {"entities": SEMANTIC_K}).get("entities", [])
     except Exception:  # noqa: BLE001 — the lexical order stands
         return None

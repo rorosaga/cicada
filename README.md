@@ -108,7 +108,20 @@ Sources — where memory comes from, whether each source is live, and who wrote 
 The app is the management layer, not the primary interface. The primary interface is whatever
 agent you already talk to.
 
-## Quick start
+## Install the app
+
+On an Apple silicon Mac with macOS 14 or later:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash
+```
+
+That installs the latest release into `~/Applications` and opens it. The app carries its own Python, git and a small
+on-device search model, so nothing else needs installing, and it keeps itself up to date. Downloading the zip from
+[Releases](https://github.com/rorosaga/cicada/releases) works too; until the app is notarized, macOS asks once
+(System Settings → Privacy & Security → Open Anyway). How releases are cut: [`docs/RELEASING.md`](docs/RELEASING.md).
+
+## Quick start (from source)
 
 Requirements: macOS 14+, Python 3.12, [uv](https://github.com/astral-sh/uv), Xcode command
 line tools. For consolidation you need one of: a Claude subscription with the `claude` CLI, a
@@ -189,8 +202,9 @@ picking the project up cold.
 ## Status
 
 Cicada started as a BSc capstone thesis at IE University and is now a personal project with a
-larger goal: a port between a human's experience and the agents that will act on it. `main` is
-the promoted branch; `dev` is where work happens, and PRs open against `dev`.
+larger goal: a port between a human's experience and the agents that will act on it. `dev` is
+where work happens, and PRs open against `dev`; `main` holds only releases — a release is a `dev` → `main` PR, and
+merging it publishes the GitHub Release.
 
 What works today: the full Awake/Sleep loop, the claim layer, decay classes, the unified inbox
 with Claude Code-style questions, a sync engine that keeps the app live over SSE, consumption

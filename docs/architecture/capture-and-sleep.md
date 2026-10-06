@@ -56,13 +56,36 @@ Seven rails hold across all of them:
   only ever `isfile()` them to answer "is this session still resumable"; that answer is computed
   per request and never persisted.
 - **Every writer mints ids through one rule** (G114, `api/services/episode_ids.py`):
-  `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap, and
-  `markdown_parser.write` overwrites on collision), and timestamps are aware UTC from
+  `next_episode_id` is max-suffix+1 per date (a count-based rule collides after any gap), and timestamps are aware UTC from
   `episode_ids.utc_now_iso` — never a naive local time with a `Z` appended. Legacy files are not
   migrated: readers accept both shapes and the queue sorts by `timestamp_sort_key`. A processed
   episode carries `processed_by` (`sleep` vs `agent`) so a flipped flag is distinguishable from a
   consolidation. `processed_by` also takes `user` — a companion note the person wrote in the app
   (G141 PJ-3b's Log; already processed, so Sleep never re-reads it).
+- **Unique across processes, revision-safe against Sleep** (audit 2026-10-02 K01/A01). A new episode
+  is created with `episode_ids.create_episode`, which never replaces a file: when another process
+  (a stdio MCP server, the Stop hook, the backend) took the minted id first, it mints again. Dedup
+  checks and every read-modify-write of an existing episode — transcript capture's
+  find-session-or-update, MCP `save_episode`'s hash check, each stager edit, rename, restamp and
+  tombstone, and Sleep's retirement — run under `episode_ids.episode_lock`, an `flock` on the
+  episodes directory's own descriptor (cross-process, re-entrant per thread, nothing created in the
+  bank), held for one operation and never for an import or a stage. Staging temp files match
+  `.*.tmp`, which every bank's ignore rules carry (`bank_registry.DERIVED_ARTIFACTS`). Sleep records a
+  `body_revision` (sha256 of the text it extracted) per episode and flips `processed: true` only
+  when the file still holds that text; a session resumed or a source edited mid-cycle stays queued
+  for the next run (the drain in progress counts it settled — its earlier revision was filed — so a
+  growing conversation never keeps one drain re-reading it). Capture never waits on Sleep for longer
+  than one episode's retirement. **An agent's mark is revision-checked too (2026-10-05):**
+  `cicada_pending` shows each episode's `rev` and the MCP process remembers it; `cicada_mark_processed`
+  (`agentic_write.mark_episodes_processed`) retires an episode only while its text is still that rev
+  (or one passed in `revisions`), refuses an id it never listed, and reports a conversation that kept
+  going as changed, left for the next pass. **MCP hash dedup (G183(c)):** `save_episode` scans episode
+  text outside the lock, recording each file's signature before reading it. Under the lock it checks
+  the current names and signatures (device, inode, nanosecond mtime/ctime, size), re-reads only new or
+  changed files, then mints and creates. A duplicate added or edited during the scan is still refused;
+  an atomic replacement or a same-size edit with restored mtime cannot reuse a stale check. Metadata
+  enumeration remains under the lock, but unchanged episode text is never read there. The shared
+  source-keyed stager retains its cached frontmatter scan and identity rules.
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`

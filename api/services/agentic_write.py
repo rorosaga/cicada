@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -35,11 +36,12 @@ from pathlib import Path
 from loguru import logger
 from thefuzz import fuzz
 
-from api.services import decay_policy, entity_body, git_service, markdown_parser, telemetry
+from api.services import decay_policy, entity_body, episode_ids, git_service, markdown_parser, telemetry
 # Aliased on purpose: `write_claim` takes a keyword argument named `evidence`
 # (the MCP schema, the tests and the docs all use that name), and a bare
 # `from api.services import evidence` would be shadowed inside the function.
 from api.services import evidence as evidence_mod
+from api.services import page_lock
 from api.services.claim_reconciler import is_human, reconcile_stage3
 from api.services.claims import (EVENT_PREDICATES, RETRACT_PREDICATE, Claim, MalformedClaimsBlockError,
                                  parse_claims, write_claims)
@@ -264,6 +266,7 @@ def _iso_date(value) -> str | None:
         return None
 
 
+@page_lock.locked
 def write_claim(
     memory_path: Path,
     subject: str,
@@ -666,6 +669,7 @@ def _withdrawal_record(target: Claim, claims: list[Claim], *, reason: str, autho
     )
 
 
+@page_lock.locked
 def retract_claim(
     memory_path: Path,
     subject: str,
@@ -734,7 +738,7 @@ def retract_claim(
 
 
 def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
-    """Return ``[{id, title, content}]`` for episodes with ``processed: false``.
+    """Return ``[{id, title, content, revision}]`` for episodes with ``processed: false``.
 
     Missing ``processed`` key defaults to unprocessed (matches the episode
     schema's documented default). Never raises: a single malformed episode
@@ -766,52 +770,76 @@ def list_unprocessed_episodes(memory_path: Path, limit: int = 50) -> list[dict]:
             "id": fm.get("id", filepath.stem),
             "title": fm.get("title", filepath.stem),
             "content": parsed.body,
+            # The text the caller is handed, so its mark can retire exactly this and nothing newer (A01).
+            "revision": episode_ids.body_revision(parsed.body),
         })
         if len(out) >= limit:
             break
     return out
 
 
-def mark_episodes_processed(memory_path: Path, ids: list[str], *, by: str = "agent") -> int:
-    """Set ``processed: true`` on the named episodes. Returns the count matched.
+REVISION_TAG_LENGTH = 12
+"""How much of a revision ``cicada_pending`` shows; a caller may hand back that prefix or the whole hash."""
 
-    Matches by frontmatter ``id`` (falling back to the filename stem), so it
-    tolerates whatever id shape :func:`list_unprocessed_episodes` handed back.
-    Never raises: an unreadable/unwritable file is skipped, not fatal.
 
-    ``by`` is stamped as ``processed_by`` beside the flag (G114 R6): a bare
-    ``processed: true`` cannot say whether Sleep consolidated the episode or an
-    agent marked it after its own lightweight pass, and the two differ in what
-    the graph actually received. Sleep writes ``"sleep"`` through its own
-    marker; this entry point defaults to the generic ``"agent"`` and lets the
-    MCP seam pass the harness name when it knows it. Written only alongside
-    ``processed: true``, never removed.
+def revision_tag(revision: str) -> str:
+    return revision[:REVISION_TAG_LENGTH]
+
+
+@dataclass(frozen=True)
+class MarkResult:
+    """What an agent's mark did, id by id."""
+    marked: list[str]
+    changed: list[str]   # the text moved on since the revision the caller read: left for the next pass
+    missing: list[str]   # no such episode, or no usable revision to check against
+
+
+def _same_revision(current: str, given: str) -> bool:
+    given = (given or "").strip().lower()
+    return len(given) >= REVISION_TAG_LENGTH and current.startswith(given)
+
+
+def mark_episodes_processed(memory_path: Path, revisions: Mapping[str, str], *, by: str = "agent") -> MarkResult:
+    """Set ``processed: true`` on each named episode whose text is still the revision the caller read.
+
+    ``revisions`` maps an episode id (frontmatter ``id``, falling back to the filename stem) to the revision
+    :func:`list_unprocessed_episodes` handed back, or its first :data:`REVISION_TAG_LENGTH` characters. Under
+    the episode lock the file is re-read and its body hashed (A01, the same check Sleep's retirement makes): a
+    capture that appended turns after the agent read it is left unprocessed for the next pass instead of being
+    retired unread. Never raises: an unreadable or unwritable file is skipped.
+
+    ``by`` is stamped as ``processed_by`` beside the flag (G114 R6): a bare ``processed: true`` cannot say whether
+    Sleep consolidated the episode or an agent marked it after its own lightweight pass. Sleep writes ``"sleep"``
+    through its own marker; the MCP seam passes the harness name when it knows it.
     """
-    memory_path = Path(memory_path)
-    episodes_dir = memory_path / "episodes"
-    if not episodes_dir.exists() or not ids:
-        return 0
-
-    id_set = {str(i) for i in ids if i}
-    if not id_set:
-        return 0
-
-    count = 0
-    for filepath in episodes_dir.glob("*.md"):
-        try:
-            parsed = markdown_parser.parse(filepath)
-        except Exception as exc:
-            logger.warning(f"skipping unreadable episode {filepath.name}: {exc}")
-            continue
-        fm = parsed.frontmatter or {}
-        ep_id = str(fm.get("id", filepath.stem))
-        if ep_id not in id_set:
-            continue
-        try:
-            fm["processed"] = True
-            fm["processed_by"] = (by or "").strip() or "agent"
-            markdown_parser.write(filepath, fm, parsed.body)
-            count += 1
-        except Exception as exc:
-            logger.warning(f"could not mark {filepath.name} processed: {exc}")
-    return count
+    wanted = {str(k): str(v or "") for k, v in (revisions or {}).items() if k}
+    marked: list[str] = []
+    changed: list[str] = []
+    episodes_dir = Path(memory_path) / "episodes"
+    if wanted and episodes_dir.exists():
+        for filepath in episodes_dir.glob("*.md"):
+            try:
+                parsed = markdown_parser.parse(filepath)
+            except Exception as exc:
+                logger.warning(f"skipping unreadable episode {filepath.name}: {exc}")
+                continue
+            ep_id = str((parsed.frontmatter or {}).get("id", filepath.stem))
+            if ep_id not in wanted or ep_id in marked or ep_id in changed:
+                continue
+            try:
+                # Re-read inside the episode lock (audit A01): a capture edit that landed since the scan is
+                # kept, never reverted by this write, and never retired unread.
+                with episode_ids.episode_lock(episodes_dir):
+                    parsed = markdown_parser.parse(filepath)
+                    if not _same_revision(episode_ids.body_revision(parsed.body), wanted[ep_id]):
+                        changed.append(ep_id)
+                        continue
+                    fm = parsed.frontmatter or {}
+                    fm["processed"] = True
+                    fm["processed_by"] = (by or "").strip() or "agent"
+                    markdown_parser.write(filepath, fm, parsed.body)
+                marked.append(ep_id)
+            except Exception as exc:
+                logger.warning(f"could not mark {filepath.name} processed: {exc}")
+    missing = [ep_id for ep_id in wanted if ep_id not in marked and ep_id not in changed]
+    return MarkResult(marked=marked, changed=changed, missing=missing)

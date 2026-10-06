@@ -3,6 +3,22 @@
 Cicada is a memory for your AI agents that lives on your Mac. The easiest way to install it is to let
 an agent you already use do it for you.
 
+## Just want the app? (testers)
+
+On an Apple silicon Mac (M1 or later) with macOS 14 or later, paste this into Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/rorosaga/cicada/main/scripts/install-release.sh | bash
+```
+
+It downloads the latest release, checks it, puts Cicada in `~/Applications` and opens it. The app
+carries everything it needs — its own Python, git and a small search model — so there is nothing else
+to install, and it updates itself (Settings → General → *Install updates automatically*). Downloading
+the zip from the Releases page in a browser works too, but because the app isn't notarized yet macOS
+asks once: System Settings → Privacy & Security → **Open Anyway**. Details: [`docs/RELEASING.md`](docs/RELEASING.md).
+
+The rest of this page installs Cicada **from source**, for developers.
+
 ## The one-paste way
 
 Open Claude Code or Codex in a terminal and paste this:

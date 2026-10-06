@@ -8,6 +8,9 @@ import os
 /// the affected domains; a `sleep` event is merged straight into the status
 /// snapshot so the menu bar's stage dots move in real time.
 ///
+/// A `ping` heartbeat retries, a bounded number of times, any domain whose last refresh failed (`Store.retryPending`):
+/// a version event comes only when the vector moves, so without it a failed refresh stayed stale on a healthy stream.
+///
 /// When the stream drops (backend restart, sleep/wake, network blip) it
 /// reconnects with 1 s → 30 s backoff and, *while waiting*, polls
 /// `GET /sync/version` every 3 s so the app is never more than a few seconds
@@ -104,8 +107,11 @@ final class SyncEngine {
         case "sleep":
             guard let payload = try? JSONDecoder().decode(SleepEventPayload.self, from: data) else { return }
             store.applySleepEvent(payload)
+        case "ping":
+            // The heartbeat is also the retry clock for a refresh that failed while the vector stood still (P2-7).
+            await store.retryPending()
         default:
-            break   // ping / unknown — the connection staying alive is the point
+            break   // unknown — the connection staying alive is the point
         }
     }
 }

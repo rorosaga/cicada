@@ -56,6 +56,12 @@ time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
 shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
 
+**A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
+one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
+on disk. `inbox_service.served_counts` applies the same `_hidden` predicate over `bank_index`
+frontmatter, and it is the only source of `/status`'s `inbox.total`/`byKind` (the menu bar) and the
+hub's pending count — on 2026-10-06 the raw file count said 49 while the inbox served 35.
+
 **Question object (G60).** Every item carries `question`, `options: [{key, label, description, …}]`,
 `allow_other`, `allow_defer`, `predicate` and an optional `hint`. Descriptions lead with the age
 phrase ("6 months ago") so staleness is visible before choosing; `age_days` is derived at read time,
@@ -71,7 +77,11 @@ user answered organically, escalates a question whose every option has been sile
 **Resolve is claim-aware.** Picking an option supersedes every losing claim (`valid_to` +
 `superseded_by`); "both" keeps them open with a `context` qualifier; "neither"/free text writes a
 `user_stated` claim that closes them; `defer` writes `remind_after`. All commit with
-`Cicada-Author: user`.
+`Cicada-Author: user` — **only the files the answer wrote** (the entity's page, every manifest line's file, the item;
+audit 2026-10-05 P1-3), never `git add -A`. An uncommitted edit already on one of those files is snapshotted before the
+answer runs (`git_service.snapshot_dirty`) and committed first, on its own, with no author claimed ("Uncommitted edit
+kept apart", built in a private index so nothing staged rides in — `commit_touched_sync`); an unrelated dirty file
+stays dirty.
 
 **Every resolution is a verdict (G113).** The commit trigger names the action taken
 (`inbox/<kind>/resolved:<label>`; a deferral stays `inbox/deferred`), decay `archive`/`keep_active`

@@ -1,4 +1,3 @@
-from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -148,40 +147,17 @@ async def get_status(settings: Settings = Depends(get_settings)):
 def _scan_bank(memory_path: Path) -> tuple[int, dict[str, int], int, str | None]:
     """Sync helper for the blocking file-scanning pieces of ``/status``.
 
-    Uses the bank_index cache (frontmatter-only, mtime-gated) for both the
-    inbox count/by-kind breakdown and the episodes bank_index in one
+    The inbox count is what the inbox serves (``inbox_service.served_counts``),
+    never a count of files on disk; it and the episode scan share one
     threadpool hop so the event loop isn't blocked by filesystem/YAML work.
     """
-    total, by_kind = _inbox_counts(memory_path)
+    total, by_kind = inbox_service.served_counts(memory_path)
     unprocessed = 0
     last_ingested = _last_ingested_at(memory_path)
     for f in bank_index.files(memory_path, "episodes"):
         if not f.frontmatter.get("processed", False):
             unprocessed += 1
     return total, by_kind, unprocessed, last_ingested
-
-
-def _inbox_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
-    """Inbox total + by-kind breakdown from bank_index frontmatter.
-
-    Reads the ``kind`` field straight off each cached ``inbox-*.md`` file's
-    frontmatter (see ``inbox_service._item_from_file``) instead of fully
-    parsing every item via ``inbox_service.load_inbox``. Falls back to
-    ``load_inbox`` only if some file's frontmatter doesn't carry ``kind`` at
-    all (as opposed to relying on ``_item_from_file``'s ``"decay"`` default).
-    """
-    total = 0
-    by_kind: Counter = Counter()
-    for f in bank_index.files(memory_path, "inbox"):
-        if not f.stem.startswith("inbox-"):
-            continue
-        fm = f.frontmatter
-        if "kind" not in fm:
-            items = inbox_service.load_inbox(memory_path)
-            return len(items), dict(Counter(i.kind.value for i in items))
-        total += 1
-        by_kind[str(fm["kind"])] += 1
-    return total, dict(by_kind)
 
 
 def _last_ingested_at(memory_path: Path) -> str | None:

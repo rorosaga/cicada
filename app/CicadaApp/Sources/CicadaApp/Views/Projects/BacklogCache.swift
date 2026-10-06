@@ -5,7 +5,8 @@ import Observation
 /// `CicadaApp`, revalidated with the server's ETag when the section appears, an item opens, a write lands, or a sync
 /// event moves `backlog`/`entities`/`bank` (`BacklogRefresh`); emptied on a bank switch (ids repeat across banks), and
 /// an answer in flight across the switch is dropped by its epoch. Never blank: a failed or 304 answer keeps the last
-/// value (DR-43). Only a status move is painted before the server answers (R-B22).
+/// value (DR-43). Only a status move is painted before the server answers (R-B22). Overlapping refreshes of one list
+/// or item keep only the newest request's answer (`RequestGenerations`, audit 2026-10-05 P2-6).
 @Observable
 @MainActor
 final class BacklogCache {
@@ -26,6 +27,7 @@ final class BacklogCache {
     @ObservationIgnored private var itemETags: [String: String] = [:]
     @ObservationIgnored private var recent: [String] = []
     @ObservationIgnored private var epoch = 0
+    @ObservationIgnored private var generations = RequestGenerations()
 
     init(api: any BacklogAPI = APIClient.shared) { self.api = api }
 
@@ -72,11 +74,13 @@ final class BacklogCache {
 
     func refreshList(_ project: String) async {
         let started = epoch
+        let gkey = "list:\(project)"
+        let generation = generations.begin(gkey)
         if lists[project] == nil { listPhases[project] = .loading }
         do {
             // Never an ETag with nothing cached: a 304 would leave the section with nothing to draw.
             let answer = try await api.fetchBacklog(project: project, etag: lists[project] == nil ? nil : listETags[project])
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(gkey, generation) || lists[project] == nil else { return }
             if let value = answer.value {
                 lists[project] = value
                 listETags[project] = answer.etag
@@ -87,12 +91,12 @@ final class BacklogCache {
             }
             listPhases[project] = .loaded
         } catch APIError.httpError(404, _) {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(gkey, generation) else { return }
             lists[project] = nil
             listETags[project] = nil
             listPhases[project] = .gone
         } catch {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest(gkey, generation) else { return }
             listPhases[project] = lists[project] == nil ? .failed(Copy.Projects.loadFailed(error)) : .loaded
         }
     }
@@ -100,23 +104,24 @@ final class BacklogCache {
     func refreshItem(_ project: String, _ item: String) async {
         let key = Self.key(project, item)
         let started = epoch
+        let generation = generations.begin("item:\(key)")
         if items[key] == nil { itemPhases[key] = .loading }
         do {
             let answer = try await api.fetchBacklogItem(project: project, item: item,
                                                         etag: items[key] == nil ? nil : itemETags[key])
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest("item:\(key)", generation) || items[key] == nil else { return }
             if let value = answer.value {
                 store(value, etag: answer.etag, key: key)
                 if paints[key]?.rawValue == value.summary.status { paints[key] = nil }
             }
             itemPhases[key] = .loaded
         } catch APIError.httpError(404, _) {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest("item:\(key)", generation) else { return }
             items[key] = nil
             itemETags[key] = nil
             itemPhases[key] = .gone
         } catch {
-            guard started == epoch else { return }
+            guard started == epoch, generations.isLatest("item:\(key)", generation) else { return }
             itemPhases[key] = items[key] == nil ? .failed(Copy.Projects.loadFailed(error)) : .loaded
         }
     }

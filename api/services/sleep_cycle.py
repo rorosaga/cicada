@@ -903,27 +903,8 @@ async def _refresh_state_safely(memory_path: Path, settings: Settings) -> None:
 
 
 async def _dirty_paths(memory_path: Path) -> frozenset[str]:
-    """Every path `git status` reports as changed or untracked, relative to the
-    bank root. `-z` so a name is never C-quoted; `--untracked-files=all` so a
-    new page is listed by name, not folded into its directory; a rename's
-    second record (its source) is kept too. Raises `GitError` rather than
-    `porcelain_status`'s empty string, so an unreadable tree never reads as a
-    clean one."""
-    out = await git_service._run_git(memory_path, "status", "--porcelain", "-z", "--untracked-files=all")
-    records = out.split("\0")
-    dirty: set[str] = set()
-    i = 0
-    while i < len(records):
-        rec = records[i]
-        i += 1
-        if len(rec) < 4:
-            continue
-        dirty.add(rec[3:])
-        if rec[0] in "RC" or rec[1] in "RC":
-            if i < len(records) and records[i]:
-                dirty.add(records[i])
-            i += 1
-    return frozenset(dirty)
+    """Every path `git status` reports as changed or untracked (`git_service.dirty_paths`)."""
+    return await git_service.dirty_paths(memory_path)
 
 
 async def _expire_claims_safely(memory_path: Path) -> None:
@@ -2521,16 +2502,15 @@ async def _run_stages(
     extracted_ids = {r["episode_id"] for r in extracted if r.get("episode_id")}
     processed_episodes = [ep for ep in episodes if ep["id"] in extracted_ids]
     requeued = len(episodes) - len(processed_episodes)
-    _mark_episodes_processed(processed_episodes)
-    _state.episodes_processed = len(processed_episodes)
+    _state.episodes_processed = _mark_episodes_processed(processed_episodes)
     _state.episodes_requeued = requeued
     if requeued:
         logger.warning(
-            f"Marked {len(processed_episodes)} episodes processed; {requeued} "
+            f"Marked {_state.episodes_processed} episodes processed; {requeued} "
             f"failed extraction and remain queued — re-run Sleep to continue"
         )
     else:
-        logger.info(f"Marked {len(processed_episodes)} episodes as processed")
+        logger.info(f"Marked {_state.episodes_processed} episodes as processed")
 
     # Sync the vector indexes so Bookworm reflects the post-sleep state.
     # Entity, episode and claims syncs are independent and we want to surface
@@ -2678,9 +2658,13 @@ def _get_unprocessed_episodes(
         source = fm.get("source", "unknown")
         if only_ids is not None and str(fm.get("id", f.stem)) not in only_ids:
             continue
+        content = f.body() if with_body else ""
         results.append({
             "id": fm.get("id", f.stem),
-            "content": f.body() if with_body else "",
+            "content": content,
+            # Audit A01: the revision of exactly the text handed to extraction,
+            # so retirement never flips a newer capture of the same episode.
+            "revision": episode_ids.body_revision(content) if with_body else None,
             "source": source,
             # G9 origin: explicit field if present, else derived from the
             # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
@@ -2775,6 +2759,8 @@ def list_all_episodes(memory_path: Path) -> list[dict]:
             # for every queued episode and every pre-G114 processed one.
             "processed_by": (str(fm.get("processed_by")) if fm.get("processed_by") else None),
             "filepath": filepath,
+            # What a click on the row copies and the day it shows (`episode_copy`, owner 2026-10-05).
+            "frontmatter": fm,
         })
     results.sort(key=_episode_sort_key)  # by instant, same key as the cycle's queue (G114 R2)
     return results
@@ -2799,24 +2785,42 @@ def _load_existing_entities(memory_path: Path) -> list[dict]:
     return results
 
 
-def _mark_episodes_processed(episodes: list[dict]) -> None:
-    """Mark episodes as processed in their frontmatter.
+def _mark_episodes_processed(episodes: list[dict]) -> int:
+    """Mark episodes as processed in their frontmatter; returns how many.
 
     Stamps ``processed_by: sleep`` beside the flag (G114 R6) so a
     Sleep-consolidated episode is distinguishable from one an agent marked via
     ``cicada_mark_processed`` (``processed_by: agent`` / the harness name) —
     the two mean different things for what the graph actually received.
+
+    Audit A01: capture keeps running during Sleep, and a resumed session or a
+    source-keyed edit rewrites the same episode with ``processed: false``.
+    Each file is re-read under ``episode_ids.episode_lock`` — the critical
+    section every capture writer holds for its own read-modify-write — and
+    retired only when its body is still the revision Sleep selected. A newer
+    revision stays ``processed: false`` for the NEXT run: the drain in progress
+    counts the id settled (its earlier revision was filed), so a conversation
+    that keeps growing can never keep one drain re-reading it. A dict without
+    a ``revision`` (a caller that built it by hand) retires as before.
     """
+    retired = 0
     for ep in episodes:
         filepath = ep["filepath"]
-        try:
-            parsed = markdown_parser.parse(filepath)
-        except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
-            logger.warning(f"_mark_episodes_processed: skipping malformed episode {filepath}: {exc}")
-            continue
-        parsed.frontmatter["processed"] = True
-        parsed.frontmatter["processed_by"] = "sleep"
-        markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
+        with episode_ids.episode_lock(Path(filepath).parent):
+            try:
+                parsed = markdown_parser.parse(filepath)
+            except Exception as exc:  # noqa: BLE001 - one malformed episode must not abort the cycle
+                logger.warning(f"_mark_episodes_processed: skipping malformed episode {filepath}: {exc}")
+                continue
+            selected = ep.get("revision")
+            if selected is not None and episode_ids.body_revision(parsed.body) != selected:
+                logger.info(f"_mark_episodes_processed: {ep['id']} changed while Sleep read it — left queued")
+                continue
+            parsed.frontmatter["processed"] = True
+            parsed.frontmatter["processed_by"] = "sleep"
+            markdown_parser.write(filepath, parsed.frontmatter, parsed.body)
+            retired += 1
+    return retired
 
 
 def _collect_session_ids(episodes: list[dict]) -> list[str]:

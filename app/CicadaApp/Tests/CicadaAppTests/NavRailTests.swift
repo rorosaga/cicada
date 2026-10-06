@@ -66,7 +66,9 @@ final class NavRailTests: XCTestCase {
 
     func testTheRailIsGraphiteAndNeutral() throws {
         let text = try source("Views/Shell/NavRail.swift")
-        XCTAssertTrue(text.contains(".background(CicadaTheme.bgRail)"))
+        XCTAssertTrue(text.contains(".background(CicadaTheme.bgRail, ignoresSafeAreaEdges: [])"),
+                      "owner 2026-10-05: the rail starts under the titlebar, never behind the traffic lights")
+        XCTAssertFalse(text.contains(".background(CicadaTheme.bgRail)\n"), "a bare colour background runs into the titlebar")
         XCTAssertTrue(text.contains("CicadaTheme.bgSelected"), "selection is one neutral fill")
         XCTAssertTrue(text.contains("CicadaTheme.bgBadge"), "the Inbox numeral is neutral")
         XCTAssertTrue(text.contains(".iconHover(hovering:"), "glyphs acknowledge the pointer (owner, G137)")

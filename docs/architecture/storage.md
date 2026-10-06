@@ -10,6 +10,18 @@ of truth** — the API reads and writes the same files the Sleep cycle does. At 
 (hundreds of entities) the LLM follows wikilinks; it doesn't need Cypher. Zero infrastructure,
 human-readable, portable, Obsidian-compatible.
 
+**Every page write is atomic** (audit 2026-10-02 A02): `markdown_parser.write` stages the whole
+document in a hidden sibling `.<name>.<random>.tmp` (never matched by a `*.md` scan), fsyncs it and
+`os.replace`s it over the page, keeping the page's permission bits and writing through a symlink to
+its target. A failed write leaves the old page byte-for-byte and removes the temp file. The
+directory is not fsynced: the guarantee is "never a torn or empty page", not "the rename survives a
+power cut". `markdown_parser.write_new` creates a page without ever replacing one (a hard link of the
+staged file, `FileExistsError` if the name is taken) — what new episodes use (K01, below).
+
+**A bank's boundary is its directory** (audit 2026-10-02 A04): exporting (`bank_registry.export_zip`) and
+duplicating (`duplicate_bank`) a bank never follow or copy a symlink, at any depth and whatever it points at, so a
+link inside a bank can never pull a file from outside it into an archive or a copy.
+
 ### Entity schema
 
 ```yaml
@@ -76,6 +88,20 @@ claim key but is never a graph satellite, a legend row or an edge colour. `gener
 particular context" and is never a facet: a satellite needs two real contexts. The claims fence sits
 after a page's last section (`write_claims`, the one writer), so **every reader strips it before
 sectioning** — `strip_claims_block` on the server, `EntityProse` in the app.
+
+**A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
+the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the
+winner, a node object that named the loser repointed, and its observer, trust, sessions, evidence, validity and
+supersedes/superseded_by untouched (a `page` span that cited the loser keeps naming it — its offsets and hash are
+into that text, which git holds). An id the winner already uses is kept as `<id>-from-<loser>` (the loser's own
+supersession links follow; a re-run after a crash finds its earlier copy); a claim identical once re-subjected is kept
+once; two open claims that disagree stay two — a merge never closes a belief. A corrupt fence on either page aborts
+the merge (the inbox answers 409), and two ids for one file (a case-insensitive disk) are refused. Before the loser's
+page is deleted, `graph_edges.yaml` and every other page's `related:`, `[[wikilinks]]` (with `|label` or `#section`),
+source `entity:` links and claims whose subject or node object named it are repointed (`repoint_references`), the
+loser's name joins the winner's `aliases`, and the result lists the paths it wrote. The inbox's
+rename-to-the-cleaner-slug branch repoints the same references (`rename_references`), and every inbox note lands above
+the fence. `episodes/` is never rewritten.
 
 **Evidence spans (G118) — spans, not copies.** Every claim written since that slice carries
 `evidence: [{episode, start, end, kind, hash}]`. `start`/`end` are character offsets into the source
@@ -362,13 +388,38 @@ argument the schema rejects is a bug** — every argument it names must exist in
 ### sqlite-vec (vector index)
 `api/services/vector_index.py`. Embeddings are **stored, not recomputed at query time**, so search
 is one in-process ANN lookup. Default backend is EmbeddingGemma-300M (768-dim, on-device) with
-asymmetric query/document prompts. The index is **derived and disposable** — synced by Sleep from
+asymmetric query/document prompts — in a developer checkout. A release app (G182) bundles the int8 ONNX export of
+`intfloat/multilingual-e5-small` (384-dim, ~100 languages, `query: ` / `passage: ` prompts from its manifest, mean
+pooling, no torch; owner 2026-10-06 chose it over the English-only `bge-small-en-v1.5`; `api/services/onnx_embedder.py`,
+found through `CICADA_BUNDLED_MODELS`)
+and a fresh bank there is built with it unless `CICADA_EMBEDDING_MODEL_LOCAL` names another; a bank built with it is
+queried with it (the recorded model, as for every bank). **Each bank's vectors are built with its own model**
+(`embedding_models.build_model`, G182 phase 3): the person's choice for that bank (Settings → Memory → Search model,
+kept in `$CICADA_HOME/embedding-models.json`, outside every bank), else the model its index already records when this
+Mac can run it and no `CICADA_EMBEDDING_*` was set explicitly, else the configured default — so a change of default
+never silently re-embeds a bank, and an explicit setting keeps its old meaning. A bank whose recorded model this Mac
+can't run is rebuilt with the default at its next sync — except one built with the larger model, which keeps its
+vectors (search reads words) until the person installs it or picks another model (Settings says so). EmbeddingGemma is the optional larger model
+in a release: `POST /embeddings/install` installs sentence-transformers and torch with the bundled pip into
+`$CICADA_HOME/extras/site-packages` (exactly the hashed packages in `api/data/extras-requirements.lock`, at the
+developer lock's versions, `--no-deps`; `sitecustomize` appends it after the bundled packages, so a shared one always
+resolves to the bundled copy; a failed install leaves nothing behind) and downloads the model once with the person's own Hugging Face token, used for
+that request only and never stored or logged; it then loads from its local folder (`$CICADA_HOME/models.json`). The index is **derived and disposable** — synced by Sleep from
 markdown, safe to delete at any time. **The sync is incremental** (`SqliteVecIndexer._sync_kind`): each
 row keeps a stable `key` and the `hash` of the text that was embedded, so a cycle embeds only new and
 changed texts, removes deleted ones and refreshes a page's metadata in place without an embed; a missing
 table, a pre-`hash` schema, another model (recorded per kind as `model:<kind>`) or another width rebuilds
 that table in full, and an embed that fails leaves the previous index untouched. Sleep runs the blocking
 sync through `asyncio.to_thread`, never on the event loop.
+**A query is embedded with its table's model (audit 2026-10-05 P2-4).** The kinds are re-synced one after another, so
+after a model switch one table can hold the new model's vectors and another the old one's; the bank-wide `model` stamp
+only names whichever kind was rebuilt last. `_query_embed_fn(kind)` reads `model:<kind>` (falling back to the bank-wide
+stamp on an index written before per-kind stamps); an injected embedder is used as given unless it names a different
+model than the table's. `search_kinds` embeds once per model, and a short in-process cache (≤ 16 entries, 60 s, keyed by
+the model, the table's width and a hash of the query — the text is never kept; emptied whenever a table is written) lets every search of one query share that embed: MCP
+recall's entity and episode legs embed once (P2-8). **Entity hits are read against the page as it is now (P2-5):**
+`search_entities` drops a hit whose page is gone or `dropped` — even with `include_archived` — and decides the archived
+tier on the current status, not the last sync's copy.
 
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never
@@ -473,6 +524,16 @@ importer),
   `MAX_SESSION_TRAILERS` (50) by the call site, not the builder. User-action commits stay
   session-less.
 
+**Event write ownership (G183(b), checked 2026-10-06).** The follow-up resolver commits the retired inbox item,
+the event page and any companion-note episode as `user`; `_state.md` follows in its own `cicada` commit.
+No current event write, whether from the person or an agent, can merge into an open item:
+`claim_reconciler.reconcile_events` emits only divergence nudges, which `write_claim_nudges` always writes
+as new files; only conflict nudges merge. `test_followup_manifest.py` covers person answers and agent-over-person
+milestone divergence, verifying owned paths, author trailers, unchanged conflicts and clean trees after commits.
+The historical missing-merged-conflict report is not reproducible on any current event path. Revisit the progress
+helper's created-name manifest if event reconciliation starts emitting a mergeable kind, or divergence items
+start merging into open items.
+
 **G85 — decay gets its own `cicada`-authored commit.** Temporal decay runs over entities a cycle
 never referenced: no LLM, no source episode, pure arithmetic. Folding it into the main commit
 stamped it with whichever model happened to run Stage 1/2, inflating that model's contributor counts
@@ -500,6 +561,18 @@ A folder, paper or Wispr commit that still fails keeps its paths in `cicada-pend
 in the bank's own git dir (a worktree's, never the shared common dir), says so on its channel, and
 lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
 under its own author (R-B5).
+
+**One page writer at a time (audit 2026-10-05 P1-2).** A claim write is read → reconcile → write; atomic replacement
+keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
+cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
+by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
+`paper_metadata`'s page updates, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
+**and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
+reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and
+the inbox's follow-up resolver, which wait on the event loop — one page operation is milliseconds. **Order:** the page
+lock, then the git write lock (inside the commit), then `episode_lock` — never the reverse. **Not under it yet:**
+Sleep's own page writes (agent commits already defer to its write window) and the inbox's other resolvers.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage

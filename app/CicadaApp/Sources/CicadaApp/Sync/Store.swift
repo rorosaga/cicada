@@ -45,6 +45,10 @@ final class Store {
     var entities: [String: Entity] = [:]
     private var entityLRU: [String] = []
     private let entityCacheLimit = 200
+    /// Audit A03 — bumped by every bank load and full invalidation; `entityInvalidations` counts per-id
+    /// invalidations. `entity(_:)` compares both across its fetch, so a late answer never repopulates the memo.
+    @ObservationIgnored private var entityGeneration = 0
+    @ObservationIgnored private var entityInvalidations: [String: Int] = [:]
 
     /// Inbox item ids hidden by an optimistic `InboxResolve` (§5.4). An id is
     /// dropped only once a refreshed snapshot no longer contains it — if a 304
@@ -82,8 +86,26 @@ final class Store {
 
     /// Transient one-line error surfaced by the UI. Set only when a refresh
     /// fails *and* we had nothing to show — a failed background refresh over
-    /// good data stays silent.
-    var toast: String?
+    /// good data stays silent. Every set restarts its timer (`toastSerial`), and a plain set keeps the
+    /// standard dwell; `flash` is the brief one a copy confirmation uses.
+    var toast: String? {
+        didSet {
+            toastDwell = pendingToastDwell ?? CicadaTiming.toastDwell
+            pendingToastDwell = nil
+            toastSerial &+= 1
+        }
+    }
+    /// How long the current toast stays before `ContentView` clears it.
+    private(set) var toastDwell: TimeInterval = CicadaTiming.toastDwell
+    /// Bumps on every toast, so the same words twice in a row still restart the timer.
+    private(set) var toastSerial = 0
+    @ObservationIgnored private var pendingToastDwell: TimeInterval?
+
+    /// A brief confirmation ("Link copied") — the copied-confirmation dwell, not an error's.
+    func flash(_ message: String) {
+        pendingToastDwell = CicadaTiming.copiedConfirmation
+        toast = message
+    }
 
     /// Persistent (non-auto-clearing), per-domain failure reason — latched
     /// by `refreshOne` the same moment it sets `toast`, cleared the moment
@@ -131,6 +153,13 @@ final class Store {
     /// that failed is retried by the next version event or poll tick instead
     /// of being stranded behind an already-committed version vector.
     @ObservationIgnored private var pendingDomains: Set<SyncDomain> = []
+    /// Audit 2026-10-05 P2-7 — heartbeat retries spent since the last version event (`retryPending`).
+    @ObservationIgnored private var pendingRetries = 0
+    /// True while `retryPending` runs: a failure it meets was already said once, so it raises no new toast.
+    @ObservationIgnored private var heartbeatRetry = false
+    /// How many heartbeats may retry what a failed refresh left pending before the Store waits for the next version
+    /// event. The server pings every 15 s (`routers/sync.py`), so eight cover two minutes.
+    static let maxPendingRetries = 8
     /// Domains whose refresh was coalesced into an in-flight one and must
     /// re-run once it finishes.
     @ObservationIgnored private var wantsRefresh: Set<SyncDomain> = []
@@ -192,6 +221,7 @@ final class Store {
         // switch would render under the new bank's node of the same name.
         entities.removeAll()
         entityLRU.removeAll()
+        entityGeneration += 1   // audit A03: an entity read still in flight belongs to the bank it started in
         // A latched failure belongs to the bank it happened in — carrying it
         // into a freshly-hydrated bank that hasn't even attempted a fetch yet
         // would show a stale error before anything really failed here.
@@ -395,7 +425,7 @@ final class Store {
                 guard refreshEpoch == startEpoch else { return }
                 if self[keyPath: kp].isEmpty {
                     let message = "Couldn't load \(domain.rawValue)"
-                    toast = message
+                    if !heartbeatRetry { toast = message }   // said once, not on every heartbeat (P2-7)
                     domainErrors[domain] = message
                 }
                 Self.logger.notice("refresh \(domain.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
@@ -443,7 +473,7 @@ final class Store {
                 guard refreshEpoch == startEpoch else { return }
                 if status.isEmpty {
                     let message = "Couldn't load status"
-                    toast = message
+                    if !heartbeatRetry { toast = message }
                     // `refreshOne` latches this for every other domain;
                     // `refreshStatus` has its own loop and must latch it too,
                     // or `SleepQueueCard.loadState` (which reads
@@ -588,34 +618,89 @@ final class Store {
     func apply(version newVersion: VersionVector) async {
         pendingDomains.formUnion(newVersion.changedDomains(since: version))
         version = newVersion
+        pendingRetries = 0
         // Domains left over from a failed earlier refresh ride along: the
         // version is already committed, so this is their only retry path.
         guard !pendingDomains.isEmpty else { return }
         await refresh(pendingDomains)
     }
 
+    /// A heartbeat on a healthy stream (`SyncEngine`, `event: ping`). The server sends a `version` event only when
+    /// the vector moves, so a refresh that failed while nothing else changed had no retry path at all — the page
+    /// stayed stale on a connection that was fine (audit 2026-10-05 P2-7). Bounded: after `maxPendingRetries`
+    /// heartbeats a domain that keeps failing waits for the next version event, which re-arms the count.
+    func retryPending() async {
+        // A domain is pending from the moment its refresh starts; one still in flight has not failed yet.
+        let owed = pendingDomains.filter { !isInFlight($0) }
+        guard !owed.isEmpty else {
+            if pendingDomains.isEmpty { pendingRetries = 0 }
+            return
+        }
+        guard pendingRetries < Self.maxPendingRetries else { return }
+        pendingRetries += 1
+        heartbeatRetry = true
+        defer { heartbeatRetry = false }
+        await refresh(owed)
+    }
+
+    private func isInFlight(_ domain: SyncDomain) -> Bool {
+        switch domain {
+        case .graph: graph.isRefreshing
+        case .inbox: inbox.isRefreshing
+        case .banks: banks.isRefreshing
+        case .sources: sources.isRefreshing
+        case .channels: channels.isRefreshing
+        case .feeds: feeds.isRefreshing
+        case .calendars: calendars.isRefreshing
+        case .contributors: contributors.isRefreshing
+        case .origins: origins.isRefreshing
+        case .connections: connections.isRefreshing
+        case .status: status.isRefreshing
+        case .consumption: consumption.isRefreshing
+        case .sourcesOverview: sourcesOverview.isRefreshing
+        case .askHistory, .quickRecents: false
+        }
+    }
+
     // MARK: - Entities
 
     /// Full entity body, memoised (LRU, 200 entries).
+    ///
+    /// Audit A03: the fetch suspends, and while it is out the bank can change (`hydrate`) or the body can be
+    /// invalidated by a mutation. The answer is checked against both after the await: one from another bank is
+    /// dropped (nil, nothing cached — a caller under the new bank asks again), and one that started before an
+    /// invalidation is fetched again, so a pre-mutation body never repopulates the memo.
     func entity(_ id: String) async -> Entity? {
         if let cached = entities[id] {
             touchEntity(id)
             return cached
         }
-        do {
-            let entity = try await api.fetchEntity(id: id)
+        for _ in 0..<3 {
+            let startBank = bank
+            let startGeneration = entityGeneration
+            let startInvalidations = entityInvalidations[id, default: 0]
+            let entity: Entity
+            do {
+                entity = try await api.fetchEntity(id: id)
+            } catch {
+                return nil
+            }
+            guard bank == startBank else { return nil }
+            guard entityGeneration == startGeneration, entityInvalidations[id, default: 0] == startInvalidations else {
+                continue
+            }
             entities[id] = entity
             touchEntity(id)
             return entity
-        } catch {
-            return nil
         }
+        return nil
     }
 
     /// Drop a cached entity so the next read refetches (post-mutation).
     func invalidateEntity(_ id: String) {
         entities[id] = nil
         entityLRU.removeAll { $0 == id }
+        entityInvalidations[id, default: 0] += 1
     }
 
     /// Drop every cached body — used when the whole graph snapshot is replaced
@@ -623,6 +708,7 @@ final class Store {
     func invalidateAllEntities() {
         entities.removeAll()
         entityLRU.removeAll()
+        entityGeneration += 1
     }
 
     private func touchEntity(_ id: String) {

@@ -11,6 +11,13 @@ final class HomeBandLayoutTests: XCTestCase {
                              "the fade starts below the meadow line (ART_DIRECTION §3's note)")
     }
 
+    func testTheBandIsOffBehindOneConstantAndItsCodeStays() {
+        XCTAssertFalse(HomeBandLayout.showsBand, "G189(a): the painted Home band is off (owner, 2026-10-06)")
+        XCTAssertEqual(HomeLayout.headlineTopInset(showsBand: false), 24,
+                       "no band: the headline sits where the room pages' titles do (DR-26, DR-17)")
+        XCTAssertEqual(HomeLayout.headlineTopInset(showsBand: true), HomeLayout.headlineTop)
+    }
+
     func testNoWordIsDrawnOnThePaint() throws {
         let files = try ThemeTokenTests.swiftSources()
         func text(_ suffix: String) throws -> String {
@@ -23,6 +30,7 @@ final class HomeBandLayoutTests: XCTestCase {
         }
         let home = try text("Views/Home/HomeView.swift")
         XCTAssertFalse(home.contains("ZStack"), "nothing on Home is layered over the band")
+        XCTAssertTrue(home.contains("if HomeBandLayout.showsBand { HomeHeroBand() }"), "the band is gated, not deleted")
         let band = try XCTUnwrap(home.range(of: "HomeHeroBand()"))
         let title = try XCTUnwrap(home.range(of: "PageTitle(Copy.homeHeadline)"))
         XCTAssertLessThan(band.lowerBound, title.lowerBound, "the headline is the row under the band")

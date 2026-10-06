@@ -26,6 +26,7 @@ every ``/sleep/status`` request and every SSE tick.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -278,13 +279,8 @@ async def _read_last_cycle_from_git(memory_path: Path) -> datetime | None:
     return None
 
 
-async def compute(memory_path: Path, settings: Settings | None = None) -> SleepDebt:
-    """Gather the raw inputs (a cached frontmatter scan + one bounded git-log
-    read) and apply the pure formula above. Safe to call on every
-    ``/sleep/status`` request and every SSE tick — no LLM, no subprocess
-    beyond the one bounded ``git log``.
-    """
-    now = datetime.now()
+def _scan_queue(memory_path: Path, now: datetime) -> tuple[int, float | None, datetime | None, int]:
+    """The filesystem half of :func:`compute`: count, oldest age, newest stamp, parked-and-waiting."""
     parked_ids = sleep_parked.ids(memory_path)
     count, oldest_hours, newest_ts = _count_and_oldest(memory_path, now=now, parked=parked_ids)
     parked_count = 0
@@ -292,6 +288,20 @@ async def compute(memory_path: Path, settings: Settings | None = None) -> SleepD
         waiting_ids = {str(f.frontmatter.get("id", f.stem)) for f in bank_index.files(memory_path, "episodes")
                        if not f.frontmatter.get("processed", False)}
         parked_count = len(parked_ids & waiting_ids)
+    return count, oldest_hours, newest_ts, parked_count
+
+
+async def compute(memory_path: Path, settings: Settings | None = None) -> SleepDebt:
+    """Gather the raw inputs (a cached frontmatter scan + one bounded git-log
+    read) and apply the pure formula above. Safe to call on every
+    ``/sleep/status`` request and every SSE tick — no LLM, no subprocess
+    beyond the one bounded ``git log``.
+    """
+    now = datetime.now()
+    # Audit A10: the queue walk (a stat per episode, a parse per changed one) runs in a worker thread — it used to
+    # run on the event loop for every `/sleep/status` and every SSE tick. `to_thread` copies the context, so the
+    # SSE ticker's `bank_index.shared_scans()` memo reaches it.
+    count, oldest_hours, newest_ts, parked_count = await asyncio.to_thread(_scan_queue, memory_path, now)
     last_cycle = await _last_cycle_at(memory_path)
     hours_since = (
         max(0.0, (now - last_cycle).total_seconds() / 3600.0)

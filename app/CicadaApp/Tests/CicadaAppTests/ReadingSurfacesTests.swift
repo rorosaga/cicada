@@ -241,6 +241,27 @@ final class ReadingSurfacesTests: XCTestCase {
         XCTAssertEqual(afterClear, 3, "a bank switch forgets that bank's answers")
     }
 
+    /// Under load a caller that joined a running request could resume after the first had cleared `inFlight`, find
+    /// nothing there and ask again (the flaky "2 is not 1" in the test above, 2026-10-05). Many pairs at once make
+    /// that interleaving likely; every pair must still cost exactly one request.
+    func testEveryPairAskingAtOnceSharesOneRequestUnderLoad() async {
+        let counter = Counter()
+        let store = SiteIconStore(fetch: { _ in
+            await counter.bump()
+            try await Task.sleep(for: .microseconds(Int.random(in: 0...400)))
+            return nil
+        })
+        let sites = (0..<400).map { "site-\($0).example" }
+        await withTaskGroup(of: Void.self) { group in
+            for site in sites {
+                group.addTask { _ = await store.image(site: site, bank: "b1") }
+                group.addTask { _ = await store.image(site: site, bank: "b1") }
+            }
+        }
+        let asked = await counter.value
+        XCTAssertEqual(asked, sites.count, "one request per site, however the pair interleaves")
+    }
+
     func testANetworkBlipIsNotRememberedAsNoIcon() async {
         let counter = Counter()
         let store = SiteIconStore(fetch: { _ in

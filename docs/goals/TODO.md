@@ -1,586 +1,93 @@
-# Cicada — TODO & handoff
+# Cicada — priorities and handoff
 
-> **If you are an agent picking this project up cold, read this section first.** It is the
-> compacted context of the 2026-08-31 → 09-03 sessions: what is true right now, what is in flight,
-> the rulings that would be expensive to rediscover, and how work is run here.
+**Updated 2026-10-06. Today’s delivery priority:** G182 — make GitHub releases work today, automatically keep the released version/`main`/website links aligned, and complete the per-integration post-consolidation read/contribute checks. Release work must clear applicable integrity/packaging checks and report blocked or unsupported integrations honestly. [Release requirements](../specs/2026-10-06-release-and-integration-acceptance.md).
 
-## Where things stand (2026-10-02) — round 4 closed; G176 merged (PR #164)
+**Memory-quality pickup:** fix the relevant G183/G177 write-integrity gaps, repair G185’s reported test regression, then use [the first-memory-trial runbook](2026-10-06-first-memory-trial.md). Do a small trial before a full user-started drain. The immediate product question is whether asking ordinary questions about your life feels useful and trustworthy.
 
-**Study room sprites and scenery (G176), 2026-10-02 — merged to `dev` as PR #164 on the owner's word, after his review of `preview.html`.**
-The complete delivery is 36 sheet pairs, 429 tags and 4,426 frames: the owner's worm, all 16 night worm sheets,
-15 weather/time skies, six overlays, relit props and the real wall clock, with the app player, scenery model,
-Settings thumbnails and visible-room-only public-city weather read. All parts are integrated in this worktree;
-missing art is an acceptance failure. Error keeps black X eyes and the drop; one dark-outline menu sheet serves both bars.
-The clock uses the art plan's `(94,34)` placement. Reduce Motion holds sprite key frames and hides the second hand;
-Low Power doubles sprite holds; hidden/occluded rooms and Settings pause the room sprites, clock and weather read.
-Rain now holds each of its 48 unchanged frames for 100 ms: worst steady state is rainy-night + digesting + lit lamp,
-**1,758 boundaries/minute including 60 clock ticks**, below ruling 18's unchanged 1,800 cap.
-The app's 552 room composites (all eight moods, both lamp states and both zooms, overlays and fixed clock times) and
-six scenery and four Mascot Settings panes have a reproducible writer and review index; see the art
-`INTEGRATION_REPORT.md` for checks and paths.
-Final checks after the Mascot addition, five-lens review and lighting-edge follow-up: two full Swift suites, **2,787 tests each / zero failures**;
-CLAUDE size/link checks **2 passed**;
-two headless exports **120 files byte-identical**; documented worm-stage and partial skyfx builds match the same delivery;
-`make app` bundle **36 pairs + manifest, every hash matched**;
-`git diff --check` clean. No install, launch, bank read, commit or push in the integration pass.
-**Measured live 2026-10-02 (installed release build of 0d745538):** the Sleep page uses **11.9% of one core** on average
-(peak 14.4%; 12 samples of 5 s) against ruling 18's ≤ 3% — open, first in the follow-up handoff. Clicking the worm no
-longer draws a focus ring (#165). Still to look at: the Sleep page in light and dark at 0.8×–1.4×. **Follow-ups:**
-`docs/specs/2026-10-02-g176-followups-handoff.md` (the CPU, the backend test failing on `dev`, the blocked
-auto-updater, Q1).
-*Pick up here:* the next mascot — `app/CicadaApp/Art/sprites/MAKING_A_MASCOT.md` and the prompt
-`docs/specs/2026-10-02-new-mascot-handoff-prompt.md`. **Open design rounds:** count props, the queue as a room, G175 marks, a second G127 character and
-Q1 (running Sleep currently sleeps rather than reads). Time-of-day/dark-room scenery and the clock are built.
-**Owner 2026-10-02, mascot selector:** Settings → Sleep → Mascot is built beside The scenery. Its pure registry
-holds exactly Bookworm; the per-viewer choice defaults/falls back to `bookworm`, and all room/menu/empty/intake
-sprite reads resolve through that entry. G127's selector foundation is built; a second character's base remains open.
+[Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
 
-**G176 worm art fix pass (2026-10-01), integrated in the day-art bundle described by the finishing handoff.**
-The chosen bookworm's eyes/brows, outlines, shadow band, book transitions, z fade and 18 × 18 state details are repaired
-in the saved sources; the day worm exports 130 tags / 1,095 frames. Error has black diagonal X eyes and the drop; one
-dark-outline menu sheet serves both appearances. Original references remain unchanged. The integrated app fixes the
-five resulting test failures, including the extra error lens slice and the fly's top-rim check. B12's narrower menu
-lens stays held for the owner. The sleeping-outro → reading key-frame closed/open-book handoff can still pop; the
-contract does not name a reading opening beat. No live app review is claimed by these code/art checks.
+## Current state and evidence
 
-**2026-09-28 fixes (on `dev`):** #118 drops the owner's paths from the MCP tool description, docs and test
-fixtures (the agent setup prompt was already per-machine); #119 imports Claude projects exported one file per project
-(`projects/<name>.json` — they were counted as attachments and dropped; project `docs` are still not imported); #120
-moves the Apple Notes read into the app (`AppleNotesReader`), so the Automation prompt names Cicada instead of the
-launchd backend's `python3.12`. The same day, the rest of the rail: #121 reads Claude's split five-zip export
-(memories object, memory files, named skips); #125 removes the backend's bookmark fallback, the dead Safari reader and
-`/local-ref`; #128 imports the text Claude extracted from uploads as `page` evidence (`attachment [<name>]:`, quoted);
-#129 lets builds sign with a stable "Cicada Local" identity; #130 has the app list a location's folder and Resume stop
-statting its cwd; #131 has the app run git in a declared repo and the backend only parse (`$CICADA_HOME/repos/`);
-#132 matches a `device:` by any of this Mac's names (`local_refs.is_this_device`). Dev tooling: #122–#127 keep the
-owner's Mac on the latest `dev` (`scripts/dev/auto-update.sh`, launchd `com.cicada.dev-autoupdate`).
+- Reviewed merged `dev` at `02979949`; during the review it advanced to `3efba432` with the inbox count fix (#196). This was a code-path/scope audit of 186 original G addresses; subsequent requirements at `ba7a4957` add G188 and amend provider/source/benchmark/release priorities. No live-memory run or full-suite rerun is claimed. Preserve other staged/unstaged work in the shared checkout.
+- Import/delta capture, Stop hooks, implicit recall, claims/provenance, Sleep drain, lexical/vector recall, remote MCP, onboarding and release/update infrastructure exist. Completion of the first public release and real-client acceptance are separate open tasks.
+- GitHub release listing returned no releases on 2026-10-06. G182’s **built** status must not be read as **published**. Follow [RELEASING.md](../RELEASING.md) for the current mechanism; G182 now requests release-scoped automatic promotion/synchronization as an explicit owner amendment when implemented; implementation PRs target `dev`.
+- The [October 5 audit status](audit-2026-10-05/STATUS.md) reports 6,016 backend passes, one G185 usage-join failure and one skip on `4264e297`; Swift 2,957 passes and graph 9/9. These are dated reported results, not checks rerun here. The earlier eight calendar failures are not the current baseline.
+- Served-inbox counting code/tests merged during this review as #196 (`3efba432`). Read-side subject/defer filtering and visible-count parity are implemented. G98 retains upstream question-generation/entity-resolution cleanup; it does not ask for the count fix again.
+- G169–G172 and G149 implementations are in current merged code. Historical “PR open/not merged” labels in their detailed reasoning are stale. Their live acceptance belongs in the first trial or a named subsequent check.
+- No private bank/transcript was inspected; no consolidation, release, upload or skill installation was performed.
 
-**Agent reading (G166 Route A) — built on `feat/agent-reading`, 2026-09-29/30 (PR to `dev` pending; not merged).**
-- *State (2026-09-30, second pass):* the backend half of the permissions-page rework is on the branch — surfaced sites
-  (`reading_walls`, `reading_queue`, `GET /reading/sites`, `agent_sites`), the reader recording its own walls, site icons,
-  "How your agent reads" (`agent_methods`, catalog `roles`/`agent-prompt`, `skill_pages`) — and the app half: Settings →
-  Reading the web (With an agent, How your agent reads, Sites that need your browser with icons and wall words; the
-  first-use sheet has no site picker; the old Settings → Agents → Reading pages group is gone). App half finished
-  2026-09-30 (third pass): the Feed's Read section shows a wall page ("Cicada's reader couldn't open this page: …") with
-  the site's icon and **Let an agent read <site>** (one call, or the same first-use sheet); Home's own *Needs your
-  browser* block; the first-use sheet carries Cicada's instruction and its honest limit; site icons fall back favicon →
-  bundled family mark → ring monogram; "Install…" in How your agent reads opens the skill's own detail with its
-  `agent-prompt` sentence to copy; Settings → Agents links to Reading the web. Review fixes 2026-09-30:
-  a site row an agent's own outcome wrote no longer authorizes a record once the site is off; the hook's count is
-  bounded by its deadline; an agent's `saved-link` save needs `sources` remotely; an X bookmark's post text counts as
-  words. **Not yet measured:** the real-bank count of surfaced pages per site (read-only, before merge). Earlier: backend,
-  the Feed's Read section, the row flag ("Needs sign-in"), the toast
-  and the honest chip label ("From the page, as <agent> read it") are built and reviewed; **TODO ruling 14 (R-RW4, R-RW5,
-  R-RW8, R-RW9 and the review rulings) is binding.** Ruling 13 is the Sleep drain (on `dev`); reading is ruling 14. The
-  narrowing-the-Sleep-refusals row is **G177**. **Not built:** the Reader's Links section (S2), the public Reader
-  ladder (**G164** S1), Route B (RESEARCH). **Not yet seen live:** a real agent (Claude Code with a browser skill, or the
-  ChatGPT and Claude apps through the remote connector) recording a read and a `needs_login` end to end.
-- *Pick up here:* review and merge the PR, then run the live check above with a throwaway saved link.
+## Execution order
 
-**The agent check (G61 S3) — built on `feat/sources-check`, 2026-09-30 (PR to `dev`; not merged; shadow, recommend-only).** The owner:
-"give agents a place to look for information to update memory before surfacing it to the user … where does <person> work, my profile
-page might be a source for update." A source that could answer a pending question is a check entry in the reading queue (only on a
-site the person allowed; the owner's page only what they added or took); `cicada_record_check` records what an agent saw as a
-`source-check` episode and a `checks[]` row; the card shows it; nothing settles. **Not yet seen live:** a real agent checking a real
-page end to end; run `scripts/check-census.sh` on a COPY of the real bank first. *Pick up here:* review and merge; then S4 (Cicada's own
-fetch rung for a public source) is the next slice of G61, still recommend-only until the owner flips shadow (spec §15).
+| Order | Outcome | Permanent work IDs | Completion condition |
+|---|---|---|---|
+| Today · urgent | Working GitHub release, main/website sync and every integration | G182/G76/G10; website G158 | Due 2026-10-06: real downloadable artifact, fresh install/update acceptance, released tag/version/manifest/main synchronized by an explicit release workflow, working website link. Test every catalog harness and supported desktop/web/mobile route after actual consolidation for grounded reads and attributed contributions; blocked/unsupported is explicit. Later add tested CLI/server install commands and harness access guides when G180/G181/G187 ship. [Requirements](../specs/2026-10-06-release-and-integration-acceptance.md). Applicable integrity checks remain release dependencies. |
+| Today · quick | Painted Home banner off | G189 (a) | One `HomeBandLayout.showsBand = false` gate around `HomeHeroBand()`; existing Home/scene tests keep passing; dated DESIGN_RULES ruling and the app.md Home paragraph in the same PR; checked by eye in the running app, light and dark. |
+| 1 · P0 | Protect current truth and commits | G183/G177; G104; G21 if live dedup is used | Repair applicable page-lock, owned-path, author and bank-switch defects. Reproduce revised-source retention with synthetic episodes, then fix the demonstrated semantic gap before a full re-consolidation. Dedup must commit its own merges. App controls must use the writing window. |
+| 2 · P0 | Reproduce the known regression | G185 | Diagnose and fix the reported usage-join assertion without weakening it. Release gate; consolidation gate only if it exposes drain correctness. |
+| 3 · P1 | First useful memory, including actual source/video cases | G10, G169–G172; G61/G166, G22/G162 | Small fresh/delta ChatGPT/Claude export trial first. Ask ordinary dated/current questions, correct a claim and repeat in a fresh session. Then demonstrate permitted source lookup/recording and an actual watched-video → Sleep → grounded recall. Build the missing general source-check seam; separate watch success from processing/answer quality. |
+| 3b · P1 | Automatic continuity when a session is full or the agent changes | G110/G48/G53/G75/G76/G149; Cursor G50; remote G135 | Fresh Claude Code/Codex session continues the active project before Sleep without a handoff prompt or recap. Then prove Claude Code → Cursor/Codex and permitted Grok/remote continuation. Recover goal, decisions, current changes, verified results, blockers and next step; detect stale workspace/ambiguous tasks, preserve lineage and disclose unavailable context. See [required behavior](../specs/2026-10-06-project-continuity.md). |
+| 3c · P1 research | Efficient continuation-aware consolidation | G104 with G110/G118/G163 | Compare full-thread rereads with new turns plus bounded prior context, stable unit reuse and targeted reprocessing. Measure repeated input/calls/time and useful recall; preserve corrections, evidence and commit-safe checkpoints. Investigate capture-cap loss. [Research brief](../research/2026-10-06-incremental-consolidation.md). Existing revision correctness stays P0; optimization does not gate the small baseline trial. |
+| 3d · P1 | Rebuild whole-system benchmarks from scratch | G148; G10/G104/G171/G183 | New isolated subscription-capable harness: intake → real five-stage Sleep/tail/owned commits/indexes → held-out answers, continued/revised sources, temporal changes, failure/resume and scale. Measure quality/integrity plus runtime, throughput, CPU/peak memory, calls/reported tokens and service latency. Synthetic cases then one LoCoMo conversation/30 questions; Luna pin for every generative stage. Legacy scores are not acceptance evidence. [Requirements](../specs/2026-10-06-system-benchmark-rebuild.md). Full harness does not gate a small hands-on trial. |
+| 4 · P1 | Repair the failures that make answers untrustworthy | G98/G118/G147/G103; G93/G53/G113/G115/G141 as indicated | Canonical/retired question subjects, preserved keep feedback on merge, intelligible observer and evidence navigation. Trigger/rationale trace slices and cross-stream relevance follow observed trial failures. Do not rebuild already-implemented state/Ask/Reader components. |
+| 4b · P1 | Selected iMessage conversations, optional Instinct recognition | G179; minimum G188 seam; G95/G134 attribution | App reads selected permitted bytes; backend parses scrubbed attributed drafts. Verify continuation/revision/deletion/date/source semantics through actual Sleep and useful answers. Optional separate Instinct detector supports uncertainty/user overrides and never broadens capture. [Requirements](../specs/2026-10-06-provider-and-ingestion-modularity.md). Other messenger exports follow later. |
+| 5 · P2 | Shell agents use a lean governed surface | G180; G157 redirects | Packaged CLI, structured output/error/discovery contracts and portable usage skill; measure schema/task overhead. Keep scoped MCP for clients without a shell. |
+| 6 · P2 | App-free server package | G181/G187/G135/G92; Cursor engine G50/G49/G122 | Supported Linux/macOS install/service/upgrade path with one primary bank writer and client/remote smoke checks. Evaluate Windows native versus WSL separately. An existing Python backend is not a supported headless package. |
+| 7 · P2 | Modular providers and ingestion in frontend/backend | G50/G49/G122; G188/G190/G126/G161; Cursor G76/G110 | Registered capabilities/small adapters drive setup/status/engine controls and source intake. Add/remove a fixture provider/source without unrelated core/view changes; preserve unavailable saved selections/history. Verify Cursor client versus engine capabilities separately. iMessage uses a minimal source/detector seam earlier; broader migration follows. [Requirements](../specs/2026-10-06-provider-and-ingestion-modularity.md). |
+| 8 · P2 | Start prompts and portable skills | G73/G118/G113, G138/G178, G112/G55; G186 after CLI | Save/find/adapt reusable objective briefs with candidate status, original/variant provenance, project inputs and outcome evidence; copy/export across harnesses without requiring Sleep or skill compilation. See [start prompts](../specs/2026-10-06-start-prompts.md). Then verify catalog/BYO install, ground existing skills and compile standalone bundles; demonstrate schema-aware SQL reuse with R2 governance. Generate AMR export separately; external AMR import remains research. |
+| 8b · P2 | Home revamp | G189 (b); G110/G137/G125 | The owner picks from 2–3 direction-D mockups of what Home shows first (projects in flight, what changed, what needs them) before any build. Do not rebuild the Ask field or inbox counts. |
+| 9 · P3 | Design identity and personal mascot | G70/G151, G127, G175/G176; G73 supplies creation templates | Start with own-repo/image tokens, cited structured design read/UI, then vision/video/style bundles. Add Cicada skin, copyable neutral creation prompt and validated sprite import/preview. Remaining app/Reader work follows the explicit ledger; profile G184 before energy changes. |
+| 10 · P4 | Multi-server/device sync and selective contributors | G132/G1/G181, G16/G103/G116/G92 | Many clients of one writer first; backup separate from replication. Specify node/project scopes, contributor routing, evidence exposure, revocation and conflict verdicts before offline replication or multi-person writes. |
+| Triggered only | Additional channels and model/browser research | Later/Research IDs; G167/G168 | Dedicated adapters are not implemented by generic ingestion. Work from a named use case/failure/trigger; keep declined parallel reading and relational-tier decisions out of the automatic build queue. |
 
-**Websites verified, pictures from sources (G61 S3-b) — built on `feat/sources-sites`, 2026-09-30 (PR to `dev`; not merged).** The owner:
-"the image resolver is not working the best for not as known things … get it from the icon of the actual website source … Sources are of
-extreme importance, and from them even the images can be derived." Stage 1's optional `website`, an engine-free backfill, Cicada's own read
-(`fetch_identity`), the Sleep-tail step behind `CICADA_ALLOW_CONNECTOR_FETCH` and `POST /maintenance/verify-sites`, `domain_for` reading only a
-trusted `website` source, a one-time logo-cache purge, the card's "not confirmed — Use this site". **Not yet seen live:** run
-`POST /maintenance/verify-sites` on a COPY of the real bank and read the counts (verified / unconfirmed / mismatch / unreachable) before the
-first nightly run; expect most company/tool pages to have no site until the backfill or a Stage 1 proposal finds one (they keep the monogram).
-*Pick up here:* review and merge, then PR3 (the agent check on G166's queue) from `~/.local/share/cicada-lead-scratch/wf4/plan-sources.md`.
+**How to use this order:** a small trial does not wait for every P1 enhancement. Correctness fixes relevant to its writes come first; a full drain must wait on demonstrated revision/commit defects. G104’s incremental strategy is P1 research rather than a prerequisite performance rewrite; its P0 correctness slice remains separate. Alongside today’s explicit release deadline, automatic session/project continuity and source/video quality remain P1 because the owner wants useful conversations. Cursor’s provider adapter is an explicit P2 integration remainder under G50; its capture/startup behavior supports P1 G110. G182 is the owner’s explicit delivery priority for today, with applicable release checks. G148 whole-system benchmark replacement and selected iMessage/Instinct capture are P1; full harness completion and an embedding upgrade do not gate a small hands-on trial. Broader provider/source modularity and CLI/headless packaging are P2. The [187-ID review](BACKLOG_IMPLEMENTATION_REVIEW.md) spells out implementation versus missing slices. Older “built” labels apply only to the named slice; G1/G23 were restored from DONE.
 
-**Sources as a living set (G61 S3-a) — built on `feat/sources-set`, 2026-09-30 (PR to `dev`; not merged).** The owner: "sources …
-could be multiple, not just one. An agent can store/change/delete sources depending on whether they are relevant … Sources themselves
-can be linked to their own memory node." Many sources per fact; `cicada_change_source`; ownership (an agent changes only its own entries);
-`sources_removed:` tombstones that the existing non-person writers respect (PR2's Stage-1 proposal and backfill will too); `entity:` links from a source to its own page (exact-match backfill on
-the Sleep tail, a read-time graph edge, the card's "Open page ›"); `entity_merge` carries sources; contract 12 / remote 9. **Not yet seen
-live:** an agent removing a source and Stage 1 leaving it out on the next night; the graph's size with source edges on the real bank (run
-`POST /maintenance/link-sources` on a copy first; it commits `Source links <date>` as `cicada`). *Pick up here:* review and merge, then PR2
-(websites verified on Cicada's rail, `domain_for` reading only a trusted website source, the logo cache purge) and PR3 (the agent check on
-G166's queue) from `~/.local/share/cicada-lead-scratch/wf4/plan-sources.md` (the plan's D1–D8 are binding).
+## Client trial matrix — support must be demonstrated
 
-**Pending after 2026-09-29 (owner's first-run review; three fix PRs open, three specs awaiting review):**
-- **Pick up here:** the owner reviews #140, #141, #139 and the three specs; then the first-run checklist below on a fresh bank.
-- **Consolidate reads everything (2026-09-29, ruling 13, branch `feat/consolidate-reads-everything`):** the backend drain is built —
-  a person-started run reads the whole frozen queue in batches of 25, each filed and committed; scheduled runs stay one batch; decay
-  and page reads once per drain. The app half is in (the room sentence's tail "Batch 3 of 12 · 62 of 287 filed.", the plan-stop and
-  cancel rungs, honest Cancel copy, the bank-switch 409 as a toast, a Swift decode over the pinned wire); **G177** is built too:
-  the page-write 409 guards and the MCP probe key off `is_writing()`, a batch's write window, not the whole run (the app's own Projects/Backlog controls still key off `running`, so they stay disabled for the whole run: `/status` does not carry `writing`).
-- **Video watch run — built (2026-09-30, ruling 17, branch `feat/video-watch`, G162):** the honest per-video state,
-  the queue outside the bank, `cicada_video_queue` / `cicada_video_claim`, the hand-off prompt and `/videos/*` routes, the
-  provenance `watch` block, the demo's three states. **The app half is in too** (Feed rows and strip, picker, run card,
-  `VideoBlock` in the Feed and the entity card, the Reader's watch header, one Sleep Details row); the room-sentence rung is
-  left to Sleep v5 and the needs-login Settings button to the reading branch.
-  It builds on the merged drain (#151: `is_writing()`, the narrowed write window); the reading branch (ruling 14) and this one
-  both touched the contract numbers (9/6 there, 10/7 here; the merge is 11/8), `runtime._writes_bank` and `sync_service.components` — take both.
-- **Sleep page v5, backend and app (2026-09-30, branch `feat/sleep-v5`, rulings 15 and 16):** the approved boards are applied on top of the drain — Reading options
-  (batch size, the opt-in *continue after a plan reset*, the *leave room in my plan* reserve), scheduled cycles that read everything waiting (never a plan),
-  per-conversation outcomes with retry-once-then-park, honest live progress (calls, stages, by source, elapsed, arrivals, the owner page's beliefs),
-  Pause / Continue / End this run as a sidecar record, run-level Past nights and `GET /sleep/runs/{id}`. **Owner declined "Read faster"** (parallel
-  reading, the small-model map) — not built, G163 stays open for it; the journal ("Saved reading") is still unbuilt, so no copy may say "read and kept".
-  The app half is built on the same branch (the sentence ladder, Pause / Continue / End this run, the bar and the strip's captions, Reading options,
-  *Keep plan free*, Details' run rows and per-conversation What's waiting with Retry, Past nights by run, every door routing to the page while paused;
-  `SleepV5Tests.swift`, `SleepProviderNeutralLintTests`, `PriceLintTests`). **Pick up here for this branch:** the owner's visual check against the 11
-  boards in light and dark, then he confirms ruling 15's bounds (Q-B) and whether a scheduled run needs a spending or batch cap (Q-E).
-- *In flight, all opened against `dev`, none merged.* **#140** `fix/first-run-extraction-owner` — **G169** the owner page
-  is seeded on every new bank ("(you)" rendered from `owner: true`, a neutral placeholder sentence, nothing carried from
-  another bank), **G170** quoted attachments and `claude_memory` episodes read as documents / lower-trust background, and a
-  backdated import does not decay during a drain (`decayed_through`; ruling 1 respected). **#141**
-  `fix/sleep-inbox-and-indexes` — **G171** decay questions grouped per entity and capped at 10 a cycle, both derived
-  indexes incremental and off the event loop. **#139** `fix/saved-links-collision-and-throughput` — **G172** same-titled
-  saves no longer overwrite each other, and reading new pages keeps a floor of the nightly cap
-  (`CICADA_LINK_ENRICH_FETCH_MIN_PER_CYCLE`). Full Python suites passed on each (4595, 4609, 4588); Swift ran on #140
-  only (`app/` changed there). **None was run against a real bank, export or launchd backend.**
-- *Specs awaiting the owner's review* (docs PR "designs for video understanding, Sleep page v5 and reading the web";
-  nothing built): **G162** [`2026-09-29-video-understanding-design.md`](../specs/2026-09-29-video-understanding-design.md)
-  (Q1–Q9); **G163** [`2026-09-29-sleep-page-v5-design.md`](../specs/2026-09-29-sleep-page-v5-design.md)
-  (Q1, Q1b, Q2–Q8, experiments EX-1…EX-5); **G164–G168**
-  [`2026-09-29-reading-the-web-design.md`](../specs/2026-09-29-reading-the-web-design.md) (D-RW1…D-RW7,
-  proposed rulings R-RW10…R-RW12). **G168** (a classifier navigator, "jev", a Settings option marked *Needs OpenRouter*) is
-  a FUTURE row: build nothing before its S8 benchmark. Nothing in any spec is a ruling until the owner approves it.
-- *Not fixed, recorded:* **G173** — over-promotion on a big first batch (expected, pruned by decay and keep), duplicates
-  across Claude and ChatGPT variant names (the dedup sweep has no button, R-O17), a guessed logo for a page with no URL,
-  pending-name lines that never expire, the 50-session trailer cap.
-- **First-run checklist for a new bank (what to do, in order, once #140, #141 and #139 are merged):**
-  1. Create the bank. The owner page now exists on its own (name from the machine-level `owner.json`, else an `Owner`
-     placeholder the owner PUT adopts). Do not import from another bank.
-  2. Engine = a plan (Claude or ChatGPT), schedule **manual**, *Keep going on extra usage* **off** (ruling 4: a scheduled
-     cycle never spends plan quota, so leave it manual until the first drain is understood).
-  3. Leave the batch size at its default (25 episodes; `CICADA_SLEEP_MAX_EPISODES_PER_CYCLE`). Consolidate drains the queue by
-     itself in batches of that size (ruling 13), so a bigger batch only raises what a cancel or plan stop can lose and
-     breaks the 50-`Cicada-Session` trailer bound.
-  4. Import the Claude export first, then the ChatGPT export (through the one intake; the memory files arrive as
-     lower-trust assistant words).
-  5. Press Consolidate once and let it drain. While it runs, inspect the first committed batch (`Sleep cycle <date> (batch 1
-     of n)`): the owner page's beliefs and their spans, the entity count against the episodes read, no page archived that
-     the cycle just read, the inbox's decay questions (at most 10 new). Cancel if anything looks wrong; filed batches stay
-     filed and the batch still reading is read again next time.
-  6. If a plan stop ends the run early, wait for the window (the Sleep page says when) and press Consolidate again; it
-     resumes from what is still queued. Watch the plan window between runs.
+| Client | Trial path | What to establish |
+|---|---|---|
+| Claude Code | Existing local MCP/Stop/recall hooks; CLI once built | Automatic capture, fresh-session retrieval, provenance, correction and reusable procedure. |
+| Codex | Existing local MCP/Stop/recall hooks; CLI once built | Same behavior, with session/model attribution limits disclosed. |
+| Cursor | Existing agent catalog/MCP setup; complete G50/G76 capture/recall and supported engine integration | Fresh-session and cross-agent project continuation without a handoff prompt; verify actual capture, model/session attribution and available engine functions. |
+| Grok | Scoped G135 connector with selected project/task | Automatically recover permitted working context on a new conversation where supported; disclose missing workspace/source access. |
+| ChatGPT Desktop | Check current supported remote-connector setup via G135 | Read/write/source scopes and continuity if supported; connection does not establish automatic capture. |
+| Claude Desktop | Local MCP registration or supported remote connector | Recall and attributed contributions; no Stop-hook capture claim for this app. |
+| Claude web (claude.ai) | Supported remote MCP route via G135 | Post-Sleep grounded recall and attributed contribution; source scopes and current account availability. |
+| ChatGPT web | Supported remote connector via G135 | Same post-Sleep read/contribute check; distinguish connector availability from automatic capture. |
+| OpenCode | Catalog setup prompt; verify current supported MCP/config path | Fresh-session grounded recall, attributed contribution and persistence; capture/continuity checked separately. |
+| Hermes | Catalog setup prompt; verify current supported MCP/config path | Same read/contribute/persistence check; report actual supported setup and capture limits. |
+| OpenClaw | Catalog setup prompt; verify current supported MCP/config path | Same read/contribute/persistence check, including source scopes and active-bank isolation. |
+| Gemini CLI | Existing catalog/setup path | Same read/contribute/persistence check; verify attribution and automatic capture/recall support separately. |
+| iPhone AI apps | Verify current connector availability per app/account | Test an authenticated remote connection only where supported; otherwise record unavailable plus export/manual capture fallback. |
 
-**Pending after 2026-09-28 (owner asked to record these):**
-- *Not yet seen live* — each needs a person at the Mac with the auto-updated build: (1) a Files and Folders prompt
-  naming **Cicada** on a location or repo card; (2) the card's "not allowed" sentence after a Don't Allow; (3) a Sleep
-  with no `git` child of the backend (`ps`); (4) with a "Cicada Local" certificate, a Documents/Contacts grant that
-  survives two rebuilds in a row; (5) the Notes Automation prompt naming Cicada.
-- *Move the owner's checkout out of `~/Documents`* (agreed 2026-09-28): launchd processes are refused a protected folder
-  unless already granted — the auto-update job only works because it starts through the venv Python the backend job
-  already runs as. Move it, then re-point `api/.env` / `banks.yaml` (the bank lives inside), re-run
-  `scripts/install-backend-agent.sh`, `install.sh` (MCP + hooks), `scripts/dev/install-auto-update.sh`, and
-  `make install-app`; the checklist is in the agent's project memory. Owner-machine only — `install.md` clones to
-  `~/cicada`.
-- *G155* Google Calendar slice (scoped 2026-09-28) is an open row. *G161* the captured-items list shipped (PR #134):
-  "What came in" under each source row, `GET /sources/channels/{id}/items`.
+For **every row**, use a fresh session after actual consolidation: recall and correctly use a synthetic memory, write a permitted attributed contribution, retrieve it from another fresh session/client, and verify its persistence/evidence/commit. Record read, contribution, source scope, capture and continuity separately. Enumerate each tested iPhone app rather than claiming one mobile check covers all apps. Record availability/date and PASS/FAIL/BLOCKED/UNSUPPORTED plus the exact supported setup, build/account/platform and generic evidence; registration or connection is not a pass. No personal question text or retrieved private facts belongs here. [Full protocol](../specs/2026-10-06-release-and-integration-acceptance.md).
 
-**Round 4 is merged (PRs #101–#117, all on `dev`, promoted to `main` on the owner's instruction).** Phase A: the
-per-turn model/effort join (#104/#105), frequency-aware decay G147 (#102), implicit recall G149 (#106), backlogs in
-memory G150 (#107), the clipboard fix (#108), browsers + Safari extras + `SourceRow` (#109), pictures + Clusters + the
-person card G146 (#110), the living painting + Home + Settings F-10 (#111), more agents + the live ✓ + OpenRouter (#112,
-#113), tab groups G160 + Contacts G154 (#114). Phase B: the demo that shows everything + the tour G152 (#115), the paged
-onboarding G145/G153 + the quiet login start G143 (#116), live-pass polish (#117). **Pick up here:** the owner's clean
-run of onboarding with his own ChatGPT and Claude exports; then the parked findings in the live pass (a guessed logo,
-repeated paper titles, a raw predicate in a belief row, the Codex card's wording) and the rows in *Next session* below.
+## Embeddings: keep the present choice for the first trial
 
+Markdown, evidence and git hold memory. Embeddings provide semantic recall and candidates for entity resolution/dedup; they are not the authoritative record. `search_service.py` fuses lexical, vector and claim results and can fall back when vectors fail. `entity_resolver.py` still reads/writes the pending entity index, so full consolidation is not established as an index-free mode.
 
-### Round 4 (2026-09-24) — owner decisions and queue
+The release bundles local ONNX `intfloat/multilingual-e5-small` (384 dimensions); development defaults can use `google/embeddinggemma-300m` (768). `embedding_models.py`/`providers.py` select models and retain per-table metadata. Check the active bank’s actual selection and index health through supported status/settings paths at execution time; do not assume it from the build type. Keep that model, avoid silent re-embedding and try literal as well as paraphrased questions. If meaning-based recall fails but lexical recall succeeds, record that failure for G148/model comparison later. A larger model is not a prerequisite to the new consolidation.
 
-The owner reviewed four mocked directions (A, B, C and R) and decided, in his words, which parts of each ship.
-Each decision becomes a dated ruling in the PR that ships it:
+## Consolidation boundaries
 
-1. **Welcome = A's** full-bleed living painting; *Try the demo* is prominent, the demo showcases every page, and a big *Finish setting up* returns to onboarding. A skippable guided tour runs after onboarding or inside the demo (**G145**, **G152**).
-2. **Onboarding is pages, not one scroll** — this reverses round 3's "two surfaces, not steps" (spec `2026-09-23-round3-design-onboarding-intake-home.md:189`) (**G145**).
-3. **Import = R's page in categories:** Browsers first (auto-detected, real app icons; Safari = bookmarks + Reading List + Favorites + recently saved), then Calendar & Contacts, Notes & files, Voice & meetings, Your chat history, and the *Private by design · Show in Finder* banner. No Obsidian row, no social-media rows (untested). *See how* walkthroughs for each chat export. A row syncs **on tick**, with an × to cancel it.
-4. **Last sync is shown everywhere** a source is connected (Sources, Integrations, onboarding rows, Getting started).
-5. **Agents = the Higgsfield pattern:** an animated selector, numbered steps below, a live ✓, several agents at once. Claude Code appears as its mascot, never a second Anthropic mark. No CLI tab.
-6. **Who reads:** more providers with OpenRouter first, sign-in buttons where offered, Ollama tagged *Local*. The data-leaves note shows only on providers where it is true.
-7. **Keep it running:** open at login and the menu bar, both switchable in Settings → General.
-8. **Ready = "You're set."** plus one public-domain quote about memory (**G153**).
-9. **Home = B's** captured-today and Getting started. Needs you = icon rows with their age and an *Open Inbox* link. The scene inset appears only right after onboarding. Settings → Scene: Automatic · Day · Afternoon · Night, with a smooth crossfade.
-10. **Clusters = A's** icon-led cards + a picture per entity (manual upload, then smart detection); **the person card = C's** top; the command bar loses its stack glyph (**G146**, **G159**).
-11. **Contacts sync is in scope** (**G154**, building **G81**). **Google services go to the backlog** (**G155**).
-12. **Art** is regenerated at the highest resolution with a documented direction: *pastel paintings, like Monet's, a touch more realistic*. Day, afternoon and night share one composition.
+Use a separate named real test bank or an explicitly chosen existing bank, with a recoverable committed baseline. New exports are imported normally; do not wipe the bank or mark every episode unprocessed to force a rerun. Inspect the import preview, preserve dates/speakers, then run a small batch with the selected engine. An API-funded run needs a budget; a user-started plan engine respects its plan limits and pause behavior. Scheduled plan use remains forbidden by ruling 4. Runbook details: [G10 trial](2026-10-06-first-memory-trial.md).
 
-**Rows added:** G145 onboarding v2 (🛠️ round 4) · G146 Clusters + pictures + person card · G151 design identity of
-things · G152 guided tour · G153 memory quote · G154 Contacts sync · G155 Google services · G156 browser history ·
-G157 a Cicada CLI · G158 the website · G159 smart entity pictures · G160 browser tab groups. (G142–G144 and G150 are
-written on their own branches.)
+## Unstructured follow-ups retained from the old handoff
 
-**T-Sources (built):** browsers by bundle id with real icons (Chrome, Safari, Brave, Vivaldi, Comet, Dia; Arc/Firefox/
-Edge/Opera named, not offered), Safari Reading List / Favorites / recently saved, Chrome's open tab groups behind their
-own switch (G160), Contacts enriching known people (G154), and `SourceRow` + `SyncActivity`: last sync and a stop × on
-Sources, Integrations and Home. Phase B builds onboarding on `BrowserInventory`, `SourceRow`, `TabGroupWatcher` and
-`ContactsReader`.
+These are attached to permanent rows instead of becoming a second queue. Older disclosures require a current-code reproduction before implementation; do not re-open an audit fix from historical prose.
 
-**Phase A, T-People (G146, G159 slice 1)** — built on `feat/r4-people` (plan `docs/plans/2026-09-24-r4-people.md`): pictures
-for every page (upload, initials, the local-first precedence), Clusters as A's cards, the person card as C's top and
-body. Contacts photos wait for T-Sources' `contacts_photo` (the seam is in the plan's R-PE7).
+- **G106/G19:** confirm remaining client/backend ID sanitizer parity and wikilink navigation outside a WindowGroup.
+- **G109:** graph physics phases/visual fit check; re-check historical WKWebView remount claims against the merged audit fixes.
+- **G162:** `/live/<id>` normalization changes need URL-index migration; unprobed player providers stay unverified; do not assemble third-party widget HTML or bypass an origin restriction. **G11:** verify the disclosed duplicate direct-file preview/hero player.
+- **G135/G177/G183:** current remote/local write races and fail-open commit probes; check scope isolation, timeout behavior and source permissions. **G61:** source entry identity, check-date/predicate invalidation and save-time fetch limits against the current common fetch guard.
+- **G130/G137/G184:** zoom/sidebar clamp, pixel-size alignment and active-run animation energy. Nightcap/time-of-day absence are superseded by shipped G176 art. DS-3c card Esc and Settings folder popover seams remain current-code checks.
+- **G146:** `lastReferenced` in graph shape/hash and Clusters age. **G161/G118:** source item’s saving episode for “Show in conversation.” **G118/G141:** recently learned claims with evidence spans from history, without claim text in commits.
+- **G133:** reproduce garbled imported-paper titles with synthetic files. **G103:** humanize raw-predicate fallback. **G76:** distinguish capture enabled from recall connected. **G145/G173:** versioning untouched generated demo data, if the stale-demo trigger persists.
+- **G7:** centrality premise remains unproved; no tracked measurement was found, so it is not archived as done.
+- **G92/G19:** old bank-history size is historical, not permission to rewrite git history. No destructive cleanup is implied.
 
-**Next session:** G156 (browser history — decide the unit and the default denylist, then plan) → G157 (CLI —
-decide the command set over the HTTP API) → G158 (website — How it works with interactive charts, SEO, llms.txt
-and markdown mirrors) → G155 (Google — research restricted scopes vs Takeout) → G151 (design identity — research,
-pixel palette first).
+## Maintaining this queue
 
-**T-Home (phase A, `feat/r4-home`):** `PaintedScene` (C10) with its three framings, the afternoon, Scene × 4, the
-pastel set, Home per F-09 and Settings per F-10 with *Show in menu bar*; rulings R-HO1–R-HO18 in DESIGN_RULES §9. For
-phase B: call `AppearanceTipPolicy.arm()` when onboarding ends, add each onboarding file that draws `PaintedScene` to
-`MeadowPlacementLintTests.allowed`, and set `\.scenePaused` on a page behind another. Getting started's last-sync line
-arrives with T-Sources' `SourceRow`.
-
-**Phase B, T-Onboard (G145, G153, G143)** — built on `feat/r4-onboard` (plan
-`docs/plans/2026-09-24-r4-onboard.md`, rulings R-OB1–R-OB24, six dated in DESIGN_RULES §9). The one-scroll
-Welcome became six pages: Welcome and You're set on the full painting with a card; Import, Agents, Who reads and Keep it
-running in a split frame (`OnboardingPane` beside the column, "Step n of 6 · k still coming in"). Get started is the owner
-PUT alone; after it a tick starts that source at once through `FoundTurnOn` (app-side sources through `AppSourceDriver`),
-an untick stops keeping up and keeps what came in, × only on a browser's run; *See how* is a drawn walkthrough per chat
-provider; Claude Code's and Codex's *Connect for me* also turns on *Remembers automatically*; Who reads writes only on a
-click; You're set shows one of seven checked public-domain lines (`MemoryQuotes`, G153 ✅) and requests `TourOffer`.
-Every row, the topbar, You're set and Getting started read one projection, `SetupProgress`. **The quiet login start
-(R-OB18, answers G143's open question):** a login launch opens no window — the bookworm waits in the menu bar and the
-Dock icon brings the window; `-CicadaLaunchKind loginItem` exercises it without a logout. No backend change; seams 1–3
-used as given. **Seam 4 shipped (2026-09-25, same branch):** a Contacts row under "Calendar & contacts" and Chrome's
-open tab-group sub-row under Chrome — one `ImportEntry` + one `AppSourceDriver` each, registered on the Import page
-and Home's Getting started. **Live pass by the orchestrator (2026-09-25, the installed debug build, 1200 × 910, dark theme, night scene, a
-throwaway bank):** every page F-01 → F-07 read as designed; See how opened on Claude's steps; Open Cicada landed on Home
-with *Make it yours* and the tour offer; the tour's stops navigate and Skip works; Settings → General → *Explore the
-demo* opened the demo with the tour and the F-08 banner, and *Finish setting up →* returned to the real bank left most
-recently with the Welcome. Three findings were fixed in #117 (the F-02 banner, equal engine-card heights, the demo's
-pictured people first). **Not yet checked live:** the light theme and day/afternoon scenes, × stopping a browser run,
-Safari's Full Disk Access fix starting it by itself, and the quiet start after a real login.
-
-**Phase B, T-Demo (G117 round 4, G152)** — built on `feat/r4-demo` (plan `docs/plans/2026-09-24-r4-demo.md`):
-the demo shows everything (`demo_showcase`), `/banks` says which bank is the demo, `POST /banks/demo` re-opens it,
-`POST /banks/leave-demo` and the F-08 banner lead home, and the six-stop guided tour; rulings R-DT1–R-DT17. A demo
-generated before this branch keeps its old content: delete it in Settings → Privacy & data and open the demo again.
-
-### Round 4 — G150, backlogs live in memory
-
-(2026-09-24, `feat/r4-backlog-in-memory`, plan
-`2026-09-24-r4-backlog-in-memory.md`). A project's backlog is one markdown file per item in the bank, filed by agents
-over MCP (`cicada_add_backlog_item`, `cicada_add_backlog_note`, `cicada_backlog`) and by the person on the Projects
-page, found by ⌘K, every note signed; the primer tells an agent what to do when the person says "put it in the
-backlog". `scripts/import-backlog.sh` files this repository's G-row backlog into a project's backlog, idempotently
-(it refuses, writing nothing, while the backend runs a Sleep cycle and on a demo bank) —
-**the owner's backlog was imported into his bank on 2026-09-24 with his OK** (159 items onto the Cicada project, one `Backlog import` commit; a re-run skips all 159). 27
-rulings (R-B1…R-B27), five dated in DESIGN_RULES §9. Merge notes: `CONTRACT_VERSION` 8 (G149's item 8 took 7 on its own branch, so the merge moved past both, R-H13) / remote 5, `_state.md` v4 and
-the FTS `SCHEMA_VERSION` "4" take the next number past any other round-4 bump; a note's `authorModel`/`authorEffort`
-are filled by round 4's per-turn join (now on `dev`).
-
-### Round 3 (PRs #71–#98)
-
-**Nothing is in flight except the README screenshot PR.** Round 3 (owner brief 2026-09-22/23: a
-friendlier "nature and technology in harmony" look, Codex + Hermes-style Claude engines, a connector for
-any AI app and the phone, folders and papers, Wispr Flow, a provenance viewer, fast search, Settings with
-search, an interactive mascot page, onboarding/import, the Instinct ideas; then, after his live review, a
-Linear-inspired design pass and two new ideas — project timelines and agent-first clarification) landed as
-PRs **#71–#98** on opus Workflow tracks (the owner allowed opus for this round; coding subagents at medium
-effort). Specs:
-`docs/specs/2026-09-23-round3-meadow-reach-provenance-design.md` (+ its three design docs),
-`…/2026-09-23-g141-project-timelines-design.md`, `…/2026-09-23-g61-agent-first-clarification-design.md`.
-
-**What merged, in order:** #71 Meadow foundation · #72 provenance backend (G118 s2) · #73 engines (Codex
-device sign-in, hardened claude-cli) · #74 search backend (FTS5, G136) · #75 remote connector (G135) · #76
-Sleep room v4 · #77 local sources (folders, papers, Wispr — G133/G134) · #78 provenance UI (Reader, "Where
-this came from") · #79 one intake (Track I-a) · #80/#82 ⌘K find palette · #81 memory quality (G140) · #83
-Settings v3 (G139) · #84 mascot page b · #85 owner feedback 1 (real contexts, no raw claims, SF Pro
-Display) · #86 Welcome + search-first Home at ⌘1 (G108/G117) · #87 backend batch 2 (one git writer per
-bank + write-ahead ledger, authorship re-staging, readable agent labels) · #88 G141 capture side (PJ-0,
-per-turn Stop-hook times, capture never into a demo bank) · #89 G61 S0–S2 (gated link fetch, truthful
-hints, checkable sources, `/inbox/check-census`) · #90/#91 Direction D shell (graphite + system accent,
-SF only, icon rail, the command bar that owns the ONE bank selector, Settings as an in-app panel; #91:
-`.onHover` above a Button in a toolbar item makes AppKit drop it on macOS 26 — `.onContinuousHover`,
-linted) · #92 G141 backend (`/projects`, `cicada_project`, event claims + `cicada_note_progress` +
-in-app writes, the `followup` inbox kind) · #93 PJ-0b (page-less claims held until promotion) · #94 D
-Inbox + Reader (progressive columns, one tap with a 5 s Undo as a send delay — verified live) · #95 D
-Home + the Sleep page's engine/model menu + Settings fixes + every setting in ⌘K · #96 D Graph (one
-floating group, the entity card as a column) · #97 D Clusters/Feed/Sources + Inbox polish · #98 the
-Projects page (⌘8, a green band that fills up to Today, clickable nodes).
-
-**Binding decisions from this round** (each recorded where it lives): Direction D is the design target
-(`docs/design/DESIGN_RULES.md`, DR-n ids + dated §9 rulings — a UI PR cites the ids it applies);
-Instrument Serif and New York retired for SF; Settings is a panel inside the window; G127 becomes a
-character/mascot selector (Strawberry browser as the reference); G141's rulings (Projects ⌘8, the green
-band, page-less claims held, per-turn Stop-hook times); G61's D-AC rulings (shadow first; a refused host
-gets an agent check only in the person's own open session, inform-only; the `source` evidence kind;
-`cicada` authors a check-executed write; contract step 2 lets an agent check first).
-
-**Measured on the owner's bank (counts only):** the G61 census — 35 open inbox items, 0 checkable today,
-22 need a source first, 13 merge suggestions inform-only — so the next G61 step is getting sources onto
-pages (Sleep's cited-link attach, `cicada_add_source`, a "what source would settle this?" prompt), not the
-checker. The `/graph` junk facets fell from 3,929 to 2,626 nodes after #85. The live bank has not been
-consolidated in ~97 days (357 episodes waiting); the owner's ChatGPT plan is signed in, so the first-pass
-consolidation on a small OpenAI model he asked for is one click on the Sleep page's engine menu.
-
-**Open owner questions:** (1) should a pending name heard once and never again expire, taking its held
-claims (PJ-0b; changes the promotion model — R7/D2)? (2) when a folder's authorship rule later marks a
-file as agent-written, should beliefs Sleep already formed from it be re-judged (R-B8; today they keep
-"You said" as history)? (3) promote `dev` to `main` — his call, as always. (4) G150: once the Cicada backlog lives in the bank, does
-`docs/goals/` stay its public mirror (and which way does it sync), or become a pointer?
-
-**Next, in order:** README screenshots PR (in review) → polish from the live checks (a Projects happening
-that cites many papers should show a few chips + "+N more"; long source-tile names truncate; legacy
-clarification titles are bare names; the demo's Feed "0 items" traced to a missing backend file) → G61
-"what source would settle this?" prompt, then S3+ once the census moves → PJ-7 only after the owner grades
-derived moments (M1–M3) → G127 character selector → G112 steps 2–4 → G76 install story. Owner-only: the
-Tailscale Funnel live test from claude.ai/phone, the codex measurements owed (signed-in Stage-1 tokens, the
-sqlite privacy sentinel).
-
-**Baselines (2026-09-24, dev after #98):** backend `3775 passed, 1 skipped`; Swift `2003 tests, 0 failures`
-(the SleepViewModelTests poll flake was fixed in #90); graph JS 8/8.
-
-**Live checks after a merge** use `scripts/dev/` (winall, axfind, cgclick — see its README): synthetic
-clicks and keystrokes do not reach SwiftUI rows. Test answering on the demo bank, never the owner's.
-
-## Where things stand (round 2, end of 2026-09-06)
-
-**Nothing is in flight.** Round 2 (owner brief, evening of 2026-09-05: "improve the Sleep and Sources
-pages by a wide margin, the Chrome logo is wonky, an in-app video renderer, a cuter Sleep page like
-this reference, use opus and spawn the agents you need") landed as seven PRs on opus Workflow tracks
-(owner's permission for that session; the standing small-models rule is otherwise unchanged), each
-verified by the orchestrator (both suites re-run on the merged tree, the diff read, the live app
-checked at 1200 pt, 1560 pt, 1.4× zoom, dark and light). The spec that ties them together:
-`docs/specs/2026-09-05-round2-study-room-marks-video-design.md` (Tracks A · L · V · P · S,
-plus the "Decisions taken without the owner" list — review those first).
-
-**`dev` is ahead of `main`.** `main` was promoted at `381cfd3` (evening 2026-09-02); everything
-since is on `dev` only. Merged 2026-09-03 → 09-05: **#40** G102 · **#44** G118 slice 1 · **#45**
-G53+G75 · **#46** G105 · **#47** G124 · **#48** G115 Phase 1 · **#49** theme toggle + origins ·
-**#50** green backend suite · **#51** Settings gear · **#52** G129 slice 1 · **#53** Track D Sources
-grid · **#54** G130 zoom · **#55** G125 study desk · **#56/#57** history fixes · **#58** font lint ·
-**#59** G113 slices 3–7 · **#60** Track C Settings · **#61** G129 slice 2 · **#62** G117 onboarding.
-**Merged in round 2 (2026-09-05 evening → 09-06):** **#63** Track V in-app video (the URL decides
-what plays; AVKit for direct files, the provider's own player for YouTube/Vimeo/TikTok/Loom) ·
-**#64** Track P polish and truth (toolbar audit by deletion, honest onboarding with a nightly toggle,
-six one-liners, `GET /sources` hides archived/junk, calibrated `next_at`, no person's name in a
-prompt, the themed graph canvas) · **#65** Track L real marks (installed app icons → attributed PNGs →
-SF Symbols; the drawn glyphs deleted; `cicada` as a system contributor) · **#66** the first-run gate
-(the G117 sheet fired on every cold launch of an onboarded bank; unknown is never empty) · **#67**
-Track A the study room (Sleep v3: the pixel room with the lamp as the schedule, the labelled meter,
-present-tense tiles, the stage strip as the live instrument, the Memory-sources column, time on
-history rows, `SourceOverview.activity`) · **#68** four Sleep polish fixes from the live check ·
-**#69** Track S Sources v2 (one card system, status verbs, two nouns, one formatter + lint, the
-contributors strip, `+ Add a source` in the header) · **#70** bundled marks resolve inside the
-assembled app (every provider logo had been falling back to a symbol in shipped builds).
-**Per-PR detail is in git — `git log --oneline 381cfd3..dev` — not here.**
-
-**Round 3, Track I part a** (`feat/intake-onboarding`): one intake for every chat export and every way a file arrives
-(sniff → preview → import → a card that never closes itself; `UploadOverlay` and the Feed's Upload
-button retired), consent before any browser read, the Gemini channel and the export-origin
-backfill, `GET /agents/wiring`, and the tested pure logic part b's Welcome and Home consume. **Part b** (`feat/welcome-home`): the one-screen Welcome (the four-step
-sheet and F2 retired), Home at ⌘1 with Getting started, and export reminders with text twins; T12 (the
-live pass and screenshots) is the orchestrator's. Measured on the branch: Swift **1539 executed, 0
-failures**, backend **2902 passed** (unchanged — no Python in this track).
-
-**Round 3, Direction D — DS-2 (2026-09-24, `feat/d-inbox-reader`, plan `2026-09-24-d-inbox-reader.md`).** The Inbox
-in progressive columns (the questions alone → the question as C's focus card → the Reader as the third column), one tap
-with a 5 s send-delay Undo (`ResolveGrace` in the `Store`, flushed on the next answer, a bank switch, the window closing
-and quit; an undone answer makes no commit, claim or G113 event), every kind inside the card, the source in a person's
-words, the Reader as a column (`ReaderColumn`, hosted by `ShellReaderHost` on pages that have not adopted
-`ProgressiveColumns`) with `CitedSpan` turns, Resume and the pinned navigator, and the Sources page's Deletions on the
-same card. 26 rulings (R-DI1…R-DI26), eleven of them dated in DESIGN_RULES §9. No backend change. Measured on the
-branch: Swift **1815 executed, 0 failures**, graph node tests **7 passed**.
-
-**Round 3, Direction D — DS-3b (2026-09-24, `feat/d-home-sleep-settings`, plan `2026-09-24-d-home-sleep-settings.md`).**
-Four areas. **Home** is the D-Home mock: the painted `hero-day` band, the one-line headline on the row under it, the
-palette's field in a 640 pt block, and labelled blocks of 36 pt rows (Getting started, Today, Needs you as the Inbox's
-own rows, Last read), each number once and a link, no Consolidate (G125 R10). **The Sleep page's quick engine menu**
-(the owner's 2026-09-23 request) sits beside Consolidate: a neutral button naming what a cycle you start would run,
-opening the five engines with their real marks, the chosen engine's model and both ruling-4 previews, over the same
-`SleepEngineViewModel` and write rule (`EngineWrite`) as Settings → Engines, with one preview wording app-wide.
-**Details** move to D's list grammar ("Rested" a sentence, the readout as key–value rows). **The Settings panel**: the
-add-folder sheet labels its fields and asks for agent-written subfolders as a checklist, harness rows wear real marks,
-Manage and Connect are sheets, and every static Settings row is in ⌘K with ⏎ landing on it through
-`AppRouter.openSettings`. 22 rulings (R-HS1…R-HS22), nine of them dated in DESIGN_RULES §9. No backend change.
-Measured on the branch: Swift **1856 executed, 0 failures**, graph node tests **7 passed**.
-
-**Round 3, Direction D — DS-3a (2026-09-24, `feat/d-graph`, plan `2026-09-24-d-graph.md`).** The Graph page and the
-entity card: one quiet floating group (whose-beliefs tabs · Legend · − + fit · pan) instead of four islands; the Legend
-as the context legend, the filters and a key in one; ⌘F finds on the canvas; the entity card as the right-hand column
-beside the Reader (no scrim), closed by × or a click on empty canvas; status and confidence in words; Content, Look it
-up at (G61's fields in words, no check line until S3), Details, belief rows, History's Show in conversation, the Belief
-Timeline inline. graph.js gained `backgroundClicked`, `escape` and `setSelectedNode`, tested alpha-free. 25 rulings
-(R-DG1…R-DG25), six dated in DESIGN_RULES §9. No backend change; one gap reported: `effectiveAccess` on
-`GET /entities/{id}/sources`. Measured on the branch: Swift **1863 executed, 0 failures**, graph node tests **8 passed**.
-
-**Round 3, Direction D — DS-3c (2026-09-24, `feat/d-lists`, plan `2026-09-24-d-lists.md`).** Clusters in progressive
-columns: one View menu (the Graph's own types, labels, a remembered *Expand all*), type tabs as navigation, DS-3a's
-`EntityDetailCard` as it is (`.card`, the page's Esc through its `onEscape`) as the detail column. The Feed in progressive columns: sort and kind tabs, 56 pt rows with
-the origin's real mark, a saved item's detail column (preview, "Why it's saved", "Saved from") replacing the preview
-sheet, and the header no longer drawn under the titlebar. Sources in D's material: 96 pt tiles packed by span, a source
-or an author as the detail column, and a compact status light that never draws the Full Disk Access fix (the Safari
-overflow). The Inbox list takes the keys on arrival and after every answer, a slug reads as its page's name, and quotes
-and Reader turns read as clean text with every span exact. 27 rulings (R-DL1…R-DL27), twelve of them dated in
-DESIGN_RULES §9. No backend change. Measured on the branch: Swift **1866 executed, 0 failures**, graph node tests
-**7 passed**.
-
-**Test baselines after round 2:** backend **2225 passed**, Swift **1012 passed**, graph node tests
-green. (`working-method.md` carries the standing notes on the order-dependent case.)
-**Measured on `feat/intake-onboarding` (Track I part a, 2026-09-23):** backend **2273 passed**, Swift
-**1141 executed, 0 failures**, graph node tests **7 passed**.
-
-**Round 3, Track S-back — G136 server half (2026-09-23, `feat/search-everywhere`, PR #74).** `/search`
-moved into the threadpool with `kinds`, exact lexical `totals`, spans and `mode=prefix|hybrid` over a
-derived FTS5 index beside the vector index (`search_index.db`: excluded through `.git/info/exclude`,
-rebuilt by Sleep, freshened per request from `bank_index` stamps), plus `/conversations/recent?q=`.
-Backend **2287 passed** on the branch. The palette (design §6 S3–S6) starts after the Meadow foundation
-(M1) merges; MCP recall adopted the G136 helpers with G140 Q-R1 (Track Q).
-
-**Round 3, Track Q — memory quality from the Instinct comparison + the video watch record (2026-09-23,
-`feat/memory-quality`, G140).** Recall reads aliases, words and claims (the G136 hand-off) and shows bounded
-dated history; `cicada_timeline`, `cicada_retract_claim` and `cicada_record_watch` are new; stated ends
-(`expected_end`, `due`) close on Sleep's tail in a `cicada` `Expiry` commit; the primer is Standing/Current
-with the person, their timezone and How to work with me (contract v3); the video chain's four defects are
-fixed and `media` is the sixth evidence kind (after Track L's `speaker`; one marker grammar reads both). Backend **2869 passed** on the branch (2714 on its base). P9
-(the rubric eval) is open in G140. Hand-offs: Track P renders `media` spans and `t`; Track O's skills
-manifest names `cicada_record_watch`; the Local-sources scrub wraps the two new episode writers
-(`write_note_episode`, `watch_record` — done in the merge of `dev`).
-
-**Round 3, Track S-ui — G136 app half (2026-09-23, `feat/find-palette`).** ⌘K is a find palette
-with Ask as a mode (⌘⏎), a server tier appended without moving a row, one `CicadaSearchField` on every
-page, and `GraphNode.aliases` on `/graph` after measuring +5.8 % on the synthetic fixture. Measured on
-the branch: backend **2906 passed**, Swift **1496 executed, 0 failures**, graph node tests **7 passed**.
-
-**Round 3 · Track L — local sources (G133 + G134).** A watched folder the app reads and the backend
-parses (one episode per file through the shared `episode_staging` stager; agent-written globs never
-credited to the owner), papers as `media` pages with `media.kind: paper` (arXiv/Crossref details under
-the connector gate, why-it-matters from the owner's own spans, the abstract a dated world-tier cache),
-and Wispr Flow meetings and notes with their speakers (dictation opt-in). One scrub on every episode
-writer. Baselines with it: backend **≥ 2322 passed**, Swift **≥ 1039 executed** — replace these with
-the measured numbers when the PR merges.
-
-**Round 3, Track O — G139 Settings v3 + G138 recommended skills (2026-09-23, `feat/settings-v3`, not yet a PR).** The
-settings kit, a sidebar grouped Cicada · Customize · Engines & keys, General with a System appearance
-(one app-scope observer), and a new Engines page that owns engine choice; Plans & keys is credentials
-only. Final-review ruling on the design doc's A3: the moved `use_for_sleep` switch shows only under the
-API key card as "Use my Claude plan when I start a cycle", because `engine_select` never reads it under
-Auto. Tasks 3–7 of `docs/plans/2026-09-23-settings-v3.md` are built (From anywhere's own
-row, search, the Cicada-group pages, and G138's server half: the reviewed catalog, `GET /skills/recommended`,
-the handshake bridge — `CONTRACT_VERSION` 4 since the merge of `dev`, one past G140's 3), and Task 8 closes the plan: Settings → Skills — Cicada's
-own two skills written by the app with a `.cicada-managed.json` marker (never over a changed copy), at
-most five recommended cards that open a detail sub-page (breadcrumb, ⌘[ and Esc back), and a consent
-sheet that shows the exact command before the agent's own installer runs (`SkillInstaller`: argv only,
-`claude`/`codex`/`npx` only, `CICADA_CAPTURE=off`, 300 s cap, cancel terminates). Agents' pasted `cp`
-skill step is now a pointer to Skills. Baselines at Task 8: backend 2754 passed; app 1159 tests, 0 failures;
-graph JS 7/7. **Follow-ups (named, not forgotten):** R-O12 remote connectors in the
-Settings index; R-O16 ⌘F in Settings (waits for the palette's "Find on This Page"); R-O17 "Look for
-duplicates" on Memory (the dedup endpoint must stop blocking the event loop and commit its merges);
-R-O28 pending bridges (`watch` → `cicada_record_watch` with Track Q, meetings/documents with Track N);
-R-O29 pending marks (`granola`, `wispr-flow`, `arxiv`); and the O0 `openSettings` runtime result, which
-the orchestrator records in the design doc's A5 once its scratch-app spike runs.
-
-**Round 3 · Track F1 — owner feedback fixes, part 1 (2026-09-23).** The graph no longer grows empty
-satellites named after a folder id or `general`: a context is a short lowercase slug, `general` is
-never a facet, the legend shows readable names, a satellite click opens its subject, and papers write
-`general` with unchanged claim ids and an edge to the project that cites them, repaired once on
-existing banks (R-FX1 … R-FX7). Pages no longer show the claims fence as flattened YAML: every
-summary reader strips it, a Summary-only page lists *What Cicada knows*, and `agentic_write` writes a
-real first Summary, with placeholder pages rewritten once (R-FX8 … R-FX11). The display face is SF
-Pro Display — semibold titles tracked 2 % tight behind the same `displayFont`, no font bundled
-(R-FX12, R-FX13). Baselines: backend **2954 passed**, Swift **1433 executed, 0 failures**, graph JS
-7/7 — measured on `fix/owner-feedback-1`; replace with the merged numbers.
-
-**Round 3 · Track F2-back — backend fixes, batch 2 (2026-09-23, `fix/backend-batch-2`, plan
-`docs/plans/2026-09-23-backend-batch-2.md`).**
-- One git writer per bank: every mutating git command queues on one per-bank lock, another
-  process's `index.lock` is waited out and never deleted, readers never take it, and a lint keeps
-  it that way (R-B1 … R-B4).
-- A folder, paper or Wispr commit git still refuses is kept, said on its channel, and landed by
-  the writer's next run or the next Sleep cycle's start under its own author (R-B5).
-- Saving a folder's authorship rules re-derives its existing episodes in place — same bytes, same
-  hash, agent → owner re-queued, owner → agent parked unless Sleep already read it — and its papers'
-  why-claims follow; the app no longer has to re-post a byte (R-B6 … R-B8).
-- Agent writes are labelled by their harness: `author_identity` has a `harness` kind, a write that
-  names no author is `agent`, deterministic writers name whose words they hold, and the pre-G135
-  placeholder reads as `agent` everywhere without rewriting history (R-B9 … R-B11). `/contributors`,
-  `/entities/{id}/provenance` and `/episodes/{id}/citations` fold `git_service.AUTHOR_SHAPE` into
-  their ETags, so no cache keeps the old kinds (R-B10).
-- Paper why-claims no longer carry in-document anchors (`[N50](#note-n50)`) or footnote markers;
-  the episode keeps them, ids are unchanged, a sync repairs what it re-reads, and existing banks are
-  repaired once as `cicada` (R-B12, R-B13).
-- The video and meeting skill bridges are active (`cicada_record_watch`; `cicada_save_episode` with
-  `speaker:<name>:` lines, never `user:`); documents stays off (R-B14).
-- `GET /remote/status` finds ngrok and Tailscale in the standard install folders, not only on
-  launchd's PATH (R-B15); `/state`'s `sleep.next_at` was already calibrated (Track P) and is now
-  pinned against `/status` in all four modes (R-B16).
-- Baselines: backend **3252 passed** on `fix/backend-batch-2` (measured by the orchestrator on the merged head, 2026-09-23).
-
-**Read [`working-method.md`](working-method.md) before starting anything.** It carries the bar, the
-test baselines, the rails, the Workflow-track machinery, and the queue with its reasoning.
-Do not re-derive the queue from this file.
-
-### Live environment (verified 2026-09-04)
-
-- **Backend** runs under **launchd** (`com.cicada.backend`, RunAtLoad + KeepAlive,
-  `python -m uvicorn`). Restart it with
-  `launchctl kickstart -k gui/$(id -u)/com.cicada.backend`.
-- **Active bank** `claude-chats` — 1,866 entities, 1,396 episodes (`GET /healthz`; re-read it
-  rather than trusting this number).
-- **Keys** live in `~/.cicada/secrets.env` (0600). Never in a bank, never logged.
-- **MCP** is registered at **user scope**, so every Claude Code session sees it. The G105 `Stop`
-  hook is registered in `~/.claude/settings.json` — confirmed present.
-- **Launching the app: `make dev`.** Never `swift run` — that produces a bundle-less executable
-  whose window never becomes *key*, which silently breaks graph clicks and text-field focus. Run it
-  from the repo root; `cd ..` from `app/CicadaApp` lands in `app/`, not the root.
-
-**One manual step still outstanding on this machine:** the launchd plist predates G114 and its
-`EnvironmentVariables` dict has no `CICADA_ALLOW_FEED_FETCH` (checked 2026-09-04 — still missing),
-so the nightly feed/calendar poll logs `skipped: CICADA_ALLOW_FEED_FETCH is not "1"` every cycle.
-`install.sh` only writes the plist when no backend answers `/healthz`, so it will not fix itself.
-Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
-`launchctl bootout gui/$(id -u)/com.cicada.backend && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.cicada.backend.plist`.
-
-### Known and disclosed — open, not forgotten
-
-- **Wikilinks (PR #29):** the client `sanitizeID` fallback still differs from the backend's
-  `id_utils.sanitize_id`; `.wikilinkNavigation` traps if hosted outside a `WindowGroup` (it reads
-  `@Environment(Store.self)`).
-- **G109:** phase 1 shipped; phases 2–3, the Swift `WKWebView`-rebuild track, and the live-bank
-  visual check are open — see the G109 row and Wave A.
-- **Owner-present checks, none blocking:** the mascot visual pass in light and dark, the G109 graph
-  eyeball at fit-zoom, the G124/G115 checks in their rows, the G129 status light and Sleep queue as
-  rendered, and the README screenshots (G90), which must come from the **demo** bank, never the live
-  one.
-- **Parked review findings** that are real but deferred are listed per-area in the backlog rows they
-  belong to; do not rediscover them.
-- **Track V video — two named follow-ups.** (1) `/live/<id>` is played at read time but is still not
-  taught to `normalize_url`/`_youtube_video_id`: teaching it changes `url_hash`, so an
-  already-ingested URL would re-import as a *new* entity and orphan its `url_index.json` entry — a
-  **dedup-index migration**, not a one-line fix. (2) **Twitch and X playback stay out**, each on its
-  own blocker: Twitch's player validates `parent` against the real embedding origin and a top-level
-  `WKWebView` document has none (synthesising one is circumvention), and an X `/status/<id>` is
-  *any* post whose oEmbed returns no first-party player URL and no thumbnail — playing one would
-  mean executing a `widgets.js` blob we assembled. Dailymotion/Reddit embeds are mechanical once the
-  table exists, but neither endpoint was probed.
-- **Round 2, disclosed not fixed:** the entity Content tab renders the media preview and the hero as
-  siblings, so a direct-file video entity shows two paused players (a one-line gate for a later
-  slice); the Sleep page's Memory-sources rows recompute three day-series per source on every
-  render (fine at six rows, wasteful past that); the nightcap is the one character-specific piece of
-  art on the Sleep page (G127 would throw it away); a time-of-day sky was deliberately left out (art
-  only, state outranks the clock, if it ever ships); `ContentView` caps the sidebar column at
-  260 pt, so the scaled minimum clamps above ~1.44× zoom; the stage icons snap to 48 pt on the
-  16-cell grid (the spec said 40). (2026-10-01, ruling 18: the nightcap retired with the owner's own worm; 2026-10-02: clock-based scenery and dark lighting are built.)
-- **G135:** DNS rebinding between `net_guard`'s check and the fetch is not caught (G59's posture); a
-  Sleep cycle starting mid-remote-write can still sweep that file (R-R27); a stdio
-  `cicada_write_claim` asks `GET /sleep/status` before its own commit and leaves the page dirty for
-  Sleep while a cycle runs (Sleep holds `index.lock` per git command, not per cycle, so committing
-  would take Sleep's hunks on that page under the agent's name) — a cycle that starts between that
-  probe and the commit is still the narrow residual window, and a probe that times out leaves the
-  page dirty (the pre-G135 behaviour); remote writes are
-  serialised in-process, but a writer in another process (the app's paste, a stdio agent) can still
-  race one for an episode id, which is G114's standing rule; a bookmark or pasted link to a LAN page
-  is saved with its URL-derived title and never fetched (R-R10).
-- **G61 phase 2 (S0–S2), disclosed not fixed:** save-time `media_ingestor.enrich` (the person's own
-  save or paste) still reads a page on `_TIMEOUT` (5 s) with `resp.text[:_MAX_READ]` (the whole body
-  downloaded, then cut to 1.5 MB); S0 moved only Sleep's own read onto `default_fetch`, and the same
-  one-function change applies there. Two sources with one ref and two predicates share the app's `EntitySource.id` (`kind|ref`), so the entity card's Sources `ForEach` sees a duplicate id until S5 rebuilds that section; deleting still addresses by index, so the right entry goes (plan R-AC43). `InboxItem.check` reads two inputs no `/inbox` ETag component covers — a bank's `_predicates.yaml` (as `informational` already does) and today's date (clamp 4, as `age_days` already does); no screen reads `check` yet, and S6, its first reader, closes both (plan R-AC40).
-- **DS-3c seams for other tracks:** `EntityDetailCard`'s own Esc clears the Graph's selection and cannot close
-  Clusters' column (DS-3a); Settings' local-folder Manage popover opens toward the panel's trailing edge
-  (`LocalSourceRows.swift`, `arrowEdge: .trailing`), which is DS-3b's.
-
+A whole row moves to DONE only after its remaining implementation and required acceptance are complete. If only one slice ships, name the remaining slice and keep the G ID active. Update this file and the reasoning row together; never renumber or silently discard an unresolved seam. Use [working-method.md](working-method.md) for the implementation bar and [BACKLOG_CONTEXT.md](BACKLOG_CONTEXT.md) for original prompts rather than loading old execution logs as current instructions.
 
 ## Rulings that cost real work to derive — do not re-litigate without reading them
 
@@ -961,9 +468,17 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
       environment/mood/lamp combination, computed from the sheets (sprite boundaries plus the clock's 60 ticks ≤ 1,800 per
       minute, tested in `SpriteClipTests`); mean CPU with the room frontmost stays ≤ 3 % of one core and within 2
       points of `dev`, measured by the owner on the demo bank before merge.
+      **Player amendment (2026-10-05, measured):** moving frames swap a layer's `contents` on a timer armed at each
+      boundary (`SpriteLayerPlayer`); no sprite plays through a `TimelineView`. On macOS 26 a `TimelineView` with
+      entries under ~0.3 s apart drives the whole window's layout at the display rate (240 host layouts a second
+      for 4 ticks a second in an isolated test; 120 renders a second on the Sleep page), so the boundary budget held
+      while the page still cost 12% of a core. After the change: 2.54% visible, 2.6 renders a second, 0.83% hidden
+      (the menu-bar worm). A 1 s timeline still re-renders the whole window once a second, so the wall clock's second
+      hand is a layer too and the leaf redraws once a minute: 1.03% visible with the graph resting, 0 renders in 10 s.
       **Wall-clock amendment (owner, 2026-10-02):** `room-clock` is state art selected from `Date()` and
       `TimeZone.current`, not a sprite loop. Hour = `(hour mod 12) × 5 + minute / 12`, minute/second = their
-      integer values. Its own visible-only `TimelineView(.periodic)` ticks once per second; no room-wide timer.
+      integer values. Its own visible-only `TimelineView(.everyMinute)` moves hours and minutes, and a layer
+      (`SpriteLayerPlayer`) moves the second hand on every whole second (2026-10-05); no room-wide timer.
       Black hour/minute hands and a thin red second hand use dark variants in a dark room. Reduce Motion removes
       only the second hand; hour/minute keep time. Help and VoiceOver say “Wall clock, <system short time>”,
       after the window. The inert clock at `(94,34)`, 15 × 15, z1 clears every worm frame, the window, shade and pile;
@@ -1014,538 +529,19 @@ Add `<key>CICADA_ALLOW_FEED_FETCH</key><string>1</string>` to that dict, then
     Revisit R-BW4 or R-BW11 if either half of R-BW11's budget is exceeded or a viewer reports motion discomfort;
     R-BW5–R-BW9 on the owner's word.
 
-## How work is run here
-
-- **PRs merge to `dev`**; `main` is a manual promotion. Never commit directly to `dev` except docs.
-- **Devin reviews are ignored (Rodrigo 2026-09-01: "from now on ignore them, they only slow us
-  down").** Do not wait on a round, fix its findings, or reply to them. Merge on the session's own
-  verification — an independent re-run of both suites plus a diff read. (The earlier one-round gate
-  did catch real bugs — the stale drag-throw, three Sleep/Ask concurrency bugs, a re-import path that
-  discarded save dates — so a reviewer of our own is worth keeping; Devin's latency is not.)
-- **One writer per worktree.** Parallel work goes in `.worktrees/<name>` on its own branch. Never
-  `git add -A` there (an untracked `api/.venv` symlink lives in each).
-- **Verify, do not trust reports.** Run the suites yourself before merging. This session: an agent
-  disclosed spawning a fork that wrote concurrently into a shared worktree; a test fixture encoded
-  the same timezone bug as the code it tested; and a review predicted "0 deletions" that a sloppy
-  `awk` made me briefly misread as 1,851. Independent checks caught all three.
-- **Baseline:** every suite is green (PR #50 removed the last expected failures). Anything red is
-  yours. Backend **2225 passed** and Swift **998 executed, 0 failures** on `feat/sources-v2`
-  (2026-09-06) — re-measure, never trust a remembered count. One known order-dependent case,
-  `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit`,
-  passes alone; if it is the ONLY red, re-run it alone before calling the suite broken.
-- Reports and briefs live in `.scratch/sdd/<plan>/` (gitignored).
-
-## Pick up here
-
-**Nothing is running.** Round 2 (2026-09-05 evening → 09-06) is merged — see "Where things stand".
-Everything about *what to do next and why* lives in one place:
-
-> **[`working-method.md`](working-method.md)** — the bar a change has to clear, the test baselines that
-> are not failures, the rails, how to start / resume / land a Workflow track, and the queue with the
-> reasoning for its order. Workflow agents run on sonnet/haiku unless the owner says otherwise for a
-> session (round 2 ran on opus with that permission); the orchestrator plans, verifies and merges.
-
-The queue there, in order: **G118 slice 2** (server merged PR #72; the app is built on
-`feat/provenance-ui` and awaits the live check and merge; P6 rides Track S — drop this from the
-queue once it merges) → **G93** (cross-stream ask). Then the bigger
-rocks: **G81 → G95**, **G112 steps 2–4**, **G76**, and **G127** — the Bookworm selector foundation is built (owner 2026-10-02); a second character and the room shortcut remain open (owner 2026-09-23, Strawberry browser's companions as inspiration). Before
-any of them, the cheap one: **G90 README screenshots** — done on 2026-09-06 from the **demo** bank
-(Graph, Inbox, the study room, Sources v2; the retired Activity image is gone). Re-take them from the
-demo bank, never the live one, after the next visual change.
-
-**Direction D, next (after DS-3b merges):** Home, Sleep and the Settings panel are done. The remaining page tracks
-adopt `ProgressiveColumns` and retire their use of the shell's trailing Reader (`ShellReaderHost`) — **Graph and the
-entity card** (DS-3a restyled both; the Graph still takes its Reader from `ShellReaderHost`), ~~**Clusters**, **Feed**,
-**Sources**~~ (DS-3c) and ~~**Projects**~~ (G141 PJ-5, built on `feat/g141-projects-page`), each per DESIGN_RULES §10 and each updating its CLAUDE.md page
-paragraph in the same PR.
-
-**Filed 2026-09-23 — G141 project timelines.** The spec is committed
-(`docs/specs/2026-09-23-g141-project-timelines-design.md`). Three backend tracks can start
-now with no app dependency: **PJ-0** (the page-less claim loss: `claim_pipeline.py:139-146`'s false comment,
-subjects keyed by Stage-2 ids), **PJ-1** (the $0 read model and its two GETs, with the demo scenario and a
-`today=` seam on `demo_bank.populate`) and **PJ-4** (the Stop hook writes the `turns` list). The Projects page
-(PJ-5) is the first screen built D-native and waits for the DS shell. Screenshots come from a freshly
-generated demo bank only. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), and
-served as `GET /projects` and `GET /projects/{id}/timeline` (T2; the opt-in bench, `CICADA_BENCH=1`, meets
-the detail's 150 ms p95 but not yet the list's 80 ms on its 2,500-page worst case). PJ-2 (T3) is on the
-same branch: `cicada_project` (stdio + remote `read`), `_state.md` schema v3 project `next` (`now` waits
-for PJ-3's happenings) and the handshake's Current line — contract 5, remote contract 3. PJ-3a's claim
-layer (T4) is there too: event claims born closed, one writer (`progress.py`), `write_claim` refusing the
-event predicates and Stage 1's stray labels relabelled. PJ-3a's agent path (T5) is there now:
-`cicada_note_progress` (stdio + remote `record`, observer always the agent, never a new page),
-`cicada_retract_claim` withdrawing an event through `progress.withdraw`, happenings, open threads and
-`milestone` chains in the read model (`PROJECT_SHAPE` `g141-2`), `_state.md`'s `now` filled, the Now/Quiet
-lines in `cicada_project`, and the demo's two event commits — contract 6, remote contract 4. PJ-3b (T6),
-the person's path, is there too: five Projects writes (milestones add/move/rename, the Log with its
-companion note, a thread settled or restated, "Not right" on a happening), `companion_app` a human
-origin, a 409 while Sleep runs, and the demo's `user` commit (the arm done early, first grasp moved).
-PJ-6 (T7), the engine-free `followup` inbox kind, closes the backend: a quiet thread, an overdue milestone
-or a passed `due` raises one follow-up (one per project, three in the bank) from Sleep's tail right after
-expiry (`Follow-ups <date>`, `cicada`, `sleep/followup`), served as a question at read with a 30-day
-"not now", answered through `progress.py` and graded against the extractor (R-PJB24). **Status: PJ-1,
-PJ-2, PJ-3 (3a+3b), PJ-6 built on `feat/g141-read-write`; PJ-0, PJ-4 on their own tracks; PJ-5 built on `feat/g141-projects-page` (plan
-`2026-09-24-g141-projects-page.md`, R-PP1…R-PP27); PJ-7/PJ-8 gated.** The Swift `followup` case landed with the final review (label "Follow-up",
-clarification's hue); `GraphNode` dates
-did not ride PJ-5: they are a backend change, reported with the track (the list shows a skeleton on its first open
-after a launch).
-
-**PJ-0 and PJ-4 shipped (PR #88, `feat/g141-capture-side`)**, with a fix found the same day: capture can no
-longer write into a demo bank (`api/services/demo_guard.py` — the Stop hook saves into the real bank left most
-recently, every other writer refuses; CLAUDE.md's seventh Awake rail). **PJ-0b** is built on
-`feat/g141-hold-page-less` (plan `2026-09-24-g141-hold-page-less.md`): Stage 5.56 holds a page-less subject's
-claims on its pending line and releases them, through Stage 3, in the cycle that gives the name a page; a
-holding line leaves the store only then. Nothing expires a pending name yet; that is an owner question under
-Research / decisions.
-
-**Filed 2026-09-23 — G61 phase 2, check the source before asking the person.** The spec is committed
-(`docs/specs/2026-09-23-g61-agent-first-clarification-design.md`). Its three backend-only slices are built on
-`feat/g61-sources-checkable` (plan `docs/plans/2026-09-23-g61-s0-s2.md`): **S0** (Stage 5.57's ungated `default_summarize`, the
-duplicate `source_episode` key, the hint's voice), **S1** (checkable sources, `cicada_add_source`) and
-**S2** (a read-only checkability census, `scripts/check-census.sh <bank>`, whose live-bank counts go on the G61 row before S3). Its five owner decisions
-are listed under Research / decisions.
-
-**Search (G136):** shipped — server (PR #74) and palette (this track, `feat/find-palette`); what is
-open is on the row.
-
-**Small polish left behind, none blocking:** the Settings sidebar cannot be driven by a synthetic
-`click at` (select its rows through the accessibility API); a Sources card whose `count` comes from
-`channel_registry` (every row but `files`) still counts items the Feed now hides — a channel's own
-count is computed per adapter and was not re-derived; PR #70 found that NO bundled PNG mark
-resolved inside the assembled app (`bundle.sh` re-nests the resource bundle, eating the `Resources/`
-path component every lookup spelled) — fixed through one `Bundle.cicadaResource` seam with a test
-over both layouts; `GraphView`'s `graph/index` lookup is the mirror image (nested-only) and
-`Resources/walkthroughs/` has never shipped, both left as they are.
-
-**Owner-present checks still unticked, none blocking:** the G109 graph eyeball at fit-zoom, the
-G124 and G115 checks in their rows, and a manual Sleep cycle watched end to end on the new page (the
-stage strip and the per-source countdown were verified by test and by SSE payload shape, not by an
-LLM run — the live bank has never consolidated on this machine).
-
-**One manual step on any existing install:** re-run `./install.sh` (idempotent) so the G105 `Stop`
-hook is registered in `~/.claude/settings.json`; `make doctor` check 12 confirms it. Done on the
-owner's machine. The launchd plist's missing `CICADA_ALLOW_FEED_FETCH` key (Live environment above)
-is still outstanding.
-
-**Worktrees:** every track worktree is removed after its PR merges; `.worktrees/` should be empty
-apart from anything a session left in flight (a fix branch names itself). A worktree's `api/.venv`
-is a symlink to the main checkout's. Never `--force`-remove one without reading
-`git status --porcelain -uall` in it first, and never commit a `*-report.md` left there as scratch.
-
-_Last synced: **2026-09-06**. Merged since the previous sync: #59–#69 (see "Where things stand").
-Next work and its reasoning: [`working-method.md`](working-method.md)._
-
-## ✅ Shipped
-
-Verified in code, not by checkbox.
-
-**Foundations** — G1 memory banks · G3 feed page · G9 cross-harness origin provenance ·
-G12 chat-history import · G17 deadlines-as-claims · G18 `directory` split · G20 delta re-import ·
-G47 saved-content importer family · G58 sync engine
-
-**Capture & connectors** — G29 Telegram · G30 browser bookmarks · G50 provider connections ·
-**G71 save-with-reason + Imports catalog** (Pinterest/Reddit/X connectors, export preview,
-LinkedIn/TikTok/Reddit parsers, one adapter registry) · **G105 hook-driven deterministic capture
-(2026-09-03, PR #46)** — Claude Code `Stop` hook → `POST /capture/transcript`, block-level extractor
-(person's turns + agent's final replies; tool blocks/code/secrets never), one episode per session
-updated in place, Sleep-queue source marks (`OriginMark`) · **G133 watched folders + papers** and
-**G134 Wispr Flow** (round 3 Track L)
-
-**Memory model** — G60 conflict resolution with time-aware questions · G61 fact sources ·
-G66 decay classes · A5 gap analysis · **G115 Phase 1 / G97 (2026-09-03)** — cause on the card,
-Recommended, decay through the question component, the G98 informational rule
-
-**Search** — **G136 server half (2026-09-23)** — the derived FTS5 index beside the vector index, `/search`
-with kinds / lexical totals / spans / prefix and hybrid, `/conversations/recent?q=`; **G136 app half** — the ⌘K find palette (local tier, server tier appended
-without moving a row, Ask as a mode on ⌘⏎), one `CicadaSearchField` on every page, `GraphNode.aliases`
-after the payload measurement
-
-**App** — G23/G24/G25 media previews & hero · G26 light/dark · G27 local refs ·
-G28 bookworm animation · G51 consumption dashboard · G52 Ask panel · G59 entity logos ·
-G62 capture redesign · G63 connections clarity · G64 import walkthroughs · G67 commit-diff views ·
-G68 UI round 2 · A1 per-commit diffs · A2 contributors · A3 ingestion animation · G15 avatars · G107 pixel mascot + single menu-bar Tamagotchi ·
-**G125 the study desk (2026-09-05, PR #55)** — Sleep page rebuilt around a `reading` mascot state
-and clock-free speech bubble, a book pile encoding queued characters per source (log scale, no
-charts), a study list replacing the old queue card + debt breakdown, consolidation history with a
-server-parsed per-cycle detail and telemetry-joined duration, four schedule modes (manual · daily ·
-every N hours · after imports, always `user_triggered=False`), and the deprecated top-right
-Sleep/Upload buttons removed from this page. **Closed:** `GET /state`'s `sleep.next_at` is calibrated with the same inputs as `/status`'s
-"Next run" (Track P R6, `7d1de42`) and pinned against it in all four modes (F2-back R-B16).
-· **G130 slice 1a+1b app-wide zoom (2026-09-05,
-PR #54, PR #58)** — one persisted `uiScale` behind every `CicadaTheme` font/spacing token, a View menu
-(⌘=/⌘−/⌘0, plus a ⌘⇧= key monitor), a Settings *General* tab with a text-size slider; the graph
-canvas keeps its own zoom (slice 2 stays open on a measured need); **slice 1b (2026-09-05, PR #58)**
-did the mechanical literal-font migration plus a source lint (`FontLiteralLintTests`) that keeps new
-ones out
-
-**G113 grounded-reward ledger (2026-09-05, PR #59)** — every inbox verdict is a `resolution`
-telemetry event; `/consumption/feedback` + Feedback tile; divergence/normalization resolvable;
-merge reject sticks; keep_active/answers write claims.
-
-**G117 first-run onboarding (2026-09-05, `feat/onboarding`)** — `owner_identity.resolve_observer`
-(R1's four-rung precedence, migration-safe against a pre-G117 `entities/rodrigo.md`) replaces the
-hardcoded `"rodrigo"` literal at all five observer sites; `GET/PUT /settings/owner` writes the owner
-entity page and the app renders it, and its graph node, as "Name (you)" (R2's not-agent-not-external
-rule); the four-step first-run sheet (identity → engine → one channel → first Sleep) replaces the
-old single-step Connect guide; every tab that can be empty says so with one honest action; a
-checked-in, deterministic `demo_bank.py` backs a one-click `POST /banks/demo`; three install/copy
-gaps fixed alongside (`install.sh`'s `-s user`, the README `/sleep/trigger` bearer header, and
-`sleep_cycle`'s byok failure copy no longer diagnosing a key nobody entered when no engine was ever
-chosen). **Open remainder:** the onboarding *interview* (G54); entity-merge-across-identity-change
-(R3's disclosed gap).
-
-**Track V in-app video (2026-09-05, PR #63, `feat/video-renderer`)** — G11's preview half generalized past
-YouTube. One URL→video classification table written twice (`api/services/video_urls.py` +
-`Views/Common/VideoRef.swift`) and pinned by one fixture (`api/tests/fixtures/video_urls.json`), so
-YouTube (incl. `/live/<id>` and `playlist?list=`), Vimeo, TikTok and Loom play in the provider's own
-embed, and a direct `.mp4/.m4v/.mov/.webm/.m3u8` or `file://` clip plays in AVKit behind a
-`VideoPlaybackController` seam — space-to-play, Reveal in Finder when the path is unreadable, and a
-source lint keeping AVFoundation to the one new file. **The provider is derived at read time from
-the stored URL**, so no bank is rewritten and `url_index.json` gains no keys. Feed rows get a play
-badge (playable refs only — an `external` ref would promise what the tap cannot deliver) and a
-duration pill only when a provider reported one; the Feed sheet grows to 720 × 560 for video kinds.
-Backend is metadata only: `media_type: video` for direct files (which `link_enrichment` already
-excluded from the nightly fetch), one shared oEmbed for the three new providers under the 4 s /
-≤ 512 KB rail reading *fields* only, a content-type guard on the OG fetch, and
-`media.provider`/`media.duration_s` as additive optional keys. **Disclosed:** an entity page shows
-two paused players (the `MediaPreview` card and the hero, the two pre-existing slots) — neither
-starts on its own. **G22 is untouched** — transcripts/captions as the entity body remain open.
-
-**Provenance** — **G48 conversation provenance + resume** (session stamping, `Cicada-Session:`
-trailers, Ghostty resume) · **G118 slice 1 evidence spans (2026-09-03, PR #44)** — `Claim.evidence` offsets + hash, Stage-1 quote
-verification, agent/Telegram/link-recon writers, `/episodes/{id}/span`; absorbs G100 (i)/(ii) ·
-**G124 Sources page (2026-09-03, PR #47)** — Activity → Sources: card grid from /sources/overview,
-per-source pages with Resume, contributors calendar per model, Advanced counts; prices/tokens out
-of the app; **Track D (2026-09-05, PR #53)** — grouped-by-kind grid with real logos, G129 status
-lights + hover quick actions, per-source blurbs, and a queue strip with Consolidate now
-**G53 + G75 live state + handshake (2026-09-03, PR #45)** — `_state.md` cursor, `initialize.instructions`,
-`cicada_handshake`, `/state`, `/handshake`
-
-**2026-08-31 → 09-01 (PRs #21–#29, merged to dev)**
-- #21 diff context lines with line numbers, merge-commit handling
-- #22 the G71 slice + connector seam consolidation
-- #23 G83 button hit areas & press feedback (87 sites), G84(a)(b) graph cold paint + drag physics
-- #24 **the correctness gate** — decay charges once and never for the outage (first-cycle archive
-  count **700 → 0** on the active bank), inbox subject gate, set-valued predicates, WAL, Telegram
-  webhook secret (G57), bank-import honesty (G87 partial — the non-active-import warning; the
-  BankSwitcher UI gaps it also found are still open), benchmarks import fix
-- #25 **G74(a) agent engine** — Sleep runs on the user's Claude Max plan via `claude -p`, after
-  ~2.5 months with no engine; round-1 Devin fixes (throttle breaker, concurrency cap, connector
-  commit scoping) included
-- #26 `saved_at` fix (G99d) — `RawItem.added` plumbed end to end across 5 parsers; re-import
-  backfill + Pinterest date normalisation
-- #27 sleep cancel route + episode cap + debt screen — Stage-2 writes queued and flushed only on a
-  completed loop, so a cancel can no longer leave a half-deleted inbox item
-- #28 **G88 dev loop** — `make install-app`/`make dev`/`make login-item`, non-destructive
-  stage→verify→swap install with interrupted-swap recovery, and the app/agent bank split-brain
-  closed at the source (`/healthz` `memoryRoot` overrides the local guess everywhere it is emitted)
-- #29 wikilinks — render, click-through, back stack; refs resolved at click time against the graph
-  snapshot, history committed only on an accepted destination, generation-token topic navigation
-- Outside PRs: Cicada in **every** Claude session (user-scope MCP + both skills + launchd backend
-  with durable keys), CLAUDE.md reframed twice (the project, then the *experience port* north
-  star), doctor cleanup, installer shebang fix, **G99a** the 35 MB index untracked before it could
-  commit ~11 GB/yr
-- **G114 capture-writer hygiene** (`feat/capture-hygiene`, PR #30) — one id rule
-  (`episode_ids.next_episode_id`, max-suffix+1 per date, importer collision closed), one timestamp
-  shape (aware UTC from `episode_ids.utc_now_iso`; Sleep sorts by instant across legacy shapes),
-  Telegram stamped with the message date and `/remind` an honest `capture_kind: reminder` note,
-  feeds + calendars polled at the Sleep tail under `CICADA_ALLOW_FEED_FETCH=1` (a fresh
-  install's plist sets it; an existing plist needs the key by hand — see Live environment), and
-  a `processed_by: sleep|agent` stamp on `GET /sleep/episodes`
-- Backlog hygiene (2026-09-01, docs-only): closed rows for work that had shipped without ever
-  updating the backlog — **G21** dedup-sweep endpoint, **G19(e)(f)** provider-factory adoption +
-  stray `.bak` removal, **A4** skill preference capture, and the shipped halves of **G11**
-  (in-app preview), **G89** (feed following), **G93** (search/ask endpoints), **G87** (non-active
-  import warning) — plus merged 9 duplicate/superseded rows and parked 2; see
-  `memory-evolution.md` for the per-row evidence
-
-**2026-09-02**
-- **Safari import track** (`feat/safari-import`, PR #36) — Safari iCloud tabs (device picker),
-  bookmark folder selection with tree preview (Reading List as its own folder), per-browser channels,
-  the app reads `~/Library` and posts bytes (the launchd backend never could), Full-Disk-Access fix
-  shown in place, and the `+` sheet re-layered into a logo-first family → member catalog with keyboard
-  navigation. Follow-up: G119 (Arc/Firefox/Brave).
-- **G109 phase 1** graph physics (PR #32) — alpha-scaled hub gravity, no reheat on release,
-  `velocityDecay` 0.2 / `alphaMin` 0.001, per-isolate phyllotaxis slots, speed clamp; headless
-  physics bench + test under `Tests/graph/`; numbers in the G109 row
-- **G102 cheap slice** (PR #40) — link backfill on the Sleep tail + `POST /maintenance/enrich-links`; recon
-  over stored OG text → `about` claims/edges through the existing Stage-1 prompt and Stage-2
-  judgment; `GET /sources` `description`/`about`. Plan:
-  `docs/plans/2026-09-02-link-summaries-backfill.md`
-
----
-
-## 🔄 In progress
-
-| What | State | Next action |
-|---|---|---|
-| **Designs 2026-09-29 (docs only): G162 video understanding, G163 Sleep page v5, G164–G168 reading the web** | Three specs written and reviewed against the code (video: 19 of 20 critiques held and are fixed; Sleep: every critique adopted; web: all 22 adopted); committed on `docs/designs-2026-09-29`, PR to `dev`. Rows filed in `memory-evolution.md`; fix rows G169–G172 mark PRs #140, #141, #139; G173 records the findings left open. | The owner reads the three specs and answers their open questions (listed in the backlog rows). Order the build after that: G163 SL-1 (journal and honest bar) and G162 V1 (states) need no ruling amendment; G164 S1 (Reader ladder) needs D-RW1 and D-RW7; G163 SL-3, G165 defaults, G166 sessions and G168 wait on their gates. |
-| **G169–G172 first-run fixes (PRs #140, #141, #139)** | Opened against `dev` from `fix/first-run-extraction-owner`, `fix/sleep-inbox-and-indexes`, `fix/saved-links-collision-and-throughput`; suites green, nothing verified live. | Merge each after the owner's read; then walk the first-run checklist under *Pending after 2026-09-29* on a fresh bank. |
-| **G119 / G154 / G160 sources (round 4, T-Sources)** | **Built — all seven tasks.** Tasks 1–3 merged (PR #109); tasks 4–7 on `feat/r4-sources-2` (plan `2026-09-24-r4-sources-2.md`). Chrome's open tab groups: the app's SNSS reader and `TabGroupWatcher` behind their own switch, `POST /sources/tab-groups/sync`, one snapshot episode per group, and G160 written with its follow-ups. Contacts enriching the people Cicada knows: `ContactsReader` and `POST /sources/contacts-local/sync` write `sources:` entries and `contacts_photo: {sha, ext}`, with the thumbnail at `contacts_local.photo_path(bank, id, ext)`. | Restart the launchd backend with the app, then run the plan's live check; merge; tell T-People that `contacts_local.photo_path` has landed, so `entity_picture.contacts_path` can become a call to it. |
-| **G149 implicit recall (round 4)** | Built on `feat/r4-implicit-recall` (plan `2026-09-24-r4-implicit-recall.md`): the recall hook (SessionStart primer + UserPromptSubmit note), `POST /capture/hook-context`, contract item 8, Settings → Agents → Remembers automatically. | Orchestrator install + live check (the plan's Verification), then merge; the owner decides whether onboarding / the C5 prompt turn it on by default. |
-| **G147 frequency-aware decay (round 4)** | Built on `feat/r4-decay` (plan `2026-09-24-r4-frequency-aware-decay.md`): pages and claims fade by distinct mention weeks (f(w) = max(0.25, 1/(1+0.6·ln w))), "keep" counts as a week (`kept_on`), per-type pace suggestions from the bank's own decay answers with Apply · Not now in Settings → Memory, and the pace in words on the entity card. | Orchestrator verification (both suites; the 12-week vs 1-week simulation; suggestions on a synthetic history; live check of Settings → Memory and a card's Details on the demo bank), then merge to `dev`. |
-| **Round 4 T-Agents — more agents, the live check, who reads (G76, G122, G135)** | Built on `feat/r4-agents` (plan `2026-09-24-r4-agents.md`): OpenCode, Hermes, OpenClaw, Claude, ChatGPT and Grok in `/agents/setup` and `/agents/wiring` (Grok joins the remote catalog); `GET /agents/live`, the live ✓ from handshakes, used connectors and each agent's own config; Sign in with OpenRouter (PKCE) and xAI, Groq and Mistral keys; the OpenRouter engine card, the API-key provider picker, Ollama's Local tag and the leaves-your-Mac note (R-AG10…R-AG14); `AgentSelector` + `AgentSetupSteps` in Settings → Agents. Measured at the last task: backend 4075 passed, 1 skipped; Swift 2130 tests, 0 failures; graph JS 8/8. One flag: R-AG5 reads remote liveness from the connector store's `last_used_at` (the store is opened, never created). Ruling 4 unchanged. | Orchestrator install + live check (the plan's Verification), then merge to `dev`. |
-| **Direction D — DS-1 (tokens, type, shell, Settings panel)** | Built on `feat/d-shell` (plan `2026-09-23-d-shell.md`): graphite + the Mac's accent + rings, SF only with one `SectionLabel`, the icon rail ⇄ labelled sidebar (⌃⌘S), the titlebar command bar (the one bank selector, search, the page's `?`), the eyebrow/tabs components, Settings as an in-app panel. | Orchestrator live check (both themes, 1.0×/1.4×, every page by rail and ⌘1–7, ⌘K from the bar, a bank switch, Settings search landing on a row, Esc), then merge; DS-2 (Inbox columns + Reader) next, then the page tracks and G141 PJ-5 at ⌘8. |
-| **G135 remote connector** | S0–S2 on `feat/remote-connector` (PR #75): SSRF guard, honest agent commits, `mcp_tools`, remote runtime and door, the From anywhere page | Merge after the orchestrator's live check; then the owner-present claude.ai + phone check (needs a tunnel the owner runs); S3 OAuth next |
-| **G118 slice 2** | **Server merged** (PR #72, plan `2026-09-23-provenance-backend.md`). **App merged** (PR #78) from `feat/provenance-ui` (plan `2026-09-23-provenance-ui.md`): evidence chips with a hover quote, the Reader inspector (turns, washed span, honest banners, navigator, "Noted from this conversation"), "Where this came from" on the entity card, contributor faces in the claim footer and History, "Show in conversation" from the inbox, evidence under Ask answers. | Orchestrator live check on the demo bank (the plan's Verification), then merge. P6 (palette → Reader) rides Track S; the server hand-offs are listed in the G118 row. |
-| **G137 Meadow (round 3)** | **M1 foundation merged** (PR #71) from `feat/meadow-foundation` — Meadow tokens, Instrument Serif (replaced by SF Pro Display in F1), `CicadaMotion` + hover modifiers, `liquidGlass`, the art set + manifest, the glass sidebar, the empty state. Plan: `docs/plans/2026-09-23-meadow-foundation.md`. | Live-checked by the orchestrator in both themes at 1.0×; still open: 1.4×, Reduce Motion / Transparency / Increase Contrast (both themes, 1.0×/1.4×, Reduce Motion / Transparency / Increase Contrast; the empty state's one action on 26 (`.glassProminent`) with the window key AND not key, both themes — its ink is `onAccent` only while key, measured on `.borderedProminent`, unverified on glass), merge to `dev`; then the M2 pass. Builds on a macOS 14/15 SDK: every 26/15-only call is also behind `#if canImport(SwiftUI, _version:)`. |
-| **G129 bookmarks** | **Both slices shipped** — slice 1 (PR #52): file watch, catch-up sync, six-state light. Slice 2 (PR #61): seen-set, removal proposals, Deletions subsection. | G119 (Arc/Brave/Firefox) generalizes for free once added to `CHANNEL_BY_ORIGIN`. |
-| **G74(a) agent engine** | **PR #25 — merged** (14 commits, `0fb0d38` round-1 Devin fixes included: Sleep/Ask share a throttle breaker, doubled concurrency cap, connector commits absorb a dirty tree), first-cycle archive re-verified at **0** with a negative control. Rung (b), the in-session agent path, is not built — G74 stays open in the backlog. | Run **one** cycle by hand. Do not enable a schedule. |
-| **G109 graph physics** | **Phase 1 in PR #32** (2026-09-02): ruling = keep d3-force, fix `graph.js`; three commits + a committed bench, numbers in the row. Phases 2–3 and the Swift `WKWebView`-rebuild track are open | Merge after an independent re-run; live-bank visual check with Rodrigo; then the Swift track, then phase 2 |
-
----
-
-## 🎯 Next — in priority order
-
-### Wave A · finish what the engine needs
-1. **G109 phases 2–3 + Swift track** — phase 1 shipped (see In progress). Next: the Swift track
-   (`ContentView.swift:137-139` rebuilds the `WKWebView` per tab switch — the "explosion on
-   return"; keep one alive, reset `isGraphReady` on teardown) — S; phase 2 (own the rAF loop with a
-   physical settle criterion, `__cicadaPerf.report()`, live-bank tuning pass incl. the delta
-   reheat / collide lever for the no-op-delta shuffle) — S/M; phase 3
-   (isolates out of the simulation, tick 6.7 → 4.5 ms measured) — S
-2. **G111** newsletters (TLDR / TLDR AI) → "what landed today that matters to me". The TLDR path
-   is verified (RSS exists; a feed row per newsletter); the Sleep-tail feed poll it needed shipped
-   with G114, so it refreshes without a button press — S/M
-3. **G90** README + screenshots — Sleep and the dev loop are both real now; **demo bank or
-   frame-by-frame review** — the live bank holds real people — S
-
-### Wave B · make what exists trustworthy
-4a. ~~**G113 slices 1–4**~~ *(the grounded-reward ledger)* — **shipped 2026-09-05
-   (PR #59, `feat/feedback-ledger`)** — every human verdict on memory (inbox resolve, decay
-   keep/archive, merge accept/reject, `Cicada-Author: user` corrections) recorded as a telemetry
-   event — ids and enums only, never text — with per-predicate agreement rates and a
-   confidence-calibration curve as a tile in Sources ▸ Advanced (the `feedbackTileSlot`);
-   `divergence`/`normalization` resolvable; merge reject persisted; decay `keep_active` and
-   clarification answers write back to the claim layer. Slice 5 (feeding rates back into prompts)
-   stays 💸 DECIDE under G78
-4d. ~~**G115 Phase 1**~~ *(owner 2026-09-03: start with the dead chevron and the unbounded URL list
-   on cards)* — **shipped 2026-09-03 (`feat/inbox-phase1`)**
-4d″. **G115 Phase 2 — suggested outcome** *(owner 2026-09-03)*: a confidence-gated one-sentence "Cicada thinks…"
-    under the recommended option, accept with ⏎, never auto-applied; suggestion id + confidence in the G113
-    ledger so agreement becomes a rate and a training set — S/M, after G118 slice 1 (needs the cause spans)
-    + research-resolvable conflicts: the same judge may grep a linked repo / read a declared source and must
-    cite what it checked; multi-valued predicates (`uses`) never open a conflict at all (G98)
-4e. **G61 phase 2 — check the source before asking the person** *(owner 2026-09-23: "some things can be
-    clarified by checking a link to a website or an app using browser harness or computer use … before
-    scaling it to the user itself")* — spec `docs/specs/2026-09-23-g61-agent-first-clarification-design.md`.
-    An escalation ladder: Cicada's own public fetch → an agent the person runs (`cicada_record_check`,
-    the G140 watch-record shape, a seventh evidence kind `source`) → the person, with the check on the card.
-    Two-witness settle (a local agent's reading + Cicada's own re-read of the same site); never a human
-    claim, never the owner's page, never a remote report; `cicada`-authored, reviewable in `inbox/settled/`,
-    one-tap "Ask me instead". Ships in **shadow** first — the owner flips auto with the numbers in view.
-    **S0–S2 ✅ 2026-09-23 — run `scripts/check-census.sh` on the live bank and record the counts (only) on the G61 row before S3:** S0 truth + fetch hygiene (Stage 5.57's ungated
-    `default_summarize`, `add_source` on `(ref, predicate)`, the hint voiced by `added_by` and derived at
-    read, the duplicate `source_episode` key, organic resolution on `is_human`), S1 checkable sources
-    (`access`, `kind: app|repo`, predicate `locus`, `cicada_add_source`), S2 a read-only checkability
-    census that decides whether S3–S8 are worth it. S3 waits on D-AC3 and D-AC5; S7 on D-AC1 and G116(a).
-    S0–S7 $0; S8 💸 — M each
-4d′. ~~**G115 Phase 1**~~ — **shipped 2026-09-03 (`feat/inbox-phase1`)** — inbox redesign, first
-   slice: one question object for every kind, `cause` on the
-   card (three tiers, `[ no source recorded ]` served), `(Recommended)` = the option `_verdict` scores
-   `agreed` (never on merge), decay through `QuestionView`, number keys / `Esc` no-trace skip, ETag
-   widened server-side AND `.inbox` added to `VersionVector`'s `entities`/`episodes` in the same
-   commit, `render_question` v2 with a `Cause:` line. $0, engine-free, 1–2 days, in parallel with
-   G113 slices 3–7 (disjoint functions). Phase 2 (ask gate, `never` rules, observer capsule) after
-   G113 3–4 and G106(i); Phase 3 (grouping, Sleep-counted silence-close, rule executor) after G116 — S/M
-4. **G98 remainder** — the predicate/entity-resolution half (~15 of 27 conflicts are artifacts) — M
-4b. **G104** a resumed conversation is consolidated twice — reconsolidation is the likely answer
-   (the claim layer's `superseded_by` already models "replaced by a better-informed belief") — M
-4c. ~~**G105** deterministic conversation extraction~~ — **shipped 2026-09-03** (`feat/deterministic-capture`,
-   PR #46): the Stop hook, `POST /capture/transcript`, the block-level extractor and the Sleep-queue
-   source marks; the open remainder (Cursor/other harnesses, Codex payload verification) is in the G105 row
-5. ~~**G97**~~ — delivered by G115 Phase 1 (2026-09-03): inbox items show the conversation that caused
-   them (43/49 reach an episode in ~100 ms, no LLM); the ETag widening shipped as both halves there. — S/M
-6. **G82** hub pages are unaddressable — your "Couldn't load history"; 15 sites hardcode
-   `entities/<id>.md`; both layers must move together — M
-7. **G84(c)(d)** legend describes claim-context while nodes colour by type (byte-identical hexes),
-   plus the observer relabel — S
-8. **G86** feed dedup — 789 rows render 603 pages; absorbs G65 — M
-9. **G19** dead-code sweep *((e)(f) done — provider factory adopted, stray `.bak` removed)* — XS
-9a. **G112 step 1 ($0)** — ground the skill page: Stage-4 output through `entity_resolver`, merge
-   `source_episodes` + bump `last_referenced` on update, evidence entities into `related`, v2
-   layout so `source_rewrite`/hubs work, contradictions raise a normal conflict item. A bug fix
-   in feature's clothing; steps 2–4 (compile → bundle → export) are Wave C — S
-
-### Wave C · the north star's output half
-9b. **G118 full provenance** — spans (not copies) on every claim, the contributor's rationale as a
-    citable source, the prompt/turn that triggered every agent write, and a raw-source viewer with the
-    cited passage highlighted (NotebookLM, but bi-temporal and attributed). Owner-marked central to
-    the vision (2026-09-02). Slice 1 shipped (spans + agent citations + span endpoint, PR #44); slice 2
-    shipped (server PR #72; the app's chips, Reader and "Where this came from", plan
-    `2026-09-23-provenance-ui.md`); next: triggers (G105 shipped — unblocked), then rationale — L
-9e. **G122 Sleep engine & model picker** — `GET/PUT /sleep/engine`, an Engine card on the Sleep page
-    (Auto · Claude plan · Codex · Ollama · Key, live state + model, next-cycle preview), Ollama guided as a
-    first-class option; prefs in `~/.cicada/connections.json`, never `api/.env` — M
-9d. **G121 world facts vs personal facts** — `source_trust: model_knowledge` + volatile decay for anything not
-    grounded in an episode, two-tier entity card ("why it's in your memory" / "context as of <date>, verify"), the
-    rule in the G75 handshake; a dry-run backfill count on the live bank first — M
-9c. **G93 cross-stream ask** — moved up (owner, 2026-09-02) beside G105, which has now shipped (4c above;
-    ruled 2026-09-03: block-level extraction — the person's text turns + the agent's final reply per turn; tool
-    blocks/code/secrets never; hook-driven): G105 is what makes every write have a cause; G93 is where citations
-    become answers — M
-10. ~~**G53 + G75** state dictionary + handshake — highest fan-out of anything unbuilt
-    (G76, G77, G54 all assume it); zero LLM — M~~ — shipped PR #45 (`feat/state-handshake`); open:
-    SessionStart hook (G49/G76), Store fetch of `/state`
-11. ~~G100~~ — absorbed into G118 (slice 1 shipped the write-time citation; the derived-span class and
-    the viewer are G118 slice 2)
-12. **G103** observer model in the UI — whose belief, who was in the room — S
-12c. **G108** landing page + navigation — decide *before* building: status vs graph as the front
-    door, and linear vs browser-style history (G106 makes history the better bet) — decision
-12b. **G106** two-way conversations ↔ entities browser — the inverse index works today; content
-    search next; deep-linked snippets gated on G100 — M
-13. **G93** cross-stream retrieval — the only row that advances the *unbuilt* half of the north
-    star; everything above is intake or repair — L
-13a. **G112 steps 2–4** — portable skills: a deterministic `skill_compiler` turns a grounded
-    `skill` entity into a SKILL.md bundle with `## Evidence` (episode ids, agreement rates from
-    G113), exported so someone else can load it on their own plan. WikiSkill's third layer — M
-13b. **G141** project timelines (owner 2026-09-23) — dated happenings with every participant linked, a
-    "you are here" band, and the knowledge around a project, planned or not. Happenings and milestones are
-    claims (a done one born closed, `is_event` for history readers), dates decided in Python, nothing relative
-    stored. Order: derive → write → spend. Spec
-    `docs/specs/2026-09-23-g141-project-timelines-design.md` (R-PJ1…R-PJ23). Slices:
-    **PJ-0** page-less claim fix ✅ · **PJ-4** Stop-hook turn stamps ✅ (both PR #88) · **PJ-0b** hold
-    page-less claims with the pending entity (built, `feat/g141-hold-page-less`) · **PJ-1** read model +
-    `GET /projects[/{id}/timeline]` — backend, $0, **start now**; then **PJ-2** `cicada_project` + `_state.md` v3 +
-    handshake · **PJ-3** event claims + `cicada_note_progress` + in-app writes ($0); **PJ-5** the Projects
-    page ✅ built (`feat/g141-projects-page`); **PJ-6** `followup` inbox kind ($0); **PJ-7**
-    Sleep happening extraction 💸 (+15–30% Stage-1 on BYOK; built only if M1–M3 say so); **PJ-8** consented
-    per-project re-read 💸 — L. The three DECIDEs (rail cell, band colour, pending-store hold) were ruled
-    2026-09-23 — see Research / decisions below. PJ-1's read model and demo scenario are on `feat/g141-read-write` (T1), served over
-    `GET /projects[/{id}/timeline]` (T2); PJ-2 (`cicada_project`, `_state.md` v3, the Current line) is T3;
-    PJ-3a's claim layer (`happened`/`milestone`, `when.py`'s closed table, `progress.py`, `reconcile_events`,
-    the `is_event` readers and their grep gate) is T4; its agent path (`cicada_note_progress`, the event
-    layer in the read model, the demo's event commits) is T5; PJ-3b, the person's writes
-    (`/projects/{id}/milestones|happenings|threads|withdraw`, `companion_app` human), is T6; PJ-6, the
-    `followup` inbox kind (`followups.py`, Sleep's tail after expiry, a 30-day not-now), is T7.
-14. **G102** site recon — cheap slice shipped 2026-09-02 (see Shipped). Next slice: relate a link to a
-    pending candidate when it promotes; fetch-side improvements stay out of scope until a measured
-    need — S
-
-### Wave D · new intake, in dependency order
-14a. **G126** Settings → Integrations by category over the existing channel registry (page first), then
-    adapters in this order: YouTube subscriptions (Takeout parser, no key) → Strava (OAuth, weekly aggregates)
-    → Todoist/Reminders (tasks → G13) → Garmin/Apple Health exports — S/M + S–M each
-15. **G81** contacts — identity anchors *(prerequisite for 16; absorbs G46)* — M
-16. **G95** meetings & human↔human conversations — M/L — *first slice shipped as G134 (Wispr Flow
-    meetings with speakers); a consent surface and the other note-takers remain*
-17. **G101** raw-conversation evidence layer — what to keep, what to discard — M
-18. **G91** share-to-Cicada *(needs G88's signed app; absorbs G37)* — M
-19. **G94** life-data streams — aggregates, never samples — L
-19a. **G120** attention frequency — source attribution at ingest (channel/account/author), a rebuildable
-    recurrence index, promotion to a `follows` claim that decays honestly, a "you keep coming back to"
-    strip; feeds G111's ranking and G93's retrieval weight — M
-20. **G76** effortless install + always-on capture — L
-21. **G89** feeds first-class metadata *(feed-following already shipped via M4 — Substack needs no
-    connector, just the (i)-(vii) metadata-quality work)* — S/M
-
-### Wave E · thesis & product
-22. **G78** gbrain evals — the thesis's weakest link is measurement, not architecture — M
-22a. **G117** first-run onboarding in the app — **release blocker**: a three-step first-run sheet
-    (engine → capture channel → first Sleep), honest empty states per tab, and a one-click synthetic
-    demo bank so the graph is never blank. Ships with G76 and G90 for a downloadable 1.0 — M
-22b. **G148** memory benchmark pass (LongMemEval_S + LoCoMo, hooks vs tools modes, throwaway banks, never the
-    owner's) — first fix the `benchmarks/` `Settings` path bug, a benchmark-only Sleep clock (expiry and decay run on today's date), the engine pin — then **G149**
-    implicit recall (SessionStart primer + UserPromptSubmit injection), measured by G148's hooks mode —
-    `docs/research/2026-09-24-memory-benchmarks-and-implicit-recall.md` — M each, G148 💸
-23. **G92** onboarding at scale — decide what Cicada *is* before optimising a funnel — decision
-24. **G72** skills manager *(owner 2026-09-03: two halves — skills Cicada compiled about you (G112) and the
-    harness skills you actually use, ranked by the harness's own usage counters, adoptable into memory)* · **G73** prompt library · **G70** design memory *(absorbs G14)* — M each
-25. **G54** onboarding interview · **G55** executable skills · **G13** tasks/ideas backlog
-
-### Research / decisions (not builds)
-- **G132** sync across devices (filed 2026-09-06) — a Claude Code session on the owner's Ubuntu home
-  server should land in the MacBook's bank and, ideally, read it back. Everything assumes one machine
-  today: the hook posts to loopback, the backend opens the transcript against *its own* home and refuses
-  a foreign path unread, the MCP server has three loopback literals and four tools that read bank files
-  directly, and episode ids are max-suffix+1 over the local glob — safe for one writer only. Three shapes
-  designed and judged (2026-09-06); the lead is *distributed Awake, one Sleep*: the satellite runs the
-  same extractor locally and POSTs scrubbed turns (never a path) to a new endpoint over an overlay
-  network, with a disk spool for a closed MacBook, ids still minted on the primary; the read side is a
-  read-only git mirror; a `device:` field on episodes is the shared prerequisite. Two owner forks first:
-  thin satellite vs full second node, and shared bearer vs per-device tokens — then slice 1, M, $0
-- **G131** replace the harness's own auto-memory with Cicada — it is a per-project markdown graph with an
-  always-loaded index (`~/.claude/projects/<cwd>/memory/`), i.e. `entities/` + `_state.md` built by someone
-  else and invisible to the bank. Cicada wins on decay, provenance, contradiction handling and portability;
-  auto-memory wins on zero-cost injection before the first token — which G75's handshake already solves.
-  So the real question is what belongs in that slot besides the now-view (answer: the `feedback` category,
-  i.e. G112). Measure the SessionStart-hook path and the token budget before writing code — M
-- **G127** mascot identity — bookworm vs a friendly WALL·E-*inspired* librarian robot (never a copy of the
-  character); prototype = three states behind a `mascot` setting, live with it a week, then rule — owner
-  said document only for now (2026-09-03). **2026-09-23: build it as a character/mascot selector** — every
-  character a skin over the same nine states; Strawberry browser's named companions as the reference (see the row)
-- **G99** relational tier — **DECLINED**; revisit only on a named trigger (warm p50 > 250 ms,
-  claims > 25k, or a merged G94 adapter retaining raw samples). G99a (bank `.gitignore` for the
-  vector index) has shipped; absorbs G96 (vector-as-entryway — validated, its storage question
-  is what G99 answered).
-- **G116** the inbox redesign's two contract rulings, needed before G115 Phase 3: (a) who authors a
-  rule-executed Stage-5 write (recommended `cicada`, rule string in the manifest line — not yet
-  ruled); (b) whether an in-conversation resolve carries `Cicada-Session:` on its `user` commit
-  (recommended no — the session ref lives in the `resolution` ledger event; not yet ruled). $0.
-  — G61 phase 2 (2026-09-23) adds a second caller (a source-settled item); rule (a) once for both.
-- **G61 phase 2 owner decisions — ruled 2026-09-23** (owner: "i'd go with your suggestions"; he named browser
-  harnesses and computer use in the ask itself): **D-AC1** shadow first — the owner flips auto-settling on at
-  ≥ 20 shadow settles and ≥ 95 % agreement, never automatically (working-method §4's "never auto-applied"
-  stands until he flips it); **D-AC2** the alternative, because the owner asked for browser agents by name: a
-  host Cicada refuses to fetch (LinkedIn-class) gets a `Check first:` line for an agent **in the person's own
-  already-open session only — never signing in, never passing a login** — and that finding is inform-only
-  forever (it never settles); **D-AC3** yes, a seventh evidence kind `source`; **D-AC4** = G116(a): `cicada`
-  authors a rule- or check-executed write, the rule in the manifest; **D-AC5** yes, contract step 2 lets an
-  agent check before asking.
-- **G77** voice packets · **G10** bulk re-extraction *(re-filed 2026-09-01 — its D2 architecture
-  gate is resolved; now purely a 💸 spend decision, read alongside G74/G80/G78)*
-- **G141 DECIDEs — ruled 2026-09-23** (owner: "on the things you mention as my decision, i'd go with your
-  suggestions, and as to the timeline colors, maybe like a green bar that fills up? something that fits the
-  aesthetic. make nodes in the timeline clickable and stuff."): (a) Projects is the **eighth** rail item, ⌘8,
-  after Sources — Home took ⌘1 in #86, so no shortcut moves; (b) the band's progress is a **meadow-green fill
-  that fills up to Today**, every node on it clickable (DESIGN_RULES §9 records it; the one place a Meadow hue
-  encodes progress); (c) **yes** — Sleep holds an unpromoted subject's claims with the pending entity and
-  writes them on promotion: a new slice **PJ-0b** after PJ-0 — its seam,
-  `claim_pipeline.hold_page_less`, shipped with PJ-0 (PR #88); PJ-0b fills it (built on
-  `feat/g141-hold-page-less`). R-PJ16 (the Stop hook writes the per-turn `turns` list) is accepted.
-- **Pending-name expiry** (raised by G141 PJ-0b, 2026-09-24): nothing expires a name Stage 2 parked once.
-  It stays in `pending_entities.jsonl`, with any claims held for it, until it is mentioned again, and the
-  store grows by one line per such name. Should a name heard once and never again leave after N months,
-  taking its held claims with it (counted)? That would change the promotion model: a mention months later
-  would no longer promote. It is research R7's "decay-pruned candidates" and decision D2's question, so it
-  is the owner's. Until then `claims_waiting` on the `sleep_run` row shows how much is waiting.
-
-### Parked — no near-term work
-- **G56** Cicada as MHS memory layer · **G16** shared memories + shared contributors
-
-### Small & cheap — grab when passing
-- **`/graph` nodes carry `lastReferenced` (DS-3c R-DL11)** — Clusters rows would show an age (DR-58). It must be added
-  to `graph.NODE_SHAPE` and the node's hash, per the ETag rail — XS, backend only
-- **`/sources` items carry their saving episode (DS-3c R-DL15)** — for the Feed detail's "Show in conversation" — XS,
-  backend only
-- **Home's "Recently learned" (DS-3b R-HS3)** — the history detail (`GET /sleep/history/{commit}`) lists the pages a
-  cycle changed but not the claims it wrote with their evidence spans; a claims list on it (claim ids + spans, no claim
-  text in the commit) would let Home show what a cycle learned with its source lines, as DESIGN_RULES §10 first
-  sketched — S, backend then app
-- **G123** graph node search — shipped 2026-09-03 (PR #43); follow-up: route Ask citations and Sources
-  entity chips through `revealEntity` so they land on the node too — XS
-G7 centrality *(recommended for closing — "premise measured false" per a prior session, but this
-hygiene pass could not find the underlying measurement anywhere in tracked docs; left OPEN — see
-the report for what was checked)*
-
----
-
-## 🩹 Known-broken, not yet queued
-- **Round-4 live pass (2026-09-25), seen and not fixed:** (1) `logo_service._slug_guess` turns a one-word *tool*
-  name into `<name>.com`, and a real site there can serve someone else's favicon (a model's page showed a social app's
-  mark in Clusters) — guess only for `company`, or refuse an icon identical to a known brand's; (2) several saved papers
-  share one garbled title starting with "!" — suspect G133's folder-paper title extraction; (3) a claim with no prose
-  renders its raw predicate in a belief row ("X works-at Y") — humanise the fallback; (4) Codex shows no ✓ while its Stop
-  hook captures, because MCP recall is off — honest, but the card should say "your sessions already save; connect so
-  Codex can read your memory"; (5) a demo generated before #115 is re-opened with its old content — delete it in
-  Settings → Privacy & data and open the demo again (a generator version on `_bank.yaml` would let the route replace an
-  untouched old demo) — each XS–S
-- Sidebar footer: the sun/moon button next to the gear writes `cicada.colorScheme` but the owner reports
-  nothing happens on press (2026-09-03) — verify whether the scheme is applied at the root (`preferredColorScheme`)
-  and whether the graph page (hard-coded dark d3 palette, see GraphView.swift comment) masks it — XS
-- Graph re-lays out on every return to the Graph tab: `ContentView` rebuilds the `WKWebView` per
-  tab switch *(G109 Swift track — Wave A #1; the physics half shipped in phase 1)*
-- Bank `.git` is 69 MB against 16 MB of markdown — future growth stopped, **history not rewritten**
-  (destructive; user's call)
-- 8 date-dependent `test_calendar_registry.py` failures — pre-existing baseline on dev
-- `test_agent_provenance.py::test_a_decay_only_change_lands_in_its_own_cicada_authored_commit` fails when run
-  with its own file, passes alone — order-dependent, pre-existing (seen 2026-09-02 on plain dev)
+19. **A release is a merge to `main`, and a merge to `main` is a release (owner, 2026-10-06; G182).** This replaces
+    the manual-promotion rail for releases only. Owner, verbatim: "from now on yes we merge by default to dev, but for
+    releases we merge to main and automatically should be a GitHub release. So versioning should be setup properly."
+    **The rule.** Every feature/fix PR still targets `dev`. A release is a PR from `dev` to `main`, opened only for a
+    release and carrying the version bump; merging it is the release. CI on `main` then tags `vX.Y.Z` at the merged
+    commit, builds, verifies and publishes the GitHub Release — nobody tags by hand, and nothing else reaches `main`.
+    **Versioning.** `VERSION` (semver) is the one source; the app bundle, `pyproject`, the tag, the release title and
+    `latest.json` must all equal it, and CI rejects any disagreement. A merge whose `VERSION` already has a tag
+    publishes nothing (idempotent); a `VERSION` not greater than the latest tag fails loudly. A failed build,
+    verification or publication advertises nothing (no tag, no `latest`), never force-pushes, never overwrites a
+    released asset. The website's download link resolves through a stable latest-release asset, so no later release
+    needs a website edit.
+    **Why.** The owner's delivery priority for 2026-10-06 (G182): releases must exist, and the released version,
+    `main` and the website must never drift. Before this, 0.3.0 was built and dry-run four times but never published,
+    and `main` trailed `dev` by 88 commits.
+    Revisit on the owner's word (e.g. a release-candidate channel or an older-line hotfix branch).

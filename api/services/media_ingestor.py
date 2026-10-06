@@ -1648,7 +1648,7 @@ def write_media_episode(
             frontmatter["harness"] = item.harness
         if item.project_dir:
             frontmatter["project_dir"] = item.project_dir
-    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+    episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id
 
 
@@ -1907,7 +1907,7 @@ def write_note_episode(memory_path: Path, item: RawItem, existing: IngestResult)
             frontmatter["harness"] = item.harness
         if item.project_dir:
             frontmatter["project_dir"] = item.project_dir
-    markdown_parser.write(episodes_dir / f"{episode_id}.md", frontmatter, body)
+    episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id, True
 
 

@@ -20,13 +20,26 @@ this module each carried its own copy of both rules, and the copies disagreed:
 
 Pure filesystem + ``datetime``; no bank state, no LLM, importable from the MCP
 server (which only has ``api.services`` on its path) as freely as from a router.
+
+Audit 2026-10-02 (K01, A01) adds the cross-process half: :func:`create_episode`
+never replaces a file, so two processes that mint the same id both land, and
+:func:`episode_lock` is the one per-bank critical section for a dedup check or a
+read-modify-write of an existing episode, Sleep's retirement included.
 """
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
+import os
 import re
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
+
+from api.services import markdown_parser
 
 # Anchored so the stem `ep_2026-09-01_001` matches and `ep_2026-09-01_x`,
 # `sleep_2026-09-01_001` or a stem with its `.md` still attached do not. The
@@ -83,6 +96,108 @@ def next_episode_id(episodes_dir: Path, ep_date: str) -> str:
             if parsed is not None and parsed[0] == ep_date:
                 max_num = max(max_num, parsed[1])
     return f"ep_{ep_date}_{max_num + 1:03d}"
+
+
+#: How many times :func:`create_episode` re-mints after losing a race before it
+#: gives up — each loss means another writer created a file, so this is never
+#: reached in practice.
+CREATE_ATTEMPTS = 64
+
+
+def create_episode(episodes_dir: Path, frontmatter: dict, body: str) -> str:
+    """Write a NEW episode under ``frontmatter["id"]``, never replacing a file (K01).
+
+    ``next_episode_id`` scans, then the writer writes: two processes (an MCP
+    stdio server and the backend, or two MCP servers) that scan together mint
+    the same id, and ``markdown_parser.write`` used to replace the first
+    episode with the second. Here the create fails instead, the id is minted
+    again — the other writer's file now moves the max — and ``frontmatter["id"]``
+    is updated in place. Returns the id actually written."""
+    episode_id = str(frontmatter["id"])
+    parsed = parse_episode_id(episode_id)
+    if parsed is None:
+        raise ValueError(f"not an episode id: {episode_id!r}")
+    for _ in range(CREATE_ATTEMPTS):
+        try:
+            markdown_parser.write_new(episodes_dir / f"{episode_id}.md", frontmatter, body)
+            return episode_id
+        except FileExistsError:
+            episode_id = next_episode_id(episodes_dir, parsed[0])
+            frontmatter["id"] = episode_id
+    raise FileExistsError(f"no free episode id for {parsed[0]} after {CREATE_ATTEMPTS} attempts")
+
+
+# --- The one critical section (audit K01 / A01) ----------------------------------
+
+_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+_HELD: dict[str, tuple[int, int]] = {}  # key -> (depth, fd), touched only by the RLock's owner
+
+
+@contextmanager
+def episode_lock(episodes_dir: Path) -> Iterator[None]:
+    """Exclusive, cross-process, re-entrant lock on one bank's episodes.
+
+    An ``flock`` on the episodes directory's own descriptor: every process
+    that opens the directory contends for it, and nothing is created inside
+    the bank for git to see. A per-directory ``RLock`` in front makes it
+    re-entrant within a thread and orders threads of one process. Hold it for
+    one short operation only — a dedup check plus its create, or one
+    read-modify-write of an existing episode — never for a whole import or a
+    Sleep stage. ``flock`` waits without a timeout, and the Stop hook's request
+    has a 3 s budget, so every holder must stay short. Lock order is always a
+    writer's own process lock first, this one second."""
+    with dir_lock(episodes_dir):
+        yield
+
+
+@contextmanager
+def dir_lock(directory: Path) -> Iterator[None]:
+    """The mechanism behind :func:`episode_lock` and ``page_lock.page_lock``:
+    an exclusive, cross-process, re-entrant ``flock`` on a directory's own
+    descriptor, with a per-directory ``RLock`` in front. Each directory is its
+    own lock (keyed by its resolved path)."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    key = os.path.realpath(directory)
+    with _THREAD_LOCKS_GUARD:
+        rlock = _THREAD_LOCKS.setdefault(key, threading.RLock())
+    with rlock:
+        depth, fd = _HELD.get(key, (0, -1))
+        if depth == 0:
+            fd = os.open(key, os.O_RDONLY)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            except BaseException:
+                os.close(fd)
+                raise
+        _HELD[key] = (depth + 1, fd)
+        try:
+            yield
+        finally:
+            depth, fd = _HELD[key]
+            if depth == 1:
+                del _HELD[key]
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+            else:
+                _HELD[key] = (depth - 1, fd)
+
+
+def dir_lock_held(directory: Path) -> bool:
+    """Does THIS process hold :func:`dir_lock` on ``directory``? (a test seam)"""
+    return _HELD.get(os.path.realpath(directory), (0, -1))[0] > 0
+
+
+def body_revision(body: str) -> str:
+    """The revision of an episode's text, for retiring only what Sleep read (A01).
+
+    Content-derived, so a legacy episode with no ``content_hash`` needs no
+    migration, and frontmatter-only edits (a title, a turn stamp) never count
+    as new content."""
+    return hashlib.sha256(body.encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
 # --- The one clock (R2) --------------------------------------------------------

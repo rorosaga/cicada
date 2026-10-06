@@ -44,7 +44,9 @@ struct NavRail: View {
         .padding(.bottom, CicadaTheme.spacingMD)
         .frame(width: ShellMetrics.navWidth(labelled: labelled))
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(CicadaTheme.bgRail)
+        // The rail starts under the titlebar (owner 2026-10-05): a bare `.background(color)` ignores the safe area
+        // and ran the rail's fill up behind the traffic lights. The titlebar band stays the window's own surface.
+        .background(CicadaTheme.bgRail, ignoresSafeAreaEdges: [])
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Copy.pages)
     }
@@ -135,7 +137,7 @@ struct NavRailCell: View {
                 .font(CicadaTheme.icon(.rail))
                 .foregroundStyle(ink)
                 .frame(width: side, height: side)
-                .iconHover(hovering: hovering, subtle: true)
+                .iconHover(hovering: hovering)
         }
     }
 }
@@ -171,7 +173,7 @@ private struct RailFootGlyph: View {
         Image(systemName: systemName)
             .font(CicadaTheme.icon(.railFoot))
             .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-            .iconHover(hovering: hovering, subtle: true)
+            .iconHover(hovering: hovering)
             .frame(width: CicadaTheme.scaled(ShellMetrics.railCell), height: CicadaTheme.scaled(ShellMetrics.railCell))
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(hovering ? CicadaTheme.bgRailHover : Color.clear))
             .contentShape(Rectangle())

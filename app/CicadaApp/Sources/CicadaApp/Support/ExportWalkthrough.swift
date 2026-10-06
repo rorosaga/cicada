@@ -145,6 +145,22 @@ enum ExportWalkthrough {
                                 overlay: step.overlay)
     }
 
+    /// Audit 2026-10-02 A11 — how often the sheet's timeline asks for a frame. Hidden (occluded, minimized or the app
+    /// hidden): none. Reduce Motion: the frame only changes when the step does, so once per step. Otherwise the
+    /// painted scenes' cadence, halved under Low Power (`SceneRunPolicy`, R-HO7) — the camera's glide keeps its timing
+    /// because `frame(at:)` reads elapsed time, never a frame count.
+    enum Cadence: Equatable {
+        case paused
+        case steps(TimeInterval)
+        case animation(TimeInterval)
+    }
+
+    static func cadence(reduceMotion: Bool, lowPower: Bool, windowVisible: Bool) -> Cadence {
+        guard windowVisible else { return .paused }
+        if reduceMotion { return .steps(CicadaMotion.walkthroughStep) }
+        return .animation(SceneRunPolicy.frameInterval(lowPower: lowPower))
+    }
+
     /// Smoothstep: the camera eases in and out, never linear.
     static func ease(_ x: Double) -> Double { x * x * (3 - 2 * x) }
 

@@ -35,8 +35,12 @@ actor SiteIconStore {
         let k = key(site, bank, entity)
         if let hit = images[k] { return hit }
         if misses.contains(k) { return nil }
-        if let running = inFlight[k], case .image(let image) = await running.value { return image }
-        if inFlight[k] != nil { return nil }
+        // A caller that joins a running request takes its answer. Once it resumes, the first caller may already have
+        // cleared `inFlight`, so re-checking it would ask the same question again (2026-10-05).
+        if let running = inFlight[k] {
+            if case .image(let image) = await running.value { return image }
+            return nil
+        }
         let fetch = self.fetch
         let fetchForEntity = self.fetchForEntity
         let task = Task<Answer, Never> {

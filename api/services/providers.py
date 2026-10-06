@@ -53,9 +53,15 @@ _EMBED_INFLIGHT: dict[str, threading.Event] = {}
 
 
 def _default_sentence_transformer_factory():
-    from sentence_transformers import SentenceTransformer
+    """sentence-transformers, imported only when a model is actually built with it:
+    a release app has no torch (G182), and a bank on the bundled ONNX model must
+    never need the import."""
+    def factory(*args, **kwargs):
+        from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer
+        return SentenceTransformer(*args, **kwargs)
+
+    return factory
 
 
 def clear_embed_cache() -> None:
@@ -126,10 +132,12 @@ def warm_query_embedder(memory_path) -> None:
     try:
         from api.services.vector_index import SqliteVecIndexer
 
-        recorded = (SqliteVecIndexer(memory_path).index_info() or {}).get("model")
-        if recorded and recorded != "unknown":
-            cached_embed_fn_for_model(recorded)
-            logger.info(f"Warmed query embedder: {recorded}")
+        idx = SqliteVecIndexer(memory_path)
+        # Every model a table was built with — after a partial switch, two (audit 2026-10-05 P2-4).
+        for recorded in dict.fromkeys(idx.kind_model(k) for k in ("entities", "claims", "episodes", "pending")):
+            if recorded and recorded != "unknown":
+                cached_embed_fn_for_model(recorded)
+                logger.info(f"Warmed query embedder: {recorded}")
     except Exception as exc:  # never fatal
         logger.warning(f"embedder warm-up skipped: {exc}")
 
@@ -682,8 +690,15 @@ def resolve_embed_fn(
     transport: Callable[..., Any] | None = None,
     openai_client_factory: Callable[..., Any] | None = None,
     sentence_transformer_factory: Callable[..., Any] | None = None,
+    memory_path=None,
 ) -> tuple[EmbedFn, str]:
     """Build the production embedding fn + its model name from Settings.
+
+    With ``memory_path`` (the build side of a bank's index) the model is that
+    bank's own (``embedding_models.build_model``: the person's choice, else what
+    the index already records, else the configured default — G182), routed
+    through :func:`resolve_embed_fn_for_model` so the build and the query side
+    of one bank can never disagree.
 
     Returns ``(embed_fn, model_name)`` where
     ``embed_fn(texts, *, is_query=False) -> np.ndarray`` (float32, 2-D).
@@ -703,6 +718,11 @@ def resolve_embed_fn(
 
         settings = get_settings()
     settings.warn_if_degraded()
+    if memory_path is not None and transport is None and openai_client_factory is None \
+            and sentence_transformer_factory is None:
+        from api.services import embedding_models
+
+        return resolve_embed_fn_for_model(embedding_models.build_model(memory_path, settings), settings)
     mode = settings.resolved_embedding_mode
     model = settings.resolved_embedding_model
 
@@ -726,12 +746,19 @@ def resolve_embed_fn(
 
         return _openai_embed, model
 
+    # G182 — a bundled ONNX model (a release app's default) runs without torch.
+    from api.services import onnx_embedder
+
+    spec = onnx_embedder.find(model)
+    if spec is not None:
+        return onnx_embedder.OnnxEmbedder(spec), spec.id
+
     # Local sentence-transformers (default: google/embeddinggemma-300m).
     if sentence_transformer_factory is None:
         from sentence_transformers import SentenceTransformer
 
         sentence_transformer_factory = SentenceTransformer
-    st_model = sentence_transformer_factory(model)
+    st_model = sentence_transformer_factory(_local_source(model))
 
     def _local_embed(texts: list[str], *, is_query: bool = False) -> np.ndarray:
         encode = st_model.encode_query if is_query else st_model.encode_document
@@ -755,6 +782,14 @@ def resolve_embed_fn(
 # Recorded model ids that map to the OpenRouter ``/embeddings`` route. Gemini
 # embedding models are served via OpenRouter in Cicada.
 _OPENROUTER_EMBED_MODELS = ("gemini",)
+
+
+def _local_source(model_id: str) -> str:
+    """Where sentence-transformers loads ``model_id`` from: the folder the optional
+    download saved it to (G182 — a gated model then needs no token), else the id."""
+    from api.services import embedding_models
+
+    return embedding_models.local_model_path(model_id) or model_id
 
 
 def _model_is_openai(model_id: str) -> bool:
@@ -854,12 +889,20 @@ def resolve_embed_fn_for_model(
 
         return _or_embed, mid
 
+    # A bank built with a bundled ONNX model queries with it (G182) — whatever factory a
+    # caller passed: `cached_embed_fn_for_model` always passes one.
+    from api.services import onnx_embedder
+
+    spec = onnx_embedder.find(mid)
+    if spec is not None:
+        return onnx_embedder.OnnxEmbedder(spec), spec.id
+
     # Local sentence-transformers (the recorded id is the ST model name).
     if sentence_transformer_factory is None:
         from sentence_transformers import SentenceTransformer
 
         sentence_transformer_factory = SentenceTransformer
-    st_model = sentence_transformer_factory(mid)
+    st_model = sentence_transformer_factory(_local_source(mid))
 
     def _local_for_model(texts: list[str], *, is_query: bool = False) -> np.ndarray:
         encode = st_model.encode_query if is_query else st_model.encode_document

@@ -56,18 +56,32 @@ final class CicadaMotionTests: XCTestCase {
     /// R-M13: a glyph acknowledges the pointer ONCE, on entry, and never
     /// under Reduce Motion — enforced by not firing, not by hoping
     /// `symbolEffectsRemoved` reaches the effect.
-    func testSubtleIconNodIsSmallerThanTheMarkNod() {
-        // Owner 2026-09-30: the rail's hover moved too much. The subtle nod stays under the brand-mark nod in both
+    func testIconNodIsSmallerThanTheMarkNod() {
+        // Owner 2026-09-30: the rail's hover moved too much. The nod stays under the brand-mark nod in both
         // rotation and scale, and settles back to rest.
-        // Owner, later the same day: the nod still read as a jiggle, so the rail's hover has no rotation at all.
-        XCTAssertLessThan(IconHover.subtleScaleKeys[0], MarkHover.scaleKeys[0])
-        XCTAssertLessThanOrEqual(IconHover.subtleScaleKeys[0], 1.05)
-        XCTAssertEqual(IconHover.subtleScaleKeys.last, 1)
+        // Owner, later the same day: the nod still read as a jiggle, so the hover has no rotation at all.
+        XCTAssertLessThan(IconHover.scaleKeys[0], MarkHover.scaleKeys[0])
+        XCTAssertLessThanOrEqual(IconHover.scaleKeys[0], 1.05)
+        XCTAssertEqual(IconHover.scaleKeys.last, 1)
+        let iconHover = Self.iconHoverSource()
+        XCTAssertFalse(iconHover.isEmpty)
+        XCTAssertFalse(iconHover.contains("rotation"), "a glyph's hover never tilts")
+        XCTAssertLessThanOrEqual(CicadaMotion.iconNodDuration, CicadaMotion.markNodDuration)
+    }
+
+    /// Owner 2026-10-06: the help icon "wiggles way too much" — every glyph hovers like the side panel's. SF Symbols'
+    /// `.wiggle` cannot be damped, so `IconHover` never uses it, and there is no second, louder variant to opt into.
+    func testEveryGlyphHoverIsTheOneNod() {
+        let iconHover = Self.iconHoverSource()
+        XCTAssertFalse(iconHover.contains(".wiggle"), "no SF Symbols wiggle on hover")
+        XCTAssertFalse(iconHover.contains("subtle"), "one hover motion, not a quiet and a loud one")
+    }
+
+    private static func iconHoverSource() -> String {
         let source = try? String(contentsOfFile: #filePath.replacingOccurrences(of: "Tests/CicadaAppTests/CicadaMotionTests.swift",
                                                                                    with: "Sources/CicadaApp/Theme/CicadaMotion.swift"))
-        let nod = source?.components(separatedBy: "private func nod(").last?.components(separatedBy: "/// `.wiggle`").first ?? ""
-        XCTAssertFalse(nod.contains("rotation"), "the rail's hover never tilts")
-        XCTAssertLessThanOrEqual(CicadaMotion.iconNodDuration, CicadaMotion.markNodDuration)
+        return source?.components(separatedBy: "struct IconHover: ViewModifier {").last?
+            .components(separatedBy: "// MARK: - Mark hover").first ?? ""
     }
 
     func testIconHoverBumpsOnEntryOnlyAndNeverUnderReduceMotion() {

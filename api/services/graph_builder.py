@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -115,10 +116,12 @@ def _build_full(memory_path: Path) -> GraphResponse:
     hubs_dir = memory_path / "hubs"
 
     key = (
-        _dir_mtime(entities_dir),
-        _mtime(edges_file),
-        _dir_mtime(hubs_dir),
-        _inbox_mtime(memory_path),
+        # Fingerprints, not "the newest mtime" (audit 2026-10-05 P2-9): an edit
+        # beside a future-dated page must still miss the cache.
+        bank_index.dir_fingerprint(entities_dir),
+        _mtime_ns(edges_file),
+        bank_index.dir_fingerprint(hubs_dir),
+        _inbox_stamp(memory_path),
         # G59: the logo cache lives outside the bank, so a warm-up or an
         # on-demand fetch moves no other key here — without this the cached
         # response keeps every node's stale `has_logo` (and `content_hash`).
@@ -693,15 +696,48 @@ def _mtime(path: Path) -> float:
 
 
 def _dir_mtime(path: Path) -> float:
-    """Max mtime across a directory's .md files + the dir itself."""
-    if not path.exists():
+    """Max mtime across a directory's .md files + the dir itself.
+
+    One ``os.scandir`` (audit A10) instead of ``glob`` plus a ``stat`` call per
+    file: the SSE loop stamps entities, hubs and three inbox directories every
+    second. The same set ``Path.glob("*.md")`` yields on Python 3.12 — hidden
+    names and a directory named ``*.md`` included — and the same answer for a
+    path that cannot be listed (its own mtime) or does not exist (0)."""
+    try:
+        latest = os.stat(path).st_mtime
+    except OSError:
         return 0.0
-    latest = _mtime(path)
-    for filepath in path.glob("*.md"):
-        m = _mtime(filepath)
-        if m > latest:
-            latest = m
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if not entry.name.endswith(".md"):
+                    continue
+                try:
+                    m = entry.stat().st_mtime
+                except OSError:
+                    continue
+                if m > latest:
+                    latest = m
+    except OSError:
+        pass
     return latest
+
+
+def _mtime_ns(path: Path) -> tuple[int, int]:
+    """One file's ``(mtime_ns, size)`` — a write always moves it, whatever the clock says."""
+    try:
+        st = path.stat()
+    except OSError:
+        return (0, 0)
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _inbox_stamp(memory_path: Path) -> str:
+    """The inbox as a change stamp: the fingerprints of ``inbox/`` and the two
+    legacy directories (``nudges/``, ``clarifications/``), joined with ``+``
+    (audit 2026-10-05 P2-9)."""
+    return "+".join(bank_index.dir_fingerprint(memory_path / sub)
+                    for sub in ("inbox", "nudges", "clarifications"))
 
 
 def _inbox_mtime(memory_path: Path) -> float:
@@ -718,3 +754,4 @@ def _inbox_mtime(memory_path: Path) -> float:
 dir_mtime = _dir_mtime
 file_mtime = _mtime
 inbox_mtime = _inbox_mtime
+inbox_stamp = _inbox_stamp

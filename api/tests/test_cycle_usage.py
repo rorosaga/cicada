@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+from datetime import datetime, timezone
 
 import pytest
 
@@ -366,8 +367,9 @@ def ledger_bank(tmp_path, monkeypatch):
     (memory / "entities" / "alpha-project.md").write_text("---\ntype: project\n---\nbody\n")
     subprocess.run(["git", "init", "-q"], cwd=memory, check=True)
     _git(memory, "add", "-A")
+    commit_date = datetime.now(timezone.utc).date().isoformat()
     _git(memory, "commit", "-q", "-m",
-         "Sleep cycle 2026-09-29\n\nentities/alpha-project.md: created (source: n/a, trigger: sleep/extraction)"
+         f"Sleep cycle {commit_date}\n\nentities/alpha-project.md: created (source: n/a, trigger: sleep/extraction)"
          "\n\nCicada-Author: gpt-5.4-mini\nCicada-Engine: litellm")
     full = subprocess.run(["git", "rev-parse", "HEAD"], cwd=memory, capture_output=True, text=True,
                           check=True).stdout.strip()
@@ -376,7 +378,10 @@ def ledger_bank(tmp_path, monkeypatch):
 
 def test_history_and_detail_join_usage_from_the_ledger(ledger_bank):
     memory, full = ledger_bank
-    when = "2026-09-29T10:00:00.000Z"
+    # The history join only reads ledger months at or after the commit date; keep both on today's date.
+    commit_date = subprocess.run(["git", "-C", str(memory), "show", "-s", "--format=%cs", full],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+    when = f"{commit_date}T10:00:00.000Z"
     for ev in (_run("k", commit=full), _call("k"), _call("k")):
         ev.ts = when
         telemetry.record(ev)

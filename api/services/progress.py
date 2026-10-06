@@ -26,6 +26,7 @@ from loguru import logger
 
 from api.services import claim_expiry, inbox_generator, markdown_parser, owner_identity, telemetry
 from api.services import evidence as evidence_mod
+from api.services import page_lock
 # Aliased: `record_happening` takes a `when` argument (the MCP schema's name), so
 # a bare module name would be the caller's string inside it (Global Constraints).
 from api.services import when as when_mod
@@ -418,6 +419,7 @@ def _paths(page: Path, *more: list[str]) -> list[str]:
 # --------------------------------------------------------------------------- #
 
 
+@page_lock.locked
 def record_happening(memory_path: Path, *, subject: str, text: str, status: str, participants=None,
                      when: str | None = None, evidence=None, observer: str, origin: str, authored_by: str,
                      session_id: str | None = None, settles: str | None = None,
@@ -505,6 +507,7 @@ def record_happening(memory_path: Path, *, subject: str, text: str, status: str,
 # --------------------------------------------------------------------------- #
 
 
+@page_lock.locked
 def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | None = None,
                   status: str = "planned", slug: str | None = None, on: date | None = None, observer: str,
                   origin: str, authored_by: str, session_id: str | None = None, evidence=None,
@@ -557,6 +560,7 @@ def set_milestone(memory_path: Path, *, subject: str, name: str, target: str | N
         return _error(f"{type(exc).__name__}: {exc}")
 
 
+@page_lock.locked
 def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = None, on: date | None = None,
             target: str | None = None, observer: str, origin: str, authored_by: str,
             session_id: str | None = None, evidence=None, date_basis: str = "person",
@@ -642,6 +646,7 @@ def advance(memory_path: Path, *, subject: str, slug: str, status: str | None = 
         return _error(f"{type(exc).__name__}: {exc}")
 
 
+@page_lock.locked
 def rename_milestone(memory_path: Path, *, subject: str, slug: str, name: str) -> dict:
     """The one in-place edit: the open head's `text` only. A name is a label,
     not a state — git keeps the history, and the slug (the slot) never moves.
@@ -667,6 +672,7 @@ def rename_milestone(memory_path: Path, *, subject: str, slug: str, name: str) -
         return _error(f"{type(exc).__name__}: {exc}")
 
 
+@page_lock.locked
 def withdraw(memory_path: Path, *, subject: str, claim_id: str, author: str, reason: str, origin: str,
              session_id: str | None = None, evidence=None, today: date | None = None,
              recorded_ts: str | None = None) -> dict:

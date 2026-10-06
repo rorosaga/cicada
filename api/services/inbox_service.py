@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from fastapi import HTTPException
 from api.config import Settings
 from api.models.schemas import InboxCause, InboxCheck, InboxCheckFinding, InboxItem, InboxOption, InboxResolveRequest
 from api.services import (
+    bank_index,
     decay_policy,
     fact_sources,
     inbox_context,
@@ -278,6 +280,53 @@ def _subject_gone(memory_path: Path, entity_id: str, kind: str) -> bool:
     return str(fm.get("status", "active") or "active") in ("archived", "dropped")
 
 
+def _hidden(
+    memory_path: Path, *, kind: str, entity_id: str, remind_after: str | None,
+    today: str, include_deferred: bool = False,
+) -> bool:
+    """The one rule for a parsed item that is on disk but not served.
+
+    :func:`load_inbox` and :func:`served_counts` both ask it, so the menu bar's
+    count can never again include cards the inbox will not show (49 counted
+    against 35 listed on 2026-10-06: 14 items whose subject was archived,
+    dropped or gone).
+    """
+    if not include_deferred and remind_after and inbox_questions.is_deferred(
+        {"remind_after": remind_after}, today
+    ):
+        return True
+    return _subject_gone(memory_path, entity_id, kind)
+
+
+def served_counts(memory_path: Path) -> tuple[int, dict[str, int]]:
+    """How many items :func:`load_inbox` serves, in total and by kind.
+
+    Reads frontmatter through ``bank_index`` (cached, mtime-gated) instead of
+    building every item. A file with no ``kind`` falls back to
+    :func:`load_inbox` itself rather than guessing ``_item_from_file``'s
+    ``"decay"`` default; a malformed file is absent from both paths.
+    """
+    today = str(date.today())
+    total = 0
+    by_kind: Counter = Counter()
+    for f in bank_index.files(memory_path, "inbox"):
+        if not f.stem.startswith("inbox-"):
+            continue
+        fm = f.frontmatter
+        if "kind" not in fm:
+            items = load_inbox(memory_path)
+            return len(items), dict(Counter(i.kind.value for i in items))
+        kind = str(fm["kind"])
+        if _hidden(
+            memory_path, kind=kind, entity_id=str(fm.get("entity_id", "") or ""),
+            remind_after=_opt_str(fm.get("remind_after")), today=today,
+        ):
+            continue
+        total += 1
+        by_kind[kind] += 1
+    return total, dict(by_kind)
+
+
 def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[InboxItem]:
     """Load inbox items, sorted: pending first, then priority desc, date desc.
 
@@ -315,11 +364,10 @@ def load_inbox(memory_path: Path, *, include_deferred: bool = False) -> list[Inb
         except Exception as exc:
             logger.warning(f"skipping unparseable inbox item {filepath.name}: {exc}")
             continue
-        if not include_deferred and item.remind_after and inbox_questions.is_deferred(
-            {"remind_after": item.remind_after}, today
+        if _hidden(
+            memory_path, kind=item.kind.value, entity_id=item.entity_id,
+            remind_after=item.remind_after, today=today, include_deferred=include_deferred,
         ):
-            continue
-        if _subject_gone(memory_path, item.entity_id, item.kind):
             continue
         items.append(item)
     # pending first, then priority desc, then created_date desc.
@@ -396,6 +444,17 @@ async def _git_remove(memory_path: Path, target: Path) -> None:
     except Exception:
         if target.exists():
             target.unlink()
+
+
+def _merge_manifest(paths: list[str], *, removed: str) -> list[str]:
+    """One manifest line per file a merge answer wrote or removed (audit
+    2026-10-05 P1-3: the resolution commits exactly its manifest's files)."""
+    trigger = "inbox/merge_suggestion/resolved:merge"
+    lines = []
+    for rel in dict.fromkeys(paths):
+        verb = "removed (merged)" if rel == removed else "updated"
+        lines.append(f"{rel}: {verb} (trigger: {trigger})")
+    return lines
 
 
 # ---------- Resolution dispatch ----------
@@ -867,6 +926,12 @@ async def resolve(
     )
     feedback = _feedback_refs(parsed.frontmatter, kind, label, request, settings.memory_path)
 
+    # Audit 2026-10-05 P1-3: what the uncommitted pages and items hold BEFORE the
+    # answer writes, so an edit already on a page the answer rewrites is
+    # committed apart from it, never as the person's.
+    from api.services import git_service as _git_service
+
+    before = await _git_service.snapshot_dirty(settings.memory_path)
     extra_lines: list[str] = []
     emit_extra: dict = {}
     if kind == "decay":
@@ -923,13 +988,17 @@ async def resolve(
         f"inbox/{kind}/resolved:{label}",
         extra_lines,
         change=change,
+        # The item file the answer retired; the page and every manifest line's
+        # file are read from the manifest itself — nothing else is committed.
+        paths=[path.relative_to(settings.memory_path).as_posix()],
+        before=before,
     )
     # G53 (R4) — the pending count just changed; refresh the projection
     # cheaply (repo blocks are the app's last look, never a git run) and commit it
     # alone as `cicada`. Best-effort: a projection failure never fails a
     # person's answer. Runs AFTER the commit on purpose: `commit_resolution`
-    # is `git add -A`, and refreshing first would attribute the projection
-    # to the person's answer. It commits its own rewrite for the mirror
+    # used to be `git add -A` (audit P1-3 scoped it to the answer's own files),
+    # and the projection is not the person's answer. It commits its own rewrite for the mirror
     # reason (final review, 2026-09-03): a rewrite left dirty was reproduced
     # riding in the NEXT resolution's `Cicada-Author: user` commit — the
     # G85-class smear R2/R3 exist to prevent — so `refresh_and_commit`, not
@@ -1894,31 +1963,52 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             int(target.frontmatter.get("version", 1) or 1) + 1
         )
 
+        from api.services.claims import MalformedClaimsBlockError, parse_claims
+        from api.services.entity_merge import append_note, merge_entities, rename_references
+
+        try:
+            # Strict, before anything moves: a corrupt fence aborts the merge
+            # rather than being rewritten as "no claims" (audit 2026-10-05 P1-1).
+            parse_claims(target.body, strict=True)
+        except MalformedClaimsBlockError as exc:
+            raise HTTPException(409, f"'{target_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
+
         if not rename:
             # Survivor == existing target: absorb the mention into the target.
             note = f"\n\n_Resolved ambiguous mention '{mention}' into this entity._"
-            new_body = (target.body or "").rstrip() + note
+            new_body = append_note(target.body, note)
             markdown_parser.write(target_path, target.frontmatter, new_body)
             path.unlink()
             entity_id = target_path.stem
         else:
             # Survivor == the cleaner mention: keep the cleaner name/id.
             survivor_path = target_path.parent / f"{survivor_slug}.md"
+            target_name = target.frontmatter.get("name")
             target.frontmatter["name"] = survivor
             note = (
                 f"\n\n_Merged '{target_path.stem}' into this entity "
                 f"(kept the cleaner name '{survivor}')._"
             )
 
-            if survivor_path.exists() and survivor_path != target_path:
-                # A file already lives at the survivor slug — append into it,
-                # never overwrite. Carry the source target's episodes forward.
+            if survivor_path.exists() and not survivor_path.samefile(target_path):
+                # A file already lives at the survivor slug — fold the target
+                # into it through the one merge primitive, never overwrite:
+                # its prose, its claims with their provenance and history, and
+                # every reference elsewhere follow (audit 2026-10-05 P1-1 — this
+                # branch used to keep a note and the episode list and delete
+                # the rest). Then the mention's own episode and date.
+                try:
+                    merged = merge_entities(settings.memory_path, loser_id=target_path.stem,
+                                            winner_id=survivor_path.stem)
+                except MalformedClaimsBlockError as exc:
+                    raise HTTPException(
+                        409, f"'{survivor_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
                 existing = markdown_parser.parse(survivor_path)
                 eps = list(existing.frontmatter.get("source_episodes", []) or [])
-                for ep in target.frontmatter.get("source_episodes", []) or []:
-                    if ep not in eps:
-                        eps.append(ep)
-                existing.frontmatter["source_episodes"] = eps
+                if source_episode and source_episode not in eps:
+                    eps.append(source_episode)
+                if eps:
+                    existing.frontmatter["source_episodes"] = eps
                 ex_last = str(
                     existing.frontmatter.get("last_referenced", "") or ""
                 ).strip()
@@ -1929,20 +2019,25 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 existing.frontmatter["version"] = (
                     int(existing.frontmatter.get("version", 1) or 1) + 1
                 )
-                merged_body = (existing.body or "").rstrip() + note
+                merged_body = append_note(existing.body, note)
                 markdown_parser.write(
                     survivor_path, existing.frontmatter, merged_body
                 )
-                # Remove the now-absorbed source target via git so history follows.
-                await _git_remove(settings.memory_path, target_path)
+                merge_lines = _merge_manifest(merged["paths"], removed=f"entities/{target_path.stem}.md")
             else:
                 # Rename the source target file to the survivor's cleaner slug.
-                new_body = (target.body or "").rstrip() + note
-                markdown_parser.write(target_path, target.frontmatter, new_body)
+                # Its claims, its edges and every other page's references move
+                # with it — the old id stops existing, like a merge's loser.
+                old_id, old_name = target_path.stem, str(target_name or target_path.stem)
+                markdown_parser.write(target_path, target.frontmatter, append_note(target.body, note))
                 await _git_move(settings.memory_path, target_path, survivor_path)
+                renamed = rename_references(settings.memory_path, old_id, old_name, survivor_path.stem, survivor)
+                merge_lines = _merge_manifest([f"entities/{old_id}.md", *renamed],
+                                              removed=f"entities/{old_id}.md")
 
             path.unlink()
             entity_id = survivor_slug
+            return entity_id, False, merge_lines
 
     elif action == "skip":
         return entity_id, True, []

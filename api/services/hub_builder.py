@@ -21,7 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from api.config import Settings
-from api.services import markdown_parser
+from api.services import inbox_service, markdown_parser
 from api.services.claims import strip_claims_block
 
 # type -> (hub file stem, friendly display name). Order drives _index.md listing.
@@ -267,10 +267,9 @@ def _count_edges(memory_path: Path) -> int:
 
 
 def _count_pending_inbox(memory_path: Path) -> int:
-    """Count pending items in inbox/, falling back to legacy nudges/+clarifications/."""
-    inbox = memory_path / "inbox"
-    if inbox.exists():
-        return sum(1 for _ in inbox.glob("inbox-*.md"))
+    """Count the items the inbox serves, falling back to legacy nudges/+clarifications/."""
+    if (memory_path / "inbox").exists():
+        return inbox_service.served_counts(memory_path)[0]
     total = 0
     for sub in ("nudges", "clarifications"):
         d = memory_path / sub

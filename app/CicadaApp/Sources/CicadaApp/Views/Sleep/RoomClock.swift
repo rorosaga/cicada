@@ -9,6 +9,10 @@ enum RoomClockReading {
         Date(timeIntervalSinceReferenceDate: date.timeIntervalSinceReferenceDate.rounded(.down))
     }
 
+    /// The second hand's boundaries: every whole second of the shared sprite clock (its origin is a whole second).
+    static let secondTrack = SpriteFrameSchedule.Track(origin: SpriteClock.origin, seconds: [CicadaMotion.roomClockTick],
+                                                      loops: true)
+
     static func indices(at date: Date, zone: TimeZone) -> Indices {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
@@ -33,7 +37,7 @@ enum RoomClockReading {
     }
 }
 
-/// Its own timeline redraws only this leaf; leaving/occluding the room tears the timeline down.
+/// A minute timeline redraws only this leaf, a layer moves the second hand; leaving/occluding the room tears both down.
 struct RoomClock: View {
     let lighting: RoomLighting
     let cell: CGFloat
@@ -46,29 +50,34 @@ struct RoomClock: View {
     var body: some View {
         Group {
             if snapshotDate == nil && onScreen && windowVisible && !hostPaused {
-                if reduceMotion {
-                    TimelineView(.everyMinute) { context in reading(at: context.date) }
-                } else {
-                    TimelineView(.periodic(from: RoomClockReading.secondBoundary(at: Date()), by: CicadaMotion.roomClockTick)) { context in
-                        reading(at: context.date)
-                    }
-                }
+                // Hours, minutes and the words move at minute boundaries; the second hand is a layer swapped each
+                // second (`SpriteLayerPlayer`), so the window is not re-rendered once a second (measured 2026-10-05).
+                TimelineView(.everyMinute) { context in reading(at: context.date, liveSeconds: !reduceMotion) }
             } else { reading(at: snapshotDate ?? Date()) }
         }
         .background { if snapshotDate == nil { WindowVisibilityReader { windowVisible = $0 } } }
         .accessibilitySortPriority(RoomA11yOrder.clock)
     }
 
-    private func reading(at date: Date) -> some View {
+    /// `liveSeconds` hands the second hand to a layer that keeps time on its own; the rest is this minute's state.
+    private func reading(at date: Date, liveSeconds: Bool = false) -> some View {
         let sheet = SpriteSheets.sheet(named: "room-clock")
         let size = DeskScene.plan.first { $0.prop == .clock }.map { CGSize(width: $0.w, height: $0.h) } ?? .zero
         let label = RoomClockReading.label(at: date, zone: .current)
+        let layers = RoomClockReading.layers(at: date, zone: .current, lighting: lighting, reduceMotion: reduceMotion)
+        let second = liveSeconds ? layers.first { $0.tag.hasPrefix("second") } : nil
         return ZStack {
             ZStack {
-                ForEach(RoomClockReading.layers(at: date, zone: .current, lighting: lighting, reduceMotion: reduceMotion), id: \.tag) { layer in
+                ForEach(layers.filter { $0.tag != second?.tag }, id: \.tag) { layer in
                     if let clip = sheet?.clip(layer.tag), clip.order.indices.contains(layer.index),
                        let image = sheet?.frameImage(clip.order[layer.index]) {
                         Image(decorative: image, scale: 1).resizable().interpolation(.none)
+                    }
+                }
+                if let second, let sheet, let clip = sheet.clip(second.tag) {
+                    SpriteLayerPlayer(tracks: [RoomClockReading.secondTrack]) { date in
+                        let index = RoomClockReading.indices(at: date, zone: .current).second
+                        return clip.order.indices.contains(index) ? sheet.frameImage(clip.order[index]) : nil
                     }
                 }
             }

@@ -10,7 +10,8 @@ import SwiftUI
 struct AdvancedView: View {
     @Environment(Store.self) private var store
     @State private var health: HealthSnapshot?
-    private let home = BackendProcess.installRoot().path
+    /// G182 — the MCP command an agent runs in this build (the checkout's, or a release's launcher).
+    private let mcp = CicadaRuntime.current.mcpCommand
 
     private var overrides: [String] { store.status.value?.envOverrides ?? [] }
 
@@ -25,7 +26,7 @@ struct AdvancedView: View {
                 SettingsRow(.backendStatus, title: Copy.backendTitle, detail: backendLine)
                 SettingsDivider()
                 SettingsRow(.mcpCommand, title: Copy.mcpCommandTitle, detail: Copy.mcpCommandDetail) { EmptyView() } below: {
-                    CommandBox(command: "\(SnippetEscape.shell("\(home)/api/.venv/bin/python")) \(SnippetEscape.shell("\(home)/mcp/server.py"))")
+                    CommandBox(command: ([mcp.command] + mcp.args).map(SnippetEscape.shell).joined(separator: " "))
                         .privacySensitive()
                 }
                 SettingsDivider()

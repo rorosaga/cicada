@@ -12,6 +12,8 @@ import SwiftUI
 /// `ShellCommandsTests` keeps the shortcut in this file alone.
 struct ShellCommands: Commands {
     let router: AppRouter
+    /// G182 phase 5 — Check for Updates…, a release build's alone.
+    let updates: UpdateService
     @AppStorage(ShellMetrics.labelledKey) private var labelled = false
     @Environment(\.openWindow) private var openWindow
 
@@ -28,6 +30,20 @@ struct ShellCommands: Commands {
                 }
             }
             .keyboardShortcut(",", modifiers: .command)
+        }
+        // G182 phase 5 — Check for Updates… right after About, in a release build only (a developer build never
+        // checks). It looks whatever the automatic switch says — this is the person's own click — and opens
+        // Settings → General so the answer is visible beside Version.
+        CommandGroup(after: .appInfo) {
+            if updates.isActive {
+                Button(Copy.Updates.menuItem) {
+                    Task { @MainActor in
+                        if !router.openSettings(.general, row: .appVersion) { openWindow(id: CicadaApp.mainWindowID) }
+                        await updates.check(userInitiated: true)
+                    }
+                }
+                .disabled(updates.state == .checking)
+            }
         }
         CommandGroup(before: .sidebar) {
             Button(labelled ? Copy.showIconRail : Copy.showLabelledSidebar) { labelled.toggle() }
