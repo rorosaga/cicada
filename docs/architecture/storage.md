@@ -524,6 +524,15 @@ importer),
   `MAX_SESSION_TRAILERS` (50) by the call site, not the builder. User-action commits stay
   session-less.
 
+**Follow-up resolution ownership (G183(b), checked 2026-10-06).** The resolver commits the retired inbox item,
+the event page and any companion-note episode as `user`; `_state.md` follows in its own `cicada` commit.
+Current follow-ups write only `happened`/`milestone` events (a legacy `due` becomes a milestone). These bypass
+ordinary conflict generation in `claim_reconciler.reconcile_events`, so a follow-up does not merge into an
+already-open conflict. `test_followup_manifest.py` covers event answer keys, free-text notes and date moves with
+a pre-existing conflict, verifying a clean tree and the resolution's owned paths and author trailer.
+The historical missing-merged-conflict report did not reproduce on this path; the general progress helper's
+created-name diff would need revisiting if event reconciliation ever starts merging existing inbox items.
+
 **G85 — decay gets its own `cicada`-authored commit.** Temporal decay runs over entities a cycle
 never referenced: no LLM, no source episode, pure arithmetic. Folding it into the main commit
 stamped it with whichever model happened to run Stage 1/2, inflating that model's contributor counts
