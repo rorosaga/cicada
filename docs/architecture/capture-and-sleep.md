@@ -213,7 +213,8 @@ batches, filed, requeued, skipped, active, finished, `stop{reason, sentence, res
 never an estimate, G107), the entity/episode counters as the run's running sums, `episodesQueued` the frozen total,
 `episodeCap` the batch size of the run in progress (0 with none), `batchSize` the configured one, always served, `readByOrigin` cumulative; the SSE `sleep` event gains a compact `drain`. **The write window
 (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal that guards a page
-(projects, entities, backlog, local sources, memory, maintenance, the remote connector's writes, paper details) and behind
+(projects, entities — the decay class and repo links since G183(a) —, the inbox's every resolve door, backlog, local
+sources, memory, maintenance — the dedup sweep since G183(e) —, the remote connector's writes, paper details) and behind
 `GET /sleep/status`'s `writing`, which MCP's `_backend_sleep_running` and `BACKLOG_SLEEPING` read. A plain or scheduled cycle
 holds the bank for its whole run, as before; a drain holds it only from a batch's Stage 2 (which loads the pages Stage 5
 rewrites) through its commit, plus the run's start and its tail. Stage 1's engine calls and the gaps between batches touch no

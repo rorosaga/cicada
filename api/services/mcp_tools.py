@@ -3130,8 +3130,20 @@ def resolve_inbox(
             return ("Error: pass option_key, or defer=true." if ctx.is_remote
                     else "Error: pass option_key, answer, or defer=true.")
 
+    import urllib.error
+
     try:
         result = ctx.backend_post(f"/inbox/{item_id}/resolve", payload)
+    except urllib.error.HTTPError as e:
+        # A refusal (409: Sleep holds the pages, G183(a); an unreadable claims block) is the
+        # backend's own sentence — not a sign it is down.
+        try:
+            detail = json.loads(e.read().decode("utf-8")).get("detail")
+        except Exception:  # noqa: BLE001 — an unreadable body falls back to the status
+            detail = None
+        if e.code == 409 and isinstance(detail, str) and detail:
+            return f"Could not resolve {item_id}: {detail} Nothing was written."
+        return f"Could not resolve {item_id} (HTTP {e.code}{': ' + detail if isinstance(detail, str) else ''})."
     except Exception as e:
         return (
             f"Could not resolve {item_id} ({type(e).__name__}: {e}). "

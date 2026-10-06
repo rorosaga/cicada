@@ -560,8 +560,8 @@ under its own author (R-B5).
 keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
 by `agentic_write.write_claim`/`retract_claim`, `progress`'s event writers, `fact_sources`' source writers and
-`paper_metadata`'s page updates, the dedup sweep's merges (each across its commit),
-and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
+`paper_metadata`'s page updates, the dedup sweep's merges (each across its commit), the app's decay-class and
+repo-link rewrites, and by the MCP's page-writing tools (`write_claim`, `retract_claim`, `note_progress`,
 `add_source`, `change_source`, `record_check`, `record_read`, and `record_watch` around its record) across the write
 **and its commit**. Nothing waits on a network call under it: such a tool asks Sleep before it takes the lock and
 reuses the answer, and `record_watch`'s link save and queue credit stay outside. Some holders are `async` routes and

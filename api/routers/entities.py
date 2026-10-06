@@ -47,6 +47,7 @@ from api.services import (
     local_refs,
     logo_service,
     markdown_parser,
+    page_lock,
     repo_context,
     repo_observations,
     telemetry,
@@ -210,6 +211,19 @@ def _picture_guard() -> None:
 
     if sleep_cycle.is_writing():
         raise HTTPException(409, PICTURE_BUSY)
+
+
+PAGE_BUSY = "Sleep is updating your memory — try again in a moment."
+
+
+def _page_guard() -> None:
+    """G177/G183(a) — the decay-class and repo-link rewrites wait for Sleep like a source change (same reason): a
+    frontmatter rewrite between Sleep's read and its commit would be lost or swept into the cycle's commit under a
+    model's name."""
+    from api.services import sleep_cycle
+
+    if sleep_cycle.is_writing():
+        raise HTTPException(409, PAGE_BUSY)
 
 
 def _entity_page(settings: Settings, entity_id: str) -> Path:
@@ -407,15 +421,17 @@ async def update_entity_decay(
     untouched, and ``version`` is deliberately NOT bumped: choosing how fast a
     belief fades is a policy decision about the page, not a revision of its
     content. Commits scoped to this one file — trigger ``user/companion_app``,
-    ``Cicada-Author: user``.
+    ``Cicada-Author: user``. 409 while Sleep holds the pages (G177).
     """
+    _page_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
-    parsed = markdown_parser.parse(entity_path)
-    parsed.frontmatter.update(decay_policy.frontmatter_fields(request.decay_class))
-    markdown_parser.write(entity_path, parsed.frontmatter, parsed.body)
+    with page_lock.page_lock(settings.memory_path):
+        parsed = markdown_parser.parse(entity_path)
+        parsed.frontmatter.update(decay_policy.frontmatter_fields(request.decay_class))
+        markdown_parser.write(entity_path, parsed.frontmatter, parsed.body)
 
     message = git_service.build_commit_message(
         f"Set decay class {date.today().isoformat()}",
@@ -637,29 +653,32 @@ async def update_entity_repos(
     empty list, so an entity that never declared a repo stays byte-identical.
     Every other frontmatter key and the body are left untouched. Commits via
     the same structured-commit-message + git_service pattern as every other
-    Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user``.
-    Answers the declarations, like ``GET`` — never a probe.
+    Cicada write: trigger ``user/companion_app``, ``Cicada-Author: user`` —
+    scoped to this one page, never ``git add -A`` (G183(a)). 409 while Sleep
+    holds the pages (G177). Answers the declarations, like ``GET`` — never a probe.
     """
+    _page_guard()
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
-    parsed = markdown_parser.parse(entity_path)
-    fm = parsed.frontmatter
+    with page_lock.page_lock(settings.memory_path):
+        parsed = markdown_parser.parse(entity_path)
+        fm = parsed.frontmatter
 
-    if not request.repos:
-        fm.pop("repos", None)
-    else:
-        fm["repos"] = [_repo_input_to_frontmatter(r) for r in request.repos]
+        if not request.repos:
+            fm.pop("repos", None)
+        else:
+            fm["repos"] = [_repo_input_to_frontmatter(r) for r in request.repos]
 
-    markdown_parser.write(entity_path, fm, parsed.body)
+        markdown_parser.write(entity_path, fm, parsed.body)
 
     message = git_service.build_commit_message(
         f"Update repo links {date.today().isoformat()}",
         [f"entities/{entity_id}.md: updated (trigger: user/companion_app)"],
         authors=["user"],
     )
-    await git_service.commit_changes(settings.memory_path, message)
+    await git_service.commit_paths(settings.memory_path, message, [f"entities/{entity_id}.md"])
 
     return _declarations_payload(entity_id, _repo_declarations(fm))
 

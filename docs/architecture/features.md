@@ -54,7 +54,8 @@ discriminator (`decay`, `conflict`, `clarification`, `merge_suggestion`, `remova
 resolvable kinds with G113; `removal` is written by a live browser sync, not Sleep, at proposal
 time (G129 slice 2); `followup`, G141 PJ-6, by Sleep's engine-free tail), behind `GET /inbox` /
 `POST /inbox/{id}/resolve`. `api/routers/nudges.py` and `clarifications.py` are thin **deprecated**
-shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`.
+shims (they set `Deprecation: true`) kept only for external callers — the app calls `/inbox`. Every resolve door answers
+409 while Sleep holds the pages (`inbox_service.resolve`, G177/G183(a)); between a drain's batches it commits alone.
 
 **A count is what the inbox serves, never a count of files.** `load_inbox` skips a deferred item and
 one whose subject is archived, dropped or (for every kind but `clarification`) gone; those files stay
