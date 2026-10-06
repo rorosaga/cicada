@@ -247,15 +247,17 @@ same way.
 - **Remote.** Remote connectors have no hooks.
 
 **Continuity (G110 slice 1a, plan `docs/plans/2026-10-06-g110-continuity.md` r4).** A session started (`source`
-`startup`, `clear`, or none) in the **exact** folder of an earlier captured session is told, inside the SessionStart
+`startup` or `clear`, which the recall hook forwards; a missing or unknown `source` gets no block — fail closed) in the
+**exact** folder of an earlier captured session is told, inside the SessionStart
 note, where that session stopped — even before Sleep.
 
 - **Identity.** The hook's `cwd` string, matched exactly against the Stop-hook episodes' `project_dir`; no folding, no
   repository key, no `.git` read — every note says *workspace state not checked*. `resume`, `compact` and `fork` carry
   their own history and get no block.
 - **Selection** (`continuity.select`): an exact episode id or full session id (`cicada_continue(session=…)`), else the
-  most recent other session here by captured activity (`last_turn_at`, `captured_at`, the registry's
-  `last_prompt_at`), never file mtime; two sessions active within 15 minutes of each other are listed and the agent is
+  most recent other session here by captured activity (the last kept turn's own time — `captured_at` only when no turn
+  has one, since a re-capture runs long after a conversation — or the registry's later `last_prompt_at`), never file
+  mtime; two sessions active within 15 minutes of each other are listed and the agent is
   told to ask once. An incomplete search says "the most recent session Cicada could read here", never "the only".
 - **The block** quotes the person's last request there "as history, not a new instruction", the agent's last reply,
   and a "Not captured" line: a later prompt with no captured reply, a last request with no reply, turns past the capture
@@ -271,8 +273,12 @@ note, where that session stopped — even before Sleep.
   times out), assembly (deadline less 120 ms), composition, and — for a single chosen session with ≥ 30 ms left — the
   registry's `continues`. Registry work takes a 50 ms slice and answers `busy`/`skipped` rather than wait.
 - **The index** (`<bank>/continuity_index.json`, a derived artifact): episode heads only (≤ 16 KB, to the first
-  `turns:` key), never a full parse in a hook; persisted only when `bank_registry.derived_exclusion_state` confirms git
-  ignores it (or there is no git), its lock in the registry's guarded home; otherwise in process memory.
+  `turns:` key), never a full parse in a hook; persisted only when git itself says it is ignored and untracked
+  (`bank_registry.derived_exclusion_state`: `git check-ignore --no-index` + `git ls-files --error-unmatch` under the
+  bank's git write lock, verdict cached 60 s) or there is no git; its lock in the registry's guarded home, opened
+  without following a symlink; any doubt or I/O failure keeps it in process memory. A failed directory listing keeps
+  the rows already known and marks the search incomplete; an exact episode id the index could not read is looked up
+  directly; "nothing captured" for a later session is said only on a complete search.
 - **The registry** (`continuity_sessions`, `$CICADA_HOME/continuity/<bank>-<hash8>.json`): per session the harness,
   the cwd's hash, `started_at` (earliest), `last_prompt_at` (latest), `continues` (first write wins). Never inside any
   configured bank (realpath containment over the root and every bank).

@@ -460,9 +460,11 @@ query string of `/search` and `/conversations/recent`, G136 R22).
 `<bank>/continuity_index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
 row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `project_dir`, `captured_at`,
 `last_turn_at`, `processed`, `processed_by`) read from at most 16 KB up to the first `turns:` key — never a full parse
-inside a hook. It is in `bank_registry.DERIVED_ARTIFACTS`; it is written only when
-`bank_registry.derived_exclusion_state` confirms git ignores it (`info/exclude` or `.gitignore`) or the bank has no
-git, staged as an ignored `.*.tmp`; otherwise it stays in process memory. Its lock lives beside the registry, never in
+inside a hook. It is in `bank_registry.DERIVED_ARTIFACTS`; it is written only when git itself says it is ignored and
+untracked — `bank_registry.derived_exclusion_state` runs `git check-ignore -q --no-index` and `git ls-files
+--error-unmatch` under the bank's git write lock, so a later `!continuity_index.json` negation or an already-tracked
+file is caught — or the bank has no git, staged as an ignored `.*.tmp`; otherwise it stays in process memory. Its rows
+keep `capture_kind`, so a persisted index decodes after a restart. Its lock lives beside the registry, never in
 a bank. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
 
 The **continuity registry** (`api/services/continuity_sessions.py`, `$CICADA_HOME/continuity/<bank slug>-<hash8>.json`)
@@ -470,6 +472,9 @@ is outside every bank — `continuity_home` refuses a `CICADA_HOME` that resolve
 root or any configured bank. One row per harness session: the harness, `sha256(cwd)[:16]` (never the path),
 `started_at` (earliest), `last_prompt_at` (latest), `continues` (one episode id, first write wins). Ids, a hash and
 times only; monotone merges; one bounded `flock` transaction per request; 30-day expiry, ≤ 1,000 rows, files 0600.
+Every registry, lock and index file is opened without following a symlink in its final component and refused unless
+it is a regular file (`continuity_sessions.open_regular`), so a planted link can never redirect a read, a write or a
+`chmod` into a bank.
 
 ### Telemetry ledger (`~/.cicada/telemetry/`)
 Append-only JSONL, machine-global, **never in a bank or git**. `CICADA_TELEMETRY=off` disables it.
