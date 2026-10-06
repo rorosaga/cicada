@@ -513,3 +513,14 @@ def _sleep_drain_state_never_leaks():
     yield
     sleep_cycle._state.drain = None
     sleep_cycle._state.drain_run = False
+
+
+@pytest.fixture(autouse=True)
+def _fresh_query_vector_cache():
+    """Audit 2026-10-05 P2-8's query-vector cache is process memory: one test's
+    fake embedder must never answer another's query."""
+    from api.services import vector_index
+
+    vector_index.clear_query_cache()
+    yield
+    vector_index.clear_query_cache()

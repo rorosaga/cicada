@@ -1214,9 +1214,13 @@ def recall(ctx: ToolContext, query: str) -> str:
     # The lexical leg is search_service's (aliases, word by word, word-start
     # prefix); the claim leg maps a matching CURRENT claim to its subject
     # (R3 P2), so "partner" reaches the person a `partner-of` claim is about.
-    semantic = _leann_search_entities(memory_path, query, top_k=8)
-    keyword = _keyword_search_entities(entities_dir, query, top_k=8)
-    claim_subjects = _claim_subject_search(memory_path, query, top_k=8)
+    # Audit 2026-10-05 P2-5: a page the person dropped never resurfaces — each
+    # leg is read against the markdown as it is NOW, before fusion ranks it,
+    # before the hints block suggests it and before a summary renders it.
+    live = _live_pages(entities_dir)
+    semantic = live(_leann_search_entities(memory_path, query, top_k=8))
+    keyword = live(_keyword_search_entities(entities_dir, query, top_k=8))
+    claim_subjects = live(_claim_subject_search(memory_path, query, top_k=8))
     merged = _rrf_fuse(semantic, keyword, claim_subjects)
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
 
@@ -1231,7 +1235,7 @@ def recall(ctx: ToolContext, query: str) -> str:
     for _eid in suggested:
         telemetry.record_read(_eid, surface=f"{ctx.read_surface}-recall", bank=memory_path.name)
     if not suggested and hub_member_ids:
-        suggested = hub_member_ids[:7]
+        suggested = [h["entity_id"] for h in live([{"entity_id": m} for m in hub_member_ids])][:7]
     # G53/G75 (R13): the now-view cursor rides in the FIRST hints block this
     # process emits, and only there — a block that was never emitted (nothing
     # to suggest) does not consume it.
@@ -2504,6 +2508,28 @@ def get_perspective(
 
 
 # ---------- Helpers: search sources ----------
+
+
+def _live_pages(entities_dir: Path):
+    """A filter over recall hits that keeps only pages that exist and are not
+    ``dropped`` as their markdown says now — every leg's index (vectors, FTS)
+    is as old as its last sync. Each page is read at most once per recall."""
+    seen: dict[str, bool] = {}
+
+    def alive(eid: str) -> bool:
+        if eid not in seen:
+            path = entities_dir / f"{eid}.md"
+            try:
+                fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+                seen[eid] = str((fm or {}).get("status") or "active") != "dropped"
+            except (OSError, ValueError):
+                seen[eid] = False
+        return seen[eid]
+
+    def keep(hits: list[dict]) -> list[dict]:
+        return [h for h in hits or [] if (eid := h.get("entity_id") or h.get("id")) and alive(str(eid))]
+
+    return keep
 
 
 def _leann_search_entities(memory_path: Path, query: str, top_k: int) -> list[dict]:

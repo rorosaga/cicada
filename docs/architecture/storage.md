@@ -409,6 +409,15 @@ changed texts, removes deleted ones and refreshes a page's metadata in place wit
 table, a pre-`hash` schema, another model (recorded per kind as `model:<kind>`) or another width rebuilds
 that table in full, and an embed that fails leaves the previous index untouched. Sleep runs the blocking
 sync through `asyncio.to_thread`, never on the event loop.
+**A query is embedded with its table's model (audit 2026-10-05 P2-4).** The kinds are re-synced one after another, so
+after a model switch one table can hold the new model's vectors and another the old one's; the bank-wide `model` stamp
+only names whichever kind was rebuilt last. `_query_embed_fn(kind)` reads `model:<kind>` (falling back to the bank-wide
+stamp on an index written before per-kind stamps); an injected embedder is used as given unless it names a different
+model than the table's. `search_kinds` embeds once per model, and a short in-process cache (≤ 16 entries, 60 s, keyed by
+the model, the table's width and a hash of the query — the text is never kept; emptied whenever a table is written) lets every search of one query share that embed: MCP
+recall's entity and episode legs embed once (P2-8). **Entity hits are read against the page as it is now (P2-5):**
+`search_entities` drops a hit whose page is gone or `dropped` — even with `include_archived` — and decides the archived
+tier on the current status, not the last sync's copy.
 
 ### SQLite FTS5 (lexical index, G136)
 `api/services/search_index.py`. One `search_index.db` per bank, **beside `vector_index.db` and never

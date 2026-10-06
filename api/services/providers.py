@@ -132,10 +132,12 @@ def warm_query_embedder(memory_path) -> None:
     try:
         from api.services.vector_index import SqliteVecIndexer
 
-        recorded = (SqliteVecIndexer(memory_path).index_info() or {}).get("model")
-        if recorded and recorded != "unknown":
-            cached_embed_fn_for_model(recorded)
-            logger.info(f"Warmed query embedder: {recorded}")
+        idx = SqliteVecIndexer(memory_path)
+        # Every model a table was built with — after a partial switch, two (audit 2026-10-05 P2-4).
+        for recorded in dict.fromkeys(idx.kind_model(k) for k in ("entities", "claims", "episodes", "pending")):
+            if recorded and recorded != "unknown":
+                cached_embed_fn_for_model(recorded)
+                logger.info(f"Warmed query embedder: {recorded}")
     except Exception as exc:  # never fatal
         logger.warning(f"embedder warm-up skipped: {exc}")
 
