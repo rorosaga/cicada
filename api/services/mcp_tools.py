@@ -3198,10 +3198,12 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     content = episode_scrub.scrub_body(content, writer="mcp", bank=memory_path.name)
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
 
-    # Audit K01: the dedup check and the create are one step across processes —
-    # a stdio MCP server and the backend each save into this bank.
+    # G183(c): read the bank's episode text without blocking capture. Under
+    # the lock, validate the snapshot and read only new/changed files before
+    # creating (K01: the authoritative dedup check and create stay one step).
+    snapshot = _scan_episode_hashes(episodes_dir, content_hash)
     with episode_ids.episode_lock(episodes_dir):
-        episode_id = _save_new_episode(ctx, episodes_dir, today, content, content_hash, title)
+        episode_id = _save_new_episode(ctx, episodes_dir, today, content, content_hash, title, snapshot)
     if episode_id is None:
         return f"Episode already exists (duplicate detected by content hash)."
 
@@ -3216,15 +3218,45 @@ def save_episode(ctx: ToolContext, content: str, title: str | None) -> str:
     return f"Episode saved as {episode_id}. It will be processed during the next Sleep cycle."
 
 
+def _episode_signature(path: Path) -> tuple[int, int, int, int, int]:
+    """Detect replacement and in-place edits, even with restored mtime/size."""
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+
+
+def _scan_episode_hashes(episodes_dir: Path, content_hash: str) -> dict:
+    """Unlocked scan: signature BEFORE reading, plus whether the hash matched.
+
+    An atomic replacement during the read cannot certify stale text: the
+    locked check sees a changed signature and reads it again. A vanished file
+    is left unverified, so any reappearance is also checked under the lock.
+    This is MCP's content-only dedup; source-keyed staging has its own cached
+    frontmatter scan and source identity rules.
+    """
+    snapshot = {}
+    for path in episodes_dir.glob("*.md"):
+        try:
+            signature = _episode_signature(path)
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            continue
+        snapshot[path] = (signature, f"content_hash: {content_hash}" in text)
+    return snapshot
+
+
 def _save_new_episode(ctx: ToolContext, episodes_dir: Path, today: str, content: str,
-                      content_hash: str, title: str | None) -> str | None:
-    """The dedup check and the create, called under ``episode_lock``; the id
+                      content_hash: str, title: str | None, snapshot: dict) -> str | None:
+    """The delta dedup check and create, called under ``episode_lock``; the id
     written, or None for a duplicate. ID = max existing suffix + 1 (NOT
     count+1), one rule for every writer (G114 R1), and the create never
     replaces a file another process wrote under the same id (audit K01)."""
     for filepath in episodes_dir.glob("*.md"):
-        text = filepath.read_text(encoding="utf-8")
-        if f"content_hash: {content_hash}" in text:
+        previous = snapshot.get(filepath)
+        if previous is not None and previous[0] == _episode_signature(filepath):
+            duplicate = previous[1]
+        else:
+            duplicate = f"content_hash: {content_hash}" in filepath.read_text(encoding="utf-8")
+        if duplicate:
             return None
 
     # Real UTC timestamp — the previous `datetime.now().isoformat() + "Z"` stamped

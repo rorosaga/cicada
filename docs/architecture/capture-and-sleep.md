@@ -79,8 +79,13 @@ Seven rails hold across all of them:
   `cicada_pending` shows each episode's `rev` and the MCP process remembers it; `cicada_mark_processed`
   (`agentic_write.mark_episodes_processed`) retires an episode only while its text is still that rev
   (or one passed in `revisions`), refuses an id it never listed, and reports a conversation that kept
-  going as changed, left for the next pass. Disclosed: MCP's hash dedup reads every episode while
-  holding the lock.
+  going as changed, left for the next pass. **MCP hash dedup (G183(c)):** `save_episode` scans episode
+  text outside the lock, recording each file's signature before reading it. Under the lock it checks
+  the current names and signatures (device, inode, nanosecond mtime/ctime, size), re-reads only new or
+  changed files, then mints and creates. A duplicate added or edited during the scan is still refused;
+  an atomic replacement or a same-size edit with restored mtime cannot reuse a stale check. Metadata
+  enumeration remains under the lock, but unchanged episode text is never read there. The shared
+  source-keyed stager retains its cached frontmatter scan and identity rules.
 - **Every writer scrubs, and every source-keyed writer stages through one module** (G133/G134,
   R-N3). `api/services/episode_scrub.py` — secrets, long base64 runs, one-time codes anchored on a
   connector word — runs before every writer's hash and write, and `test_episode_writers_scrub.py`
