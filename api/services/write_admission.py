@@ -9,7 +9,9 @@ change was then overwritten or swept into Sleep's batch commit under Sleep's aut
 holds the pages. Shared holds never wait on each other; they are counted, not owned by a thread. An ``async`` writer uses
 :func:`run_admitted` / :func:`route`: its transaction runs in its own task, shielded from the request, with the flock
 taken off the loop — so a cancelled request cannot release the hold while its worker still writes. :func:`shared` and
-:func:`admitted` are for synchronous code in a worker thread (never inside an ``async def``; a test keeps it so). **Never across a model call or a network fetch** — a long networked job checks per write, or is a disclosed probe.
+:func:`admitted` are for synchronous code in a worker thread (never inside an ``async def``; a test keeps it so).
+**Never across a model call or a network fetch:** fetch or synthesize first, then take the hold and check again (a
+link save, an inbox conflict answer); a long networked job that cannot is a disclosed probe (``probe()``).
 
 **Sleep** sets its flag first and then calls :func:`wait_for_writers` off the event loop: it returns once no shared
 hold is left, so every writer that saw the window shut has finished its write and commit, and every later one sees the

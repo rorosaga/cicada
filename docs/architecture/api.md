@@ -76,9 +76,12 @@ schedules one revalidation there. The queue's writes (`PUT|DELETE /videos/queue/
   go through between a drain's batches:** `PUT /entities/{id}/decay`, `PATCH /entities/{id}/repos` (which commits only
   its page, never `git add -A`), every `POST /inbox/{id}/resolve` action — a defer too — and the deprecated
   `/nudges/{id}/resolve` and `/clarifications/{id}` that route through it, and `POST /maintenance/dedup-sweep` (a dry
-  run too; G183). Each asks while holding the bank's write admission and keeps it through its commit; Sleep sets its
-  flag and then waits out every holder before it reads a page, so the answer holds for the whole write (`storage.md`,
-  "Write admission"). The sweep asks per merge, before the page lock. The decay and repo rewrites run write → scoped commit as one page-lock section in a worker thread, an edit
+  run too; G183), `PUT /settings/owner` and every project, backlog, entity source and picture write. Each asks while
+  holding the bank's write admission and keeps it through its commit, in the transaction's own task (a cancelled
+  request does not release it early); Sleep sets its flag and then waits out every holder before it reads a page, and
+  pauses rather than read past one it waited 60 s for (`storage.md`, "Write admission"). The sweep asks per merge,
+  before the page lock; an inbox conflict answer's prose is synthesized before admission and used only if the page
+  did not move. The decay and repo rewrites run write → scoped commit as one page-lock section in a worker thread, an edit
   already on the page committed apart first. The sweep answers `stoppedForSleep`, `skippedDirty`, `skippedUnsafe`,
   `failed` and `recoveryFailed` beside its merges.
   `POST /entities/{id}/read` (a ledger row) and `POST /entities/{id}/repos/observed` (a cache outside the bank) write no

@@ -588,26 +588,42 @@ admission (below), then the page lock, then the git write lock (inside the commi
 reverse. **Not under it yet:**
 Sleep's own page writes (they run inside the write window, which every guarded writer now waits out or refuses) and
 the inbox's other resolvers.
-**Write admission (G183):** the window guards are atomic. `write_admission` is one per-bank admission with shared and
-exclusive sides: an in-process count of holders (not owned by a thread, so an `async` route may hold it across its own
-short awaits) plus an `flock` on the bank's `.git` path (`LOCK_SH` per holder — nothing created, a different inode
-from the page lock's), so the stdio MCP server, another process, is admitted too. A guarded writer holds it shared
-around its `is_writing()` check, its page writes and its own commit — `admitted()` refuses with the writer's own 409 or
-sentence, `shared()` + `holding()` for a writer whose answer changes shape instead (folder and Wispr Flow syncs,
-skill pages, the MCP tools whose in-window write stays uncommitted for Sleep). Sleep **sets its flag first, then
-waits** (`wait_for_writers`, off the loop): every writer that saw the window shut took its hold before the flag, so it
-finishes its write and commit before Sleep reads a page, and every later one sees the flag and refuses — no writer
-preference needed, and a shared hold waits on Sleep only for the instant its `LOCK_EX` is held. The flip runs at the
-run's start, at a drain batch's Stage 2 and at the tail; closing the window takes nothing. The wait is **bounded**:
-logged past 5 s, and past 60 s Sleep proceeds with a warning — a stopped-but-alive holder (an agent process paused in
-a debugger) must not stall every night's consolidation, and a dead process's `flock` is released by the kernel.
-Admission is never held across a model call or a network fetch: the dedup sweep takes it per merge (before the page
-lock, through the commit or the put-back, `may_write` asked once inside) and asks only a stale `probe()` before each
-judge call. **Still a probe, disclosed:** `enrich-links`, `verify-sites` and the user-triggered paper-details run
-write pages between fetches and commit at the end, so a window that opens mid-run can still overlap their uncommitted
-pages; they refuse up front and stop at their next check. `test_write_admission_sites.py` keeps every other module off
-the bare predicate and lists each `probe()` site with its reason. Inside a window an agent's claim still writes and
-rides the batch commit (in-window attribution is a DECIDE); Sleep's own stages take no page lock.
+**Write admission (G183):** the window guards are an admission, not a bare check. `write_admission` is one per-bank
+admission: an in-process count of holders plus an `flock` (`LOCK_SH` per holder) on the bank's `.git` path — nothing
+created, a different inode from the page lock's — or, for a bank with no `.git`, on
+`$CICADA_HOME/sleep/<bank>/admission.lock` (outside the bank; processes must share `CICADA_HOME`), so the stdio MCP
+server, another process, is admitted too. A lock that exists but cannot be opened **fails closed**: the writer gets
+`AdmissionUnavailable`, and Sleep does not open its window. A guarded writer asks `is_writing()` only once it holds
+admission and keeps the hold through its page writes and its own commit: synchronous code in a worker thread uses
+`admitted()` (refuses with the writer's own 409 or sentence) or `shared()` + `holding()` (a writer whose answer changes
+shape: folder and Wispr Flow syncs, skill pages, the stdio MCP tools whose in-window write stays uncommitted for
+Sleep); **async code uses `run_admitted()` / `route()`**, which runs the transaction in its own task, shielded from the
+request, with the flock taken off the event loop — so a cancelled request cannot release the hold while its threadpool
+worker still writes, and the loop never waits on a flock (a lint keeps `shared()`/`admitted()` out of every `async
+def`). Sleep **sets its flag first, then waits** (`wait_for_writers`, off the loop): every writer that saw the window
+shut took its hold before the flag, so it finishes its write and commit before Sleep reads a page, and every later one
+sees the flag and refuses. The flip runs at the run's start, at a drain batch's Stage 2 and at the tail; closing the
+window takes nothing. The wait is **bounded and honest**: logged past 5 s; past 60 s (or with an unopenable lock) it
+answers False and **Sleep reads and writes nothing** — at a batch's Stage 2 the drain stops as a `busy` pause (the
+batch's conversations wait, the frozen work is kept for Continue; a scheduled run's `busy` pause is the schedule's to
+replace), at the run's start nothing is flushed or read, and the tail is skipped. A timed-out wait is never treated as
+an open window. **No admission spans a model call or a network fetch:** the dedup sweep takes it per merge (before the
+page lock, through the commit or the put-back, `may_write` asked once inside; only a stale answer before each judge
+call); an inbox conflict answer synthesizes its prose before admission and, admitted, re-plans on the page as it is
+then, using the prose only if that planned body is unchanged (else the dedup-guarded fallback); a link save
+(`POST /sources/save`, `cicada_save_url`, a remote `cicada_record_watch`'s save) fetches with no hold
+(`media_ingestor.prepare_one`) and writes and commits inside one (`write_prepared`, the index checked again). The
+remote runtime resolves the bank once per call and admits, gates, writes and commits that one bank. **Disclosed
+exceptions (still probes or unadmitted):** `enrich-links` and `verify-sites` refuse up front only — once started they
+keep writing and committing after a window opens, and `verify-sites` writes frontmatter it parsed before its fetch, so
+it can overwrite an edit made meanwhile; the person's paper-details run checks before each request and before writing
+a response and stops, but the pages it wrote before the window stay uncommitted until its end commit and can ride a
+batch commit; batch intake (upload, RSS, bookmarks, Safari tabs, feed polls, connector syncs, Telegram saves) creates
+new media pages between fetches without admission, so a page written inside a window can ride a batch commit. Inside a
+window a stdio agent's claim still writes and rides the batch commit (in-window attribution is a DECIDE); Sleep's own
+stages take no page lock. `test_write_admission_sites.py` is the inventory: every non-GET route and MCP tool is
+classified (admitted, held, per-write, probe, intake, capture, registry, outside, sleep, banks, none) with its reason,
+and the admitted ones are checked to take admission in their code.
 
 **Entity-level provenance uses `git blame`** enriched with parsed commit metadata; repo-level
 history uses `git log`. **No changelog in frontmatter** — git handles all history, zero storage
