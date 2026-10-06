@@ -276,6 +276,12 @@ def _read_registry_file(reg_file: Path) -> dict[str, Any]:
     return data
 
 
+def active_bank_name(root: Path) -> str:
+    """The active bank's name as the roster reports it (``list_banks``' ``active``) — what the app names a write's bank
+    by (``bank_binding``). Read-only, like ``load_registry``."""
+    return str(load_registry(Path(root)).get("active") or DEFAULT_BANK)
+
+
 def load_registry(root: Path) -> dict[str, Any]:
     """Load the registry, synthesizing the legacy default bank if absent.
 

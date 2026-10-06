@@ -41,6 +41,17 @@ while Sleep runs and each commits alone over its own pages as `Cicada-Author: us
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
 
+**A write names its bank (`X-Cicada-Bank`, G183(d)).** The app sends the bank an operation STARTED in, percent-encoded,
+on every POST/PUT/PATCH/DELETE. One app-wide dependency (`bank_binding.require_same_bank`, in `api/main.py`) compares it
+with the active bank's name (`bank_registry.active_bank_name`, the roster's `active`) and, on a difference, answers
+`409 {"code": "bank_mismatch", "detail": "Memory switched before this was saved — nothing was written."}` before the
+handler runs — nothing is read or written. The server moves its active bank before it answers a switch (and a long
+operation can outlive one), so this is the choke point that keeps a write out of the wrong bank; the app's own
+serialized switch is only the UX. A request without the header (the hooks, the MCP server, curl, an older app)
+behaves exactly as before. Exempt, by route template (`bank_binding.EXEMPT`): the routes that change the active bank
+(`/banks/{name}/activate`, `/banks/demo`, `/banks/leave-demo`) and bank CRUD that names its bank in the path or creates
+one (`POST /banks`, duplicate, rename, import, `DELETE /banks/{name}`). Reads are never checked.
+
 **A Sleep-window refusal has a stable code.** Every route guarded by `sleep_cycle.is_writing()` raises
 `sleep_refusal.SleepWriting` (an `HTTPException`, so a direct caller still reads `.detail`); the handler in `api/main.py`
 answers `409 {"code": "sleep_writing", "detail": "<the route's sentence>"}`. Clients key off the code — never off
