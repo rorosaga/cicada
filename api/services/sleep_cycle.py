@@ -304,6 +304,17 @@ def is_writing() -> bool:
     return state.status == "running" and (not getattr(state, "drain_run", False) or getattr(state, "writing", False))
 
 
+async def _open_window(memory_path) -> None:
+    """Open the write window (G183): the flag first, then wait — off the event loop — until no writer still holds
+    the bank's admission (``write_admission``). A writer that saw the window shut took its hold before the flag was
+    set, so it finishes its write and its own commit before Sleep reads a page; every later one sees the flag and
+    refuses. Never called holding the page or git lock (admission comes first in the order). Closing needs nothing."""
+    from api.services import write_admission
+
+    _state.writing = True
+    await asyncio.to_thread(write_admission.wait_for_writers, memory_path)
+
+
 def _cancel_requested() -> bool:
     """Cooperative-cancel predicate threaded into `entity_extractor.extract`
     and `entity_resolver.resolve` as `cancel_check` — kept as a bare module
@@ -1294,6 +1305,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
 
     outcome = _StageOutcome()
     try:
+        await _open_window(memory_path)   # status/writing are set above; no page is read before writers are out
         await _flush_pending_commits_safely(memory_path)
         if tail_only:
             _state.progress = "Tidying up while your run is paused"
@@ -1333,7 +1345,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         # while `status == "running"`, so every later cycle would be silently
         # refused with no way to recover short of restarting the process.
         try:
-            _state.writing = True   # the tail's commits sweep with `git add -A`: a hold, like a plain cycle
+            await _open_window(memory_path)   # the tail's commits sweep with `git add -A`: a hold, like a plain cycle
             await _run_engine_independent_tail(
                 memory_path, settings, outcome, user_triggered=user_triggered,
                 # Only a drain stopped at the plan's limit passes this; the call
@@ -2263,7 +2275,7 @@ async def _run_stages(
     _say("Stage 2/5: Resolving entities...")
     logger.info("Stage 2: Resolving entities against existing graph")
     if batch is not None:
-        _state.writing = True   # the pages Stage 5 rewrites are read from here (see `is_writing`)
+        await _open_window(memory_path)   # the pages Stage 5 rewrites are read from here (see `is_writing`)
     existing = _load_existing_entities(memory_path)
     from api.services.entity_resolver import resolve
     if decay_only:

@@ -682,3 +682,70 @@ def test_an_agent_claim_between_batches_lands_under_its_own_author_not_a_batch_c
         assert not any(ln.startswith("+") and "sqlite-vec" in ln for ln in diff.splitlines()), \
             "the agent's claim rode a Sleep commit"
     assert git(memory, "status", "--porcelain").strip() == ""
+
+
+def test_a_writer_admitted_before_stage_two_finishes_before_the_pages_are_read(tmp_path, monkeypatch):
+    """G183: Sleep sets its flag, then waits out every writer that was admitted before it — the write lands on
+    the page Stage 2 loads, and its commit is the writer's own, never the batch's."""
+    import threading
+
+    from api.services import agent_commits, agentic_write, write_admission
+
+    ids = episode_ids(6)
+    memory = seed_bank(tmp_path, ids)
+    rig = install(monkeypatch)
+    markdown_parser.write(
+        memory / "entities" / "alpha-project.md",
+        {"name": "alpha-project", "type": "project", "status": "active", "confidence": 0.8},
+        "# alpha-project\n")
+    git(memory, "add", "-A")
+    git(memory, "commit", "-q", "-m", "seed page")
+
+    admitted, flip_waiting = threading.Event(), threading.Event()
+    real_wait = write_admission.wait_for_writers
+
+    def wait(memory_path, **kw):
+        if len(rig.extract_batches) == 2 and sleep_cycle.is_writing():
+            flip_waiting.set()
+        return real_wait(memory_path, **kw)
+
+    monkeypatch.setattr(write_admission, "wait_for_writers", wait)
+    loaded: list[bool] = []
+    real_load = sleep_cycle._load_existing_entities
+
+    def load(memory_path):
+        loaded.append("sqlite-vec" in (memory / "entities" / "alpha-project.md").read_text())
+        return real_load(memory_path)
+
+    monkeypatch.setattr(sleep_cycle, "_load_existing_entities", load)
+
+    def writer():
+        with write_admission.admitted(memory):
+            admitted.set()
+            result = agentic_write.write_claim(
+                memory, "alpha-project", "uses", "sqlite-vec", observer="agent", authored_by="claude-code")
+            assert flip_waiting.wait(10), "Sleep reached its flip while this writer was mid-transaction"
+            agent_commits.commit_write(memory, subject="Agent write", lines=[f"{result['path']}: updated"],
+                                       paths=[result["path"]], author="claude-code", session=None)
+
+    thread = threading.Thread(target=writer)
+
+    async def admit_during_batch_two_reading(batch_no, episodes):
+        if batch_no == 2:
+            assert not sleep_cycle.is_writing()
+            thread.start()
+            assert await asyncio.to_thread(admitted.wait, 10)
+
+    rig.on_extract = admit_during_batch_two_reading
+    run_drain(memory, cap=3)
+    thread.join(10)
+
+    assert loaded[-1] is True, "Stage 2 read the page after the admitted write landed"
+    agent_commit = git(memory, "log", "--format=%H", "--grep=^Agent write").split()
+    assert len(agent_commit) == 1
+    assert "Cicada-Author: claude-code" in git(memory, "log", "-1", "--format=%B", agent_commit[0])
+    for commit in git(memory, "log", "--format=%H", "--grep=^Sleep cycle").split():
+        diff = git(memory, "show", "--format=", "-U0", commit, "--", "entities/alpha-project.md")
+        assert not any(ln.startswith("+") and "sqlite-vec" in ln for ln in diff.splitlines()), \
+            "the admitted write rode a Sleep commit"
+    assert git(memory, "status", "--porcelain").strip() == ""
