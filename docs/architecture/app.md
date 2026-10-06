@@ -49,7 +49,10 @@ pending; the server's 15 s `ping` retries it while connected (`Store.retryPendin
 heartbeats until the next version event re-arms it — a version event comes only when the vector moves, so before audit
 2026-10-05 P2-7 a failed refresh stayed stale on a healthy stream). View models are
 thin projections and **never blank** — always last-known-good. Writes go through a `Mutation`:
-optimistic apply, rollback with a toast on failure. **The graph receives deltas, not a full
+optimistic apply, rollback with a toast on failure. A 409 whose detail names Sleep (`SleepRefusal`, the server's
+`is_writing` refusals) toasts "Sleep is running — try again when it finishes." from an inbox answer (`InboxResolve`) and
+the entity card's Fades chip (`DecayChangeFailure`, which until G177 failed silently); any other failure keeps its own
+words, never a 409's raw detail. **The graph receives deltas, not a full
 re-layout**, so d3 node positions survive a Sleep cycle or a live edit.
 
 **A late answer never lands in the wrong place** (audit 2026-10-02 A03/A05/A06). `Store.entity(_:)` compares the

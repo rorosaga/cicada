@@ -57,6 +57,7 @@ struct InboxResolve: Mutation {
     var remindDays: Int? = nil
     var mergeTarget: String? = nil
     var mergeSurvivor: String? = nil
+    private let failure = MutationMemo<any Error>()
 
     /// `skip` deliberately keeps the item in the queue — nothing to hide.
     /// `defer` DOES hide: the server sets `remind_after`, so the card is gone
@@ -68,17 +69,44 @@ struct InboxResolve: Mutation {
     }
 
     func request(_ api: any SyncAPI) async throws {
-        try await api.resolveInbox(id: id, action: action, answer: answer,
-                                   optionKey: optionKey, remindDays: remindDays,
-                                   mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+        do {
+            try await api.resolveInbox(id: id, action: action, answer: answer,
+                                       optionKey: optionKey, remindDays: remindDays,
+                                       mergeTarget: mergeTarget, mergeSurvivor: mergeSurvivor)
+        } catch {
+            failure.value = error
+            throw error
+        }
     }
 
     func rollback(_ store: Store) async {
         store.hiddenInboxIds.remove(id)
     }
 
-    var failureMessage: String { "Couldn't resolve that item — reverted" }
+    /// G177/G183 — a refusal while Sleep holds the pages says so; every other failure keeps the generic words (a
+    /// malformed-claims 409's detail names page ids, DR-54).
+    var failureMessage: String {
+        SleepRefusal.matches(failure.value) ? Copy.sleepIsRunning : "Couldn't resolve that item — reverted"
+    }
     var refreshDomains: Set<SyncDomain> { [.inbox] }
+}
+
+/// A 409 whose detail names Sleep: the server's "Sleep is updating your memory" refusals (`sleep_cycle.is_writing`)
+/// all say so, while its other 409s (a claims block that will not parse, a run already going) do not.
+/// `MemoryView.run`'s precedent.
+enum SleepRefusal {
+    static func matches(_ error: (any Error)?) -> Bool {
+        guard case .httpError(409, let body)? = error as? APIError else { return false }
+        return body.localizedCaseInsensitiveContains("sleep")
+    }
+}
+
+/// The entity card's Fades chip: Sleep's refusal in the app's words, any other failure as "not changed" — a 404's or
+/// a 400's detail names ids (DR-54).
+enum DecayChangeFailure {
+    static func message(_ error: any Error) -> String {
+        SleepRefusal.matches(error) ? Copy.sleepIsRunning : Copy.Graph.fadesNotChanged
+    }
 }
 
 // MARK: - Connections

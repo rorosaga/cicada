@@ -53,6 +53,42 @@ final class MutationTests: XCTestCase {
         XCTAssertEqual(api.writes, ["resolveInbox:b:archive:nil:nil"])
     }
 
+    /// G177/G183 — while Sleep holds the pages the resolve route answers 409 with a sentence naming Sleep; the card
+    /// still comes back, and the toast says why instead of the generic words.
+    func testInboxResolveRefusedWhileSleepWritesSaysSo() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        store.inbox.value = try inboxItems(["a", "b"])
+        api.replies[.inbox] = .notModified
+        api.writeError = APIError.httpError(409, #"{"detail":"Sleep is updating your memory — try answering again in a moment."}"#)
+        let ok = await store.perform(InboxResolve(id: "b", action: "archive"))
+        XCTAssertFalse(ok)
+        XCTAssertEqual(store.visibleInbox.map(\.id), ["a", "b"], "the rollback stays")
+        XCTAssertEqual(store.toast, Copy.sleepIsRunning)
+    }
+
+    /// A 409 that is not Sleep's (a page's claims block will not parse) keeps the generic words — its detail names
+    /// page ids (DR-54).
+    func testInboxResolveOtherConflictKeepsTheGenericWords() async throws {
+        let api = FakeSyncAPI()
+        let store = Store(cache: tempCache(), api: api)
+        store.inbox.value = try inboxItems(["a"])
+        api.replies[.inbox] = .notModified
+        api.writeError = APIError.httpError(409, #"{"detail":"claims block on alpha-project will not parse"}"#)
+        _ = await store.perform(InboxResolve(id: "a", action: "archive"))
+        XCTAssertEqual(store.toast, "Couldn't resolve that item — reverted")
+    }
+
+    /// The entity card's Fades chip: a refusal while Sleep writes says so; anything else says the change did not land.
+    func testDecayChangeFailureWords() {
+        XCTAssertEqual(DecayChangeFailure.message(APIError.httpError(409, #"{"detail":"Sleep is updating your memory — try again in a moment."}"#)),
+                       Copy.sleepIsRunning)
+        XCTAssertEqual(DecayChangeFailure.message(APIError.httpError(404, #"{"detail":"Entity alpha-project not found"}"#)),
+                       Copy.Graph.fadesNotChanged)
+        XCTAssertEqual(DecayChangeFailure.message(APIError.serverUnreachable), Copy.Graph.fadesNotChanged)
+        XCTAssertFalse(Copy.Graph.fadesNotChanged.isEmpty)
+    }
+
     /// `skip` keeps the item in the queue by design — nothing is hidden.
     func testInboxSkipDoesNotHideTheCard() async throws {
         let api = FakeSyncAPI()
