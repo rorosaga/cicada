@@ -218,12 +218,12 @@ struct BackgroundServiceButton: View {
         switch backendAgent.state {
         case .missing, .stopped, .failed:
             // Finding 6 (DR-41) — installing stops the app's own backend once launchd has the port, which would kill
-            // a running cycle mid-stage and leave its pages for the next `git add -A` writer (the G85 smear); the
-            // Projects writes' own gate, so the two never disagree about "running".
-            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            // a running cycle mid-stage and leave its pages for the next `git add -A` writer (the G85 smear). The whole
+            // run, not only its write window (G177): a stopped backend ends a drain between its batches too.
+            let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
             NeutralButton(title: Copy.backgroundInstall, size: .compact, isDisabled: sleeping,
                           help: Copy.backgroundInstallHelp, disabledHelp: Copy.backgroundWaitForSleep) {
-                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                guard !ProjectWriteGate.sleepRunning(store.status.value) else { return }
                 Task { await backendAgent.install() }
             }
         case .unknown:
@@ -270,10 +270,10 @@ struct UpdateStatusLine: View {
             }
         case .ready(let manifest):
             notes(manifest)
-            let sleeping = ProjectWriteGate.blocked(store.status.value)
+            let sleeping = ProjectWriteGate.sleepRunning(store.status.value)
             NeutralButton(title: Copy.Updates.restart, size: .compact, isDisabled: sleeping,
                           help: Copy.Updates.restartHelp(manifest.version), disabledHelp: Copy.Updates.waitForSleep) {
-                guard !ProjectWriteGate.blocked(store.status.value) else { return }
+                guard !ProjectWriteGate.sleepRunning(store.status.value) else { return }
                 Task { await updates.restartToUpdate() }
             }
         case .checking, .downloading, .installing:

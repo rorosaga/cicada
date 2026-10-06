@@ -151,6 +151,9 @@ final class ProjectWritesTests: XCTestCase {
         let decoded = try JSONDecoder().decode(StatusSnapshot.self, from: Data(wire.utf8))
         XCTAssertEqual(decoded.sleep.writing, false)
         XCTAssertFalse(ProjectWriteGate.blocked(decoded))
+        XCTAssertTrue(ProjectWriteGate.sleepRunning(decoded),
+                      "the search model and the controls that stop the backend still wait for the whole run")
+        XCTAssertFalse(ProjectWriteGate.sleepRunning(status("idle", writing: false)))
     }
 
     /// Final review — a `reinforced` answer names a claim that was already there (claim_reconciler rule 2), so the

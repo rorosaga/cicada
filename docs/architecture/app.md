@@ -411,9 +411,12 @@ the demo scenario's real wire, `app/CicadaApp/Tests/fixtures/projects-demo.json`
 - **Writes** are `ProjectWrite` mutations through `Store.perform`: painted where the answer is known (a thread settled
   or restated, a milestone done, renamed or added, a withdrawal), rolled back with the server's own 409/422 sentence
   (a 400's or 404's detail is never shown — it names ids), disabled while Sleep holds the pages; nothing relative is
-  sent as a value. `ProjectWriteGate` (Projects, Backlog, Fade pace, the search-model switch) reads `sleep.writing` from
-  `/status` and the SSE `sleep` event — the server's own refusal predicate, so a person-started drain gives the controls
-  back between its batches (G177) — and falls back to `status == "running"` when an older backend sends no `writing`. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
+  sent as a value. `ProjectWriteGate.blocked` (Projects, Backlog) reads `sleep.writing` from `/status` and the SSE `sleep` event —
+  the server's own refusal predicate, so a person-started drain gives the controls back between its batches (G177) —
+  and falls back to `status == "running"` when an older backend sends no `writing`. `ProjectWriteGate.sleepRunning`
+  (the whole run) stays on the search-model switch, whose route refuses while any run goes, and on what stops the
+  backend (the background install, Restart to update and the updater's cached check), since that ends a drain between
+  batches too. L · M · D are key presses on the focused project (the Inbox's O / L precedent), never menu key equivalents.
 
 **Sleep page — the study room (G125 v4, Track Z).** The room and the worm are Aseprite sprite sheets; to watch every
 animation, open `app/CicadaApp/Art/sprites/bookworm-2026-10-01/preview.html` in a browser (*The sprite art and its
