@@ -107,7 +107,10 @@ async def require_same_bank(request: Request, settings: Settings = Depends(get_s
     template = getattr(request.scope.get("route"), "path", None)
     if (method, template) in SWITCHES or (method, template) in NAMED_TARGET or (method, template) in UNPINNED:
         return
-    pin = bank_registry.pin_request_bank(settings.memory_root)
+    root = getattr(settings, "memory_root", None)
+    if root is None:   # a settings stand-in with no bank container (a test's): nothing to pin or compare
+        return
+    pin = bank_registry.pin_request_bank(root)
     if method not in MUTATING or not _checked(method, template, request):
         return
     claimed = claimed_bank(request)

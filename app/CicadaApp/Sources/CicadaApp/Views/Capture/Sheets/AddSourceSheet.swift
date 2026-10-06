@@ -700,7 +700,7 @@ struct AddSourceSheet: View {
             VStack(spacing: CicadaTheme.spacingXS) {
                 ForEach(feeds) { feed in
                     FeedSubscriptionRow(feed: feed, isRemoving: removingFeed == feed.url) {
-                        Task {
+                        store.bankTask {
                             removingFeed = feed.url
                             await store.perform(UnsubscribeFeed(url: feed.url))
                             removingFeed = nil
@@ -717,7 +717,7 @@ struct AddSourceSheet: View {
             VStack(spacing: CicadaTheme.spacingXS) {
                 ForEach(calendars) { cal in
                     CalendarSubscriptionRow(calendar: cal, isRemoving: removingCalendar == cal.url) {
-                        Task {
+                        store.bankTask {
                             removingCalendar = cal.url
                             await store.perform(UnsubscribeCalendar(url: cal.url))
                             removingCalendar = nil

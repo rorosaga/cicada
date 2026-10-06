@@ -45,3 +45,14 @@ enum BankScope {
         return object["code"] as? String == "bank_mismatch"
     }
 }
+
+extension Store {
+    /// Start bank-scoped work bound to the bank on screen NOW, at the person's action (G183(d)): the origin is captured
+    /// before the task exists, so work that is queued, prepared or awaited across a switch still names the bank it
+    /// was asked for in — and the server refuses it there rather than file it in the other.
+    @discardableResult
+    func bankTask(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        let origin = bank
+        return Task { @MainActor in await BankScope.bound(to: origin) { await work() } }
+    }
+}

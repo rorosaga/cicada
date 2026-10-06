@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import CicadaApp
 
@@ -310,5 +311,50 @@ final class BankSwitchTests: XCTestCase {
         _ = try await leaving.value
         XCTAssertEqual(store.bank, "C")
         XCTAssertNil(store.bankSwitch)
+    }
+
+    // MARK: Fix round 3 — the origin is captured at the person's action
+
+    /// Re-review round 2, blocker 2: a picture is chosen in A, its preparation runs detached, and the switch to B
+    /// completes meanwhile. The write still names A — captured before the preparation — so the server refuses it in A
+    /// rather than accept it as B's; the paint is rolled back and it says so.
+    func testAPicturePreparedAcrossASwitchStillNamesTheBankItWasChosenIn() async throws {
+        let (store, api) = try await makeStore()
+        let switched = await store.activateBank("B")      // completed while the picture was being prepared
+        XCTAssertTrue(switched)
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 64,
+                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                 isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0,
+                                                 bitsPerPixel: 0))
+        let png = try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+        await PictureActions.upload(data: png, id: "bob-example", type: .person, bank: "A", store: store, inputs: nil)
+        XCTAssertFalse(api.bankWrites.contains { $0.hasPrefix("setEntityPicture") }, "never accepted as B's")
+        XCTAssertTrue(api.writes.contains { $0.hasPrefix("setEntityPicture") }, "it was sent, and refused")
+        XCTAssertNil(store.pictureOverrides[Store.pictureKey(bank: "A", id: "bob-example")], "rolled back")
+        XCTAssertNil(store.pictureOverrides[Store.pictureKey(bank: "B", id: "bob-example")])
+        XCTAssertEqual(store.toast, Copy.memorySwitched)
+    }
+
+    /// A schedule chosen in A whose task first runs after the app reached B names A (`Store.bankTask` captured it at
+    /// the action; `updateSchedule` honours the enclosing origin), so it is refused, not saved as B's.
+    func testAScheduleTaskQueuedAcrossASwitchNamesTheBankItWasChosenIn() async throws {
+        let (store, _) = try await makeStore()
+        var named: [String?] = []
+        let vm = SleepViewModel(store: store, putSchedule: { config in
+            named.append(BankScope.origin)
+            if BankScope.origin != "B" {   // the server, now on B
+                throw APIError.httpError(409, #"{"code":"bank_mismatch","detail":"x"}"#)
+            }
+            return config
+        })
+        var landed: Bool?
+        let task = store.bankTask { landed = await vm.updateSchedule(ScheduleConfig(mode: "daily", hour: 4, minute: 5)) }
+        store.bank = "B"                                    // the switch lands before the task first runs
+        await task.value
+        XCTAssertEqual(named, ["A"])
+        XCTAssertEqual(landed, false)
+        let direct = await vm.updateSchedule(ScheduleConfig(mode: "daily", hour: 4, minute: 5))
+        XCTAssertTrue(direct, "a schedule chosen in B is B's")
+        XCTAssertEqual(named.last, "B")
     }
 }

@@ -203,7 +203,7 @@ struct EngineQuickMenuButton: View {
     /// Sleep page v5 — the reserve lives in the reading options (`PUT /sleep/run-options`); the engine response
     /// re-reads it so the row shows what the server now holds.
     private func setReserve(_ pct: Int?) {
-        Task { @MainActor in
+        store.bankTask {
             await sleepVM.updateRunOptions(.reservePct(pct))
             await engineVM.load()
         }

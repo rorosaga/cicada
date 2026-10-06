@@ -592,14 +592,21 @@ by name, the id in `.help`). The app-level `SleepViewModel` empties its queue, r
 file.
 A refused bank switch shows the server's own 409 sentence (`BankSwitchFailure`), from every door: the switcher, the demo's enter and leave (`DemoMode.leaveToast`) and an active bank's rename.
 **A write is bound to the bank it started in (G183(d)); the switch around it is one serialized transition.**
-*The safety net is the server's.* `APIClient` names a bank on every POST/PUT/PATCH/DELETE (`X-Cicada-Bank`,
-`BankScope`), and the server refuses a write whose bank is no longer active before its handler runs
-(`bank_mismatch`, api.md). The bank named is the one the operation STARTED in, a `@TaskLocal` origin:
-`Store.perform` binds it at admission (so a picture upload paused across a switch names the old bank), a held answer
-carries its own bank, a folder or Wispr Flow scan binds the bank whose configuration and manifest it read, and the
-schedule, owner, Fade pace and Fades-chip writes bind the bank shown when they were asked for. Work that binds nothing
-names the bank on screen at send time (`BankScope.onScreen`, kept by the app's `Store`) — during a switch that is still
-the old bank while the server is already on the new one, so it too is refused rather than misfiled. On `bank_mismatch`
+*The safety net is the server's.* Every request runs in one bank, pinned when it starts (a switch while it awaits a
+lock or a commit leaves it finishing there), and a write names the bank it STARTED in: `APIClient` sends it on every
+POST/PUT/PATCH/DELETE (`X-Cicada-Bank`, `BankScope`), and the server refuses a write whose bank is no longer active
+before its handler runs (`bank_mismatch`; both in api.md). The bank named is a `@TaskLocal` origin, captured at the
+person's action, before anything is awaited: `Store.bankTask` captures the bank on screen synchronously and starts the
+work bound to it (the schedule, the reading options, the reserve, Getting started's schedule question, the Safari tab
+and bookmark imports, a feed or calendar removal, a backlog add, a picture's initials or removal); a picture upload
+captures it before its detached preparation and builds its write from it (`PictureActions.upload(…, bank:)`, the drop
+too); the Fades chip, Fade pace and the owner save capture it before their task; `Store.perform` binds the bank at
+admission unless an enclosing binding already named one (so work queued across a switch keeps its own); a held answer
+carries its own bank; a folder or Wispr Flow scan binds the bank whose configuration and manifest it read; and
+`SleepViewModel.updateSchedule` / `updateRunOptions` honour an enclosing origin. Work that binds nothing names the bank
+on screen at send time (`BankScope.onScreen`, kept by the app's `Store`) — during a switch still the old bank while the
+server is on the new one, so it too is refused rather than misfiled; such work started in A that first sends after
+the app reached B would name B (the binding rule above is what prevents that, site by site). On `bank_mismatch`
 `Store.perform` rolls back and toasts "Memory switched — try that again" (the Fades chip and Fade pace say the same).
 *The UX is the Store's.* `Store.switchBank` is the one transition for every route that changes the active bank: a
 switch by name (`Store.activateBank`, reached by the switcher, the find palette and the intake card through

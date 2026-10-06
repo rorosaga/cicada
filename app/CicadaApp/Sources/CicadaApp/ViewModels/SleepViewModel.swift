@@ -499,8 +499,9 @@ final class SleepViewModel {
     @discardableResult
     func updateRunOptions(_ change: SleepRunOptionsChange) async -> Bool {
         runOptionsWriteFailed = false
+        let origin = BankScope.origin ?? store.bank   // G183(d): the reading options are per bank
         do {
-            runOptions = try await putRunOptions(change)
+            runOptions = try await BankScope.bound(to: origin) { try await putRunOptions(change) }
             return true
         } catch {
             runOptionsWriteFailed = true
@@ -559,10 +560,15 @@ final class SleepViewModel {
     /// lamp's toggle snaps back with a caption on `false`. Settings and
     /// onboarding ignore the result, as before. A failure leaves `schedule`
     /// at what the backend still has.
+    /// `Store.bankTask` for a view that holds this view model but not the Store.
+    @discardableResult
+    func bankTask(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> { store.bankTask(work) }
+
     @discardableResult
     func updateSchedule(_ new: ScheduleConfig) async -> Bool {
-        // G183(d): the schedule is per bank — the write names the bank shown when it was asked for.
-        let origin = store.bank
+        // G183(d): the schedule is per bank — the write names the bank it was asked for in: an enclosing binding
+        // (`Store.bankTask`, captured at the person's action) wins over the bank on screen when this runs.
+        let origin = BankScope.origin ?? store.bank
         do {
             schedule = try await BankScope.bound(to: origin) { try await putSchedule(new) }
             scheduleLoaded = true
