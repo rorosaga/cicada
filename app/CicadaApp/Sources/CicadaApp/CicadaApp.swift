@@ -72,6 +72,9 @@ struct CicadaApp: App {
     /// login item's remembered intent and the service probe are one instance per app.
     @State private var loginItems = LoginItemService()
     @State private var backendAgent: BackendAgentService
+    /// G182 phase 5 — the in-app updater, app-lifetime like the background service: one schedule and one quit hook
+    /// per app. Inert in a developer build.
+    @State private var updates: UpdateService
     /// G129: a bookmark saved in Chrome or Safari reaches the queue in seconds
     /// without a button. App-side because the launchd backend has no Full Disk
     /// Access — see `BrowserWatch.swift`.
@@ -152,11 +155,26 @@ struct CicadaApp: App {
         // independently.
         let store = Store()
         _store = State(initialValue: store)
-        // R-FA8 — once the background service is installed, the app hands launchd :8000 by
+        // G182 — one runtime for the whole app. A release's agents, hooks and background service run the launchers
+        // in ~/.cicada/bin, so they are rewritten before anything can spawn through one (four small files; a failure
+        // is logged, never fatal). A developer build writes nothing.
+        let runtime = CicadaRuntime.current
+        LauncherInstaller.install(runtime: runtime)
+        // R-FA8 — once the background service is installed, the app hands launchd the backend's port by
         // stopping only the uvicorn child it spawned itself (never a developer's).
-        let backend = BackendProcess()
+        let backend = BackendProcess(runtime: runtime)
         _backend = State(initialValue: backend)
-        _backendAgent = State(initialValue: BackendAgentService(onInstalled: { [backend] in backend.stopSpawnedChild() }))
+        let backendAgent = BackendAgentService(runtime: runtime, onInstalled: { [backend] in backend.stopSpawnedChild() })
+        _backendAgent = State(initialValue: backendAgent)
+        // G182 — a background service an older build installed keeps running what it named; point it at this
+        // copy's launcher. Never blocks launch, and installs nothing when the person never chose the service.
+        if runtime.isRelease { Task { @MainActor in await backendAgent.migrateIfNeeded() } }
+        // G182 phase 5 — checks and installs only in a release run from a real folder, never while Sleep writes.
+        let updates = UpdateService.live(runtime: runtime,
+                                         isSleepWriting: { [store] in ProjectWriteGate.blocked(store.status.value) },
+                                         repairService: { [backendAgent] in await backendAgent.reinstallIfStopped() })
+        _updates = State(initialValue: updates)
+        Task { @MainActor in updates.start() }
         let activity = SyncActivity()
         _syncActivity = State(initialValue: activity)
         let lights = BrowserWatcher(activity: activity)
@@ -215,6 +233,7 @@ struct CicadaApp: App {
                 .environment(contactsReader)
                 .environment(loginItems)
                 .environment(backendAgent)
+                .environment(updates)
                 .environment(intakeRouter)
                 .environment(setupRunner)
                 .environment(inventory)
@@ -426,7 +445,7 @@ struct CicadaApp: App {
             FindCommands(router: appRouter)
             // DS-1 T3 (R-DS15) — View → Show labelled sidebar / Show icon rail (⌃⌘S);
             // DS-1 T6 (R-DS23) — Settings… ⌘, opens the in-app panel.
-            ShellCommands(router: appRouter)
+            ShellCommands(router: appRouter, updates: updates)
             // Track I T5 — File → Import… (⌘⇧I): the keyboard and VoiceOver twin
             // of every drop (design §5.1).
             CommandGroup(after: .newItem) {

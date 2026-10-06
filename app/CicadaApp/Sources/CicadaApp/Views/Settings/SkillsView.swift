@@ -77,7 +77,8 @@ private struct CicadaSkillRow: View {
     @State private var refresh = 0
     @State private var problem: String?
     private let home = FileManager.default.homeDirectoryForCurrentUser
-    private let root = BackendProcess.installRoot()
+    /// G182 — `SKILL.md` and `skills/` ship in a release's `backend/app` too, so the code root serves both builds.
+    private let root = CicadaRuntime.current.codeRoot
 
     var body: some View {
         SettingsRow(.skill(bundle.rawValue), title: bundle.title, detail: problem ?? bundle.summary) {

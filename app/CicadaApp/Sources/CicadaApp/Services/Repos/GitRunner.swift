@@ -55,10 +55,17 @@ enum GitRunner {
                                timeout: timeout)
     }
 
+    /// G182 — the person's own git first; a release's bundled git (`CicadaRuntime.bundledGit`) only as the last
+    /// resort, so a Mac without the developer tools still reads its repos. Never `/usr/bin/git` in either build.
+    static func candidates(bundledGit: String?) -> [String] {
+        candidates + [bundledGit].compactMap { $0 }
+    }
+
     /// The first real git on this Mac, or nil.
-    static func executable(isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) })
+    static func executable(bundledGit: String? = CicadaRuntime.current.bundledGit,
+                           isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) })
         -> String? {
-        candidates.first(where: isExecutable)
+        candidates(bundledGit: bundledGit).first(where: isExecutable)
     }
 
     struct CommandOutput: Equatable, Sendable {

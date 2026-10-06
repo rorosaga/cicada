@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Used only when the app is signed with a real identity (a Developer ID), which turns on
+  the hardened runtime (sign-app.sh). Ad hoc builds carry no entitlements.
+  - allow-unsigned-executable-memory: CPython and onnxruntime allocate executable memory
+    (ctypes callbacks, JIT-style kernels) that the hardened runtime otherwise refuses.
+  - disable-library-validation: the optional larger embedding model installs Python
+    packages into ~/.cicada/extras at runtime; those are not signed by Cicada's Team ID,
+    and library validation would refuse to load them into the bundled interpreter.
+  Revisit both against docs/RELEASING.md when notarization is first run.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+  <key>com.apple.security.cs.disable-library-validation</key><true/>
+</dict>
+</plist>

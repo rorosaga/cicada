@@ -53,6 +53,15 @@ The one-line disclosure is: “Open-Meteo receives your time zone's city every h
 like any web request, your network address. Nothing from your memory is sent.” This names the weather service only as a privacy disclosure. Conditions use the
 [public forecast API](https://open-meteo.com/en/docs); transport tests inject responses and capture a real loopback wire request; they never contact the public service.
 
+**The update check has its own app gate (G182 phase 5).** Only a release app checks for updates; a developer build
+never does. Settings → General → *Install updates automatically* (on by default) is the gate for every request the app
+starts on its own: with it on, the app reads `https://api.github.com/repos/<repo>/releases/latest` and the release's
+`latest.json` on launch and every six hours, and downloads a newer zip; with it off, nothing is requested until the
+person chooses Cicada → Check for Updates…. The requests carry no cookies, token or identifier beyond a
+`Cicada/<version>` user agent; the download is verified by sha256 and an Ed25519 signature against the key built into
+the app before anything is unzipped, and nothing reaches the backend. The tester's install line
+(`scripts/install-release.sh`) is the person's own command and fetches the same two files with `curl`.
+
 **The remote connector (G135) — the one way in from outside this Mac.** Off by default
 (`~/.cicada/remote/settings.json`). When on, a **second listener on `127.0.0.1:8765`**
 (`CICADA_REMOTE_PORT`) serves **only MCP** — none of the FastAPI routers — to cloud AI apps

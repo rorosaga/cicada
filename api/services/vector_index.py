@@ -156,7 +156,7 @@ class SqliteVecIndexer:
 
     def _ensure_embed_fn(self) -> None:
         if self._embed_fn is None:
-            self._embed_fn, resolved_model = _resolve_embed_fn()
+            self._embed_fn, resolved_model = _resolve_embed_fn(self.memory_path)
             if self.model_name is None:
                 self.model_name = resolved_model
 
@@ -933,7 +933,7 @@ def _entity_embed_text(fm: dict, body: str, stem: str) -> str:
     return "\n".join(str(p) for p in [" ".join(header), body] if p).strip()
 
 
-def _resolve_embed_fn() -> tuple[EmbedFn, str]:
+def _resolve_embed_fn(memory_path: Path | None = None) -> tuple[EmbedFn, str]:
     """Build the production embedding fn + its model name from Settings.
 
     Thin shim: the resolution logic now lives in
@@ -948,4 +948,5 @@ def _resolve_embed_fn() -> tuple[EmbedFn, str]:
     """
     from api.services.providers import resolve_embed_fn
 
-    return resolve_embed_fn()
+    # G182: the bank's own model (the person's choice, else what it already records, else the default).
+    return resolve_embed_fn(memory_path=memory_path)

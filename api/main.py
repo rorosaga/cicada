@@ -24,6 +24,7 @@ from api.routers import (
     consumption,
     contributors,
     conversations,
+    embeddings,
     entities,
     episodes,
     graph,
@@ -51,6 +52,7 @@ from api.services import bank_registry, search_index, sleep_scheduler
 from api.services.providers import warm_query_embedder
 from api.services.auth import auth_enabled, get_token, require_token
 from api.services.bank_migrations import run_bank_migrations
+from api.version import __version__
 
 # --- Logging setup ---
 # Remove loguru default handler and add our own format
@@ -193,7 +195,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Cicada API",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
     dependencies=[Depends(require_token)],
 )
@@ -250,3 +252,4 @@ app.include_router(reading.router, tags=["reading"])
 app.include_router(remote.router, tags=["remote"])
 app.include_router(skills.router, tags=["skills"])
 app.include_router(videos.router, tags=["videos"])
+app.include_router(embeddings.router, tags=["embeddings"])

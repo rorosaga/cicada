@@ -1,5 +1,15 @@
 # Cicada — TODO & handoff
 
+**2026-10-06 — G182 releases built (all merged to `dev`):** Cicada is installable on a fresh Mac, versioned and
+self-updating — #182 one `VERSION` file (0.3.0) and the build number; #183 the self-contained app (bundled CPython 3.12,
+torch-free deps, portable git, the int8 bge-small ONNX model; `~/.cicada/bin` launchers; `CICADA_PORT`); #184 the
+release workflow (CI on `v*` tags → Ed25519-signed zip + `latest.json` on a GitHub Release; `make release`); #185
+`install-release.sh` and the in-app updater; #186 per-bank search models with EmbeddingGemma as an optional
+download; #187 `docs/RELEASING.md`. The CI dry run is green and its artifact passed the temp-folder smoke test.
+**Owner, to ship the first release:** `make release VERSION=0.3.0`, watch the run, send testers the install line in
+`docs/RELEASING.md`. **Still open:** a Developer ID + notarization (RELEASING.md has the steps); a website button
+pointing at the latest release; Intel builds (none).
+
 **2026-10-05 — `dev` after the audit (all merged):** the 2026-10-02 audit's fixes (#167–#173; per finding in
 [`audit-2026-10-02/STATUS.md`](audit-2026-10-02/STATUS.md); A12 was already gone with G176), the Sleep page's CPU
 (#170: 12.0% → about 1% of a core visible with the graph resting, ruling 18's player amendment), a shared-icon-fetch
