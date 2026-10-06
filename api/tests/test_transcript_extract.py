@@ -332,3 +332,22 @@ def test_codex_keeps_hook_context_out_even_under_the_user_role():
     lines = [cx_msg("developer", [note]), cx_msg("user", [note, "Rename alpha-project?"]), cx_msg("assistant", ["Yes."])]
     assert [(t.role, t.text) for t in tx.extract_codex(lines).turns] == [
         ("user", "Rename alpha-project?"), ("assistant", "Yes.")]
+
+
+# --- G110 slice 1a: refused turns and note-like person turns are counted -------
+
+
+def test_refused_turns_and_the_latest_time_seen_are_counted():
+    lines = [_line("user", "a" * 30, ts="2026-09-03T10:00:00.000Z"),
+             _line("assistant", [{"type": "text", "text": "b" * 30}], ts="2026-09-03T10:00:01.000Z"),
+             _line("user", "c" * 30, ts="2026-09-03T10:00:02.000Z")]
+    conv = tx.extract_claude_code(lines, session_cap=65)
+    assert [t.text for t in conv.turns] == ["a" * 30, "b" * 30]
+    assert conv.summary["refused_turns"] == 1 and conv.summary["session_cap_hit"] is True
+    assert conv.last_seen_at == "2026-09-03T10:00:02.000Z"
+
+
+def test_a_note_like_line_inside_a_person_turn_is_kept_and_counted():
+    text = "I pasted this:\n" + recall_text.INJECTION_PREFIX + " at session start ...\nplease fix it"
+    conv = tx.extract_claude_code([_line("user", text)])
+    assert conv.summary["note_like_turns"] == 1 and "please fix it" in conv.turns[0].text

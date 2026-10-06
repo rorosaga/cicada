@@ -20,7 +20,7 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from api.config import Settings, get_settings
-from api.services import bank_registry, demo_guard, hook_recall
+from api.services import bank_registry, continuity_sessions, demo_guard, hook_recall
 from api.services.telegram_capture import (
     TELEGRAM_WEBHOOK_SECRET_ENV,
     ensure_webhook_secret,
@@ -204,6 +204,9 @@ async def capture_transcript_endpoint(
         keep_assistant=settings.capture_assistant_replies,
         bank=memory_path.name,
         effort=req.effort,
+        # G110: the continuity registry's every-bank guard needs the root and
+        # every configured bank, resolved once for this request.
+        bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
     )
     if target is None or result.status == "refused":
         if target is None or result.reason == "demo_bank":
