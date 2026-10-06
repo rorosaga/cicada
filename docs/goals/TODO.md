@@ -1,5 +1,12 @@
 # Cicada — TODO & handoff
 
+**2026-10-06 — the 2026-10-05 code audit's nine findings are fixed and merged to `dev`** (per finding in
+[`audit-2026-10-05/STATUS.md`](audit-2026-10-05/STATUS.md)): merges keep the loser's claims (#180), one page writer at a
+time across processes (#181), inbox answers commit only their own files (#189), per-table query models / no dropped
+page in recall / one query embed (#190), the app's newest-answer-wins and heartbeat retry (#191), fingerprint version
+stamps (#193). Disclosed and still open: Sleep's own page writes and the inbox's non-follow-up resolvers are not under
+the page lock; `POST /maintenance/dedup-sweep` leaves its merges uncommitted.
+
 **2026-10-06 — G182 releases built (all merged to `dev`):** Cicada is installable on a fresh Mac, versioned and
 self-updating — #182 one `VERSION` file (0.3.0) and the build number; #183 the self-contained app (bundled CPython 3.12,
 torch-free deps, portable git, the int8 ONNX search model — multilingual `multilingual-e5-small` since 2026-10-06; `~/.cicada/bin` launchers; `CICADA_PORT`); #184 the
