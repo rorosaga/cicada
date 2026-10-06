@@ -79,6 +79,30 @@ final class NavRailTests: XCTestCase {
         XCTAssertTrue(text.contains("router.openSettings()"), "the gear opens the panel through the one door (R-DS22)")
     }
 
+    /// Owner 2026-10-06 — "the 90 degree cut corner of the side panel doesnt look that good." The content's top-leading
+    /// corner is rounded concentric with the window's own (26 pt on macOS 26), one rail inset in, by the rail's fill.
+    func testTheContentCornerIsConcentricWithTheWindow() throws {
+        if #available(macOS 26, *) {
+            XCTAssertEqual(CicadaTheme.windowCornerRadius, 26)
+            XCTAssertEqual(CicadaTheme.contentCornerRadius, 16)
+        }
+        XCTAssertEqual(CicadaTheme.concentric(inner: CicadaTheme.contentCornerRadius, padding: ShellMetrics.railInset),
+                       max(CicadaTheme.windowCornerRadius, CicadaTheme.cornerRadiusSmall + ShellMetrics.railInset))
+        XCTAssertGreaterThanOrEqual(CicadaTheme.contentCornerRadius, CicadaTheme.cornerRadiusSmall)
+        // The fillet is the corner square minus the rounded content: its outer corner is filled, its inner one clear.
+        let r: CGFloat = 16
+        let side = RailCornerFillet.extent(r)
+        let path = RailCornerFillet(radius: r).path(in: CGRect(x: 0, y: 0, width: side, height: side))
+        XCTAssertTrue(path.contains(CGPoint(x: 1, y: 1)), "the corner itself is the rail's")
+        XCTAssertFalse(path.contains(CGPoint(x: side - 1, y: side - 1)), "past the curve is the page")
+        XCTAssertFalse(path.contains(CGPoint(x: side - 1, y: 1)), "along the titlebar's edge, past the curve, is the page")
+        XCTAssertLessThanOrEqual(path.boundingRect.maxX, side, "the fill never leaves its corner square")
+        XCTAssertLessThanOrEqual(path.boundingRect.maxY, side)
+        let text = try source("Views/Shell/NavRail.swift")
+        XCTAssertTrue(text.contains("RailCornerFillet(radius: CicadaTheme.contentCornerRadius)"))
+        XCTAssertTrue(text.contains(".allowsHitTesting(false)"))
+    }
+
     func testTheSplitViewIsGone() throws {
         XCTAssertFalse(try ThemeTokenTests.swiftSources().contains { $0.lastPathComponent == "SidebarView.swift" })
         XCTAssertFalse(try source("ContentView.swift").contains("NavigationSplitView"))

@@ -516,6 +516,18 @@ enum CicadaTheme {
     static let radiusXS: CGFloat = 4               // keycaps, the span wash
     static let radiusLarge: CGFloat = 16           // the focus card, the Settings panel, error and empty cards
 
+    /// The window's own corner (owner 2026-10-06): macOS 26 draws a toolbar window — Cicada's, the command bar is a
+    /// toolbar item — at 26 pt; earlier systems at 10 pt. Read, never guessed per view.
+    static var windowCornerRadius: CGFloat {
+        if #available(macOS 26, *) { return 26 }
+        return 10
+    }
+    /// The content's top-leading corner where it meets the rail and the titlebar band (owner 2026-10-06): concentric
+    /// with the window's corner one rail inset in, `concentric(inner: contentCornerRadius, padding: railInset)` =
+    /// `windowCornerRadius` (26 − 10 = 16 on macOS 26), never below a cell's radius on an older system's 10 pt corner.
+    static let railInset: CGFloat = 10
+    static var contentCornerRadius: CGFloat { max(windowCornerRadius - railInset, cornerRadiusSmall) }
+
     /// DR-12 — every rounded rectangle is continuous. New code draws through this; the
     /// app-wide sweep of bare `RoundedRectangle(cornerRadius:` is a page-track job (R-DS8).
     static func shape(_ radius: CGFloat) -> RoundedRectangle {

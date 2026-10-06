@@ -82,7 +82,9 @@ bar** centred — the memory-bank selector (`BankSwitcher`, moved from the Graph
 app, `SingleBankSwitcherTests` — the palette's "Switch to <bank>" row and the intake card's switch act on the same
 `BanksViewModel` in the same window) and "Search your memory ⌘K", which opens the find palette through
 `AppRouter.requestPalette()`; and the visible page's `?` at the right (`HelpContent.page`), one per window. macOS 26's
-toolbar platter is hidden (`ChromeToolbarItem`). **Settings is a panel inside this window (DR-33)**: ⌘,
+toolbar platter is hidden (`ChromeToolbarItem`). The rail starts under the titlebar band (2026-10-05) and wraps the content: the content's top-leading
+corner is rounded at `CicadaTheme.contentCornerRadius` (concentric with the window's 26 pt macOS 26 corner, one rail inset
+in) by the rail's own fill (`RailCornerFillet`, 2026-10-06). **Settings is a panel inside this window (DR-33)**: ⌘,
 (`ShellCommands`, which opens the window first if none is) and the gear open it over a scrim — 880 × 620 at 1×,
 inset ≥ 40 pt — with a `bgPane` sidebar that starts with a `CicadaSearchField` and groups its rows as Cicada ·
 Customize · Engines & keys (`SettingsGroup`, G139) — Cicada: General · You · Privacy & data · Memory · Sleep;
@@ -142,7 +144,8 @@ covers the shell and off-tab; Reduce Motion or Low Power make it gentler, never 
 crossfades the same composition in 1.2 s. Under it, "What would you like to remember?" as a `PageTitle` — text never
 sits on paint — then the palette's own `FindPanelBody` in `.page` placement in a 640 pt block: a second
 `FindPaletteModel` sharing the one Ask and keeping no recents; ⌘K on Home focuses it, a pasted `http(s)` link offers
-*Save this link*. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
+*Save this link*. The headline, the field and the blocks scroll as one page (owner 2026-10-06), so no card is cut under the
+field; the first block sits one 24 pt block gap below it, and with results showing the page pins to the window and the results fill it. Below it, in one 760 pt column: Getting started (while it lasts), Today (one row to Sources:
 captured today, UTC, with the three busiest origins' marks, names and counts), Needs you (the Inbox's kind glyph,
 question and age, *Open Inbox* at the label's right, landing in STATE 1) and Last read (the newest Sleep commit, its
 pages as `Tag`s) — each number once, each a link to the page that owns it; the waiting count links to Sleep, never a
