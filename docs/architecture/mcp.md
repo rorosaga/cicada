@@ -272,11 +272,10 @@ note, where that session stopped — even before Sleep.
   transaction (SessionStart: `started_at`, the cwd's hash; a prompt: `last_prompt_at` — recorded even when the answer
   times out), assembly (deadline less 120 ms), composition, and — for a single chosen session with ≥ 30 ms left — the
   registry's `continues`. Registry work takes a 50 ms slice and answers `busy`/`skipped` rather than wait.
-- **The index** (`<bank>/continuity_index.json`, a derived artifact): episode heads only (≤ 16 KB, to the first
-  `turns:` key), never a full parse in a hook; persisted only when git itself says it is ignored and untracked
-  (`bank_registry.derived_exclusion_state`: `git check-ignore --no-index` + `git ls-files --error-unmatch` under the
-  bank's git write lock, verdict cached 60 s) or there is no git; its lock in the registry's guarded home, opened
-  without following a symlink; any doubt or I/O failure keeps it in process memory. A failed directory listing keeps
+- **The index** (`$CICADA_HOME/continuity/<bank-id>.index.json`, beside the registry, never inside a bank): episode
+  heads only (≤ 16 KB, to the first `turns:` key), never a full parse in a hook; no git runs on this path; its lock
+  sits beside it, every file opened without following a symlink; no safe home or any I/O failure keeps it in process
+  memory. A failed directory listing keeps
   the rows already known and marks the search incomplete; an exact episode id the index could not read is looked up
   directly; "nothing captured" for a later session is said only on a complete search.
 - **The registry** (`continuity_sessions`, `$CICADA_HOME/continuity/<bank>-<hash8>.json`): per session the harness,

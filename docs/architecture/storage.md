@@ -457,15 +457,14 @@ tiers 0–2), fuses it with the stored vectors in `mode=hybrid`, and **never emb
 query string of `/search` and `/conversations/recent`, G136 R22).
 
 ### Continuity index and session registry (G110 slice 1a)
-`<bank>/continuity_index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
+`$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
 row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `project_dir`, `captured_at`,
 `last_turn_at`, `processed`, `processed_by`) read from at most 16 KB up to the first `turns:` key — never a full parse
-inside a hook. It is in `bank_registry.DERIVED_ARTIFACTS`; it is written only when git itself says it is ignored and
-untracked — `bank_registry.derived_exclusion_state` runs `git check-ignore -q --no-index` and `git ls-files
---error-unmatch` under the bank's git write lock, so a later `!continuity_index.json` negation or an already-tracked
-file is caught — or the bank has no git, staged as an ignored `.*.tmp`; otherwise it stays in process memory. Its rows
-keep `capture_kind`, so a persisted index decodes after a restart. Its lock lives beside the registry, never in
-a bank. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
+inside a hook. It lives **beside the registry, never inside a bank** (G110 fix round 2: proving that git ignored an
+in-bank file proved unreliable, so nothing is written there and no git runs on this path). It shares the registry's
+guarded home, no-follow regular-file opens and 0600 files; its lock is `<bank-id>.index.lock` beside it; with no safe
+home, contention or any I/O failure it stays in process memory. Its rows keep `capture_kind`, so a persisted index
+decodes after a restart. An older in-bank `continuity_index.json` is ignored, never read and never deleted. A wrong schema or malformed row is rebuilt; it is never an error and never an authoritative absence.
 
 The **continuity registry** (`api/services/continuity_sessions.py`, `$CICADA_HOME/continuity/<bank slug>-<hash8>.json`)
 is outside every bank — `continuity_home` refuses a `CICADA_HOME` that resolves (symlinks followed) inside the memory
